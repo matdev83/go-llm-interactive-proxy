@@ -127,7 +127,7 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		s.facts.billingCallState.noteAllocatedBLeg(blegID, attempt.bleg.Seq)
 	}
 	now := s.now()
-	started := s.accounting.requestStartedAt
+	started := attempt.accounting.requestStartedAt
 	if started.IsZero() {
 		started = now
 	}

@@ -38,8 +38,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 			aLegID:   aLegID,
 			traceID:  "trace-authoritative-success",
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
@@ -91,8 +90,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 			aLegID:   aLegID,
 			traceID:  "trace-authoritative-protocol",
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),

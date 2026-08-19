@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
@@ -251,6 +252,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			return nil, err
 		}
 	}
+	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
 		facts:               from.facts.clone(),
 		executor:            e,
@@ -269,11 +271,20 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		holdALegEnd:         true,
 		suppressThinker:     true,
 		suppressVisibleMemo: true,
-		accounting:          newAttemptAccountingTracker(e.now()),
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		customer:            newCustomerEvidenceAccumulator(),
 		attempt:             attemptSlot{},
 	}
-	rs.attempt.install(newAttemptSession(attemptSessionInput{inner: out.stream, bleg: out.bleg, cand: out.cand, authority: e.newAttemptAuthorityLifecycle(out.authority, out.cand)}))
+	rs.attempt.install(newAttemptSession(attemptSessionInput{
+		inner:                 out.stream,
+		bleg:                  out.bleg,
+		cand:                  out.cand,
+		authority:             e.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		accounting:            newAttemptAccountingTracker(e.now()),
+		toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+		promptCacheSource:     promptCacheObservationSource(out.stream),
+		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
+		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+	}))
 	return rs, nil
 }

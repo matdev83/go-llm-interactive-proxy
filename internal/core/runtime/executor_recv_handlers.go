@@ -31,27 +31,27 @@ import (
 // default falls through inline because it shares its observation and emit
 // steps with the response_finished path.
 func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	attempt := s.attempt.require()
 	recvAt := s.now()
-	s.accounting.observeBackendEvent(recvAt, ev)
+	attempt.accounting.observeBackendEvent(recvAt, ev)
 	// A provider may repeat an already-drained sideband key on a retrying
 	// transport. Consume it for neither the canonical stream nor accounting.
 	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !s.rememberUsageEvidenceOnce(ev) {
 		return lipapi.Event{}, true, nil
 	}
-	s.accounting.observeUsage(ev)
+	attempt.accounting.observeUsage(ev)
 	pm, _ := s.recvHookMeta()
 	s.emitTrafficBTP(ctx, ev, pm)
 	s.emitUsage(ctx, ev)
 
-	if s.toolFinal != nil && s.toolFinal.enabled() {
-		attempt := s.attempt.require()
+	if attempt.toolFinal != nil && attempt.toolFinal.enabled() {
 		meta := toolcall.Meta{
 			TraceID:    s.facts.traceID,
 			ALegID:     s.facts.aLegID,
 			BLegID:     attempt.bleg.BLegID,
 			AttemptSeq: attempt.bleg.Seq,
 		}
-		held, ferr := s.toolFinal.ingest(ctx, ev, meta)
+		held, ferr := attempt.toolFinal.ingest(ctx, ev, meta)
 		if ferr != nil {
 			s.resetToolFinal()
 			return lipapi.Event{}, false, ferr
@@ -68,6 +68,7 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 // completion gates, client accounting, and PTC for one client-facing event.
 // Used for both live backend events (after BTP) and finalized drain replay.
 func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	attempt := s.attempt.require()
 	pm, tm := s.recvHookMeta()
 
 	var sourceID string
@@ -106,7 +107,7 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 		return s.handleGatedPath(ctx, gates, ev, pm)
 	}
 
-	s.accounting.observeClientEvent(s.now(), ev)
+	attempt.accounting.observeClientEvent(s.now(), ev)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
@@ -158,6 +159,7 @@ func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.Too
 // observes and emits the drained event. It owns the per-event traffic
 // emission for the gated branch.
 func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completion.Gate, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, bool, error) {
+	attempt := s.attempt.require()
 	out, gerr := s.completionGatedEmit(ctx, gates, ev)
 	if errors.Is(gerr, errGateContinueInner) {
 		return lipapi.Event{}, true, nil
@@ -187,7 +189,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		}
 	}
 	out = s.emitGateDrained(ctx, out)
-	s.accounting.observeClientEvent(s.now(), out)
+	attempt.accounting.observeClientEvent(s.now(), out)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
@@ -195,7 +197,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		// Evidence already recorded in mandatoryClientFacingPreflight; still
 		// observe + remember/emit without re-running beforeEmit.
 		if s.executor != nil {
-			if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, out, s.isCommitted()); err != nil {
+			if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, attempt.finalStreamObs, out, s.isCommitted()); err != nil {
 				s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 				s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 				return lipapi.Event{}, false, err
@@ -249,7 +251,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	// Evidence already recorded in mandatoryClientFacingPreflight; still observe
 	// + remember/emit without re-running beforeEmit (NormalFinish already competed).
 	if s.executor != nil {
-		if obsErr := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, ev, s.isCommitted()); obsErr != nil {
+		if obsErr := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, attempt.finalStreamObs, ev, s.isCommitted()); obsErr != nil {
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(obsErr), obsErr)
 			return lipapi.Event{}, false, obsErr

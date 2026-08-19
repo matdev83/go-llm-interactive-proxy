@@ -189,7 +189,7 @@ func (s *interleavedContinuationStream) recordVisibleOutput(ev lipapi.Event) {
 		return
 	}
 	s.thinker.markOutputCommitted(ev)
-	s.thinker.accounting.observeClientEvent(s.thinker.now(), ev)
+	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.now(), ev)
 	if s.thinker.recoverPolicy != nil {
 		s.thinker.recoverPolicy.ObserveClientEvent(ev, s.thinker.now())
 	}
@@ -468,7 +468,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		execAttempt.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
 
 		// Record the continuation B-leg terminal row:
-		started := exec.accounting.requestStartedAt
+		started := execAttempt.accounting.requestStartedAt
 		if started.IsZero() {
 			started = exec.now()
 		}

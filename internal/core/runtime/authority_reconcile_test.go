@@ -335,9 +335,8 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 			traceID: "trace-cancel-reconcile",
 			aLegID:  "a-cr",
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate())),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate()), newAttemptAccountingTracker(at)),
 		seenEvents: []lipapi.Event{},
-		accounting: newAttemptAccountingTracker(at),
 	}
 
 	// Step 1: settle as Partial with no usage — the estimate fallback applies,
@@ -380,7 +379,7 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	// adds it to seenEvents. The reservation is already settled, so
 	// reconcileOrSettleCancellationAuthority routes to ReconcileAuthoritative,
 	// which adjusts Consumed from 8 to 5.
-	if rs.accounting.usageObserved {
+	if testAttemptSession(rs).accounting.usageObserved {
 		t.Fatal("test staging: usageObserved must be false before persistCancellationBilling (path 2)")
 	}
 	rs.persistCancellationBilling(context.Background(), "client canceled")

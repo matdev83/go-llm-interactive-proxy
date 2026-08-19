@@ -82,8 +82,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				traceID:  "trace-centralized",
 				aLegID:   aLegID,
 			}),
-			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		}
 		return ex, rs
 	}
@@ -367,13 +366,12 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				traceID:  "trace-centralized-idle",
 				aLegID:   aLegID,
 			}),
-			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(start)),
 			seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hello"}},
 			recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 				Enabled:     true,
 				IdleTimeout: time.Second,
 			}, start),
-			accounting: newAttemptAccountingTracker(start),
 		}
 		rs.visibleText.WriteString("hello")
 		rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))

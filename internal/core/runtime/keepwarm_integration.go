@@ -50,14 +50,14 @@ func (s *retryRecvStream) commitSuccessfulTurn() {
 		return
 	}
 	s.keepwarmArmOnce.Do(func() {
-		if s.promptCacheSource == nil || s.promptCacheController == nil {
+		attempt := s.attempt.require()
+		if attempt.promptCacheSource == nil || attempt.promptCacheController == nil {
 			return
 		}
-		observations := s.promptCacheSource.DrainPromptCacheObservations()
+		observations := attempt.promptCacheSource.DrainPromptCacheObservations()
 		if len(observations) == 0 {
 			return
 		}
-		attempt := s.attempt.require()
 		s.executor.Keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
 			ALegID:              s.facts.aLegID,
 			BLegID:              attempt.bleg.BLegID,
@@ -66,7 +66,7 @@ func (s *retryRecvStream) commitSuccessfulTurn() {
 			Observations:        observations,
 			BackendInstanceID:   attempt.cand.Primary.Backend,
 			CanonicalModelID:    attempt.cand.Primary.Model,
-			Controller:          s.promptCacheController,
+			Controller:          attempt.promptCacheController,
 		})
 	})
 }

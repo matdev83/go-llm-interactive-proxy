@@ -35,7 +35,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -101,8 +100,6 @@ type retryRecvStream struct {
 	gateDrain []lipapi.Event
 	gateLive  bool
 
-	accounting attemptAccountingTracker
-
 	recoverPolicy            *streamrecovery.Policy
 	recoverDrain             []lipapi.Event
 	tokenAccountingFinalized bool
@@ -133,9 +130,6 @@ type retryRecvStream struct {
 	// replacement iterations so eventual ErrNoEligibleCandidate surfaces root causes.
 	lastParallelFailure error
 
-	// toolFinal remains request-owned until the response-pipeline tranche moves
-	// per-B-leg tool state into attemptSession.
-	toolFinal *toolCallAssembler
 	// toolClass correlates per-ToolCallID derived classification within this stream.
 	// Event processing is single-Recv-owned; its state has a small internal mutex
 	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
@@ -148,7 +142,6 @@ type retryRecvStream struct {
 	requestTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
-	usageMu  sync.Mutex
 	// billingLegRecorded guards one LUR per B-leg on this stream. Request and
 	// attempt terminal hooks may both run; mergeBillingEvidence also dedupes.
 	billingLegMu              sync.Mutex
@@ -157,13 +150,8 @@ type retryRecvStream struct {
 	billingCallClosureSuccess bool
 	isInterleavedThinker      bool
 
-	finalStreamObs    *extensions.FinalStreamObservationSession
-	internalUsageKeys map[string]struct{}
-
-	promptCacheSource     promptcache.ObservationSource
-	promptCacheController promptcache.Controller
-	committedTools        []lipapi.ToolEvent
-	keepwarmArmOnce       sync.Once
+	committedTools  []lipapi.ToolEvent
+	keepwarmArmOnce sync.Once
 }
 
 func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner lipapi.ManagedEventStream) {
@@ -183,19 +171,23 @@ func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner
 }
 
 func (s *retryRecvStream) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
-	s.usageMu.Lock()
-	defer s.usageMu.Unlock()
-	if s.internalUsageKeys == nil {
-		s.internalUsageKeys = make(map[string]struct{})
+	attempt := s.attempt.snapshot()
+	if attempt == nil {
+		return false
+	}
+	attempt.usageMu.Lock()
+	defer attempt.usageMu.Unlock()
+	if attempt.internalUsageKeys == nil {
+		attempt.internalUsageKeys = make(map[string]struct{})
 	}
 	key := ev.Accounting.DedupeKey
 	if key == "" {
 		return false
 	}
-	if _, exists := s.internalUsageKeys[key]; exists {
+	if _, exists := attempt.internalUsageKeys[key]; exists {
 		return false
 	}
-	s.internalUsageKeys[key] = struct{}{}
+	attempt.internalUsageKeys[key] = struct{}{}
 	return true
 }
 
@@ -203,7 +195,7 @@ func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, ev lipapi.E
 	s.eventsMu.Lock()
 	s.seenEvents = append(s.seenEvents, ev)
 	s.eventsMu.Unlock()
-	s.accounting.observeUsage(ev)
+	s.attempt.require().accounting.observeUsage(ev)
 	s.emitUsage(ctx, ev)
 }
 
@@ -506,23 +498,28 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 // markFinished: B-leg replacement, finalizer reject/error before finish,
 // Close (may already be finished), and EOF/error entry (some branches defer
 // finish to recoverDrain). Terminal finishes clear via markFinished.
-// toolClass shares the same single-Recv event-processing contract as toolFinal;
+// toolClass shares the same single-Recv event-processing contract as the
+// attempt-local tool finalizer;
 // its internal mutex covers concurrent terminal cleanup.
 func (s *retryRecvStream) resetToolFinal() {
 	if s == nil {
 		return
 	}
-	if s.toolFinal != nil {
-		s.toolFinal.clear()
+	if attempt := s.attempt.snapshot(); attempt != nil && attempt.toolFinal != nil {
+		attempt.toolFinal.clear()
 	}
 	s.toolClass.clear()
 }
 
 func (s *retryRecvStream) popToolFinalDrain() (lipapi.Event, bool) {
-	if s == nil || s.toolFinal == nil {
+	if s == nil {
 		return lipapi.Event{}, false
 	}
-	return s.toolFinal.popDrain()
+	attempt := s.attempt.snapshot()
+	if attempt == nil || attempt.toolFinal == nil {
+		return lipapi.Event{}, false
+	}
+	return attempt.toolFinal.popDrain()
 }
 
 func (s *retryRecvStream) Close() error {

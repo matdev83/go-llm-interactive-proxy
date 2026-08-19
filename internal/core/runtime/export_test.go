@@ -148,9 +148,13 @@ func (e *Executor) ApplySecretGuardBlockForTest(ctx context.Context, call *lipap
 // markFinished clears attempt-local finalizer state on normal response_finished.
 func ToolFinalActiveCountForTest(stream lipapi.EventStream) (active, passThrough, completed, drain int) {
 	rs, ok := stream.(*retryRecvStream)
-	if !ok || rs == nil || rs.toolFinal == nil {
+	if !ok || rs == nil {
 		return 0, 0, 0, 0
 	}
-	a := rs.toolFinal
+	attempt := rs.attempt.snapshot()
+	if attempt == nil || attempt.toolFinal == nil {
+		return 0, 0, 0, 0
+	}
+	a := attempt.toolFinal
 	return len(a.active), len(a.passThrough), len(a.completed), len(a.drain)
 }

@@ -67,14 +67,13 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cancel-usage-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate())),
+			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 			seenEvents: []lipapi.Event{usageDelta},
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		// Simulate handleRecvSuccess having processed the EventUsageDelta: this flips
 		// accounting.usageObserved=true (the leak trigger) without settling the reservation.
-		rs.accounting.observeUsage(usageDelta)
-		if !rs.accounting.usageObserved {
+		testAttemptSession(rs).accounting.observeUsage(usageDelta)
+		if !testAttemptSession(rs).accounting.usageObserved {
 			t.Fatal("test staging: usageObserved must be true after observeUsage")
 		}
 		return rs
@@ -294,11 +293,10 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-store-unavailable", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate())),
+			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 			seenEvents: []lipapi.Event{usageDelta},
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
-		rs.accounting.observeUsage(usageDelta)
+		testAttemptSession(rs).accounting.observeUsage(usageDelta)
 
 		rs.persistCancellationBilling(context.Background(), "client canceled")
 

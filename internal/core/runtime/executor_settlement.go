@@ -32,7 +32,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	if s == nil {
 		return
 	}
-	if s.accounting.usageObserved || s.finalizeBillingAfterCancel(ctx, reason) {
+	if s.attempt.require().accounting.usageObserved || s.finalizeBillingAfterCancel(ctx, reason) {
 		s.reconcileOrSettleCancellationAuthority(ctx)
 	} else {
 		s.settleCancellationAuthority(ctx)
@@ -105,7 +105,7 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
-	s.accounting.observeUsage(ev)
+	s.attempt.require().accounting.observeUsage(ev)
 	s.rememberClientEvent(ev)
 	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
 		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recErr)
@@ -159,7 +159,7 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 }
 
 func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event) (lipapi.Event, error) {
-	s.accounting.observeClientEvent(s.now(), ev)
+	s.attempt.require().accounting.observeClientEvent(s.now(), ev)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}

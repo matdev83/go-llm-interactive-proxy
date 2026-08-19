@@ -44,8 +44,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 			traceID:  "trace-close-finish",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}},
 	}
 	rs.markCommitted()
@@ -112,9 +111,8 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 			traceID:  "trace-recv-after-close",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand)),
-		aScope:     aScope,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		aScope:  aScope,
 	}
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -208,8 +206,7 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 			aLegID:       aLegID,
 			secureTurnOK: true,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
 	}
 	rs.markCommitted()
@@ -254,8 +251,7 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 			traceID:  "trace-cancel",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand)),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	rs.ensureTerminals()
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
@@ -306,8 +302,7 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 			traceID:  "trace-part",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-part", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand)),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-part", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	rs.ensureTerminals()
 	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})

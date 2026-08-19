@@ -70,7 +70,7 @@ func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.Stream
 		}
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
-		acct := s.accounting.snapshot()
+		acct := attempt.accounting.snapshot()
 		in.RequestStartedAt = acct.RequestStartedAt
 		in.FirstRemoteEventAt = acct.FirstRemoteEventAt
 		in.FirstMeaningfulTokenAt = acct.FirstMeaningfulTokenAt

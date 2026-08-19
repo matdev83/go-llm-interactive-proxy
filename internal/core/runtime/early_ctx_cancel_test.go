@@ -123,15 +123,14 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 			aLegID:   aLegID,
 			traceID:  "t-early",
 		}),
-		budget:         &attemptBudget{max: 3},
-		sel:            sel,
-		session:        &routing.SessionRoutingState{},
-		excluded:       map[string]struct{}{},
-		rng:            routing.NewSeededRng(1),
-		attempt:        testAttemptSlot(bleg, cand, testAuthorityLifecycle(ex, initial, cand)),
-		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
-		finalStreamObs: sess,
+		budget:   &attemptBudget{max: 3},
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		rng:      routing.NewSeededRng(1),
+		attempt:  testAttemptSlot(bleg, cand, testAuthorityLifecycle(ex, initial, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	testAttemptSession(rs).finalStreamObs = sess
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -209,13 +208,12 @@ func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 			aLegID:   aLegID,
 			traceID:  "t-dl",
 		}),
-		budget:         &attemptBudget{max: 1},
-		session:        &routing.SessionRoutingState{},
-		excluded:       map[string]struct{}{},
-		attempt:        testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}),
-		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
-		finalStreamObs: sess,
+		budget:   &attemptBudget{max: 1},
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	testAttemptSession(rs).finalStreamObs = sess
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	_, err := rs.Recv(ctx)

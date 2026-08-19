@@ -130,6 +130,9 @@ func (f renameFinalizer) Finalize(_ context.Context, call toolcall.CompletedCall
 
 func dispatchClientFacing(t *testing.T, s *retryRecvStream, ev lipapi.Event) {
 	t.Helper()
+	if s.attempt.snapshot() == nil {
+		testAttemptSession(s)
+	}
 	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
 		t.Fatalf("dispatch %s %s: %v", ev.Kind, ev.ToolCallID, err)
 	}
@@ -186,6 +189,7 @@ func TestDispatchClientFacingEvent_lifecycleClassification(t *testing.T) {
 	rec := &recordingToolReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})
 	s := &retryRecvStream{bus: bus}
+	testAttemptSession(s)
 
 	events := []lipapi.Event{
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "Read"},
@@ -213,6 +217,7 @@ func TestDispatchClientFacingEvent_orphanNamelessIsConservative(t *testing.T) {
 	rec := &recordingToolReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})
 	s := &retryRecvStream{bus: bus}
+	testAttemptSession(s)
 
 	ev := lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`}
 	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
@@ -234,6 +239,7 @@ func TestDispatchClientFacingEvent_responsePartHookRenameRefreshesLifecycle(t *t
 		ResponsePartHooks: []sdkhooks.ResponsePartHook{renamingResponseHook{to: "bash"}},
 	})
 	s := &retryRecvStream{bus: bus}
+	testAttemptSession(s)
 
 	start := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"}
 	if _, _, err := s.dispatchClientFacingEvent(context.Background(), start); err != nil {
@@ -267,7 +273,7 @@ func TestFinalizerRenamedLifecycleClassifiedNormally(t *testing.T) {
 	if a == nil {
 		t.Fatal("assembler")
 	}
-	s.toolFinal = a
+	testAttemptSession(s).toolFinal = a
 
 	meta := toolcall.Meta{}
 	_, _ = a.ingest(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"}, meta)
@@ -342,6 +348,7 @@ func TestDispatchClientFacingEvent_swallowedFinishCleanupPreventsStaleReuse(t *t
 	s := &retryRecvStream{bus: hooks.New(hooks.Config{
 		ToolReactors: []sdkhooks.ToolReactor{rec, swallowFinished{}},
 	})}
+	testAttemptSession(s)
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	_, swallowed, err := s.dispatchClientFacingEvent(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"})

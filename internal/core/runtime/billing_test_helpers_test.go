@@ -5,12 +5,22 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func testAttemptSlot(bleg b2bua.BLegRecord, cand routing.AttemptCandidate, authority authorityLifecycle) attemptSlot {
-	return attemptSlot{current: newAttemptSession(attemptSessionInput{bleg: bleg, cand: cand, authority: authority})}
+func testAttemptSlot(bleg b2bua.BLegRecord, cand routing.AttemptCandidate, authority authorityLifecycle, accounting ...attemptAccountingTracker) attemptSlot {
+	in := attemptSessionInput{
+		bleg:           bleg,
+		cand:           cand,
+		authority:      authority,
+		finalStreamObs: &extensions.FinalStreamObservationSession{},
+	}
+	if len(accounting) > 0 {
+		in.accounting = accounting[0]
+	}
+	return attemptSlot{current: newAttemptSession(in)}
 }
 
 // testAttemptSession installs a complete default fixture for direct retry-stream

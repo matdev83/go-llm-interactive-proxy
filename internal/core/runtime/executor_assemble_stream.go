@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -36,30 +37,36 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 			billingCallID:          prep.billingCallID,
 			billingCallState:       prep.billingCallState,
 		}),
-		executor:              e,
-		bus:                   prep.bus,
-		budget:                plan.budget,
-		ttft:                  &plan.ttft,
-		compactionOpenMeta:    prep.compactionOpenMeta,
-		sel:                   plan.sel,
-		requestSize:           plan.requestSize,
-		session:               plan.session,
-		excluded:              plan.excluded,
-		rng:                   plan.rng,
-		attempt:               attemptSlot{},
-		affinityKey:           plan.affinityKey,
-		affinitySet:           plan.affinitySet,
-		customer:              newCustomerEvidenceAccumulator(),
+		executor:           e,
+		bus:                prep.bus,
+		budget:             plan.budget,
+		ttft:               &plan.ttft,
+		compactionOpenMeta: prep.compactionOpenMeta,
+		sel:                plan.sel,
+		requestSize:        plan.requestSize,
+		session:            plan.session,
+		excluded:           plan.excluded,
+		rng:                plan.rng,
+		attempt:            attemptSlot{},
+		affinityKey:        plan.affinityKey,
+		affinitySet:        plan.affinitySet,
+		customer:           newCustomerEvidenceAccumulator(),
+		recoverPolicy:      streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
+		aScope:             prep.aScope,
+		interleaved:        out.interleaved,
+		requestTerm:        newStreamTerminal(sdkterminal.ScopeRequest),
+	}
+	rs.attempt.install(newAttemptSession(attemptSessionInput{
+		inner:                 out.stream,
+		bleg:                  out.bleg,
+		cand:                  out.cand,
+		authority:             e.newAttemptAuthorityLifecycle(out.authority, out.cand),
 		accounting:            newAttemptAccountingTracker(e.now()),
-		recoverPolicy:         streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		aScope:                prep.aScope,
-		interleaved:           out.interleaved,
 		toolFinal:             newToolCallAssembler(fs, maxArgs, prep.baseline.Tools),
-		requestTerm:           newStreamTerminal(sdkterminal.ScopeRequest),
 		promptCacheSource:     promptCacheObservationSource(out.stream),
 		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
-	}
-	rs.attempt.install(newAttemptSession(attemptSessionInput{inner: out.stream, bleg: out.bleg, cand: out.cand, authority: e.newAttemptAuthorityLifecycle(out.authority, out.cand)}))
+		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+	}))
 	rs.consumeBackendUsageEvidence(ctx, out.stream)
 	if err := rs.openFinalStreamObservation(ctx); err != nil {
 		if out.stream != nil {

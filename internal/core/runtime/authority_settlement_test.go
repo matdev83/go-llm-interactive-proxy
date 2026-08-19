@@ -49,12 +49,11 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate())),
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
 		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start),
-		accounting:    newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
 	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -146,7 +145,7 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate())),
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -154,7 +153,6 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 		}, start),
-		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
 	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -246,7 +244,7 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate())),
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	testStoreInner(rs, lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
 
@@ -296,7 +294,6 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 		}, authorityCandidate())),
 		seenEvents:    []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
 		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start),
-		accounting:    newAttemptAccountingTracker(start),
 	}
 
 	_, err := rs.handleRecvEOF(context.Background())

@@ -64,8 +64,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 				traceID:  "trace-recover-drain-leak",
 				aLegID:   aLegID,
 			}),
-			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		}
 		return ex, rs
 	}
@@ -185,7 +184,7 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate())),
+		}, authorityCandidate()), newAttemptAccountingTracker(start)),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -193,7 +192,6 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 		}, start),
-		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
 	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))

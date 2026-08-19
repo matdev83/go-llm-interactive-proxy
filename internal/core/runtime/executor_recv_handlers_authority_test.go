@@ -56,8 +56,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 				traceID:  "trace-recv",
 				aLegID:   aLegID,
 			}),
-			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		}
 		return ex, rs
 	}

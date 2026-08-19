@@ -113,8 +113,7 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 			traceID:  "trace-emit",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("open observer: %v", err)
@@ -523,8 +522,7 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 			traceID:  "trace-race",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("open observer: %v", err)
@@ -621,8 +619,7 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 			traceID:  "trace-cycle-open",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("initial open: %v", err)
@@ -671,8 +668,7 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 			traceID:  "trace-cycle-post",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("initial open: %v", err)
@@ -712,8 +708,7 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 			traceID:  "trace-obs-fail",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("open: %v", err)
@@ -764,7 +759,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			traceID:  "trace-idle-warn",
 			aLegID:   aLegID,
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-idle-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-idle-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(start)),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -773,7 +768,6 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			IdleTimeout: time.Second,
 			EmitWarning: true,
 		}, start),
-		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
 	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -826,7 +820,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			traceID:  "trace-eof-warn",
 			aLegID:   aLegID2,
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-eof-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex2, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-eof-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex2, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(start)),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -835,7 +829,6 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			IdleTimeout: time.Second,
 			EmitWarning: true,
 		}, start),
-		accounting: newAttemptAccountingTracker(start),
 	}
 	rs2.visibleText.WriteString("hello")
 	rs2.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))

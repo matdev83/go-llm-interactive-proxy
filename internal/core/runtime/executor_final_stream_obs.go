@@ -42,18 +42,22 @@ func (s *retryRecvStream) openFinalStreamObservation(ctx context.Context) error 
 	if len(factories) == 0 {
 		return nil
 	}
-	if s.finalStreamObs == nil {
-		s.finalStreamObs = &extensions.FinalStreamObservationSession{Log: s.executor.Log, Metrics: s.executor.ExtensionMetrics}
+	attempt := s.attempt.snapshot()
+	if attempt == nil || attempt.finalStreamObs == nil {
+		return nil
 	}
-	if err := s.finalStreamObs.Open(ctx, factories, s.streamObserverMeta(ctx), response.Services{}); err != nil && !s.isCommitted() {
+	if err := attempt.finalStreamObs.Open(ctx, factories, s.streamObserverMeta(ctx), response.Services{}); err != nil && !s.isCommitted() {
 		return err
 	}
 	return nil
 }
 
 func (s *retryRecvStream) finishFinalStreamObservation(ctx context.Context, outcome response.StreamOutcome) {
-	if s != nil && s.finalStreamObs != nil {
-		s.finalStreamObs.Finish(ctx, outcome)
+	if s == nil {
+		return
+	}
+	if attempt := s.attempt.snapshot(); attempt != nil && attempt.finalStreamObs != nil {
+		attempt.finalStreamObs.Finish(ctx, outcome)
 	}
 }
 
@@ -63,8 +67,12 @@ func (s *retryRecvStream) cycleFinalStreamObservation(ctx context.Context, outco
 }
 
 func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, error) {
+	var finalStreamObs *extensions.FinalStreamObservationSession
+	if attempt := s.attempt.snapshot(); attempt != nil {
+		finalStreamObs = attempt.finalStreamObs
+	}
 	if s.executor != nil {
-		if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, ev, s.isCommitted()); err != nil {
+		if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, finalStreamObs, ev, s.isCommitted()); err != nil {
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 			if !s.isCommitted() {

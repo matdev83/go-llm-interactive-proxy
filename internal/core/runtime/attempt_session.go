@@ -4,8 +4,10 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -16,11 +18,20 @@ import (
 type attemptSession struct {
 	innerMu sync.Mutex
 	inner   lipapi.ManagedEventStream
+	usageMu sync.Mutex
+
+	internalUsageKeys map[string]struct{}
 
 	bleg      b2bua.BLegRecord
 	cand      routing.AttemptCandidate
 	authority authorityLifecycle
 	terminal  *streamTerminal
+
+	accounting            attemptAccountingTracker
+	toolFinal             *toolCallAssembler
+	promptCacheSource     promptcache.ObservationSource
+	promptCacheController promptcache.Controller
+	finalStreamObs        *extensions.FinalStreamObservationSession
 }
 
 // attemptSessionInput keeps attempt construction explicit. It deliberately
@@ -31,6 +42,12 @@ type attemptSessionInput struct {
 	bleg      b2bua.BLegRecord
 	cand      routing.AttemptCandidate
 	authority authorityLifecycle
+
+	accounting            attemptAccountingTracker
+	toolFinal             *toolCallAssembler
+	promptCacheSource     promptcache.ObservationSource
+	promptCacheController promptcache.Controller
+	finalStreamObs        *extensions.FinalStreamObservationSession
 }
 
 func newAttemptSession(in attemptSessionInput) *attemptSession {
@@ -40,6 +57,12 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		cand:      in.cand,
 		authority: in.authority,
 		terminal:  newStreamTerminal(sdkterminal.ScopeAttempt),
+
+		accounting:            in.accounting,
+		toolFinal:             in.toolFinal,
+		promptCacheSource:     in.promptCacheSource,
+		promptCacheController: in.promptCacheController,
+		finalStreamObs:        in.finalStreamObs,
 	}
 }
 

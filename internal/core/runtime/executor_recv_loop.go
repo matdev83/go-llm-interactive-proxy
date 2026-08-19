@@ -14,6 +14,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -146,7 +147,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			ev = s.emitGateDrained(ctx, ev)
-			s.accounting.observeClientEvent(s.now(), ev)
+			attempt.accounting.observeClientEvent(s.now(), ev)
 			pm, _ := s.recvHookMeta()
 			return s.emitClientFacingObserved(ctx, ev, pm)
 		}
@@ -368,12 +369,19 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			return false, err
 		}
 	}
+	s.resetToolFinal()
 	s.finishFinalStreamObservation(ctx, response.OutcomeReplaced)
+	fs, maxArgs := s.executor.resolveToolCallFinalizers()
 	s.attempt.install(newAttemptSession(attemptSessionInput{
-		inner:     out.stream,
-		bleg:      out.bleg,
-		cand:      out.cand,
-		authority: s.executor.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		inner:                 out.stream,
+		bleg:                  out.bleg,
+		cand:                  out.cand,
+		authority:             s.executor.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		accounting:            newAttemptAccountingTracker(s.now()),
+		toolFinal:             newToolCallAssembler(fs, maxArgs, s.facts.baseline.Tools),
+		promptCacheSource:     promptCacheObservationSource(out.stream),
+		promptCacheController: promptCacheControllerFor(s.executor.Backends[out.cand.Primary.Backend]),
+		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: s.executor.Log, Metrics: s.executor.ExtensionMetrics},
 	}))
 	s.clearClientAccumulators()
 	if s.customer != nil {
@@ -384,13 +392,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	// B-leg; the per-leg evidence guard naturally permits the new leg.
 	s.lastAuthorityUsage = lipapi.Event{}
 	s.lastCustomerUsage = lipapi.Event{}
-	s.usageMu.Lock()
-	s.internalUsageKeys = make(map[string]struct{})
-	s.usageMu.Unlock()
 	s.tokenAccountingFinalized = false
-	s.accounting = newAttemptAccountingTracker(s.now())
 	s.consumeBackendUsageEvidence(ctx, out.stream)
-	s.resetToolFinal()
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
 	}
