@@ -7,11 +7,11 @@ checkboxes, so task completion is recorded here without altering its plan text.
 
 | Commit | Scope | Evidence |
 | --- | --- | --- |
-| `600c938e` | Requirements, design, and tasks accepted; spec ready for implementation | `origin/main` at `2b30116c` contains the merged `compaction-event-detection` detector runtime; branch rebase reported up to date; `spec.json` strict JSON parse and diff check passed |
+| `8c1e7e67` | Requirements, design, and tasks accepted; spec ready for implementation | `origin/main` at `2b30116c` contains the merged `compaction-event-detection` detector runtime; branch rebase reported up to date; `spec.json` strict JSON parse and diff check passed |
 
 ## Wave 1 — Preservation foundations
 
-Commit: `0fba0f71` (`feat(compaction): add continuity preservation foundations`)
+Commit: `fd47a418` (`feat(compaction): add continuity preservation foundations`)
 
 | Task | Status | Reviewed implementation | Verification |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ Remaining Task 1.1/1.2 proof belongs to the runtime integration wave: no billabl
 
 ## Wave 2 — Detached execution and parent-branch authority
 
-Commit: `5997f242` (`feat(compaction): isolate detached continuity execution`)
+Commit: `41c9245a` (`feat(compaction): isolate detached continuity execution`)
 
 | Task | Status | Reviewed implementation | Verification |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Environment limitation remains unchanged: targeted race execution cannot start u
 
 ## Wave 3 — Feature configuration and pure continuity semantics
 
-Implementation commit: pending at review time.
+Implementation commit: `0f981f0e` (`feat(compaction): add continuity feature semantics`)
 
 | Task | Status | Reviewed implementation | Verification |
 | --- | --- | --- | --- |
@@ -79,3 +79,5 @@ Integrated evidence:
 - `go vet ./internal/plugins/features/compactioncontinuity/... ./internal/standardplugins ./internal/infra/runtimebundle` — pass.
 - `go test -count=1 ./internal/archtest -run "TestCriticalFileBudgets|TestShrinkage_ConnectorOverlayExactMeasured"` — pass.
 - `git diff --check` — clean.
+- Quality-accounting commit `337fc37e` records the process-owned bounded worker allowlist, package documentation, exact core-import baseline, and measured-plus-25 line ratchets.
+- `make quality-checks` — pass after the quality-accounting repair.
