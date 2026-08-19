@@ -54,6 +54,8 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	if bLegID == "" {
 		bLegID = billingSyntheticBLegID(draft.seq)
 	}
+	evidence := mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
+	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
 	return billing.CallLegUsageRecord{
 		CallID:          draft.callID,
 		ALegID:          strings.TrimSpace(draft.aLegID),
@@ -67,8 +69,34 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		FinishedAt:      draft.finishedAt,
 		Outcome:         legOutcomeFromCommand(draft.command),
 		Surfaced:        draft.surfaced,
-		Evidence:        mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream)),
+		Evidence:        evidence,
 	}
+}
+
+// normalizeBillingEvidenceIdentity keeps every independently accounted B-leg
+// identifiable even when no provider usage event was observed (for example, a
+// pre-output failover leg). Provider evidence remains authoritative when
+// present; only missing identity/provenance fields receive explicit bounded
+// fallback values.
+func normalizeBillingEvidenceIdentity(evidence billing.FinalBillingEvidence, callID billing.BillingCallID, bLegID string) billing.FinalBillingEvidence {
+	if evidence.Source == billing.EvidenceSourceUnknown {
+		evidence.Source = billing.EvidenceSourceUnavailable
+	}
+	if evidence.Authority == billing.EvidenceAuthorityUnknown {
+		evidence.Authority = billing.EvidenceAuthorityUnavailable
+	}
+	if strings.TrimSpace(evidence.DedupeKey) == "" {
+		id := strings.TrimSpace(callID.String())
+		if id == "" {
+			id = "unknown-call"
+		}
+		bLegID = strings.TrimSpace(bLegID)
+		if bLegID == "" {
+			bLegID = "unknown-b-leg"
+		}
+		evidence.DedupeKey = "lip-b-leg:" + id + ":" + bLegID
+	}
+	return evidence
 }
 
 func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary) billing.VersionRef {
@@ -331,6 +359,7 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		leg.CallID = callID
 		state.noteLegTimes(started, finished)
 	}
+	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, leg.CallID, leg.BLegID)
 	e.observeBillingLeg(ctx, leg)
 	if callID != "" {
 		e.appendIndependentCallLeg(ctx, callID, leg)

@@ -78,7 +78,7 @@ var LineBudgets = []LineBudget{
 	// classification. Keep the measured-plus-25 ratchet. The compaction
 	// detector and continuity infrastructure add bounded recognition, branch
 	// coordination, preservation dispatch, and auxiliary worker ownership.
-	{Dir: "internal/core", Max: 80261},
+	{Dir: "internal/core", Max: 80289},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 5867},
 	{Dir: "internal/infra/runtimebundle", Max: 12362},
