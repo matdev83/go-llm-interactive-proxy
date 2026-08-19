@@ -14,6 +14,7 @@ import (
 )
 
 func TestBackgroundScheduler_RegistersIDBeforePublication(t *testing.T) {
+	t.Parallel()
 	root, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var observed atomic.Uint64
@@ -39,7 +40,11 @@ func TestBackgroundScheduler_RegistersIDBeforePublication(t *testing.T) {
 	}
 	s.wg.Add(1)
 	go s.worker()
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	}()
 	id, err := s.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{}}, auxiliary.SubmitOptions{CoalesceKey: "published"})
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +63,7 @@ func TestBackgroundScheduler_RegistersIDBeforePublication(t *testing.T) {
 }
 
 func TestBackgroundScheduler_PublishRegistersIDBeforeQueueSend(t *testing.T) {
+	t.Parallel()
 	s := &BackgroundScheduler{
 		cfg:   SchedulerConfig{MaxResults: 1, ResultTTL: time.Minute},
 		queue: make(chan *backgroundJob, 1),
@@ -81,6 +87,7 @@ func TestBackgroundScheduler_PublishRegistersIDBeforeQueueSend(t *testing.T) {
 }
 
 func TestCloneCollected_PopulatedValueIsIndependent(t *testing.T) {
+	t.Parallel()
 	in := populatedCollected()
 	out := cloneCollected(in)
 	if out.Text.String() != "text" || out.Reasoning.String() != "reasoning" {
@@ -123,7 +130,7 @@ func TestCloneCollected_PopulatedValueIsIndependent(t *testing.T) {
 		t.Fatal("media/reasoning clone shares mutable state")
 	}
 
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		copy := cloneCollected(in)
 		if copy.Text.String() != "text" || copy.ToolArgs["tool"].String() != "args" {
 			t.Fatalf("repeated clone %d lost data", i)
@@ -138,7 +145,7 @@ func populatedCollected() *lipapi.Collected {
 	out := &lipapi.Collected{}
 	out.Text.WriteString("text")
 	out.Reasoning.WriteString("reasoning")
-	out.ToolArgs = map[string]*strings.Builder{"tool": &strings.Builder{}}
+	out.ToolArgs = map[string]*strings.Builder{"tool": {}}
 	out.ToolArgs["tool"].WriteString("args")
 	out.ToolNames = map[string]string{"tool": "lookup"}
 	out.ToolCallOrder = []string{"tool"}

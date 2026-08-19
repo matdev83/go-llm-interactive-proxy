@@ -16,6 +16,7 @@ import (
 
 // Task 6.3 certification keeps all external work behind deterministic gates.
 func TestCompactionContinuityShutdownCertification_SubmitBoundary(t *testing.T) {
+	t.Parallel()
 	ret := &certificationRetainer{}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
@@ -53,6 +54,7 @@ func TestCompactionContinuityShutdownCertification_SubmitBoundary(t *testing.T) 
 }
 
 func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t *testing.T) {
+	t.Parallel()
 	ret := &certificationRetainer{}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
@@ -97,13 +99,11 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	// Observe the exact admission linearization point. Before Close acquires
 	// the scheduler lock the bounded queue may still report full; afterwards
 	// every new key is rejected as closed.
-	closed := false
 	deadline := time.NewTimer(time.Second)
 	defer deadline.Stop()
-	for !closed {
+	for {
 		_, submitErr := s.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "after-close-probe"})
 		if errors.Is(submitErr, auxreq.ErrSchedulerClosed) {
-			closed = true
 			break
 		}
 		if !errors.Is(submitErr, auxreq.ErrQueueFull) {
@@ -149,7 +149,9 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 }
 
 func TestCompactionContinuityShutdownCertification_WorkerTimeoutAndParentCancellation(t *testing.T) {
+	t.Parallel()
 	t.Run("timeout", func(t *testing.T) {
+		t.Parallel()
 		ret := &certificationRetainer{}
 		ret.allow.Store(true)
 		ctx := genpin.WithRetainer(context.Background(), ret)
@@ -169,6 +171,7 @@ func TestCompactionContinuityShutdownCertification_WorkerTimeoutAndParentCancell
 	})
 
 	t.Run("parent-cancellation", func(t *testing.T) {
+		t.Parallel()
 		ret := &certificationRetainer{}
 		ret.allow.Store(true)
 		parent, cancel := context.WithCancel(context.Background())
@@ -196,6 +199,7 @@ func TestCompactionContinuityShutdownCertification_WorkerTimeoutAndParentCancell
 }
 
 func TestCompactionContinuityShutdownCertification_ProviderCallbackOutsideSchedulerLock(t *testing.T) {
+	t.Parallel()
 	var scheduler *auxreq.BackgroundScheduler
 	var calls atomic.Int32
 	nested := make(chan struct {
@@ -237,11 +241,12 @@ func TestCompactionContinuityShutdownCertification_ProviderCallbackOutsideSchedu
 }
 
 func TestCompactionContinuityShutdownCertification_ResultRetentionBound(t *testing.T) {
+	t.Parallel()
 	s := newCertificationScheduler(t, auxreq.SchedulerConfig{Workers: 2, QueueCapacity: 2, MaxResults: 2}, func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 		return certificationFinishedStream(), nil
 	})
 	ids := make([]auxiliary.JobID, 0, 8)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		id, err := s.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "bounded-" + string(rune('a'+i))})
 		if err != nil {
 			t.Fatalf("submission %d: %v", i, err)

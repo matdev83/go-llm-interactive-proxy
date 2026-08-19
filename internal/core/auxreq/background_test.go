@@ -51,7 +51,7 @@ func backgroundRequest() auxiliary.Request {
 	return auxiliary.Request{Call: &lipapi.Call{Route: lipapi.RouteIntent{Selector: "local:test"}}}
 }
 
-func newBackground(t *testing.T, root context.Context, runner func() auxreq.ExecutorRunner, cfg auxreq.SchedulerConfig) *auxreq.BackgroundScheduler {
+func newBackground(root context.Context, t *testing.T, runner func() auxreq.ExecutorRunner, cfg auxreq.SchedulerConfig) *auxreq.BackgroundScheduler {
 	t.Helper()
 	s, err := auxreq.NewBackgroundScheduler(root, runner, cfg)
 	if err != nil {
@@ -64,7 +64,7 @@ func newBackground(t *testing.T, root context.Context, runner func() auxreq.Exec
 func TestBackgroundScheduler_CoalescesCommittedKeysAndBoundsResults(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			calls.Add(1)
 			return finishedStream(), nil
@@ -98,7 +98,7 @@ func TestBackgroundScheduler_SaturationIsBoundedAndDoesNotFallback(t *testing.T)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 			calls.Add(1)
 			select {
@@ -132,7 +132,7 @@ func TestBackgroundScheduler_ParentCancellationDoesNotCancelDelayedWorker(t *tes
 	start := make(chan struct{})
 	var gotCanceled atomic.Bool
 	parent, cancel := context.WithCancel(context.Background())
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 			if ctx.Err() != nil {
 				gotCanceled.Store(true)
@@ -174,7 +174,7 @@ func TestBackgroundScheduler_DetachedBindingSurvivesDelayedStartAfterParentCance
 		}
 		return finishedStream(), nil
 	})
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner { return runner }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 1})
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner { return runner }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 1})
 	if _, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "first"}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestBackgroundScheduler_PinReleasedOnCompletionAndShutdown(t *testing.T) {
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	workerStarted := make(chan struct{})
 	cancelObserved := make(chan struct{})
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 			return &cancelAwareStream{started: workerStarted, canceled: cancelObserved}, nil
 		})
@@ -248,7 +248,7 @@ func TestBackgroundScheduler_CoalescedSubmissionDoesNotResolveRunnerOrRetain(t *
 	runner := backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 		return finishedStream(), nil
 	})
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		providerCalls.Add(1)
 		if unavailable.Load() {
 			return nil
@@ -290,7 +290,7 @@ func TestBackgroundScheduler_PinReleasedOnceOnQueueFullAndClosedAdmission(t *tes
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	workerStarted := make(chan struct{})
 	var calls atomic.Int32
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 			if calls.Add(1) == 1 {
 				return &cancelAwareStream{started: workerStarted, canceled: make(chan struct{})}, nil
@@ -363,7 +363,7 @@ func TestBackgroundScheduler_RunnerPanicReleasesPinOnce(t *testing.T) {
 	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			panic("runner panic")
 		})
@@ -382,7 +382,7 @@ func TestBackgroundScheduler_RunnerPanicReleasesPinOnce(t *testing.T) {
 
 func TestBackgroundScheduler_EvictsResultsByCount(t *testing.T) {
 	t.Parallel()
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			return finishedStream(), nil
 		})
@@ -409,7 +409,7 @@ func TestBackgroundScheduler_EvictsResultsByCount(t *testing.T) {
 func TestBackgroundScheduler_ExpiresResultsByTTL(t *testing.T) {
 	t.Parallel()
 	clock := newTestClock()
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			return finishedStream(), nil
 		})
@@ -434,7 +434,7 @@ func TestBackgroundScheduler_ConcurrentAwaitForgetLateCompletion(t *testing.T) {
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	workerStarted := make(chan struct{})
 	release := make(chan struct{})
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			return &gatedStream{started: workerStarted, release: release}, nil
 		})
@@ -479,7 +479,7 @@ func TestBackgroundScheduler_ConcurrentAwaitForgetLateCompletion(t *testing.T) {
 
 func TestBackgroundScheduler_ForgetRemovesResult(t *testing.T) {
 	t.Parallel()
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			return finishedStream(), nil
 		})
@@ -502,7 +502,7 @@ func TestBackgroundScheduler_TimeoutReleasesPin(t *testing.T) {
 	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -534,11 +534,9 @@ func (s *cancelAwareStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		s.start.Do(func() { close(s.started) })
 		return lipapi.Event{Kind: lipapi.EventResponseStarted}, nil
 	}
-	select {
-	case <-ctx.Done():
-		s.cancel.Do(func() { close(s.canceled) })
-		return lipapi.Event{}, ctx.Err()
-	}
+	<-ctx.Done()
+	s.cancel.Do(func() { close(s.canceled) })
+	return lipapi.Event{}, ctx.Err()
 }
 
 func (s *cancelAwareStream) Close() error { return nil }
