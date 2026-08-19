@@ -1,13 +1,13 @@
 # Implementation Plan
 
-Implementation is TDD-first. Every production task follows RED → GREEN → refactor. No phase contains more than five tasks, and no task may enable backend-visible surrogate replay before the dependency chain reaches Phase 6.
+Implementation is TDD-first. Every production task follows RED → GREEN → refactor. No phase contains more than five tasks, and no task may enable backend-visible surrogate replay before Phase 6.
 
 Hard ordering invariant:
 
 ```text
-exact/disabled RED contracts
--> canonical classifier + config + Poll + optional store state
--> isolated compressor domain
+RED exact/disabled/privacy/bounds/source-compat contracts
+-> canonical classifier + config + optional Poll + bounded store foundations
+-> isolated compressor + egress + raw-result validation domain
 -> original-first shadow submission
 -> non-blocking shadow adoption
 -> destination-gated active replay
@@ -16,305 +16,312 @@ exact/disabled RED contracts
 
 The completed reasoning-preservation, OpenAI Responses preservation, Codex native compaction, and compaction-continuity specifications are prerequisites/constraints, not implementation targets to rewrite.
 
-## 1. Freeze Safety and Ownership Contracts With RED Tests
+## 1. Freeze Safety, Compatibility, Privacy, and Resource Contracts With RED Tests
 
-- [ ] 1.1 Freeze canonical semantic-text versus exact replay classification
-  - Add RED table tests for plain `openai.chat.reasoning_text.v1` text as the only initial semantic-text positive class and for OpenAI Responses exact items, Anthropic signed thinking, redacted/opaque thinking, signature/opaque-bearing mixed parts, unknown dialects, and malformed structures as non-compressible.
-  - Prove readable text never overrides exact/signature/opaque authority and no provider/model string is consulted by the classifier.
-  - Add architecture/egress negatives proving exact/native/signed payloads cannot reach the compressor request builder.
-  - _Boundary: canonical/feature domain / tests_
+- [ ] 1.1 Freeze exact/native/signed/opaque non-compressibility
+  - Add RED table tests covering OpenAI Responses exact items, Codex exact/native artifacts, Anthropic signed/redacted/opaque thinking, unknown dialects, and mixed exact-bearing parts.
+  - Prove readable text inside an exact-bearing structure never makes it compressor input.
+  - Prove compression-disabled behavior is byte/structure equivalent to current reasoning preservation.
+  - _Boundary: feature domain / regression tests_
   - _Depends: none_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./pkg/lipapi/...`_
-  - _Requirements: 1.1-1.7, 2.1-2.7, 10.2-10.3, 13.1, 13.4_
+  - _Validation: `go test -count=1 ./internal/plugins/features/reasoningpreservation/...`_
+  - _Requirements: 1, 2, 13_
 
-- [ ] 1.2 Freeze compression config and disabled non-interference
-  - Add RED strict-decode tests for nested `compression` config, explicit route, shadow default, active opt-in, bounds/ratio/pending/surrogate limits, unknown fields, and invalid/missing route.
-  - Prove absent/disabled compression constructs no compression runtime dependency, submits no aux work, allocates no optional store state where observable, and emits no compression-specific telemetry.
-  - Pin standard injected reasoning-preservation defaults to compression-disabled and preserve explicit feature opt-out behavior.
-  - _Boundary: feature configuration / tests_
+- [ ] 1.2 Freeze surfaced-winner/original-first lifecycle
+  - Add RED tests proving compressor work is impossible for failed/cancelled/closed/replaced/gate-replaced streams, swallowed retries, and parallel losers.
+  - Prove original `TurnArtifact` append precedes any reservation/provider submission on `success_released`.
+  - Prove compressor failure cannot delete or invalidate a committed original.
+  - _Boundary: response lifecycle / feature tests_
   - _Depends: none_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/standardplugins/...`_
-  - _Requirements: 3.1-3.7, 12.1-12.4, 13.1-13.2_
+  - _Validation: focused reasoning-preservation observer/runtime tests_
+  - _Requirements: 4_
 
-- [ ] 1.3 Freeze generic background non-blocking Poll contracts
-  - Add RED SDK/scheduler tests for `pending`, `completed`, `failed`, and `not_found/expired` states with defensive-copy results and deterministic disabled-client behavior.
-  - Prove Poll is non-blocking with a never-completing runner and has no removal side effect; `Forget` remains explicit/idempotent.
-  - Prove existing `Await`, coalescing, result TTL, shutdown, and generation-pin behavior remain unchanged by the additive API.
-  - _Boundary: public SDK + process-owned auxiliary runtime / tests_
+- [ ] 1.3 Freeze exported `BackgroundClient` source compatibility and optional poll semantics
+  - Add a compile/source-compatibility fixture implementing only historical `SubmitCollect`, `Await`, and `Forget`; it must continue to satisfy `auxiliary.BackgroundClient` after this work.
+  - Add RED contract tests for a separate optional `BackgroundPoller` capability with pending/completed/failed/not-found states and no blocking.
+  - Cover Poll races with completion, Forget, expiry, and shutdown without changing Await semantics.
+  - _Boundary: exported SDK / core auxiliary tests_
   - _Depends: none_
-  - _Validation: `go test ./pkg/lipsdk/auxiliary/... ./internal/core/auxreq/...`_
-  - _Requirements: 9.1-9.8, 12.2-12.4, 13.2, 13.6, 13.9_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/auxiliary ./internal/core/auxreq`_
+  - _Requirements: 6, 11, 13_
 
-- [ ] 1.4 Freeze original-plus-optional-state TurnStore contracts
-  - Add RED contract tests for pending attachment, surrogate commit, pending clear, artifact/anchor/source/policy/job CAS, concurrent idempotency, stale/not-found outcomes, and deep-copy/clear behavior.
-  - Pin separate pending-count and surrogate-byte budgets so optional admission rejection never evicts an otherwise-retained authoritative original.
-  - Cover original TTL/FIFO/delete clearing optional state and late results after eviction/expiry being unable to attach.
-  - _Boundary: feature state / driven-adapter contract tests_
-  - _Depends: 1.1, 1.2_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 5.1-5.9, 9.3-9.6, 12.7-12.8, 13.2, 13.6_
+- [ ] 1.4 Freeze optional-state per-session and aggregate memory safety
+  - Add RED store tests for pending/session, pending/feature-instance, surrogate/turn, surrogate/session, and surrogate/feature-instance bounds.
+  - Add multi-session tests proving aggregate exhaustion rejects optional state rather than evicting an authoritative original.
+  - Prove delete/expiry/original eviction/stale cleanup decrement aggregate counters exactly once under concurrency.
+  - _Boundary: feature store domain / concurrency tests_
+  - _Depends: none_
+  - _Validation: reasoning-preservation store tests with deterministic clock plus race test_
+  - _Requirements: 3, 5, 13_
 
-- [ ] 1.5 Freeze compressor child, billing, privacy, and lifecycle contracts
-  - Add RED tests requiring one detached/private no-tools child per committed artifact, explicit configured route, workload role `reasoning_preservation_compressor`, feature self-disable, trusted parent correlation, and originating-principal attribution.
-  - Prove model-facing input contains only eligible local reasoning segments and excludes ordinary transcript/answer text, tools/results, files/media, signatures/opaque/native data, session/account IDs, and credentials.
-  - Freeze original-append-before-submit and surfaced-winner-only semantics across failed/cancelled/replaced/gate-replaced/parallel-loser outcomes.
-  - Record current request/terminal pipeline owners and make changes from active simplification specs an explicit implementation-time revalidation trigger.
-  - _Boundary: feature/runtime/economic/security contracts / tests_
-  - _Depends: 1.1-1.4_
-  - _Validation: focused `go test ./internal/plugins/features/reasoningpreservation/... ./internal/core/runtime/... ./pkg/lipsdk/auxiliary/...`_
-  - _Requirements: 4.1-4.6, 6.1-6.7, 7.1-7.7, 12.5-12.10, 13.3-13.6_
+- [ ] 1.5 Freeze ordinary-text privacy and raw-result allocation boundaries
+  - Add RED tests showing semantic-text classification does not imply egress approval; cover allow/redact/deny/missing-policy/route-policy-mismatch.
+  - Prove required redaction occurs before input budgeting and provider submission, and no unredacted sensitive source reaches the fake compressor.
+  - Add oversized raw-response tests where JSON would be valid only beyond `max_output_bytes`; prove rejection occurs before JSON decode/materialization beyond the bound.
+  - Distinguish trusted auxiliary control-plane metadata from model-visible `Call.Messages` in prompt-inspection tests.
+  - _Boundary: privacy/security + parser allocation tests_
+  - _Depends: none_
+  - _Validation: focused feature/auxiliary/security tests_
+  - _Requirements: 7, 8, 10, 13_
 
-## 2. Implement Minimal Foundations Without Submitting Compression Work
+## 2. Implement Minimal Foundations Without Changing Backend-Visible Replay
 
-- [ ] 2.1 Implement the conservative canonical artifact/dialect classifier
-  - Implement the typed replay-semantics classifier with unknown zero value and exact-over-text precedence.
-  - Keep provider/model names and provider SDK types out of the classifier and generic core.
-  - Add pure helper(s) for selecting semantic-text placement indexes while preserving exact/mixed parts unchanged.
-  - _Boundary: canonical/feature domain_
+- [ ] 2.1 Implement the canonical replay-semantics classifier
+  - Add one pure typed classifier using canonical reasoning dialect and part structure/presence semantics.
+  - Return semantic-text only for the narrow proven plain-text case; exact/unknown wins conservatively.
+  - Reuse this same classifier later for submission and active selection.
+  - _Boundary: feature domain_
   - _Depends: 1.1_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./pkg/lipapi/...`_
-  - _Requirements: 1.1-1.7, 2.1-2.7, 10.2-10.3_
+  - _Validation: classifier table/fuzz tests_
+  - _Requirements: 1, 2_
 
-- [ ] 2.2 Implement normalized explicit-route compression configuration
-  - Extend strict YAML decode/validation with the nested compression policy, conservative defaults/hard maxima, explicit route requirement, shadow default, and active opt-in.
-  - Preserve byte-for-byte/equivalent old config behavior when compression is absent/disabled and keep standard injection disabled.
-  - Add immutable per-generation policy snapshot/digest inputs without serializing runtime service handles.
-  - _Boundary: feature configuration_
-  - _Depends: 1.2_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/standardplugins/...`_
-  - _Requirements: 3.1-3.7, 8.5-8.8, 12.3_
+- [ ] 2.2 Implement nested compression configuration and hard validation
+  - Add disabled-by-default `compression` config with explicit `route`, shadow/active mode, timeout/input/output/surrogate/savings bounds, per-session optional limits, feature-instance aggregate limits, and egress policy configuration/reference.
+  - Add distinct `max_output_bytes` raw-response bound; do not conflate it with `max_output_tokens` or `max_surrogate_bytes`.
+  - Validate aggregate >= corresponding local limits, hard ceilings, ratio policy, explicit route, and default shadow mode.
+  - Preserve existing standard injected configuration as compression-disabled.
+  - _Boundary: feature config_
+  - _Depends: 1.4, 1.5_
+  - _Validation: config unit/fuzz/example-config tests_
+  - _Requirements: 3, 7, 10_
 
-- [ ] 2.3 Implement generic `BackgroundClient.Poll`/equivalent
-  - Add the minimal feature-neutral SDK result-state types and non-blocking method to BackgroundClient and all in-tree disabled/fake implementations.
-  - Implement scheduler inspection with bounded locking, defensive result cloning, terminal-error propagation, pending/not-found distinction, and no implicit Forget.
-  - Preserve existing Submit/Await/coalescing/retention/shutdown semantics and public documentation.
-  - _Boundary: public SDK + process-owned auxiliary runtime_
+- [ ] 2.3 Add a source-compatible optional background poll capability
+  - Define `BackgroundPoller`/`PollResult`/state types separately from historical `BackgroundClient`; do not add a required Poll method to the existing interface.
+  - Implement non-blocking Poll on the process-owned scheduler with defensive copies and existing cleanup semantics.
+  - Keep Await/Forget behavior unchanged and add compile-time assertions for scheduler capabilities.
+  - _Boundary: SDK + core auxiliary infrastructure_
   - _Depends: 1.3_
-  - _Validation: `go test ./pkg/lipsdk/auxiliary/... ./internal/core/auxreq/...`_
-  - _Requirements: 9.1-9.8, 12.4, 13.9_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/auxiliary ./internal/core/auxreq`; race-focused scheduler tests_
+  - _Requirements: 6, 11, 13_
 
-- [ ] 2.4 Implement non-destructive artifact compression state and atomic store operations
-  - Add optional pending/surrogate correlation to TurnArtifact (or an artifact-lifetime-coupled store-owned side structure) while leaving original `Reasoning` authoritative.
-  - Implement typed CAS-like pending attach, surrogate commit, and pending clear using authoritative partition plus artifact/anchor/source/policy/job correlation.
-  - Enforce independent pending/surrogate budgets and deep clone/zero behavior; original FIFO/TTL/session reasoning limits remain unchanged.
-  - _Boundary: feature state / memory adapter_
+- [ ] 2.4 Extend the reasoning-preservation store with non-destructive optional-state reservation
+  - Add internal compression reservation/pending/surrogate operations with artifact ID + original digest + policy-revision CAS checks.
+  - Enforce per-session and feature-instance aggregate pending limits before provider submission can occur.
+  - Keep optional accounting separate from authoritative `ReasoningBytes` FIFO/TTL budgets.
+  - Clear optional state and aggregate counters when original expires/deletes/evicts.
+  - _Boundary: feature store_
   - _Depends: 1.4, 2.2_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 5.1-5.9, 9.3-9.6, 12.7-12.8_
+  - _Validation: store unit/race tests_
+  - _Requirements: 4, 5_
 
-- [ ] 2.5 Add the runtime-aware reasoning-preservation composition seam
-  - Add a narrow compression runtime/BackgroundClient binding used only when normalized compression is enabled; preserve the old config-only path for disabled construction.
-  - Share one feature-owned TurnStore/telemetry plus the generation-bound background client between observer submission and AttemptTransform adoption without widening `response.Services`.
-  - Fail generation validation for enabled compression without the required BackgroundAux and add architecture tests preventing direct `compactioncontinuity` feature dependencies.
-  - _Boundary: composition root / feature wiring_
+- [ ] 2.5 Introduce explicit feature-internal compression services/composition
+  - Bind generation-local `BackgroundClient`, optional `BackgroundPoller`, and trusted compression egress/sanitizer policy into reasoning-preservation construction without a global service locator.
+  - Validate enabled compression has the required poll/egress capabilities; disabled mode requires none.
+  - Do not widen provider APIs or `response.Services` merely for convenience unless implementation evidence proves unavoidable.
+  - _Boundary: feature composition / runtimebundle_
   - _Depends: 2.2, 2.3, 2.4_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/infra/runtimebundle/... ./internal/standardplugins/... ./internal/archtest/...`_
-  - _Requirements: 6.1-6.4, 12.1-12.4, 12.9-12.10_
+  - _Validation: composition/config tests_
+  - _Requirements: 3, 6, 7, 8_
 
-## 3. Build the Feature-Specific Compressor in Isolation
+## 3. Implement the Isolated Compressor, Egress Policy, and Bounded Decoder
 
-- [ ] 3.1 Implement eligible segment/source preparation and child request construction
-  - Build one artifact-level source containing only locally indexed `SemanticText` reasoning placements; skip below-threshold/no-eligible artifacts without including exact/non-reasoning content.
-  - Construct one detached/private, no-tools auxiliary Call on the explicit compressor route with fixed system policy, untrusted-data delimiters, hard input/token bounds, parent correlation metadata, and reasoning feature self-disable.
-  - Derive versioned content-free source/policy/coalescing digests from committed original/policy identity.
+- [ ] 3.1 Implement feature-scoped egress decision and sanitizer contract
+  - Define a narrow trusted allow/redact/deny decision for purpose `reasoning_semantic_compression`, explicit route, and originating trusted scope.
+  - Reuse existing secret/redaction authority when available; do not add a competing heuristic detector.
+  - Deny when required redaction cannot be performed, and keep control-plane policy/scope data out of model messages.
+  - _Boundary: feature privacy policy seam_
+  - _Depends: 1.5, 2.5_
+  - _Validation: fake-policy/sanitizer tests_
+  - _Requirements: 7, 8_
+
+- [ ] 3.2 Implement bounded semantic-segment preparation
+  - Extract only classifier-approved reasoning placements; exclude ordinary answer text, transcript, tools, files/media, signatures, opaque/native data.
+  - Apply required redaction before input byte/token accounting.
+  - Produce local segment indexes only; never place raw session/account/lineage/anchor/digest IDs into model-visible payload.
   - _Boundary: feature compressor domain_
-  - _Depends: 2.1, 2.2, 2.5_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/compressor/... ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 1.1-1.7, 6.1-6.7, 8.1-8.3, 12.8_
+  - _Depends: 2.1, 3.1_
+  - _Validation: preparation/privacy tests_
+  - _Requirements: 1, 2, 7, 8_
 
-- [ ] 3.2 Implement strict multi-segment result parsing and savings validation
-  - Decode exactly one versioned JSON object with exactly the expected local indexes and text-only values; reject unknown/missing/duplicate indexes/fields, surrounding prose, tool calls, invalid encoding/control data, and hard-size violations.
-  - Enforce per/aggregate surrogate bounds, strictly-smaller result, minimum saved bytes, and minimum savings ratio before producing a validated surrogate.
-  - Return typed/content-free rejection categories suitable for telemetry without embedding source/result text in errors.
-  - _Boundary: feature compressor domain / untrusted result parser_
-  - _Depends: 3.1_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/compressor/...`_
-  - _Requirements: 8.1-8.9, 11.2-11.4, 13.2, 13.7_
+- [ ] 3.3 Build one detached no-tools auxiliary compressor request per artifact
+  - Require explicit configured route, private/detached execution, bounded output tokens, and `reasoning-output-preservation` disabled on the child.
+  - Carry role/visibility/parent lineage in the trusted auxiliary envelope and rely on existing cloned principal/scope execution context for billing; keep these out of `Call.Messages`.
+  - Treat source segment JSON as untrusted quoted data and require strict versioned output schema.
+  - _Boundary: feature compressor adapter over auxiliary SDK_
+  - _Depends: 3.2, 2.5_
+  - _Validation: canonical request validation + prompt/envelope separation tests_
+  - _Requirements: 6, 8, 9, 10_
 
-- [ ] 3.3 Add compressor parser/request fuzz and adversarial security coverage
-  - Fuzz result decoding/index validation/bounds and source preparation with malformed UTF-8/JSON, huge fields, duplicate indexes, hostile source instructions, and nested/unknown structures.
-  - Add explicit negative assertions that signed/opaque/native/tool/file/transcript material never appears in the model-facing compressor payload.
-  - Prove errors/diagnostics do not contain reasoning/surrogate/prompt/opaque/session content.
-  - _Boundary: security / fuzz tests_
-  - _Depends: 3.1, 3.2_
-  - _Validation: targeted `go test -fuzz` on new parser/source fuzz targets plus ordinary package tests_
-  - _Requirements: 6.6-6.7, 8.1-8.9, 11.3-11.4, 12.8-12.9, 13.7_
+- [ ] 3.4 Implement feature-level raw result extraction bounded before decode
+  - Reject tool calls/non-text channels first, then iterate collected text fragments with a byte counter.
+  - Stop and return `raw_oversize` once `max_output_bytes` is exceeded; do not construct the full string or invoke JSON decode first.
+  - Treat the scheduler `MaxResultBytes` as only an outer defense-in-depth ceiling.
+  - _Boundary: feature parser/allocation guard_
+  - _Depends: 1.5, 2.2_
+  - _Validation: oversized raw-response tests including syntactically valid tail beyond limit_
+  - _Requirements: 3, 10_
 
-- [ ] 3.4 Implement compression-specific content-free telemetry taxonomy
-  - Add fixed outcomes/counts/size/savings/latency/mode/profile fields under reasoning-preservation ownership without duplicating scheduler/billing economic truth.
-  - Cover ineligible/below-threshold/submitted/saturated/denied/timeout/provider-failure/invalid/insufficient/stale/budget/shadow-ready/active-used/original-fallback categories.
-  - Add privacy tests preventing raw artifacts, digests, session partitions, child prompts/results, credentials, and high-cardinality IDs from safe inventory/diagnostics.
-  - _Boundary: feature observability_
-  - _Depends: 2.2, 3.2_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 11.1-11.6, 12.8, 13.4_
+- [ ] 3.5 Implement strict decoder, surrogate validation, and savings policy
+  - Strict-decode schema version/indexes/text; reject unknown fields, duplicates, missing indexes, invalid controls/UTF-8, empty required text, and malformed output.
+  - Enforce decoded `max_surrogate_bytes`, minimum saved bytes, minimum ratio, and strict smaller-than-source behavior.
+  - Return typed content-free outcomes and never claim mathematical semantic equivalence.
+  - _Boundary: feature compressor domain_
+  - _Depends: 3.4_
+  - _Validation: table/fuzz tests_
+  - _Requirements: 10, 13_
 
-## 4. Integrate Original-First Shadow Submission
+## 4. Wire Original-First Shadow Submission Only
 
-- [ ] 4.1 Submit compression only after the surfaced original artifact is retained
-  - Extend the existing `OutcomeSuccessReleased` observer Finish path so `TurnStore.Append(original)` remains first and compressor source/build/Submit occurs only after a retained eligible original exists.
-  - Keep all compression errors fail-open/local; do not route them into authoritative `on_state_error` or client-visible response failure.
-  - Prove failed/cancelled/closed/replaced/gate-replaced outcomes and unretained/oversize artifacts submit zero jobs.
-  - _Boundary: final-stream feature/runtime integration_
-  - _Depends: 2.5, 3.1-3.4_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/core/runtime/...`_
-  - _Requirements: 4.1-4.6, 6.1-6.7, 9.1, 12.6_
+- [ ] 4.1 Capture exact parent attribution and artifact correlation after original append
+  - Extend observer-owned post-append data only with the trusted scope/lineage/correlation needed for reservation and child execution.
+  - Keep raw principal/session/account/lineage out of model payload and content telemetry.
+  - Confirm no compression path exists before authoritative append success.
+  - _Boundary: feature observer/composition_
+  - _Depends: 2.4, 2.5, 3.2_
+  - _Validation: surfaced-winner/order/privacy tests_
+  - _Requirements: 4, 8, 9_
 
-- [ ] 4.2 Attach pending job state safely and coalesce duplicate committed submissions
-  - Submit with a versioned artifact/source/policy coalescing key, then CAS attach the returned JobID to the authoritative artifact.
-  - On stale/budget/attachment failure, best-effort Forget retained job result state without changing the original; preserve billing for already-incurred work.
-  - Cover duplicate submission/coalescing and pending-count saturation without double provider work or original eviction.
-  - _Boundary: feature state + auxiliary integration_
+- [ ] 4.2 Reserve optional capacity before any provider submission
+  - Reserve pending state using artifact/digest/policy revision under per-session and feature-instance aggregate limits.
+  - Skip compression without provider work when reservation fails or source is below threshold/ineligible.
+  - Prove reservation cannot evict original reasoning.
+  - _Boundary: feature observer + store_
   - _Depends: 4.1, 2.4_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/core/auxreq/...`_
-  - _Requirements: 5.3-5.8, 7.5-7.6, 9.2-9.3, 13.6_
+  - _Validation: session/aggregate saturation tests_
+  - _Requirements: 4, 5_
 
-- [ ] 4.3 Prove surfaced-winner-only behavior across routing lifecycle scenarios
-  - Extend existing reasoning-preservation runtime/E2E fixtures for sequential failover, weighted routing, parallel races, completion-gate replacement, cancellation, and client close.
-  - Assert exactly one compressor child at most for the final retained winner and zero children for swallowed/loser/discarded attempts.
-  - Preserve existing no-retry-after-output and original reasoning restoration behavior in all scenarios.
-  - _Boundary: full-stack runtime tests_
-  - _Depends: 4.1, 4.2_
-  - _Validation: focused `go test ./internal/core/runtime/... ./internal/stdhttp/...` reasoning-preservation suites_
-  - _Requirements: 4.1-4.6, 12.5-12.6, 13.3_
+- [ ] 4.3 Apply egress decision/redaction before request construction
+  - Evaluate route/purpose/principal policy after reservation and before submit; clear reservation on deny/missing required policy.
+  - Redact locally when required, then re-run bounded input accounting over sanitized text.
+  - Prove fake provider never receives denied/unredacted sensitive text.
+  - _Boundary: feature observer + privacy seam_
+  - _Depends: 3.1, 3.2, 4.2_
+  - _Validation: privacy integration tests_
+  - _Requirements: 7, 8_
 
-- [ ] 4.4 Certify detached child billing/admission and principal attribution on submission
-  - Prove compressor child uses the configured route, detached/private lineage, originating trusted principal, separate auxiliary workload classification and ordinary admission/routing/B2BUA path.
-  - Cover pre-submit credit/exposure denial producing no provider work and provider-submitted retry/failover usage remaining accountable even if optional pending attachment/result use later fails.
-  - Assert primary frontend-visible usage excludes compressor inference while account/operator accounting includes incurred child usage.
-  - _Boundary: economic/runtime integration_
-  - _Depends: 4.1, 4.2_
-  - _Validation: focused `go test` across reasoning feature, auxreq, runtime, billing/metering/authority packages_
-  - _Requirements: 7.1-7.7, 12.8, 13.5_
+- [ ] 4.4 Submit and bind background job without waiting
+  - Submit through generation-bound `BackgroundClient` only after original append, reservation, egress approval, and bounded request construction.
+  - Bind returned JobID with CAS; on submit failure clear reservation; on post-submit bind failure Forget when safe while retaining billable usage.
+  - Keep shadow mode behavior: backend-visible replay remains original regardless of job state.
+  - _Boundary: feature observer + auxiliary SDK_
+  - _Depends: 3.3, 4.3_
+  - _Validation: queue/admission/bind-race tests_
+  - _Requirements: 4, 6, 9, 11, 13_
 
-## 5. Adopt Results Non-Blockingly in Shadow Mode
+## 5. Adopt Completed Results Non-Blocking While Still Replaying Originals
 
-- [ ] 5.1 Poll and adopt terminal compressor results fail-open inside AttemptTransform
-  - After authoritative store Snapshot, non-blockingly Poll relevant pending jobs; Pending immediately keeps original, Failed/NotFound clears best-effort and keeps original, Completed passes through strict validator.
-  - CAS commit a validated surrogate only when artifact/source/policy/job correlation is still current; terminal results are Forgotten explicitly/idempotently.
-  - Keep compression-specific Poll/validation/CAS errors outside authoritative `on_state_error=reject` and preserve existing RestoreMissingReasoning decisions.
-  - _Boundary: candidate AttemptTransform / feature state_
-  - _Depends: 2.3, 2.4, 3.2, 4.2_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/core/runtime/...`_
-  - _Requirements: 5.3-5.9, 9.2-9.7, 10.1-10.4, 12.6-12.8_
+- [ ] 5.1 Add one-shot non-blocking poll to the matching attempt path
+  - For matching artifacts with pending state, use optional `BackgroundPoller` once; never Await or busy-wait.
+  - Pending/unavailable poll capability => original for this attempt; failed/not-found => clear optional pending state safely.
+  - Keep compression poll/store errors separate from authoritative `on_state_error=reject` behavior.
+  - _Boundary: feature AttemptTransform_
+  - _Depends: 2.3, 4.4_
+  - _Validation: pending/failure/not-found/poll-unavailable tests_
+  - _Requirements: 6, 11_
 
-- [ ] 5.2 Prove concurrent/idempotent adoption and stale-result safety
-  - Race concurrent follow-up attempts polling the same completed job and prove at most one effective store attach with all callers retaining valid original behavior.
-  - Cover original eviction/expiry/delete, policy/source mismatch, pending budget changes, result expiry/Forget, and late completion so stale work never resurrects or crosses partitions.
-  - Cover scheduler close and generation reload/retirement without callback/goroutine leaks or mutation of unrelated/new-generation state.
-  - _Boundary: concurrency/lifecycle tests_
-  - _Depends: 5.1_
-  - _Validation: repeated/race-capable focused tests for reasoning preservation, auxreq and runtime lifecycle_
-  - _Requirements: 5.4-5.9, 9.5-9.8, 12.7-12.8, 13.6, 13.8_
+- [ ] 5.2 Apply raw byte guard before parser invocation
+  - Feed completed `Collected` through the bounded raw extractor; reject `raw_oversize` before strict JSON decoding.
+  - Record only safe byte counts/outcomes.
+  - Forget terminal result after completion handling according to scheduler semantics.
+  - _Boundary: attempt/adoption path_
+  - _Depends: 3.4, 5.1_
+  - _Validation: oversized integration tests_
+  - _Requirements: 10, 11, 13_
 
-- [ ] 5.3 Prove shadow mode never changes backend-visible historical reasoning
-  - With valid attached surrogates, assert `mode: shadow` always feeds original artifacts into RestoreMissingReasoning across matching/unrepresentable/client-preserved cases.
-  - Measure hypothetical source/surrogate/saved sizes and shadow-ready outcomes without exposing contents.
-  - Add a fake never-completing compressor proving follow-up AttemptTransform returns without waiting and replays original.
-  - _Boundary: feature behavior / E2E tests_
-  - _Depends: 5.1, 5.2, 3.4_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/... ./internal/stdhttp/...`_
-  - _Requirements: 9.4-9.8, 11.1-11.6, 13.9_
+- [ ] 5.3 Validate/correlate and CAS-attach surrogate under aggregate byte budgets
+  - Verify pending JobID, artifact/original digest, semantic profile, egress-policy hash/version, and compression-policy revision.
+  - Enforce per-turn/per-session/feature-instance surrogate bytes before CAS attachment; reject optional state at exhaustion without original eviction.
+  - Atomically move pending count to surrogate bytes and prevent counter drift on stale/replayed results.
+  - _Boundary: attempt transform + store_
+  - _Depends: 3.5, 5.2_
+  - _Validation: stale/CAS/multi-session aggregate/race tests_
+  - _Requirements: 5, 10, 11_
 
-- [ ] 5.4 Certify generation-bound job execution and process shutdown semantics
-  - Prove a job submitted under generation N retains N's captured runner/route/config semantics across reload to N+1 using existing async generation pinning.
-  - Prove shutdown/retirement releases scheduler jobs/pins according to existing contracts and no new feature goroutine/callback survives.
-  - Revalidate runtime/terminal ownership against current `main` after active simplification specs; adapt names/placement without changing semantic ordering.
-  - _Boundary: runtime generation/lifecycle_
-  - _Depends: 4.1, 5.1, 5.2_
-  - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/core/auxreq/... ./internal/core/runtime/...` plus supported race/goleak lanes_
-  - _Requirements: 12.2, 12.7, 12.10, 13.6, 13.8_
+- [ ] 5.4 Complete shadow-only observability and value evidence
+  - Record eligible, privacy, reservation, queue, poll, raw-size, decode, savings, aggregate-budget, and shadow-ready outcomes without content.
+  - Always restore original reasoning in shadow mode.
+  - Add deterministic metrics/evaluation fixture for hypothetical savings and additional auxiliary cost.
+  - _Boundary: feature telemetry / test harness_
+  - _Depends: 5.3_
+  - _Validation: telemetry privacy/race tests + deterministic shadow fixture_
+  - _Requirements: 8, 9, 13_
 
-## 6. Enable Destination-Gated Active Semantic Replay
+## 6. Enable Explicit Destination-Gated Active Replay
 
-- [ ] 6.1 Implement defensive effective-artifact surrogate projection
-  - Clone stored artifacts and, only in active mode, replace `Reasoning.Text` for validated correlated semantic-text placement indexes while preserving dialect and `BeforeNonReasoningPart`.
-  - Leave exact/signed/opaque/non-reasoning/tool/file/image structure untouched and never mutate the stored original.
-  - Feed projected clones through existing RestoreMissingReasoning rather than adding a second matching/reinjection engine.
-  - _Boundary: feature domain / AttemptTransform_
-  - _Depends: 5.1-5.3_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 5.1-5.5, 10.1, 10.4-10.8, 12.1_
+- [ ] 6.1 Revalidate semantic class and destination representability before selection
+  - Re-run the canonical classifier over original placements and require existing destination `ReasoningReplaySupport` for the original dialect.
+  - Reject stale/unknown/exact placements and preserve existing client-reasoning precedence.
+  - Do not add provider-name/model-name exceptions.
+  - _Boundary: feature restore/AttemptTransform domain_
+  - _Depends: 2.1, 5.3_
+  - _Validation: destination capability matrix fixtures_
+  - _Requirements: 1, 2, 12_
 
-- [ ] 6.2 Revalidate canonical semantics and existing destination ReplaySupport before substitution
-  - Require each substituted original part to still classify `SemanticText` and require the current candidate's existing `ReasoningReplaySupport` to represent its original dialect.
-  - On exact/unknown/unrepresentable/stale conditions use the retained original or existing unrepresentable policy; a stored surrogate is never permission by itself.
-  - Cover mixed artifacts so only semantic-text segments substitute while exact/signed/opaque segments remain structurally/byte equivalent to originals.
-  - _Boundary: candidate capability/profile policy_
-  - _Depends: 6.1, 2.1_
-  - _Validation: `go test ./internal/plugins/features/reasoningpreservation/...`_
-  - _Requirements: 1.1-1.7, 2.1-2.7, 10.2-10.8_
+- [ ] 6.2 Build an ephemeral surrogate restoration view without mutating stored originals
+  - Copy original placements and replace only validated semantic-text `Reasoning.Text` fields.
+  - Preserve `BeforeNonReasoningPart`, dialect, exact/signed/opaque parts, tool IDs/order, ordinary assistant text, files/images, and all non-reasoning structure.
+  - Ambiguous placement/correlation => original fallback.
+  - _Boundary: feature restore domain_
+  - _Depends: 6.1_
+  - _Validation: mixed-placement/exact-byte/order tests_
+  - _Requirements: 1, 12_
 
-- [ ] 6.3 Add hard exact/native regression proof
-  - Run/add targeted regression cases for OpenAI Responses exact reasoning items, Anthropic signed/redacted thinking, and direct Codex encrypted continuity/native compaction companion behavior with compression enabled in shadow and active modes.
-  - Assert exact/signed/opaque/native payloads never appear in compressor input and backend-visible exact replay remains unchanged.
-  - Prove readable text inside an exact/native structure cannot trigger semantic compression.
-  - _Boundary: protocol/native regression tests_
-  - _Depends: 6.2_
-  - _Validation: focused reasoning-preservation/OpenAI Responses/Anthropic/Codex connector and parity suites_
-  - _Requirements: 1.1-1.7, 10.6-10.7, 13.4_
+- [ ] 6.3 Gate surrogate use strictly on explicit active mode
+  - Shadow remains original-only even with a valid surrogate.
+  - Active uses surrogate only after all classifier/correlation/destination checks pass; every uncertainty falls back to original/unrepresentable behavior already defined by reasoning preservation.
+  - Compression-specific failures never become candidate retry/failover authority.
+  - _Boundary: AttemptTransform_
+  - _Depends: 6.2, 5.4_
+  - _Validation: shadow-vs-active behavior tests_
+  - _Requirements: 3, 11, 12, 13_
 
-- [ ] 6.4 Extend full-stack E2E with capability fixtures instead of provider matrices
-  - Add semantic-text positive fixtures and exact/unknown negative fixtures through existing standard HTTP/runtime topology, covering stream/nonstream where relevant.
-  - Exercise active restoration with sequential/failover/weighted/parallel routing and client-preserved reasoning precedence without adding provider×provider Cartesian cells.
-  - Assert tool/order/IDs/ordinary assistant content remain unchanged while only eligible historical reasoning text shrinks.
-  - _Boundary: full-stack conformance/E2E_
-  - _Depends: 6.1-6.3_
-  - _Validation: existing reasoning HTTP E2E/precommit matrix plus focused new semantic-compression cases_
-  - _Requirements: 10.1-10.8, 12.5, 13.3-13.4, 13.11_
+- [ ] 6.4 Verify standard Codex/native companion behavior remains exact
+  - Run current Codex reasoning-preservation/native-compaction companion tests with compression enabled in shadow/active configurations.
+  - Prove exact/native markers, encrypted items, checkpoint flow, and provider-only accounting are unchanged and never compressor input.
+  - Add architecture guard if implementation accidentally couples semantic compression into Codex-specific native logic.
+  - _Boundary: standard composition / regression_
+  - _Depends: 6.3_
+  - _Validation: existing Codex companion/native tests plus focused semantic-compression negatives_
+  - _Requirements: 1, 12, 13_
 
-- [ ] 6.5 Document explicit active rollout and semantic-quality limitations
-  - Update operator docs/config reference with disabled→shadow→active rollout, explicit route/cost/privacy implications, exact/native exclusions, failure fallback, process-local durability, and rollback.
-  - State clearly that active semantic compression is lossy and does not prove identical hidden reasoning/agent quality; describe what shadow metrics do and do not demonstrate.
-  - Add deterministic config/check-config/inventory examples without enabling billable remote compression in default dogfood.
-  - _Boundary: operator documentation / examples_
-  - _Depends: 6.4_
-  - _Validation: `make docs-check`; `make example-config-check`; relevant `lipstd check-config/routes/inventory` examples_
-  - _Requirements: 3.3-3.7, 7.3-7.7, 8.8-8.9, 11.1-11.6_
+## 7. Certify Economics, Security, Concurrency, Performance, and Repository Quality
 
-## 7. Certify Release Readiness and Close the Spec
+- [ ] 7.1 Certify billing/admission/workload attribution
+  - Prove originating-principal attribution, auxiliary workload role/class, separate child BillingCallID/B-leg evidence, primary protocol usage exclusion, and account/operator aggregate inclusion.
+  - Cover pre-submit admission rejection and submitted-but-invalid/raw-oversize/stale/insufficient-savings results.
+  - Confirm control-plane principal/scope exists for billing but never enters model prompt.
+  - _Boundary: billing/runtime integration_
+  - _Depends: 4.4, 5.3_
+  - _Validation: focused billing/metering/runtime tests_
+  - _Requirements: 8, 9_
 
-- [ ] 7.1 Complete economic/accounting certification
-  - Run deterministic billing/admission cases for success, pre-submit denial, provider failure/failover, invalid result, insufficient savings, stale/unused result, and optional-budget rejection.
-  - Prove primary protocol usage stays separate while account/operator totals and provider-cost evidence include all incurred compressor attempts exactly once.
-  - Record content-free workload/lineage evidence and no feature-owned money/rating logic.
-  - _Boundary: economics / release evidence_
-  - _Depends: 4.4, 5.1, 6.4_
-  - _Validation: focused billing/metering/authority/store tests plus integration lanes used by current main_
-  - _Requirements: 7.1-7.7, 13.5_
+- [ ] 7.2 Certify privacy and data-egress failure modes
+  - Exercise allow/redact/deny/missing-policy/route-policy mismatch with sensitive ordinary reasoning fixtures.
+  - Prove redaction precedes input sizing and provider submission and that content-bearing telemetry stays clean.
+  - Verify no second secret detector is introduced where existing trusted sanitization can be reused.
+  - _Boundary: privacy/security integration_
+  - _Depends: 3.1, 4.3, 5.4_
+  - _Validation: privacy/security architecture tests_
+  - _Requirements: 7, 8, 13_
 
-- [ ] 7.2 Complete privacy/security/fuzz certification
-  - Run compressor parser/source fuzz campaigns and privacy/adversarial tests including prompt-injection source text, malformed outputs, huge payloads, exact/opaque leakage canaries, and diagnostic redaction.
-  - Run architecture gates preventing direct provider compressor clients, `compactioncontinuity` feature dependencies, second ledgers/stores, and provider-name semantic branches in core.
-  - Verify child scope/session isolation and that untrusted client session hints cannot select another partition/job.
-  - _Boundary: security / architecture / fuzz_
-  - _Depends: 3.3, 5.2, 6.3_
-  - _Validation: targeted fuzz runs; `go test ./internal/archtest/...`; focused privacy/security suites_
-  - _Requirements: 1.6-1.7, 6.3-6.7, 11.4, 12.8-12.9, 13.4, 13.7_
+- [ ] 7.3 Certify aggregate memory, concurrency, reload, and shutdown
+  - Run race/goleak tests for multi-session reservations, Poll-vs-Finish/Forget/expiry, stale completion, counter updates, generation reload, scheduler shutdown, and original eviction.
+  - Prove feature-instance pending/surrogate totals never exceed configured caps and return to correct values after cleanup.
+  - Confirm no lock is held across policy/provider calls and no feature-owned poll goroutine exists.
+  - _Boundary: concurrency/lifecycle_
+  - _Depends: 2.3, 2.4, 5.3_
+  - _Validation: focused `-race`/goleak suites where platform-supported_
+  - _Requirements: 5, 11, 13_
 
-- [ ] 7.3 Complete concurrency, race, goleak, reload, and soak evidence
-  - Stress concurrent submit/coalesce/Poll/CAS/Forget, artifact eviction, multiple sessions, generation reload and scheduler shutdown with deterministic repeated tests.
-  - Run supported `-race`, goleak/checkptr and reasoning-preservation soak/precommit lanes; document unsupported-platform limitations truthfully.
-  - Reconcile any active pipeline-refactor movement and prove semantic owner/order invariants still hold on final `main`-based implementation.
-  - _Boundary: concurrency/lifecycle / release evidence_
-  - _Depends: 5.2, 5.4, 6.4_
-  - _Validation: repository-supported race/goleak/checkptr/reasoning E2E soak commands_
-  - _Requirements: 12.6-12.10, 13.6, 13.8_
+- [ ] 7.4 Certify parser/resource limits and disabled-mode performance
+  - Fuzz strict decoder and bounded raw extractor; include huge/malformed/duplicate/control-character cases and ensure raw cap is applied before decode.
+  - Benchmark disabled mode against existing reasoning preservation and measure bounded shadow/active overhead.
+  - Verify generic scheduler outer result cap plus feature `max_output_bytes` and decoded surrogate caps compose without redundant unbounded copies.
+  - _Boundary: parser/performance_
+  - _Depends: 3.4, 3.5, 5.2_
+  - _Validation: fuzz + benchmark + allocation-sensitive tests_
+  - _Requirements: 3, 10, 13_
 
-- [ ] 7.4 Produce performance and shadow usefulness evidence
-  - Benchmark compression-disabled path, below-threshold observer path, pending Poll path, shadow-ready path, and active surrogate projection against an appropriate baseline.
-  - Produce a deterministic/shadow evaluation showing source/surrogate compression ratios, hypothetical reinjection savings, latency/failure categories and auxiliary cost without recording reasoning contents.
-  - Do not claim semantic/agent-task quality improvement unless a separate quality evaluation is explicitly measured; document break-even/cost trade-offs honestly.
-  - _Boundary: performance / product evidence_
-  - _Depends: 5.3, 6.4, 7.1_
-  - _Validation: targeted benchmarks/evaluation harness plus `make quality-checks` performance-sensitive gates_
-  - _Requirements: 8.5-8.9, 11.1-11.6, 13.9_
+- [ ] 7.5 Run repository gates, shadow-value review, and Kiro closeout
+  - Run focused tests, `make quality-checks`, `make test-unit`, applicable parity/architecture/security checks, `go mod verify`, formatting/diff checks, and example-config/docs checks; run wider `make qa` when change surface warrants it.
+  - Review a deterministic or approved shadow evidence set for savings, cost, privacy outcomes, raw-limit rejection, aggregate-budget rejection, and failure fallback; do not claim semantic quality improvement without separate task-quality evidence.
+  - Revalidate this SDD against current `main` if request/terminal-pipeline simplification specs landed before implementation.
+  - Update implementation ledger/spec status only after all required gates pass; keep active mode explicit and non-default.
+  - _Boundary: repository/release/Kiro governance_
+  - _Depends: 6.4, 7.1, 7.2, 7.3, 7.4_
+  - _Validation: repository gate suite + final diff/scope audit_
+  - _Requirements: 13_
 
-- [ ] 7.5 Run final repository gates and reconcile Kiro completion evidence
-  - Run focused changed-package tests, `make quality-checks`, `make test-unit`, `make test`, relevant parity/reasoning E2E gates, `go mod verify`, lint/build/smoke and release-manifest/coverage-sensitive checks required by current repository policy.
-  - Record exact-head implementation evidence, changed architecture boundaries, defaults/rollback and known limitations in an implementation ledger/release review without overstating unavailable platform/live-provider evidence.
-  - Mark requirements/design/tasks complete only after all mandatory evidence passes or explicitly approved waivers are recorded; archive the spec using the repository's completed-spec convention.
-  - _Boundary: repository release / Kiro closeout_
-  - _Depends: 7.1-7.4_
-  - _Validation: current repository release/quality commands plus Kiro spec checker_
-  - _Requirements: 13.1-13.11_
+## Completion Gate
+
+Implementation is complete only when all 32 tasks are green, exact/native continuity remains unchanged, `BackgroundClient` historical source compatibility is proven, ordinary reasoning egress is policy-controlled, raw responses are byte-bounded before decode, optional state is bounded both per session and across the feature instance, shadow evidence exists, and active semantic replay remains an explicit operator opt-in.
