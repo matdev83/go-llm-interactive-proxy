@@ -32,3 +32,24 @@ Integrated evidence:
 - Absolute `internal/core` and `internal/infra/runtimebundle` measured-line ratchets remain intentionally deferred to Task 6.4, after the complete reviewed feature surface is known.
 
 Remaining Task 1.1/1.2 proof belongs to the runtime integration wave: no billable submission before successful Open and the exact final release sequence through preservation, committed detector lifecycle, metadata observers, and client release.
+
+## Wave 2 — Detached execution and parent-branch authority
+
+Commit: `5997f242` (`feat(compaction): isolate detached continuity execution`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 1.4 | Partial | Trusted SDK-only detached mode, captured content-free parent binding, private child A-leg, parent session authority removal, route-override isolation, child B-leg failover lineage | Auxreq/runtime/B2BUA/secure-session suites green; frontend/header/accounting integration remains in later tasks |
+| 2.4 | Complete | Explicit detached auxiliary execution reuses Executor routing, request authority and B2BUA paths while skipping primary secure-session effects | `go test -count=1 ./pkg/lipsdk/auxiliary ./internal/core/auxreq ./internal/core/runtime ./internal/core/b2bua ./internal/core/securesession/...` — pass |
+| 2.5 | Complete | Process-owned parent BranchKey coordinator with explicit capture, revision/job/preview/injection consistency, bounded reload-stable state and opaque backing | Coordinator tests `-count=50`, runtimebundle ownership test and `go vet` — pass |
+
+Integration review repairs:
+
+- Detached mode is opt-in; existing auxiliary plugin requests retain default session semantics.
+- Parent branch binding is explicit content-free auxiliary metadata and is never derived from canonical session hints or encoded for providers.
+- Parent session/client/resume/continuity fields are absent from the private child canonical call and SessionView; parent lineage remains only in trusted execution context.
+- Coordinator mutations cannot create authority implicitly; `Capture` is the only branch-creation boundary.
+- Coordinator persistence is binding-sorted and persistence failures leave in-memory state unchanged.
+- ProcessServices coordinator composition preserves the critical-file and connector-overlay ratchets without whitespace deletion or cap changes.
+
+Environment limitation remains unchanged: targeted race execution cannot start under Windows because ThreadSanitizer exits with allocation error 87.
