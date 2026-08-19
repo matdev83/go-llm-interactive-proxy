@@ -90,16 +90,13 @@ type AccountingConfig struct {
 	Pricing             AccountingPricingConfig    `yaml:"pricing"`
 	Authority           AccountingAuthorityConfig  `yaml:"authority"`
 	Concurrency         ConcurrencyAuthorityConfig `yaml:"concurrency"`
-	// Billing contains report and terminal-spool paths for an injected
-	// composition. Billing is enabled only by complete host composition.
+	// Billing contains report-path configuration for an injected composition.
+	// Billing is enabled only by complete host composition.
 	Billing AccountingBillingConfig `yaml:"billing"`
 }
 
 // AccountingBillingConfig enables journal-backed monetary settlement and reports.
 type AccountingBillingConfig struct {
-	// SpoolPath is the stable process-state SQLite path for terminal usage
-	// durability. It must not point at an OS temporary directory in production.
-	SpoolPath string `yaml:"spool_path"`
 	// ReportsPath selects the protected billing report surface for an injected
 	// billing composition. Empty selects /admin/billing.
 	ReportsPath string `yaml:"reports_path"`
