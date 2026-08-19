@@ -162,7 +162,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if !s.isFinished() {
 			s.markFinished()
 		}
-		s.finishALegScope()
+		s.terminal.endALeg(aLegEndBase)
 		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
@@ -183,8 +183,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 		if c := attempt.takeInner(); c != nil {
-			if s.aScope != nil {
-				_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
+			if s.terminal != nil && s.terminal.hasALeg() {
+				_ = s.terminal.cancelALeg(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 			} else {
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 			}
@@ -202,7 +202,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if !s.isFinished() {
 			s.markFinished()
 		}
-		s.finishALegScope()
+		s.terminal.endALeg(aLegEndBase)
 		return lipapi.Event{}, false, err
 	}
 	if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {

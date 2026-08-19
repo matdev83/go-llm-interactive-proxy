@@ -51,9 +51,8 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		affinitySet:        plan.affinitySet,
 		customer:           newCustomerEvidenceAccumulator(),
 		recoverPolicy:      streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		aScope:             prep.aScope,
 		interleaved:        out.interleaved,
-		terminal:           newTurnTerminal(),
+		terminal:           newTurnTerminalWithALeg(prep.aScope, aLegEndBase),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
@@ -74,15 +73,15 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		return nil, err
 	}
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {
-		rs.holdALegEnd = true
 		rs.isInterleavedThinker = true
+		rs.terminal.deferALegEndToOuter()
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true
 		return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
 	}
 	if e.shouldWrapVisibleInterleavedThinker(out.cand) {
-		rs.holdALegEnd = true
 		rs.isInterleavedThinker = true
+		rs.terminal.deferALegEndToOuter()
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true
 		return newVisibleInterleavedStream(rs, rec, out.interleaved), nil

@@ -111,8 +111,8 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 			traceID:  "trace-recv-after-close",
 			aLegID:   aLegID,
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-		aScope:  aScope,
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		terminal: newTurnTerminalWithALeg(aScope, aLegEndBase),
 	}
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})

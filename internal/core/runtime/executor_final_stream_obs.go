@@ -76,7 +76,7 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 			if !s.isCommitted() {
-				s.finishALegScope()
+				s.terminal.endALeg(aLegEndBase)
 			}
 			return lipapi.Event{}, err
 		}
@@ -89,7 +89,7 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
 			if !s.isCommitted() {
-				s.finishALegScope()
+				s.terminal.endALeg(aLegEndBase)
 			}
 			return lipapi.Event{}, err
 		}

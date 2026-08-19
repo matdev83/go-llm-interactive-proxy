@@ -59,8 +59,10 @@ var (
 type hiddenInterleavedStream = interleavedContinuationStream
 
 func newHiddenInterleavedStream(thinker *retryRecvStream, recorder *interleavedthinking.Recorder, state interleavedstate.State) *hiddenInterleavedStream {
-	if thinker != nil {
-		thinker.holdALegEnd = true
+	if thinker != nil && thinker.terminal != nil {
+		// This construction-time handoff is one-way: the outer wrapper owns the
+		// shared A-leg end for the combined thinker/executor turn.
+		thinker.terminal.deferALegEndToOuter()
 	}
 	return &interleavedContinuationStream{
 		thinker:  thinker,
@@ -337,8 +339,8 @@ func (s *interleavedContinuationStream) handoffAborted(ctx context.Context) erro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s.thinker != nil && s.thinker.aScope != nil {
-		if err := s.thinker.aScope.Err(); err != nil {
+	if s.thinker != nil && s.thinker.terminal != nil && s.thinker.terminal.hasALeg() {
+		if err := s.thinker.terminal.aLegErr(); err != nil {
 			return err
 		}
 	}
@@ -360,8 +362,8 @@ func (s *interleavedContinuationStream) closeThinkerInner(ctx context.Context) {
 			})
 		}
 	}
-	if thinkerAttempt != nil && s.thinker.aScope != nil && thinkerAttempt.bleg.BLegID != "" {
-		s.thinker.aScope.ReleaseBLeg(thinkerAttempt.bleg.BLegID)
+	if thinkerAttempt != nil && s.thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
+		s.thinker.terminal.releaseBLeg(thinkerAttempt.bleg.BLegID)
 	}
 }
 
@@ -396,8 +398,8 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 				})
 			}
 		}
-		if thinkerAttempt != nil && thinker.aScope != nil && thinkerAttempt.bleg.BLegID != "" {
-			thinker.aScope.ReleaseBLeg(thinkerAttempt.bleg.BLegID)
+		if thinkerAttempt != nil && thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
+			thinker.terminal.releaseBLeg(thinkerAttempt.bleg.BLegID)
 		}
 	}
 }
@@ -427,8 +429,8 @@ func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 				cmd = sdkterminal.CommandClose
 			} else if cancelPending {
 				cmd = sdkterminal.CommandCancel
-			} else if s.thinker.aScope != nil {
-				if err := s.thinker.aScope.Err(); err != nil {
+			} else if s.thinker.terminal != nil && s.thinker.terminal.hasALeg() {
+				if err := s.thinker.terminal.aLegErr(); err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
 						cmd = sdkterminal.CommandTimeout
 					} else {
@@ -487,7 +489,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 	cmd := sdkterminal.CommandCancel
 	if closePending {
 		cmd = sdkterminal.CommandClose
-	} else if errors.Is(abortErr, context.DeadlineExceeded) || (s.thinker != nil && s.thinker.aScope != nil && errors.Is(s.thinker.aScope.Err(), context.DeadlineExceeded)) {
+	} else if errors.Is(abortErr, context.DeadlineExceeded) || (s.thinker != nil && s.thinker.terminal != nil && s.thinker.terminal.hasALeg() && errors.Is(s.thinker.terminal.aLegErr(), context.DeadlineExceeded)) {
 		cmd = sdkterminal.CommandTimeout
 	}
 	if s.thinker != nil {
@@ -534,10 +536,8 @@ func (s *interleavedContinuationStream) markFinished() {
 	s.mu.Lock()
 	s.finished = true
 	s.mu.Unlock()
-	if s.thinker != nil && s.thinker.aScope != nil {
-		s.thinker.endOnce.Do(func() {
-			s.thinker.aScope.End()
-		})
+	if s.thinker != nil && s.thinker.terminal != nil {
+		s.thinker.terminal.endALeg(aLegEndOuter)
 	}
 }
 
@@ -577,10 +577,10 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 		s.mu.Unlock()
 		// Cancel an already-opened continuation when assigned; otherwise cancel the
 		// shared A-leg scope so handoffAborted/open sees cancellation.
-		if executor != nil && executor.aScope != nil {
-			_ = executor.aScope.Cancel(ctx, cause)
-		} else if thinker != nil && thinker.aScope != nil {
-			_ = thinker.aScope.Cancel(ctx, cause)
+		if executor != nil && executor.terminal != nil && executor.terminal.hasALeg() {
+			_ = executor.terminal.cancelALeg(ctx, cause)
+		} else if thinker != nil && thinker.terminal != nil && thinker.terminal.hasALeg() {
+			_ = thinker.terminal.cancelALeg(ctx, cause)
 		}
 		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 	}
@@ -593,8 +593,8 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 
 	var res lipapi.CancelResult
 	if !active.isFinished() {
-		if active.aScope != nil {
-			_ = active.aScope.Cancel(ctx, cause)
+		if active.terminal != nil && active.terminal.hasALeg() {
+			_ = active.terminal.cancelALeg(ctx, cause)
 			res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 		} else if activeAttempt := active.attempt.snapshot(); activeAttempt != nil {
 			if inner := activeAttempt.loadInner(); inner != nil {
@@ -638,10 +638,10 @@ func (s *interleavedContinuationStream) Close() error {
 				parent = context.WithoutCancel(cached)
 			}
 		}
-		if executor != nil && executor.aScope != nil {
-			_ = executor.aScope.Cancel(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
-		} else if thinker != nil && thinker.aScope != nil {
-			_ = thinker.aScope.Cancel(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		if executor != nil && executor.terminal != nil && executor.terminal.hasALeg() {
+			_ = executor.terminal.cancelALeg(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		} else if thinker != nil && thinker.terminal != nil && thinker.terminal.hasALeg() {
+			_ = thinker.terminal.cancelALeg(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
 		return nil
 	}

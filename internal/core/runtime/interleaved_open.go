@@ -208,7 +208,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		bus:                 from.bus,
 		traceID:             facts.traceID,
 		aLegID:              facts.aLegID,
-		aScope:              from.aScope,
+		aScope:              from.terminal.aLegScope(),
 		baseline:            facts.baseline,
 		failoverReq:         capabilities.NewFailoverRequirementSet(facts.baseline),
 		sel:                 from.sel,
@@ -233,8 +233,8 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if !out.opened {
 		return nil, fmt.Errorf("executor: interleaved continuation: %w", routing.ErrNoEligibleCandidate)
 	}
-	if from.aScope != nil && !out.registered {
-		if err := from.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+	if from.terminal != nil && !out.registered {
+		if err := from.terminal.registerBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),
 		}); err != nil {
@@ -266,15 +266,13 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		rng:                 from.rng,
 		affinityKey:         from.affinityKey,
 		affinitySet:         from.affinitySet,
-		aScope:              from.aScope,
 		interleaved:         out.interleaved,
-		holdALegEnd:         true,
 		suppressThinker:     true,
 		suppressVisibleMemo: true,
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		customer:            newCustomerEvidenceAccumulator(),
 		attempt:             attemptSlot{},
-		terminal:            newTurnTerminal(),
+		terminal:            newTurnTerminalWithSharedALeg(from.terminal),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,

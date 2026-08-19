@@ -247,7 +247,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 	s.commitSuccessfulTurn()
 	s.markFinished()
-	s.finishALegScope()
+	s.terminal.endALeg(aLegEndBase)
 	// Evidence already recorded in mandatoryClientFacingPreflight; still observe
 	// + remember/emit without re-running beforeEmit (NormalFinish already competed).
 	if s.executor != nil {
@@ -361,6 +361,6 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	if !s.isFinished() {
 		s.markFinished()
 	}
-	s.finishALegScope()
+	s.terminal.endALeg(aLegEndBase)
 	return lipapi.Event{}, io.EOF
 }

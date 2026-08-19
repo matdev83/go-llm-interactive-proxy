@@ -71,7 +71,6 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	priorAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
-		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -93,7 +92,7 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 		excluded: map[string]struct{}{},
 		rng:      routing.NewSeededRng(1),
 		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, priorAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
-		aScope:   aScope,
+		terminal: newTurnTerminalWithALeg(aScope, aLegEndBase),
 	}
 
 	_, err = rs.tryReplacementIteration(context.Background())

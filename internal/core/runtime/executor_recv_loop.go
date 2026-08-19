@@ -80,7 +80,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if !s.isFinished() {
 			s.markFinished()
 		}
-		s.finishALegScope()
+		s.terminal.endALeg(aLegEndBase)
 		return lipapi.Event{}, err
 	}
 	if len(s.recoverDrain) > 0 {
@@ -104,7 +104,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		if ev.Kind == lipapi.EventResponseFinished {
 			s.markFinished()
-			s.finishALegScope()
+			s.terminal.endALeg(aLegEndBase)
 		}
 		pm, _ := s.recvHookMeta()
 		return s.emitClientFacingObserved(ctx, ev, pm)
@@ -181,7 +181,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if !s.isFinished() {
 					s.markFinished()
 				}
-				s.finishALegScope()
+				s.terminal.endALeg(aLegEndBase)
 				return lipapi.Event{}, err
 			}
 			if !opened {
@@ -210,8 +210,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		// Close/cancel may have terminalized while we were blocked. Do not run
 		// NormalFinish (or surface bare context.Canceled) after that owner won.
 		if s.isFinished() {
-			if s.aScope != nil {
-				if scopeErr := s.aScope.Err(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
+			if s.terminal != nil && s.terminal.hasALeg() {
+				if scopeErr := s.terminal.aLegErr(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
 					return lipapi.Event{}, scopeErr
 				}
 			}
@@ -223,8 +223,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				err = mapStreamPanic(pe, s.isCommitted())
 			}
 		}
-		if err != nil && s.aScope != nil {
-			if scopeErr := s.aScope.Err(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
+		if err != nil && s.terminal != nil && s.terminal.hasALeg() {
+			if scopeErr := s.terminal.aLegErr(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:    s.facts.aLegID,
 					BLeg:      attempt.bleg,
@@ -243,7 +243,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if !s.isFinished() {
 					s.markFinished()
 				}
-				s.finishALegScope()
+				s.terminal.endALeg(aLegEndBase)
 				return lipapi.Event{}, scopeErr
 			}
 		}
@@ -284,8 +284,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			CandidateKey: strings.TrimSpace(attempt.cand.Key),
 		}
 	}
-	if s.aScope != nil {
-		if err := s.aScope.Err(); err != nil {
+	if s.terminal != nil && s.terminal.hasALeg() {
+		if err := s.terminal.aLegErr(); err != nil {
 			return false, err
 		}
 	}
@@ -316,7 +316,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		bus:                      s.bus,
 		traceID:                  s.facts.traceID,
 		aLegID:                   s.facts.aLegID,
-		aScope:                   s.aScope,
+		aScope:                   s.terminal.aLegScope(),
 		baseline:                 s.facts.baseline,
 		failoverReq:              capabilities.NewFailoverRequirementSet(s.facts.baseline),
 		sel:                      s.sel,
@@ -348,8 +348,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		s.interleaved = out.interleaved
 		return false, nil
 	}
-	if s.aScope != nil && !out.registered {
-		if err := s.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+	if s.terminal != nil && !out.registered {
+		if err := s.terminal.registerBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),
 		}); err != nil {

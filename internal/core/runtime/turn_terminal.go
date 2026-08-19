@@ -5,16 +5,39 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-// turnTerminal owns the logical request terminal and the request-lifetime
-// commitment/finished facts. Attempt terminal ownership deliberately remains
-// on each replaceable attemptSession; Terminalize composes with an explicitly
-// snapshotted attempt instead of retaining one here.
+// aLegEndMode names the one owner permitted to end the request's A-leg.
+// Interleaved thinker/executor wrappers keep the A-leg open until their outer
+// boundary; ordinary streams end it at their own terminal boundary.
+type aLegEndMode uint8
+
+const (
+	aLegEndBase aLegEndMode = iota
+	aLegEndOuter
+)
+
+// aLegEndAuthority is the one concrete lifecycle owner shared by the base
+// thinker and executor terminal views of an interleaved turn. Request/attempt
+// terminal state stays separate; only A-leg lifecycle and end-once truth is
+// shared across those views.
+type aLegEndAuthority struct {
+	scope *leglifecycle.ALeg
+	mode  aLegEndMode
+	once  sync.Once
+}
+
+// turnTerminal owns the logical request terminal, request-lifetime
+// commitment/finished facts, and A-leg end authority. Attempt terminal
+// ownership deliberately remains on each replaceable attemptSession;
+// Terminalize composes with an explicitly snapshotted attempt instead of
+// retaining one here.
 type turnTerminal struct {
 	request                  *streamTerminal
+	aLegEndAuthority         *aLegEndAuthority
 	commitment               atomic.Bool
 	completion               atomic.Bool
 	accountingFinalizedState atomic.Bool
@@ -24,7 +47,102 @@ type turnTerminal struct {
 }
 
 func newTurnTerminal() *turnTerminal {
-	return &turnTerminal{request: newStreamTerminal(sdkterminal.ScopeRequest)}
+	return newTurnTerminalWithALeg(nil, aLegEndBase)
+}
+
+func newTurnTerminalWithALeg(aLeg *leglifecycle.ALeg, endMode aLegEndMode) *turnTerminal {
+	return &turnTerminal{
+		request:          newStreamTerminal(sdkterminal.ScopeRequest),
+		aLegEndAuthority: &aLegEndAuthority{scope: aLeg, mode: endMode},
+	}
+}
+
+// newTurnTerminalWithSharedALeg gives a continuation its own request terminal
+// while preserving one shared A-leg lifecycle/end authority for the complete
+// thinker/executor turn.
+func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
+	terminal := &turnTerminal{request: newStreamTerminal(sdkterminal.ScopeRequest)}
+	if parent != nil {
+		terminal.aLegEndAuthority = parent.aLegEndAuthority
+	}
+	return terminal
+}
+
+// deferALegEndToOuter is a construction-time, one-way ownership handoff used
+// by the interleaved wrapper when a stream was assembled with base ownership
+// before the wrapper decision was applied. It cannot move ownership back to
+// the base stream and must run before any terminal operation is exposed.
+func (t *turnTerminal) deferALegEndToOuter() bool {
+	if t == nil {
+		return false
+	}
+	if t.aLegEndAuthority == nil {
+		return false
+	}
+	if t.aLegEndAuthority.mode == aLegEndOuter {
+		return true
+	}
+	if t.aLegEndAuthority.mode != aLegEndBase {
+		return false
+	}
+	t.aLegEndAuthority.mode = aLegEndOuter
+	return true
+}
+
+// aLegScope is a transitional construction seam for upstream open helpers.
+// All lifecycle mutations and A-leg end ownership remain behind turnTerminal.
+func (t *turnTerminal) aLegScope() *leglifecycle.ALeg {
+	if t == nil || t.aLegEndAuthority == nil {
+		return nil
+	}
+	return t.aLegEndAuthority.scope
+}
+
+func (t *turnTerminal) hasALeg() bool {
+	return t != nil && t.aLegEndAuthority != nil && t.aLegEndAuthority.scope != nil
+}
+
+func (t *turnTerminal) aLegErr() error {
+	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil {
+		return nil
+	}
+	return t.aLegEndAuthority.scope.Err()
+}
+
+func (t *turnTerminal) registerBLeg(ctx context.Context, h leglifecycle.BLegHandle) error {
+	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil {
+		return nil
+	}
+	return t.aLegEndAuthority.scope.RegisterBLeg(ctx, h)
+}
+
+func (t *turnTerminal) cancelALeg(ctx context.Context, cause leglifecycle.CancelCause) error {
+	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil {
+		return nil
+	}
+	return t.aLegEndAuthority.scope.Cancel(ctx, cause)
+}
+
+func (t *turnTerminal) releaseBLeg(id string) {
+	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil {
+		return
+	}
+	t.aLegEndAuthority.scope.ReleaseBLeg(id)
+}
+
+// endALeg is the sole A-leg end authority. It returns true only to the caller
+// that performed the once-only end. A base caller cannot end an outer-owned
+// interleaved A-leg (and vice versa).
+func (t *turnTerminal) endALeg(mode aLegEndMode) bool {
+	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil || t.aLegEndAuthority.mode != mode {
+		return false
+	}
+	ended := false
+	t.aLegEndAuthority.once.Do(func() {
+		t.aLegEndAuthority.scope.End()
+		ended = true
+	})
+	return ended
 }
 
 // requestTerminal returns the request-scope stream terminal for narrow runtime

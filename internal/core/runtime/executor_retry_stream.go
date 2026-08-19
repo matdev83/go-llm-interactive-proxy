@@ -77,7 +77,6 @@ type retryRecvStream struct {
 
 	attempt            attemptSlot
 	terminal           *turnTerminal
-	endOnce            sync.Once
 	affinityKey        affinity.Key
 	affinitySet        bool
 	affinityCommitOnce sync.Once
@@ -108,15 +107,10 @@ type retryRecvStream struct {
 	// lastCustomerUsage caches client-visible reconstruction from finalize for
 	// settle/FE egress when StreamUsage is unavailable on a later path.
 	lastCustomerUsage lipapi.Event
-	aScope            *leglifecycle.ALeg
-
 	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
 	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
 	// the latest persisted state.
 	interleaved interleavedstate.State
-	// holdALegEnd defers A-leg scope teardown until an outer coordinator (hidden interleaved
-	// continuation) finishes the combined thinker+executor logical request.
-	holdALegEnd bool
 	// suppressThinker keeps recv-phase failover inside an interleaved executor continuation
 	// from selecting another thinker branch in the same logical request.
 	suppressThinker bool
@@ -310,17 +304,6 @@ func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
 		return managed
 	}
 	return lipapi.CloseOnlyManagedStream{Stream: stream}
-}
-
-func (s *retryRecvStream) finishALegScope() {
-	if s == nil || s.holdALegEnd {
-		return
-	}
-	s.endOnce.Do(func() {
-		if s.aScope != nil {
-			s.aScope.End()
-		}
-	})
 }
 
 // recvExecContext attaches request metadata to parent and returns a child context.
@@ -553,12 +536,12 @@ func (s *retryRecvStream) Close() error {
 				s.markFinished()
 			}
 		}
-		s.finishALegScope()
+		s.terminal.endALeg(aLegEndBase)
 		return nil
 	}
 	if !s.isFinished() {
-		if s.aScope != nil {
-			_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		if s.terminal != nil && s.terminal.hasALeg() {
+			_ = s.terminal.cancelALeg(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
@@ -571,12 +554,12 @@ func (s *retryRecvStream) Close() error {
 		if !s.isFinished() {
 			s.markFinished()
 		}
-		if s.aScope != nil {
-			s.finishALegScope()
+		if s.terminal != nil && s.terminal.hasALeg() {
+			s.terminal.endALeg(aLegEndBase)
 			return nil
 		}
 	}
-	s.finishALegScope()
+	s.terminal.endALeg(aLegEndBase)
 	err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
 		return c.Close()
 	})
