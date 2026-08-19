@@ -1,0 +1,198 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+type detachedRouteOverrideReader struct {
+	called int
+	state  routeoverride.State
+}
+
+func TestExecutor_detachedExecuteUsesChildBLegFailoverAndTerminalLineage(t *testing.T) {
+	t.Parallel()
+
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(7)
+	ex.MaxAttempts = 2
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+	ex.Backends = map[string]execbackend.Backend{
+		"fail": {
+			Caps: caps,
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, lipapi.RecoverablePreOutputError(errors.New("detached first backend failed"))
+			},
+		},
+		"good": {
+			Caps: caps,
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
+			},
+		},
+	}
+	ctx := execctx.WithDetachedSession(context.Background(), execctx.DetachedSession{
+		ParentSessionID:     "parent-session",
+		ParentALegID:        "parent-a-leg",
+		ParentTraceID:       "parent-trace",
+		ParentBranchBinding: "parent-branch-binding",
+	})
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{AuthoritativeSessionID: "parent-session", ALegID: "parent-a-leg"},
+		Route:   lipapi.RouteIntent{Selector: "fail:model^good:model"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("extract")},
+		}},
+	}
+	stream, err := ex.Execute(ctx, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
+		t.Fatal(err)
+	}
+	childALegID := call.Session.ALegID
+	if childALegID == "" || childALegID == "parent-a-leg" {
+		t.Fatalf("unexpected detached child A-leg %q", childALegID)
+	}
+	attempts, err := store.LoadAttempts(context.Background(), childALegID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 2 || attempts[0].Seq != 1 || attempts[1].Seq != 2 {
+		t.Fatalf("child failover lineage: got %#v", attempts)
+	}
+	if attempts[0].Outcome == lipapi.AttemptSuccess || attempts[1].Outcome != lipapi.AttemptSuccess {
+		t.Fatalf("child attempt outcomes: %#v", attempts)
+	}
+}
+
+func (r *detachedRouteOverrideReader) Snapshot(context.Context, string) (routeoverride.State, error) {
+	r.called++
+	return r.state, nil
+}
+
+func TestExecutor_detachedPrepareUsesPrivateChildALegAndSkipsPrimarySessionAuthority(t *testing.T) {
+	t.Parallel()
+
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secureStore := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, secureStore, store)
+	ex := TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.Now = func() time.Time { return time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC) }
+	override := &detachedRouteOverrideReader{state: routeoverride.State{
+		ALegID: "parent-a-leg", Active: true, Selector: "parent:model", Revision: 1,
+		UpdatedAt: time.Date(2026, 8, 19, 11, 0, 0, 0, time.UTC),
+	}}
+	ex.RouteOverrideReader = override
+
+	parentCall := &lipapi.Call{Session: lipapi.SessionRef{
+		ClientSessionID: "client", ContinuityKey: "parent-branch",
+	}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("parent")}}}}
+	parentCtx := context.Background()
+	_, _, parentALeg, _, parentCtx, err := ex.prepareSubmitAndALeg(parentCtx, ex.Bus, parentCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRecord, err := secureStore.LoadByALegID(parentCtx, parentALeg.ALegID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if override.called != 1 {
+		t.Fatalf("normal parent preparation must snapshot route override once, got %d", override.called)
+	}
+
+	childCall := &lipapi.Call{
+		Session: lipapi.SessionRef{
+			ClientSessionID:        "child-client-session",
+			AuthoritativeSessionID: string(parentRecord.SessionID),
+			ALegID:                 parentALeg.ALegID,
+			ContinuityKey:          "client-branch-hint",
+			ResumeToken:            "parent-resume-token",
+		},
+		Route:    lipapi.RouteIntent{Selector: "extractor:model"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("extract")}}},
+	}
+	childCtx := execctx.WithDetachedSession(parentCtx, execctx.DetachedSession{
+		ParentSessionID:     string(parentRecord.SessionID),
+		ParentALegID:        parentALeg.ALegID,
+		ParentTraceID:       "parent-trace",
+		ParentBranchBinding: "captured-parent-branch",
+	})
+	childCtx = execctx.WithRouteCandidatePreferences(childCtx, []string{"parent-override-candidate"})
+	_, baseline, childALeg, routeAuth, outCtx, err := ex.prepareSubmitAndALeg(childCtx, ex.Bus, childCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childALeg.ALegID == "" || childALeg.ALegID == parentALeg.ALegID {
+		t.Fatalf("detached child A-leg: %+v; parent=%q", childALeg, parentALeg.ALegID)
+	}
+	if got := childCall.Session.ALegID; got != childALeg.ALegID {
+		t.Fatalf("child call A-leg: got %q want %q", got, childALeg.ALegID)
+	}
+	if baseline.Route.Selector != "extractor:model" {
+		t.Fatalf("detached child selector rewritten: %q", baseline.Route.Selector)
+	}
+	if routeAuth.active() {
+		t.Fatal("detached child must not inherit parent route override")
+	}
+	if got := execctx.RouteCandidatePreferences(outCtx); len(got) != 0 {
+		t.Fatalf("detached child inherited parent route preferences: %v", got)
+	}
+	if override.called != 1 {
+		t.Fatalf("detached preparation must not read parent route override, calls=%d", override.called)
+	}
+	if _, ok := execctx.SecureSessionTurnFromContext(outCtx); ok {
+		t.Fatal("detached preparation must not create a primary secure-session turn")
+	}
+	if got := childCall.Session.AuthoritativeSessionID; got != "" {
+		t.Fatalf("parent session authority leaked into child call: got %q", got)
+	}
+	if got := childCall.Session.ClientSessionID; got != "" {
+		t.Fatalf("client session hint leaked into child call: got %q", got)
+	}
+	if got := childCall.Session.ContinuityKey; got != "" {
+		t.Fatalf("detached child must not become continuity authority: got key %q", got)
+	}
+	if got := childCall.Session.ResumeToken; got != "" {
+		t.Fatalf("parent resume authority leaked into child call: got %q", got)
+	}
+	views, ok := execctx.FromContext(outCtx)
+	if !ok || views.Session.AuthoritativeSessionID != "" || views.Session.ClientSessionHint != "" || views.Session.ALegID != childALeg.ALegID || views.Session.TurnID != "" {
+		t.Fatalf("detached child session view leaked parent authority: ok=%v view=%+v", ok, views.Session)
+	}
+	if meta, ok := execctx.DetachedSessionFromContext(outCtx); !ok || meta.ParentBranchBinding != "captured-parent-branch" {
+		t.Fatalf("captured parent branch binding lost: meta=%+v ok=%v", meta, ok)
+	}
+	childRecord, err := secureStore.LoadByID(outCtx, parentRecord.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !childRecord.LastActivityAt.Equal(parentRecord.LastActivityAt) {
+		t.Fatalf("detached preparation touched primary activity: before=%v after=%v", parentRecord.LastActivityAt, childRecord.LastActivityAt)
+	}
+}

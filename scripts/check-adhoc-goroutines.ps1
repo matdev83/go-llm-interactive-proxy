@@ -21,6 +21,8 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # listen/serve worker (task 5.3; separate from data-plane generation host).
 # cmd/lipstd/reload_signal_adapter_unix.go: one process-owned SIGHUP worker
 # delivering bounded reload triggers into the coordinator sink (task 5.2).
+# internal/core/auxreq/background.go: process-owned bounded auxiliary worker
+# pool; every worker is joined by Shutdown and no per-request fallback exists.
 # connector-support/acp/scripted_stdio.go: in-process scripted mock ACP agent background loop for connector tests.
 # connectors/codex/cmd/fake-codex-cli/main.go: deterministic emulator grandchild process waiter for e2e tests.
 $allowed = @(
@@ -33,6 +35,7 @@ $allowed = @(
     "internal/core/runtime/parallel_race.go"
     "internal/core/runtime/lease_heartbeat.go"
     "internal/core/billing/handoff_retry_worker.go"
+    "internal/core/auxreq/background.go"
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"

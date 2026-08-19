@@ -71,38 +71,20 @@ type RequestMeta = correlation
 // ResponseMeta carries correlation for one released canonical response event.
 type ResponseMeta = correlation
 
-// PreviewKind classifies a pure detector preview. Preview methods do not
-// commit state or emit lifecycle events; they only expose the candidate the
-// preservation seam may need before a request/response mutation boundary.
-type PreviewKind string
+// PreviewKind and the preview shapes are owned by the public compaction SDK
+// seam so detector output can be passed directly to preservers. Aliases keep
+// recognition and fingerprint authority in this package without introducing
+// a conversion layer or a second contract.
+type PreviewKind = compaction.PreviewKind
 
 const (
-	PreviewNone                PreviewKind = "none"
-	PreviewStartCandidate      PreviewKind = "start_candidate"
-	PreviewCompletionCandidate PreviewKind = "completion_candidate"
+	PreviewNone                = compaction.PreviewNone
+	PreviewStartCandidate      = compaction.PreviewStartCandidate
+	PreviewCompletionCandidate = compaction.PreviewCompletionCandidate
 )
 
-// RequestPreview is a content-free, non-committing view of the detector's
-// request-side authority. BoundaryFingerprint is populated for a
-// completion-only/history candidate when no committed transaction exists, so
-// a caller can derive a bounded non-billable preview identity before Open.
-type RequestPreview struct {
-	Evidence            compaction.Evidence
-	RuleID              string
-	Kind                PreviewKind
-	TransactionID       string
-	BoundaryFingerprint string
-}
-
-// ResponsePreview is a content-free, non-committing view of a potential
-// response completion. The committed ResponseReleased call must still receive
-// the exact final canonical event after any permitted response finalization.
-type ResponsePreview struct {
-	Evidence      compaction.Evidence
-	RuleID        string
-	Kind          PreviewKind
-	TransactionID string
-}
+type RequestPreview = compaction.RequestPreview
+type ResponsePreview = compaction.ResponsePreview
 
 // transactionState is the bounded per-rule transaction for one logical
 // compaction on one A-leg (requirement 6).
@@ -172,6 +154,35 @@ func New(cfg Config) *Detector {
 	}
 }
 
+// requestRecognition is the detector-owned, pure recognition result shared
+// by request previews and the committed RequestOpened boundary. Keeping the
+// canonical fingerprint and ordered start-rule match together prevents a
+// preservation preview from drifting from committed detection.
+type requestRecognition struct {
+	fingerprint requestFingerprint
+	curHashes   [][32]byte
+	startRule   rule
+	startOK     bool
+}
+
+func recognizeRequest(meta RequestMeta, call lipapi.Call, at time.Time) requestRecognition {
+	text := collectCallText(call)
+	info := requestInfo{call: call, lower: strings.ToLower(text)}
+	fp, curHashes := fingerprint(call, at)
+	fp.TraceID = meta.TraceID
+	startRule, startOK := matchStartRule(info)
+	return requestRecognition{
+		fingerprint: fp,
+		curHashes:   curHashes,
+		startRule:   startRule,
+		startOK:     startOK,
+	}
+}
+
+func historyCandidate(ls *legState, fp requestFingerprint, curHashes [][32]byte) bool {
+	return ls != nil && !ls.lastFingerprintStrictComplete && ls.lastFP.ItemCount > 0 && heuristicMatch(ls.lastFP, fp, curHashes)
+}
+
 // PreviewRequest returns the request-side candidate that the shared detector
 // would recognize without recording a fingerprint, changing a transaction, or
 // emitting an event. It is safe to call before upstream Open. A strict start
@@ -181,15 +192,13 @@ func (d *Detector) PreviewRequest(meta RequestMeta, call lipapi.Call) RequestPre
 		return RequestPreview{Kind: PreviewNone}
 	}
 	now := d.now()
-	text := collectCallText(call)
-	info := requestInfo{call: call, lower: strings.ToLower(text)}
-	fp, curHashes := fingerprint(call, now)
-	fp.TraceID = meta.TraceID
+	recognition := recognizeRequest(meta, call, now)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ls := d.legs[meta.ALegID]
-	if r, ok := matchStartRule(info); ok && r.mode != modeCompletionOnly {
+	if recognition.startOK && recognition.startRule.mode != modeCompletionOnly {
+		r := recognition.startRule
 		preview := RequestPreview{
 			Evidence: r.evidence,
 			RuleID:   r.id,
@@ -200,7 +209,7 @@ func (d *Detector) PreviewRequest(meta RequestMeta, call lipapi.Call) RequestPre
 		}
 		return preview
 	}
-	if ls == nil || ls.lastFingerprintStrictComplete || !heuristicMatch(ls.lastFP, fp, curHashes) {
+	if !historyCandidate(ls, recognition.fingerprint, recognition.curHashes) {
 		return RequestPreview{Kind: PreviewNone}
 	}
 	if ls.active != nil && !ls.active.completed && ls.active.mode == modeSingle {
@@ -209,13 +218,15 @@ func (d *Detector) PreviewRequest(meta RequestMeta, call lipapi.Call) RequestPre
 		return RequestPreview{Kind: PreviewNone}
 	}
 	preview := RequestPreview{
-		Evidence:            compaction.EvidenceHistoryHeuristic,
-		RuleID:              HeuristicRuleID,
-		Kind:                PreviewCompletionCandidate,
-		BoundaryFingerprint: boundaryFingerprint(meta.ALegID, fp),
+		Evidence: compaction.EvidenceHistoryHeuristic,
+		RuleID:   HeuristicRuleID,
+		Kind:     PreviewCompletionCandidate,
 	}
 	if ls.active != nil && !ls.active.completed {
 		preview.TransactionID = ls.active.id
+	}
+	if preview.TransactionID == "" {
+		preview.BoundaryFingerprint = boundaryFingerprint(meta.ALegID, recognition.fingerprint)
 	}
 	return preview
 }
@@ -234,25 +245,12 @@ func (d *Detector) PreviewResponse(meta ResponseMeta, ev lipapi.Event) ResponseP
 	if isCompactionItemRelease(ev) {
 		return d.previewCompletionLocked(meta, ls, protocolRule)
 	}
+	if r, ok := responseTextCandidate(ls, meta.TraceID, ev); ok {
+		return d.previewCompletionLocked(meta, ls, r)
+	}
 	if ev.Kind == lipapi.EventResponseFinished && terminalIsSuccessful(ev) &&
 		ls != nil && ls.active != nil && ls.active.ruleID == protocolRule.id && !ls.active.completed {
 		return d.previewCompletionLocked(meta, ls, protocolRule)
-	}
-	text := releasedText(ev)
-	if text == "" {
-		return ResponsePreview{Kind: PreviewNone}
-	}
-	window := ""
-	if ls != nil && ls.releaseTextTrace == meta.TraceID {
-		window = ls.releaseText.String()
-	}
-	window += strings.ToLower(text)
-	activeRuleID := ""
-	if ls != nil && ls.active != nil && !ls.active.completed {
-		activeRuleID = ls.active.ruleID
-	}
-	if r, ok := matchCompleteRule(window, activeRuleID); ok {
-		return d.previewCompletionLocked(meta, ls, r)
 	}
 	return ResponsePreview{Kind: PreviewNone}
 }
@@ -274,6 +272,30 @@ func (d *Detector) previewCompletionLocked(meta ResponseMeta, ls *legState, r ru
 		Kind:          PreviewCompletionCandidate,
 		TransactionID: tx,
 	}
+}
+
+// responseTextCandidate is the shared pure response-marker authority used by
+// both PreviewResponse and the committed release path. The caller decides
+// when to append the released text; this helper only evaluates the bounded
+// existing window plus the candidate event.
+func responseTextCandidate(ls *legState, traceID string, ev lipapi.Event) (rule, bool) {
+	text := releasedText(ev)
+	if text == "" {
+		return rule{}, false
+	}
+	window := ""
+	if ls != nil && ls.releaseTextTrace == traceID {
+		window = ls.releaseText.String()
+	}
+	activeRuleID := ""
+	if ls != nil && ls.active != nil && !ls.active.completed {
+		activeRuleID = ls.active.ruleID
+	}
+	return matchResponseText(window+strings.ToLower(text), activeRuleID)
+}
+
+func matchResponseText(window, activeRuleID string) (rule, bool) {
+	return matchCompleteRule(window, activeRuleID)
 }
 
 func boundaryFingerprint(aLegID string, fp requestFingerprint) string {
@@ -304,10 +326,7 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 		return nil
 	}
 	now := d.now()
-	text := collectCallText(call)
-	info := requestInfo{call: call, lower: strings.ToLower(text)}
-	fp, curHashes := fingerprint(call, now)
-	fp.TraceID = meta.TraceID
+	recognition := recognizeRequest(meta, call, now)
 
 	var events []compaction.Event
 
@@ -318,8 +337,8 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 
 	// Conservative history heuristic (completion-only; strict post evidence
 	// suppresses a duplicate, requirement 5.6).
-	if !ls.lastFingerprintStrictComplete && ls.lastFP.ItemCount > 0 {
-		if ev, ok := d.heuristicCompletionLocked(meta, ls, fp, curHashes, now); ok {
+	if historyCandidate(ls, recognition.fingerprint, recognition.curHashes) {
+		if ev, ok := d.heuristicCompletionLocked(meta, ls, recognition.fingerprint, recognition.curHashes, now); ok {
 			events = append(events, ev)
 		}
 	}
@@ -330,7 +349,8 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 		ls.active = nil
 	}
 
-	if r, ok := matchStartRule(info); ok {
+	if recognition.startOK {
+		r := recognition.startRule
 		switch r.mode {
 		case modeCompletionOnly:
 			// A completion-only rule never emits a start.
@@ -359,7 +379,7 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 
 	// Record the new fingerprint; the next request compares against it. The
 	// strict-completion suppression flag resets for the new baseline.
-	ls.lastFP = fp
+	ls.lastFP = recognition.fingerprint
 	ls.lastFingerprintStrictComplete = false
 	ls.lastSeen = now
 
@@ -408,12 +428,12 @@ func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compac
 	// allocation-free strings.Contains over the folded window; the window is
 	// bounded and discarded after matching/completion (requirement 7.3).
 	if text := releasedText(ev); text != "" {
-		ls.releaseText.WriteString(strings.ToLower(text))
 		activeRuleID := ""
 		if ls.active != nil && !ls.active.completed {
 			activeRuleID = ls.active.ruleID
 		}
-		if r, ok := matchCompleteRule(ls.releaseText.String(), activeRuleID); ok {
+		ls.releaseText.WriteString(strings.ToLower(text))
+		if r, ok := matchResponseText(ls.releaseText.String(), activeRuleID); ok {
 			if out, ok := d.completeByRuleLocked(meta, ls, r, now); ok {
 				events = append(events, out)
 				ls.releaseText.Reset()

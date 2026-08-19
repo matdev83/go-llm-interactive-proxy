@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -81,6 +82,7 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 	out.UsageObservers = append(append([]usage.Observer(nil), a.UsageObservers...), b.UsageObservers...)
 	out.RawCaptureSinks = append(append([]traffic.RawCaptureSink(nil), a.RawCaptureSinks...), b.RawCaptureSinks...)
 	out.TrafficRedactors = append(append([]traffic.Redactor(nil), a.TrafficRedactors...), b.TrafficRedactors...)
+	out.CompactionPreservers = append(append([]compaction.Preserver(nil), a.CompactionPreservers...), b.CompactionPreservers...)
 	out.SecretGuards = append(append([]secretguard.Guard(nil), a.SecretGuards...), b.SecretGuards...)
 	return out
 }
@@ -88,6 +90,19 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 type stubSecretGuard struct {
 	id  string
 	ord int
+}
+
+type stubPreserver struct{ id string }
+
+func (p stubPreserver) ID() string { return p.id }
+func (stubPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (stubPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (stubPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
 }
 
 func (s stubSecretGuard) ID() string                           { return s.id }
@@ -132,6 +147,20 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	}
 	if b.SecretGuards != nil {
 		t.Fatal("expected SecretGuards nil on zero value")
+	}
+	if b.CompactionPreservers != nil {
+		t.Fatal("expected CompactionPreservers nil on zero value")
+	}
+}
+
+func TestFeatureBundle_ValidateRejectsNilCompactionPreserver(t *testing.T) {
+	t.Parallel()
+	b := feature.FeatureBundle{
+		SchemaVersion:        feature.SchemaVersionV1,
+		CompactionPreservers: []compaction.Preserver{nil},
+	}
+	if err := b.Validate(); err == nil {
+		t.Fatal("expected nil CompactionPreserver validation error")
 	}
 }
 

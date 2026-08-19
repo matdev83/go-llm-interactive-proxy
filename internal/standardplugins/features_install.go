@@ -3,6 +3,7 @@ package standardplugins
 import (
 	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
@@ -206,6 +207,14 @@ func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, 
 		return lipfeature.FeatureBundle{}, err
 	}
 	return reasoningpreservation.FeatureBundleWithCompanionPolicy(cfg, codexCompanionPolicy())
+}
+
+func featureCompactionContinuity(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := compactioncontinuity.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	return compactioncontinuity.FeatureBundle(cfg), nil
 }
 
 func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {

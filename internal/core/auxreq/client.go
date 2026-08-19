@@ -46,12 +46,33 @@ func (c Client) Stream(ctx context.Context, req auxiliary.Request) (lipapi.Event
 	if run == nil {
 		return nil, auxiliary.ErrNotConfigured
 	}
+	return c.streamWithRunner(ctx, req, run, true)
+}
+
+// streamWithRunner executes against a runner captured by the caller. When
+// retainPin is true, Stream owns a newly acquired request-generation pin until
+// the returned stream terminates. BackgroundScheduler passes false because it
+// transfers its submit-time pin to the worker job and releases it after
+// collection, never attempting a replacement-generation retain.
+func (c Client) streamWithRunner(ctx context.Context, req auxiliary.Request, run ExecutorRunner, retainPin bool) (lipapi.EventStream, error) {
+	if req.Call == nil {
+		return nil, fmt.Errorf("auxreq: nil call: %w", lipapi.ErrInvalidCall)
+	}
+	if ctx == nil {
+		return nil, lipapi.ErrNilContext
+	}
+	if run == nil {
+		return nil, auxiliary.ErrNotConfigured
+	}
 	childCtx, ok := execctx.IncAuxiliaryDepth(ctx)
 	if !ok {
 		return nil, auxiliary.ErrAuxDepthExceeded
 	}
 	if len(req.DisablePlugins) > 0 {
 		childCtx = execctx.WithSuppressedPluginIDs(childCtx, req.DisablePlugins)
+	}
+	if req.SessionMode == auxiliary.SessionModeDetached {
+		childCtx = withDetachedPolicy(childCtx, req)
 	}
 	// Preserve parent principal/scope attribution and mark the derived origin separately so
 	// auxiliary/internal requests stay correlated to the authoritative parent snapshot without
@@ -72,12 +93,14 @@ func (c Client) Stream(ctx context.Context, req auxiliary.Request) (lipapi.Event
 	encodeLineage(&work, req)
 
 	var pin genpin.Pin
-	if ret, ok := genpin.FromContext(ctx); ok && ret != nil {
-		p, retained := ret.Retain(genpin.KindAsync)
-		if !retained || p == nil {
-			return nil, fmt.Errorf("auxreq: runtime generation pin retain failed: %w", lipapi.ErrInvalidCall)
+	if retainPin {
+		if ret, ok := genpin.FromContext(ctx); ok && ret != nil {
+			p, retained := ret.Retain(genpin.KindAsync)
+			if !retained || p == nil {
+				return nil, fmt.Errorf("auxreq: runtime generation pin retain failed: %w", lipapi.ErrInvalidCall)
+			}
+			pin = p
 		}
-		pin = p
 	}
 
 	stream, err := run.Execute(childCtx, &work)

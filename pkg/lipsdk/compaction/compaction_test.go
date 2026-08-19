@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func TestPhasesAndEvidenceConstants(t *testing.T) {
@@ -95,6 +97,42 @@ func TestEvent_metadataOnlyPayload(t *testing.T) {
 	if len(m) != len(wantKeys) {
 		t.Fatalf("event JSON exposes %d keys %v; want exactly %v (content must never leak)", len(m), reflect.ValueOf(m).MapKeys(), wantKeys)
 	}
+}
+
+// TestPreserver_isContentBearingAndDistinctFromObserver freezes the additive
+// preservation contract without changing the metadata-only Observer surface.
+func TestPreserver_isContentBearingAndDistinctFromObserver(t *testing.T) {
+	t.Parallel()
+	var _ Preserver = preservingStub{}
+	var _ Observer = ObserverFunc(nil)
+	if reflect.TypeOf((*Preserver)(nil)).Elem() == reflect.TypeOf((*Observer)(nil)).Elem() {
+		t.Fatal("Preserver must remain distinct from Observer")
+	}
+	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "secret"}}}}}
+	p := preservingStub{}
+	if err := p.BeforeRequest(context.Background(), &call, RequestPreview{Kind: PreviewStartCandidate}, PreservationMeta{}, Services{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.RequestOpened(context.Background(), call, []Event{{Phase: PhaseStarted}}, PreservationMeta{}, Services{}); err != nil {
+		t.Fatal(err)
+	}
+	ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "secret"}
+	if err := p.BeforeResponseRelease(context.Background(), &ev, ResponsePreview{Kind: PreviewCompletionCandidate}, PreservationMeta{}, Services{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type preservingStub struct{}
+
+func (preservingStub) ID() string { return "preserver" }
+func (preservingStub) BeforeRequest(context.Context, *lipapi.Call, RequestPreview, PreservationMeta, Services) error {
+	return nil
+}
+func (preservingStub) RequestOpened(context.Context, lipapi.Call, []Event, PreservationMeta, Services) error {
+	return nil
+}
+func (preservingStub) BeforeResponseRelease(context.Context, *lipapi.Event, ResponsePreview, PreservationMeta, Services) error {
+	return nil
 }
 
 // ObserverFunc adapts a plain func to Observer (test helper).

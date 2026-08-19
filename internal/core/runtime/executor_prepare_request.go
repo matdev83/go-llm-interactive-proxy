@@ -77,14 +77,20 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	if e.RuntimeSnapshot != nil {
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
 	}
-	e.secureSessionMu.Lock()
-	if e.SecureSession == nil {
-		secureSessionTestPrepare(e)
+	detached := false
+	if mode, marked := execctx.SessionModeFromContext(ctx); marked && mode == execctx.SessionModeDetached {
+		detached = true
 	}
-	secureSessionReady := e.SecureSession != nil
-	e.secureSessionMu.Unlock()
-	if !secureSessionReady {
-		return nil, nil, noop, fmt.Errorf("executor: secure session manager is required")
+	if !detached {
+		e.secureSessionMu.Lock()
+		if e.SecureSession == nil {
+			secureSessionTestPrepare(e)
+		}
+		secureSessionReady := e.SecureSession != nil
+		e.secureSessionMu.Unlock()
+		if !secureSessionReady {
+			return nil, nil, noop, fmt.Errorf("executor: secure session manager is required")
+		}
 	}
 
 	prep := &preparedRequest{bus: bus}
