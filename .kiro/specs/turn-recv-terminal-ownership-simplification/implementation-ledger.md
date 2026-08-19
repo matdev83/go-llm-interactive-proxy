@@ -8,7 +8,7 @@ This ledger records implementation commits and direct verification evidence. Ove
 | 1.2 Recv/Close/failure/terminal characterization | Complete | `2bb1c4c2` | Exact event/error/terminal ordering, blocked Recv versus Close, cancel/timeout/EOF/panic behavior, loser claims, and detached bounded cleanup characterized; 100 repeated scheduling runs passed. |
 | 1.3 Response/usage/billing/security/observer characterization | Complete | `2bb1c4c2` | Existing runtime characterization matrix plus new sequential-replacement evidence test pins sideband usage, two correctly attributed B-leg records, one call closure, observer output, and ordering; uncached runtime package passed. |
 | 1.4 Replacement pinning/interleaved characterization | Complete | `2bb1c4c2` | Existing interleaved/reload suite plus new continuation test pins exec/session/metering/authority/security/routing/model/billing facts across refresh; uncached and 100 repeated focused runs passed. |
-| 2.1 Immutable receive-turn facts | Pending | — | — |
+| 2.1 Immutable receive-turn facts | Complete | `4528016b` | `recvTurnFacts` is the sole construction-time authority for cloned request, pinned context/model views, route/security identity, and stable economic owner references. Focused facts/ratchet tests, uncached runtime, runtime vet, and 100 repeated Recv/Close/domain/pinning runs passed. The opt-in target improved from 89 to 67 direct façade fields and from 62 to 40 state-copy assignments; remaining target debt is assigned to later owner tasks. |
 | 2.2 Current-B-leg attempt owner | Pending | — | — |
 | 2.3 Attempt-local accounting/tool/prompt-cache state | Pending | — | — |
 | 2.4 Coherent current-attempt snapshot/swap | Pending | — | — |
