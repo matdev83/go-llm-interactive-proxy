@@ -92,7 +92,7 @@ func TestReloadConcurrencyCertification_InFlightJobRetainsCapturedGeneration(t *
 	}
 	t.Cleanup(func() { _ = scheduler.Close() })
 
-	coordinator, err := NewBranchCoordinator(Config{})
+	coordinator, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,11 +130,13 @@ func TestReloadConcurrencyCertification_InFlightJobRetainsCapturedGeneration(t *
 	}
 	close(first.release)
 
-	oldResult, err := oldClient.Await(context.Background(), oldID)
+	awaitCtx, cancelAwait := context.WithTimeout(t.Context(), time.Second)
+	defer cancelAwait()
+	oldResult, err := oldClient.Await(awaitCtx, oldID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	newResult, err := newClient.Await(context.Background(), newID)
+	newResult, err := newClient.Await(awaitCtx, newID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestReloadConcurrencyCertification_InFlightJobRetainsCapturedGeneration(t *
 
 func TestReloadConcurrencyCertification_ExplicitCorrectionWinsLateResult(t *testing.T) {
 	t.Parallel()
-	coordinator, err := NewBranchCoordinator(Config{})
+	coordinator, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +259,7 @@ func TestReloadConcurrencyCertification_ExplicitCorrectionWinsLateResult(t *test
 
 func TestReloadConcurrencyCertification_ResetAndForkDoNotLeakParentState(t *testing.T) {
 	t.Parallel()
-	coordinator, err := NewBranchCoordinator(Config{})
+	coordinator, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +312,7 @@ func TestReloadConcurrencyCertification_ResetAndForkDoNotLeakParentState(t *test
 func TestReloadConcurrencyCertification_ExpiryClearsBranchAndResultTogether(t *testing.T) {
 	t.Parallel()
 	clock := &certificationClock{now: time.Unix(100, 0)}
-	coordinator, err := NewBranchCoordinator(Config{TTL: time.Second, Now: clock.Now})
+	coordinator, err := NewBranchCoordinator(context.Background(), Config{TTL: time.Second, Now: clock.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +350,9 @@ func TestReloadConcurrencyCertification_ExpiryClearsBranchAndResultTogether(t *t
 	if id == "" {
 		t.Fatal("scheduler returned empty job id")
 	}
-	if _, err := scheduler.Await(context.Background(), id); err != nil {
+	awaitCtx, cancelAwait := context.WithTimeout(t.Context(), time.Second)
+	defer cancelAwait()
+	if _, err := scheduler.Await(awaitCtx, id); err != nil {
 		t.Fatal(err)
 	}
 	clock.Advance(2 * time.Second)
@@ -358,7 +362,7 @@ func TestReloadConcurrencyCertification_ExpiryClearsBranchAndResultTogether(t *t
 	if _, err := coordinator.ValidateInjection(context.Background(), parent, InjectionTarget{BoundaryKey: "boundary-expiry", CapsuleRevision: 1}); !errors.Is(err, ErrInjectionMismatch) {
 		t.Fatalf("expired injection validation error=%v want ErrInjectionMismatch", err)
 	}
-	if _, err := scheduler.Await(context.Background(), id); !errors.Is(err, auxreq.ErrJobNotFound) {
+	if _, err := scheduler.Await(awaitCtx, id); !errors.Is(err, auxreq.ErrJobNotFound) {
 		t.Fatalf("expired auxiliary result error=%v want ErrJobNotFound", err)
 	}
 	child, err := NewBranchKey(parent.AuthoritativeSessionID, "child-a", parent.PrincipalPartition)

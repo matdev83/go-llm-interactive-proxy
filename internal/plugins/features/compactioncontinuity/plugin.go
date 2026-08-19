@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/carriers"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/extractor"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/observability"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/source"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -161,6 +162,18 @@ func errorOutcome(err error) observability.Outcome {
 	text := strings.ToLower(err.Error())
 	outcome := observability.OutcomeFailed
 	switch {
+	case errors.Is(err, resultmerge.ErrRejected):
+		outcome = observability.OutcomeRejected
+	case errors.Is(err, resultmerge.ErrAwaitTimeout), errors.Is(err, context.DeadlineExceeded):
+		outcome = observability.OutcomeTimeout
+	case errors.Is(err, context.Canceled):
+		outcome = observability.OutcomeCanceled
+	case errors.Is(err, resultmerge.ErrStaleResult):
+		outcome = observability.OutcomeStale
+	case errors.Is(err, capsule.ErrInvalidBranch), errors.Is(err, capsule.ErrBranchMismatch):
+		outcome = observability.OutcomeInvalid
+	case errors.Is(err, resultmerge.ErrInvalidJob), errors.Is(err, resultmerge.ErrInvalidParentState):
+		outcome = observability.OutcomeInvalid
 	case strings.Contains(text, "queue"), strings.Contains(text, "saturat"):
 		outcome = observability.OutcomeSaturated
 	case strings.Contains(text, "timeout"), strings.Contains(text, "deadline"):

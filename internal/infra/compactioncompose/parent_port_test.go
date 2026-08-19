@@ -2,6 +2,7 @@ package compactioncompose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -96,7 +97,7 @@ func TestParentPortPropagatesCancellationToBlockingStatePersistence(t *testing.T
 	t.Parallel()
 
 	store := newBlockingPutStore()
-	coordinator, err := corecontinuity.NewBranchCoordinator(corecontinuity.Config{Store: store})
+	coordinator, err := corecontinuity.NewBranchCoordinator(context.Background(), corecontinuity.Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +135,12 @@ func TestParentPortPropagatesCancellationToBlockingStatePersistence(t *testing.T
 	if _, found, err := coordinator.Snapshot(context.Background(), mustBranchKey(t, "session-cancel", "a-cancel")); err != nil || found {
 		t.Fatalf("canceled capture published state: found=%v err=%v", found, err)
 	}
+	store.mu.Lock()
+	writes := store.writes
+	store.mu.Unlock()
+	if writes != 0 {
+		t.Fatalf("canceled capture recorded %d store writes, want 0", writes)
+	}
 }
 
 func mustBranchKey(t *testing.T, sessionID, aLegID string) corecontinuity.BranchKey {
@@ -148,20 +155,40 @@ func mustBranchKey(t *testing.T, sessionID, aLegID string) corecontinuity.Branch
 type blockingPutStore struct {
 	started   chan struct{}
 	startOnce sync.Once
+	mu        sync.Mutex
+	value     any
+	writes    int
 }
 
 func newBlockingPutStore() *blockingPutStore {
 	return &blockingPutStore{started: make(chan struct{})}
 }
 
-func (s *blockingPutStore) Get(context.Context, lipstate.Scope, string, string, any) (bool, error) {
-	return false, nil
+func (s *blockingPutStore) Get(_ context.Context, _ lipstate.Scope, _, _ string, out any) (bool, error) {
+	s.mu.Lock()
+	value := s.value
+	s.mu.Unlock()
+	if value == nil {
+		return false, nil
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(b, out)
 }
 
-func (s *blockingPutStore) Put(ctx context.Context, _ lipstate.Scope, _, _ string, _ any, _ time.Duration) error {
+func (s *blockingPutStore) Put(ctx context.Context, _ lipstate.Scope, _, _ string, value any, _ time.Duration) error {
 	s.startOnce.Do(func() { close(s.started) })
 	<-ctx.Done()
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.value = value
+	s.writes++
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *blockingPutStore) Delete(context.Context, lipstate.Scope, string, string) error {
@@ -174,7 +201,7 @@ func (s *blockingPutStore) InspectTTL(context.Context, lipstate.Scope, string, s
 
 func newTestPort(t *testing.T) *CompactionContinuityParentPort {
 	t.Helper()
-	coordinator, err := corecontinuity.NewBranchCoordinator(corecontinuity.Config{})
+	coordinator, err := corecontinuity.NewBranchCoordinator(context.Background(), corecontinuity.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

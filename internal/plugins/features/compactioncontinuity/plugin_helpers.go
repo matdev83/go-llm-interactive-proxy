@@ -165,7 +165,6 @@ func semanticExtractionEligible(cfg Config, candidate, deterministicPlan bool) b
 }
 
 type parentCoordinator struct {
-	ctx    context.Context
 	port   ParentPort
 	parent ParentBranch
 }
@@ -173,9 +172,6 @@ type parentCoordinator struct {
 func (p parentCoordinator) ValidatePendingJob(ctx context.Context, binding string, jobID auxiliary.JobID) (resultmerge.ParentState, error) {
 	if binding != p.parent.Binding {
 		return resultmerge.ParentState{}, fmt.Errorf("resultmerge: parent branch mismatch")
-	}
-	if ctx == nil {
-		ctx = p.ctx
 	}
 	state, err := p.port.ValidatePendingJob(ctx, p.parent, jobID)
 	if err != nil {
@@ -187,9 +183,6 @@ func (p parentCoordinator) ValidatePendingJob(ctx context.Context, binding strin
 func (p parentCoordinator) CommitCapsuleForJob(ctx context.Context, binding string, jobID auxiliary.JobID, resultBinding string, expectedRevision uint64, capsuleJSON []byte, digest [32]byte, watermark string) (resultmerge.ParentState, error) {
 	if binding != p.parent.Binding || resultBinding != p.parent.Binding {
 		return resultmerge.ParentState{}, fmt.Errorf("resultmerge: parent branch mismatch")
-	}
-	if ctx == nil {
-		ctx = p.ctx
 	}
 	state, err := p.port.CommitCapsuleForJob(ctx, p.parent, jobID, resultBinding, expectedRevision, capsuleJSON, digest, watermark)
 	if err != nil {

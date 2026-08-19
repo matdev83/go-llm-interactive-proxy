@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -33,13 +34,16 @@ func (f *fakeBackground) Await(context.Context, auxiliary.JobID) (lipapi.Collect
 func (f *fakeBackground) Forget(id auxiliary.JobID) { f.forgotten = append(f.forgotten, id) }
 
 type fakeParent struct {
-	state          ParentState
-	validateErr    error
-	commitErr      error
-	afterValidate  func()
-	validates      int
-	commits        int
-	committedBytes []byte
+	state             ParentState
+	validateErr       error
+	commitErr         error
+	afterValidate     func()
+	validates         int
+	commits           int
+	committedBytes    []byte
+	commitContextErr  error
+	commitHasDeadline bool
+	commitDeadline    time.Time
 }
 
 func (f *fakeParent) ValidatePendingJob(context.Context, string, auxiliary.JobID) (ParentState, error) {
@@ -54,8 +58,10 @@ func (f *fakeParent) ValidatePendingJob(context.Context, string, auxiliary.JobID
 	return out, nil
 }
 
-func (f *fakeParent) CommitCapsuleForJob(_ context.Context, _ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
+func (f *fakeParent) CommitCapsuleForJob(ctx context.Context, _ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
 	f.commits++
+	f.commitContextErr = ctx.Err()
+	f.commitDeadline, f.commitHasDeadline = ctx.Deadline()
 	if f.commitErr != nil {
 		return ParentState{}, f.commitErr
 	}
@@ -69,6 +75,27 @@ func (f *fakeParent) CommitCapsuleForJob(_ context.Context, _ string, _ auxiliar
 	f.state.SourceHighWatermark = highWatermark
 	f.state.PendingJobID = ""
 	return f.state.clone(), nil
+}
+
+func TestService_usesFreshBoundedCommitContextAfterBarrierExpires(t *testing.T) {
+	t.Parallel()
+	job, background, parent, decoder, _ := validFixture(t)
+	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrierCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	outcome, err := service.Consume(barrierCtx, job)
+	if err != nil || outcome.Status != StatusMerged {
+		t.Fatalf("Consume outcome=%#v err=%v, want merged despite expired barrier", outcome, err)
+	}
+	if parent.commitContextErr != nil {
+		t.Fatalf("commit received expired barrier context: %v", parent.commitContextErr)
+	}
+	if !parent.commitHasDeadline || !parent.commitDeadline.After(time.Now()) {
+		t.Fatalf("commit context was not freshly bounded: deadline=%v hasDeadline=%v", parent.commitDeadline, parent.commitHasDeadline)
+	}
 }
 
 type fakeDecoder struct {

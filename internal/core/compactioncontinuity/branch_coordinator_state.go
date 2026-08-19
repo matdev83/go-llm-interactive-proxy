@@ -10,7 +10,7 @@ import (
 )
 
 // NewBranchCoordinator constructs the process-owned coordinator.
-func NewBranchCoordinator(cfg Config) (*BranchCoordinator, error) {
+func NewBranchCoordinator(ctx context.Context, cfg Config) (*BranchCoordinator, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -39,7 +39,7 @@ func NewBranchCoordinator(cfg Config) (*BranchCoordinator, error) {
 		maxSourceBytes:    cfg.MaxSourceBytes,
 		entries:           make(map[string]branchEntry),
 	}
-	if err := c.load(context.Background()); err != nil {
+	if err := c.load(ctx); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -52,7 +52,7 @@ func (c *BranchCoordinator) load(ctx context.Context) error {
 	var raw persistedState
 	found, err := c.store.Get(ctx, lipstate.ScopeGlobal, stateNamespace, stateKey, &raw)
 	if err != nil {
-		return fmt.Errorf("%w: load: %v", ErrInvalidState, err)
+		return fmt.Errorf("%w: load: %w", ErrInvalidState, err)
 	}
 	if !found {
 		return nil

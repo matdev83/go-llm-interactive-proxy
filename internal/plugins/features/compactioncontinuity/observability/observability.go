@@ -157,6 +157,9 @@ func (r *Recorder) Observe(sample Observation) {
 		r.series = make(map[string]Observation, r.max)
 	}
 	if current, ok := r.series[key]; ok {
+		// One correlation cannot represent an aggregate containing multiple
+		// observations. Clear it as soon as the series receives a second sample.
+		current.CorrelationHash = ""
 		current.Count += sample.Count
 		if current.Count < sample.Count { // saturate on overflow
 			current.Count = ^uint64(0)

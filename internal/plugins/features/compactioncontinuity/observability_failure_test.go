@@ -98,7 +98,7 @@ func TestPluginObservabilityReportsBarrierTimeoutAndPreservesPendingResult(t *te
 	}
 	background.awaitErr = context.DeadlineExceeded
 	ev := lipapi.Event{Kind: lipapi.EventResponseFinished, Opaque: []byte("opaque")}
-	before := ev
+	before := cloneEventForAssertion(ev)
 	if err := plugin.BeforeResponseRelease(context.Background(), &ev, completionPreview(), openMeta(), compaction.Services{BackgroundAux: background}); err != nil {
 		t.Fatalf("BeforeResponseRelease: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestPluginObservabilityReportsInvalidAndStaleResultsAsFailOpen(t *testing.T
 			_ = plugin.RequestOpened(context.Background(), openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background})
 			background.awaitResult.Text.WriteString(tc.payload)
 			ev := lipapi.Event{Kind: lipapi.EventResponseFinished, Opaque: []byte("opaque")}
-			before := ev
+			before := cloneEventForAssertion(ev)
 			_ = plugin.BeforeResponseRelease(context.Background(), &ev, completionPreview(), openMeta(), compaction.Services{BackgroundAux: background})
 			if !reflect.DeepEqual(ev, before) || parent.state.PendingJobID == "" || len(background.submits) != 1 {
 				t.Fatalf("failure altered primary flow: event=%#v state=%#v submits=%d", ev, parent.state, len(background.submits))
@@ -173,6 +173,43 @@ func TestPluginObservabilityReportsInvalidAndStaleResultsAsFailOpen(t *testing.T
 			}
 		})
 	}
+}
+
+func TestDeepEventSnapshotDetectsInPlaceOpaqueMutation(t *testing.T) {
+	t.Parallel()
+	ev := lipapi.Event{Kind: lipapi.EventResponseFinished, Opaque: []byte("opaque")}
+	shallow := ev
+	deep := cloneEventForAssertion(ev)
+	ev.Opaque[0] = 'X'
+	if !reflect.DeepEqual(ev, shallow) {
+		t.Fatal("control setup failed: shallow snapshot should alias Opaque and miss mutation")
+	}
+	if reflect.DeepEqual(ev, deep) {
+		t.Fatal("deep event snapshot missed in-place Opaque mutation")
+	}
+}
+
+func cloneEventForAssertion(in lipapi.Event) lipapi.Event {
+	out := in
+	if in.Opaque != nil {
+		out.Opaque = append([]byte(nil), in.Opaque...)
+	}
+	if in.Reasoning != nil {
+		reasoning := *in.Reasoning
+		reasoning.Opaque = append([]byte(nil), in.Reasoning.Opaque...)
+		reasoning.Summary = append([]byte(nil), in.Reasoning.Summary...)
+		reasoning.Content = append([]byte(nil), in.Reasoning.Content...)
+		reasoning.EncryptedContent = append([]byte(nil), in.Reasoning.EncryptedContent...)
+		out.Reasoning = &reasoning
+	}
+	if in.Item != nil {
+		cloned := lipapi.CloneCall(lipapi.Call{Items: []lipapi.Item{*in.Item}}).Items[0]
+		out.Item = &cloned
+	}
+	if in.UsageScopes != nil {
+		out.UsageScopes = append([]lipapi.ScopedUsageDelta(nil), in.UsageScopes...)
+	}
+	return out
 }
 
 func hasObservation(series []observability.Observation, stage observability.Stage, outcome observability.Outcome) bool {

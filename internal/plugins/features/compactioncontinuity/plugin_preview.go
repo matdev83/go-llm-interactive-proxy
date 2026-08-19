@@ -18,6 +18,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
 
+const minimumBarrierTimeout = time.Millisecond
+
 // BeforeRequest consumes only pure detector metadata. It may prepare a
 // non-billable intent and inject an already available capsule, but it never
 // submits fresh auxiliary work before the primary request opens.
@@ -85,7 +87,7 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 		p.observeError(observability.StageCapsule, err, boundary)
 		return nil
 	}
-	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark, cfg)
+	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark, boundary, cfg)
 	if err != nil {
 		p.observeError(observability.StageCapsule, err, boundary)
 		return nil
@@ -122,7 +124,7 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	}
 	if _, err = p.parent.SetPendingInjection(ctx, parent, target); err != nil {
 		p.observeFailure(observability.StageReinjection, observability.OutcomeRollback, boundary, "")
-		return err
+		return nil
 	}
 	p.observe(observability.Observation{Stage: observability.StageAugmentation, Outcome: observability.OutcomeCompleted, CorrelationHash: observability.HashID(boundary), Revision: previous.Revision})
 	p.observe(observability.Observation{Stage: observability.StageReinjection, Outcome: observability.OutcomeCreated, CorrelationHash: observability.HashID(boundary), Revision: previous.Revision})
@@ -148,7 +150,7 @@ func previewIntentKey(binding, boundary string, revision uint64) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBranch, state ParentState, previous capsule.Envelope, prepared source.Prepared, watermark string, cfg Config) (capsule.Envelope, ParentState, error) {
+func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBranch, state ParentState, previous capsule.Envelope, prepared source.Prepared, watermark, boundary string, cfg Config) (capsule.Envelope, ParentState, error) {
 	dirty := len(state.CapsuleJSON) == 0
 	if previous.BranchBinding == "" && prepared.Candidate {
 		var err error
@@ -168,10 +170,10 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 			if err != nil {
 				outcome = observability.OutcomeInvalid
 			}
-			p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: outcome, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(watermark)})
+			p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: outcome, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(boundary)})
 			continue
 		}
-		p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: observability.OutcomeMatched, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(watermark)})
+		p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: observability.OutcomeMatched, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(boundary)})
 		previous, err = carriers.Apply(previous, update)
 		if err != nil {
 			return capsule.Envelope{}, ParentState{}, err
@@ -197,7 +199,7 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 	if err != nil {
 		return capsule.Envelope{}, ParentState{}, err
 	}
-	p.observeCapsule(observability.OutcomeCommitted, previous, len(serialized), watermark)
+	p.observeCapsule(observability.OutcomeCommitted, previous, len(serialized), boundary)
 	return previous, state, nil
 }
 
@@ -208,12 +210,16 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 		return state, err
 	}
 	decoder := resultmerge.NewExtractorDecoder(resultmerge.ExtractorDecoderConfig{AllowedSourceRefs: sourceRefs(previous, window)})
-	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{ctx: ctx, port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: cfg.Capsule.MaxBytes, MaxCapsuleTokens: cfg.Capsule.MaxTokens})
+	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: cfg.Capsule.MaxBytes, MaxCapsuleTokens: cfg.Capsule.MaxTokens})
 	if err != nil {
 		p.observeError(observability.StageBarrier, err, string(pendingJobID))
 		return state, err
 	}
-	barrierCtx, cancel := context.WithTimeout(ctx, cfg.Barrier.Timeout)
+	barrierTimeout := cfg.Barrier.Timeout
+	if barrierTimeout <= 0 {
+		barrierTimeout = minimumBarrierTimeout
+	}
+	barrierCtx, cancel := context.WithTimeout(ctx, barrierTimeout)
 	defer cancel()
 	started := time.Now()
 	outcome, consumeErr := service.Consume(barrierCtx, resultmerge.Job{ID: pendingJobID, ParentBranchBinding: parent.Binding})

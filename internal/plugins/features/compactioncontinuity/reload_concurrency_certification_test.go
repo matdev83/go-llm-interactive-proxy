@@ -2,6 +2,7 @@ package compactioncontinuity
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ func TestReloadConcurrencyCertification_NewGenerationOnlyUsesNewExtractorPolicy(
 	t.Parallel()
 	oldConfig := openConfig(t)
 	oldParent := &openParentFake{branch: ParentBranch{
-		Binding: "sha256:" + repeatCertificationByte('b', 64), TraceID: "old-trace", ALegID: "old-a", BLegID: "old-b",
+		Binding: "sha256:" + strings.Repeat("b", 64), TraceID: "old-trace", ALegID: "old-a", BLegID: "old-b",
 	}}
 	oldBackground := &openBackgroundFake{}
 	oldPlugin, err := New(oldConfig, oldParent)
@@ -41,7 +42,7 @@ func TestReloadConcurrencyCertification_NewGenerationOnlyUsesNewExtractorPolicy(
 	newConfig.Extractor.Route = "reloaded/extractor"
 	newConfig.Extractor.Timeout = 211 * time.Millisecond
 	newParent := &openParentFake{branch: ParentBranch{
-		Binding: "sha256:" + repeatCertificationByte('c', 64), TraceID: "new-trace", ALegID: "new-a", BLegID: "new-b",
+		Binding: "sha256:" + strings.Repeat("c", 64), TraceID: "new-trace", ALegID: "new-a", BLegID: "new-b",
 	}}
 	newBackground := &openBackgroundFake{}
 	newPlugin, err := New(newConfig, newParent)
@@ -67,7 +68,7 @@ func TestReloadConcurrencyCertification_DisabledGenerationSubmitsNoNewJob(t *tes
 	base := openConfig(t)
 	base.Extractor.Enabled = false
 	parent := &openParentFake{branch: ParentBranch{
-		Binding: "sha256:" + repeatCertificationByte('d', 64), TraceID: "disabled-trace", ALegID: "disabled-a", BLegID: "disabled-b",
+		Binding: "sha256:" + strings.Repeat("d", 64), TraceID: "disabled-trace", ALegID: "disabled-a", BLegID: "disabled-b",
 	}}
 	background := &openBackgroundFake{}
 	plugin, err := New(base, parent)
@@ -83,12 +84,4 @@ func TestReloadConcurrencyCertification_DisabledGenerationSubmitsNoNewJob(t *tes
 	if len(parent.order) != 0 {
 		t.Fatalf("disabled generation touched continuity state: %v", parent.order)
 	}
-}
-
-func repeatCertificationByte(value byte, count int) string {
-	buf := make([]byte, count)
-	for i := range buf {
-		buf[i] = value
-	}
-	return string(buf)
 }

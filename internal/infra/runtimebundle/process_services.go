@@ -228,7 +228,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
-	if err := bindSharedMutableProcessServices(ps, shared); err != nil {
+	if err := bindSharedMutableProcessServices(parent, ps, shared); err != nil {
 		return fail(fmt.Errorf("runtimebundle: branch coordinator: %w", err))
 	}
 

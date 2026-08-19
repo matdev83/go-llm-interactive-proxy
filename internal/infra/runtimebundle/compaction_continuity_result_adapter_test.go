@@ -13,7 +13,7 @@ import (
 func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit(t *testing.T) {
 	t.Parallel()
 
-	coordinator, err := compactioncontinuity.NewBranchCoordinator(compactioncontinuity.Config{})
+	coordinator, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

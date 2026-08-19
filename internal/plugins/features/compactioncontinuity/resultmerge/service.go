@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
+
+const DefaultCommitTimeout = time.Second
 
 type Service struct {
 	background BackgroundClient
@@ -100,7 +103,12 @@ func (s *Service) Consume(ctx context.Context, job Job) (Outcome, error) {
 	if strings.TrimSpace(delta.SourceHighWatermark) != "" {
 		highWatermark = delta.SourceHighWatermark
 	}
-	committed, err := s.parent.CommitCapsuleForJob(ctx, job.ParentBranchBinding, job.ID, merged.BranchBinding, state.Revision, serialized, digest, highWatermark)
+	// Await is bounded by the response barrier and may consume that entire
+	// deadline. Commit is a separate, small state transition and must not
+	// inherit an already-expired barrier context.
+	commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(ctx), DefaultCommitTimeout)
+	defer cancelCommit()
+	committed, err := s.parent.CommitCapsuleForJob(commitCtx, job.ParentBranchBinding, job.ID, merged.BranchBinding, state.Revision, serialized, digest, highWatermark)
 	if err != nil {
 		return Outcome{Status: StatusRejected, State: state}, err
 	}

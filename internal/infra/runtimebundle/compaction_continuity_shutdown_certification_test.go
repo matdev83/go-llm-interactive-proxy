@@ -53,7 +53,7 @@ func TestCompactionContinuityShutdownCertification_ProcessOwnsAndClosesResources
 
 func TestCompactionContinuityShutdownCertification_BranchAndPreviewBounds(t *testing.T) {
 	clock := &certificationClock{now: time.Unix(100, 0)}
-	coordinator, err := compactioncontinuity.NewBranchCoordinator(compactioncontinuity.Config{
+	coordinator, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{
 		MaxEntries:        2,
 		MaxPreviewIntents: 1,
 		TTL:               time.Minute,

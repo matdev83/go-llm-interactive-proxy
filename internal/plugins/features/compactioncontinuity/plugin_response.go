@@ -117,13 +117,21 @@ func (p *Plugin) AfterResponseRelease(ctx context.Context, ev lipapi.Event, meta
 		return nil
 	}
 	parent, err := p.parent.CaptureMeta(ctx, meta)
-	if err != nil || !validParentBranch(parent) {
+	if err != nil {
 		p.observeError(observability.StageWatermark, err, meta.TransactionID)
 		return nil
 	}
+	if !validParentBranch(parent) {
+		p.observeFailure(observability.StageWatermark, observability.OutcomeSkipped, meta.TransactionID, "")
+		return nil
+	}
 	state, err := p.parent.Snapshot(ctx, parent)
-	if err != nil || state.PendingInjection == nil {
+	if err != nil {
 		p.observeError(observability.StageWatermark, err, meta.TransactionID)
+		return nil
+	}
+	if state.PendingInjection == nil {
+		p.observeFailure(observability.StageWatermark, observability.OutcomeSkipped, meta.TransactionID, "")
 		return nil
 	}
 	boundary := strings.TrimSpace(meta.TransactionID)

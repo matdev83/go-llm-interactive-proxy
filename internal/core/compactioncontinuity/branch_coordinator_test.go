@@ -19,6 +19,56 @@ type coordinatorStore struct {
 	failed bool
 }
 
+type contextAwareLoadStore struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *contextAwareLoadStore) Get(ctx context.Context, _ lipstate.Scope, _, _ string, _ any) (bool, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+
+func (*contextAwareLoadStore) Put(context.Context, lipstate.Scope, string, string, any, time.Duration) error {
+	return nil
+}
+
+func (*contextAwareLoadStore) Delete(context.Context, lipstate.Scope, string, string) error {
+	return nil
+}
+
+func (*contextAwareLoadStore) InspectTTL(context.Context, lipstate.Scope, string, string) (time.Duration, bool, error) {
+	return 0, false, nil
+}
+
+func TestBranchCoordinator_LoadUsesConstructorContext(t *testing.T) {
+	t.Parallel()
+
+	store := &contextAwareLoadStore{started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := NewBranchCoordinator(ctx, Config{Store: store})
+		result <- err
+	}()
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("constructor did not reach state load")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("constructor error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("constructor did not honor cancellation")
+	}
+}
+
 func (s *coordinatorStore) Get(_ context.Context, _ lipstate.Scope, _, _ string, out any) (bool, error) {
 	if s.failed {
 		return false, errors.New("store read failed")
@@ -67,7 +117,7 @@ func TestBranchCoordinator_CapturesParentBindingBeforePrivateChild(t *testing.T)
 		t.Fatal("the private child A-leg must not replace the captured parent binding")
 	}
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +141,7 @@ func TestBranchCoordinator_CapturesParentBindingBeforePrivateChild(t *testing.T)
 func TestBranchCoordinator_MutationsRequireExplicitCapture(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +174,7 @@ func TestBranchCoordinator_PersistsEntriesInStableBindingOrder(t *testing.T) {
 	t.Parallel()
 
 	store := &coordinatorStore{}
-	c, err := NewBranchCoordinator(Config{Store: store})
+	c, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +203,7 @@ func TestBranchCoordinator_PersistenceFailureLeavesStateUnchanged(t *testing.T) 
 	t.Parallel()
 
 	store := &coordinatorStore{}
-	c, err := NewBranchCoordinator(Config{Store: store})
+	c, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +241,7 @@ func TestBranchCoordinator_PersistenceFailureLeavesStateUnchanged(t *testing.T) 
 func TestBranchCoordinator_SnapshotsDefensivelyCopyOpaqueAndPendingState(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +308,7 @@ func TestBranchKey_SecureSessionDominatesPrincipalFallback(t *testing.T) {
 func TestBranchCoordinator_RevisionAndPendingJobAreCompareAndBindChecked(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +354,7 @@ func TestBranchCoordinator_RevisionAndPendingJobAreCompareAndBindChecked(t *test
 func TestBranchCoordinator_PreviewIntentBindsOnlyAfterCommittedTransaction(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +387,7 @@ func TestBranchCoordinator_PreviewIntentBindsOnlyAfterCommittedTransaction(t *te
 func TestBranchCoordinator_InjectionWatermarkIsBoundaryScopedAndCommitsOnRelease(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +422,7 @@ func TestBranchCoordinator_BoundsAndLazyExpiry(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(100, 0)
-	c, err := NewBranchCoordinator(Config{MaxEntries: 1, TTL: time.Second, Now: func() time.Time { return now }})
+	c, err := NewBranchCoordinator(context.Background(), Config{MaxEntries: 1, TTL: time.Second, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +443,7 @@ func TestBranchCoordinator_BoundsAndLazyExpiry(t *testing.T) {
 func TestBranchCoordinator_SerializesConcurrentInjectionUpdates(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +474,7 @@ func TestBranchCoordinator_UsesOpaqueProcessExtensionStateAcrossCoordinatorReloa
 	t.Parallel()
 
 	store := corestate.NewMem(nil)
-	c1, err := NewBranchCoordinator(Config{Store: store})
+	c1, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +488,7 @@ func TestBranchCoordinator_UsesOpaqueProcessExtensionStateAcrossCoordinatorReloa
 	if _, err := c1.RecordPendingJob(context.Background(), key, auxiliary.JobID("job-reload"), 1); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := NewBranchCoordinator(Config{Store: store})
+	c2, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}

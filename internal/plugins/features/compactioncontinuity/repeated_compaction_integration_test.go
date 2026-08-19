@@ -154,10 +154,14 @@ func TestRepeatedCompactionSemanticMatrix(t *testing.T) {
 		t.Fatalf("successive compactions=%d submissions=%d", len(revisions), len(background.submits))
 	}
 	e := revisions[2]
+	finalEncoded, err := capsule.Encode(e)
+	if err != nil {
+		t.Fatalf("final capsule encoding for diagnostics: %v", err)
+	}
 	run := func(name string, ok bool) {
 		t.Run(name, func(t *testing.T) {
 			if !ok {
-				t.Fatal("matrix check failed")
+				t.Fatalf("matrix check failed: observed capsule revision=%d digest=%s envelope=%s parent_state=%+v", e.Revision, e.ContentDigest, finalEncoded, parent.state)
 			}
 		})
 	}

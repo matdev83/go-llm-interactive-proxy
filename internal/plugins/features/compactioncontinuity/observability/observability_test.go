@@ -55,3 +55,24 @@ func TestRecorderNormalizesNonHexHash(t *testing.T) {
 		t.Fatalf("correlation hash=%q, want normalized hash %q", got[0].CorrelationHash, HashID(malformed))
 	}
 }
+
+func TestRecorderClearsCorrelationHashAfterSeriesAggregates(t *testing.T) {
+	t.Parallel()
+	recorder := NewRecorder(1)
+	recorder.Observe(Observation{
+		Stage: StageEvent, Outcome: OutcomeObserved, CorrelationHash: HashID("first"),
+	})
+	recorder.Observe(Observation{
+		Stage: StageEvent, Outcome: OutcomeObserved, CorrelationHash: HashID("second"),
+	})
+	got := recorder.Snapshot()
+	if len(got) != 1 {
+		t.Fatalf("snapshot=%#v, want one aggregate", got)
+	}
+	if got[0].Count != 2 {
+		t.Fatalf("aggregate count=%d, want 2", got[0].Count)
+	}
+	if got[0].CorrelationHash != "" {
+		t.Fatalf("aggregate correlation hash=%q, want cleared after merge", got[0].CorrelationHash)
+	}
+}

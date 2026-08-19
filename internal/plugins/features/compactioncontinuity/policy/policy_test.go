@@ -61,7 +61,7 @@ func TestResolve_GlobalHardDisableCannotBeEnabledBySession(t *testing.T) {
 	}
 }
 
-func TestResolve_TrustedEnableAndDisable(t *testing.T) {
+func TestResolve_DefaultDisabledCannotBeEnabledByTrustedSession(t *testing.T) {
 	t.Parallel()
 	defaults := baseDefaults()
 	defaults.Enabled = false
@@ -71,12 +71,15 @@ func TestResolve_TrustedEnableAndDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Enabled {
-		t.Fatal("trusted session enabled a globally disabled feature")
+		t.Fatal("trusted session enabled a default-disabled feature")
 	}
+}
 
-	ctx = policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: new(false)})
-	defaults.Enabled = true
-	got, err = policy.Resolve(ctx, defaults, baseMaxima())
+func TestResolve_TrustedSessionCanDisableEnabledFeature(t *testing.T) {
+	t.Parallel()
+	defaults := baseDefaults()
+	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: new(false)})
+	got, err := policy.Resolve(ctx, defaults, baseMaxima())
 	if err != nil {
 		t.Fatal(err)
 	}

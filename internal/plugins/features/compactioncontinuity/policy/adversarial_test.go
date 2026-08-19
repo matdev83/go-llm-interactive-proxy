@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,9 +12,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-type adversarialRedactor struct{}
+type emptyResultRedactor struct{}
 
-func (adversarialRedactor) Redact(context.Context, string) (string, error) { return "", nil }
+func (emptyResultRedactor) Redact(context.Context, string) (string, error) { return "", nil }
+
+type errorRedactor struct{}
+
+func (errorRedactor) Redact(context.Context, string) (string, error) {
+	return "", errors.New("redactor unavailable")
+}
 
 type replacingRedactor struct{}
 
@@ -76,14 +83,26 @@ func TestAdversarial_SecretAndInstructionTextAreSanitizedBeforeChildEgress(t *te
 	}
 }
 
-func TestAdversarial_RedactorFailureDropsPotentialEgress(t *testing.T) {
+func TestAdversarial_EmptyRedactorResultDropsPotentialEgress(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{Items: []lipapi.Item{adversarialText("user-1", "I choose this but SECRET_TOKEN must stay private")}}
-	prepared, err := source.Prepare(t.Context(), source.Input{Call: call, Redactor: adversarialRedactor{}, Config: source.DefaultConfig()})
+	prepared, err := source.Prepare(t.Context(), source.Input{Call: call, Redactor: emptyResultRedactor{}, Config: source.DefaultConfig()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(prepared.Envelope.Entries) != 0 || len(prepared.NewEntries) != 0 {
 		t.Fatalf("redactor failure/empty result left egress material: %#v", prepared)
+	}
+}
+
+func TestAdversarial_RedactorErrorDropsPotentialEgress(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{Items: []lipapi.Item{adversarialText("user-2", "I choose this but SECRET_TOKEN must stay private")}}
+	prepared, err := source.Prepare(t.Context(), source.Input{Call: call, Redactor: errorRedactor{}, Config: source.DefaultConfig()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Envelope.Entries) != 0 || len(prepared.NewEntries) != 0 || prepared.Candidate {
+		t.Fatalf("redactor error left egress material: %#v", prepared)
 	}
 }

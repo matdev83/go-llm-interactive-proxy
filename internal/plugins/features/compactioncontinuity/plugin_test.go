@@ -3,6 +3,7 @@ package compactioncontinuity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/observability"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -25,6 +28,7 @@ type openParentFake struct {
 	recordErr    error
 	previewErr   error
 	injectionErr error
+	snapshotErr  error
 }
 
 func (f *openParentFake) Capture(context.Context, lipapi.Call, compaction.PreservationMeta) (ParentBranch, error) {
@@ -51,6 +55,9 @@ func (f *openParentFake) Snapshot(context.Context, ParentBranch) (ParentState, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.order = append(f.order, "snapshot")
+	if f.snapshotErr != nil {
+		return ParentState{}, f.snapshotErr
+	}
 	return cloneOpenState(f.state), nil
 }
 
@@ -677,6 +684,69 @@ func TestBeforeRequest_validationFailureRestoresCallAndPendingState(t *testing.T
 	_ = plugin.BeforeRequest(context.Background(), &call, compaction.RequestPreview{Kind: compaction.PreviewCompletionCandidate, BoundaryFingerprint: "new-boundary"}, openMeta(), compaction.Services{BackgroundAux: background})
 	if !reflect.DeepEqual(call, before) || parent.state.PendingInjection == nil || parent.state.PendingInjection.BoundaryKey != "old-boundary" {
 		t.Fatalf("validation failure changed call/pending state: call=%+v state=%+v", call, parent.state)
+	}
+}
+
+func TestBeforeRequest_setPendingInjectionFailureIsFeatureLocal(t *testing.T) {
+	t.Parallel()
+	plugin, parent, background := openFixture(t)
+	parent.injectionErr = errors.New("injection state unavailable")
+	call := openCall()
+	before := lipapi.CloneCall(call)
+	err := plugin.BeforeRequest(context.Background(), &call, compaction.RequestPreview{
+		Kind: compaction.PreviewCompletionCandidate, BoundaryFingerprint: "set-pending-failure",
+	}, openMeta(), compaction.Services{BackgroundAux: background})
+	if err != nil {
+		t.Fatalf("feature callback error escaped: %v", err)
+	}
+	if !reflect.DeepEqual(call, before) || parent.state.PendingInjection != nil || len(background.submits) != 0 {
+		t.Fatalf("set-pending failure changed primary flow: call=%#v state=%#v submits=%d", call, parent.state, len(background.submits))
+	}
+}
+
+func TestAfterResponseRelease_distinguishesSnapshotErrorFromNoPendingInjection(t *testing.T) {
+	t.Parallel()
+	plugin, parent, _ := pendingResponseFixture(t)
+	recorder := observability.NewRecorder(64)
+	plugin.obs = recorder
+	parent.snapshotErr = errors.New("state unavailable")
+	meta := openMeta()
+	meta.TransactionID = "watermark-snapshot-error"
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeFailed) {
+		t.Fatalf("snapshot error was not recorded as failure: %#v", recorder.Snapshot())
+	}
+
+	parent.snapshotErr = nil
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeSkipped) {
+		t.Fatalf("missing pending injection was not recorded as skip: %#v", recorder.Snapshot())
+	}
+
+	parent.branch.Binding = ""
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeSkipped) {
+		t.Fatalf("invalid parent was not recorded as skip: %#v", recorder.Snapshot())
+	}
+}
+
+func TestErrorOutcome_usesKnownSentinels(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+		want observability.Outcome
+	}{
+		{name: "rejected", err: fmt.Errorf("wrapped: %w", resultmerge.ErrRejected), want: observability.OutcomeRejected},
+		{name: "invalid branch", err: fmt.Errorf("wrapped: %w", capsule.ErrInvalidBranch), want: observability.OutcomeInvalid},
+		{name: "invalid parent", err: fmt.Errorf("wrapped: %w", resultmerge.ErrInvalidParentState), want: observability.OutcomeInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := errorOutcome(tc.err); got != tc.want {
+				t.Fatalf("errorOutcome(%v)=%q want %q", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 
