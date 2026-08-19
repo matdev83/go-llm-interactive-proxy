@@ -15,7 +15,7 @@ This ledger records Kiro task completion against reviewed files, commits, and di
 
 ## Task Evidence
 
-Commit mapping: Kiro Tasks 1.1–4.5 production code, tests, architecture fences, and guardrail updates are in `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd`. Approval/readiness metadata, completed task status, and this evidence ledger are in the following `docs(kiro)` commit. Per-row `pending` values below are retained only as the pre-commit execution history; this mapping is authoritative.
+Commit mapping: Kiro Tasks 1.1–4.5 production code, tests, architecture fences, and guardrail updates are in `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd`. Approval/readiness metadata, completed task status, and the implementation evidence ledger are in `1f903ebc`. Per-row `pending` values below are retained only as the pre-commit execution history; this mapping is authoritative.
 
 | Task | Status | Executor / owner | Files | Commit | Verification evidence |
 |---|---|---|---|---|---|
@@ -42,4 +42,4 @@ Commit mapping: Kiro Tasks 1.1–4.5 production code, tests, architecture fences
 
 | Slice | Changed files | Commit | PR | CI / merge / archive state |
 |---|---:|---|---|---|
-| Implementation | 25 | `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd` + following `docs(kiro)` commit | pending | implemented locally; CI/merge/merged-main verification pending, so archive is not eligible |
+| Implementation | 25 | `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd`; `1f903ebc` | [PR #381](https://github.com/matdev83/go-llm-interactive-proxy/pull/381) | draft PR opened; CI/merge/merged-main verification pending, so archive is not eligible |
