@@ -88,6 +88,7 @@ func isoExecutor(t *testing.T, cap *compactionContinuityBillingCapture, st *b2bu
 	return ex
 }
 func mustRecorder(t *testing.T, ss *memory.Store) *app.Recorder {
+	t.Helper()
 	r, e := app.NewRecorder(ss)
 	if e != nil {
 		t.Fatal(e)

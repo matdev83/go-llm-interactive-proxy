@@ -110,3 +110,32 @@ plugins:
     - id: tool-call-repair
       enabled: true
       config: {}
+    # Compaction continuity is intentionally disabled in the no-key dogfood
+    # path. See docs/compaction-continuity.md before enabling remote extraction.
+    - id: compaction-continuity
+      enabled: false
+      config:
+        extractor:
+          route: "openai-responses:small-model"
+          timeout: 8s
+          max_input_tokens: 12000
+          max_output_tokens: 2000
+        worker:
+          max_concurrency: 2
+          queue_capacity: 16
+        barrier:
+          timeout: 2s
+        capsule:
+          max_tokens: 2500
+          max_bytes: 1048576
+        source:
+          ttl: 2h
+          max_bytes: 4194304
+        result:
+          ttl: 2h
+          max_bytes: 4194304
+          max_count: 16
+        failure:
+          mode: fail_open
+        branch_ttl: 2h
+        max_branch_entries: 1024

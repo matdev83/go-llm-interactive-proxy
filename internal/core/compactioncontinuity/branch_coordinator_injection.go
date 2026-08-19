@@ -1,11 +1,12 @@
 package compactioncontinuity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
-func (c *BranchCoordinator) SetPendingInjection(key BranchKey, target InjectionTarget) (BranchState, error) {
+func (c *BranchCoordinator) SetPendingInjection(ctx context.Context, key BranchKey, target InjectionTarget) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -37,7 +38,7 @@ func (c *BranchCoordinator) SetPendingInjection(key BranchKey, target InjectionT
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist pending injection: %w", err)
 	}
 	c.entries = next
@@ -46,7 +47,7 @@ func (c *BranchCoordinator) SetPendingInjection(key BranchKey, target InjectionT
 
 // ValidateInjection enforces branch and pending-target consistency before a
 // caller mutates a canonical request.
-func (c *BranchCoordinator) ValidateInjection(key BranchKey, target InjectionTarget) (BranchState, error) {
+func (c *BranchCoordinator) ValidateInjection(_ context.Context, key BranchKey, target InjectionTarget) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -67,7 +68,7 @@ func (c *BranchCoordinator) ValidateInjection(key BranchKey, target InjectionTar
 // CommitReleasedInjection advances the durable compound watermark only after
 // successful final client release. A pre-release validation/Open/abort path
 // must leave PendingInjection untouched.
-func (c *BranchCoordinator) CommitReleasedInjection(key BranchKey, watermark InjectionWatermark) (BranchState, error) {
+func (c *BranchCoordinator) CommitReleasedInjection(ctx context.Context, key BranchKey, watermark InjectionWatermark) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -92,7 +93,7 @@ func (c *BranchCoordinator) CommitReleasedInjection(key BranchKey, watermark Inj
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist release watermark: %w", err)
 	}
 	c.entries = next

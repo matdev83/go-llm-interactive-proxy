@@ -1,6 +1,10 @@
 package execctx
 
-import "context"
+import (
+	"context"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+)
 
 // SessionMode identifies the trusted execution policy selected by core before
 // an auxiliary call enters the executor. It is intentionally not part of the
@@ -40,10 +44,10 @@ func WithDetachedSession(ctx context.Context, meta DetachedSession) context.Cont
 	if ctx == nil {
 		ctx = context.TODO()
 	}
-	return context.WithValue(ctx, detachedContextKey{}, detachedContextValue{
+	return session.WithoutSecureTurnPolicy(context.WithValue(ctx, detachedContextKey{}, detachedContextValue{
 		mode: SessionModeDetached,
 		meta: meta,
-	})
+	}))
 }
 
 // SessionModeFromContext returns the explicitly selected internal mode. The

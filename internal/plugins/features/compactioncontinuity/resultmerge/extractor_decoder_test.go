@@ -8,6 +8,7 @@ import (
 )
 
 func TestExtractorDecoderStrictResultMergesThroughService(t *testing.T) {
+	t.Parallel()
 	job, background, parent, _, base := validFixture(t)
 	background.result.Text.WriteString(`{"schema_version":1,"base_revision":1,"facts":[],"plan_updates":[],"decision_updates":[{"id":"decision-strict","conflict_key":"runtime.mode","supersedes":[],"statement":"Use the bounded mode.","status":"active","rationale":"","source_ref":"source-1"}],"remove_or_supersede":[]}`)
 	decoder := NewExtractorDecoder(ExtractorDecoderConfig{AllowedSourceRefs: []string{"source-1"}})
@@ -33,6 +34,7 @@ func TestExtractorDecoderStrictResultMergesThroughService(t *testing.T) {
 }
 
 func TestExtractorDecoderSemanticRemovalMergesThroughService(t *testing.T) {
+	t.Parallel()
 	job, background, parent, _, base := validFixture(t)
 	base.Decisions = []capsule.Decision{{
 		ID: "semantic-old", ConflictKey: "runtime.mode", Statement: "Use the old mode.",
@@ -71,6 +73,7 @@ func TestExtractorDecoderSemanticRemovalMergesThroughService(t *testing.T) {
 }
 
 func TestExtractorDecoderRejectsToolOutputAndUnknownRemoval(t *testing.T) {
+	t.Parallel()
 	job, background, _, _, base := validFixture(t)
 	decoder := NewExtractorDecoder(ExtractorDecoderConfig{AllowedSourceRefs: []string{"source-1"}})
 	background.result.ToolNames = map[string]string{"tool-1": "shell"}

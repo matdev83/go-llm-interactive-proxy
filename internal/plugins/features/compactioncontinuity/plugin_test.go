@@ -3,6 +3,7 @@ package compactioncontinuity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/observability"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -25,6 +28,7 @@ type openParentFake struct {
 	recordErr    error
 	previewErr   error
 	injectionErr error
+	snapshotErr  error
 }
 
 func (f *openParentFake) Capture(context.Context, lipapi.Call, compaction.PreservationMeta) (ParentBranch, error) {
@@ -51,6 +55,9 @@ func (f *openParentFake) Snapshot(context.Context, ParentBranch) (ParentState, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.order = append(f.order, "snapshot")
+	if f.snapshotErr != nil {
+		return ParentState{}, f.snapshotErr
+	}
 	return cloneOpenState(f.state), nil
 }
 
@@ -283,6 +290,7 @@ func openMeta() compaction.PreservationMeta {
 }
 
 func TestRequestOpened_failedOrUncommittedEventDoesNotCaptureOrSubmit(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	ctx := context.Background()
 	if err := plugin.BeforeRequest(ctx, nil, compaction.RequestPreview{TransactionID: "preview"}, openMeta(), compaction.Services{BackgroundAux: background}); err != nil {
@@ -297,6 +305,7 @@ func TestRequestOpened_failedOrUncommittedEventDoesNotCaptureOrSubmit(t *testing
 }
 
 func TestRequestOpened_commitsParentBeforeSubmitAndUsesParentIdentity(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	_ = plugin.RequestOpened(context.Background(), openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background})
 	if got, want := strings.Join(parent.order, ","), "capture,snapshot,source,capsule,record"; got != want {
@@ -327,6 +336,7 @@ func TestRequestOpened_commitsParentBeforeSubmitAndUsesParentIdentity(t *testing
 }
 
 func TestRequestOpened_deterministicCarrierDoesNotSubmit(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	planOnly := plugin.cfg
 	planOnly.Preserve = PreserveConfig{Plan: true}
@@ -353,6 +363,7 @@ func TestRequestOpened_deterministicCarrierDoesNotSubmit(t *testing.T) {
 }
 
 func TestSemanticExtractionEligibility_planCarrierOnlyVsRequestedSemanticCategories(t *testing.T) {
+	t.Parallel()
 	base := Config{Extractor: ExtractorConfig{Enabled: true}}
 	tests := []struct {
 		name          string
@@ -368,6 +379,7 @@ func TestSemanticExtractionEligibility_planCarrierOnlyVsRequestedSemanticCategor
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := base
 			cfg.Preserve = tt.preserve
 			if got := semanticExtractionEligible(cfg, tt.candidate, tt.deterministic); got != tt.wantEligible {
@@ -378,6 +390,7 @@ func TestSemanticExtractionEligibility_planCarrierOnlyVsRequestedSemanticCategor
 }
 
 func TestRequestOpened_planCarrierDoesNotSuppressRequestedSemanticCategories(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	cfg := plugin.cfg
 	cfg.Preserve = PreserveConfig{Plan: true, UserDecisions: true}
@@ -397,6 +410,7 @@ func TestRequestOpened_planCarrierDoesNotSuppressRequestedSemanticCategories(t *
 }
 
 func TestRequestOpened_duplicateOpenUsesParentPendingJobAsCoalesceGuard(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	ctx := context.Background()
 	_ = plugin.RequestOpened(ctx, openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background})
@@ -416,6 +430,7 @@ func TestRequestOpened_duplicateOpenUsesParentPendingJobAsCoalesceGuard(t *testi
 }
 
 func TestRequestOpened_sourceOmitsUnrelatedToolDumpAndRawParentIdentifiers(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	call := lipapi.Call{Items: []lipapi.Item{
 		{Kind: lipapi.ItemKindToolCall, ID: "tool-call", ToolCall: &lipapi.ToolCallItem{Name: "shell", CallID: "shell-1", Arguments: []byte(`{"command":"cat secrets"}`)}},
@@ -435,6 +450,7 @@ func TestRequestOpened_sourceOmitsUnrelatedToolDumpAndRawParentIdentifiers(t *te
 }
 
 func TestRequestOpened_inheritUsesPrimaryRouteWithoutSharingChildTools(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	cfg := plugin.cfg
 	cfg.Extractor.Route = ""
@@ -460,7 +476,9 @@ func TestRequestOpened_inheritUsesPrimaryRouteWithoutSharingChildTools(t *testin
 func pendingResponseFixture(t *testing.T) (*Plugin, *openParentFake, *openBackgroundFake) {
 	t.Helper()
 	plugin, parent, background := openFixture(t)
-	plugin.RequestOpened(context.Background(), openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background})
+	if err := plugin.RequestOpened(context.Background(), openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background}); err != nil {
+		t.Fatal(err)
+	}
 	if parent.state.PendingJobID == "" {
 		t.Fatal("fixture did not create pending job")
 	}
@@ -478,6 +496,7 @@ func semanticResult() lipapi.Collected {
 }
 
 func TestBeforeResponseRelease_readyResultMergesAtBoundedBarrierWithoutSubmitOrEventMutation(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	background.awaitResult = semanticResult()
 	ev := lipapi.Event{Kind: lipapi.EventItem, Opaque: []byte(`{"opaque":"exact"}`)}
@@ -502,6 +521,7 @@ func TestBeforeResponseRelease_readyResultMergesAtBoundedBarrierWithoutSubmitOrE
 }
 
 func TestBeforeResponseRelease_timeoutRetainsPendingRawResult(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	background.awaitErr = context.DeadlineExceeded
 	ev := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"}
@@ -512,6 +532,7 @@ func TestBeforeResponseRelease_timeoutRetainsPendingRawResult(t *testing.T) {
 }
 
 func TestBeforeResponseRelease_invalidOrWrongParentFailsOpen(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	background.awaitResult.Text.WriteString(`not-json`)
 	ev := lipapi.Event{Kind: lipapi.EventResponseFinished, Opaque: []byte("opaque")}
@@ -530,6 +551,7 @@ func TestBeforeResponseRelease_invalidOrWrongParentFailsOpen(t *testing.T) {
 }
 
 func TestBeforeResponseRelease_requiresActualCompletionPreview(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	_ = plugin.BeforeResponseRelease(context.Background(), &lipapi.Event{}, compaction.ResponsePreview{Kind: compaction.PreviewNone, TransactionID: "tx-committed"}, openMeta(), compaction.Services{BackgroundAux: background})
 	_ = plugin.BeforeResponseRelease(context.Background(), &lipapi.Event{}, compaction.ResponsePreview{Kind: compaction.PreviewCompletionCandidate}, openMeta(), compaction.Services{BackgroundAux: background})
@@ -539,6 +561,7 @@ func TestBeforeResponseRelease_requiresActualCompletionPreview(t *testing.T) {
 }
 
 func TestRequestOpened_submitOrRecordFailureIsFailOpen(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	background.submitErr = errors.New("queue full")
 	_ = plugin.RequestOpened(context.Background(), openCall(), openEvent(), openMeta(), compaction.Services{BackgroundAux: background})
@@ -555,6 +578,7 @@ func TestRequestOpened_submitOrRecordFailureIsFailOpen(t *testing.T) {
 }
 
 func TestFeatureBundleWithPort_requiresExplicitPort(t *testing.T) {
+	t.Parallel()
 	if _, err := FeatureBundleWithPort(openConfig(t), nil); err == nil {
 		t.Fatal("nil parent port accepted")
 	}
@@ -569,6 +593,7 @@ func TestFeatureBundleWithPort_requiresExplicitPort(t *testing.T) {
 }
 
 func TestBeforeRequest_completionPreviewStoresIntentInjectsWithoutSubmit(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	call := openCall()
 	before := lipapi.CloneCall(call)
@@ -599,6 +624,7 @@ func TestBeforeRequest_completionPreviewStoresIntentInjectsWithoutSubmit(t *test
 }
 
 func TestRequestOpened_bindsPreviewIntentAndSubmitsOnlyAfterOpen(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	call := openCall()
 	_ = plugin.BeforeRequest(context.Background(), &call, compaction.RequestPreview{
@@ -620,6 +646,7 @@ func TestRequestOpened_bindsPreviewIntentAndSubmitsOnlyAfterOpen(t *testing.T) {
 }
 
 func TestAfterResponseRelease_commitsOnlyTerminalMatchingPreparedInjection(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	parent.state.PendingInjection = &InjectionTarget{BoundaryKey: "tx-committed", CapsuleRevision: parent.state.Revision}
 	meta := openMeta()
@@ -636,6 +663,7 @@ func TestAfterResponseRelease_commitsOnlyTerminalMatchingPreparedInjection(t *te
 }
 
 func TestAfterResponseRelease_terminalWithoutPreparedMarkerRetainsPending(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	parent.state.PendingInjection = &InjectionTarget{BoundaryKey: "tx-committed", CapsuleRevision: parent.state.Revision}
 	meta := openMeta()
@@ -647,6 +675,7 @@ func TestAfterResponseRelease_terminalWithoutPreparedMarkerRetainsPending(t *tes
 }
 
 func TestBeforeRequest_validationFailureRestoresCallAndPendingState(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	parent.state.PendingInjection = &InjectionTarget{BoundaryKey: "old-boundary", CapsuleRevision: 1}
 	parent.injectionErr = errors.New("validation failed")
@@ -658,7 +687,71 @@ func TestBeforeRequest_validationFailureRestoresCallAndPendingState(t *testing.T
 	}
 }
 
+func TestBeforeRequest_setPendingInjectionFailureIsFeatureLocal(t *testing.T) {
+	t.Parallel()
+	plugin, parent, background := openFixture(t)
+	parent.injectionErr = errors.New("injection state unavailable")
+	call := openCall()
+	before := lipapi.CloneCall(call)
+	err := plugin.BeforeRequest(context.Background(), &call, compaction.RequestPreview{
+		Kind: compaction.PreviewCompletionCandidate, BoundaryFingerprint: "set-pending-failure",
+	}, openMeta(), compaction.Services{BackgroundAux: background})
+	if err != nil {
+		t.Fatalf("feature callback error escaped: %v", err)
+	}
+	if !reflect.DeepEqual(call, before) || parent.state.PendingInjection != nil || len(background.submits) != 0 {
+		t.Fatalf("set-pending failure changed primary flow: call=%#v state=%#v submits=%d", call, parent.state, len(background.submits))
+	}
+}
+
+func TestAfterResponseRelease_distinguishesSnapshotErrorFromNoPendingInjection(t *testing.T) {
+	t.Parallel()
+	plugin, parent, _ := pendingResponseFixture(t)
+	recorder := observability.NewRecorder(64)
+	plugin.obs = recorder
+	parent.snapshotErr = errors.New("state unavailable")
+	meta := openMeta()
+	meta.TransactionID = "watermark-snapshot-error"
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeFailed) {
+		t.Fatalf("snapshot error was not recorded as failure: %#v", recorder.Snapshot())
+	}
+
+	parent.snapshotErr = nil
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeSkipped) {
+		t.Fatalf("missing pending injection was not recorded as skip: %#v", recorder.Snapshot())
+	}
+
+	parent.branch.Binding = ""
+	_ = plugin.AfterResponseRelease(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, meta, compaction.Services{})
+	if !hasObservation(recorder.Snapshot(), observability.StageWatermark, observability.OutcomeSkipped) {
+		t.Fatalf("invalid parent was not recorded as skip: %#v", recorder.Snapshot())
+	}
+}
+
+func TestErrorOutcome_usesKnownSentinels(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+		want observability.Outcome
+	}{
+		{name: "rejected", err: fmt.Errorf("wrapped: %w", resultmerge.ErrRejected), want: observability.OutcomeRejected},
+		{name: "invalid branch", err: fmt.Errorf("wrapped: %w", capsule.ErrInvalidBranch), want: observability.OutcomeInvalid},
+		{name: "invalid parent", err: fmt.Errorf("wrapped: %w", resultmerge.ErrInvalidParentState), want: observability.OutcomeInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := errorOutcome(tc.err); got != tc.want {
+				t.Fatalf("errorOutcome(%v)=%q want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRequestOpenFailed_clearsEphemeralMarkerButRetainsPendingInjection(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := pendingResponseFixture(t)
 	parent.state.PendingInjection = &InjectionTarget{BoundaryKey: "tx-failed", CapsuleRevision: parent.state.Revision}
 	meta := openMeta()
@@ -674,6 +767,7 @@ func TestRequestOpenFailed_clearsEphemeralMarkerButRetainsPendingInjection(t *te
 }
 
 func TestBeforeRequest_nearMissAndStartPreviewDoNotCreateCompletionIntent(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	call := openCall()
 	before := lipapi.CloneCall(call)
@@ -688,6 +782,8 @@ func TestBeforeRequest_nearMissAndStartPreviewDoNotCreateCompletionIntent(t *tes
 	}
 }
 
-var _ ParentPort = (*openParentFake)(nil)
-var _ auxiliary.BackgroundClient = (*openBackgroundFake)(nil)
-var _ compaction.Preserver = (*Plugin)(nil)
+var (
+	_ ParentPort                 = (*openParentFake)(nil)
+	_ auxiliary.BackgroundClient = (*openBackgroundFake)(nil)
+	_ compaction.Preserver       = (*Plugin)(nil)
+)

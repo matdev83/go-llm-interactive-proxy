@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit(t *testing.T) {
 	t.Parallel()
 
-	coordinator, err := compactioncontinuity.NewBranchCoordinator(compactioncontinuity.Config{})
+	coordinator, err := compactioncontinuity.NewBranchCoordinator(context.Background(), compactioncontinuity.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,14 +29,14 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 	if parentBinding == "" || parentBinding == child.Binding() {
 		t.Fatal("parent and private child must have distinct bindings")
 	}
-	if _, err := coordinator.Capture(parent); err != nil {
+	if _, err := coordinator.Capture(context.Background(), parent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := coordinator.CommitCapsule(parent, 0, []byte(`{"schema_version":1}`), [32]byte{1}, "source-1"); err != nil {
+	if _, err := coordinator.CommitCapsule(context.Background(), parent, 0, []byte(`{"schema_version":1}`), [32]byte{1}, "source-1"); err != nil {
 		t.Fatal(err)
 	}
 	jobID := auxiliary.JobID("job-result-parent")
-	if _, err := coordinator.RecordPendingJob(parent, jobID, 1); err != nil {
+	if _, err := coordinator.RecordPendingJob(context.Background(), parent, jobID, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,7 +44,7 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 	if err != nil {
 		t.Fatal(err)
 	}
-	validated, err := adapter.ValidatePendingJob(parentBinding, jobID)
+	validated, err := adapter.ValidatePendingJob(context.Background(), parentBinding, jobID)
 	if err != nil {
 		t.Fatalf("parent validation: %v", err)
 	}
@@ -56,6 +57,7 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 	}
 
 	committed, err := adapter.CommitCapsuleForJob(
+		context.Background(),
 		parentBinding,
 		jobID,
 		parentBinding,
@@ -74,17 +76,17 @@ func TestCompactionContinuityResultAdapterUsesCapturedParentForValidateAndCommit
 		committed.PendingJobBranchBinding != "" {
 		t.Fatalf("translated committed state = %#v", committed)
 	}
-	if _, err := coordinator.ValidatePendingJob(parent, jobID); !errors.Is(err, compactioncontinuity.ErrPendingJobMismatch) {
+	if _, err := coordinator.ValidatePendingJob(context.Background(), parent, jobID); !errors.Is(err, compactioncontinuity.ErrPendingJobMismatch) {
 		t.Fatalf("job-bound commit did not clear pending job: %v", err)
 	}
 
-	if _, err := adapter.ValidatePendingJob(child.Binding(), jobID); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.ValidatePendingJob(context.Background(), child.Binding(), jobID); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
 		t.Fatalf("child binding validation error = %v, want ErrBranchMismatch", err)
 	}
-	if _, err := adapter.CommitCapsuleForJob(parentBinding, jobID, child.Binding(), 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.CommitCapsuleForJob(context.Background(), parentBinding, jobID, child.Binding(), 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
 		t.Fatalf("child result binding commit error = %v, want ErrBranchMismatch", err)
 	}
-	if _, err := adapter.CommitCapsuleForJob(child.Binding(), jobID, parentBinding, 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
+	if _, err := adapter.CommitCapsuleForJob(context.Background(), child.Binding(), jobID, parentBinding, 1, []byte(`child`), [32]byte{3}, "source-child"); !errors.Is(err, compactioncontinuity.ErrBranchMismatch) {
 		t.Fatalf("child parent binding commit error = %v, want ErrBranchMismatch", err)
 	}
 }

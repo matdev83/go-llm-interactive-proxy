@@ -260,6 +260,32 @@ plugins:
           max_turns_per_session: 16
           max_reasoning_bytes_per_turn: 65536
           max_session_bytes: 262144
+    # Compaction continuity preservation (issue #312 detector prerequisite) is
+    # disabled by default. It may submit additional user-attributed extractor
+    # inference after a successfully opened primary request. See
+    # docs/compaction-continuity.md and config/examples/dogfood-local-stub.yaml.
+    # - id: compaction-continuity
+    #   enabled: false
+    #   config:
+    #     preserve:
+    #       plan: true
+    #       user_decisions: true
+    #       constraints: true
+    #       rationale: true
+    #       rejected_alternatives: true
+    #     extractor:
+    #       route: "openai-responses:small-model"
+    #       timeout: 8s
+    #       max_input_tokens: 12000
+    #       max_output_tokens: 2000
+    #     worker: { max_concurrency: 2, queue_capacity: 16 }
+    #     barrier: { timeout: 2s }
+    #     capsule: { max_tokens: 2500, max_bytes: 1048576 }
+    #     source: { ttl: 2h, max_bytes: 4194304 }
+    #     result: { ttl: 2h, max_bytes: 4194304, max_count: 16 }
+    #     failure: { mode: fail_open }
+    #     branch_ttl: 2h
+    #     max_branch_entries: 1024
     # Opt out:
     # - id: reasoning-output-preservation
     #   enabled: false

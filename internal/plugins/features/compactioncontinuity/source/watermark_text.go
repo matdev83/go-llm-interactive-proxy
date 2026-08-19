@@ -15,7 +15,7 @@ func digestItems(items []lipapi.Item) string {
 	h := sha256.New()
 	for _, item := range items {
 		b, _ := json.Marshal(item)
-		_, _ = h.Write([]byte(fmt.Sprintf("%08x:", len(b))))
+		_, _ = h.Write(fmt.Appendf(nil, "%08x:", len(b)))
 		_, _ = h.Write(b)
 	}
 	return hex.EncodeToString(h.Sum(nil))

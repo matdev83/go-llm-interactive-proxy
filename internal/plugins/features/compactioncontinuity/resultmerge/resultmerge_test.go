@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -33,16 +34,19 @@ func (f *fakeBackground) Await(context.Context, auxiliary.JobID) (lipapi.Collect
 func (f *fakeBackground) Forget(id auxiliary.JobID) { f.forgotten = append(f.forgotten, id) }
 
 type fakeParent struct {
-	state          ParentState
-	validateErr    error
-	commitErr      error
-	afterValidate  func()
-	validates      int
-	commits        int
-	committedBytes []byte
+	state             ParentState
+	validateErr       error
+	commitErr         error
+	afterValidate     func()
+	validates         int
+	commits           int
+	committedBytes    []byte
+	commitContextErr  error
+	commitHasDeadline bool
+	commitDeadline    time.Time
 }
 
-func (f *fakeParent) ValidatePendingJob(string, auxiliary.JobID) (ParentState, error) {
+func (f *fakeParent) ValidatePendingJob(context.Context, string, auxiliary.JobID) (ParentState, error) {
 	f.validates++
 	if f.validateErr != nil {
 		return ParentState{}, f.validateErr
@@ -54,8 +58,10 @@ func (f *fakeParent) ValidatePendingJob(string, auxiliary.JobID) (ParentState, e
 	return out, nil
 }
 
-func (f *fakeParent) CommitCapsuleForJob(_ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
+func (f *fakeParent) CommitCapsuleForJob(ctx context.Context, _ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
 	f.commits++
+	f.commitContextErr = ctx.Err()
+	f.commitDeadline, f.commitHasDeadline = ctx.Deadline()
 	if f.commitErr != nil {
 		return ParentState{}, f.commitErr
 	}
@@ -69,6 +75,27 @@ func (f *fakeParent) CommitCapsuleForJob(_ string, _ auxiliary.JobID, _ string, 
 	f.state.SourceHighWatermark = highWatermark
 	f.state.PendingJobID = ""
 	return f.state.clone(), nil
+}
+
+func TestService_usesFreshBoundedCommitContextAfterBarrierExpires(t *testing.T) {
+	t.Parallel()
+	job, background, parent, decoder, _ := validFixture(t)
+	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrierCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	outcome, err := service.Consume(barrierCtx, job)
+	if err != nil || outcome.Status != StatusMerged {
+		t.Fatalf("Consume outcome=%#v err=%v, want merged despite expired barrier", outcome, err)
+	}
+	if parent.commitContextErr != nil {
+		t.Fatalf("commit received expired barrier context: %v", parent.commitContextErr)
+	}
+	if !parent.commitHasDeadline || !parent.commitDeadline.After(time.Now()) {
+		t.Fatalf("commit context was not freshly bounded: deadline=%v hasDeadline=%v", parent.commitDeadline, parent.commitHasDeadline)
+	}
 }
 
 type fakeDecoder struct {
@@ -144,6 +171,7 @@ func validFixture(t *testing.T) (Job, *fakeBackground, *fakeParent, *fakeDecoder
 }
 
 func TestService_ConsumesValidatedResultAndForgetsRawOutput(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, base := validFixture(t)
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
 	if err != nil {
@@ -176,6 +204,7 @@ func TestService_ConsumesValidatedResultAndForgetsRawOutput(t *testing.T) {
 }
 
 func TestServiceRejectsWrongBranchResultAndForgetsIt(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	decoder.delta.BranchBinding = "sha256:" + strings.Repeat("b", 64)
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -193,6 +222,7 @@ func TestServiceRejectsWrongBranchResultAndForgetsIt(t *testing.T) {
 }
 
 func TestServiceRejectsConflictInvalidDeltaWithoutStateChange(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	decoder.delta.Decisions = append(decoder.delta.Decisions, capsule.Decision{
 		ID: "decision-1", ConflictKey: "runtime.mode", Statement: "different statement",
@@ -217,6 +247,7 @@ func TestServiceRejectsConflictInvalidDeltaWithoutStateChange(t *testing.T) {
 }
 
 func TestServiceRejectsStoredDigestMismatchBeforeDecode(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	parent.state.CapsuleDigest[0]++
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -234,6 +265,7 @@ func TestServiceRejectsStoredDigestMismatchBeforeDecode(t *testing.T) {
 }
 
 func TestServiceLateResultCannotDefeatNewerParentRevision(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, base := validFixture(t)
 	newer, _, _ := testCapsule(t, job.ParentBranchBinding)
 	newer.Revision = base.Revision + 1

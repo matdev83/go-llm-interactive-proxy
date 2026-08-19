@@ -68,7 +68,7 @@ func (p *CompactionContinuityParentPort) capture(ctx context.Context, meta compa
 	if err != nil {
 		return featurecontinuity.ParentBranch{}, err
 	}
-	binding, err := p.coordinator.Capture(key)
+	binding, err := p.coordinator.Capture(ctx, key)
 	if err != nil {
 		return featurecontinuity.ParentBranch{}, err
 	}
@@ -95,12 +95,12 @@ func (p *CompactionContinuityParentPort) remember(binding string, key corecontin
 	p.keys[binding] = key
 }
 
-func (p *CompactionContinuityParentPort) Snapshot(_ context.Context, parent featurecontinuity.ParentBranch) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) Snapshot(ctx context.Context, parent featurecontinuity.ParentBranch) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, found, err := p.coordinator.Snapshot(key)
+	state, found, err := p.coordinator.Snapshot(ctx, key)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
@@ -110,55 +110,55 @@ func (p *CompactionContinuityParentPort) Snapshot(_ context.Context, parent feat
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) CommitSource(_ context.Context, parent featurecontinuity.ParentBranch, revision uint64, source []byte, watermark string) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) CommitSource(ctx context.Context, parent featurecontinuity.ParentBranch, revision uint64, source []byte, watermark string) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.CommitSource(key, revision, source, watermark)
+	state, err := p.coordinator.CommitSource(ctx, key, revision, source, watermark)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) CommitCapsule(_ context.Context, parent featurecontinuity.ParentBranch, revision uint64, capsule []byte, digest [32]byte, watermark string) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) CommitCapsule(ctx context.Context, parent featurecontinuity.ParentBranch, revision uint64, capsule []byte, digest [32]byte, watermark string) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.CommitCapsule(key, revision, capsule, digest, watermark)
+	state, err := p.coordinator.CommitCapsule(ctx, key, revision, capsule, digest, watermark)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) RecordPendingJob(_ context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID, revision uint64) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) RecordPendingJob(ctx context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID, revision uint64) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.RecordPendingJob(key, jobID, revision)
+	state, err := p.coordinator.RecordPendingJob(ctx, key, jobID, revision)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) ValidatePendingJob(_ context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) ValidatePendingJob(ctx context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.ValidatePendingJob(key, jobID)
+	state, err := p.coordinator.ValidatePendingJob(ctx, key, jobID)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) CommitCapsuleForJob(_ context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID, resultBinding string, revision uint64, capsule []byte, digest [32]byte, watermark string) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) CommitCapsuleForJob(ctx context.Context, parent featurecontinuity.ParentBranch, jobID auxiliary.JobID, resultBinding string, revision uint64, capsule []byte, digest [32]byte, watermark string) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
@@ -166,67 +166,67 @@ func (p *CompactionContinuityParentPort) CommitCapsuleForJob(_ context.Context, 
 	if strings.TrimSpace(resultBinding) != parent.Binding {
 		return featurecontinuity.ParentState{}, corecontinuity.ErrBranchMismatch
 	}
-	state, err := p.coordinator.CommitCapsuleForJob(key, jobID, resultBinding, revision, capsule, digest, watermark)
+	state, err := p.coordinator.CommitCapsuleForJob(ctx, key, jobID, resultBinding, revision, capsule, digest, watermark)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) RecordPreviewIntent(_ context.Context, parent featurecontinuity.ParentBranch, intent featurecontinuity.PreviewIntent) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) RecordPreviewIntent(ctx context.Context, parent featurecontinuity.ParentBranch, intent featurecontinuity.PreviewIntent) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.RecordPreviewIntent(key, corecontinuity.PreviewIntent{Key: intent.Key, TargetSourceRevision: intent.TargetSourceRevision})
+	state, err := p.coordinator.RecordPreviewIntent(ctx, key, corecontinuity.PreviewIntent{Key: intent.Key, TargetSourceRevision: intent.TargetSourceRevision})
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) BindPreviewIntent(_ context.Context, parent featurecontinuity.ParentBranch, intentKey, transactionID string) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) BindPreviewIntent(ctx context.Context, parent featurecontinuity.ParentBranch, intentKey, transactionID string) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.BindPreviewIntent(key, intentKey, transactionID)
+	state, err := p.coordinator.BindPreviewIntent(ctx, key, intentKey, transactionID)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) SetPendingInjection(_ context.Context, parent featurecontinuity.ParentBranch, target featurecontinuity.InjectionTarget) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) SetPendingInjection(ctx context.Context, parent featurecontinuity.ParentBranch, target featurecontinuity.InjectionTarget) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.SetPendingInjection(key, corecontinuity.InjectionTarget{BoundaryKey: target.BoundaryKey, CapsuleRevision: target.CapsuleRevision})
+	state, err := p.coordinator.SetPendingInjection(ctx, key, corecontinuity.InjectionTarget{BoundaryKey: target.BoundaryKey, CapsuleRevision: target.CapsuleRevision})
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) ValidateInjection(_ context.Context, parent featurecontinuity.ParentBranch, target featurecontinuity.InjectionTarget) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) ValidateInjection(ctx context.Context, parent featurecontinuity.ParentBranch, target featurecontinuity.InjectionTarget) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.ValidateInjection(key, corecontinuity.InjectionTarget{BoundaryKey: target.BoundaryKey, CapsuleRevision: target.CapsuleRevision})
+	state, err := p.coordinator.ValidateInjection(ctx, key, corecontinuity.InjectionTarget{BoundaryKey: target.BoundaryKey, CapsuleRevision: target.CapsuleRevision})
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
 	return featureParentState(state), nil
 }
 
-func (p *CompactionContinuityParentPort) CommitReleasedInjection(_ context.Context, parent featurecontinuity.ParentBranch, watermark featurecontinuity.InjectionWatermark) (featurecontinuity.ParentState, error) {
+func (p *CompactionContinuityParentPort) CommitReleasedInjection(ctx context.Context, parent featurecontinuity.ParentBranch, watermark featurecontinuity.InjectionWatermark) (featurecontinuity.ParentState, error) {
 	key, err := p.key(parent)
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}
-	state, err := p.coordinator.CommitReleasedInjection(key, corecontinuity.InjectionWatermark{BranchBinding: watermark.BranchBinding, BoundaryKey: watermark.BoundaryKey, CapsuleRevision: watermark.CapsuleRevision})
+	state, err := p.coordinator.CommitReleasedInjection(ctx, key, corecontinuity.InjectionWatermark{BranchBinding: watermark.BranchBinding, BoundaryKey: watermark.BoundaryKey, CapsuleRevision: watermark.CapsuleRevision})
 	if err != nil {
 		return featurecontinuity.ParentState{}, err
 	}

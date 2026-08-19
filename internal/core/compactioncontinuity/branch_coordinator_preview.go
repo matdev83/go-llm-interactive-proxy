@@ -1,13 +1,14 @@
 package compactioncontinuity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 // BindPreviewIntent consumes a non-billable intent after a successful primary
 // Open and records its committed transaction identity.
-func (c *BranchCoordinator) BindPreviewIntent(key BranchKey, intentKey, transactionID string) (BranchState, error) {
+func (c *BranchCoordinator) BindPreviewIntent(ctx context.Context, key BranchKey, intentKey, transactionID string) (BranchState, error) {
 	if strings.TrimSpace(transactionID) == "" {
 		return BranchState{}, ErrInvalidTransaction
 	}
@@ -31,14 +32,14 @@ func (c *BranchCoordinator) BindPreviewIntent(key BranchKey, intentKey, transact
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist preview binding: %w", err)
 	}
 	c.entries = next
 	return cloneBranchState(entry.State), nil
 }
 
-func (c *BranchCoordinator) RecordPreviewIntent(key BranchKey, intent PreviewIntent) (BranchState, error) {
+func (c *BranchCoordinator) RecordPreviewIntent(ctx context.Context, key BranchKey, intent PreviewIntent) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -68,7 +69,7 @@ func (c *BranchCoordinator) RecordPreviewIntent(key BranchKey, intent PreviewInt
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist preview intent: %w", err)
 	}
 	c.entries = next

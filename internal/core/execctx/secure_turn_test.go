@@ -1,9 +1,11 @@
 package execctx
 
 import (
+	"context"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
 func TestWithSecureSessionTurnNilParent(t *testing.T) {
@@ -22,5 +24,31 @@ func TestWithSecureSessionTurnNilParent(t *testing.T) {
 	}
 	if got != st {
 		t.Fatalf("turn: got %+v want %+v", got, st)
+	}
+}
+
+func TestWithSecureSessionTurnProjectsContentFreeSDKPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := WithSecureSessionTurn(
+		nil, //nolint:staticcheck // SA1012: exercise nil-parent → TODO() branch
+		SecureSessionTurn{
+			SessionID: domain.SessionID("s"),
+			TurnID:    domain.TurnID("t"),
+			Policy:    domain.PolicyMetadata{TranscriptEnabled: true},
+		})
+	got, ok := session.SecureTurnPolicyFromContext(ctx)
+	if !ok || !got.TranscriptEnabled {
+		t.Fatalf("public secure-turn policy = %+v ok=%v", got, ok)
+	}
+}
+
+func TestWithDetachedSessionMasksInheritedSecureTurnPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := session.WithSecureTurnPolicy(context.Background(), session.SecureTurnPolicyView{TranscriptEnabled: true})
+	ctx = WithDetachedSession(ctx, DetachedSession{ParentSessionID: "parent-session"})
+	if _, ok := session.SecureTurnPolicyFromContext(ctx); ok {
+		t.Fatal("detached context inherited primary secure-turn policy")
 	}
 }

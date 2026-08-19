@@ -31,10 +31,10 @@ func TestProcessServices_OwnsBranchCoordinatorAcrossGenerationCandidates(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ps.BranchCoordinator.Capture(key); err != nil {
+	if _, err := ps.BranchCoordinator.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ps.BranchCoordinator.CommitCapsule(key, 0, []byte(`{"parent":true}`), [32]byte{1}, "source-1"); err != nil {
+	if _, err := ps.BranchCoordinator.CommitCapsule(context.Background(), key, 0, []byte(`{"parent":true}`), [32]byte{1}, "source-1"); err != nil {
 		t.Fatal(err)
 	}
 	first := ps.BranchCoordinator
@@ -51,7 +51,7 @@ func TestProcessServices_OwnsBranchCoordinatorAcrossGenerationCandidates(t *test
 			t.Fatal("candidate compilation/reload must not replace process branch coordinator")
 		}
 	}
-	got, ok, err := ps.BranchCoordinator.Snapshot(key)
+	got, ok, err := ps.BranchCoordinator.Snapshot(context.Background(), key)
 	if err != nil || !ok || got.Revision != 1 || string(got.CapsuleJSON) != `{"parent":true}` {
 		t.Fatalf("coordinator state = %#v, found=%v, err=%v", got, ok, err)
 	}

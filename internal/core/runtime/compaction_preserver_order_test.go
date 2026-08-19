@@ -45,9 +45,10 @@ func (o *orderedRuntimeObserver) OnCompaction(_ context.Context, ev compaction.E
 	defer o.mu.Unlock()
 	o.events = append(o.events, ev)
 	if o.order != nil {
-		if ev.Phase == compaction.PhaseStarted {
+		switch ev.Phase {
+		case compaction.PhaseStarted:
 			*o.order = append(*o.order, "observer-started")
-		} else if ev.Phase == compaction.PhaseCompleted {
+		case compaction.PhaseCompleted:
 			*o.order = append(*o.order, "observer-completed")
 		}
 	}
@@ -126,6 +127,7 @@ type runtimeBackgroundStub struct{}
 func (runtimeBackgroundStub) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "", auxiliary.ErrNotConfigured
 }
+
 func (runtimeBackgroundStub) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, auxiliary.ErrNotConfigured
 }
@@ -136,12 +138,15 @@ type runtimeStateStub struct{}
 func (runtimeStateStub) Get(context.Context, state.Scope, string, string, any) (bool, error) {
 	return false, state.ErrNotConfigured
 }
+
 func (runtimeStateStub) Put(context.Context, state.Scope, string, string, any, time.Duration) error {
 	return state.ErrNotConfigured
 }
+
 func (runtimeStateStub) Delete(context.Context, state.Scope, string, string) error {
 	return state.ErrNotConfigured
 }
+
 func (runtimeStateStub) InspectTTL(context.Context, state.Scope, string, string) (time.Duration, bool, error) {
 	return 0, false, state.ErrNotConfigured
 }

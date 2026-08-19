@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -678,9 +679,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -809,5 +808,7 @@ func cloneRaw(in json.RawMessage) json.RawMessage {
 	return out
 }
 
-var _ auxiliary.BackgroundClient = (*BackgroundScheduler)(nil)
-var _ auxiliary.BackgroundClient = boundBackgroundClient{}
+var (
+	_ auxiliary.BackgroundClient = (*BackgroundScheduler)(nil)
+	_ auxiliary.BackgroundClient = boundBackgroundClient{}
+)

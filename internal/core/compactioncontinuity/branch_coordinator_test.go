@@ -19,6 +19,56 @@ type coordinatorStore struct {
 	failed bool
 }
 
+type contextAwareLoadStore struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *contextAwareLoadStore) Get(ctx context.Context, _ lipstate.Scope, _, _ string, _ any) (bool, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+
+func (*contextAwareLoadStore) Put(context.Context, lipstate.Scope, string, string, any, time.Duration) error {
+	return nil
+}
+
+func (*contextAwareLoadStore) Delete(context.Context, lipstate.Scope, string, string) error {
+	return nil
+}
+
+func (*contextAwareLoadStore) InspectTTL(context.Context, lipstate.Scope, string, string) (time.Duration, bool, error) {
+	return 0, false, nil
+}
+
+func TestBranchCoordinator_LoadUsesConstructorContext(t *testing.T) {
+	t.Parallel()
+
+	store := &contextAwareLoadStore{started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := NewBranchCoordinator(ctx, Config{Store: store})
+		result <- err
+	}()
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("constructor did not reach state load")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("constructor error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("constructor did not honor cancellation")
+	}
+}
+
 func (s *coordinatorStore) Get(_ context.Context, _ lipstate.Scope, _, _ string, out any) (bool, error) {
 	if s.failed {
 		return false, errors.New("store read failed")
@@ -67,23 +117,23 @@ func TestBranchCoordinator_CapturesParentBindingBeforePrivateChild(t *testing.T)
 		t.Fatal("the private child A-leg must not replace the captured parent binding")
 	}
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(parent); err != nil {
+	if _, err := c.Capture(context.Background(), parent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitCapsule(parent, 0, []byte(`{"base":true}`), [32]byte{7}, "source"); err != nil {
+	if _, err := c.CommitCapsule(context.Background(), parent, 0, []byte(`{"base":true}`), [32]byte{7}, "source"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RecordPendingJob(parent, auxiliary.JobID("job-parent"), 1); err != nil {
+	if _, err := c.RecordPendingJob(context.Background(), parent, auxiliary.JobID("job-parent"), 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ValidatePendingJob(child, auxiliary.JobID("job-parent")); !errors.Is(err, ErrBranchMismatch) {
+	if _, err := c.ValidatePendingJob(context.Background(), child, auxiliary.JobID("job-parent")); !errors.Is(err, ErrBranchMismatch) {
 		t.Fatalf("child branch validation error = %v, want ErrBranchMismatch", err)
 	}
-	if _, err := c.ValidatePendingJob(parent, auxiliary.JobID("job-parent")); err != nil {
+	if _, err := c.ValidatePendingJob(context.Background(), parent, auxiliary.JobID("job-parent")); err != nil {
 		t.Fatalf("parent branch validation: %v", err)
 	}
 }
@@ -91,7 +141,7 @@ func TestBranchCoordinator_CapturesParentBindingBeforePrivateChild(t *testing.T)
 func TestBranchCoordinator_MutationsRequireExplicitCapture(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,23 +149,23 @@ func TestBranchCoordinator_MutationsRequireExplicitCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(parent); err != nil {
+	if _, err := c.Capture(context.Background(), parent); err != nil {
 		t.Fatal(err)
 	}
 	key, err := NewBranchKey("session-parent", "a-child", "principal-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RecordPendingJob(key, auxiliary.JobID("job-child"), 0); !errors.Is(err, ErrBranchNotFound) {
+	if _, err := c.RecordPendingJob(context.Background(), key, auxiliary.JobID("job-child"), 0); !errors.Is(err, ErrBranchNotFound) {
 		t.Fatalf("uncaptured pending job error = %v, want ErrBranchNotFound", err)
 	}
-	if _, err := c.RecordPreviewIntent(key, PreviewIntent{Key: "preview-child"}); !errors.Is(err, ErrBranchNotFound) {
+	if _, err := c.RecordPreviewIntent(context.Background(), key, PreviewIntent{Key: "preview-child"}); !errors.Is(err, ErrBranchNotFound) {
 		t.Fatalf("uncaptured preview intent error = %v, want ErrBranchNotFound", err)
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-child", CapsuleRevision: 1}); !errors.Is(err, ErrBranchNotFound) {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-child", CapsuleRevision: 1}); !errors.Is(err, ErrBranchNotFound) {
 		t.Fatalf("uncaptured injection error = %v, want ErrBranchNotFound", err)
 	}
-	if _, found, err := c.Snapshot(key); err != nil || found {
+	if _, found, err := c.Snapshot(context.Background(), key); err != nil || found {
 		t.Fatalf("uncaptured child snapshot = found=%v err=%v, want absent", found, err)
 	}
 }
@@ -124,7 +174,7 @@ func TestBranchCoordinator_PersistsEntriesInStableBindingOrder(t *testing.T) {
 	t.Parallel()
 
 	store := &coordinatorStore{}
-	c, err := NewBranchCoordinator(Config{Store: store})
+	c, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +185,7 @@ func TestBranchCoordinator_PersistsEntriesInStableBindingOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 		keys = append(keys, key)
-		if _, err := c.Capture(key); err != nil {
+		if _, err := c.Capture(context.Background(), key); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -153,15 +203,15 @@ func TestBranchCoordinator_PersistenceFailureLeavesStateUnchanged(t *testing.T) 
 	t.Parallel()
 
 	store := &coordinatorStore{}
-	c, err := NewBranchCoordinator(Config{Store: store})
+	c, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := NewBranchKey("session-persist", "a-parent", "")
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	before, err := c.CommitCapsule(key, 0, []byte(`{"before":true}`), [32]byte{1}, "before")
+	before, err := c.CommitCapsule(context.Background(), key, 0, []byte(`{"before":true}`), [32]byte{1}, "before")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,20 +219,20 @@ func TestBranchCoordinator_PersistenceFailureLeavesStateUnchanged(t *testing.T) 
 		t.Fatalf("initial revision=%d want 1", before.Revision)
 	}
 	store.failed = true
-	if _, err := c.CommitCapsule(key, 1, []byte(`{"after":true}`), [32]byte{2}, "after"); err == nil {
+	if _, err := c.CommitCapsule(context.Background(), key, 1, []byte(`{"after":true}`), [32]byte{2}, "after"); err == nil {
 		t.Fatal("expected persistence failure")
 	}
-	if _, err := c.CommitSource(key, 1, []byte(`{"source":true}`), "source-after"); err == nil {
+	if _, err := c.CommitSource(context.Background(), key, 1, []byte(`{"source":true}`), "source-after"); err == nil {
 		t.Fatal("expected source persistence failure")
 	}
-	if _, err := c.RecordPendingJob(key, auxiliary.JobID("job-failed"), 1); err == nil {
+	if _, err := c.RecordPendingJob(context.Background(), key, auxiliary.JobID("job-failed"), 1); err == nil {
 		t.Fatal("expected pending-job persistence failure")
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-failed", CapsuleRevision: 1}); err == nil {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-failed", CapsuleRevision: 1}); err == nil {
 		t.Fatal("expected pending-injection persistence failure")
 	}
 	store.failed = false
-	after, found, err := c.Snapshot(key)
+	after, found, err := c.Snapshot(context.Background(), key)
 	if err != nil || !found || string(after.CapsuleJSON) != `{"before":true}` || after.Revision != 1 || after.SourceHighWatermark != "before" || after.PendingJobID != "" || after.PendingInjection != nil {
 		t.Fatalf("state after failed persist=%#v found=%v err=%v", after, found, err)
 	}
@@ -191,27 +241,27 @@ func TestBranchCoordinator_PersistenceFailureLeavesStateUnchanged(t *testing.T) 
 func TestBranchCoordinator_SnapshotsDefensivelyCopyOpaqueAndPendingState(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := NewBranchKey("session-copy", "a-parent", "")
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitCapsule(key, 0, []byte(`{"capsule":true}`), [32]byte{1}, "source-1"); err != nil {
+	if _, err := c.CommitCapsule(context.Background(), key, 0, []byte(`{"capsule":true}`), [32]byte{1}, "source-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitSource(key, 1, []byte(`{"source":true}`), "source-2"); err != nil {
+	if _, err := c.CommitSource(context.Background(), key, 1, []byte(`{"source":true}`), "source-2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RecordPendingJob(key, auxiliary.JobID("job-copy"), 1); err != nil {
+	if _, err := c.RecordPendingJob(context.Background(), key, auxiliary.JobID("job-copy"), 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-copy", CapsuleRevision: 1}); err != nil {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-copy", CapsuleRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := c.Snapshot(key)
+	got, _, err := c.Snapshot(context.Background(), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +269,7 @@ func TestBranchCoordinator_SnapshotsDefensivelyCopyOpaqueAndPendingState(t *test
 	got.SanitizedSourceJSON = append(got.SanitizedSourceJSON, 'X')
 	got.PendingJobID = "mutated"
 	got.PendingInjection.BoundaryKey = "mutated"
-	want, _, err := c.Snapshot(key)
+	want, _, err := c.Snapshot(context.Background(), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +308,7 @@ func TestBranchKey_SecureSessionDominatesPrincipalFallback(t *testing.T) {
 func TestBranchCoordinator_RevisionAndPendingJobAreCompareAndBindChecked(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,33 +316,33 @@ func TestBranchCoordinator_RevisionAndPendingJobAreCompareAndBindChecked(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
 	digest := [32]byte{1, 2, 3}
-	state, err := c.CommitCapsule(key, 0, []byte(`{"schema_version":1}`), digest, "source-1")
+	state, err := c.CommitCapsule(context.Background(), key, 0, []byte(`{"schema_version":1}`), digest, "source-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.Revision != 1 {
 		t.Fatalf("revision = %d, want 1", state.Revision)
 	}
-	if _, err := c.CommitCapsule(key, 0, nil, digest, "stale"); !errors.Is(err, ErrRevisionConflict) {
+	if _, err := c.CommitCapsule(context.Background(), key, 0, nil, digest, "stale"); !errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("stale commit error = %v, want ErrRevisionConflict", err)
 	}
-	if _, err := c.RecordPendingJob(key, "job-1", 1); err != nil {
+	if _, err := c.RecordPendingJob(context.Background(), key, "job-1", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ValidatePendingJob(key, "other-job"); !errors.Is(err, ErrPendingJobMismatch) {
+	if _, err := c.ValidatePendingJob(context.Background(), key, "other-job"); !errors.Is(err, ErrPendingJobMismatch) {
 		t.Fatalf("wrong job error = %v, want ErrPendingJobMismatch", err)
 	}
-	if _, err := c.ValidatePendingJob(key, "job-1"); err != nil {
+	if _, err := c.ValidatePendingJob(context.Background(), key, "job-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.MergeCapsule(key, "job-1", key.Binding(), 1, []byte(`{"merged":true}`), [32]byte{4}); err != nil {
+	if _, err := c.MergeCapsule(context.Background(), key, "job-1", key.Binding(), 1, []byte(`{"merged":true}`), [32]byte{4}); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := c.Snapshot(key)
+	got, ok, err := c.Snapshot(context.Background(), key)
 	if err != nil || !ok {
 		t.Fatalf("Snapshot = %#v, %v, want found", got, err)
 	}
@@ -304,7 +354,7 @@ func TestBranchCoordinator_RevisionAndPendingJobAreCompareAndBindChecked(t *test
 func TestBranchCoordinator_PreviewIntentBindsOnlyAfterCommittedTransaction(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,20 +362,20 @@ func TestBranchCoordinator_PreviewIntentBindsOnlyAfterCommittedTransaction(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
 	intent := PreviewIntent{Key: "preview-1", TargetSourceRevision: 4}
-	if _, err := c.RecordPreviewIntent(key, intent); err != nil {
+	if _, err := c.RecordPreviewIntent(context.Background(), key, intent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.BindPreviewIntent(key, "other-preview", "txn-1"); !errors.Is(err, ErrPreviewIntentMismatch) {
+	if _, err := c.BindPreviewIntent(context.Background(), key, "other-preview", "txn-1"); !errors.Is(err, ErrPreviewIntentMismatch) {
 		t.Fatalf("wrong preview binding error = %v, want ErrPreviewIntentMismatch", err)
 	}
-	if _, err := c.BindPreviewIntent(key, intent.Key, ""); !errors.Is(err, ErrInvalidTransaction) {
+	if _, err := c.BindPreviewIntent(context.Background(), key, intent.Key, ""); !errors.Is(err, ErrInvalidTransaction) {
 		t.Fatalf("empty transaction error = %v, want ErrInvalidTransaction", err)
 	}
-	state, err := c.BindPreviewIntent(key, intent.Key, "txn-1")
+	state, err := c.BindPreviewIntent(context.Background(), key, intent.Key, "txn-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +387,7 @@ func TestBranchCoordinator_PreviewIntentBindsOnlyAfterCommittedTransaction(t *te
 func TestBranchCoordinator_InjectionWatermarkIsBoundaryScopedAndCommitsOnRelease(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,25 +395,25 @@ func TestBranchCoordinator_InjectionWatermarkIsBoundaryScopedAndCommitsOnRelease
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitCapsule(key, 0, []byte(`{"capsule":true}`), [32]byte{1}, "source"); err != nil {
+	if _, err := c.CommitCapsule(context.Background(), key, 0, []byte(`{"capsule":true}`), [32]byte{1}, "source"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-1", CapsuleRevision: 1}); err != nil {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-1", CapsuleRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitReleasedInjection(key, InjectionWatermark{BranchBinding: key.Binding(), BoundaryKey: "boundary-1", CapsuleRevision: 1}); err != nil {
+	if _, err := c.CommitReleasedInjection(context.Background(), key, InjectionWatermark{BranchBinding: key.Binding(), BoundaryKey: "boundary-1", CapsuleRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-1", CapsuleRevision: 1}); !errors.Is(err, ErrInjectionAlreadyReleased) {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-1", CapsuleRevision: 1}); !errors.Is(err, ErrInjectionAlreadyReleased) {
 		t.Fatalf("duplicate same boundary error = %v, want ErrInjectionAlreadyReleased", err)
 	}
-	if _, err := c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-2", CapsuleRevision: 1}); err != nil {
+	if _, err := c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-2", CapsuleRevision: 1}); err != nil {
 		t.Fatalf("same revision on later boundary: %v", err)
 	}
-	if _, err := c.CommitReleasedInjection(key, InjectionWatermark{BranchBinding: "wrong", BoundaryKey: "boundary-2", CapsuleRevision: 1}); !errors.Is(err, ErrBranchMismatch) {
+	if _, err := c.CommitReleasedInjection(context.Background(), key, InjectionWatermark{BranchBinding: "wrong", BoundaryKey: "boundary-2", CapsuleRevision: 1}); !errors.Is(err, ErrBranchMismatch) {
 		t.Fatalf("wrong branch release error = %v, want ErrBranchMismatch", err)
 	}
 }
@@ -372,20 +422,20 @@ func TestBranchCoordinator_BoundsAndLazyExpiry(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(100, 0)
-	c, err := NewBranchCoordinator(Config{MaxEntries: 1, TTL: time.Second, Now: func() time.Time { return now }})
+	c, err := NewBranchCoordinator(context.Background(), Config{MaxEntries: 1, TTL: time.Second, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	k1, _ := NewBranchKey("s-1", "a-1", "")
 	k2, _ := NewBranchKey("s-2", "a-2", "")
-	if _, err := c.Capture(k1); err != nil {
+	if _, err := c.Capture(context.Background(), k1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Capture(k2); !errors.Is(err, ErrBranchLimit) {
+	if _, err := c.Capture(context.Background(), k2); !errors.Is(err, ErrBranchLimit) {
 		t.Fatalf("second branch error = %v, want ErrBranchLimit", err)
 	}
 	now = now.Add(2 * time.Second)
-	if _, err := c.Capture(k2); err != nil {
+	if _, err := c.Capture(context.Background(), k2); err != nil {
 		t.Fatalf("capture after lazy expiry: %v", err)
 	}
 }
@@ -393,15 +443,15 @@ func TestBranchCoordinator_BoundsAndLazyExpiry(t *testing.T) {
 func TestBranchCoordinator_SerializesConcurrentInjectionUpdates(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewBranchCoordinator(Config{})
+	c, err := NewBranchCoordinator(context.Background(), Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := NewBranchKey("session-concurrent", "a-parent", "")
-	if _, err := c.Capture(key); err != nil {
+	if _, err := c.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CommitCapsule(key, 0, []byte(`{"base":true}`), [32]byte{1}, "source"); err != nil {
+	if _, err := c.CommitCapsule(context.Background(), key, 0, []byte(`{"base":true}`), [32]byte{1}, "source"); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -409,12 +459,12 @@ func TestBranchCoordinator_SerializesConcurrentInjectionUpdates(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, _ = c.SetPendingInjection(key, InjectionTarget{BoundaryKey: "boundary-" + string(rune('a'+i)), CapsuleRevision: 1})
-			_, _, _ = c.Snapshot(key)
+			_, _ = c.SetPendingInjection(context.Background(), key, InjectionTarget{BoundaryKey: "boundary-" + string(rune('a'+i)), CapsuleRevision: 1})
+			_, _, _ = c.Snapshot(context.Background(), key)
 		}(i)
 	}
 	wg.Wait()
-	state, ok, err := c.Snapshot(key)
+	state, ok, err := c.Snapshot(context.Background(), key)
 	if err != nil || !ok || state.PendingInjection == nil {
 		t.Fatalf("concurrent state = %#v, found=%v, err=%v", state, ok, err)
 	}
@@ -424,32 +474,32 @@ func TestBranchCoordinator_UsesOpaqueProcessExtensionStateAcrossCoordinatorReloa
 	t.Parallel()
 
 	store := corestate.NewMem(nil)
-	c1, err := NewBranchCoordinator(Config{Store: store})
+	c1, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := NewBranchKey("session-reload", "a-parent", "")
-	if _, err := c1.Capture(key); err != nil {
+	if _, err := c1.Capture(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c1.CommitCapsule(key, 0, []byte(`{"persisted":true}`), [32]byte{9}, "source"); err != nil {
+	if _, err := c1.CommitCapsule(context.Background(), key, 0, []byte(`{"persisted":true}`), [32]byte{9}, "source"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c1.RecordPendingJob(key, auxiliary.JobID("job-reload"), 1); err != nil {
+	if _, err := c1.RecordPendingJob(context.Background(), key, auxiliary.JobID("job-reload"), 1); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := NewBranchCoordinator(Config{Store: store})
+	c2, err := NewBranchCoordinator(context.Background(), Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := c2.Snapshot(key)
+	got, ok, err := c2.Snapshot(context.Background(), key)
 	if err != nil || !ok || string(got.CapsuleJSON) != `{"persisted":true}` {
 		t.Fatalf("reloaded snapshot = %#v, found=%v, err=%v", got, ok, err)
 	}
-	if _, err := c2.MergeCapsule(key, "job-reload", key.Binding(), 1, []byte(`{"merged":true}`), [32]byte{10}); err != nil {
+	if _, err := c2.MergeCapsule(context.Background(), key, "job-reload", key.Binding(), 1, []byte(`{"merged":true}`), [32]byte{10}); err != nil {
 		t.Fatalf("reloaded pending merge: %v", err)
 	}
-	if _, err := c2.ValidatePendingJob(key, "child-a-leg"); !errors.Is(err, ErrPendingJobMismatch) {
+	if _, err := c2.ValidatePendingJob(context.Background(), key, "child-a-leg"); !errors.Is(err, ErrPendingJobMismatch) {
 		// No pending job is intentionally a consistency failure, not a lookup
 		// that could be satisfied by the private child A-leg.
 		t.Fatalf("child job lookup error = %v, want ErrPendingJobMismatch", err)
