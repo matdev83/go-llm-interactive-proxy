@@ -71,6 +71,9 @@ func (c Client) streamWithRunner(ctx context.Context, req auxiliary.Request, run
 	if len(req.DisablePlugins) > 0 {
 		childCtx = execctx.WithSuppressedPluginIDs(childCtx, req.DisablePlugins)
 	}
+	if req.SessionMode == auxiliary.SessionModeDetached {
+		childCtx = withDetachedPolicy(childCtx, req)
+	}
 	// Preserve parent principal/scope attribution and mark the derived origin separately so
 	// auxiliary/internal requests stay correlated to the authoritative parent snapshot without
 	// inheriting client origin authority (requirement 4.4). ScopeFromContext returns an owned

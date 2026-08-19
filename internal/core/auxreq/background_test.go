@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/genpin"
@@ -152,6 +153,52 @@ func TestBackgroundScheduler_ParentCancellationDoesNotCancelDelayedWorker(t *tes
 	<-start
 	if gotCanceled.Load() {
 		t.Fatal("worker inherited canceled parent context")
+	}
+}
+
+func TestBackgroundScheduler_DetachedBindingSurvivesDelayedStartAfterParentCancellation(t *testing.T) {
+	t.Parallel()
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var calls atomic.Int32
+	var binding atomic.Value
+	runner := backgroundRunner(func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-releaseFirst
+			return finishedStream(), nil
+		}
+		meta, ok := execctx.DetachedSessionFromContext(ctx)
+		if ok {
+			binding.Store(meta.ParentBranchBinding)
+		}
+		return finishedStream(), nil
+	})
+	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner { return runner }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 1})
+	if _, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first worker did not start")
+	}
+	parent, cancel := context.WithCancel(context.Background())
+	second := backgroundRequest()
+	second.SessionMode = auxiliary.SessionModeDetached
+	second.ParentBranchBinding = "captured-parent-branch"
+	id, err := s.SubmitCollect(parent, second, auxiliary.SubmitOptions{CoalesceKey: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	close(releaseFirst)
+	if _, err := s.Await(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := binding.Load().(string)
+	if !ok || got != "captured-parent-branch" {
+		t.Fatalf("delayed detached binding=%q ok=%v", got, ok)
 	}
 }
 

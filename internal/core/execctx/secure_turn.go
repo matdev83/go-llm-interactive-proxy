@@ -31,6 +31,12 @@ func SecureSessionTurnFromContext(ctx context.Context) (SecureSessionTurn, bool)
 	if ctx == nil {
 		return SecureSessionTurn{}, false
 	}
+	// Detached auxiliary execution inherits the parent context for
+	// attribution, but must never reuse the parent's primary secure-session
+	// turn as execution authority.
+	if mode, marked := SessionModeFromContext(ctx); marked && mode == SessionModeDetached {
+		return SecureSessionTurn{}, false
+	}
 	raw := ctx.Value(keySecureTurn)
 	if raw == nil {
 		return SecureSessionTurn{}, false

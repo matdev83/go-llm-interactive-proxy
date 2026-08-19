@@ -218,11 +218,9 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
-	ps.sharedMutable = shared
-	ps.ALegLifecycle = shared.ALegLifecycle
-	ps.ExtensionState = shared.ExtensionState
-	ps.AffinityStore = &processAffinityHandle{reg: shared.affinity}
-	ps.CandidateHealth = shared.underlyingHealth
+	if err := bindSharedMutableProcessServices(ps, shared); err != nil {
+		return fail(fmt.Errorf("runtimebundle: branch coordinator: %w", err))
+	}
 
 	// Snapshot binder before terminal workers so IntentService/reconciler receive
 	// executable pending ownership without a post-start setter race.

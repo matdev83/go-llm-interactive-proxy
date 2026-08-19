@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -68,6 +69,8 @@ type ProcessServices struct {
 	// Process-owned compaction detector shared by all runtime generations (7.1).
 	CompactionDetector *compactiondetect.Detector
 	BackgroundAux      *BackgroundAuxScheduler // optional process-owned collector
+	// BranchCoordinator is process-owned and survives immutable generation reload.
+	BranchCoordinator *compactioncontinuity.BranchCoordinator
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime
