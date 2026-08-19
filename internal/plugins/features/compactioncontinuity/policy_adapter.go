@@ -7,8 +7,8 @@ import (
 )
 
 // effectiveConfig resolves trusted session policy for the current callback.
-// The generation config remains the operator hard maximum; the returned copy
-// is request-local and never mutates p.cfg or any in-flight job snapshot.
+// Package safety constants cap trusted overrides; generation config supplies
+// defaults. The returned copy never mutates p.cfg or an in-flight job snapshot.
 func (p *Plugin) effectiveConfig(ctx context.Context) (Config, bool) {
 	if p == nil {
 		return Config{}, false

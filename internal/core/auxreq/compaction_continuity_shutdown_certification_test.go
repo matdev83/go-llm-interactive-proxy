@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,18 +18,18 @@ import (
 // Task 6.3 certification keeps all external work behind deterministic gates.
 func TestCompactionContinuityShutdownCertification_SubmitBoundary(t *testing.T) {
 	t.Parallel()
-	ret := &certificationRetainer{}
+	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	var calls atomic.Int32
 	s := newCertificationScheduler(t, auxreq.SchedulerConfig{}, func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 		calls.Add(1)
-		return certificationFinishedStream(), nil
+		return finishedStream(), nil
 	})
 
 	// A preview intent has no committed transaction key. It must be rejected
 	// before generation retention or provider execution.
-	if _, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{}); !errors.Is(err, auxreq.ErrInvalidCoalesceKey) {
+	if _, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{}); !errors.Is(err, auxreq.ErrInvalidCoalesceKey) {
 		t.Fatalf("preview submission error=%v want ErrInvalidCoalesceKey", err)
 	}
 	if got := ret.retains.Load(); got != 0 {
@@ -38,7 +39,7 @@ func TestCompactionContinuityShutdownCertification_SubmitBoundary(t *testing.T) 
 		t.Fatalf("preview submission provider calls=%d want zero", got)
 	}
 
-	id, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/committed-tx/rev-1"})
+	id, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/committed-tx/rev-1"})
 	if err != nil {
 		t.Fatalf("committed submission: %v", err)
 	}
@@ -48,14 +49,14 @@ func TestCompactionContinuityShutdownCertification_SubmitBoundary(t *testing.T) 
 	if got := ret.retains.Load(); got != 1 {
 		t.Fatalf("committed submission retains=%d want one", got)
 	}
-	if got := ret.releases.Load(); got != 1 {
+	if got := ret.pin.releases.Load(); got != 1 {
 		t.Fatalf("committed submission releases=%d want one", got)
 	}
 }
 
 func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t *testing.T) {
 	t.Parallel()
-	ret := &certificationRetainer{}
+	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	firstStarted := make(chan struct{})
@@ -65,10 +66,15 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 		if calls.Add(1) == 1 {
 			return &certificationLateStream{started: firstStarted, release: releaseFirst}, nil
 		}
-		return certificationFinishedStream(), nil
+		return finishedStream(), nil
 	})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	// Register after the scheduler cleanup so this gate is opened before
+	// Close joins a worker on every test exit path.
+	t.Cleanup(releaseAll)
 
-	first, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-1"})
+	first, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-1"})
 	if err != nil {
 		t.Fatalf("first submission: %v", err)
 	}
@@ -77,11 +83,11 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	case <-time.After(time.Second):
 		t.Fatal("first worker did not start")
 	}
-	second, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-2"})
+	second, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-2"})
 	if err != nil {
 		t.Fatalf("queued submission: %v", err)
 	}
-	if _, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-3"}); !errors.Is(err, auxreq.ErrQueueFull) {
+	if _, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "branch/tx-3"}); !errors.Is(err, auxreq.ErrQueueFull) {
 		t.Fatalf("saturated submission error=%v want ErrQueueFull", err)
 	}
 	// The failed handoff also releases its tentative pin; the two admitted
@@ -89,7 +95,7 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	if got := ret.retains.Load(); got != 3 {
 		t.Fatalf("retains after saturation=%d want three attempts", got)
 	}
-	if got := ret.releases.Load(); got != 1 {
+	if got := ret.pin.releases.Load(); got != 1 {
 		t.Fatalf("releases after saturation=%d want failed handoff only", got)
 	}
 
@@ -102,7 +108,7 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	deadline := time.NewTimer(time.Second)
 	defer deadline.Stop()
 	for {
-		_, submitErr := s.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "after-close-probe"})
+		_, submitErr := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "after-close-probe"})
 		if errors.Is(submitErr, auxreq.ErrSchedulerClosed) {
 			break
 		}
@@ -125,7 +131,7 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("provider calls before late completion=%d want one; queued work started after close", got)
 	}
-	close(releaseFirst)
+	releaseAll()
 	select {
 	case err := <-closeDone:
 		if err != nil {
@@ -137,7 +143,7 @@ func TestCompactionContinuityShutdownCertification_QueueCloseAndLateCompletion(t
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("provider calls after Close=%d want one", got)
 	}
-	if got := ret.releases.Load(); got != 3 {
+	if got := ret.pin.releases.Load(); got != 3 {
 		t.Fatalf("releases after shutdown=%d want one per attempted pin", got)
 	}
 	if _, err := s.Await(context.Background(), first); err != nil {
@@ -152,47 +158,55 @@ func TestCompactionContinuityShutdownCertification_WorkerTimeoutAndParentCancell
 	t.Parallel()
 	t.Run("timeout", func(t *testing.T) {
 		t.Parallel()
-		ret := &certificationRetainer{}
+		ret := &countingRetainer{pin: &countingPin{}}
 		ret.allow.Store(true)
 		ctx := genpin.WithRetainer(context.Background(), ret)
 		s := newCertificationScheduler(t, auxreq.SchedulerConfig{JobTimeout: 10 * time.Millisecond}, func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
-			return &certificationContextStream{}, nil
+			return &cancelOnlyStream{}, nil
 		})
-		id, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "timeout"})
+		id, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "timeout"})
 		if err != nil {
 			t.Fatalf("timeout submission: %v", err)
 		}
 		if _, err := s.Await(context.Background(), id); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("timeout Await=%v want context deadline", err)
 		}
-		if got := ret.releases.Load(); got != 1 {
+		if got := ret.pin.releases.Load(); got != 1 {
 			t.Fatalf("timeout releases=%d want one", got)
 		}
 	})
 
 	t.Run("parent-cancellation", func(t *testing.T) {
 		t.Parallel()
-		ret := &certificationRetainer{}
+		ret := &countingRetainer{pin: &countingPin{}}
 		ret.allow.Store(true)
 		parent, cancel := context.WithCancel(context.Background())
 		ctx := genpin.WithRetainer(parent, ret)
 		var workerSawCanceled atomic.Bool
+		parentCanceled := make(chan struct{})
 		s := newCertificationScheduler(t, auxreq.SchedulerConfig{}, func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+			<-parentCanceled
 			workerSawCanceled.Store(ctx.Err() != nil)
-			return certificationFinishedStream(), nil
+			return finishedStream(), nil
 		})
-		id, err := s.SubmitCollect(ctx, certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "parent-cancel"})
+		var parentReleaseOnce sync.Once
+		releaseParent := func() { parentReleaseOnce.Do(func() { close(parentCanceled) }) }
+		// Ensure a failed assertion cannot leave the worker blocked ahead of the
+		// scheduler cleanup.
+		t.Cleanup(releaseParent)
+		id, err := s.SubmitCollect(ctx, backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "parent-cancel"})
 		if err != nil {
 			t.Fatalf("parent cancellation submission: %v", err)
 		}
 		cancel()
+		releaseParent()
 		if _, err := s.Await(context.Background(), id); err != nil {
 			t.Fatalf("detached worker Await=%v", err)
 		}
 		if workerSawCanceled.Load() {
 			t.Fatal("worker inherited canceled parent context")
 		}
-		if got := ret.releases.Load(); got != 1 {
+		if got := ret.pin.releases.Load(); got != 1 {
 			t.Fatalf("parent cancellation releases=%d want one", got)
 		}
 	})
@@ -208,16 +222,16 @@ func TestCompactionContinuityShutdownCertification_ProviderCallbackOutsideSchedu
 	}, 1)
 	runner := func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 		if calls.Add(1) == 1 {
-			id, err := scheduler.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "nested"})
+			id, err := scheduler.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "nested"})
 			nested <- struct {
 				id  auxiliary.JobID
 				err error
 			}{id: id, err: err}
 		}
-		return certificationFinishedStream(), nil
+		return finishedStream(), nil
 	}
 	scheduler = newCertificationScheduler(t, auxreq.SchedulerConfig{Workers: 2, QueueCapacity: 2}, runner)
-	outer, err := scheduler.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "outer"})
+	outer, err := scheduler.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "outer"})
 	if err != nil {
 		t.Fatalf("outer submission: %v", err)
 	}
@@ -243,11 +257,11 @@ func TestCompactionContinuityShutdownCertification_ProviderCallbackOutsideSchedu
 func TestCompactionContinuityShutdownCertification_ResultRetentionBound(t *testing.T) {
 	t.Parallel()
 	s := newCertificationScheduler(t, auxreq.SchedulerConfig{Workers: 2, QueueCapacity: 2, MaxResults: 2}, func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
-		return certificationFinishedStream(), nil
+		return finishedStream(), nil
 	})
 	ids := make([]auxiliary.JobID, 0, 8)
 	for i := range 8 {
-		id, err := s.SubmitCollect(context.Background(), certificationRequest(), auxiliary.SubmitOptions{CoalesceKey: "bounded-" + string(rune('a'+i))})
+		id, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "bounded-" + string(rune('a'+i))})
 		if err != nil {
 			t.Fatalf("submission %d: %v", i, err)
 		}
@@ -268,28 +282,18 @@ func TestCompactionContinuityShutdownCertification_ResultRetentionBound(t *testi
 	}
 }
 
-type certificationRunner func(context.Context, *lipapi.Call) (lipapi.EventStream, error)
-
-func (r certificationRunner) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
-	return r(ctx, call)
-}
-
-func newCertificationScheduler(t *testing.T, cfg auxreq.SchedulerConfig, run certificationRunner) *auxreq.BackgroundScheduler {
+func newCertificationScheduler(t *testing.T, cfg auxreq.SchedulerConfig, run backgroundRunner) *auxreq.BackgroundScheduler {
 	t.Helper()
 	s, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return run }, cfg)
 	if err != nil {
 		t.Fatalf("NewBackgroundScheduler: %v", err)
 	}
-	t.Cleanup(func() { _ = s.Close() })
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	return s
-}
-
-func certificationRequest() auxiliary.Request {
-	return auxiliary.Request{Call: &lipapi.Call{Route: lipapi.RouteIntent{Selector: "local:certification"}}}
-}
-
-func certificationFinishedStream() lipapi.EventStream {
-	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}})
 }
 
 type certificationLateStream struct {
@@ -308,46 +312,3 @@ func (s *certificationLateStream) Recv(context.Context) (lipapi.Event, error) {
 }
 
 func (*certificationLateStream) Close() error { return nil }
-
-type certificationContextStream struct {
-	once atomic.Bool
-}
-
-func (s *certificationContextStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if s.once.CompareAndSwap(false, true) {
-		return lipapi.Event{Kind: lipapi.EventResponseStarted}, nil
-	}
-	<-ctx.Done()
-	return lipapi.Event{}, ctx.Err()
-}
-
-func (*certificationContextStream) Close() error { return nil }
-
-type certificationRetainer struct {
-	retains  atomic.Int32
-	releases atomic.Int32
-	allow    atomic.Bool
-}
-
-func (*certificationRetainer) RuntimeInstanceID() string   { return "certification-instance" }
-func (*certificationRetainer) RuntimeGenerationID() string { return "certification-generation" }
-
-func (r *certificationRetainer) Retain(kind genpin.Kind) (genpin.Pin, bool) {
-	if kind != genpin.KindAsync || !r.allow.Load() {
-		return nil, false
-	}
-	r.retains.Add(1)
-	return certificationPin{owner: r}, true
-}
-
-type certificationPin struct{ owner *certificationRetainer }
-
-func (certificationPin) Kind() genpin.Kind { return genpin.KindAsync }
-
-func (p certificationPin) Release() {
-	if p.owner != nil {
-		p.owner.releases.Add(1)
-	}
-}
-
-var _ genpin.Retainer = (*certificationRetainer)(nil)

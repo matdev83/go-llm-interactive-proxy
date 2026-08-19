@@ -235,8 +235,11 @@ func TestCompactionContinuitySecurity_ObserverAndPreserverCannotAuthorizeRetry(t
 	assertExactMethods(t, "compaction.Preserver", reflect.TypeFor[compaction.Preserver](), "BeforeRequest", "BeforeResponseRelease", "ID", "RequestOpened")
 	assertExactMethods(t, "auxiliary.BackgroundClient", reflect.TypeFor[auxiliary.BackgroundClient](), "Await", "Forget", "SubmitCollect")
 
-	var observer compaction.Observer = contentFreeObserver{}
+	observer := &recordingCompactionObserver{}
 	compaction.Dispatch(context.Background(), []compaction.Observer{observer}, []compaction.Event{{Phase: compaction.PhaseStarted}})
+	if observer.calls != 1 || observer.last.Phase != compaction.PhaseStarted {
+		t.Fatalf("Dispatch did not deliver the observer event: calls=%d last=%+v", observer.calls, observer.last)
+	}
 	if lipapi.OutputCommitted(lipapi.Event{Kind: lipapi.EventResponseStarted}) {
 		t.Fatal("response lifecycle frame committed output")
 	}
@@ -318,6 +321,17 @@ type contentFreeObserver struct{}
 
 func (contentFreeObserver) OnCompaction(context.Context, compaction.Event) error { return nil }
 
+type recordingCompactionObserver struct {
+	calls int
+	last  compaction.Event
+}
+
+func (o *recordingCompactionObserver) OnCompaction(_ context.Context, event compaction.Event) error {
+	o.calls++
+	o.last = event
+	return nil
+}
+
 func detectorItemCall(prefix, tailA, tailB string) lipapi.Call {
 	return lipapi.Call{Items: []lipapi.Item{
 		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Status: lipapi.ItemStatusCompleted, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: prefix}}},
@@ -358,14 +372,20 @@ func assertExactMethods(t *testing.T, label string, typ reflect.Type, want ...st
 
 func assertTypeKeysAbsent(t *testing.T, typ reflect.Type, forbidden map[string]struct{}) {
 	t.Helper()
+	if field := forbiddenTypeKey(typ, forbidden); field != "" {
+		t.Fatalf("%s exposes forbidden wire/control field %s", typ, field)
+	}
+}
+
+func forbiddenTypeKey(typ reflect.Type, forbidden map[string]struct{}) string {
 	seen := make(map[reflect.Type]bool)
-	var visit func(reflect.Type)
-	visit = func(current reflect.Type) {
-		for current.Kind() == reflect.Pointer || current.Kind() == reflect.Slice || current.Kind() == reflect.Array {
+	var visit func(reflect.Type) string
+	visit = func(current reflect.Type) string {
+		for current.Kind() == reflect.Pointer || current.Kind() == reflect.Slice || current.Kind() == reflect.Array || current.Kind() == reflect.Map {
 			current = current.Elem()
 		}
 		if current.Kind() != reflect.Struct || seen[current] {
-			return
+			return ""
 		}
 		seen[current] = true
 		for field := range current.Fields() {
@@ -374,12 +394,25 @@ func assertTypeKeysAbsent(t *testing.T, typ reflect.Type, forbidden map[string]s
 				key = strings.ToLower(tag)
 			}
 			if _, blocked := forbidden[strings.ReplaceAll(key, "_", "")]; blocked {
-				t.Fatalf("%s exposes forbidden wire/control field %s", typ, field.Name)
+				return field.Name
 			}
-			visit(field.Type)
+			if nested := visit(field.Type); nested != "" {
+				return nested
+			}
 		}
+		return ""
 	}
-	visit(typ)
+	return visit(typ)
+}
+
+func TestCompactionContinuitySecurity_TypeWalkerTraversesMapValueStructs(t *testing.T) {
+	t.Parallel()
+	type mapValue struct{ SessionMode string }
+	type envelope struct{ Values map[string]mapValue }
+
+	if got := forbiddenTypeKey(reflect.TypeFor[envelope](), map[string]struct{}{"sessionmode": {}}); got != "SessionMode" {
+		t.Fatalf("map-value walker field=%q, want SessionMode", got)
+	}
 }
 
 func assertProductionDirectImportsExclude(t *testing.T, sourcePrefixes, forbidden []string) {

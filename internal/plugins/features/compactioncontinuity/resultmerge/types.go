@@ -39,8 +39,8 @@ type BackgroundClient interface {
 // branch binding is the only branch identity visible here; a child A-leg is
 // never a lookup key. CommitCapsuleForJob must perform its own job-bound CAS.
 type ParentCoordinator interface {
-	ValidatePendingJob(branchBinding string, jobID auxiliary.JobID) (ParentState, error)
-	CommitCapsuleForJob(branchBinding string, jobID auxiliary.JobID, resultBranchBinding string, expectedRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (ParentState, error)
+	ValidatePendingJob(context.Context, string, auxiliary.JobID) (ParentState, error)
+	CommitCapsuleForJob(context.Context, string, auxiliary.JobID, string, uint64, []byte, [32]byte, string) (ParentState, error)
 }
 
 // DeltaDecoder is implemented by the strict extractor-result parser. A

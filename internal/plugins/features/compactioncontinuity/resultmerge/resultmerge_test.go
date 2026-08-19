@@ -42,7 +42,7 @@ type fakeParent struct {
 	committedBytes []byte
 }
 
-func (f *fakeParent) ValidatePendingJob(string, auxiliary.JobID) (ParentState, error) {
+func (f *fakeParent) ValidatePendingJob(context.Context, string, auxiliary.JobID) (ParentState, error) {
 	f.validates++
 	if f.validateErr != nil {
 		return ParentState{}, f.validateErr
@@ -54,7 +54,7 @@ func (f *fakeParent) ValidatePendingJob(string, auxiliary.JobID) (ParentState, e
 	return out, nil
 }
 
-func (f *fakeParent) CommitCapsuleForJob(_ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
+func (f *fakeParent) CommitCapsuleForJob(_ context.Context, _ string, _ auxiliary.JobID, _ string, expectedRevision uint64, data []byte, digest [32]byte, highWatermark string) (ParentState, error) {
 	f.commits++
 	if f.commitErr != nil {
 		return ParentState{}, f.commitErr

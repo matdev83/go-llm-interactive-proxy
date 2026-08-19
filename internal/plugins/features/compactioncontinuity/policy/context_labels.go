@@ -22,7 +22,7 @@ func overrideFromContext(ctx context.Context) Override {
 		return Override{}
 	}
 	o, _ := ctx.Value(overrideContextKey{}).(Override)
-	return cloneOverride(o)
+	return o
 }
 
 func mergeOverride(o *Override, labels map[string]string) {
@@ -173,10 +173,4 @@ func cloneOverride(in Override) Override {
 		out.Inherit = &v
 	}
 	return out
-}
-
-// WithSecureTurn is a test/composition helper that carries only the existing
-// trusted secure-session policy seam; it has no wire representation.
-func WithSecureTurn(ctx context.Context, transcriptEnabled bool) context.Context {
-	return session.WithSecureTurnPolicy(ctx, session.SecureTurnPolicyView{TranscriptEnabled: transcriptEnabled})
 }

@@ -39,18 +39,18 @@ func NewBranchCoordinator(cfg Config) (*BranchCoordinator, error) {
 		maxSourceBytes:    cfg.MaxSourceBytes,
 		entries:           make(map[string]branchEntry),
 	}
-	if err := c.load(); err != nil {
+	if err := c.load(context.Background()); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-func (c *BranchCoordinator) load() error {
+func (c *BranchCoordinator) load(ctx context.Context) error {
 	if c == nil || c.store == nil {
 		return nil
 	}
 	var raw persistedState
-	found, err := c.store.Get(context.Background(), lipstate.ScopeGlobal, stateNamespace, stateKey, &raw)
+	found, err := c.store.Get(ctx, lipstate.ScopeGlobal, stateNamespace, stateKey, &raw)
 	if err != nil {
 		return fmt.Errorf("%w: load: %v", ErrInvalidState, err)
 	}
@@ -77,7 +77,7 @@ func (c *BranchCoordinator) load() error {
 	return nil
 }
 
-func (c *BranchCoordinator) persist(entries map[string]branchEntry) error {
+func (c *BranchCoordinator) persist(ctx context.Context, entries map[string]branchEntry) error {
 	if c.store == nil {
 		return nil
 	}
@@ -88,7 +88,7 @@ func (c *BranchCoordinator) persist(entries map[string]branchEntry) error {
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].Key.Binding() < list[j].Key.Binding()
 	})
-	return c.store.Put(context.Background(), lipstate.ScopeGlobal, stateNamespace, stateKey, persistedState{Version: stateVersion, Entries: list}, c.ttl)
+	return c.store.Put(ctx, lipstate.ScopeGlobal, stateNamespace, stateKey, persistedState{Version: stateVersion, Entries: list}, c.ttl)
 }
 
 func (c *BranchCoordinator) cleanupLocked(now time.Time) {
@@ -109,7 +109,7 @@ func (c *BranchCoordinator) cloneEntriesLocked() map[string]branchEntry {
 
 // Capture records the parent branch before detached child creation. It is
 // idempotent for an existing non-expired branch.
-func (c *BranchCoordinator) Capture(key BranchKey) (string, error) {
+func (c *BranchCoordinator) Capture(ctx context.Context, key BranchKey) (string, error) {
 	if c == nil {
 		return "", ErrBranchNotFound
 	}
@@ -129,7 +129,7 @@ func (c *BranchCoordinator) Capture(key BranchKey) (string, error) {
 	now := c.now()
 	next := c.cloneEntriesLocked()
 	next[binding] = branchEntry{Key: normalizeBranchKey(key), State: BranchState{UpdatedAt: now}, ExpiresAt: now.Add(c.ttl)}
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return "", fmt.Errorf("compactioncontinuity: persist capture: %w", err)
 	}
 	c.entries = next
@@ -137,7 +137,7 @@ func (c *BranchCoordinator) Capture(key BranchKey) (string, error) {
 }
 
 // Snapshot returns a defensive copy of state for the captured parent branch.
-func (c *BranchCoordinator) Snapshot(key BranchKey) (BranchState, bool, error) {
+func (c *BranchCoordinator) Snapshot(_ context.Context, key BranchKey) (BranchState, bool, error) {
 	if c == nil {
 		return BranchState{}, false, ErrBranchNotFound
 	}
@@ -157,7 +157,7 @@ func (c *BranchCoordinator) Snapshot(key BranchKey) (BranchState, bool, error) {
 
 // Retire removes a branch and its pending state, used for explicit reset/new
 // A-leg replacement. It does not cancel external background work.
-func (c *BranchCoordinator) Retire(key BranchKey) error {
+func (c *BranchCoordinator) Retire(ctx context.Context, key BranchKey) error {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return err
@@ -170,7 +170,7 @@ func (c *BranchCoordinator) Retire(key BranchKey) error {
 	}
 	next := c.cloneEntriesLocked()
 	delete(next, binding)
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return fmt.Errorf("compactioncontinuity: persist retire: %w", err)
 	}
 	c.entries = next

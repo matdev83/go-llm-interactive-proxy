@@ -65,29 +65,29 @@ func TestCompactionContinuityShutdownCertification_BranchAndPreviewBounds(t *tes
 	first := certificationBranchKey("first")
 	second := certificationBranchKey("second")
 	third := certificationBranchKey("third")
-	if _, err := coordinator.Capture(first); err != nil {
+	if _, err := coordinator.Capture(context.Background(), first); err != nil {
 		t.Fatalf("Capture first: %v", err)
 	}
-	if _, err := coordinator.Capture(second); err != nil {
+	if _, err := coordinator.Capture(context.Background(), second); err != nil {
 		t.Fatalf("Capture second: %v", err)
 	}
-	if _, err := coordinator.Capture(third); !errors.Is(err, compactioncontinuity.ErrBranchLimit) {
+	if _, err := coordinator.Capture(context.Background(), third); !errors.Is(err, compactioncontinuity.ErrBranchLimit) {
 		t.Fatalf("third branch error=%v want ErrBranchLimit", err)
 	}
-	if _, err := coordinator.RecordPreviewIntent(first, compactioncontinuity.PreviewIntent{Key: "preview-first", TargetSourceRevision: 1}); err != nil {
+	if _, err := coordinator.RecordPreviewIntent(context.Background(), first, compactioncontinuity.PreviewIntent{Key: "preview-first", TargetSourceRevision: 1}); err != nil {
 		t.Fatalf("RecordPreviewIntent first: %v", err)
 	}
-	if _, err := coordinator.RecordPreviewIntent(second, compactioncontinuity.PreviewIntent{Key: "preview-second", TargetSourceRevision: 1}); !errors.Is(err, compactioncontinuity.ErrPreviewIntentLimit) {
+	if _, err := coordinator.RecordPreviewIntent(context.Background(), second, compactioncontinuity.PreviewIntent{Key: "preview-second", TargetSourceRevision: 1}); !errors.Is(err, compactioncontinuity.ErrPreviewIntentLimit) {
 		t.Fatalf("second preview intent error=%v want ErrPreviewIntentLimit", err)
 	}
 
 	// TTL cleanup is lazy and bounded; no cleanup goroutine is needed to make
 	// room for a subsequent branch.
 	clock.Advance(2 * time.Minute)
-	if _, found, err := coordinator.Snapshot(first); err != nil || found {
+	if _, found, err := coordinator.Snapshot(context.Background(), first); err != nil || found {
 		t.Fatalf("expired first branch snapshot found=%v err=%v", found, err)
 	}
-	if _, err := coordinator.Capture(third); err != nil {
+	if _, err := coordinator.Capture(context.Background(), third); err != nil {
 		t.Fatalf("Capture after bounded expiry: %v", err)
 	}
 }

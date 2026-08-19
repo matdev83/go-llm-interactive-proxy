@@ -1,6 +1,7 @@
 package execctx
 
 import (
+	"context"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
@@ -39,5 +40,15 @@ func TestWithSecureSessionTurnProjectsContentFreeSDKPolicy(t *testing.T) {
 	got, ok := session.SecureTurnPolicyFromContext(ctx)
 	if !ok || !got.TranscriptEnabled {
 		t.Fatalf("public secure-turn policy = %+v ok=%v", got, ok)
+	}
+}
+
+func TestWithDetachedSessionMasksInheritedSecureTurnPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := session.WithSecureTurnPolicy(context.Background(), session.SecureTurnPolicyView{TranscriptEnabled: true})
+	ctx = WithDetachedSession(ctx, DetachedSession{ParentSessionID: "parent-session"})
+	if _, ok := session.SecureTurnPolicyFromContext(ctx); ok {
+		t.Fatal("detached context inherited primary secure-turn policy")
 	}
 }

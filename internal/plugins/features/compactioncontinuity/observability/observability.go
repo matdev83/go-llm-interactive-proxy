@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Stage identifies one feature-local lifecycle seam. The finite vocabulary is
@@ -200,7 +201,13 @@ func (r *Recorder) Snapshot() []Observation {
 		if out[i].Outcome != out[j].Outcome {
 			return out[i].Outcome < out[j].Outcome
 		}
-		return out[i].RuleID < out[j].RuleID
+		if out[i].Evidence != out[j].Evidence {
+			return out[i].Evidence < out[j].Evidence
+		}
+		if out[i].RuleID != out[j].RuleID {
+			return out[i].RuleID < out[j].RuleID
+		}
+		return out[i].Phase < out[j].Phase
 	})
 	return out
 }
@@ -248,7 +255,15 @@ func normalize(sample Observation) Observation {
 func boundedLabel(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) > 64 {
-		value = value[:64]
+		end := 0
+		for end < len(value) {
+			_, size := utf8.DecodeRuneInString(value[end:])
+			if end+size > 64 {
+				break
+			}
+			end += size
+		}
+		value = value[:end]
 	}
 	for _, r := range value {
 		if r < 0x20 || r == 0x7f {
@@ -259,7 +274,12 @@ func boundedLabel(value string) string {
 }
 
 func isHash(value string) bool {
-	return len(value) == len("sha256:")+64 && strings.HasPrefix(value, "sha256:")
+	const prefix = "sha256:"
+	if len(value) != len(prefix)+64 || !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	_, err := hex.DecodeString(value[len(prefix):])
+	return err == nil
 }
 
 func validStage(value Stage) bool {
