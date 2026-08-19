@@ -23,6 +23,10 @@ type DetachedSession struct {
 	ParentALegID        string
 	ParentTraceID       string
 	ParentBranchBinding string
+	// AuxiliaryRole is trusted, content-free metadata for internal workload
+	// classification. It is never copied into a canonical call or used as
+	// session, route, or continuity authority.
+	AuxiliaryRole string
 }
 
 type detachedContextValue struct {

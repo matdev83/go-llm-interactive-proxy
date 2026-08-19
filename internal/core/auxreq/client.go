@@ -72,7 +72,11 @@ func (c Client) streamWithRunner(ctx context.Context, req auxiliary.Request, run
 		childCtx = execctx.WithSuppressedPluginIDs(childCtx, req.DisablePlugins)
 	}
 	if req.SessionMode == auxiliary.SessionModeDetached {
-		childCtx = withDetachedPolicy(childCtx, req)
+		var err error
+		childCtx, err = withDetachedPolicy(childCtx, req)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Preserve parent principal/scope attribution and mark the derived origin separately so
 	// auxiliary/internal requests stay correlated to the authoritative parent snapshot without
