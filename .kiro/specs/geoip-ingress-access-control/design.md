@@ -2,14 +2,16 @@
 
 ## Overview
 
-This design implements issue #387 as an **early HTTP ingress access-control layer** for Go-LIP. The design has two lifetime domains:
+This design implements issue #387 as an **early HTTP ingress access-control layer** for Go-LIP. It deliberately separates two lifetime domains:
 
-1. an immutable **generation-scoped policy** used by the request handler graph;
-2. a **process-scoped country database service** that owns MMDB readiness, local files, and optional managed updates.
+1. an immutable **generation-scoped enforcement policy** used by the standard data-plane handler graph;
+2. a **process-scoped country database service** that owns MMDB readiness, local/versioned files, and optional managed MaxMind updates.
 
 The central architectural rule is that GeoIP rejects traffic before general request instrumentation/authentication/frontend/runtime work without creating a parallel reload/control-plane architecture.
 
 Brownfield baseline: `ca43dde919f4d53716a98bf53ffb57bd61560607`.
+
+This revision incorporates the required fixes from `design-review.md`: an exact cycle-neutral HTTP composition DTO, a hard separation between static compilation and runtime resource readiness, and transactional LKG manifest-before-reader publication ordering.
 
 ## Goals
 
@@ -23,6 +25,7 @@ Brownfield baseline: `ca43dde919f4d53716a98bf53ffb57bd61560607`.
 - Keep database/updater lifecycle process-owned and restart-classified.
 - Preserve current management-listener, auth-attribution, and in-flight generation semantics.
 - Keep denial observability bounded and outside general hostile-traffic logging.
+- Keep `check-config` deterministic and network-independent.
 
 ## Non-Goals
 
@@ -38,7 +41,7 @@ Brownfield baseline: `ca43dde919f4d53716a98bf53ffb57bd61560607`.
 
 ## Architecture
 
-### Context
+### HTTP placement
 
 Current standard handler runtime order is effectively:
 
@@ -46,7 +49,7 @@ Current standard handler runtime order is effectively:
 SecurityHeaders
   -> DownstreamServer
     -> OuterRecovery
-      -> OTelHTTP? 
+      -> OTelHTTP?
         -> PromHTTP?
           -> Trace + RequestID
             -> AccessLog
@@ -73,7 +76,7 @@ SecurityHeaders
 
 In `stackHTTPHandler` composition order, build OTel/general Prometheus first, then wrap that handler with GeoIP if enabled, then apply `outerRecoveryMiddleware`, `DownstreamServerMiddleware`, and security headers.
 
-This provides all required early-drop behavior while retaining global recovery/security response contracts.
+This location preserves outer panic containment/security headers while ensuring denied traffic does not reach general OTel/HTTP Prometheus/request-ID/access-log/auth/frontend/runtime work.
 
 ### Lifetime split
 
@@ -83,38 +86,37 @@ Process lifetime
 │ ProcessServices                                             │
 │  └─ GeoIPDatabaseService                                   │
 │      ├─ active CountryLookup reader/version                 │
-│      ├─ LKG/versioned files                                 │
+│      ├─ LKG/versioned files + manifest                      │
 │      ├─ updater client/timer (managed mode only)            │
 │      ├─ readiness/status                                    │
 │      └─ bounded metrics                                     │
 └──────────────────────────────────────────────────────────────┘
-                    │ non-owning narrow lookup port
+                    │ non-owning CountryLookup
                     ▼
 Generation N                       Generation N+1
 ┌─────────────────────────┐       ┌─────────────────────────┐
 │ compiled GeoIP Policy   │       │ compiled GeoIP Policy   │
-│ stdhttp client resolver │       │ stdhttp client resolver │
+│ resolver config         │       │ resolver config         │
 │ GeoIP middleware?       │       │ GeoIP middleware?       │
 │ rest of handler graph   │       │ rest of handler graph   │
 └─────────────────────────┘       └─────────────────────────┘
 ```
 
-A generation never closes or reconfigures the process reader/updater. Process shutdown closes it only after request generations retire under existing host lifecycle ordering.
+A generation never closes/reconfigures the process reader/updater. Process shutdown closes it only under existing host/process-service ownership after generations are retired.
 
-## Proposed Components and Dependency Direction
+## Components and Dependency Direction
 
 ### `internal/core/geoip`
 
-Pure domain/policy package.
+Pure policy/domain package.
 
 Responsibilities:
 
-- policy enums/value objects;
-- country/address rule normalization;
-- immutable compiled rule sets;
+- order, reason, decision value types;
+- normalized immutable country/address rule sets;
 - Apache-compatible class precedence;
-- decision/reason value types;
-- narrow lookup port.
+- safe decision-plan compilation/short-circuit metadata;
+- narrow country lookup port.
 
 Conceptual contracts:
 
@@ -133,9 +135,9 @@ type RuleClass struct {
 }
 
 type Policy struct {
-    Order Order
-    Allow RuleClass
-    Deny  RuleClass
+    Order              Order
+    Allow              RuleClass
+    Deny               RuleClass
     NeedsCountryLookup bool
 }
 
@@ -145,58 +147,63 @@ type CountryLookup interface {
 
 type Decision struct {
     Allow  bool
-    Reason Reason // finite enum, no raw IP/rule
+    Reason Reason // finite enum only
 }
 ```
 
-Core imports no `net/http`, MaxMind package, logger, Prometheus, runtimebundle, or stdhttp.
+Core imports no `net/http`, MaxMind implementation, logger, Prometheus, runtimebundle, or root stdhttp.
 
-`Policy.Evaluate` accepts an already resolved normalized client IP and optional lookup dependency. Country lookup occurs only when required by the compiled decision plan.
+### `internal/stdhttp/contract`
+
+This package remains the exact cycle-neutral composition boundary between `runtimebundle` and root `stdhttp`.
+
+Add a data-only security projection; do **not** make `runtimebundle` import `internal/stdhttp/geoip`.
+
+Conceptually:
+
+```go
+type GeoIPResolverConfig struct {
+    Source         string
+    TrustedProxies []netip.Prefix
+    MaxHeaderBytes int
+    MaxHops        int
+}
+
+type GeoIPSecurityInput struct {
+    Policy   *coregeoip.Policy
+    Lookup   coregeoip.CountryLookup
+    Resolver GeoIPResolverConfig
+    Observer GeoIPObserver
+}
+
+type GeoIPObserver interface {
+    Decision(reason coregeoip.Reason, allow bool)
+}
+
+type HTTPSecurityInput struct {
+    // existing fields...
+    GeoIP GeoIPSecurityInput
+}
+```
+
+The contract imports only stdlib/lower-level core types. Slices are defensively copied using the same pattern as other contract projections.
+
+`Policy == nil` means no gate is installed. A whole `ProcessServices`, `any`, service locator, or middleware closure must not cross this contract.
 
 ### `internal/stdhttp/geoip`
 
-HTTP ingress adapter.
+HTTP adapter.
 
 Responsibilities:
 
 - direct `RemoteAddr` parsing;
-- bounded XFF parser;
-- bounded RFC 7239 parser;
+- bounded XFF parsing;
+- bounded RFC 7239 `Forwarded` parsing;
 - trusted-proxy chain resolution;
-- middleware invoking core policy;
-- generic 403 rendering;
-- observer interface for bounded metrics.
+- middleware using `contract.GeoIPSecurityInput`;
+- generic 403 rendering.
 
-Conceptual inputs:
-
-```go
-type ClientIPSource uint8
-const (
-    SourceDirect ClientIPSource = iota
-    SourceXForwardedFor
-    SourceForwarded
-)
-
-type Resolver struct {
-    Source ClientIPSource
-    Trusted []netip.Prefix
-    MaxHeaderBytes int
-    MaxHops int
-}
-
-type Observer interface {
-    Decision(reason coregeoip.Reason, allow bool)
-}
-
-type Gate struct {
-    Policy *coregeoip.Policy
-    Lookup coregeoip.CountryLookup
-    Resolver Resolver
-    Observer Observer
-}
-```
-
-The adapter returns a fixed generic 403 on policy denial, address-resolution failure, or fail-closed lookup error. It never delegates denial to auth/frontend renderers.
+It consumes the cycle-neutral contract and core policy but owns all HTTP/header semantics.
 
 ### `internal/infra/geoip`
 
@@ -204,24 +211,23 @@ Driven infrastructure adapter / process service.
 
 Responsibilities:
 
-- open Country MMDB;
-- validate expected metadata/database type;
+- open/verify Country MMDB;
 - decode only required `country.iso_code` semantics;
 - own synchronized active reader;
-- maintain LKG/versioned files;
+- maintain versioned files and LKG manifest;
 - managed MaxMind update checks/downloads;
-- publish verified versions;
+- transactional publication/retirement;
 - readiness/status;
 - close/cleanup lifecycle.
 
-Recommended dependencies:
+Recommended implementation dependencies:
 
 - `github.com/oschwald/maxminddb-golang/v2`
 - `github.com/maxmind/geoipupdate/v8/client`
 
-These remain infrastructure dependencies and must not leak into core/stdhttp public contracts.
+MaxMind types never cross into core/stdhttp contracts.
 
-### Configuration
+## Configuration Model
 
 Extend `AccessConfig` with a focused `GeoIP` subtree. Semantic model:
 
@@ -257,108 +263,120 @@ access:
         - 203.0.113.64/27
         - 2001:db8:1234::/48
     client_ip:
-      source: direct
+      source: direct            # direct | x_forwarded_for | forwarded
       trusted_proxies: []
     database:
-      source: managed
+      source: managed           # managed | local
       edition: GeoLite2-Country
       directory: /var/lib/lip/geoip
-      local_path: ""
+      local_path: ""             # local source only
       update:
-        enabled: true
+        enabled: true            # managed source only
         interval: 24h
 ```
 
-Validation rules:
+Validation:
 
-- omitted GeoIP block => disabled/no database service;
+- omitted GeoIP block => disabled/no process service;
 - enabled requires valid `order`;
-- country codes normalize uppercase and validate;
-- CIDR/exact addresses parse at compile/validation time;
+- country values normalize uppercase and validate against ISO-3166 alpha-2 set;
+- CIDR/exact addresses parse with `net/netip` during static compilation;
+- prefixes normalize via `Masked()`;
 - forwarded source requires non-empty trusted proxies;
-- `managed` and `local` source fields are mutually consistent;
-- managed update settings invalid under local source;
-- update interval has a safe minimum and bounded maximum;
-- credentials are not ordinary reloadable YAML values.
+- `managed`/`local` fields are mutually consistent;
+- local source rejects managed updater settings;
+- update interval has a safe minimum/maximum;
+- credentials are process secrets, not ordinary reloadable YAML.
 
-Managed credential names should follow repository conventions; candidate env names are `LIP_GEOIP_MAXMIND_ACCOUNT_ID` and `LIP_GEOIP_MAXMIND_LICENSE_KEY`.
+Candidate environment names are `LIP_GEOIP_MAXMIND_ACCOUNT_ID` and `LIP_GEOIP_MAXMIND_LICENSE_KEY`; implementation must align final names with existing env naming conventions.
+
+## Static Compilation vs Runtime Readiness
+
+This is a hard two-phase contract.
+
+### Phase A — static compile/validation
+
+Shared by normal startup, reload candidate parsing, and `check-config`:
+
+1. validate config shape/source-mode consistency;
+2. normalize/validate countries;
+3. parse/normalize CIDRs/trusted proxies;
+4. compile immutable `coregeoip.Policy` and resolver values;
+5. determine `NeedsCountryLookup` from the decision plan;
+6. classify reload/restart paths.
+
+**Prohibited in Phase A:** MaxMind download/update, external network dependency, request-path I/O, or mutation of process services.
+
+### Phase B — serving activation readiness
+
+Only normal serving composition/publication performs live readiness checks:
+
+- if policy disabled: no gate, no lookup requirement;
+- if enabled and `NeedsCountryLookup=false`: gate may operate without MMDB;
+- if enabled and `NeedsCountryLookup=true`: process-owned lookup must already be provisioned and ready or candidate/startup fails.
+
+Startup process-service construction may perform the one bounded managed acquisition needed to establish readiness **before** serving activation. Reload candidate compilation must never start/download/reconfigure a process service.
+
+`check-config` uses Phase A and explicitly skips Phase B. It may structurally inspect an intentionally available local file through an existing dry-run facility, but lack of MaxMind network can never fail static validation.
+
+If the current generation compiler needs a mode/capability to distinguish publish-serving from validation-only compilation, add the smallest explicit compile-purpose value at the composition boundary; do not use a global flag or duplicate validation function.
 
 ## Reload Classification
 
-Refactor the current broad `classifyAccess` behavior so the addition does not accidentally make policy restart-only.
+Refactor current broad `classifyAccess` field handling.
 
 | Field | v1 disposition | Reason |
 |---|---|---|
-| `access.mode` | restart-required | existing deployment posture contract |
+| `access.mode` | restart-required | preserve existing deployment posture |
 | `access.geoip.enabled` | reloadable | generation wrapper presence |
 | `access.geoip.order` | reloadable | immutable policy |
 | allow/deny countries | reloadable | immutable policy |
 | allow/deny CIDRs | reloadable | immutable policy |
 | client IP source | reloadable | immutable resolver |
 | trusted proxies | reloadable | immutable resolver |
-| database source | restart-required | process service ownership |
+| database source | restart-required | process service |
 | directory/local path | restart-required | process file lifecycle |
-| edition | restart-required | process reader/updater contract |
-| update enabled/interval | restart-required | process goroutine/timer lifecycle |
+| edition | restart-required | reader/updater contract |
+| update enabled/interval | restart-required | process scheduler lifecycle |
 | credential source | restart-required | process secret/client construction |
 
-Mixed reloadable/restart-required changes retain the existing all-or-nothing candidate rejection behavior.
+Existing mixed-change all-or-nothing rejection remains unchanged.
 
-## Generation Compilation and Composition
+## Process Service Construction
 
-### Process service construction
+At normal process startup:
 
-At process startup:
+1. run static GeoIP compile/validation;
+2. if no database source configured, leave `ProcessServices.GeoIP` nil;
+3. if configured, construct `internal/infra/geoip.Service` and transfer ownership to `ProcessServices`;
+4. load/verify local database or managed LKG;
+5. if startup policy is enabled + needs country lookup + managed source lacks LKG, make one bounded initial acquisition attempt;
+6. if required readiness is still absent, fail normal serving startup;
+7. start periodic updater only for managed + update-enabled configuration;
+8. close through normal ProcessServices ownership after request generations retire.
 
-1. validate process-owned DB configuration;
-2. if no DB source configured, leave `ProcessServices.GeoIP` nil;
-3. if configured, construct `GeoIPDatabaseService`;
-4. load/verify existing LKG/local database;
-5. if startup's enabled policy needs country lookup and managed mode has no LKG, perform one bounded initial update/acquisition;
-6. fail startup if enabled country-dependent policy still lacks readiness;
-7. start periodic updater only in managed + update-enabled mode;
-8. register service close in normal process ownership.
+If enforcement is disabled while DB configuration exists, the service may remain provisioned/update-ready for later pure-policy enable reload. This is process work only; the disabled request path has no wrapper.
 
-If enforcement is disabled but DB service is configured, step 4/7 may still maintain readiness for later policy enable reload. No request wrapper exists while disabled.
+## Candidate Generation Composition
 
-### Candidate generation compilation
+During a normal serving candidate build:
 
-During `compileCandidate`:
+1. static policy compilation succeeds;
+2. `configreload.Classify` has rejected process-resource changes;
+3. serving readiness checks the existing `ProcessServices.GeoIP` only when required;
+4. runtimebundle creates a defensive `contract.GeoIPSecurityInput` containing compiled policy/resolver, non-owning `CountryLookup`, and bounded observer;
+5. candidate security group carries that projection;
+6. `ComposeStandardHTTP` installs `stdhttp/geoip` middleware iff `Policy != nil`/enabled.
 
-1. config validation has already produced a valid candidate;
-2. reload classifier has rejected any attempted process-resource change;
-3. compile immutable GeoIP policy/resolver inputs;
-4. if disabled, pass no GeoIP gate capability to `stdhttp`;
-5. if enabled and policy may require country lookup, require ready process lookup;
-6. project policy + non-owning lookup/observer into the generation security group;
-7. `ComposeStandardHTTP` builds the handler with or without wrapper.
+For validation-only/check-config compilation, steps 3-6 must not require live MMDB readiness or cause process-resource acquisition.
 
-No candidate generation owns/starts/stops the updater or MMDB reader.
-
-### Narrow HTTP composition seam
-
-Extend the cycle-neutral `internal/stdhttp/contract.HTTPSecurityInput` with a narrow GeoIP admission projection. Prefer one small value/interface group rather than passing the entire process service.
-
-Conceptually:
-
-```go
-type GeoIPSecurityInput struct {
-    Policy   *coregeoip.Policy
-    Lookup   coregeoip.CountryLookup
-    Resolver httpgeoip.ResolverConfig // if dependency direction permits
-    Observer httpgeoip.Observer
-}
-```
-
-If importing adapter types into `contract` violates existing import rules, define cycle-neutral resolver config/value types in a lower-level package and let `stdhttp` adapt them. Do not solve an import cycle with `any`, service locators, or root-package callbacks.
+No generation owns updater goroutines, files, credentials, MMDB close, or mutable policy state.
 
 ## Policy Evaluation Algorithm
 
 Compile countries into immutable sets and prefixes into normalized slices.
 
-Evaluation should preserve the two-class truth table while avoiding unnecessary MMDB work.
-
-Conceptual algorithm:
+Conceptual evaluation:
 
 ```text
 addr = addr.Unmap()
@@ -366,124 +384,131 @@ allowCIDR = allow.prefixContains(addr)
 denyCIDR  = deny.prefixContains(addr)
 
 if order == deny_allow and allowCIDR:
-    allow (final class already matched)
+    allow(cid r_allow)          # final allow phase already matched
 if order == allow_deny and denyCIDR:
-    deny (final class already matched)
+    deny(cidr_deny)             # final deny phase already matched
 
-if no country rules can affect remaining outcome:
+if compiled plan proves country cannot affect result:
     decide from CIDR flags + order default
 
 country, found, err = lookup(addr)
 if err:
-    deny lookup_error
+    deny(lookup_error)
 allowCountry = found && allowCountries.contains(country)
 denyCountry  = found && denyCountries.contains(country)
 
 allowMatch = allowCIDR || allowCountry
 denyMatch  = denyCIDR || denyCountry
-apply order truth table
+apply exact order truth table
 ```
 
-The compiler, not ad-hoc request code, should determine `NeedsCountryLookup`/safe decision plan.
+Reason selection must be deterministic and finite; do not expose literal rule/IP/country values through the reason enum.
 
 ## Client-IP Resolution
 
 ### Direct mode
 
-Parse host from `RemoteAddr` using robust host:port handling, then `netip.ParseAddr`, then `Unmap()`.
-
-A host-only value is acceptable where Go/test infrastructure provides one. Hostnames are not.
+- extract host from `RemoteAddr` using robust host:port handling;
+- accept host-only forms used by Go/test servers;
+- parse with `netip.ParseAddr`;
+- `Unmap()`;
+- reject hostname/non-IP values.
 
 ### Trusted XFF
 
-When direct peer is trusted:
+If direct peer is untrusted: ignore XFF and use direct peer.
 
-- reject header over `MaxHeaderBytes`;
-- split bounded comma list;
-- parse every used hop as an IP, trimming OWS;
-- reject empty/invalid elements rather than silently skip attacker-controlled ambiguity;
-- walk right-to-left with direct peer as trusted terminal hop;
-- choose first non-trusted.
+If direct peer is trusted:
 
-When direct peer is untrusted, do not parse/trust XFF for authority; use direct peer.
+1. reject header exceeding `MaxHeaderBytes`;
+2. parse at most `MaxHops` comma-separated elements;
+3. reject empty/invalid authoritative elements rather than silently skip them;
+4. normalize addresses;
+5. walk chain right-to-left, treating direct peer as trusted terminal hop;
+6. return first non-trusted address;
+7. fail closed if none is unambiguous.
 
-### RFC `Forwarded`
+### RFC 7239 `Forwarded`
 
-Implement only `for=` address extraction needed for client resolution. Parsing must correctly support quoted values and bracketed IPv6, reject obfuscated/`unknown` values when they prevent an unambiguous authoritative chain, and obey the same byte/hop bounds.
+Implement only robust extraction of the ordered `for=` chain needed for client resolution:
 
-Do not grow this into a general RFC 7239 metadata library unless required.
+- support quoted values and bracketed IPv6;
+- respect comma-separated elements and parameter syntax;
+- reject `unknown`/obfuscated values when they prevent unambiguous authority;
+- enforce same byte/hop bounds;
+- do not generalize into unrelated Forwarded metadata processing.
+
+Auth peer attribution remains untouched/direct.
 
 ## MMDB Reader Service
 
-### Lookup
-
-Recommended internal state:
+Conceptual state:
 
 ```go
 type Service struct {
-    mu sync.RWMutex
+    mu     sync.RWMutex
     active *readerVersion
-    // updater/lifecycle/status fields
+    // updater, lifecycle, status
 }
 
 type readerVersion struct {
-    reader *maxminddb.Reader
-    path string
+    reader   *maxminddb.Reader
+    path     string
     checksum string
     modified time.Time
 }
 ```
 
-Lookup holds `RLock` until required field decode completes. This guarantees the active reader is not closed concurrently.
+Lookup holds `RLock` through required field decode. Candidate download/open/verify happens without writer lock.
 
-### Candidate publication
+`Reader.Close` must never race any operation using that reader.
 
-1. download/write/open/verify candidate outside `mu`;
-2. acquire `mu.Lock()`;
-3. swap active pointer/version;
-4. release lock;
-5. because writer acquisition waited for all previous readers, close old reader safely;
-6. garbage-collect old file only after close and after preserving LKG retention.
+## Transactional Managed Update and LKG Publication
 
-If implementation changes the synchronization model, race tests must prove equivalent reader lifetime safety.
-
-## Managed Update Flow
+### Update flow
 
 ```mermaid
 sequenceDiagram
     participant T as Update Timer
     participant U as GeoIP Updater
     participant M as MaxMind Client
-    participant FS as Versioned Files
+    participant FS as Versioned Files/Manifest
     participant R as Active Reader
 
     T->>U: check(ctx)
     U->>M: Download(edition,currentChecksum)
     alt unchanged
         M-->>U: UpdateAvailable=false
-        U-->>T: metric unchanged
+        U-->>T: unchanged metric
     else changed
         M-->>U: bounded MMDB stream + metadata
-        U->>FS: write temp/versioned file
+        U->>FS: write/close candidate version
         U->>U: open + Verify + expected Country type
-        U->>R: publish verified reader
-        U->>FS: persist active/LKG metadata
-        U->>FS: GC retired versions after reader close
-        U-->>T: metric updated
+        U->>FS: atomically commit LKG manifest to candidate
+        alt manifest commit fails
+            U->>U: close candidate reader; retain old active/LKG
+        else manifest committed
+            U->>R: short-lock swap active reader/version
+            U->>U: close retired reader after pre-swap lookups drained
+            U->>FS: GC obsolete retired versions
+            U-->>T: updated metric
+        end
     end
 ```
 
-Failure at any pre-publication step leaves the current active reader and LKG metadata unchanged.
+### Why manifest-before-reader
 
-Use randomized jitter around the configured interval. Do not poll at sub-hour cadence by default; approximately daily is appropriate for GeoLite and avoids account quota bursts across fleets.
+Manifest publication is the fallible durable commit step. A failure must leave the old active/LKG untouched. The in-memory pointer swap under lock is deliberately a non-I/O/non-failing commit step after durable selection.
 
-## File Layout and Crash Consistency
+If the process crashes after manifest commit but before in-memory swap, restart validates and loads the committed verified candidate. While live, requests continue using the old in-memory reader until the tiny swap step completes.
+
+### File layout
 
 Managed directory concept:
 
 ```text
 geoip/
-  active.json                  # tiny metadata manifest, no secrets
+  active.json
   GeoLite2-Country.<hash>.mmdb
   GeoLite2-Country.<old>.mmdb
   .download-<random>.tmp
@@ -491,54 +516,67 @@ geoip/
 
 Rules:
 
-- temporary file never treated as active;
-- verify candidate before manifest publication;
-- publish manifest with same-directory atomic replace pattern where supported;
-- on restart, validate manifest target; if invalid/missing, scan retained version candidates deterministically and pick newest valid LKG;
-- never delete current/retained version before reader close;
-- cleanup stale temp files safely.
+- temp files never active;
+- candidate fully written/closed/verified before manifest commit;
+- manifest same-directory atomic replacement where supported;
+- manifest contains only version/edition/checksum/timestamps/path basename, never credentials;
+- restart validates manifest target; if invalid/missing, may scan retained candidates deterministically for newest valid LKG;
+- current/retained file deleted only after reader close;
+- stale temp cleanup is bounded.
 
-Exact manifest format is internal, versionable, and contains only edition/version/checksum/timestamps/path basename.
+### Safe reader swap
 
-## Static Validation vs Runtime Readiness
+1. verified candidate + durable manifest already exist;
+2. acquire `mu.Lock()` (waits for all prior RLock lookups);
+3. replace active pointer;
+4. release lock;
+5. close retired reader; no lookup can still hold it because writer acquisition drained prior readers and post-swap readers see new pointer;
+6. GC retired file after close.
 
-`check-config`:
+If implementation uses reference counting/RCU instead, it must prove the same close invariant with race tests. Prefer RWMutex until benchmarks show need.
 
-- parses/validates all policy and process config;
-- compiles CIDRs/countries/order/client-source semantics;
-- classifies reload/restart changes when applicable;
-- performs no MaxMind network request/update.
+## MaxMind Update Client
 
-Runtime startup/candidate activation:
+Use `github.com/maxmind/geoipupdate/v8/client`, not copied URL/protocol logic or a subprocess.
 
-- checks actual process service readiness when country lookup is needed.
+Reviewed current client behavior:
 
-This separation keeps CI/offline config checks deterministic.
+- authenticated `New(accountID, licenseKey, ...)`;
+- default `updates.maxmind.com` endpoint;
+- `Download(ctx, editionID, currentMD5)` metadata check;
+- unchanged database returns no new download;
+- changed download follows current upstream flow.
+
+The MD5 value is change detection only, not cryptographic authenticity. Candidate trust comes from HTTPS/authenticated upstream path plus strict MMDB verification/type validation before durable publication.
+
+Use bounded HTTP client/timeouts and hard maximum downloaded database size. Approximately daily jittered checks are the default posture; document fleet quota/distribution considerations.
 
 ## Denial Contract
 
-On denial/error:
+All gate failures/denials use one bounded protocol-agnostic response:
 
 ```text
-status: 403
-content-type: text/plain or existing generic-safe standard
-body: bounded generic message (e.g. "Forbidden\n")
+HTTP 403 Forbidden
+Content-Type: text/plain (or equivalent existing generic-safe standard)
+Body: "Forbidden\n" or similarly generic bounded text
 ```
 
-No rule/country/IP/header/provider detail. No frontend-specific JSON error shape is attempted because frontend identity is intentionally not known yet.
+Do not reveal IP, country, rule, order, header, proxy chain, database status, or upstream failure.
+
+No frontend-specific renderer is invoked because frontend identification is intentionally downstream.
 
 ## Observability
 
-Add process-owned bounded metrics integrated with existing metrics bundle/registry.
+Integrate with existing process metrics bundle/registry; observer is a narrow contract projected into each generation.
 
-Suggested names (final naming should follow repository metric conventions):
+Suggested metric semantics (final names follow repository conventions):
 
 - `lip_geoip_decisions_total{decision,reason}`
 - `lip_geoip_update_total{result}`
 - `lip_geoip_database_ready`
 - `lip_geoip_database_age_seconds`
 
-Finite `reason` examples:
+Finite reason classes only, e.g.:
 
 - `cidr_allow`
 - `cidr_deny`
@@ -549,176 +587,172 @@ Finite `reason` examples:
 - `client_ip_error`
 - `lookup_error`
 
-No IP, raw CIDR, header, license key, or arbitrary string labels.
+No IP/CIDR/header/license-key labels. Country is omitted as a default metric label to avoid unnecessary policy/privacy exposure.
 
-A denied request intentionally does not enter normal HTTP access logs/traces/general HTTP metrics. Optional security logging, if added, must be sampled/rate-limited and content-minimal.
+Denied hostile requests intentionally do not enter normal access log/general OTel/general HTTP metrics. Per-denial logging is off by default; if implementation needs a diagnostic it must be bounded/rate-limited.
 
-Updater logs are operational and bounded: startup LKG selected, updated, unchanged at debug if useful, failure/recovery. Never log credentials or raw Basic Auth material.
+Updater state transitions/failures use bounded operational logs and metrics with secret redaction.
 
 ## Failure Model
 
 | Failure | Behavior |
 |---|---|
-| invalid policy config | reject startup/candidate; active generation unchanged |
+| invalid static config | reject startup/candidate/check-config |
 | malformed direct peer | 403 `client_ip_error` |
 | malformed authoritative forwarded chain | 403 `client_ip_error` |
-| country not present | normal no-country match |
-| MMDB lookup/decode error | 403 `lookup_error` |
-| enable reload without required ready lookup | reject candidate |
-| managed initial acquisition fails with no LKG | fail enabled startup |
-| periodic update fails with LKG | keep LKG; bounded telemetry |
-| corrupt/oversized candidate | reject candidate DB; keep LKG |
-| disk/manifest publication fails before activation | keep old active/LKG |
+| country absent | normal no-country match |
+| active MMDB lookup/decode error | 403 `lookup_error` |
+| normal serving enable without required ready lookup | reject candidate/startup |
+| validation-only/check-config without live lookup | static validation succeeds/fails only on config semantics; no network |
+| managed initial acquisition fails and no LKG | fail enabled normal startup |
+| periodic update fails with LKG | retain LKG; bounded telemetry |
+| corrupt/oversized candidate | reject candidate DB; retain old active/LKG |
+| manifest commit fails | close/delete candidate; retain old active/LKG |
 | panic inside gate | outer recovery contains it |
 
 ## Security Considerations
 
-### Trust boundary
+### Trusted address boundary
 
-Forwarded headers are untrusted unless the direct peer is explicitly trusted. Trust configuration itself is security-sensitive and reloadable atomically with the policy.
+Forwarding metadata has no authority unless immediate peer is explicitly trusted. Trust list/source mode reload atomically with policy.
 
-### Secret handling
+### Secrets
 
-MaxMind credentials are process secrets. Do not store them in MMDB manifest/status, logs, metrics, debug dumps, or request contexts.
+MaxMind account/license credentials are process secrets. Never include them in request contexts, manifest, status, metrics, debug summary, or logs.
 
-### Data quality limitation
+### GeoIP limitations
 
-GeoIP is approximate. Documentation must state that VPNs, proxies, relays, mobile networks, and stale geolocation can produce false positives/negatives. This feature is defense in depth, not identity or legal/sanctions proof.
+Documentation must state that VPN/proxy/relay/mobile networks and database lag can cause false positives/negatives. GeoIP is defense in depth, not identity, citizenship, sanctions, or legal-compliance proof.
 
-### Resource abuse
+### Abuse bounds
 
 - bounded header bytes/hops;
 - no DNS;
-- no request network;
-- no unbounded IP cache;
-- no per-denial normal access log;
-- bounded updater downloads/timeouts;
-- strict MMDB validation before publish.
+- no request network/filesystem;
+- no unbounded per-IP cache;
+- no per-denial normal log;
+- bounded updater timeout/download size;
+- strict candidate MMDB validation.
 
 ## Brownfield Compatibility
 
 ### Management plane
 
-The separate process-owned runtime-config management listener is not part of `ComposeStandardHTTP`; v1 GeoIP does not wrap it. Existing loopback/token protections remain the recovery path for bad data-plane policy.
+The process-owned reload management listener remains outside `ComposeStandardHTTP` and is not wrapped. Its existing loopback/dedicated-token trust model remains the recovery path after a bad data-plane policy candidate.
 
-### In-flight generation pinning
+### Generation pinning
 
-Reload changes future admission. Already admitted/pinned streams continue under their original generation. No active connection revocation registry is added.
+New policy applies to newly admitted requests/connections routed through the new generation. Existing SSE/WebSocket/in-flight work remains pinned to its original generation and is not actively revoked.
 
 ### Authentication
 
-Existing auth peer attribution continues to use direct `RemoteAddr`. GeoIP's trusted forwarded resolver is local to the gate.
+Auth `PeerIP` remains direct `RemoteAddr`; GeoIP's forwarded resolver is private to the gate.
 
 ### Frontends/backends
 
-No DTO or connector changes are required. Allowed traffic reaches the unchanged downstream handler graph; denied traffic never identifies a frontend.
+No DTO/connector changes. Allowed traffic reaches the unchanged downstream handler graph; denied traffic never identifies a frontend.
+
+### No parallel runtime mechanisms
+
+No new file watcher, config reload endpoint, service locator, mutable global policy, or feature stage.
 
 ## Testing Strategy
 
-### Pure policy tests
+### RED pure policy/config contracts
 
-- full 2×2×default Apache truth table;
-- overlapping CIDR/country matches;
-- office exception;
-- country unknown;
+- both complete order truth tables;
+- overlapping country/CIDR; Moscow-office exception;
+- unknown country vs lookup error;
 - IPv4/IPv6/mapped IPv4;
-- exact-host prefix compilation;
-- invalid countries/prefixes;
-- short-circuit/no-lookup assertions.
+- exact address host-prefix conversion;
+- invalid countries/prefixes/source combinations;
+- `NeedsCountryLookup` and no-lookup short circuits;
+- reload/restart field classification;
+- check-config static/no-network behavior.
 
 ### Client-IP tests/fuzzing
 
-- direct host:port / IPv6;
+- direct host:port/IPv6/host-only;
 - untrusted peer spoofing XFF/Forwarded;
-- trusted one/multi-hop chains;
-- attacker-prepended XFF;
-- quoted/bracketed RFC `Forwarded` IPv6;
+- trusted one/multi-hop chain;
+- attacker-prepended values;
+- quoted/bracketed RFC values;
 - unknown/obfuscated/malformed values;
-- header byte/hop limits;
-- fuzz parsers for panic/allocation safety.
+- byte/hop limits;
+- parser fuzzing for panic/allocation safety.
 
-### Middleware-order tests
+### Middleware-order integration
 
-Use spies/fakes to prove denied requests do not enter:
+Spies must prove denied request never reaches:
 
-- OTel middleware;
+- OTel;
 - general HTTP metrics;
-- request-ID/trace middleware;
-- access log;
+- trace/request-ID;
+- normal access log;
 - auth provider;
-- frontend decode/mux;
-- runtime/model/DB fakes.
+- frontend mux/decode;
+- runtime/model/DB fake.
 
-Also prove security/server response wrappers and outer recovery still apply.
+Also prove outer recovery and global security/server headers still wrap the response.
 
-### Reader/updater tests
+### MMDB/updater
 
-- local valid/invalid MMDB;
+- local valid/invalid database;
 - managed LKG startup;
 - initial download success/failure;
-- unchanged download;
+- unchanged update;
 - timeout/auth failure;
-- oversized/truncated/corrupt payload;
-- write/fsync/rename/manifest failures;
-- reader swap under concurrent lookup + `go test -race`;
+- oversized/truncated/corrupt candidate;
+- candidate file/manifest failure before activation;
+- reader swap under concurrent lookup with `-race`;
 - restart manifest/LKG recovery;
-- stale temp cleanup;
-- Windows-specific active-file lifecycle semantics through platform-aware tests.
+- stale temp/old-version cleanup;
+- platform-aware Windows file lifecycle.
 
-### Reload tests
+### Reload
 
-- policy changes atomic;
-- invalid policy preserves old generation;
+- valid policy atomic change;
+- invalid candidate preserves active;
 - enable/disable wrapper presence;
-- enable without required process service fails;
-- process-owned DB fields report restart-required;
-- `access.mode` behavior remains unchanged;
-- in-flight generation stays pinned.
+- enable without required process lookup fails only in normal serving activation;
+- DB/updater changes restart-required;
+- `access.mode` behavior preserved;
+- in-flight generation remains pinned.
 
 ### Performance
 
 Benchmarks:
 
-- disabled stack compared with baseline (wrapper absent);
-- enabled CIDR-only allow/deny;
-- enabled MMDB lookup;
-- XFF and RFC Forwarded chain resolution;
-- scaling across representative prefix counts.
+- disabled baseline (wrapper absent);
+- enabled CIDR-only;
+- enabled Country MMDB lookup;
+- XFF/RFC Forwarded resolution;
+- representative prefix scaling.
 
-Only introduce trie/cache optimization if profiles justify it.
+Do not add trie/cache complexity without benchmark evidence.
 
 ## Requirement Traceability
 
-| Requirement | Primary design elements |
+| Requirement | Primary design owner |
 |---|---|
-| R1 | middleware placement; disabled wrapper omission |
-| R2 | pure policy truth table |
-| R3 | netip compiler/matcher |
-| R4 | country lookup semantics |
+| R1 | middleware placement + wrapper omission |
+| R2 | core order/evaluator |
+| R3 | static `netip` compiler/matcher |
+| R4 | CountryLookup semantics |
 | R5 | direct resolver |
-| R6 | trusted proxy resolver |
-| R7 | local MMDB port/adapter |
-| R8 | readiness/LKG/process provisioning |
-| R9 | managed updater + versioned publication |
-| R10 | generation/process split + reload classification |
-| R11 | generic 403 renderer |
-| R12 | dedicated bounded metrics/log policy |
-| R13 | bounds/races/benchmarks/security |
-| R14 | plane/generation compatibility |
-| R15 | config/check-config/operator docs |
+| R6 | trusted forwarded resolver |
+| R7 | MMDB driven adapter |
+| R8 | process readiness/LKG/provisioning |
+| R9 | updater + transactional version publication |
+| R10 | generation/process split + classifier |
+| R11 | generic ingress 403 |
+| R12 | bounded observer/metrics/log policy |
+| R13 | hard bounds/races/benchmarks |
+| R14 | data/management plane + generation compatibility |
+| R15 | config/static compiler/check-config/docs |
 
 ## Migration and Delivery
 
-No data migration is required. Existing configurations without `access.geoip` behave exactly as before and do not construct a GeoIP process service or wrapper.
+No state/data migration is required. Existing configs without `access.geoip` behave exactly as before: no GeoIP process service, no wrapper, no lookup.
 
-Recommended delivery order is TDD-first:
-
-1. freeze pure policy/address/config contracts;
-2. implement HTTP resolver/gate with fakes;
-3. implement local MMDB service;
-4. implement transactional updater/LKG lifecycle;
-5. compose process service and generation security projection;
-6. integrate exact middleware position;
-7. implement reload classification;
-8. add observability and docs;
-9. run race, cross-platform, integration, architecture, and benchmark gates.
+Implementation should be TDD-first and preserve architecture guardrails. The task plan should sequence contract tests before production implementation, then integrate process/generation composition, then run race/cross-platform/performance/release gates.
