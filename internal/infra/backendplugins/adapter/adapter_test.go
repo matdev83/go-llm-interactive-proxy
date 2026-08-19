@@ -6,6 +6,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/adapter"
@@ -205,6 +206,34 @@ func TestUnadvertisedOptionalNil(t *testing.T) {
 	}
 	if br.Backend.ResolveReplaySupport != nil {
 		t.Fatal("replay seam only when advertised")
+	}
+}
+
+func TestBuild_PooledLifecycleCallbacksRemainNil(t *testing.T) {
+	t.Parallel()
+	br := adapter.Build(minimalSession{}, backendplugin.ResolvedProfile{}, adapter.Options{InstanceID: "pool-compatible"})
+	t.Cleanup(func() { _ = br.Cleanup() })
+
+	tests := []struct {
+		name  string
+		isSet func(execbackend.Backend) bool
+	}{
+		{name: "Close", isSet: func(be execbackend.Backend) bool { return be.Close != nil }},
+		{name: "Start", isSet: func(be execbackend.Backend) bool { return be.Start != nil }},
+		{name: "Stop", isSet: func(be execbackend.Backend) bool { return be.Stop != nil }},
+		{name: "CleanupIdleTransports", isSet: func(be execbackend.Backend) bool {
+			return be.CleanupIdleTransports != nil
+		}},
+		{name: "PreflightCapability", isSet: func(be execbackend.Backend) bool {
+			return be.PreflightCapability != nil
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.isSet(br.Backend) {
+				t.Fatalf("adapter.Build returned %s callback; standard executable adapters must remain pool-compatible", tt.name)
+			}
+		})
 	}
 }
 

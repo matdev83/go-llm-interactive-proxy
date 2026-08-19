@@ -1,0 +1,51 @@
+# Focused Linux race detector for the connector-pool ratchets.
+name: Connector pool race
+
+on:
+  pull_request:
+    paths:
+      - "internal/infra/runtimebundle/**"
+      - "internal/infra/backendplugins/adapter/**"
+      - "internal/core/execbackend/**"
+      - "pkg/lipsdk/backendplugin/host/**"
+      - "internal/infra/backendplugins/processhost/**"
+      - ".github/workflows/connector-pool-race.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connector-pool-race-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  connector-pool-race:
+    name: Linux race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            connectors/**/go.sum
+            connector-support/**/go.sum
+            testdata/enterprise_module/go.sum
+            tools/**/go.sum
+
+      - name: Run targeted Linux races
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race -count=1 \
+            ./internal/infra/runtimebundle \
+            ./pkg/lipsdk/backendplugin/host \
+            ./internal/infra/backendplugins/processhost
