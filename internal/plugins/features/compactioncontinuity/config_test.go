@@ -18,6 +18,7 @@ func testYAML(t *testing.T, raw string) yaml.Node {
 }
 
 func TestDecodeConfig_DefaultsDisabledAndBounded(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, "{}"))
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
@@ -37,6 +38,7 @@ func TestDecodeConfig_DefaultsDisabledAndBounded(t *testing.T) {
 }
 
 func TestDecodeConfig_D18ShapeAndAliases(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, `
 preserve:
   plan: true
@@ -75,6 +77,7 @@ failure_mode: fail_open
 }
 
 func TestDecodeConfig_PreserveFalseValuesRemainFalse(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, "preserve:\n  plan: false\n  user_decisions: false\n  constraints: false\n  rationale: false\n  rejected_alternatives: false\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +88,7 @@ func TestDecodeConfig_PreserveFalseValuesRemainFalse(t *testing.T) {
 }
 
 func TestDecodeConfig_UnknownNestedKeyRejected(t *testing.T) {
+	t.Parallel()
 	_, err := DecodeConfig(testYAML(t, "worker:\n  max_concurrency: 2\n  typo: 1\n"))
 	if err == nil || !strings.Contains(err.Error(), "worker.typo") {
 		t.Fatalf("error = %v, want worker.typo rejection", err)
@@ -92,6 +96,7 @@ func TestDecodeConfig_UnknownNestedKeyRejected(t *testing.T) {
 }
 
 func TestDecodeConfig_ExtractorRequiresRouteOrInherit(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{
 		"extractor:\n  enabled: true\n",
 		"extractor:\n  timeout: 8s\n",
@@ -104,6 +109,7 @@ func TestDecodeConfig_ExtractorRequiresRouteOrInherit(t *testing.T) {
 }
 
 func TestDecodeConfig_ExtractorExplicitInherit(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, "extractor:\n  enabled: true\n  inherit: true\n"))
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
@@ -114,6 +120,7 @@ func TestDecodeConfig_ExtractorExplicitInherit(t *testing.T) {
 }
 
 func TestDecodeConfig_PositiveBoundsAndRetention(t *testing.T) {
+	t.Parallel()
 	cases := []string{
 		"extractor:\n  enabled: true\n  route: inherit\n  max_input_tokens: 0\n",
 		"worker:\n  max_concurrency: 0\n",
@@ -136,6 +143,7 @@ func TestDecodeConfig_PositiveBoundsAndRetention(t *testing.T) {
 }
 
 func TestValidatePrerequisites_EnabledRequiresAllCapabilities(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, "extractor:\n  enabled: true\n  route: inherit\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +167,7 @@ func TestValidatePrerequisites_EnabledRequiresAllCapabilities(t *testing.T) {
 }
 
 func TestConfigSnapshot_IsolatedFromLaterReload(t *testing.T) {
+	t.Parallel()
 	old, err := DecodeConfig(testYAML(t, "extractor:\n  enabled: true\n  route: old:model\n  timeout: 8s\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +186,7 @@ func TestConfigSnapshot_IsolatedFromLaterReload(t *testing.T) {
 }
 
 func TestFeatureBundle_IsSchemaValidNoopUntilSemanticsLand(t *testing.T) {
+	t.Parallel()
 	cfg, err := DecodeConfig(testYAML(t, "{}"))
 	if err != nil {
 		t.Fatal(err)

@@ -16,6 +16,7 @@ func FuzzParseResultNeverPanics(f *testing.F) {
 }
 
 func TestResultDeltaDoesNotEscalateSemanticAuthority(t *testing.T) {
+	t.Parallel()
 	result := Result{
 		SchemaVersion: 1,
 		BaseRevision:  1,

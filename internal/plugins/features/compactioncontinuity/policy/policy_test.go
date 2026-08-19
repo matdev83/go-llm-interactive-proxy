@@ -37,6 +37,7 @@ func trustedContext(labels map[string]string) context.Context {
 }
 
 func TestResolve_DefaultsWinWithoutOverride(t *testing.T) {
+	t.Parallel()
 	got, err := policy.Resolve(context.Background(), baseDefaults(), baseMaxima())
 	if err != nil {
 		t.Fatal(err)
@@ -47,9 +48,10 @@ func TestResolve_DefaultsWinWithoutOverride(t *testing.T) {
 }
 
 func TestResolve_GlobalHardDisableCannotBeEnabledBySession(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	max.Enabled = false
-	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: boolPtr(true)})
+	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: new(true)})
 	got, err := policy.Resolve(ctx, baseDefaults(), max)
 	if err != nil {
 		t.Fatal(err)
@@ -60,9 +62,10 @@ func TestResolve_GlobalHardDisableCannotBeEnabledBySession(t *testing.T) {
 }
 
 func TestResolve_TrustedEnableAndDisable(t *testing.T) {
+	t.Parallel()
 	defaults := baseDefaults()
 	defaults.Enabled = false
-	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: boolPtr(true)})
+	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: new(true)})
 	got, err := policy.Resolve(ctx, defaults, baseMaxima())
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +74,7 @@ func TestResolve_TrustedEnableAndDisable(t *testing.T) {
 		t.Fatal("trusted session enabled a globally disabled feature")
 	}
 
-	ctx = policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: boolPtr(false)})
+	ctx = policy.WithTrustedOverride(trustedContext(nil), policy.Override{Enabled: new(false)})
 	defaults.Enabled = true
 	got, err = policy.Resolve(ctx, defaults, baseMaxima())
 	if err != nil {
@@ -83,7 +86,8 @@ func TestResolve_TrustedEnableAndDisable(t *testing.T) {
 }
 
 func TestResolve_UntrustedContextCannotApplyTypedOverride(t *testing.T) {
-	ctx := policy.WithTrustedOverride(context.Background(), policy.Override{Enabled: boolPtr(false), Route: "route:approved", RouteSet: true})
+	t.Parallel()
+	ctx := policy.WithTrustedOverride(context.Background(), policy.Override{Enabled: new(false), Route: "route:approved", RouteSet: true})
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
 		t.Fatal(err)
@@ -94,6 +98,7 @@ func TestResolve_UntrustedContextCannotApplyTypedOverride(t *testing.T) {
 }
 
 func TestResolve_TrustedCategoriesCanTighten(t *testing.T) {
+	t.Parallel()
 	categories := policy.Categories{Plan: true, UserDecisions: false, Constraints: false, Rationale: false, RejectedAlternatives: false}
 	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Preserve: &categories})
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
@@ -106,6 +111,7 @@ func TestResolve_TrustedCategoriesCanTighten(t *testing.T) {
 }
 
 func TestResolve_TrustedCategoriesCannotWidenHardMaximum(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	max.Preserve.Rationale = false
 	categories := policy.Categories{Rationale: true}
@@ -120,6 +126,7 @@ func TestResolve_TrustedCategoriesCannotWidenHardMaximum(t *testing.T) {
 }
 
 func TestResolve_ApprovedRouteOverride(t *testing.T) {
+	t.Parallel()
 	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Route: "route:approved", RouteSet: true})
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -131,6 +138,7 @@ func TestResolve_ApprovedRouteOverride(t *testing.T) {
 }
 
 func TestResolve_UnapprovedRouteIsIgnored(t *testing.T) {
+	t.Parallel()
 	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Route: "route:attacker", RouteSet: true})
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -142,6 +150,7 @@ func TestResolve_UnapprovedRouteIsIgnored(t *testing.T) {
 }
 
 func TestResolve_DefaultRouteMustBeApproved(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	max.ApprovedRoutes = []string{"route:approved"}
 	if _, err := policy.Resolve(context.Background(), baseDefaults(), max); err == nil {
@@ -150,6 +159,7 @@ func TestResolve_DefaultRouteMustBeApproved(t *testing.T) {
 }
 
 func TestResolve_TrustedApprovedRouteCanReplaceUnapprovedDefault(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	max.ApprovedRoutes = []string{"route:approved"}
 	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Route: "route:approved", RouteSet: true})
@@ -160,7 +170,8 @@ func TestResolve_TrustedApprovedRouteCanReplaceUnapprovedDefault(t *testing.T) {
 }
 
 func TestResolve_TighterNumericLimitsApply(t *testing.T) {
-	o := policy.Override{Limits: policy.LimitOverride{MaxInputTokens: intPtr(6000), MaxOutputTokens: intPtr(1000), CapsuleMaxTokens: intPtr(1000)}}
+	t.Parallel()
+	o := policy.Override{Limits: policy.LimitOverride{MaxInputTokens: new(6000), MaxOutputTokens: new(1000), CapsuleMaxTokens: new(1000)}}
 	ctx := policy.WithTrustedOverride(trustedContext(nil), o)
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -172,7 +183,8 @@ func TestResolve_TighterNumericLimitsApply(t *testing.T) {
 }
 
 func TestResolve_LooserNumericLimitsAreIgnored(t *testing.T) {
-	o := policy.Override{Limits: policy.LimitOverride{MaxInputTokens: intPtr(15000), MaxOutputTokens: intPtr(3000), CapsuleMaxTokens: intPtr(5000)}}
+	t.Parallel()
+	o := policy.Override{Limits: policy.LimitOverride{MaxInputTokens: new(15000), MaxOutputTokens: new(3000), CapsuleMaxTokens: new(5000)}}
 	ctx := policy.WithTrustedOverride(trustedContext(nil), o)
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -185,6 +197,7 @@ func TestResolve_LooserNumericLimitsAreIgnored(t *testing.T) {
 }
 
 func TestResolve_HardMaximumClampsGlobalValues(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	max.Limits.MaxInputTokens = 9000
 	max.Limits.CapsuleMaxTokens = 1500
@@ -198,7 +211,8 @@ func TestResolve_HardMaximumClampsGlobalValues(t *testing.T) {
 }
 
 func TestResolve_DurationLimitsApplyAndClamp(t *testing.T) {
-	o := policy.Override{Limits: policy.LimitOverride{Timeout: durationPtr(3 * time.Second), BarrierTimeout: durationPtr(time.Second)}}
+	t.Parallel()
+	o := policy.Override{Limits: policy.LimitOverride{Timeout: new(3 * time.Second), BarrierTimeout: new(time.Second)}}
 	ctx := policy.WithTrustedOverride(trustedContext(nil), o)
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -210,6 +224,7 @@ func TestResolve_DurationLimitsApplyAndClamp(t *testing.T) {
 }
 
 func TestResolve_LabelOverrideIsTrustedOnlyWithAuthoritativeSession(t *testing.T) {
+	t.Parallel()
 	labels := map[string]string{policy.LabelEnabled: "false", policy.LabelRoute: "route:approved", policy.LabelMaxInputTokens: "6000", policy.LabelPlan: "false"}
 	got, err := policy.Resolve(trustedContext(labels), baseDefaults(), baseMaxima())
 	if err != nil {
@@ -232,6 +247,7 @@ func TestResolve_LabelOverrideIsTrustedOnlyWithAuthoritativeSession(t *testing.T
 }
 
 func TestResolve_InvalidLabelValuesAreIgnored(t *testing.T) {
+	t.Parallel()
 	labels := map[string]string{policy.LabelEnabled: "maybe", policy.LabelRoute: "route:attacker", policy.LabelMaxInputTokens: "not-an-int"}
 	got, err := policy.Resolve(trustedContext(labels), baseDefaults(), baseMaxima())
 	if err != nil {
@@ -243,6 +259,7 @@ func TestResolve_InvalidLabelValuesAreIgnored(t *testing.T) {
 }
 
 func TestResolve_TranscriptRequiresTrustedTurnAndPolicy(t *testing.T) {
+	t.Parallel()
 	max := baseMaxima()
 	got, err := policy.Resolve(trustedContext(nil), baseDefaults(), max)
 	if err != nil {
@@ -254,6 +271,7 @@ func TestResolve_TranscriptRequiresTrustedTurnAndPolicy(t *testing.T) {
 }
 
 func TestResolve_TranscriptDisabledCannotAcquireHiddenTranscript(t *testing.T) {
+	t.Parallel()
 	ctx := policy.WithSecureTurn(trustedContext(nil), false)
 	got, err := policy.Resolve(ctx, baseDefaults(), baseMaxima())
 	if err != nil {
@@ -265,6 +283,7 @@ func TestResolve_TranscriptDisabledCannotAcquireHiddenTranscript(t *testing.T) {
 }
 
 func TestTranscriptAuthorizationPreservesTenantWorkspace(t *testing.T) {
+	t.Parallel()
 	ctx := policy.WithSecureTurn(trustedContext(nil), true)
 	auth, ok := policy.TranscriptAuthorizationFromContext(ctx)
 	if !ok || auth.TenantID != "tenant-1" || auth.WorkspaceID != "workspace-1" {
@@ -282,6 +301,7 @@ func TestTranscriptAuthorizationPreservesTenantWorkspace(t *testing.T) {
 }
 
 func TestTranscriptAuthorization_DetachedChildWithoutAuthoritativeSession(t *testing.T) {
+	t.Parallel()
 	parent := policy.WithSecureTurn(trustedContext(nil), true)
 	child := session.WithSessionView(parent, session.SessionView{ALegID: "child-a-leg"})
 	if _, ok := policy.TranscriptAuthorizationFromContext(child); ok {
@@ -290,6 +310,7 @@ func TestTranscriptAuthorization_DetachedChildWithoutAuthoritativeSession(t *tes
 }
 
 func TestTranscriptAuthorization_RejectsSessionScopeWorkspaceMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := policy.WithSecureTurn(trustedContext(nil), true)
 	ctx = scope.WithScope(ctx, scope.PrincipalScopeView{
 		PrincipalID: scope.Known("principal-1"),
@@ -302,6 +323,7 @@ func TestTranscriptAuthorization_RejectsSessionScopeWorkspaceMismatch(t *testing
 }
 
 func TestResolve_ExtractorNeverCarriesBranchOrAccountIdentifiers(t *testing.T) {
+	t.Parallel()
 	got, err := policy.Resolve(trustedContext(nil), baseDefaults(), baseMaxima())
 	if err != nil {
 		t.Fatal(err)
@@ -311,7 +333,3 @@ func TestResolve_ExtractorNeverCarriesBranchOrAccountIdentifiers(t *testing.T) {
 	// lineage is deliberately owned by extractor request metadata and omitted
 	// from this value.
 }
-
-func boolPtr(v bool) *bool                       { return &v }
-func intPtr(v int) *int                          { return &v }
-func durationPtr(v time.Duration) *time.Duration { return &v }

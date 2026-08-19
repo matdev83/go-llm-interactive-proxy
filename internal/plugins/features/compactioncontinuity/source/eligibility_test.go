@@ -31,6 +31,7 @@ func TestEligibility_assistantPlanNeedsAffirmativeOrCorrectiveUser(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := EvaluateEligibility(EligibilityInput{Entries: []Entry{
 				{Kind: EntryAssistantPlan, Text: "Plan: use a bounded adapter and validate it.", PlanningRelevant: true, New: true},
 				{Kind: EntryUserText, Text: tc.text, New: true},
