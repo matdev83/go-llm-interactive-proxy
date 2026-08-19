@@ -17,6 +17,7 @@ type Service struct {
 	parent     ParentCoordinator
 	decoder    DeltaDecoder
 	maxBytes   int
+	maxTokens  int
 }
 
 func New(background BackgroundClient, parent ParentCoordinator, decoder DeltaDecoder, cfg Config) (*Service, error) {
@@ -26,7 +27,10 @@ func New(background BackgroundClient, parent ParentCoordinator, decoder DeltaDec
 	if cfg.MaxCapsuleBytes <= 0 {
 		cfg.MaxCapsuleBytes = DefaultMaxCapsuleBytes
 	}
-	return &Service{background: background, parent: parent, decoder: decoder, maxBytes: cfg.MaxCapsuleBytes}, nil
+	if cfg.MaxCapsuleTokens <= 0 {
+		cfg.MaxCapsuleTokens = DefaultMaxCapsuleTokens
+	}
+	return &Service{background: background, parent: parent, decoder: decoder, maxBytes: cfg.MaxCapsuleBytes, maxTokens: cfg.MaxCapsuleTokens}, nil
 }
 
 // Consume awaits and, if ready, atomically merges exactly one result. A
@@ -80,7 +84,7 @@ func (s *Service) Consume(ctx context.Context, job Job) (Outcome, error) {
 	if err != nil {
 		return Outcome{Status: StatusRejected, State: state}, fmt.Errorf("%w: merge: %w", ErrInvalidResult, err)
 	}
-	merged, err = capsule.Prune(merged, s.maxBytes)
+	merged, err = capsule.PruneWithLimits(merged, capsule.Limits{MaxBytes: s.maxBytes, MaxTokens: s.maxTokens})
 	if err != nil {
 		return Outcome{Status: StatusRejected, State: state}, fmt.Errorf("%w: bound capsule: %w", ErrInvalidResult, err)
 	}

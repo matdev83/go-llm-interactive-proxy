@@ -1,6 +1,7 @@
 package capsule
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -317,6 +318,83 @@ func TestPlanProgressDoesNotRegressAndPruneRedigests(t *testing.T) {
 	}
 	if len(pruned.Plan.Steps) != 0 {
 		t.Fatalf("completed step was not pruned: %#v", pruned.Plan.Steps)
+	}
+}
+
+func TestPruneWithLimitsBoundsTokenEquivalentWithoutTruncatingFacts(t *testing.T) {
+	t.Parallel()
+	e := testCapsule(t)
+	completed := PlanStep{ID: StableStepID("completed"), Text: "completed", Status: StepCompleted, SourceRef: "structured:completed"}
+	e.Plan.Steps = append(e.Plan.Steps, completed)
+	large := Fact{
+		ID:        StableFactID("rejected", "large historical fact", "user:large"),
+		Statement: strings.Repeat("ż", 512),
+		Status:    FactRejected,
+		Authority: AuthorityUserAcceptance,
+		SourceRef: "user:large",
+	}
+	e.RejectedAlternatives = append(e.RejectedAlternatives, large)
+	if err := e.Seal(); err != nil {
+		t.Fatal(err)
+	}
+
+	withoutLarge := e.Clone()
+	withoutLarge.RejectedAlternatives = nil
+	if err := withoutLarge.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	limit := len(mustMarshal(withoutLarge))
+	pruned, err := PruneWithLimits(e, Limits{MaxBytes: 1 << 20, MaxTokens: limit})
+	if err != nil {
+		t.Fatalf("PruneWithLimits() error = %v", err)
+	}
+	if got := TokenEquivalent(mustMarshal(pruned)); got > limit {
+		t.Fatalf("token-equivalent size = %d, max = %d", got, limit)
+	}
+	if len(pruned.RejectedAlternatives) != 0 {
+		t.Fatalf("large fact was retained or partially truncated: %#v", pruned.RejectedAlternatives)
+	}
+	if len(pruned.Plan.Steps) != 0 {
+		t.Fatalf("completed step was retained: %#v", pruned.Plan.Steps)
+	}
+	if err := pruned.VerifyBranch(e.BranchBinding); err != nil {
+		t.Fatalf("pruned capsule does not verify: %v", err)
+	}
+
+	second, err := PruneWithLimits(e, Limits{MaxBytes: 1 << 20, MaxTokens: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBytes, err := CanonicalBytes(pruned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := CanonicalBytes(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstBytes, secondBytes) || pruned.ContentDigest != second.ContentDigest {
+		t.Fatalf("pruning is not deterministic: first=%s second=%s", pruned.ContentDigest, second.ContentDigest)
+	}
+}
+
+func TestPruneWithLimitsEnforcesByteLimitIndependently(t *testing.T) {
+	t.Parallel()
+	e := testCapsule(t)
+	e.Plan.Steps = append(e.Plan.Steps, PlanStep{ID: StableStepID("completed-byte"), Text: strings.Repeat("byte", 32), Status: StepCompleted, SourceRef: "structured:byte"})
+	if err := e.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fullBytes := len(mustMarshal(e))
+	pruned, err := PruneWithLimits(e, Limits{MaxBytes: fullBytes - 1, MaxTokens: 1 << 20})
+	if err != nil {
+		t.Fatalf("PruneWithLimits() error = %v", err)
+	}
+	if got := len(mustMarshal(pruned)); got > fullBytes-1 {
+		t.Fatalf("serialized size = %d, max = %d", got, fullBytes-1)
+	}
+	if len(pruned.Plan.Steps) != 0 {
+		t.Fatalf("completed step was retained under byte limit: %#v", pruned.Plan.Steps)
 	}
 }
 

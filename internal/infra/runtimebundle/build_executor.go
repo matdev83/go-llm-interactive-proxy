@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
@@ -26,10 +27,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -70,7 +73,8 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector *compactiondetect.Detector
+	CompactionDetector  *compactiondetect.Detector
+	CompactionScheduler *auxreq.BackgroundScheduler
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -229,7 +233,12 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 
-	// Construct executor with all fields set — no post-construction mutation.
+	boundRunner := compactioncompose.NewGenerationExecutorRunner()
+	var compactionBackground auxiliary.BackgroundClient
+	if in.CompactionScheduler != nil {
+		compactionBackground = in.CompactionScheduler.BindRunner(boundRunner)
+	}
+
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -258,8 +267,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,
-		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector},
+		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
 	})
+	boundRunner.Bind(exec)
 
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {

@@ -22,6 +22,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -68,9 +69,10 @@ type ProcessServices struct {
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
 	// Process-owned compaction detector shared by all runtime generations (7.1).
 	CompactionDetector *compactiondetect.Detector
-	BackgroundAux      *BackgroundAuxScheduler // optional process-owned collector
+	BackgroundAux      *BackgroundAuxScheduler
 	// BranchCoordinator is process-owned and survives immutable generation reload.
-	BranchCoordinator *compactioncontinuity.BranchCoordinator
+	BranchCoordinator    *compactioncontinuity.BranchCoordinator
+	CompactionParentPort *compactioncompose.CompactionContinuityParentPort
 
 	// Internal handles required by candidate compilation (non-API).
 	persistence       *persistenceRuntime

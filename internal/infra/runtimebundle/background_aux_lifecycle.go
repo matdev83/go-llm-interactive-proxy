@@ -1,8 +1,11 @@
 package runtimebundle
 
 import (
+	"context"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 )
 
 type BackgroundAuxScheduler = auxreq.BackgroundScheduler
@@ -15,11 +18,13 @@ func releaseProcessInputOwnership(in *ProcessServicesInput, release func()) {
 	}
 }
 
-func adoptBackgroundAuxAndDetector(in *ProcessServicesInput, ps *ProcessServices, register func(func() error)) {
+func adoptBackgroundAuxAndDetector(ctx context.Context, in *ProcessServicesInput, ps *ProcessServices, register func(func() error)) {
+	if in.BackgroundAux == nil {
+		in.BackgroundAux = compactioncompose.NewProductionBackgroundScheduler(ctx, in.Cfg)
+	}
 	ps.BackgroundAux, in.BackgroundAux = in.BackgroundAux, nil
 	if ps.BackgroundAux != nil {
 		register(ps.BackgroundAux.Close)
 	}
-	// The detector is process-owned observational state shared by generations.
 	ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
 }

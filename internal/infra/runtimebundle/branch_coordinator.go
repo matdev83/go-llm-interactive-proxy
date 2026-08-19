@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
@@ -20,5 +21,9 @@ func bindSharedMutableProcessServices(ps *ProcessServices, shared *sharedMutable
 	ps.CandidateHealth = shared.underlyingHealth
 	var err error
 	ps.BranchCoordinator, err = newProcessBranchCoordinator(ps.ExtensionState)
+	if err != nil {
+		return err
+	}
+	ps.CompactionParentPort, err = compactioncompose.NewCompactionContinuityParentPort(ps.BranchCoordinator)
 	return err
 }

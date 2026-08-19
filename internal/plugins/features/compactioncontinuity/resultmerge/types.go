@@ -13,7 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
-const DefaultMaxCapsuleBytes = 1 << 20
+const (
+	DefaultMaxCapsuleBytes  = 1 << 20
+	DefaultMaxCapsuleTokens = 2_500
+)
 
 var (
 	ErrInvalidJob         = errors.New("resultmerge: invalid pending job")
@@ -80,10 +83,11 @@ func (s ParentState) clone() ParentState {
 	return s
 }
 
-// Config bounds the next serialized capsule. A byte bound is used because it
-// is deterministic and is also the bound enforced by the parent coordinator.
+// Config bounds the next serialized capsule. Both dimensions are enforced
+// independently by capsule.PruneWithLimits before parent commit.
 type Config struct {
-	MaxCapsuleBytes int
+	MaxCapsuleBytes  int
+	MaxCapsuleTokens int
 }
 
 // Status describes the fail-open result of one consumption attempt.

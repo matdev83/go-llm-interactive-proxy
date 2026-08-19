@@ -1,46 +1,22 @@
 package runtimebundle
 
 import (
-	"fmt"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// validateCompactionContinuityGeneration is the composition-only dependency
-// gate. Feature factories intentionally receive opaque YAML and cannot inspect
-// process-owned services; generation composition supplies the capability
-// evidence here before candidate/model work begins.
 func validateCompactionContinuityGeneration(ps *ProcessServices, regs []lipsdk.Registration) error {
-	active := false
-	for _, reg := range regs {
-		if reg.Kind == lipsdk.PluginKindFeature && reg.Enabled && reg.RegistryFactoryKey() == compactioncontinuity.ID {
-			active = true
-			break
-		}
-	}
-	if !active {
-		return nil
-	}
 	if ps == nil {
-		return fmt.Errorf("runtimebundle: compaction-continuity: nil ProcessServices")
+		return compactioncompose.ValidateFeaturePrerequisites(regs, false, false, false)
 	}
-	for _, reg := range regs {
-		if reg.Kind != lipsdk.PluginKindFeature || !reg.Enabled || reg.RegistryFactoryKey() != compactioncontinuity.ID {
-			continue
-		}
-		cfg, err := compactioncontinuity.DecodeConfig(reg.Config.Node)
-		if err != nil {
-			return fmt.Errorf("runtimebundle: compaction-continuity config: %w", err)
-		}
-		if err := compactioncontinuity.ValidatePrerequisites(cfg, compactioncontinuity.Prerequisites{
-			DetectorPreview:   ps.CompactionDetector != nil,
-			DetectorCommit:    ps.CompactionDetector != nil,
-			BranchCoordinator: ps.BranchCoordinator != nil,
-			BackgroundAux:     ps.BackgroundAux != nil,
-		}); err != nil {
-			return fmt.Errorf("runtimebundle: generation prerequisite: %w", err)
-		}
+	return compactioncompose.ValidateFeaturePrerequisites(regs, ps.CompactionDetector != nil, ps.BranchCoordinator != nil, ps.BackgroundAux != nil)
+}
+
+func bindCompactionContinuity(merged featurebundle.MergedFeatureSurface, ps *ProcessServices, regs []lipsdk.Registration) (featurebundle.MergedFeatureSurface, error) {
+	var parent *compactioncompose.CompactionContinuityParentPort
+	if ps != nil {
+		parent = ps.CompactionParentPort
 	}
-	return nil
+	return compactioncompose.BindFeatureSurface(merged, parent, regs)
 }

@@ -65,6 +65,10 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
+	merged, err = bindCompactionContinuity(merged, ps, regs)
+	if err != nil {
+		return nil, err
+	}
 	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
