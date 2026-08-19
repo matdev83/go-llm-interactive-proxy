@@ -80,7 +80,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			ps.closers = append(ps.closers, c)
 		}
 	}
-	adoptBackgroundAuxAndDetector(&in, ps, register)
+	adoptBackgroundAuxAndDetector(parent, &in, ps, register)
 	owner := &processResourceOwner{register: register}
 	fail := func(err error) (*ProcessServices, error) {
 		return nil, withDisposedClosers(err, ps.closers)

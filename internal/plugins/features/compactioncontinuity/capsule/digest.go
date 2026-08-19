@@ -244,6 +244,9 @@ func validateDecision(d Decision, i int) error {
 	if err := validateString(fmt.Sprintf("decisions[%d].source_ref", i), d.SourceRef, 512, false); err != nil {
 		return err
 	}
+	if err := validateString(fmt.Sprintf("decisions[%d].status_source_ref", i), d.StatusSourceRef, 512, false); err != nil {
+		return err
+	}
 	if !validAuthority(d.Authority) {
 		return fmt.Errorf("%w: unknown decision authority %q", ErrInvalidCapsule, d.Authority)
 	}

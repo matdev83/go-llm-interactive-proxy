@@ -136,11 +136,14 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	out, err := attemptOpenOwner{e}.openInitial(prepCtx, prep, plan)
 	if err != nil {
 		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
+		if !out.opened {
+			e.notifyCompactionOpenFailed(prepCtx, prep)
+		}
 		return nil, err
 	}
 	// Compaction request observation runs only after the upstream B-leg opened
 	// (R3.2): signature-looking requests rejected before open emit nothing.
-	e.observeCompactionOpened(prepCtx, prep, out)
+	prep.compactionOpenMeta = e.observeCompactionOpened(prepCtx, prep, out)
 	stream, err := streamAssembler{e}.assemble(prepCtx, prep, plan, out)
 	if err != nil {
 		// Open succeeded and NextBLeg was noted, but assemble never handed the

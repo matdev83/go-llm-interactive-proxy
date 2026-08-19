@@ -25,6 +25,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		ttft:                   &plan.ttft,
 		aLegID:                 prep.aLeg.ALegID,
 		traceID:                prep.traceID,
+		compactionOpenMeta:     prep.compactionOpenMeta,
 		sel:                    plan.sel,
 		requestSize:            plan.requestSize,
 		session:                plan.session,

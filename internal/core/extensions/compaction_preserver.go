@@ -101,6 +101,43 @@ func RunCompactionPreserverRequestOpened(
 	return nil
 }
 
+// RunCompactionPreserverRequestOpenFailed invokes the optional failed-open
+// lifecycle callback in registration order. Only preservers implementing the
+// additive RequestOpenFailedPreserver interface participate; errors and
+// panics are isolated so primary open/error authority remains in core.
+func RunCompactionPreserverRequestOpenFailed(
+	ctx context.Context,
+	log *slog.Logger,
+	obs StageMetrics,
+	preservers []compaction.Preserver,
+	meta compaction.PreservationMeta,
+	services compaction.Services,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("extensions: %w", lipapi.ErrNilContext)
+	}
+	if execctx.AuxiliaryDepth(ctx) > 0 {
+		return nil
+	}
+	for _, p := range preservers {
+		optional, ok := p.(compaction.RequestOpenFailedPreserver)
+		if !ok || optional == nil {
+			continue
+		}
+		id := safePreserverID(p)
+		if execctx.IsSuppressedPluginID(ctx, id) {
+			continue
+		}
+		err := safety.Call(safety.BoundaryExtension, "compaction_preserver_request_open_failed", func() error {
+			return optional.RequestOpenFailed(ctx, meta, services)
+		})
+		if err != nil {
+			isolatePreserverFailure(ctx, log, obs, id, "request_open_failed", err)
+		}
+	}
+	return nil
+}
+
 // RunCompactionPreserverBeforeResponseRelease invokes ordered final-response
 // preservation callbacks. Each callback is transactional against the exact
 // pre-callback event. A failed, panicking, or invalid callback is rolled back
@@ -144,6 +181,45 @@ func RunCompactionPreserverBeforeResponseRelease(
 		if err := lipapi.ValidateEventEnvelope(ev); err != nil {
 			*ev = before
 			isolatePreserverFailure(ctx, log, obs, id, "before_response_release_invalid", err)
+		}
+	}
+	return nil
+}
+
+// RunCompactionPreserverAfterResponseRelease invokes the optional final
+// release-commit callback in registration order. A deep-isolated canonical
+// event is supplied so the notification cannot mutate the event already
+// committed by the detector and released to the client.
+func RunCompactionPreserverAfterResponseRelease(
+	ctx context.Context,
+	log *slog.Logger,
+	obs StageMetrics,
+	preservers []compaction.Preserver,
+	ev lipapi.Event,
+	meta compaction.PreservationMeta,
+	services compaction.Services,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("extensions: %w", lipapi.ErrNilContext)
+	}
+	if execctx.AuxiliaryDepth(ctx) > 0 {
+		return nil
+	}
+	for _, p := range preservers {
+		optional, ok := p.(compaction.AfterResponseReleasePreserver)
+		if !ok || optional == nil {
+			continue
+		}
+		id := safePreserverID(p)
+		if execctx.IsSuppressedPluginID(ctx, id) {
+			continue
+		}
+		callbackEvent := cloneCanonicalEvent(ev)
+		err := safety.Call(safety.BoundaryExtension, "compaction_preserver_after_response_release", func() error {
+			return optional.AfterResponseRelease(ctx, callbackEvent, meta, services)
+		})
+		if err != nil {
+			isolatePreserverFailure(ctx, log, obs, id, "after_response_release", err)
 		}
 	}
 	return nil

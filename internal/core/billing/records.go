@@ -137,6 +137,15 @@ func writeVersionRef(c *canonicalWriter, r VersionRef) {
 	c.time(r.FetchedAt)
 }
 
+func writeWorkloadIdentity(c *canonicalWriter, w WorkloadIdentity) {
+	if w.IsZero() {
+		return // preserve legacy fingerprints for unclassified rows
+	}
+	c.string("workload:v1")
+	c.string(string(w.Class))
+	c.string(string(w.Role))
+}
+
 func digest(b []byte) string {
 	sum := sha256.Sum256(b)
 	return fmt.Sprintf("%x", sum[:])

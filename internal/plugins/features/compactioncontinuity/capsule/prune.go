@@ -5,18 +5,46 @@ import (
 	"sort"
 )
 
-// Prune removes complete facts, then historical facts, as whole values until
-// the sealed canonical envelope fits maxBytes. Active decisions, constraints,
-// and pending/in-progress plan steps are retained whenever possible.
+// Limits bounds the serialized capsule. MaxBytes and MaxTokens are independent
+// dimensions; a zero value leaves that dimension unbounded. MaxTokens uses the
+// conservative provider-neutral convention of one token-equivalent per UTF-8
+// byte in the canonical JSON.
+type Limits struct {
+	MaxBytes  int
+	MaxTokens int
+}
+
+// TokenEquivalent returns the deterministic provider-neutral token estimate
+// used for capsule bounds. Counting UTF-8 bytes one-for-one is intentionally
+// conservative and avoids depending on a provider tokenizer.
+func TokenEquivalent(data []byte) int { return len(data) }
+
+// Prune preserves the original byte-only API. New callers that have both
+// configured dimensions should use PruneWithLimits.
 func Prune(input Envelope, maxBytes int) (Envelope, error) {
-	if maxBytes <= 0 {
+	return PruneWithLimits(input, Limits{MaxBytes: maxBytes})
+}
+
+// PruneWithLimits removes complete facts, then historical facts, as whole
+// values until the sealed canonical envelope satisfies every configured
+// dimension. Active decisions, constraints, and pending/in-progress plan
+// steps are retained whenever possible.
+func PruneWithLimits(input Envelope, limits Limits) (Envelope, error) {
+	if limits.MaxBytes < 0 || limits.MaxTokens < 0 || (limits.MaxBytes == 0 && limits.MaxTokens == 0) {
 		return Envelope{}, ErrCapsuleTooLarge
 	}
 	if err := input.Verify(); err != nil {
 		return Envelope{}, err
 	}
 	out := input.Clone()
-	if len(mustMarshal(out)) <= maxBytes {
+	fits := func(candidate Envelope) bool {
+		serialized := mustMarshal(candidate)
+		if limits.MaxBytes > 0 && len(serialized) > limits.MaxBytes {
+			return false
+		}
+		return limits.MaxTokens <= 0 || TokenEquivalent(serialized) <= limits.MaxTokens
+	}
+	if fits(out) {
 		return out, nil
 	}
 
@@ -25,7 +53,7 @@ func Prune(input Envelope, maxBytes int) (Envelope, error) {
 	removePlan := orderedStepIDs(out.Plan.Steps, func(s PlanStep) bool { return s.Status == StepCompleted || s.Status == StepCancelled })
 	for _, id := range removePlan {
 		out.Plan.Steps = removeStepID(out.Plan.Steps, id)
-		if len(mustMarshal(out)) <= maxBytes {
+		if fits(out) {
 			return reseal(out)
 		}
 	}
@@ -35,7 +63,7 @@ func Prune(input Envelope, maxBytes int) (Envelope, error) {
 			continue
 		}
 		out.Decisions = removeDecisionID(out.Decisions, id)
-		if len(mustMarshal(out)) <= maxBytes {
+		if fits(out) {
 			return reseal(out)
 		}
 	}
@@ -43,7 +71,7 @@ func Prune(input Envelope, maxBytes int) (Envelope, error) {
 		ids := orderedFactIDs(*group, func(f Fact) bool { return f.Status != FactActive })
 		for _, id := range ids {
 			*group = removeFactID(*group, id)
-			if len(mustMarshal(out)) <= maxBytes {
+			if fits(out) {
 				return reseal(out)
 			}
 		}
@@ -54,7 +82,7 @@ func Prune(input Envelope, maxBytes int) (Envelope, error) {
 		ids := orderedFactIDs(*group, func(f Fact) bool { return f.Status != FactActive })
 		for _, id := range ids {
 			*group = removeFactID(*group, id)
-			if len(mustMarshal(out)) <= maxBytes {
+			if fits(out) {
 				return reseal(out)
 			}
 		}

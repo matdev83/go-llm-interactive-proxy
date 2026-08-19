@@ -21,6 +21,7 @@ type CallUsageRecord struct {
 	CustomerPricingRef VersionRef
 	ChargePolicyRef    VersionRef
 	ExpectedBLegIDs    []string
+	Workload           WorkloadIdentity
 }
 type CallLegUsageRecord struct {
 	Key             string
@@ -38,6 +39,7 @@ type CallLegUsageRecord struct {
 	Surfaced        SurfacedState
 	Evidence        FinalBillingEvidence
 	OperatorRateRef VersionRef
+	Workload        WorkloadIdentity
 }
 
 func CallUsageKey(callID BillingCallID) (string, error) {
@@ -66,6 +68,11 @@ func (r CallUsageRecord) Seal() (CallUsageRecord, error) {
 		return CallUsageRecord{}, err
 	}
 	out := r
+	workload, err := normalizeWorkloadIdentity(r.Workload)
+	if err != nil {
+		return CallUsageRecord{}, err
+	}
+	out.Workload = workload
 	out.ExpectedBLegIDs = canonicalExpectedBLegIDs(r.ExpectedBLegIDs)
 	key, err := CallUsageKey(r.CallID)
 	if err != nil {
@@ -91,6 +98,7 @@ func (r CallUsageRecord) SemanticFingerprint() (string, error) {
 	c.string(r.AccountID)
 	c.string(r.ALegID)
 	c.string(r.SessionID)
+	writeWorkloadIdentity(&c, r.Workload)
 	c.time(r.StartedAt)
 	c.time(r.FinishedAt)
 	c.string(string(r.Outcome))
@@ -118,6 +126,11 @@ func (l CallLegUsageRecord) Seal() (CallLegUsageRecord, error) {
 		return CallLegUsageRecord{}, err
 	}
 	out := l
+	workload, err := normalizeWorkloadIdentity(l.Workload)
+	if err != nil {
+		return CallLegUsageRecord{}, err
+	}
+	out.Workload = workload
 	out.BLegID = strings.TrimSpace(l.BLegID)
 	key, err := CallLegUsageKey(out.CallID, out.BLegID)
 	if err != nil {
@@ -174,6 +187,7 @@ func (l CallLegUsageRecord) SemanticFingerprint() (string, error) {
 	c.string(string(l.Evidence.Authority))
 	c.string(l.Evidence.DedupeKey)
 	writeVersionRef(&c, l.OperatorRateRef)
+	writeWorkloadIdentity(&c, l.Workload)
 	if l.AttemptSeq > 0 {
 		c.u64(uint64(l.AttemptSeq))
 	}
@@ -268,6 +282,9 @@ func (r CallUsageRecord) validate() error {
 	if !validTurnOutcome(r.Outcome) {
 		return fmt.Errorf("%w: unknown call outcome %q", ErrInvalidRecord, r.Outcome)
 	}
+	if _, err := normalizeWorkloadIdentity(r.Workload); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(r.ExpectedBLegIDs))
 	for _, id := range r.ExpectedBLegIDs {
 		if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id {
@@ -302,6 +319,9 @@ func (l CallLegUsageRecord) validate() error {
 	}
 	if !validLegOutcome(l.Outcome) || !validSurfacedState(l.Surfaced) {
 		return fmt.Errorf("%w: invalid call-leg outcome/surfaced state", ErrInvalidRecord)
+	}
+	if _, err := normalizeWorkloadIdentity(l.Workload); err != nil {
+		return err
 	}
 	// AttemptSeq == 0 means the sequence is absent (legacy v1 row); a positive
 	// value is the exact B2BUA attempt sequence. Negative values are nonsense.

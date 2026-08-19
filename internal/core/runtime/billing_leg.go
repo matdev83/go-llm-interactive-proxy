@@ -39,6 +39,7 @@ type billingLegDraft struct {
 	finalize        lipapi.Event
 	stream          lipapi.Event
 	operatorRateRef billing.VersionRef
+	workload        billing.WorkloadIdentity
 }
 
 func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
@@ -54,6 +55,8 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	if bLegID == "" {
 		bLegID = billingSyntheticBLegID(draft.seq)
 	}
+	evidence := mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
+	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
 	return billing.CallLegUsageRecord{
 		CallID:          draft.callID,
 		ALegID:          strings.TrimSpace(draft.aLegID),
@@ -67,8 +70,29 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		FinishedAt:      draft.finishedAt,
 		Outcome:         legOutcomeFromCommand(draft.command),
 		Surfaced:        draft.surfaced,
-		Evidence:        mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream)),
+		Evidence:        evidence,
+		Workload:        draft.workload,
 	}
+}
+
+// normalizeBillingEvidenceIdentity keeps every independently accounted B-leg
+// identifiable even when no provider usage event was observed (for example, a
+// pre-output failover leg). Provider evidence remains authoritative when
+// present; only missing identity/provenance fields receive explicit bounded
+// fallback values.
+func normalizeBillingEvidenceIdentity(evidence billing.FinalBillingEvidence, callID billing.BillingCallID, bLegID string) billing.FinalBillingEvidence {
+	if evidence.Source == billing.EvidenceSourceUnknown {
+		evidence.Source = billing.EvidenceSourceUnavailable
+	}
+	if evidence.Authority == billing.EvidenceAuthorityUnknown {
+		evidence.Authority = billing.EvidenceAuthorityUnavailable
+	}
+	if strings.TrimSpace(evidence.DedupeKey) == "" {
+		if fallback, err := billing.DedupeKeyForBLeg(callID, bLegID); err == nil {
+			evidence.DedupeKey = fallback
+		}
+	}
+	return evidence
 }
 
 func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary) billing.VersionRef {
@@ -126,6 +150,7 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
 		stream:          streamEv,
 		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
+		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
 	})
 	s.executor.observeBillingLeg(ctx, legRecord)
 	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
@@ -280,6 +305,13 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 		return
 	}
 	leg.CallID = callID
+	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, callID, leg.BLegID)
+	if err := billing.ValidateIndependentLeg(leg); err != nil {
+		if e.Log != nil {
+			e.Log.ErrorContext(ctx, "billing call-leg append rejected: invalid independent leg", "error", err, "b_leg_id", leg.BLegID)
+		}
+		return
+	}
 	independent := leg
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
@@ -324,6 +356,7 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		StartedAt: started, FinishedAt: finished, Outcome: outcome, Surfaced: billing.SurfacedNo,
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
 		OperatorRateRef: e.operatorRateRef(ctx, primary),
+		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}
 	var callID billing.BillingCallID
 	if state != nil {
@@ -331,6 +364,7 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		leg.CallID = callID
 		state.noteLegTimes(started, finished)
 	}
+	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, leg.CallID, leg.BLegID)
 	e.observeBillingLeg(ctx, leg)
 	if callID != "" {
 		e.appendIndependentCallLeg(ctx, callID, leg)
@@ -399,6 +433,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		finalize:        finalizeEv,
 		stream:          fallback,
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
+		workload:        e.billingWorkloadIdentityForALeg(ctx, leg.bleg.ALegID),
 	})
 	e.observeBillingLeg(ctx, legRecord)
 	if leg.billingCallState != nil {

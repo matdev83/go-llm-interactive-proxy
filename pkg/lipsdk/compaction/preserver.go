@@ -77,3 +77,21 @@ type Preserver interface {
 	RequestOpened(context.Context, lipapi.Call, []Event, PreservationMeta, Services) error
 	BeforeResponseRelease(context.Context, *lipapi.Event, ResponsePreview, PreservationMeta, Services) error
 }
+
+// RequestOpenFailedPreserver is an optional lifecycle side-channel for a
+// preservation implementation that needs to discard a pre-open, non-billable
+// intent after the primary open loop exhausts without opening a B-leg. It is
+// deliberately separate from Preserver so existing implementations remain
+// source-compatible. The callback is metadata-only, synchronous, and fail-open.
+type RequestOpenFailedPreserver interface {
+	RequestOpenFailed(context.Context, PreservationMeta, Services) error
+}
+
+// AfterResponseReleasePreserver is an optional, non-mutating notification at
+// the last synchronous point before a canonical event is returned to the
+// client. Core passes an isolated event copy; errors and panics are fail-open.
+// It is deliberately separate from Preserver so existing implementations
+// remain source-compatible.
+type AfterResponseReleasePreserver interface {
+	AfterResponseRelease(context.Context, lipapi.Event, PreservationMeta, Services) error
+}

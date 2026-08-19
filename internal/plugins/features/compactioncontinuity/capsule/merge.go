@@ -31,7 +31,7 @@ func Merge(previous Envelope, delta Delta) (Envelope, error) {
 			return Envelope{}, err
 		}
 	}
-	if err := mergeDecisions(&out, delta.Decisions); err != nil {
+	if err := mergeDecisions(&out, delta.Decisions, delta.DecisionTransitions); err != nil {
 		return Envelope{}, err
 	}
 	if err := mergeFacts("constraints", &out.Constraints, delta.Constraints); err != nil {
@@ -88,8 +88,8 @@ func mergePlan(dst *Plan, incoming Plan) error {
 	return validatePlan(*dst)
 }
 
-func mergeDecisions(dst *Envelope, incoming []Decision) error {
-	if len(incoming) == 0 {
+func mergeDecisions(dst *Envelope, incoming []Decision, transitions []DecisionTransition) error {
+	if len(incoming) == 0 && len(transitions) == 0 {
 		return nil
 	}
 	byID := make(map[string]int, len(dst.Decisions)+len(incoming))
@@ -127,6 +127,20 @@ func mergeDecisions(dst *Envelope, incoming []Decision) error {
 			}
 		}
 	}
+	if err := validateDecisionTransitions(dst.Decisions, byID, transitions); err != nil {
+		return err
+	}
+	transitionTargets := make(map[string]struct{}, len(transitions))
+	for _, transition := range transitions {
+		transitionTargets[transition.ID] = struct{}{}
+	}
+	for _, decision := range incoming {
+		for _, targetID := range decision.Supersedes {
+			if _, overlaps := transitionTargets[targetID]; overlaps {
+				return fmt.Errorf("%w: target %q is both superseded and transitioned", ErrInvalidDecisionTransition, targetID)
+			}
+		}
+	}
 	for _, d := range incoming {
 		if index, exists := byID[d.ID]; exists {
 			if !sameDecision(dst.Decisions[index], d) {
@@ -157,8 +171,56 @@ func mergeDecisions(dst *Envelope, incoming []Decision) error {
 		dst.Decisions = append(dst.Decisions, d)
 		byID[d.ID] = len(dst.Decisions) - 1
 	}
+	for _, transition := range transitions {
+		index := byID[transition.ID]
+		dst.Decisions[index].Status = transition.Status
+		dst.Decisions[index].StatusSourceRef = transition.SourceRef
+	}
 	sort.SliceStable(dst.Decisions, func(i, j int) bool { return dst.Decisions[i].ID < dst.Decisions[j].ID })
 	return dst.validate(false)
+}
+
+func validateDecisionTransitions(decisions []Decision, byID map[string]int, transitions []DecisionTransition) error {
+	seen := make(map[string]struct{}, len(transitions))
+	for i, transition := range transitions {
+		if err := validateDecisionTransition(transition, i); err != nil {
+			return err
+		}
+		if _, exists := seen[transition.ID]; exists {
+			return fmt.Errorf("%w: duplicate target %q", ErrInvalidDecisionTransition, transition.ID)
+		}
+		seen[transition.ID] = struct{}{}
+		index, exists := byID[transition.ID]
+		if !exists || index < 0 || index >= len(decisions) {
+			return fmt.Errorf("%w: unknown target %q", ErrInvalidDecisionTransition, transition.ID)
+		}
+		target := decisions[index]
+		if target.Status != DecisionActive {
+			return fmt.Errorf("%w: target %q is not active", ErrInvalidDecisionTransition, transition.ID)
+		}
+		if target.Authority != AuthoritySemantic {
+			return fmt.Errorf("%w: target %q authority %q is protected", ErrInvalidDecisionTransition, transition.ID, target.Authority)
+		}
+	}
+	return nil
+}
+
+func validateDecisionTransition(transition DecisionTransition, index int) error {
+	if err := validateString(fmt.Sprintf("decision_transitions[%d].id", index), transition.ID, 256, true); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidDecisionTransition, err)
+	}
+	if err := validateString(fmt.Sprintf("decision_transitions[%d].source_ref", index), transition.SourceRef, 512, true); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidDecisionTransition, err)
+	}
+	if transition.Authority != AuthoritySemantic {
+		return fmt.Errorf("%w: authority must be %q", ErrInvalidDecisionTransition, AuthoritySemantic)
+	}
+	switch transition.Status {
+	case DecisionSuperseded, DecisionRejected:
+		return nil
+	default:
+		return fmt.Errorf("%w: status must be superseded or rejected", ErrInvalidDecisionTransition)
+	}
 }
 
 func activeDecisionTargets(d Decision, byID, active map[string]int, decisions []Decision) []int {
@@ -189,7 +251,7 @@ func activeDecisionTargets(d Decision, byID, active map[string]int, decisions []
 func sameDecision(a, b Decision) bool {
 	a.Supersedes = uniqueSorted(a.Supersedes)
 	b.Supersedes = uniqueSorted(b.Supersedes)
-	return a.ConflictKey == b.ConflictKey && a.Statement == b.Statement && a.Status == b.Status && a.Authority == b.Authority && a.Rationale == b.Rationale && a.SourceRef == b.SourceRef && strings.Join(a.Supersedes, "\x00") == strings.Join(b.Supersedes, "\x00")
+	return a.ConflictKey == b.ConflictKey && a.Statement == b.Statement && a.Status == b.Status && a.Authority == b.Authority && a.Rationale == b.Rationale && a.SourceRef == b.SourceRef && a.StatusSourceRef == b.StatusSourceRef && strings.Join(a.Supersedes, "\x00") == strings.Join(b.Supersedes, "\x00")
 }
 
 func mergeFacts(name string, dst *[]Fact, incoming []Fact) error {

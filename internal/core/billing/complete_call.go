@@ -26,6 +26,9 @@ func JoinCompleteCall(closure CallUsageRecord, legs []CallLegUsageRecord) (Compl
 		if leg.CallID != closure.CallID {
 			continue
 		}
+		if !closure.Workload.IsZero() && leg.Workload != closure.Workload {
+			continue
+		}
 		byBLeg[leg.BLegID] = leg
 	}
 	out := make([]CallLegUsageRecord, 0, len(closure.ExpectedBLegIDs))

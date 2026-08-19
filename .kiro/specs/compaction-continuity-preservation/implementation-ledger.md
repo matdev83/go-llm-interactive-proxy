@@ -81,3 +81,71 @@ Integrated evidence:
 - `git diff --check` — clean.
 - Quality-accounting commit `337fc37e` records the process-owned bounded worker allowlist, package documentation, exact core-import baseline, and measured-plus-25 line ratchets.
 - `make quality-checks` — pass after the quality-accounting repair.
+
+## Wave 4 — Semantic extraction and authoritative late-result merge
+
+Implementation commit: `013cc010` (`feat(compaction): add semantic extraction and late merge`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 1.5 | Partial | Detached child billing proof covers originating account attribution, independent BillingCallID/A-leg/failover legs, positive AttemptSeq, explicit evidence identity, and separation of primary protocol usage from auxiliary usage | Focused runtime/billing/auxiliary suites and `go vet` pass; feature-to-runtime scheduling remains Task 4.1 |
+| 3.4 | Complete | One detached no-tools child call with explicit independent route/inherit policy, immutable time/input/output bounds, private lineage and plugin suppression; fixed prompt/schema; strict single-object parser with bounded depth/count/text/source/conflict/supersedes validation and authority-safe decision transitions | Feature suite `-count=20`, parser fuzz, `go vet`, and full quality gate pass |
+| 3.5 | Complete, race runner unavailable | Late-result service verifies pending parent job, branch binding, capsule digest/revision, performs bounded merge/prune/re-digest, retains timed-out jobs, forgets terminal raw output, and commits through an adapter bound to the captured authoritative parent BranchKey and real coordinator job CAS | Result-merge stress tests, actual-coordinator adapter tests, integrated feature/runtimebundle suites, and `go vet` pass; Windows ThreadSanitizer remains unavailable with allocation error 87 |
+
+Integration review repairs:
+
+- Extractor child calls remain ordinary internal create calls and cannot recursively identify themselves as compaction operations.
+- Input policy now exposes the approved `max_input_tokens` contract and enforces a conservative provider-independent token-equivalent bound plus a fixed hard byte ceiling.
+- Source references use exact allowlist membership; stable semantic-ID retries must be identical; protected user, acceptance, and structured decisions cannot be removed by semantic output.
+- `remove_or_supersede` results map to typed capsule decision transitions with provenance instead of being discarded or rewriting protected decision fields.
+- The late-result adapter never decodes a binding or accepts a private child A-leg as parent authority.
+- Missing provider billing evidence receives explicit unavailable provenance and a BillingCallID/B-leg-scoped dedupe identity without replacing provider-reported evidence.
+
+Integrated evidence:
+
+- `go test -count=20 ./internal/plugins/features/compactioncontinuity/...` — pass.
+- Focused actual-coordinator adapter and compaction-continuity billing tests `-count=5` — pass.
+- `go vet` across feature, runtimebundle, runtime, billing, auxiliary, coordinator, and standard-plugin packages — pass.
+- `make quality-checks` — pass, including architecture, convergence, formatting, build, vet, regex, and goroutine guardrails.
+- `git diff --check` — clean.
+
+## Wave 5 — Runtime boundary preservation, process composition, and billing isolation
+
+Implementation commits:
+
+- `d8e92779` (`feat(compaction): enforce preservation release lifecycle`)
+- `452491df` (`feat(auxreq): bind generation runners and workload role`)
+- `467e87d1` (`feat(compaction): preserve continuity across boundaries`)
+- `0069cc90` (`feat(billing): project continuity auxiliary workload`)
+- `6e4869c1` (`test(arch): account for continuity runtime surface`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 1.2 | Complete | Additive optional failed-Open and post-finalization release callbacks preserve existing `Preserver` compatibility; transactional response mutation precedes detector commit, metadata dispatch, and the client return point | Runtime/extensions/SDK lifecycle tests `-count=20`; full package tests and vet pass |
+| 1.3 | Complete | One process-owned bounded scheduler exposes immutable generation-bound runner views; submissions capture the exact executor and async generation pin without a per-generation pool or fallback goroutine | Auxreq tests `-count=20`, checkptr stress, goleak-backed package suite, and runtimebundle reload tests pass |
+| 1.4 | Complete | Detached execution carries a validated trusted auxiliary role, retains private child A-leg/routing/billing lineage, and leaves secure-session/transcript authority on the parent | Runtime detached/session isolation matrix `-count=20` and full runtime suite pass |
+| 3.2 | Complete | Capsule pruning now enforces byte and conservative UTF-8 token-equivalent limits together, removes only whole facts, and re-digests deterministically | Capsule suite `-count=20` and vet pass |
+| 4.1 | Complete | Successful Open commits source and deterministic capsule state before eligibility, then submits one parent/transaction/revision-coalesced detached job without awaiting it | Feature/runtimebundle integration and delayed-background tests pass |
+| 4.2 | Complete | Pure response preview, bounded existing-job barrier, strict parent-bound merge, detector commit on the exact finalized event, metadata dispatch, and release callback are ordered at the single client-release seam | Live/gated/recovery/fail-open ordering tests `-count=20` and full runtime suite pass |
+| 4.3 | Complete | Completion-only preview intents are non-billable before Open, bind to a committed transaction only after Open, and use only already-ready or previously submitted state before the primary request opens | Completion-only, failed-Open, failover, near-miss, and committed-transaction fallback tests pass |
+| 4.4 | Complete | Canonical legacy/item reinjection is branch/boundary/revision scoped; bounded ephemeral retry markers commit the released watermark only on returned terminal response and preserve pending state on failure/abort | Injection/feature tests `-count=20`, same-revision/two-boundary and aborted-release coverage pass |
+| 4.5 | Partial | Opaque/encrypted payloads remain byte-identical and unsupported carriers fall back to pending reinjection; a verified mutable plaintext carrier remains unimplemented | Injection/feature opaque fixtures pass |
+| 5.1 | Complete | Trusted auxiliary workload identity flows through normal call/leg usage, terminal evidence, rating joins and operator reports without changing price selection or creating another money path | Billing/metering/runtime/billingstore tests and vet pass |
+| 5.2 | Complete | Primary protocol usage, secure-session state, TurnID/activity/resume and client headers remain isolated from concurrent detached extraction; operator/account records retain separate child lineage | Deterministic concurrent session/billing matrix `-count=20` and full runtime suite pass |
+
+Integration review repairs:
+
+- Completion-only request transactions are retained as release metadata only when the pure response preview has no transaction; strict response previews remain authoritative.
+- Bare client `Recv` contexts use the stream's authoritative child A-leg for workload lookup while inherited request-authority pointer identity remains unchanged.
+- Runtimebundle contains only thin composition wiring; parent authority, scheduler construction and generation-runner adapters live in focused `internal/infra/compactioncompose`, preserving the required convergence reduction.
+- Capsule, extractor and reinjection token-equivalent bounds consistently count one UTF-8 byte per conservative unit.
+- No plaintext response carrier was guessed: unknown/native/encrypted/opaque completion events are never mutated and use mandatory reinjection fallback.
+
+Integrated evidence:
+
+- Focused combined tests across runtime, extensions, auxreq, execctx, billing, metering, runtimebundle, billingstore, billingcompose, feature packages and compaction SDK — pass.
+- `go vet` across the same integrated package set — pass.
+- `make quality-checks` — pass, including formatting, build, vet, architecture, exact package budgets, convergence, regex and goroutine guardrails.
+- Runtimebundle convergence remains within the existing package ceiling; connector/core accounting uses measured-plus-25 caps.
+- Windows race execution remains unavailable because ThreadSanitizer fails allocation with error 87; deterministic count/checkptr/goleak-backed tests are green.
+- PR2 changes 93 paths relative to `feat/compaction-continuity-preservation`, below the 100-path repository limit.

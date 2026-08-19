@@ -1,6 +1,7 @@
 package capsule
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -155,6 +156,138 @@ func TestMergeRejectsForwardSupersedesWithinOneDelta(t *testing.T) {
 	}
 }
 
+func TestMergeAppliesSemanticDecisionTransition(t *testing.T) {
+	t.Parallel()
+	base := testCapsule(t)
+	semantic := Decision{ID: StableID("decision", "transition-target"), ConflictKey: "slot.transition", Statement: "semantic choice", Status: DecisionActive, Authority: AuthoritySemantic}
+	withDecision, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, Decisions: []Decision{semantic}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Merge(withDecision, Delta{BaseRevision: withDecision.Revision, BranchBinding: withDecision.BranchBinding, DecisionTransitions: []DecisionTransition{{ID: semantic.ID, Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item-2"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decisions[0].Status != DecisionRejected || got.Decisions[0].SourceRef != semantic.SourceRef || got.Decisions[0].StatusSourceRef != "extractor:item-2" {
+		t.Fatalf("transition result = %#v", got.Decisions[0])
+	}
+}
+
+func TestMergeRejectsSupersedeAndTransitionForSameTarget(t *testing.T) {
+	t.Parallel()
+	base := testCapsule(t)
+	target := Decision{ID: StableID("decision", "double-operation-target"), ConflictKey: "slot.double-operation", Statement: "semantic choice", Status: DecisionActive, Authority: AuthoritySemantic}
+	withTarget, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, Decisions: []Decision{target}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addition := Decision{ID: StableID("decision", "double-operation-addition"), ConflictKey: "slot.new", Supersedes: []string{target.ID}, Statement: "replacement", Status: DecisionActive, Authority: AuthoritySemantic}
+	_, err = Merge(withTarget, Delta{BaseRevision: withTarget.Revision, BranchBinding: withTarget.BranchBinding, Decisions: []Decision{addition}, DecisionTransitions: []DecisionTransition{{ID: target.ID, Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item-double"}}})
+	if !errors.Is(err, ErrInvalidDecisionTransition) {
+		t.Fatalf("double-operation error = %v, want %v", err, ErrInvalidDecisionTransition)
+	}
+	if withTarget.Decisions[0].Status != DecisionActive || withTarget.Decisions[0].StatusSourceRef != "" {
+		t.Fatalf("prior target changed after rejection: %#v", withTarget.Decisions[0])
+	}
+}
+
+func TestMergeRejectsUnsafeDecisionTransitionsAtomically(t *testing.T) {
+	t.Parallel()
+	base := testCapsule(t)
+	semantic := Decision{ID: StableID("decision", "safe"), ConflictKey: "slot.safe", Statement: "semantic choice", Status: DecisionActive, Authority: AuthoritySemantic}
+	user := Decision{ID: StableID("decision", "protected"), ConflictKey: "slot.protected", Statement: "user choice", Status: DecisionActive, Authority: AuthorityUserExplicit}
+	withDecisions, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, Decisions: []Decision{semantic, user}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := withDecisions.Clone()
+	addition := Decision{ID: StableID("decision", "must-not-commit"), ConflictKey: "slot.new", Statement: "new semantic choice", Status: DecisionActive, Authority: AuthoritySemantic}
+	_, err = Merge(withDecisions, Delta{
+		BaseRevision: withDecisions.Revision, BranchBinding: withDecisions.BranchBinding, Decisions: []Decision{addition},
+		DecisionTransitions: []DecisionTransition{{ID: user.ID, Status: DecisionSuperseded, Authority: AuthoritySemantic, SourceRef: "extractor:item-3"}},
+	})
+	if !errors.Is(err, ErrInvalidDecisionTransition) {
+		t.Fatalf("protected transition error = %v, want %v", err, ErrInvalidDecisionTransition)
+	}
+	if verifyErr := withDecisions.Verify(); verifyErr != nil || len(withDecisions.Decisions) != len(original.Decisions) {
+		t.Fatalf("prior capsule changed after rejection: verify=%v decisions=%d", verifyErr, len(withDecisions.Decisions))
+	}
+	for _, decision := range withDecisions.Decisions {
+		if decision.Status != original.Decisions[indexOfDecision(original.Decisions, decision.ID)].Status {
+			t.Fatalf("prior decision %q changed to %q", decision.ID, decision.Status)
+		}
+	}
+}
+
+func TestMergeRejectsUnknownNonActiveDuplicateAndNonSemanticTransitions(t *testing.T) {
+	t.Parallel()
+	base := testCapsule(t)
+	semantic := Decision{ID: StableID("decision", "transition-errors"), ConflictKey: "slot.transition-errors", Statement: "semantic choice", Status: DecisionActive, Authority: AuthoritySemantic}
+	withDecision, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, Decisions: []Decision{semantic}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withDecision.Decisions[0].Status = DecisionSuperseded
+	if err := withDecision.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name        string
+		transitions []DecisionTransition
+	}{
+		{"unknown", []DecisionTransition{{ID: "missing", Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item"}}},
+		{"non-active", []DecisionTransition{{ID: semantic.ID, Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item"}}},
+		{"duplicate", []DecisionTransition{{ID: semantic.ID, Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item"}, {ID: semantic.ID, Status: DecisionSuperseded, Authority: AuthoritySemantic, SourceRef: "extractor:item-2"}}},
+		{"non-semantic-authority", []DecisionTransition{{ID: semantic.ID, Status: DecisionRejected, Authority: AuthorityUserExplicit, SourceRef: "extractor:item"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			activeBase := testCapsule(t)
+			activeBase, err = Merge(activeBase, Delta{BaseRevision: activeBase.Revision, BranchBinding: activeBase.BranchBinding, Decisions: []Decision{semantic}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.name == "non-active" {
+				activeBase.Decisions[0].Status = DecisionSuperseded
+				if err := activeBase.Seal(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Merge(activeBase, Delta{BaseRevision: activeBase.Revision, BranchBinding: activeBase.BranchBinding, DecisionTransitions: test.transitions}); !errors.Is(err, ErrInvalidDecisionTransition) {
+				t.Fatalf("transition error = %v, want %v", err, ErrInvalidDecisionTransition)
+			}
+		})
+	}
+}
+
+func TestMergeSemanticTransitionProtectsAllNonSemanticAuthorities(t *testing.T) {
+	t.Parallel()
+	for _, authority := range []Authority{AuthorityUserExplicit, AuthorityUserAcceptance, AuthorityStructured} {
+		t.Run(string(authority), func(t *testing.T) {
+			t.Parallel()
+			base := testCapsule(t)
+			decision := Decision{ID: StableID("decision", string(authority)), ConflictKey: "slot.protected." + string(authority), Statement: "protected choice", Status: DecisionActive, Authority: authority}
+			base, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, Decisions: []Decision{decision}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Merge(base, Delta{BaseRevision: base.Revision, BranchBinding: base.BranchBinding, DecisionTransitions: []DecisionTransition{{ID: decision.ID, Status: DecisionRejected, Authority: AuthoritySemantic, SourceRef: "extractor:item"}}}); !errors.Is(err, ErrInvalidDecisionTransition) {
+				t.Fatalf("protected authority transition error = %v, want %v", err, ErrInvalidDecisionTransition)
+			}
+		})
+	}
+}
+
+func indexOfDecision(decisions []Decision, id string) int {
+	for i, decision := range decisions {
+		if decision.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestPlanProgressDoesNotRegressAndPruneRedigests(t *testing.T) {
 	t.Parallel()
 	base := testCapsule(t)
@@ -185,6 +318,83 @@ func TestPlanProgressDoesNotRegressAndPruneRedigests(t *testing.T) {
 	}
 	if len(pruned.Plan.Steps) != 0 {
 		t.Fatalf("completed step was not pruned: %#v", pruned.Plan.Steps)
+	}
+}
+
+func TestPruneWithLimitsBoundsTokenEquivalentWithoutTruncatingFacts(t *testing.T) {
+	t.Parallel()
+	e := testCapsule(t)
+	completed := PlanStep{ID: StableStepID("completed"), Text: "completed", Status: StepCompleted, SourceRef: "structured:completed"}
+	e.Plan.Steps = append(e.Plan.Steps, completed)
+	large := Fact{
+		ID:        StableFactID("rejected", "large historical fact", "user:large"),
+		Statement: strings.Repeat("ż", 512),
+		Status:    FactRejected,
+		Authority: AuthorityUserAcceptance,
+		SourceRef: "user:large",
+	}
+	e.RejectedAlternatives = append(e.RejectedAlternatives, large)
+	if err := e.Seal(); err != nil {
+		t.Fatal(err)
+	}
+
+	withoutLarge := e.Clone()
+	withoutLarge.RejectedAlternatives = nil
+	if err := withoutLarge.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	limit := len(mustMarshal(withoutLarge))
+	pruned, err := PruneWithLimits(e, Limits{MaxBytes: 1 << 20, MaxTokens: limit})
+	if err != nil {
+		t.Fatalf("PruneWithLimits() error = %v", err)
+	}
+	if got := TokenEquivalent(mustMarshal(pruned)); got > limit {
+		t.Fatalf("token-equivalent size = %d, max = %d", got, limit)
+	}
+	if len(pruned.RejectedAlternatives) != 0 {
+		t.Fatalf("large fact was retained or partially truncated: %#v", pruned.RejectedAlternatives)
+	}
+	if len(pruned.Plan.Steps) != 0 {
+		t.Fatalf("completed step was retained: %#v", pruned.Plan.Steps)
+	}
+	if err := pruned.VerifyBranch(e.BranchBinding); err != nil {
+		t.Fatalf("pruned capsule does not verify: %v", err)
+	}
+
+	second, err := PruneWithLimits(e, Limits{MaxBytes: 1 << 20, MaxTokens: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBytes, err := CanonicalBytes(pruned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := CanonicalBytes(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstBytes, secondBytes) || pruned.ContentDigest != second.ContentDigest {
+		t.Fatalf("pruning is not deterministic: first=%s second=%s", pruned.ContentDigest, second.ContentDigest)
+	}
+}
+
+func TestPruneWithLimitsEnforcesByteLimitIndependently(t *testing.T) {
+	t.Parallel()
+	e := testCapsule(t)
+	e.Plan.Steps = append(e.Plan.Steps, PlanStep{ID: StableStepID("completed-byte"), Text: strings.Repeat("byte", 32), Status: StepCompleted, SourceRef: "structured:byte"})
+	if err := e.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	fullBytes := len(mustMarshal(e))
+	pruned, err := PruneWithLimits(e, Limits{MaxBytes: fullBytes - 1, MaxTokens: 1 << 20})
+	if err != nil {
+		t.Fatalf("PruneWithLimits() error = %v", err)
+	}
+	if got := len(mustMarshal(pruned)); got > fullBytes-1 {
+		t.Fatalf("serialized size = %d, max = %d", got, fullBytes-1)
+	}
+	if len(pruned.Plan.Steps) != 0 {
+		t.Fatalf("completed step was retained under byte limit: %#v", pruned.Plan.Steps)
 	}
 }
 

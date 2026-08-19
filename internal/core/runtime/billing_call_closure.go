@@ -40,6 +40,7 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 		CustomerPricingRef: s.billingCustomerPricing,
 		ChargePolicyRef:    s.billingChargePolicy,
 		ExpectedBLegIDs:    ids,
+		Workload:           s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
 	}
 	sealed, err := record.Seal()
 	if err != nil {

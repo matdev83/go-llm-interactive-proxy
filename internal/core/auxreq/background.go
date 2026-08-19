@@ -110,8 +110,9 @@ func (s *BackgroundScheduler) now() time.Time {
 }
 
 // NewBackgroundScheduler creates a process-owned collector. The runner
-// provider is consulted synchronously on each accepted submission; workers use
-// the captured runner and never acquire a later generation.
+// provider is consulted synchronously on each accepted direct submission;
+// workers use the captured runner and never acquire a later generation. Use
+// BindRunner when a generation snapshot needs an immutable client view.
 func NewBackgroundScheduler(root context.Context, runner func() ExecutorRunner, cfg SchedulerConfig) (*BackgroundScheduler, error) {
 	if cfg.Workers < 0 || cfg.QueueCapacity < 0 || cfg.MaxResults < 0 || cfg.MaxResultBytes < 0 || cfg.ResultTTL < 0 || cfg.JobTimeout < 0 {
 		return nil, fmt.Errorf("auxreq: scheduler bounds must be non-negative")
@@ -161,6 +162,42 @@ func NewBackgroundScheduler(root context.Context, runner func() ExecutorRunner, 
 // name. It preserves the concrete scheduler for callers that need Close.
 func NewBackgroundClient(root context.Context, runner func() ExecutorRunner, cfg SchedulerConfig) (*BackgroundScheduler, error) {
 	return NewBackgroundScheduler(root, runner, cfg)
+}
+
+// BindRunner returns a generation-bound view over the process-owned scheduler.
+// The view contains no worker, queue, or result state of its own. Its runner is
+// immutable for the lifetime of the view; Await and Forget continue to use the
+// scheduler's process-owned result registry.
+func (s *BackgroundScheduler) BindRunner(runner ExecutorRunner) auxiliary.BackgroundClient {
+	return boundBackgroundClient{scheduler: s, runner: runner}
+}
+
+type boundBackgroundClient struct {
+	scheduler *BackgroundScheduler
+	runner    ExecutorRunner
+}
+
+func (c boundBackgroundClient) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
+	if c.runner == nil {
+		return "", auxiliary.ErrNotConfigured
+	}
+	if c.scheduler == nil {
+		return "", ErrSchedulerClosed
+	}
+	return c.scheduler.submitCollect(ctx, req, opts, c.runner, true)
+}
+
+func (c boundBackgroundClient) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
+	if c.scheduler == nil {
+		return lipapi.Collected{}, ErrSchedulerClosed
+	}
+	return c.scheduler.Await(ctx, id)
+}
+
+func (c boundBackgroundClient) Forget(id auxiliary.JobID) {
+	if c.scheduler != nil {
+		c.scheduler.Forget(id)
+	}
 }
 
 func (s *BackgroundScheduler) worker() {
@@ -244,6 +281,16 @@ func workerAttributionContext(ctx context.Context, req auxiliary.Request, parent
 // pin, then transfers both into the bounded queue. Parent cancellation after
 // this handoff does not cancel worker execution.
 func (s *BackgroundScheduler) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
+	return s.submitCollect(ctx, req, opts, nil, false)
+}
+
+// submitCollect performs common admission and ownership transfer for direct
+// and generation-bound clients. A bound client supplies the runner already;
+// direct clients resolve their provider only after the coalescing fast path.
+func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions, boundRunner ExecutorRunner, bound bool) (auxiliary.JobID, error) {
+	if bound && boundRunner == nil {
+		return "", auxiliary.ErrNotConfigured
+	}
 	if s == nil {
 		return "", ErrSchedulerClosed
 	}
@@ -274,12 +321,15 @@ func (s *BackgroundScheduler) SubmitCollect(ctx context.Context, req auxiliary.R
 		return id, nil
 	}
 	s.mu.Unlock()
-	if s.runner == nil {
-		return "", auxiliary.ErrNotConfigured
-	}
-	run := s.runner()
-	if run == nil {
-		return "", auxiliary.ErrNotConfigured
+	run := boundRunner
+	if !bound {
+		if s.runner == nil {
+			return "", auxiliary.ErrNotConfigured
+		}
+		run = s.runner()
+		if run == nil {
+			return "", auxiliary.ErrNotConfigured
+		}
 	}
 
 	var pin genpin.Pin
@@ -760,3 +810,4 @@ func cloneRaw(in json.RawMessage) json.RawMessage {
 }
 
 var _ auxiliary.BackgroundClient = (*BackgroundScheduler)(nil)
+var _ auxiliary.BackgroundClient = boundBackgroundClient{}

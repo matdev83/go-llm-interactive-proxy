@@ -106,14 +106,25 @@ type PlanStep struct {
 }
 
 type Decision struct {
-	ID          string         `json:"id"`
-	ConflictKey string         `json:"conflict_key"`
-	Supersedes  []string       `json:"supersedes"`
-	Statement   string         `json:"statement"`
-	Status      DecisionStatus `json:"status"`
-	Authority   Authority      `json:"authority"`
-	Rationale   string         `json:"rationale"`
-	SourceRef   string         `json:"source_ref"`
+	ID              string         `json:"id"`
+	ConflictKey     string         `json:"conflict_key"`
+	Supersedes      []string       `json:"supersedes"`
+	Statement       string         `json:"statement"`
+	Status          DecisionStatus `json:"status"`
+	Authority       Authority      `json:"authority"`
+	Rationale       string         `json:"rationale"`
+	SourceRef       string         `json:"source_ref"`
+	StatusSourceRef string         `json:"status_source_ref,omitempty"`
+}
+
+// DecisionTransition changes only the terminal status of an existing active
+// semantic decision. It is intentionally narrower than Decision so semantic
+// extraction cannot rewrite or remove user/structured authority.
+type DecisionTransition struct {
+	ID        string         `json:"id"`
+	Status    DecisionStatus `json:"status"`
+	Authority Authority      `json:"authority"`
+	SourceRef string         `json:"source_ref"`
 }
 
 type Fact struct {
@@ -135,6 +146,7 @@ type Delta struct {
 	SourceHighWatermark  string
 	Plan                 *Plan
 	Decisions            []Decision
+	DecisionTransitions  []DecisionTransition
 	Constraints          []Fact
 	RejectedAlternatives []Fact
 	OpenQuestions        []Fact
