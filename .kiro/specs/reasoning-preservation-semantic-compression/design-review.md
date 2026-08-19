@@ -2,115 +2,117 @@
 
 ## Review Scope
 
-Reviewed `requirements.md`, `gap-analysis.md`, `research.md`, and the initial `design.md` against current `main`, focusing on:
-
-- minimum-change architecture;
-- exact/native continuity safety;
-- existing reasoning preservation ownership;
-- existing auxiliary/background API;
-- feature/runtime composition;
-- async lifecycle and generation retirement;
-- billing/authority boundaries;
-- compatibility with the project's expected large provider/backend count.
+Reviewed `requirements.md`, `gap-analysis.md`, `research.md`, and `design.md` against current `main`, focusing on minimum-change architecture, exact/native continuity safety, reasoning-preservation ownership, auxiliary/background lifecycle, billing/authority, reload/shutdown, and scalability across a rapidly growing backend set.
 
 ## Review Round 1
 
 **Verdict: NO-GO pending correction.**
 
-The overall architecture is sound, but two initial design choices create unnecessary brownfield surface area and one store rule needs to be made more explicit before implementation tasks are generated.
+The overall architecture was sound, but the initial design widened brownfield surfaces more than necessary.
 
-### Blocker 1: Replay semantic permission is over-designed as new candidate ABI metadata
+### Blocker 1: Replay semantic permission was over-designed as new candidate ABI metadata
 
-Initial design proposed extending `lipapi.ReasoningReplaySupport` with `SemanticTextDialects` and adding `ReplaySupport` to `response.StreamMeta`.
+The first design proposed extending `lipapi.ReasoningReplaySupport` with semantic-text permission and carrying it through final `StreamMeta`.
 
-This is safe in isolation but not minimal. Current canonical reasoning artifacts already carry a dialect and structural fields. V1 has one deliberately narrow positive semantic class: plain textual historical reasoning. Exact/native/signed classes are identifiable conservatively from the canonical artifact/dialect contract.
+That would be safe but unnecessarily broad for v1. Current canonical reasoning artifacts already carry dialect and structural presence semantics. The narrow initial positive case—plain historical reasoning text—can be classified conservatively without provider/model string checks.
 
-Adding semantic-text capability across candidate metadata, StreamMeta, backend plugin ABI/profile composition and out-of-tree plugin surfaces would enlarge the change before evidence shows provider-specific semantic permission is required.
+**Correction required:** use one canonical artifact/dialect semantic classifier. Plain `openai.chat.reasoning_text.v1` with ordinary text may be semantic; OpenAI Responses exact items, Anthropic signed/redacted/opaque reasoning, native/unknown/malformed structures fail closed. Destination still requires existing `AttemptMeta.ReplaySupport` to represent the original dialect. Add a new backend semantic ABI only if real implementation evidence proves this insufficient.
 
-#### Required correction
+### Blocker 2: Compressor route inheritance was unnecessary and underspecified
 
-Use one canonical **artifact/dialect semantic profile** in v1:
+The first design copied compaction-continuity's route/inherit model, but final stream metadata does not contain the original route selector. Reconstructing it from backend/model would invent routing semantics, while widening StreamMeta solely to support inheritance adds unnecessary coupling.
+
+**Correction required:** v1 requires an explicit independent `compression.route`. Inherit-primary-route is out of scope.
+
+### Blocker 3: Optional pending state needed the same memory-safety rule as surrogates
+
+A surrogate was prohibited from evicting an authoritative original, but pending references could also accumulate.
+
+**Correction required:** separately bound pending count and surrogate bytes. Optional-state admission/rejection must never evict an otherwise-retained original. If pending attachment fails after a job was submitted, forget the retained result when possible while preserving incurred billing truth.
+
+### Approved in Round 1
+
+- original artifact commits before any compressor submission;
+- no compressor work for non-`success_released` attempts/losers;
+- generic BackgroundAux reuse rather than another provider/worker subsystem;
+- one additive non-blocking BackgroundClient poll operation;
+- no completion callbacks or feature-owned polling goroutine;
+- detached child billing/admission under originating principal;
+- one call per artifact with locally indexed semantic-text segments;
+- shadow mode before active substitution;
+- exact/native regression and privacy gates;
+- no provider Cartesian matrix.
+
+## Correction Loop Applied
+
+The requirements, research, and design were updated to:
+
+1. remove route inheritance and require explicit `compression.route`;
+2. replace new backend semantic-permission metadata with a conservative canonical artifact/dialect classifier;
+3. retain existing destination `ReasoningReplaySupport` only for representability;
+4. strengthen independent pending/surrogate optional budgets;
+5. explicitly distinguish compression failures from authoritative reasoning `on_state_error` policy;
+6. preserve the original-first -> shadow submission -> non-blocking adoption -> active replay implementation order.
+
+## Review Round 2
+
+**Verdict: GO for task generation.**
+
+### Ownership
+
+PASS. `reasoning-output-preservation` remains sole owner of capture/store/matching/reinjection. The auxiliary scheduler stays process-owned. No second transcript, reasoning store, provider client, ledger, or generic worker is introduced.
+
+### Exact/native continuity
+
+PASS. Exact/native/signed/opaque structures are fail-closed by canonical artifact profile and never leave the feature for compression. The original artifact remains retained even after successful semantic compression. Codex native compaction and exact Responses continuity remain separate authorities.
+
+### Minimum-change architecture
+
+PASS. The corrected design removes both proposed ABI expansions that were not needed: no new semantic backend capability field and no source ReplaySupport/route selector added to final StreamMeta. The only generic SDK addition is a non-blocking background result inspection method.
+
+### Async lifecycle
+
+PASS. The design avoids an auxiliary completion callback, a feature-owned maintenance goroutine, and response/replay waits. Pending results are adopted opportunistically by the current AttemptTransform. Stale/evicted artifacts fail open to original state.
+
+### Storage safety
+
+PASS. Authoritative original limits retain existing semantics. Pending/surrogate state has separate optional bounds and cannot trigger authoritative eviction merely to fit an optimization. CAS-style correlation prevents late/cross-session/different-policy adoption.
+
+### Billing and authority
+
+PASS. Child inference uses ordinary auxiliary routing/admission/metering/settlement, originating trusted principal scope, and a bounded workload role. Child IDs never become session/partition authority and are not placed in model-facing input.
+
+### Replay correctness
+
+PASS. Active substitution is a defensive projection of stored originals, preserving `BeforeNonReasoningPart` and all non-reasoning/exact structure. Existing destination `ReplaySupport` still governs whether the original dialect is representable. Shadow mode is backend-visible original-only.
+
+### Scalability
+
+PASS. Canonical semantic/exact fixtures and existing protocol/routing lifecycle tests replace provider-pair matrices. Backend growth does not create Cartesian conformance work.
+
+### Security/privacy
+
+PASS. Compressor input is only eligible reasoning text, with exact/signed/opaque/tool/file/transcript material excluded. Fixed untrusted-data prompting, no-tools child, strict indexed schema, hard bounds, fuzzing and content-free telemetry are specified.
+
+### Interaction with active refactors
+
+PASS with revalidation trigger. Active request/terminal pipeline simplification work may move functions/packages. Implementation must re-read current `main` and preserve the semantic owners/order rather than mechanically following stale helper names.
+
+## Final Design Gate
+
+**GO.** Task generation may proceed.
+
+The task plan must maintain this hard dependency sequence:
 
 ```text
-plain openai.chat.reasoning_text.v1 with ordinary text only -> semantic-text candidate
-OpenAI Responses exact item -> exact
-Anthropic signed thinking -> exact
-Anthropic redacted/opaque -> exact
-unknown/mixed/native -> exact/unknown, never semantic
+RED exact/disabled contracts
+-> canonical classifier + config + generic Poll
+-> non-destructive bounded store state
+-> compressor domain
+-> original-first shadow submission
+-> non-blocking shadow adoption
+-> destination-gated active replay
+-> full certification
 ```
 
-Destination replay still uses existing `AttemptMeta.ReplaySupport` to prove that the candidate can legally represent the artifact's dialect. Active substitution requires both:
-
-1. artifact profile = semantic text; and
-2. existing destination replay support represents that dialect.
-
-No provider-name matching is introduced. This satisfies capability/profile-driven behavior through the canonical artifact profile while avoiding a new backend ABI field.
-
-If implementation discovers a real provider that uses the same canonical text dialect but requires exact bytes, stop and revise the profile contract before active rollout; do not add provider string exceptions.
-
-### Blocker 2: `extractor.inherit`/compressor route inheritance is unnecessary and underspecified at the final-stream seam
-
-Initial design copied the compaction-continuity route/inherit model. However `response.StreamMeta` carries selected backend/model identity, not the original route selector. Reconstructing an inherited route from backend/model would create new routing semantics, while adding the original selector to StreamMeta would widen another SDK contract solely for convenience.
-
-Issue #369 explicitly permits independently configuring the compressor route/model. An explicit route is safer and simpler.
-
-#### Required correction
-
-V1 compressor configuration requires an explicit `compression.route`. Remove route inheritance from requirements/design/tasks.
-
-A future inherit-primary-route mode can be separately added if a real operator need justifies the extra correlation semantics.
-
-### Blocker 3: Optional compression budget behavior must be fail-safe at pending attachment as well as surrogate attachment
-
-Initial design states that a surrogate cannot evict an authoritative original, but pending references also consume bounded state and can accumulate when a session produces many eligible turns.
-
-#### Required correction
-
-Define both pending and surrogate optional budgets such that:
-
-- optional state is admitted/rejected independently from authoritative FIFO bytes;
-- pending-budget exhaustion causes `AttachPendingCompression` to reject and the job result to be forgotten when possible;
-- no optional-state admission path triggers authoritative original eviction;
-- original eviction/expiry clears all optional state;
-- optional state byte/count accounting is defensive and included in store tests.
-
-## Non-Blocking Poll Review
-
-**Approved.** Adding one generic `BackgroundClient.Poll` is justified by the current API gap. It is preferable to:
-
-- waiting during response release;
-- zero-duration `Await` timing tricks;
-- callbacks into retired feature state;
-- another feature-owned worker/poller.
-
-The API must remain small, non-blocking, defensive-copying, and feature-neutral.
-
-## Original-First Ordering Review
-
-**Approved.** The only production submission point is after the existing `TurnStore.Append` succeeds for `OutcomeSuccessReleased`. This preserves surfaced-winner ownership and ensures auxiliary compression cannot become preservation authority.
-
-## Result Adoption Review
-
-**Approved with one clarification.** Poll/adopt must be an optional fail-open sub-step inside the existing AttemptTransform. Compression-specific errors must not be mapped to the feature's existing authoritative `on_state_error=reject` path. Only original TurnStore/matching errors retain existing fail-closed semantics.
-
-## Billing/Session Review
-
-**Approved.** Detached child inference uses ordinary auxiliary routing/admission/billing and originating trusted principal scope. No child identity may become session/partition authority, and no parent IDs enter model-facing input.
-
-## Scalability Review
-
-**Approved.** The design uses artifact/dialect profiles and existing replay support rather than provider-pair matrices. Backend growth does not require Cartesian conformance checks.
-
-## Required Correction Loop
-
-Before tasks are generated:
-
-1. update requirements to require an explicit compressor route in v1 and remove route inheritance language;
-2. update research to record canonical artifact/dialect profile as the minimal semantic authority;
-3. update design to remove `SemanticTextDialects`/StreamMeta ReplaySupport additions and route inheritance;
-4. strengthen optional pending/surrogate budget behavior;
-5. re-review corrected design for traceability and implementation order.
-
-## Round 1 Summary
-
-The feature remains a **follow-up** and does not supersede completed specs. No architectural rewrite is needed. Corrections reduce the expected change set and preserve the desired implementation order.
+No task may enable backend-visible semantic substitution before shadow-safe result adoption and exact/native non-regression evidence exist.
