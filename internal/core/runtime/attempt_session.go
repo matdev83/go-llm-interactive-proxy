@@ -98,8 +98,9 @@ func (a *attemptSession) takeInner() lipapi.ManagedEventStream {
 // attemptSlot protects only the current attempt pointer. It never holds its
 // lock while receiving, cancelling, closing, terminalizing, or persisting.
 type attemptSlot struct {
-	mu      sync.Mutex
-	current *attemptSession
+	mu                sync.Mutex
+	current           *attemptSession
+	publicationClosed bool
 }
 
 func (s *attemptSlot) snapshot() *attemptSession {
@@ -133,12 +134,32 @@ func (s *attemptSlot) install(next *attemptSession) {
 	s.mu.Unlock()
 }
 
-func (s *attemptSlot) swap(next *attemptSession) (old *attemptSession) {
+// closePublicationAndSnapshot closes the replacement publication window and
+// returns the attempt that was current at that boundary. Replacement Open may
+// continue outside this lock, but swapIfOpen rejects its result after this point.
+func (s *attemptSlot) closePublicationAndSnapshot() *attemptSession {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
-	old, s.current = s.current, next
+	s.publicationClosed = true
+	current := s.current
 	s.mu.Unlock()
-	return old
+	return current
+}
+
+// swapIfOpen publishes a complete replacement only while the request slot is
+// still live. It returns the detached prior attempt for callers that need to
+// retain its ownership while performing effects outside the slot lock.
+func (s *attemptSlot) swapIfOpen(next *attemptSession) (old *attemptSession, published bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.publicationClosed {
+		return s.current, false
+	}
+	old, s.current = s.current, next
+	return old, true
 }

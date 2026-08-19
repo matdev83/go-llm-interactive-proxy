@@ -288,7 +288,7 @@ func TestAttemptSlotSnapshotsAndSwapsPointers(t *testing.T) {
 	if slot.snapshot() != first {
 		t.Fatal("snapshot did not return installed attempt")
 	}
-	if slot.swap(second) != first || slot.snapshot() != second {
+	if got, published := slot.swapIfOpen(second); !published || got != first || slot.snapshot() != second {
 		t.Fatal("swap did not publish replacement atomically")
 	}
 }
@@ -365,7 +365,7 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 
 	var slot attemptSlot
 	slot.install(old)
-	if got := slot.swap(replacement); got != old || slot.require() != replacement {
+	if got, published := slot.swapIfOpen(replacement); !published || got != old || slot.require() != replacement {
 		t.Fatal("replacement must atomically publish the new attempt session")
 	}
 	old.toolFinal.clear()

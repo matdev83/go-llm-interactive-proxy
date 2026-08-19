@@ -36,7 +36,7 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	attempt.accounting.observeBackendEvent(recvAt, ev)
 	// A provider may repeat an already-drained sideband key on a retrying
 	// transport. Consume it for neither the canonical stream nor accounting.
-	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !s.rememberUsageEvidenceOnce(ev) {
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !s.rememberUsageEvidenceOnceForAttempt(attempt, ev) {
 		return lipapi.Event{}, true, nil
 	}
 	attempt.accounting.observeUsage(ev)

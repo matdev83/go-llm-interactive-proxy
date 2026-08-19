@@ -67,7 +67,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
 	}))
-	rs.consumeBackendUsageEvidence(ctx, out.stream)
+	rs.consumeBackendUsageEvidenceForAttempt(ctx, rs.attempt.require(), out.stream)
 	if err := rs.openFinalStreamObservation(ctx); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()

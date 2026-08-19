@@ -63,9 +63,9 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 		event: lipapi.Event{Kind: lipapi.EventResponseFinished}, err: io.EOF,
 	}
 	rs := &retryRecvStream{}
-	testAttemptSession(rs)
-	rs.consumeBackendUsageEvidence(context.Background(), stream)
-	rs.consumeBackendUsageEvidence(context.Background(), stream)
+	attempt := testAttemptSession(rs)
+	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
+	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
 
 	if got := len(rs.seenEventsCopy()); got != 1 {
 		t.Fatalf("seen events = %d, want one sideband event", got)
@@ -77,12 +77,12 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 
 func TestUsageEvidenceDedupeKeySuppressesCanonicalReplay(t *testing.T) {
 	rs := &retryRecvStream{}
-	testAttemptSession(rs)
+	attempt := testAttemptSession(rs)
 	first := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 13, Accounting: lipapi.UsageAccountingMetadata{DedupeKey: "compaction-1"}}
-	if !rs.rememberUsageEvidenceOnce(first) {
+	if !rs.rememberUsageEvidenceOnceForAttempt(attempt, first) {
 		t.Fatal("first evidence was unexpectedly treated as duplicate")
 	}
-	if rs.rememberUsageEvidenceOnce(first) {
+	if rs.rememberUsageEvidenceOnceForAttempt(attempt, first) {
 		t.Fatal("replayed evidence key was not deduplicated")
 	}
 }

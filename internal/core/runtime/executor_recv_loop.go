@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -45,7 +46,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return lipapi.Event{}, err
 		}
 		if inner := attempt.loadInner(); inner != nil {
-			s.consumeBackendUsageEvidence(ctx, inner)
+			s.consumeBackendUsageEvidenceForAttempt(ctx, attempt, inner)
 			ev, _, herr := s.handleRecvError(ctx, ctx, err, idleContextDeadline{}, ttftContextDeadline{})
 			if herr != nil {
 				return ev, herr
@@ -191,7 +192,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		// Connector sideband frames can arrive after Open returns. Drain immediately
 		// before each receive so pre-first-event evidence is accounted even when the
 		// transport reports its first read error or cancellation.
-		s.consumeBackendUsageEvidence(ctx, inner)
+		s.consumeBackendUsageEvidenceForAttempt(ctx, attempt, inner)
 		recvCtx := ctx
 		var cancelRecv context.CancelFunc = func() {}
 		ttftDeadline := ttftContextDeadline{}
@@ -205,7 +206,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		cancelRecv()
 		// Evidence may be published during the receive itself. Drain after the
 		// call so a final event, EOF, or error cannot discard that evidence.
-		s.consumeBackendUsageEvidence(ctx, inner)
+		s.consumeBackendUsageEvidenceForAttempt(ctx, attempt, inner)
 		// Close/cancel may have terminalized while we were blocked. Do not run
 		// NormalFinish (or surface bare context.Canceled) after that owner won.
 		if s.isFinished() {
@@ -347,7 +348,6 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		s.interleaved = out.interleaved
 		return false, nil
 	}
-	s.interleaved = out.interleaved
 	if s.aScope != nil && !out.registered {
 		if err := s.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
@@ -369,10 +369,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			return false, err
 		}
 	}
-	s.resetToolFinal()
-	s.finishFinalStreamObservation(ctx, response.OutcomeReplaced)
 	fs, maxArgs := s.executor.resolveToolCallFinalizers()
-	s.attempt.install(newAttemptSession(attemptSessionInput{
+	next := newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
 		bleg:                  out.bleg,
 		cand:                  out.cand,
@@ -382,7 +380,28 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		promptCacheSource:     promptCacheObservationSource(out.stream),
 		promptCacheController: promptCacheControllerFor(s.executor.Backends[out.cand.Primary.Backend]),
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: s.executor.Log, Metrics: s.executor.ExtensionMetrics},
-	}))
+	})
+	s.resetToolFinal()
+	if _, published := s.attempt.swapIfOpen(next); !published {
+		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
+		freshInner := next.takeInner()
+		if freshInner != nil {
+			s.cancelAndCloseInner(cleanupCtx, freshInner, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+		}
+		_ = next.terminal.Terminalize(cleanupCtx, sdkterminal.CommandSwallowedAttempt, func() coreterm.AccumulatorSnapshot {
+			return coreterm.NewAccumulatorSnapshot(nil, false)
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+			return nil
+		})
+		s.executor.appendPostOpenTerminalLeg(cleanupCtx, s.facts.billingCallState, s.facts.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+		return false, nil
+	}
+	if attempt.finalStreamObs != nil {
+		attempt.finalStreamObs.Finish(ctx, response.OutcomeReplaced)
+	}
+	s.interleaved = out.interleaved
 	s.clearClientAccumulators()
 	if s.customer != nil {
 		s.customer.resetContent()
@@ -393,7 +412,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.lastAuthorityUsage = lipapi.Event{}
 	s.lastCustomerUsage = lipapi.Event{}
 	s.tokenAccountingFinalized = false
-	s.consumeBackendUsageEvidence(ctx, out.stream)
+	s.consumeBackendUsageEvidenceForAttempt(ctx, next, out.stream)
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
 	}

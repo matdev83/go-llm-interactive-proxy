@@ -154,7 +154,18 @@ type retryRecvStream struct {
 	keepwarmArmOnce sync.Once
 }
 
-func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner lipapi.ManagedEventStream) {
+// consumeBackendUsageEvidenceForAttempt binds provider sideband evidence to
+// the attempt that supplied the source stream. A replacement can publish while
+// a retired source is still being drained; using the slot's current attempt in
+// that case would move usage and dedupe state onto the replacement.
+func (s *retryRecvStream) consumeBackendUsageEvidenceForAttempt(
+	ctx context.Context,
+	attempt *attemptSession,
+	inner lipapi.ManagedEventStream,
+) {
+	if attempt == nil || inner == nil {
+		return
+	}
 	source, ok := inner.(lipapi.UsageEvidenceSource)
 	if !ok {
 		return
@@ -163,15 +174,14 @@ func (s *retryRecvStream) consumeBackendUsageEvidence(ctx context.Context, inner
 		if ev.Kind != lipapi.EventUsageDelta {
 			continue
 		}
-		if !s.rememberUsageEvidenceOnce(ev) {
+		if !s.rememberUsageEvidenceOnceForAttempt(attempt, ev) {
 			continue
 		}
-		s.rememberInternalUsage(ctx, ev)
+		s.rememberInternalUsage(ctx, attempt, ev)
 	}
 }
 
-func (s *retryRecvStream) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
-	attempt := s.attempt.snapshot()
+func (s *retryRecvStream) rememberUsageEvidenceOnceForAttempt(attempt *attemptSession, ev lipapi.Event) bool {
 	if attempt == nil {
 		return false
 	}
@@ -191,11 +201,14 @@ func (s *retryRecvStream) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
 	return true
 }
 
-func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, ev lipapi.Event) {
+func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, attempt *attemptSession, ev lipapi.Event) {
+	if attempt == nil {
+		return
+	}
 	s.eventsMu.Lock()
 	s.seenEvents = append(s.seenEvents, ev)
 	s.eventsMu.Unlock()
-	s.attempt.require().accounting.observeUsage(ev)
+	attempt.accounting.observeUsage(ev)
 	s.emitUsage(ctx, ev)
 }
 
@@ -526,10 +539,11 @@ func (s *retryRecvStream) Close() error {
 	if s == nil {
 		return nil
 	}
+	current := s.attempt.closePublicationAndSnapshot()
 	s.resetToolFinal()
 	var c lipapi.ManagedEventStream
-	if attempt := s.attempt.snapshot(); attempt != nil {
-		c = attempt.takeInner()
+	if current != nil {
+		c = current.takeInner()
 	}
 	// lipapi.EventStream.Close has no caller context. Terminal Close work must
 	// outlive request cancellation, so detach cancel from the last Recv parent
