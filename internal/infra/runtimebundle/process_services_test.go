@@ -2,9 +2,11 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
@@ -13,6 +15,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
 func processServicesTestConfig() *config.Config {
@@ -285,4 +289,48 @@ func TestProcessServices_AcceptsTracingResultShape(t *testing.T) {
 	if pt.Shutdown == nil {
 		t.Fatal("ProcessTracing must accept tracing.Result fields")
 	}
+}
+
+func TestProcessServices_OwnsBackgroundAuxiliaryScheduler(t *testing.T) {
+	t.Parallel()
+	scheduler, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner {
+		return backgroundProcessRunner{}
+	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg:           processServicesTestConfig(),
+		Log:           testkit.DiscardLogger(),
+		Opts:          &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()},
+		BackgroundAux: scheduler,
+	})
+	if err != nil {
+		_ = scheduler.Close()
+		t.Fatalf("NewProcessServices: %v", err)
+	}
+	if ps.BackgroundAux != scheduler {
+		t.Fatal("BackgroundAux scheduler was not transferred to ProcessServices")
+	}
+	id, err := ps.BackgroundAux.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{}}, auxiliary.SubmitOptions{CoalesceKey: "process-owned"})
+	if err != nil {
+		_ = ps.Close()
+		t.Fatal(err)
+	}
+	if _, err := ps.BackgroundAux.Await(context.Background(), id); err != nil {
+		_ = ps.Close()
+		t.Fatal(err)
+	}
+	if err := ps.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ps.BackgroundAux.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{}}, auxiliary.SubmitOptions{CoalesceKey: "after-close"}); !errors.Is(err, auxreq.ErrSchedulerClosed) {
+		t.Fatalf("SubmitCollect after process close=%v want ErrSchedulerClosed", err)
+	}
+}
+
+type backgroundProcessRunner struct{}
+
+func (backgroundProcessRunner) Execute(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
+	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 }

@@ -51,6 +51,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 
 	wantFeat := []string{
 		"codex-client-compat",
+		"compaction-continuity",
 		"parts-noop",
 		"pre-request-policy",
 		"reasoning-output-preservation",

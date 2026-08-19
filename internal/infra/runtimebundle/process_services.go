@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -37,19 +36,19 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		}
 	}
 	if in.Cfg == nil {
-		releasePluginOwnership()
+		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
 	if in.Log == nil {
-		releasePluginOwnership()
+		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, fmt.Errorf("runtimebundle: nil logger")
 	}
 	if in.Opts == nil || in.Opts.PluginRegistry == nil {
-		releasePluginOwnership()
+		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
 	}
 	if err := validateRequiredAuthorityEvidenceWiring(in.Cfg); err != nil {
-		releasePluginOwnership()
+		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, err
 	}
 
@@ -63,7 +62,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 
 	keepwarmPolicy, err := keepwarm.NewPolicyStore(keepwarm.DefaultMaxPolicyEntries)
 	if err != nil {
-		releasePluginOwnership()
+		releaseProcessInputOwnership(&in, releasePluginOwnership)
 		return nil, fmt.Errorf("runtimebundle: keep-warm policy store: %w", err)
 	}
 	ps := &ProcessServices{
@@ -81,6 +80,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			ps.closers = append(ps.closers, c)
 		}
 	}
+	adoptBackgroundAuxAndDetector(&in, ps, register)
 	owner := &processResourceOwner{register: register}
 	fail := func(err error) (*ProcessServices, error) {
 		return nil, withDisposedClosers(err, ps.closers)
@@ -228,11 +228,9 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
-	ps.sharedMutable = shared
-	ps.ALegLifecycle = shared.ALegLifecycle
-	ps.ExtensionState = shared.ExtensionState
-	ps.AffinityStore = &processAffinityHandle{reg: shared.affinity}
-	ps.CandidateHealth = shared.underlyingHealth
+	if err := bindSharedMutableProcessServices(ps, shared); err != nil {
+		return fail(fmt.Errorf("runtimebundle: branch coordinator: %w", err))
+	}
 
 	// Snapshot binder before terminal workers so IntentService/reconciler receive
 	// executable pending ownership without a post-start setter race.
@@ -257,10 +255,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		in.Cfg.Server.EffectiveMaxInflightDecodeBytes(),
 	)
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
-
-	// Process-owned, pure in-memory observational state; survives generation
-	// replacement, needs no closer or database (requirements 7.1-7.2, 7.6).
-	ps.CompactionDetector = compactiondetect.New(compactiondetect.Config{})
 
 	// One-time prune after all process-owned Open/Claim paths complete. Candidate
 	// compilation must remain read-only with respect to the process pool registry.

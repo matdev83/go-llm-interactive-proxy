@@ -232,7 +232,8 @@ func TestCompactionWiring_detectorRunsWithoutObservers(t *testing.T) {
 			})
 		}),
 	}
-	first, err := ex.Execute(context.Background(), compactCall("ck-no-observers", bigItems(bigText(40000), "tail-one", "tail-two")))
+	firstCall := compactCall("ck-no-observers", bigItems(bigText(40000), "tail-one", "tail-two"))
+	first, err := ex.Execute(context.Background(), firstCall)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,10 @@ func TestCompactionWiring_detectorRunsWithoutObservers(t *testing.T) {
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		CompactionObservers: []compaction.Observer{rec},
 	})
-	second, err := ex.Execute(context.Background(), compactCall("ck-no-observers", bigItems(bigText(6000), "tail-one", "tail-two")))
+	secondCall := compactCall("ck-no-observers", bigItems(bigText(6000), "tail-one", "tail-two"))
+	secondCall.Session.AuthoritativeSessionID = firstCall.Session.AuthoritativeSessionID
+	secondCall.Session.ResumeToken = firstCall.Session.ResumeToken
+	second, err := ex.Execute(context.Background(), secondCall)
 	if err != nil {
 		t.Fatal(err)
 	}

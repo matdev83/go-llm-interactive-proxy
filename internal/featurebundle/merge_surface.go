@@ -48,6 +48,7 @@ type MergedFeatureSurface struct {
 	RawCaptureSinks                  []traffic.RawCaptureSink
 	TrafficRedactors                 []traffic.Redactor
 	CompactionObservers              []compaction.Observer
+	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
 }
 
@@ -82,6 +83,7 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.RawCaptureSinks = append(m.RawCaptureSinks, b.RawCaptureSinks...)
 	m.TrafficRedactors = append(m.TrafficRedactors, b.TrafficRedactors...)
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
+	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
 }
 

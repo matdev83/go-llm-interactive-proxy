@@ -69,6 +69,24 @@ func TestStandardBundle_buildsSecretsGuard(t *testing.T) {
 	}
 }
 
+func TestStandardBundle_registersCompactionContinuity(t *testing.T) {
+	t.Parallel()
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte("{}"), &n); err != nil {
+		t.Fatal(err)
+	}
+	b, err := testRegistryWithStdBundle(t).BuildFeatureBundle("compaction-continuity", n)
+	if err != nil {
+		t.Fatalf("BuildFeatureBundle: %v", err)
+	}
+	if err := b.Validate(); err != nil {
+		t.Fatalf("FeatureBundle.Validate: %v", err)
+	}
+	if len(b.CompactionPreservers) != 0 {
+		t.Fatalf("composition slice must remain no-op before semantic task: %d", len(b.CompactionPreservers))
+	}
+}
+
 func TestRequireEmptyFeatureYAML_acceptsEmptyMapping(t *testing.T) {
 	t.Parallel()
 	var n yaml.Node

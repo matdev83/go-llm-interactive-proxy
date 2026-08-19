@@ -62,6 +62,7 @@ type RequestRuntimeSnapshot struct {
 	streamObserverFactories []response.StreamObserverFactory
 	trafficRedactors        []traffic.Redactor
 	compactionObservers     []compaction.Observer
+	compactionPreservers    []compaction.Preserver
 	secretGuardPlane        SecretGuardPlane
 	policyObserver          policydecision.Observer
 	timeoutBudget           TimeoutBudgetSource
@@ -91,7 +92,10 @@ type SnapshotOptions struct {
 	// CompactionObservers subscribe to typed, fail-open proxy-derived compaction
 	// lifecycle observations. Nil defaults to an empty frozen slice.
 	CompactionObservers []compaction.Observer
-	SecretGuardPlane    SecretGuardPlane
+	// CompactionPreservers are ordered content-bearing preservation callbacks.
+	// Nil defaults to an empty frozen slice.
+	CompactionPreservers []compaction.Preserver
+	SecretGuardPlane     SecretGuardPlane
 	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
 	// disabled no-op observer so deployments without policy evidence keep current request
 	// outcomes (requirements 7.6, 10.5).
@@ -147,6 +151,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	streamObs := response.MaterializeSorted(requireNonNilStreamObserverFactories(opts.StreamObserverFactories))
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
 	compactObs := slices.Clone(opts.CompactionObservers)
+	compactPreservers := slices.Clone(opts.CompactionPreservers)
 	plane := opts.SecretGuardPlane
 	// Snapshot owns cloning/sorting for secret guards (same contract as tool policies).
 	plane.Guards = secretguard.MaterializeSorted(plane.Guards)
@@ -184,6 +189,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		streamObserverFactories: streamObs,
 		trafficRedactors:        reds,
 		compactionObservers:     compactObs,
+		compactionPreservers:    compactPreservers,
 		secretGuardPlane:        plane,
 		policyObserver:          polObs,
 		timeoutBudget:           budget,
@@ -381,6 +387,16 @@ func (s *RequestRuntimeSnapshot) CompactionObservers() []compaction.Observer {
 		return nil
 	}
 	return slices.Clone(s.compactionObservers)
+}
+
+// CompactionPreservers returns a defensive copy of the frozen content-bearing
+// preservation callback slice. Mutating the returned slice does not affect the
+// snapshot.
+func (s *RequestRuntimeSnapshot) CompactionPreservers() []compaction.Preserver {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.compactionPreservers)
 }
 
 // SecretGuardPlane returns a defensive copy of the SecretGuardPlane configuration

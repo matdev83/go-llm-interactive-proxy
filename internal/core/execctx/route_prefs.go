@@ -17,6 +17,16 @@ func WithRouteCandidatePreferences(ctx context.Context, prefs []string) context.
 	return context.WithValue(ctx, routeCandPrefKey{}, cp)
 }
 
+// WithoutRouteCandidatePreferences shadows any inherited advisory route hints
+// for a child request. This is used when a private auxiliary call has an
+// explicit selector and must not inherit primary request ordering authority.
+func WithoutRouteCandidatePreferences(ctx context.Context) context.Context {
+	if ctx == nil {
+		return nil
+	}
+	return context.WithValue(ctx, routeCandPrefKey{}, []string{})
+}
+
 // RouteCandidatePreferences returns planner preference keys from [WithRouteCandidatePreferences].
 func RouteCandidatePreferences(ctx context.Context) []string {
 	if ctx == nil {

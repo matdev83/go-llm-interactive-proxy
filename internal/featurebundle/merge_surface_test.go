@@ -165,6 +165,19 @@ type testCompactionObs struct{ tag string }
 
 func (testCompactionObs) OnCompaction(_ context.Context, _ compaction.Event) error { return nil }
 
+type testCompactionPreserver struct{ tag string }
+
+func (p testCompactionPreserver) ID() string { return p.tag }
+func (testCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (testCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+func (testCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
 type testRawSink struct{ tag string }
 
 func (testRawSink) WriteRaw(_ context.Context, _ traffic.Leg, _ traffic.CaptureMeta, _ []byte) error {
@@ -221,6 +234,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
 		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red1"}},
 		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co1"}},
+		CompactionPreservers:    []compaction.Preserver{testCompactionPreserver{tag: "cp1"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
@@ -245,6 +259,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
 		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red2"}},
 		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co2"}},
+		CompactionPreservers:    []compaction.Preserver{testCompactionPreserver{tag: "cp2"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg2"}},
 	}
 	m := MergeBundles(b1, b2)
@@ -273,6 +288,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"RawCaptureSinks", len(m.RawCaptureSinks)},
 		{"TrafficRedactors", len(m.TrafficRedactors)},
 		{"CompactionObservers", len(m.CompactionObservers)},
+		{"CompactionPreservers", len(m.CompactionPreservers)},
 		{"SecretGuards", len(m.SecretGuards)},
 	}
 	for _, c := range checks {
@@ -284,6 +300,12 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		observer, ok := m.CompactionObservers[i].(testCompactionObs)
 		if !ok || observer.tag != want {
 			t.Fatalf("CompactionObservers[%d]=%T/%q want %q", i, m.CompactionObservers[i], observer.tag, want)
+		}
+	}
+	for i, want := range []string{"cp1", "cp2"} {
+		preserver, ok := m.CompactionPreservers[i].(testCompactionPreserver)
+		if !ok || preserver.tag != want {
+			t.Fatalf("CompactionPreservers[%d]=%T/%q want %q", i, m.CompactionPreservers[i], preserver.tag, want)
 		}
 	}
 }

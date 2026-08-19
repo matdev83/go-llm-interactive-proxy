@@ -66,6 +66,10 @@ type FeatureBundle struct {
 	// lifecycle observations (optional; schema V1). Observers are non-mutating and
 	// never receive prompt/response content.
 	CompactionObservers []compaction.Observer
+	// CompactionPreservers are ordered content-bearing preservation callbacks
+	// (optional; schema V1). They are distinct from metadata-only observers and
+	// run at explicit request/open/final-response boundaries.
+	CompactionPreservers []compaction.Preserver
 
 	// SecretGuards contribute opaque ingress secret-guard evaluators (optional; schema V1).
 	SecretGuards []secretguard.Guard
@@ -95,6 +99,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.RawCaptureSinks) == 0 &&
 		len(b.TrafficRedactors) == 0 &&
 		len(b.CompactionObservers) == 0 &&
+		len(b.CompactionPreservers) == 0 &&
 		len(b.SecretGuards) == 0 &&
 		len(b.Lifecycles) == 0
 }
@@ -123,6 +128,11 @@ func (b FeatureBundle) Validate() error {
 	for i, f := range b.StreamObserverFactories {
 		if f == nil {
 			return fmt.Errorf("feature: FeatureBundle: StreamObserverFactories[%d] must not be nil", i)
+		}
+	}
+	for i, p := range b.CompactionPreservers {
+		if p == nil {
+			return fmt.Errorf("feature: FeatureBundle: CompactionPreservers[%d] must not be nil", i)
 		}
 	}
 	return nil
