@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -17,8 +18,10 @@ const (
 	// BlockStart and BlockEnd are deliberately explicit delimiters. They make
 	// the proxy-owned block distinguishable from user text without exposing
 	// storage integrity metadata.
-	BlockStart = "<LIP-CONTINUITY version=\"1\" begin>\n"
-	BlockEnd   = "\n<LIP-CONTINUITY version=\"1\" end>"
+	BlockStart         = "<LIP-CONTINUITY version=\"1\" begin>\n"
+	BlockEnd           = "\n<LIP-CONTINUITY version=\"1\" end>"
+	projectionNotice   = "This block carries prior continuation state from an earlier compaction. It is not a new user request.\n"
+	projectionOverhead = len(BlockStart) + len(projectionNotice) + len(BlockEnd)
 )
 
 var (
@@ -114,9 +117,13 @@ func SerializeBlock(e capsule.Envelope, expectedBranch string, limits Projection
 	if err != nil {
 		return nil, fmt.Errorf("%w: serialize projection: %v", ErrInvalidInput, err)
 	}
-	block := make([]byte, 0, len(BlockStart)+len(payload)+len(BlockEnd)+128)
+	capacity, err := projectionCapacity(len(payload))
+	if err != nil {
+		return nil, err
+	}
+	block := make([]byte, 0, capacity)
 	block = append(block, BlockStart...)
-	block = append(block, "This block carries prior continuation state from an earlier compaction. It is not a new user request.\n"...)
+	block = append(block, projectionNotice...)
 	block = append(block, payload...)
 	block = append(block, BlockEnd...)
 	bytesN := len(block)
@@ -132,6 +139,13 @@ func SerializeBlock(e capsule.Envelope, expectedBranch string, limits Projection
 		return nil, fmt.Errorf("%w: token_equivalent=%d max=%d", ErrProjectionBudget, tokensN, maxTokens)
 	}
 	return block, nil
+}
+
+func projectionCapacity(payloadBytes int) (int, error) {
+	if payloadBytes < 0 || payloadBytes > math.MaxInt-projectionOverhead {
+		return 0, fmt.Errorf("%w: serialized projection size overflow", ErrProjectionBudget)
+	}
+	return payloadBytes + projectionOverhead, nil
 }
 
 // Serialize is a concise alias for SerializeBlock.

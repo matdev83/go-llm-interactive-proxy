@@ -3,6 +3,7 @@ package injection
 import (
 	"bytes"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -198,6 +199,17 @@ func TestTokenEquivalentUsesConservativeOneByteConvention(t *testing.T) {
 	const input = "éx"
 	if got, want := TokenEquivalent([]byte(input)), len([]byte(input)); got != want {
 		t.Fatalf("TokenEquivalent(%q) = %d, want conservative byte count %d", input, got, want)
+	}
+}
+
+func TestProjectionCapacityRejectsOverflow(t *testing.T) {
+	maxPayload := math.MaxInt - projectionOverhead
+	got, err := projectionCapacity(maxPayload)
+	if err != nil || got != math.MaxInt {
+		t.Fatalf("projectionCapacity(max safe) = %d, %v; want %d, nil", got, err, math.MaxInt)
+	}
+	if _, err := projectionCapacity(maxPayload + 1); !errors.Is(err, ErrProjectionBudget) {
+		t.Fatalf("projectionCapacity(overflow) error = %v, want ErrProjectionBudget", err)
 	}
 }
 
