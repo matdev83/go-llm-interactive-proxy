@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/carriers"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/injection"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/observability"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/resultmerge"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/source"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -22,34 +24,52 @@ import (
 func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview compaction.RequestPreview, meta compaction.PreservationMeta, services compaction.Services) (err error) {
 	defer func() {
 		if recover() != nil {
+			p.observeFailure(observability.StageCallback, observability.OutcomePanic, meta.TransactionID, "")
 			err = nil
+			return
+		}
+		if err != nil {
+			p.observeError(observability.StageCallback, err, meta.TransactionID)
 		}
 	}()
+	previewOutcome := observability.OutcomeObserved
+	if preview.Kind == compaction.PreviewCompletionCandidate {
+		previewOutcome = observability.OutcomeCandidate
+	}
+	p.observe(observability.Observation{Stage: observability.StagePreview, Outcome: previewOutcome, Evidence: observability.BoundedID(string(preview.Evidence)), RuleID: observability.BoundedID(preview.RuleID), CorrelationHash: observability.HashID(previewBoundary(preview))})
 	if p == nil || p.parent == nil || ctx == nil || call == nil || preview.Kind != compaction.PreviewCompletionCandidate {
+		p.observeFailure(observability.StagePreview, observability.OutcomeSkipped, preview.TransactionID, "")
 		return nil
 	}
 	cfg, enabled := p.effectiveConfig(ctx)
 	if !enabled {
+		p.observeFailure(observability.StageEligibility, observability.OutcomeSkipped, preview.TransactionID, "")
 		return nil
 	}
 	parent, err := p.parent.Capture(ctx, *call, meta)
 	if err != nil || !validParentBranch(parent) {
+		p.observeError(observability.StageCallback, err, preview.TransactionID)
 		return nil
 	}
 	boundary := previewBoundary(preview)
 	if boundary == "" {
+		p.observeFailure(observability.StagePreview, observability.OutcomeSkipped, preview.TransactionID, "")
 		return nil
 	}
 	state, err := p.parent.Snapshot(ctx, parent)
 	if err != nil {
+		p.observeError(observability.StagePreviewIntent, err, boundary)
 		return nil
 	}
 	intent := PreviewIntent{Key: previewIntentKey(parent.Binding, boundary, state.Revision), TargetSourceRevision: state.Revision}
 	if _, err = p.parent.RecordPreviewIntent(ctx, parent, intent); err != nil {
+		p.observeError(observability.StagePreviewIntent, err, boundary)
 		return nil
 	}
+	p.observe(observability.Observation{Stage: observability.StagePreviewIntent, Outcome: observability.OutcomeCreated, CorrelationHash: observability.HashID(boundary), Revision: state.Revision})
 	previous, window, err := p.previousState(parent, state)
 	if err != nil {
+		p.observeError(observability.StageCapsule, err, boundary)
 		return nil
 	}
 	prepared, err := source.Prepare(ctx, source.Input{
@@ -62,10 +82,12 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	watermark := encodeWatermark(prepared.HighWatermark)
 	state, err = p.parent.CommitSource(ctx, parent, state.Revision, []byte(prepared.Envelope.Canonical()), watermark)
 	if err != nil {
+		p.observeError(observability.StageCapsule, err, boundary)
 		return nil
 	}
 	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark, cfg)
 	if err != nil {
+		p.observeError(observability.StageCapsule, err, boundary)
 		return nil
 	}
 	if strings.TrimSpace(string(state.PendingJobID)) != "" && services.BackgroundAux != nil {
@@ -73,16 +95,19 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 		if len(state.CapsuleJSON) != 0 {
 			previous, _, err = p.previousState(parent, state)
 			if err != nil {
+				p.observeError(observability.StageCapsule, err, boundary)
 				return nil
 			}
 		}
 	}
 	if previous.BranchBinding == "" {
+		p.observeFailure(observability.StageEligibility, observability.OutcomeIneligible, boundary, "")
 		return nil
 	}
 	target := InjectionTarget{BoundaryKey: boundary, CapsuleRevision: previous.Revision}
 	if state.PendingInjection != nil {
 		if _, err = p.parent.ValidateInjection(ctx, parent, *state.PendingInjection); err != nil {
+			p.observeError(observability.StageReinjection, err, boundary)
 			return nil
 		}
 	}
@@ -92,11 +117,15 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 		Marker: p.preparedMarker(meta, parent.Binding, InjectionTarget{BoundaryKey: boundary, CapsuleRevision: previous.Revision}),
 	})
 	if err != nil {
+		p.observeFailure(observability.StageAugmentation, observability.OutcomeRollback, boundary, "")
 		return nil
 	}
 	if _, err = p.parent.SetPendingInjection(ctx, parent, target); err != nil {
+		p.observeFailure(observability.StageReinjection, observability.OutcomeRollback, boundary, "")
 		return err
 	}
+	p.observe(observability.Observation{Stage: observability.StageAugmentation, Outcome: observability.OutcomeCompleted, CorrelationHash: observability.HashID(boundary), Revision: previous.Revision})
+	p.observe(observability.Observation{Stage: observability.StageReinjection, Outcome: observability.OutcomeCreated, CorrelationHash: observability.HashID(boundary), Revision: previous.Revision})
 	p.recordPreparedMarker(meta, target)
 	*call = injected.Call
 	return nil
@@ -135,8 +164,14 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 		}
 		update, matched, err := extractCarrierUpdate(*entry.Carrier)
 		if err != nil || !matched {
+			outcome := observability.OutcomeUnmatched
+			if err != nil {
+				outcome = observability.OutcomeInvalid
+			}
+			p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: outcome, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(watermark)})
 			continue
 		}
+		p.observe(observability.Observation{Stage: observability.StageCarrier, Outcome: observability.OutcomeMatched, RuleID: observability.BoundedID(entry.Carrier.Type), CorrelationHash: observability.HashID(watermark)})
 		previous, err = carriers.Apply(previous, update)
 		if err != nil {
 			return capsule.Envelope{}, ParentState{}, err
@@ -162,6 +197,7 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 	if err != nil {
 		return capsule.Envelope{}, ParentState{}, err
 	}
+	p.observeCapsule(observability.OutcomeCommitted, previous, len(serialized), watermark)
 	return previous, state, nil
 }
 
@@ -173,11 +209,25 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 	decoder := resultmerge.NewExtractorDecoder(resultmerge.ExtractorDecoderConfig{AllowedSourceRefs: sourceRefs(previous, window)})
 	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{ctx: ctx, port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: cfg.Capsule.MaxBytes, MaxCapsuleTokens: cfg.Capsule.MaxTokens})
 	if err != nil {
+		p.observeError(observability.StageBarrier, err, string(state.PendingJobID))
 		return state, err
 	}
 	barrierCtx, cancel := context.WithTimeout(ctx, cfg.Barrier.Timeout)
 	defer cancel()
+	started := time.Now()
 	outcome, consumeErr := service.Consume(barrierCtx, resultmerge.Job{ID: state.PendingJobID, ParentBranchBinding: parent.Binding})
+	barrierOutcome := observability.OutcomeCompleted
+	switch outcome.Status {
+	case resultmerge.StatusPending:
+		barrierOutcome = observability.OutcomePending
+	case resultmerge.StatusRejected:
+		barrierOutcome = observability.OutcomeRejected
+	}
+	if consumeErr != nil {
+		p.observeErrorDuration(observability.StageBarrier, consumeErr, string(state.PendingJobID), time.Since(started))
+	} else {
+		p.observe(observability.Observation{Stage: observability.StageBarrier, Outcome: barrierOutcome, CorrelationHash: observability.HashID(string(state.PendingJobID)), Duration: time.Since(started)})
+	}
 	if outcome.State.Revision != 0 {
 		state.Revision = outcome.State.Revision
 		state.CapsuleJSON = append([]byte(nil), outcome.State.CapsuleJSON...)
@@ -186,6 +236,11 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 		state.PendingJobID = outcome.State.PendingJobID
 		state.PendingJobTargetRevision = outcome.State.PendingJobTargetRevision
 		state.PendingJobBranchBinding = outcome.State.PendingJobBranchBinding
+		if len(state.CapsuleJSON) != 0 {
+			if decoded, decodeErr := capsule.Decode(state.CapsuleJSON); decodeErr == nil {
+				p.observeCapsule(barrierOutcome, decoded, len(state.CapsuleJSON), string(state.PendingJobID))
+			}
+		}
 	}
 	return state, consumeErr
 }
