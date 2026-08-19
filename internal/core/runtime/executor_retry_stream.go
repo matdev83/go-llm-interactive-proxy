@@ -1,8 +1,9 @@
 package runtime
 
 // Stream lifecycle helpers (loadInner, storeInner, Close, handleRecvSuccess,
-// handleRecvEOF, etc.) and the recv-phase support surface (completion gates,
-// stream-evidence seam, traffic emission) for retryRecvStream. The
+// handleRecvEOF, etc.) and the recv-phase support surface (stream-evidence
+// seam, traffic emission) for retryRecvStream. Response/event evidence and
+// completion-gate state live in responsePipeline. The
 // inner-loop control (Recv and tryReplacementIteration) has been extracted
 // to executor_recv_loop.go; the retryRecvStream type itself, its error
 // sentinel, and the lipapi.EventStream interface assertion remain here.
@@ -12,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -53,10 +53,9 @@ type retryRecvStream struct {
 	// remains owned by cohesive collaborators.
 	facts recvTurnFacts
 
-	seenEvents  []lipapi.Event
-	visibleText strings.Builder
-	executor    *Executor
-	bus         *hooks.Bus
+	*responsePipeline
+	executor *Executor
+	bus      *hooks.Bus
 
 	compactionOpenMeta compaction.PreservationMeta
 
@@ -68,35 +67,15 @@ type retryRecvStream struct {
 	lastParent  context.Context
 	cachedCtx   context.Context
 
-	// customer records released client-visible content for FE egress settlement.
-	customer *customerEvidenceAccumulator
-
 	// secureRecvRecordingHardStop blocks recv-phase B-leg replacement after a mandatory recorder failure
 	// once client-visible output is committed for this stream.
 	secureRecvRecordingHardStop bool
-
-	// Completion gates (R8): buffer canonical post-hook events until finish or overflow, then emit drain queue.
-	gateBuf   []lipapi.Event
-	gateDrain []lipapi.Event
-	gateLive  bool
-
-	recoverDrain []lipapi.Event
-	// lastAuthorityUsage is the accounting fact used for authority settlement
-	// and unreserved usage. The synthesized event returned to the client may
-	// intentionally omit provider-billable scopes, so keep the two views
-	// separate.
-	lastAuthorityUsage lipapi.Event
-	// lastCustomerUsage caches client-visible reconstruction from finalize for
-	// settle/FE egress when StreamUsage is unavailable on a later path.
-	lastCustomerUsage lipapi.Event
 
 	// toolClass correlates per-ToolCallID derived classification within this stream.
 	// Event processing is single-Recv-owned; its state has a small internal mutex
 	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
 	toolClass toolEventClassificationState
 
-	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
-	eventsMu             sync.Mutex
 	isInterleavedThinker bool
 
 	committedTools  []lipapi.ToolEvent
@@ -123,42 +102,13 @@ func (s *retryRecvStream) consumeBackendUsageEvidenceForAttempt(
 		if ev.Kind != lipapi.EventUsageDelta {
 			continue
 		}
-		if !s.rememberUsageEvidenceOnceForAttempt(attempt, ev) {
+		if !attempt.rememberUsageEvidenceOnce(ev) {
 			continue
 		}
-		s.rememberInternalUsage(ctx, attempt, ev)
+		s.rememberInternalUsage(ev)
+		attempt.accounting.observeUsage(ev)
+		s.emitUsage(ctx, ev)
 	}
-}
-
-func (s *retryRecvStream) rememberUsageEvidenceOnceForAttempt(attempt *attemptSession, ev lipapi.Event) bool {
-	if attempt == nil {
-		return false
-	}
-	attempt.usageMu.Lock()
-	defer attempt.usageMu.Unlock()
-	if attempt.internalUsageKeys == nil {
-		attempt.internalUsageKeys = make(map[string]struct{})
-	}
-	key := ev.Accounting.DedupeKey
-	if key == "" {
-		return false
-	}
-	if _, exists := attempt.internalUsageKeys[key]; exists {
-		return false
-	}
-	attempt.internalUsageKeys[key] = struct{}{}
-	return true
-}
-
-func (s *retryRecvStream) rememberInternalUsage(ctx context.Context, attempt *attemptSession, ev lipapi.Event) {
-	if attempt == nil {
-		return
-	}
-	s.eventsMu.Lock()
-	s.seenEvents = append(s.seenEvents, ev)
-	s.eventsMu.Unlock()
-	attempt.accounting.observeUsage(ev)
-	s.emitUsage(ctx, ev)
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -173,7 +123,33 @@ func (s *retryRecvStream) now() time.Time {
 }
 
 func (s *retryRecvStream) isFinished() bool {
-	return s != nil && s.terminal != nil && s.terminal.finished()
+	if s == nil {
+		return false
+	}
+	if s.responsePipeline != nil && !s.responsePipeline.bound() {
+		// Production assembly binds immediately after construction. Keep this
+		// nil-safe fallback for focused tests that use direct stream literals.
+		s.bindResponsePipeline()
+	}
+	return s.terminal != nil && s.terminal.finished()
+}
+
+func (s *retryRecvStream) bindResponsePipeline() {
+	if s == nil {
+		return
+	}
+	s.responsePipeline.bindTerminalSnapshot(func() (bool, bool) {
+		if s.terminal == nil {
+			return false, false
+		}
+		return s.terminal.committed(), s.terminal.accountingFinalized()
+	})
+	s.responsePipeline.bindToolEventHook(func(tool lipapi.ToolEvent) {
+		s.committedTools = append(s.committedTools, tool)
+	})
+	s.responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
+		return reconstructCustomerUsageForResponse(ctx, s.executor, s.facts, s.attempt.snapshot(), text, events)
+	})
 }
 
 func (s *retryRecvStream) markFinished() {
@@ -611,7 +587,12 @@ func (s *retryRecvStream) withDecisionEvidence(ctx context.Context) context.Cont
 }
 
 func gateBufHasCommittedOutput(buf []lipapi.Event) bool {
-	return slices.ContainsFunc(buf, lipapi.OutputCommitted)
+	for _, ev := range buf {
+		if lipapi.OutputCommitted(ev) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *retryRecvStream) completionSnapshot(ctx context.Context) *extensions.RequestRuntimeSnapshot {
@@ -630,122 +611,4 @@ func (s *retryRecvStream) completionGatesFromContext(ctx context.Context) []comp
 		fallback = s.executor.RuntimeSnapshot
 	}
 	return extensions.CompletionGatesFromContext(ctx, fallback)
-}
-
-func (s *retryRecvStream) popGateDrainHead() (lipapi.Event, bool) {
-	if len(s.gateDrain) == 0 {
-		return lipapi.Event{}, false
-	}
-	ev := s.gateDrain[0]
-	s.gateDrain = s.gateDrain[1:]
-	return ev, true
-}
-
-func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) lipapi.Event {
-	if lipapi.OutputCommitted(ev) {
-		s.markCommitted()
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		attempt := s.attempt.require()
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:  s.facts.aLegID,
-			BLeg:    attempt.bleg,
-			Cand:    attempt.cand,
-			Outcome: lipapi.AttemptSuccess,
-		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
-		s.markFinished()
-	}
-	return ev
-}
-
-func (s *retryRecvStream) completionGatedEmit(
-	ctx context.Context,
-	gates []completion.Gate,
-	ev lipapi.Event,
-) (lipapi.Event, error) {
-	if s.gateLive {
-		return ev, nil
-	}
-	limits := completion.DefaultBufferLimits()
-	if s.executor != nil && s.executor.CompletionBufferLimits.MaxEvents > 0 {
-		limits = s.executor.CompletionBufferLimits
-	}
-	if len(s.gateBuf) == 0 {
-		maxEv := limits.MaxEvents
-		if maxEv <= 0 {
-			maxEv = completion.DefaultBufferLimits().MaxEvents
-		}
-		const prealloc = 64
-		capN := min(prealloc, maxEv)
-		s.gateBuf = make([]lipapi.Event, 0, capN)
-	}
-	s.gateBuf = append(s.gateBuf, ev)
-	if extensions.CompletionGateBufferExceeded(limits, len(s.gateBuf)) {
-		s.gateLive = true
-		s.gateDrain = slices.Clone(s.gateBuf)
-		s.gateBuf = nil
-		if len(s.gateDrain) == 0 {
-			return lipapi.Event{}, errors.New("runtime: completion gate overflow with empty buffer")
-		}
-		first := s.gateDrain[0]
-		s.gateDrain = s.gateDrain[1:]
-		return first, nil
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		attempt := s.attempt.require()
-		snap := s.completionSnapshot(ctx)
-		meta := completion.Meta{
-			TraceID:    s.facts.traceID,
-			ALegID:     s.facts.aLegID,
-			BLegID:     attempt.bleg.BLegID,
-			AttemptSeq: attempt.bleg.Seq,
-		}
-		// Authoritative scope/identity from the request-scoped execctx views so
-		// completion-gate decision evidence carries proxy-validated attribution
-		// (requirement 2.1, 2.6, 9.1). completion.Meta exposes Scope/Session/
-		// Workspace; Principal is carried via Scope.PrincipalID.
-		if v, ok := s.viewsFor(ctx); ok {
-			meta.Scope = v.Scope
-			meta.Session = v.Session
-			meta.Workspace = v.Workspace
-		}
-		svc := completion.Services{}
-		if snap != nil {
-			svc.State = snap.State()
-			svc.Aux = snap.Aux()
-		}
-		var stageLog *slog.Logger
-		if s.executor != nil {
-			stageLog = s.executor.Log
-		}
-		committed := s.isCommitted()
-		committedForPanic := committed || gateBufHasCommittedOutput(s.gateBuf)
-		gateResult, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
-			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, committed, svc, stageLog)
-		})
-		if err != nil {
-			var pe *safety.PanicError
-			if errors.As(err, &pe) {
-				s.gateBuf = nil
-				s.gateDrain = nil
-				s.gateLive = false
-				return lipapi.Event{}, mapStreamPanic(pe, committedForPanic)
-			}
-			s.gateBuf = nil
-			return lipapi.Event{}, err
-		}
-		out := gateResult.Events
-		s.gateBuf = nil
-		if len(out) == 0 {
-			return lipapi.Event{}, errors.New("runtime: completion gate produced empty stream")
-		}
-		if gateResult.Replaced {
-			if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
-				return lipapi.Event{}, err
-			}
-		}
-		s.gateDrain = out[1:]
-		return out[0], nil
-	}
-	return lipapi.Event{}, errGateContinueInner
 }

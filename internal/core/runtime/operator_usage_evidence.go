@@ -21,15 +21,3 @@ func operatorUsageOrShell(events []lipapi.Event) lipapi.Event {
 	}
 	return emptyOperatorUsageShell()
 }
-
-// operatorUsageForFinalize prefers reconstructed authority usage, then seen
-// stream evidence, then the empty shell for unobserved incurred terminals.
-func (s *retryRecvStream) operatorUsageForFinalize() lipapi.Event {
-	if s == nil {
-		return emptyOperatorUsageShell()
-	}
-	if s.lastAuthorityUsage.Kind != "" {
-		return s.lastAuthorityUsage
-	}
-	return operatorUsageOrShell(s.seenEventsCopy())
-}

@@ -55,6 +55,25 @@ func (a *attemptSession) claimBillingLegRecord() bool {
 	return true
 }
 
+// rememberUsageEvidenceOnce keeps provider sideband dedupe scoped to the B-leg
+// that produced it. A replacement attempt owns an independent key set.
+func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
+	if a == nil || ev.Accounting.DedupeKey == "" {
+		return false
+	}
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
+	if a.internalUsageKeys == nil {
+		a.internalUsageKeys = make(map[string]struct{})
+	}
+	key := ev.Accounting.DedupeKey
+	if _, exists := a.internalUsageKeys[key]; exists {
+		return false
+	}
+	a.internalUsageKeys[key] = struct{}{}
+	return true
+}
+
 // attemptSessionInput keeps attempt construction explicit. It deliberately
 // does not expose a generic state bag: each owner is initialized from one
 // attemptOpenResult and its backend-specific controls.

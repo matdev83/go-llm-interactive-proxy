@@ -33,7 +33,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
-		lastAuthorityUsage: lipapi.Event{
+		responsePipeline: &responsePipeline{lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
 			OutputTokens:  0,
@@ -46,7 +46,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 				Authority: lipapi.UsageAuthorityAuthoritative,
 				DedupeKey: "provider-charge-2",
 			},
-		},
+		}},
 	}
 
 	first := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
@@ -115,10 +115,10 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
-		lastAuthorityUsage: lipapi.Event{
+		responsePipeline: &responsePipeline{lastAuthorityUsage: lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 9,
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
-		},
+		}},
 	}
 	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("first attempt terminalization: %v", result.Err)
@@ -176,11 +176,11 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
-		lastAuthorityUsage: lipapi.Event{
+		responsePipeline: &responsePipeline{lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
-		},
+		}},
 	}
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
@@ -235,7 +235,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
-		lastAuthorityUsage: lipapi.Event{
+		responsePipeline: &responsePipeline{lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
 			CostNanoUnits: 0,
@@ -247,7 +247,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 				Authority: lipapi.UsageAuthorityAuthoritative,
 				DedupeKey: "stream-cost",
 			},
-		},
+		}},
 	}
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
@@ -295,11 +295,11 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
-		lastAuthorityUsage: lipapi.Event{
+		responsePipeline: &responsePipeline{lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
-		},
+		}},
 	}
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("finalize failure changed terminal result: %v", result.Err)
@@ -376,7 +376,7 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
-		seenEvents: []lipapi.Event{
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{
 				Kind:          lipapi.EventUsageDelta,
 				InputTokens:   10,
@@ -391,7 +391,7 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 				TotalTokens:   20,
 				UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true},
 			},
-		},
+		}},
 	}
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)

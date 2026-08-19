@@ -179,16 +179,6 @@ func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, attempt *
 	return ev
 }
 
-func (s *retryRecvStream) billingEvidenceFallback() lipapi.Event {
-	if s == nil {
-		return emptyOperatorUsageShell()
-	}
-	if s.lastAuthorityUsage.Kind != "" {
-		return s.lastAuthorityUsage
-	}
-	return lastUsageDeltaOrShell(s.seenEventsCopy())
-}
-
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].Kind == lipapi.EventUsageDelta {

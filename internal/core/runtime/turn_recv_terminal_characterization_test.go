@@ -46,6 +46,7 @@ func newCharacterizationStream(t *testing.T, inner lipapi.ManagedEventStream) *r
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(s, inner)
 	return s

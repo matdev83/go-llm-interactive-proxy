@@ -335,8 +335,8 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 			traceID: "trace-cancel-reconcile",
 			aLegID:  "a-cr",
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate()), newAttemptAccountingTracker(at)),
-		seenEvents: []lipapi.Event{},
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate()), newAttemptAccountingTracker(at)),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{}},
 	}
 
 	// Step 1: settle as Partial with no usage — the estimate fallback applies,

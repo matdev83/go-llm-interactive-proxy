@@ -234,14 +234,15 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	}
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
-		facts:    from.facts.clone(),
-		executor: e,
-		bus:      from.bus,
-		recovery: from.recovery,
-		customer: newCustomerEvidenceAccumulator(),
-		attempt:  attemptSlot{},
-		terminal: newTurnTerminalWithSharedALeg(from.terminal),
+		facts:            from.facts.clone(),
+		executor:         e,
+		bus:              from.bus,
+		recovery:         from.recovery,
+		responsePipeline: newResponsePipeline(),
+		attempt:          attemptSlot{},
+		terminal:         newTurnTerminalWithSharedALeg(from.terminal),
 	}
+	rs.bindResponsePipeline()
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
 		bleg:                  out.bleg,

@@ -94,7 +94,7 @@ func phase72FaultOutageEgressPersist(t *testing.T) {
 			traceID:  "trace-outage",
 			baseline: lipapi.Call{ID: "req-outage"},
 		}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	err = stream.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta})
@@ -136,7 +136,7 @@ func phase72FaultAmbiguousSuccessOnceOnly(t *testing.T) {
 			traceID:  "trace-once",
 			baseline: lipapi.Call{ID: "req-once"},
 		}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "y"})
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 9}

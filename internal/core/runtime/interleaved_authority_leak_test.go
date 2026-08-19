@@ -58,7 +58,8 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 			traceID: "trace-1",
 		}),
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, terminal: newTurnTerminalWithALeg(aScope, aLegEndBase),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "thinker-bleg", Seq: 1}, routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}}, authorityLifecycle{}),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "thinker-bleg", Seq: 1}, routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
 	return ex, from
 }

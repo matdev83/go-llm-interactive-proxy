@@ -189,6 +189,7 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 			traceID:  "t1",
 		}),
 		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttft, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(s, stream)
 	ev, err := s.Recv(context.Background())
@@ -246,6 +247,7 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 			Key:     "slow:m",
 			Primary: routing.Primary{Backend: "slow", Model: "m", TTFTTimeout: &leaf},
 		}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(s, stream)
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))

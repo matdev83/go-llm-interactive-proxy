@@ -374,8 +374,9 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 			aLegID:   aLegID,
 			traceID:  "trace-no-retry",
 		}),
-		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery:         &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:          testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(rs, out.stream)
 
@@ -755,7 +756,7 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
 		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	testStoreInner(rs, out.stream)
 	for {

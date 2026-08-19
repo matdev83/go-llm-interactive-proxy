@@ -233,11 +233,12 @@ func phase71SettleCustomerFE(t *testing.T, frontendID string, released bool, wan
 			traceID:  "trace-" + frontendID,
 			baseline: call,
 		}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	if released {
 		stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
 	}
+	stream.bindResponsePipeline()
 	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
 		t.Fatalf("settle: %v", err)
 	}

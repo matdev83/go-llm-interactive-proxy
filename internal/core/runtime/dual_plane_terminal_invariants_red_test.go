@@ -88,9 +88,10 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 			traceID:  "trace-cust-usage",
 			baseline: lipapi.Call{ID: "req-cust-usage"},
 		}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
+	stream.bindResponsePipeline()
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
 	if prov.settleCalls.Load() != 1 {
@@ -248,9 +249,10 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 			traceID:  "trace-compress",
 			baseline: lipapi.Call{ID: "req-compress"},
 		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
+	stream.bindResponsePipeline()
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, beUsage)
 	stream.emitFrontendEgressMeteringFact(ctx, authorityEv)
 
@@ -331,9 +333,10 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 			traceID:  "trace-filter",
 			baseline: lipapi.Call{ID: "req-filter"},
 		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
-		customer: newCustomerEvidenceAccumulator(),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
+	stream.bindResponsePipeline()
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
@@ -670,13 +673,13 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 			traceID: "trace-sw",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-sw"}, routing.AttemptCandidate{}, life),
-		seenEvents: []lipapi.Event{{
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{
 			Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 4, TotalTokens: 13,
 			CostNanoUnits: 33, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
 			Accounting: lipapi.UsageAccountingMetadata{
 				Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 			},
-		}},
+		}}},
 	}
 	usage := stream.operatorUsageForFinalize()
 	testAttemptSession(stream).authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, usage)

@@ -44,8 +44,8 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 			traceID:  "trace-close-finish",
 			aLegID:   aLegID,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}},
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}}},
 	}
 	rs.markCommitted()
 	installTestTurnTerminal(rs)
@@ -111,8 +111,9 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 			traceID:  "trace-recv-after-close",
 			aLegID:   aLegID,
 		}),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-		terminal: newTurnTerminalWithALeg(aScope, aLegEndBase),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		terminal:         newTurnTerminalWithALeg(aScope, aLegEndBase),
+		responsePipeline: newResponsePipeline(),
 	}
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -206,8 +207,8 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 			aLegID:       aLegID,
 			secureTurnOK: true,
 		}),
-		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}}},
 	}
 	rs.markCommitted()
 	installTestTurnTerminal(rs)
@@ -317,7 +318,7 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 func TestPhase42_EventsMu_ClearAndSnapshot(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}},
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}}},
 	}
 	rs.visibleText.WriteString("a")
 	var wg sync.WaitGroup

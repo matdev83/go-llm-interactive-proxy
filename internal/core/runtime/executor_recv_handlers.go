@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -37,7 +38,7 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	attempt.accounting.observeBackendEvent(recvAt, ev)
 	// A provider may repeat an already-drained sideband key on a retrying
 	// transport. Consume it for neither the canonical stream nor accounting.
-	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !s.rememberUsageEvidenceOnceForAttempt(attempt, ev) {
+	if ev.Kind == lipapi.EventUsageDelta && ev.Accounting.DedupeKey != "" && !attempt.rememberUsageEvidenceOnce(ev) {
 		return lipapi.Event{}, true, nil
 	}
 	attempt.accounting.observeUsage(ev)
@@ -161,13 +162,49 @@ func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.Too
 // emission for the gated branch.
 func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completion.Gate, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, bool, error) {
 	attempt := s.attempt.require()
-	out, gerr := s.completionGatedEmit(ctx, gates, ev)
+	snap := s.completionSnapshot(ctx)
+	meta := completion.Meta{
+		TraceID:    s.facts.traceID,
+		ALegID:     s.facts.aLegID,
+		BLegID:     attempt.bleg.BLegID,
+		AttemptSeq: attempt.bleg.Seq,
+	}
+	if v, ok := s.viewsFor(ctx); ok {
+		meta.Scope = v.Scope
+		meta.Session = v.Session
+		meta.Workspace = v.Workspace
+	}
+	svc := completion.Services{}
+	if snap != nil {
+		svc.State = snap.State()
+		svc.Aux = snap.Aux()
+	}
+	var stageLog *slog.Logger
+	if s.executor != nil {
+		stageLog = s.executor.Log
+	}
+	limits := completion.DefaultBufferLimits()
+	if s.executor != nil && s.executor.CompletionBufferLimits.MaxEvents > 0 {
+		limits = s.executor.CompletionBufferLimits
+	}
+	out, replaced, gerr := s.responsePipeline.completionGatedEmit(ctx, gates, ev, responseGateInput{
+		meta:      meta,
+		services:  svc,
+		stageLog:  stageLog,
+		committed: s.isCommitted(),
+		limits:    limits,
+	})
 	if errors.Is(gerr, errGateContinueInner) {
 		return lipapi.Event{}, true, nil
 	}
 	if gerr != nil {
 		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(gerr), gerr)
 		return lipapi.Event{}, false, gerr
+	}
+	if replaced {
+		if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
+			return lipapi.Event{}, false, err
+		}
 	}
 	// A gated completion that drains a response_finished finalizes authority through the single
 	// finalizeResponseFinishedAuthority chokepoint (settle, with a losing release fallback when the
@@ -184,12 +221,22 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 			return lipapi.Event{}, false, err
 		}
 		if ok {
-			s.recoverDrain = append([]lipapi.Event{out}, s.recoverDrain...)
+			s.prependRecoveryDrain(out)
 			ev, emitErr := s.emitSynthesizedUsage(ctx, usageEv)
 			return ev, false, emitErr
 		}
 	}
-	out = s.emitGateDrained(ctx, out)
+	if lipapi.OutputCommitted(out) {
+		s.markCommitted()
+	}
+	if out.Kind == lipapi.EventResponseFinished {
+		if s.executor != nil {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID: s.facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
+		}
+		s.markFinished()
+	}
 	attempt.accounting.observeClientEvent(s.now(), out)
 	if s.recovery != nil && s.recovery.recoverPolicy != nil {
 		s.recovery.recoverPolicy.ObserveClientEvent(out, s.now())
@@ -236,7 +283,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}
 	if ok {
 		s.rememberClientEvent(ev)
-		s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+		s.prependRecoveryDrain(ev)
 		ev, err := s.emitSynthesizedUsage(ctx, usageEv)
 		return ev, false, err
 	}
@@ -311,8 +358,8 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	// Truncated upstream: never run completion gates on a partial buffer (replace gates could
 	// synthesize response_finished and mask the failure).
 	gates := s.completionGatesFromContext(ctx)
-	if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
-		s.gateBuf = nil
+	if len(gates) > 0 {
+		s.abandonIncompleteGateBuffer()
 	}
 	if s.recovery != nil && s.recovery.recoverPolicy != nil {
 		dec := s.recovery.recoverPolicy.DecideEOF(io.EOF, s.now())
@@ -334,13 +381,12 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 			// produced we return a zero event so the caller knows to call Recv again rather
 			// than mistakenly treating the Finish as already-handled.
 			if dec.Warning.Kind != "" {
-				s.recoverDrain = append(s.recoverDrain, dec.Warning)
+				s.appendRecoveryDrain(dec.Warning)
 			}
-			s.recoverDrain = append(s.recoverDrain, dec.Finish)
-			ev := s.recoverDrain[0]
-			s.recoverDrain = s.recoverDrain[1:]
+			s.appendRecoveryDrain(dec.Finish)
+			ev, _ := s.popRecoveryDrain()
 			if ev.Kind == lipapi.EventResponseFinished {
-				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+				s.prependRecoveryDrain(ev)
 				return lipapi.Event{}, nil
 			}
 			pm, _ := s.recvHookMeta()

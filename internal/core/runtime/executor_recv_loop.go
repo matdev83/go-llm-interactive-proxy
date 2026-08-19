@@ -85,9 +85,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		s.terminal.endALeg(aLegEndBase)
 		return lipapi.Event{}, err
 	}
-	if len(s.recoverDrain) > 0 {
-		ev := s.recoverDrain[0]
-		s.recoverDrain = s.recoverDrain[1:]
+	if ev, hasRecoveryDrain := s.popRecoveryDrain(); hasRecoveryDrain {
 		if ev.Kind == lipapi.EventResponseFinished && (s.terminal == nil || !s.terminal.accountingFinalized()) {
 			if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
 				return lipapi.Event{}, err
@@ -100,7 +98,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, err
 			}
 			if ok {
-				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+				s.prependRecoveryDrain(ev)
 				return s.emitSynthesizedUsage(ctx, usageEv)
 			}
 		}
@@ -144,12 +142,22 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, err
 				}
 				if usageOk {
-					s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+					s.prependRecoveryDrain(ev)
 					emitted, emitErr := s.emitSynthesizedUsage(ctx, usageEv)
 					return emitted, emitErr
 				}
 			}
-			ev = s.emitGateDrained(ctx, ev)
+			if lipapi.OutputCommitted(ev) {
+				s.markCommitted()
+			}
+			if ev.Kind == lipapi.EventResponseFinished {
+				if s.executor != nil {
+					s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+						ALegID: s.facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
+					}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
+				}
+				s.markFinished()
+			}
 			attempt.accounting.observeClientEvent(s.now(), ev)
 			pm, _ := s.recvHookMeta()
 			return s.emitClientFacingObserved(ctx, ev, pm)
@@ -393,15 +401,10 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if attempt.finalStreamObs != nil {
 		attempt.finalStreamObs.Finish(ctx, response.OutcomeReplaced)
 	}
-	s.clearClientAccumulators()
-	if s.customer != nil {
-		s.customer.resetContent()
-	}
 	// The retryRecvStream is reused for each B-leg. Evidence and terminal
 	// finalization state are attempt-scoped and must not leak into the replacement
 	// B-leg; the per-leg evidence guard naturally permits the new leg.
-	s.lastAuthorityUsage = lipapi.Event{}
-	s.lastCustomerUsage = lipapi.Event{}
+	s.resetForReplacement()
 	s.consumeBackendUsageEvidenceForAttempt(ctx, next, out.stream)
 	if s.recovery != nil {
 		s.recovery.resetPolicy(s.now)

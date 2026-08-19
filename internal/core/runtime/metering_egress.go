@@ -129,17 +129,3 @@ func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, us
 	}
 	return s.executor.emitFrontendEgressMeteringFact(ctx, s.facts.traceID, s.resolveCustomerUsage(ctx, usageEv))
 }
-
-func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {
-	if s == nil {
-		return lipapi.Event{}
-	}
-	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEventsCopy()))
-	if ev.Kind != "" {
-		return ev
-	}
-	if s.lastAuthorityUsage.Kind != "" {
-		return s.lastAuthorityUsage
-	}
-	return lipapi.Event{Kind: lipapi.EventUsageDelta}
-}

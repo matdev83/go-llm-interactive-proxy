@@ -164,6 +164,7 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 			traceID:  "trace-1",
 		}),
 		recovery: &recoveryController{budget: budget, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(out.bleg, priorCand, testAuthorityLifecycle(ex, priorState, priorCand)),
+		responsePipeline: newResponsePipeline(),
 	}
 
 	opened, err := rs.tryReplacementIteration(context.Background())

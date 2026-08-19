@@ -40,7 +40,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		bus:                prep.bus,
 		compactionOpenMeta: prep.compactionOpenMeta,
 		attempt:            attemptSlot{},
-		customer:           newCustomerEvidenceAccumulator(),
+		responsePipeline:   newResponsePipeline(),
 		terminal:           terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
 			executor:    e,
@@ -58,6 +58,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 			interleaved: out.interleaved,
 		}),
 	}
+	rs.bindResponsePipeline()
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
 		bleg:                  out.bleg,

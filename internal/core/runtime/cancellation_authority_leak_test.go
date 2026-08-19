@@ -68,7 +68,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
 			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
-			seenEvents: []lipapi.Event{usageDelta},
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{usageDelta}},
 		}
 		// Simulate handleRecvSuccess having processed the EventUsageDelta: this flips
 		// accounting.usageObserved=true (the leak trigger) without settling the reservation.
@@ -294,7 +294,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
 			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
-			seenEvents: []lipapi.Event{usageDelta},
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{usageDelta}},
 		}
 		testAttemptSession(rs).accounting.observeUsage(usageDelta)
 

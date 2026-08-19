@@ -512,7 +512,7 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 		f.billingIdentityStamped = true
 		return f
 	})
-	thinker.customer = newCustomerEvidenceAccumulator()
+	thinker.responsePipeline = &responsePipeline{customer: newCustomerEvidenceAccumulator()}
 
 	state := interleavedstate.State{}
 	cont, err := ex.openInterleavedExecutorContinuation(context.Background(), thinker, state)

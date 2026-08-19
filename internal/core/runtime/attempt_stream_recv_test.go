@@ -112,6 +112,7 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(s, inner)
 

@@ -94,7 +94,7 @@ func TestAttemptSidebandUsageRetainsSourceAttemptOwnershipAcrossSwap(t *testing.
 
 	// Keep consuming the retained old source after the slot publishes its replacement.
 	// The helper must bind evidence to the source's attempt, not re-snapshot the slot.
-	rs := &retryRecvStream{}
+	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
 	rs.attempt.install(newAttempt)
 	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), retained, oldInner)
 

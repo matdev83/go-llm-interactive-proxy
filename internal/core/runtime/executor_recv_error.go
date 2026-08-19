@@ -75,9 +75,9 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
 			}
 			if dec.Warning.Kind != "" {
-				s.recoverDrain = append(s.recoverDrain, dec.Warning)
+				s.appendRecoveryDrain(dec.Warning)
 			}
-			s.recoverDrain = append(s.recoverDrain, dec.Finish)
+			s.appendRecoveryDrain(dec.Finish)
 			// Defer response_finished authority finalization to the recoverDrain drain path on the
 			// next Recv call, matching handleRecvEOF's single-owner invariant. Surface the head
 			// event (the warning when present) via emitClientFacingObserved and keep the finish in
@@ -86,10 +86,9 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			// emits the synthesized usage_delta (the client-reporting consistency fix). Return
 			// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check;
 			// a continue would skip that check and wrongly drive a replacement iteration.
-			ev := s.recoverDrain[0]
-			s.recoverDrain = s.recoverDrain[1:]
+			ev, _ := s.popRecoveryDrain()
 			if ev.Kind == lipapi.EventResponseFinished {
-				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+				s.prependRecoveryDrain(ev)
 				return lipapi.Event{}, false, nil
 			}
 			pm, _ := s.recvHookMeta()

@@ -37,8 +37,10 @@ func TestOperatorUsageForFinalizePrefersLastAuthorityUsage(t *testing.T) {
 		},
 	}
 	s := &retryRecvStream{
-		lastAuthorityUsage: authoritative,
-		seenEvents:         []lipapi.Event{estimate},
+		responsePipeline: &responsePipeline{
+			lastAuthorityUsage: authoritative,
+			seenEvents:         []lipapi.Event{estimate},
+		},
 	}
 
 	got := s.operatorUsageForFinalize()
@@ -65,13 +67,13 @@ func TestOperatorUsageForFinalizeFallsBackToSeenEventsThenEmptyShell(t *testing.
 			Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
-	withSeen := &retryRecvStream{seenEvents: []lipapi.Event{seen}}
+	withSeen := &retryRecvStream{responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{seen}}}
 	got := withSeen.operatorUsageForFinalize()
 	if got.InputTokens != seen.InputTokens || got.Kind != lipapi.EventUsageDelta {
 		t.Fatalf("seen-events fallback = %#v, want %#v", got, seen)
 	}
 
-	empty := (&retryRecvStream{}).operatorUsageForFinalize()
+	empty := (&retryRecvStream{responsePipeline: newResponsePipeline()}).operatorUsageForFinalize()
 	if empty.Kind != lipapi.EventUsageDelta || empty.InputTokens != 0 || empty.TotalTokens != 0 {
 		t.Fatalf("unobserved shell = %#v, want empty UsageDelta shell", empty)
 	}
@@ -79,8 +81,8 @@ func TestOperatorUsageForFinalizeFallsBackToSeenEventsThenEmptyShell(t *testing.
 		t.Fatal("empty operator shell must be present usage (req 2.9), not absent")
 	}
 
-	if got := (*retryRecvStream)(nil).operatorUsageForFinalize(); got.Kind != lipapi.EventUsageDelta {
-		t.Fatalf("nil receiver = %#v, want empty UsageDelta shell", got)
+	if got := (*responsePipeline)(nil).operatorUsageForFinalize(); got.Kind != lipapi.EventUsageDelta {
+		t.Fatalf("nil owner = %#v, want empty UsageDelta shell", got)
 	}
 }
 
@@ -131,9 +133,11 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-op-usage",
 		}),
-		attempt:            testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-op", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
-		lastAuthorityUsage: authoritative,
-		seenEvents:         []lipapi.Event{estimate},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-op", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
+		responsePipeline: &responsePipeline{
+			lastAuthorityUsage: authoritative,
+			seenEvents:         []lipapi.Event{estimate},
+		},
 	}
 
 	rs.settleCancellationAuthorityForAttempt(context.Background(), rs.attempt.snapshot())

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -165,50 +163,6 @@ func (t *streamTerminal) signalDone() {
 	}
 	close(t.done)
 	t.closed = true
-}
-
-type accumulatorSnapWire struct {
-	Events int    `json:"e"`
-	Text   string `json:"t,omitempty"`
-	Final  bool   `json:"f"`
-}
-
-func (s *retryRecvStream) accumulatorSnapshot() coreterm.AccumulatorSnapshot {
-	if s == nil {
-		return coreterm.NewAccumulatorSnapshot(nil, false)
-	}
-	s.eventsMu.Lock()
-	defer s.eventsMu.Unlock()
-	w := accumulatorSnapWire{
-		Events: len(s.seenEvents),
-		Final:  s.terminal != nil && s.terminal.accountingFinalized(),
-	}
-	if s.customer != nil {
-		w.Text, _, _, _ = s.customer.Snapshot()
-	} else {
-		w.Text = s.visibleText.String()
-	}
-	raw, _ := json.Marshal(w)
-	return coreterm.NewAccumulatorSnapshot(raw, s.isCommitted())
-}
-
-func (s *retryRecvStream) seenEventsCopy() []lipapi.Event {
-	if s == nil {
-		return nil
-	}
-	s.eventsMu.Lock()
-	defer s.eventsMu.Unlock()
-	return append([]lipapi.Event(nil), s.seenEvents...)
-}
-
-func (s *retryRecvStream) clearClientAccumulators() {
-	if s == nil {
-		return
-	}
-	s.eventsMu.Lock()
-	defer s.eventsMu.Unlock()
-	s.seenEvents = nil
-	s.visibleText.Reset()
 }
 
 // terminalizeAttemptEphemeral runs attempt-scoped terminalization without a stream

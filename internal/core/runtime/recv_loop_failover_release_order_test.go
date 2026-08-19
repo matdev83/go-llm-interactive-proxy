@@ -164,6 +164,7 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 			traceID: "trace-1",
 		}),
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, priorCand, testAuthorityLifecycle(ex, priorAuthority, priorCand)),
+		responsePipeline: newResponsePipeline(),
 	}
 
 	opened, err := rs.tryReplacementIteration(context.Background())

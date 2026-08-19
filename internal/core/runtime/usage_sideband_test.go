@@ -62,7 +62,7 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 		}},
 		event: lipapi.Event{Kind: lipapi.EventResponseFinished}, err: io.EOF,
 	}
-	rs := &retryRecvStream{}
+	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
 	attempt := testAttemptSession(rs)
 	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
 	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
@@ -76,13 +76,13 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 }
 
 func TestUsageEvidenceDedupeKeySuppressesCanonicalReplay(t *testing.T) {
-	rs := &retryRecvStream{}
+	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
 	attempt := testAttemptSession(rs)
 	first := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 13, Accounting: lipapi.UsageAccountingMetadata{DedupeKey: "compaction-1"}}
-	if !rs.rememberUsageEvidenceOnceForAttempt(attempt, first) {
+	if !attempt.rememberUsageEvidenceOnce(first) {
 		t.Fatal("first evidence was unexpectedly treated as duplicate")
 	}
-	if rs.rememberUsageEvidenceOnceForAttempt(attempt, first) {
+	if attempt.rememberUsageEvidenceOnce(first) {
 		t.Fatal("replayed evidence key was not deduplicated")
 	}
 }

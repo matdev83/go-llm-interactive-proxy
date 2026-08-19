@@ -51,9 +51,9 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
-		seenEvents: []lipapi.Event{
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-		},
+		}},
 		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)}}
 	rs.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -147,9 +147,9 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
-		seenEvents: []lipapi.Event{
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-		},
+		}},
 		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
@@ -294,8 +294,8 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate())),
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
-		recovery:   &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
+		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
 
 	_, err := rs.handleRecvEOF(context.Background())
 	if !errors.Is(err, io.EOF) {
@@ -391,7 +391,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionInput:  testAuthorityAdmissionInput(8),
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
-			seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
 		}
 		rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
 		if auth.settleCalls.Load() != 1 {
