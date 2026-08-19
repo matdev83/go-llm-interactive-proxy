@@ -117,7 +117,7 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("open observer: %v", err)
 	}
@@ -138,12 +138,12 @@ func TestEmitClientFacingObserved_recoverDrainFinishObservedAndReleased(t *testi
 	factory := &emitTestObserverFactory{}
 	_, rs := setupEmitObserverStream(t, auth, factory, []completion.Gate{gatedLeakPassGate{}})
 
-	first, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	first, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err != nil {
 		t.Fatalf("handleRecvSuccess: %v", err)
 	}
-	if cont || first.Kind != lipapi.EventUsageDelta {
-		t.Fatalf("first=%#v cont=%v want usage_delta", first, cont)
+	if first.Kind != lipapi.EventUsageDelta {
+		t.Fatalf("first=%#v want usage_delta", first)
 	}
 
 	finish, err := rs.Recv(context.Background())
@@ -205,12 +205,9 @@ func TestEmitClientFacingObserved_mandatoryBeforeEmitFinishFailed(t *testing.T) 
 	})
 	bindTestRuntimeOwners(rs, ex)
 
-	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	_, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err == nil {
 		t.Fatal("want mandatory recorder error")
-	}
-	if cont {
-		t.Fatal("cont=false")
 	}
 	observers := factory.snapshot()
 	if len(observers) == 0 {
@@ -249,11 +246,11 @@ func TestEmitClientFacingObserved_RemembersAfterSuccessfulRecording(t *testing.T
 		if recording.mandatory() {
 			cmd = sdkterminal.CommandFrontendEncoderFailure
 		}
-		rs.terminalizePartialFailure(context.Background(), cmd, attemptReasonDetail(err), err)
+		rs.terminal.terminalizePartialFailure(context.Background(), rs.responsePipeline, rs.facts.terminalFacts(), attempt, cmd, attemptReasonDetail(err), err)
 		t.Fatalf("emit: %v", err)
 	}
 	if lipapi.OutputCommitted(out) {
-		rs.markOutputCommitted(out)
+		rs.terminal.markOutputCommittedForAttempt(out, attempt, rs.recovery)
 	}
 	if out.Delta != "hello" {
 		t.Fatalf("delta=%q", out.Delta)
@@ -300,10 +297,10 @@ func TestEmitClientFacingObserved_MandatoryFailureDoesNotRemember(t *testing.T) 
 		if recording.mandatory() {
 			cmd = sdkterminal.CommandFrontendEncoderFailure
 		}
-		rs.terminalizePartialFailure(context.Background(), cmd, attemptReasonDetail(err), err)
+		rs.terminal.terminalizePartialFailure(context.Background(), rs.responsePipeline, rs.facts.terminalFacts(), attempt, cmd, attemptReasonDetail(err), err)
 	}
 	if lipapi.OutputCommitted(out) {
-		rs.markOutputCommitted(out)
+		rs.terminal.markOutputCommittedForAttempt(out, attempt, rs.recovery)
 	}
 	if !errors.Is(err, recErr) {
 		t.Fatalf("err=%v want recorder boom", err)
@@ -327,9 +324,9 @@ func TestEmitClientFacingObserved_equalContentGateReplaceCyclesLifecycle(t *test
 	factory := &emitTestObserverFactory{}
 	_, rs := setupEmitObserverStream(t, auth, factory, []completion.Gate{equalReplaceGate{}})
 
-	first, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
-	if err != nil || cont {
-		t.Fatalf("finish: err=%v cont=%v", err, cont)
+	first, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if err != nil {
+		t.Fatalf("finish: err=%v", err)
 	}
 	if first.Kind != lipapi.EventUsageDelta {
 		t.Fatalf("with StreamUsage, first client event should be synthesized usage; got %#v", first)
@@ -396,7 +393,7 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 	}
 	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: orig.Clone()})
 	attempt := rs.attempt.require()
-	views, viewsOK := rs.viewsFor(ctx)
+	views, viewsOK := rs.facts.viewsFor(ctx)
 	meta := rs.responsePipeline.streamObserverMeta(rs.facts, attempt, views, viewsOK)
 	if meta.Scope.PrincipalID.String() != "orig-principal" {
 		t.Fatalf("meta scope=%q", meta.Scope.PrincipalID)
@@ -559,7 +556,7 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("open observer: %v", err)
 	}
@@ -658,16 +655,13 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("initial open: %v", err)
 	}
-	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	_, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err == nil {
 		t.Fatal("precommit fail-closed Open after gate_replaced must surface")
-	}
-	if cont {
-		t.Fatal("cont=false on open failure")
 	}
 	observers := factory.snapshot()
 	if len(observers) != 1 {
@@ -708,14 +702,14 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("initial open: %v", err)
 	}
 	rs.terminal.markCommitted(rs.attempt.snapshot())
-	first, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
-	if err != nil || cont {
-		t.Fatalf("postcommit open failure must stay best-effort; err=%v cont=%v", err, cont)
+	first, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
+	if err != nil {
+		t.Fatalf("postcommit open failure must stay best-effort; err=%v", err)
 	}
 	if first.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("want response_finished; got %#v", first)
@@ -750,16 +744,13 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+	_, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	if err == nil {
 		t.Fatal("want fail-closed Observe error")
-	}
-	if cont {
-		t.Fatal("cont=false")
 	}
 	inner.mu.Lock()
 	outcomes := append([]response.StreamOutcome(nil), inner.outcomes...)
@@ -811,20 +802,14 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	bindTestRuntimeOwners(rs, ex)
 	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	views, viewsOK := rs.viewsFor(context.Background())
+	views, viewsOK := rs.facts.viewsFor(context.Background())
 	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 
-	ev, cont, err := rs.handleRecvError(
-		context.Background(),
-		context.Background(),
-		context.DeadlineExceeded,
-		idleContextDeadline{active: true, parent: context.Background()},
-		ttftContextDeadline{},
-	)
-	if err != nil || cont {
-		t.Fatalf("idle recovery: err=%v cont=%v", err, cont)
+	ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
+	if err != nil {
+		t.Fatalf("idle recovery: err=%v", err)
 	}
 	if ev.Kind != lipapi.EventWarning || ev.WarningCode != "proxy_stream_recovery" {
 		t.Fatalf("want recovery warning; got %#v", ev)
@@ -872,11 +857,11 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	bindTestRuntimeOwners(rs2, ex2)
 	rs2.responsePipeline.visibleText.WriteString("hello")
 	rs2.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	views2, views2OK := rs2.viewsFor(context.Background())
+	views2, views2OK := rs2.facts.viewsFor(context.Background())
 	if err := rs2.responsePipeline.openFinalStreamObservation(context.Background(), rs2.facts, rs2.attempt.require(), views2, views2OK, rs2.terminal.committed()); err != nil {
 		t.Fatalf("open eof: %v", err)
 	}
-	ev2, err := rs2.handleRecvEOF(context.Background())
+	ev2, err := testRecvEOF(context.Background(), rs2)
 	if err != nil {
 		t.Fatalf("handleRecvEOF: %v", err)
 	}

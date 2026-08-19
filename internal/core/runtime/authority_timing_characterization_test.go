@@ -166,7 +166,8 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}

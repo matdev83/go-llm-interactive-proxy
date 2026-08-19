@@ -3,18 +3,25 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -194,7 +201,7 @@ func (t *turnTerminal) registerBLeg(ctx context.Context, h leglifecycle.BLegHand
 	return t.aLegEndAuthority.scope.RegisterBLeg(ctx, h)
 }
 
-func (t *turnTerminal) cancelALeg(ctx context.Context, cause leglifecycle.CancelCause) error {
+func (t *turnTerminal) cancelALeg(ctx context.Context, cause lipapi.CancelCause) error {
 	if t == nil || t.aLegEndAuthority == nil || t.aLegEndAuthority.scope == nil {
 		return nil
 	}
@@ -260,6 +267,352 @@ func (t *turnTerminal) finished() bool {
 // this caller performed that publication.
 func (t *turnTerminal) markFinished() bool {
 	return t != nil && t.completion.CompareAndSwap(false, true)
+}
+
+// finishResponse applies the request-terminal finished transition and clears
+// attempt-local response assembly state at the same ownership boundary.
+func (t *turnTerminal) finishResponse(response *responsePipeline, attempt *attemptSession) bool {
+	if t == nil || !t.markFinished() {
+		return false
+	}
+	clearAttemptToolState(response, attempt)
+	return true
+}
+
+func (t *turnTerminal) cancelForClose(ctx context.Context, inner lipapi.ManagedEventStream) error {
+	if t != nil && t.hasALeg() {
+		return t.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelClientGone})
+	}
+	if inner == nil {
+		return nil
+	}
+	return inner.Cancel(ctx, lipapi.CancelCause{Kind: lipapi.CancelClientGone}).Err
+}
+
+func (t *turnTerminal) closeWithoutInner(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || p == nil || t.finished() {
+		return
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandClose, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeClosed)
+		t.persistCancellationBilling(cctx, attempt, "client closed", request, p)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandClose, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandClose)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) closeWithInner(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	t.closeWithoutInner(ctx, request, attempt, p)
+}
+
+func (t *turnTerminal) closeBackend(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, inner lipapi.ManagedEventStream) error {
+	if inner == nil {
+		return nil
+	}
+	err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
+		return inner.Close()
+	})
+	if err == nil {
+		return nil
+	}
+	var pe *safety.PanicError
+	if !errors.As(err, &pe) {
+		return err
+	}
+	if attempt == nil {
+		attempt = &attemptSession{}
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandPanic, attempt, p.accumulatorSnapshot(), func(context.Context, coreterm.Outcome) error { return nil }, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandPanic, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandPanic)
+		return nil
+	})
+	if p != nil && p.log != nil {
+		logCtx := diag.EnsureCallDiag(ctx, request.traceID, request.aLegID)
+		attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
+			AttrOpts:   diag.AttrOpts{CallID: request.traceID, BLegID: attempt.bleg.BLegID},
+			AttemptSeq: int(attempt.bleg.Seq),
+		})
+		attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+		p.log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
+	}
+	return nil
+}
+
+func (t *turnTerminal) isALegCanceled(err error) bool {
+	return errors.Is(err, leglifecycle.ErrALegCanceled)
+}
+
+// terminalizePartialFailure owns the terminal side of a response/encoder
+// failure. Event transformation stays on responsePipeline; this method only
+// applies the irreversible terminal and billing consequences.
+func (t *turnTerminal) terminalizePartialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, cmd sdkterminal.Command, reason string, cause error) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	_ = t.terminalizeSnapshot(ctx, cmd, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		if !attempt.authority.Settled() {
+			t.recordPartialTokenAccounting(cctx, attempt, reason, cause, request, p)
+		}
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), cmd, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, cmd)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) partialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, encoderFailure bool, cause error) {
+	cmd := sdkterminal.CommandPartialError
+	if encoderFailure {
+		cmd = sdkterminal.CommandFrontendEncoderFailure
+	}
+	t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(cause), cause)
+}
+
+func (t *turnTerminal) terminalizeEOF(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandEOF, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordPartialTokenAccounting(cctx, attempt, "stream ended without response_finished", io.EOF, request, p)
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandEOF, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandEOF)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) terminalizeTimeout(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandTimeout, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, p.operatorUsageForFinalize())
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandTimeout, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandTimeout)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) terminalizeCancellation(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, reason string, timeout bool) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	cmd := sdkterminal.CommandCancel
+	if timeout {
+		cmd = sdkterminal.CommandTimeout
+	}
+	t.terminalizeSnapshot(ctx, cmd, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		t.persistCancellationBilling(cctx, attempt, reason, request, p)
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeCancelled)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), cmd, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, cmd)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) terminalizeSurfacedFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, surfErr error, panicFailure bool) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	cmd := sdkterminal.CommandPartialError
+	if panicFailure {
+		cmd = sdkterminal.CommandPanic
+	}
+	t.terminalizeSnapshot(ctx, cmd, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordPartialTokenAccounting(cctx, attempt, attemptReasonDetail(surfErr), surfErr, request, p)
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), cmd, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, cmd)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) terminalizeALegCancellation(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, reason string) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandCancel, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		t.persistCancellationBilling(cctx, attempt, reason, request, p)
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeCancelled)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandCancel, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandCancel)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+func (t *turnTerminal) terminalizeReplacementFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	t.terminalizeSnapshot(ctx, sdkterminal.CommandPartialError, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		p.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
+		t.finishResponse(p, attempt)
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandPartialError, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandPartialError)
+		return nil
+	})
+	if !t.finished() {
+		t.finishResponse(p, attempt)
+	}
+}
+
+// terminalizeGateReplacement owns the post-output mandatory-recording stop.
+// Recv only sequences this terminal claim before asking recovery to open again.
+func (t *turnTerminal) terminalizeGateReplacement(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) error {
+	if t == nil || attempt == nil || p == nil {
+		return nil
+	}
+	_ = t.terminalizeSnapshot(ctx, sdkterminal.CommandGateReplacement, attempt, p.accumulatorSnapshot(), nil, func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandGateReplacement, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		t.handoffBillingTurn(cctx, request, sdkterminal.CommandGateReplacement)
+		return nil
+	})
+	return &lipapi.UpstreamFailureError{
+		Phase: lipapi.PhasePostOutput, Recoverable: false,
+		Reason:       "secure session mandatory recorder failure after committed output",
+		CandidateKey: strings.TrimSpace(attempt.cand.Key),
+	}
+}
+
+func (t *turnTerminal) registerReplacement(ctx context.Context, out replacementOpenResult, next *attemptSession) error {
+	if t == nil || next == nil || out.registered {
+		return nil
+	}
+	if err := t.registerBLeg(ctx, leglifecycle.BLegHandle{ID: out.bleg.BLegID, Attempt: lifecycleAttempt(out.stream)}); err != nil {
+		if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
+			_ = out.stream.Close()
+		}
+		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandSwallowedAttempt, false, func(cctx context.Context) error {
+			next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+			return nil
+		})
+		return err
+	}
+	return nil
+}
+
+func (t *turnTerminal) cleanupUnpublishedReplacement(ctx context.Context, next *attemptSession) {
+	if next == nil {
+		return
+	}
+	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+	defer cleanupCancel()
+	if freshInner := next.takeInner(); freshInner != nil {
+		cancelAndCloseInner(cleanupCtx, freshInner, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone}, nil)
+	}
+	_ = next.terminalizeSnapshot(cleanupCtx, sdkterminal.CommandSwallowedAttempt, coreterm.NewAccumulatorSnapshot(nil, false), func(cctx context.Context, _ coreterm.Outcome) error {
+		next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+		return nil
+	})
+}
+
+func (t *turnTerminal) terminalizeSwallowedAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	_ = attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		t.recordSwallowedAttempt(cctx, request, attempt, p)
+		return nil
+	})
+}
+
+func (t *turnTerminal) releaseSwallowedAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil || attempt.authority.Settled() {
+		return
+	}
+	t.terminalizeSwallowedAttempt(ctx, request, attempt, p)
+}
+
+func (t *turnTerminal) recordSwallowedAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+	if t == nil || attempt == nil || p == nil {
+		return
+	}
+	usageEv := p.operatorUsageForFinalize()
+	attempt.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
+	t.emitBackendEgressMeteringFactForAttempt(ctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+	t.recordBillingLegForAttempt(ctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandSwallowedAttempt, p.billingEvidenceFallback(), t.committed(), request.billingState)
+}
+
+// emitSynthesizedUsage is the terminal-owned handoff for usage reconstructed
+// at response completion. Response observation remains delegated to the named
+// pipeline; this owner applies the resulting output/commit consequences.
+func (t *turnTerminal) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) (lipapi.Event, error) {
+	if t == nil || p == nil || attempt == nil {
+		return lipapi.Event{}, nil
+	}
+	attempt.accounting.observeClientEvent(p.nowTime(), ev)
+	pm := sdk.PartMeta{TraceID: request.traceID, ALegID: request.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq, BackendID: strings.TrimSpace(attempt.cand.Primary.Backend)}
+	out, recording, err := p.observeSynthesizedUsage(ctx, ev, request, attempt, pm, t.committed())
+	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(err), err)
+		return lipapi.Event{}, err
+	}
+	if lipapi.OutputCommitted(out) {
+		t.markOutputCommittedForAttempt(out, attempt, nil)
+	}
+	p.emitUsageTerminal(ctx, request, attempt, out)
+	return out, nil
+}
+
+func (t *turnTerminal) markOutputCommittedForAttempt(ev lipapi.Event, attempt *attemptSession, recovery *recoveryController) {
+	if t == nil || !lipapi.OutputCommitted(ev) {
+		return
+	}
+	t.markCommitted(attempt)
+	if recovery != nil && recovery.ttft != nil {
+		recovery.ttft.markCommitted()
+	}
 }
 
 func (t *turnTerminal) accountingFinalized() bool {

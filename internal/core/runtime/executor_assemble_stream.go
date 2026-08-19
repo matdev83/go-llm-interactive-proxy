@@ -18,27 +18,29 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	bindTurnTerminalRuntime(terminal, e)
+	responsePipeline := newResponsePipelineForExecutor(e, prep.compactionOpenMeta)
+	rsFacts := newRecvTurnFacts(ctx, recvTurnFactsInput{
+		baseline:               prep.baseline,
+		traceID:                prep.traceID,
+		aLegID:                 prep.aLeg.ALegID,
+		recvViews:              prep.recvViews,
+		recvViewsOK:            prep.recvViewsOK,
+		routePrefs:             prep.routePrefs,
+		secureTurn:             prep.secureTurn,
+		secureTurnOK:           prep.secureTurnOK,
+		metering:               prep.metering,
+		requestAuth:            requestAuthorityFrom(ctx),
+		billingAccountID:       prep.billingAccountID,
+		billingCustomerPricing: prep.billingCustomerPricing,
+		billingChargePolicy:    prep.billingChargePolicy,
+		billingIdentityStamped: prep.billingIdentityStamped,
+		billingCallID:          prep.billingCallID,
+		billingCallState:       prep.billingCallState,
+	})
 	rs := &retryRecvStream{
-		facts: newRecvTurnFacts(ctx, recvTurnFactsInput{
-			baseline:               prep.baseline,
-			traceID:                prep.traceID,
-			aLegID:                 prep.aLeg.ALegID,
-			recvViews:              prep.recvViews,
-			recvViewsOK:            prep.recvViewsOK,
-			routePrefs:             prep.routePrefs,
-			secureTurn:             prep.secureTurn,
-			secureTurnOK:           prep.secureTurnOK,
-			metering:               prep.metering,
-			requestAuth:            requestAuthorityFrom(ctx),
-			billingAccountID:       prep.billingAccountID,
-			billingCustomerPricing: prep.billingCustomerPricing,
-			billingChargePolicy:    prep.billingChargePolicy,
-			billingIdentityStamped: prep.billingIdentityStamped,
-			billingCallID:          prep.billingCallID,
-			billingCallState:       prep.billingCallState,
-		}),
+		facts:            rsFacts,
 		attempt:          attemptSlot{},
-		responsePipeline: newResponsePipelineForExecutor(e, prep.compactionOpenMeta),
+		responsePipeline: responsePipeline,
 		terminal:         terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
 			opener:                        newReplacementOpener(e, prep.bus, prep.aScope),
@@ -64,13 +66,19 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 			interleaved:                   out.interleaved,
 		}),
 	}
-	rs.recovery.attemptFactory = func(opened replacementOpenResult, facts recvTurnFacts) *attemptSession {
+	responsePipeline.bindTerminalSnapshot(func() (bool, bool) {
+		return terminal.committed(), terminal.accountingFinalized()
+	})
+	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
+		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
+	})
+	rs.recovery.attemptFactory = func(opened replacementOpenResult, facts requestTerminalFacts) *attemptSession {
 		fs, maxArgs := e.resolveToolCallFinalizers()
 		return newAttemptSession(attemptSessionInput{
 			inner: opened.stream, bleg: opened.bleg, cand: opened.cand,
 			authority:             e.newAttemptAuthorityLifecycle(opened.authority, opened.cand),
 			accounting:            newAttemptAccountingTracker(e.now()),
-			toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+			toolFinal:             newToolCallAssembler(fs, maxArgs, facts.call.Tools),
 			promptCacheSource:     promptCacheObservationSource(opened.stream),
 			promptCacheController: promptCacheControllerFor(e.Backends[opened.cand.Primary.Backend]),
 			finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
@@ -78,7 +86,6 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		})
 	}
 	rs.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
-	rs.bindResponsePipeline()
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
 		bleg:                  out.bleg,
@@ -91,8 +98,8 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
 		recordAttemptLoggedFn: e.recordAttemptLogged,
 	}))
-	rs.consumeBackendUsageEvidenceForAttempt(ctx, rs.attempt.require(), out.stream)
-	views, viewsOK := rs.viewsFor(ctx)
+	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(ctx, rs.facts, rs.attempt.require(), out.stream)
+	views, viewsOK := rs.facts.viewsFor(ctx)
 	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()

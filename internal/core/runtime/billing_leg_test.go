@@ -434,10 +434,10 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
 	}
 	bindTestRuntimeOwners(stream, executor)
-	if !stream.finalizeBillingAfterCancel(context.Background(), stream.attempt.snapshot(), "client canceled") {
+	if !stream.terminal.finalizeBillingAfterCancel(context.Background(), stream.attempt.snapshot(), "client canceled", stream.facts.terminalFacts(), stream.responsePipeline) {
 		t.Fatal("quota finalize should succeed")
 	}
-	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts, stream.attempt.snapshot(), sdkterminal.CommandCancel, lipapi.Event{}, false)
+	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandCancel, lipapi.Event{}, false, stream.facts.billingCallState)
 	if calls != 1 {
 		t.Fatalf("FinalizeBilling calls = %d, want 1 shared snapshot for quota and LUR", calls)
 	}

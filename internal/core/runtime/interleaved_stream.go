@@ -192,7 +192,7 @@ func (s *interleavedContinuationStream) recordVisibleOutput(ev lipapi.Event) {
 	if s.thinker == nil {
 		return
 	}
-	s.thinker.markOutputCommitted(ev)
+	s.thinker.terminal.markOutputCommittedForAttempt(ev, s.thinker.attempt.snapshot(), s.thinker.recovery)
 	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.responsePipeline.nowTime(), ev)
 	if s.thinker.recovery != nil && s.thinker.recovery.recoverPolicy != nil {
 		s.thinker.recovery.recoverPolicy.ObserveClientEvent(ev, s.thinker.responsePipeline.nowTime())
@@ -357,10 +357,10 @@ func (s *interleavedContinuationStream) closeThinkerInner(ctx context.Context) {
 	thinkerAttempt := s.thinker.attempt.snapshot()
 	if thinkerAttempt != nil {
 		if inner := thinkerAttempt.takeInner(); inner != nil {
-			s.thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+			cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
 				Kind:   lipapi.CancelContextDone,
 				Detail: "interleaved thinker handoff",
-			})
+			}, s.thinker.responsePipeline.log)
 		}
 	}
 	if thinkerAttempt != nil && s.thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
@@ -381,10 +381,10 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 	if phase == interleavedPhaseExecutor && executor != nil {
 		if executorAttempt := executor.attempt.snapshot(); executorAttempt != nil {
 			if inner := executorAttempt.takeInner(); inner != nil {
-				executor.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+				cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
 					Kind:   lipapi.CancelContextDone,
 					Detail: "interleaved executor finished",
-				})
+				}, executor.responsePipeline.log)
 			}
 		}
 		return
@@ -393,10 +393,10 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 		thinkerAttempt := thinker.attempt.snapshot()
 		if thinkerAttempt != nil {
 			if inner := thinkerAttempt.takeInner(); inner != nil {
-				thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+				cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
 					Kind:   lipapi.CancelContextDone,
 					Detail: "interleaved thinker finished",
-				})
+				}, thinker.responsePipeline.log)
 			}
 		}
 		if thinkerAttempt != nil && thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
@@ -444,8 +444,8 @@ func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, cmd)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed(), s.thinker.facts.billingCallState)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts.terminalFacts(), cmd)
 				return nil
 			})
 			// If another owner already won the request terminal (e.g. truncated
@@ -462,10 +462,10 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 	if exec != nil {
 		execAttempt := exec.attempt.require()
 		if inner := execAttempt.takeInner(); inner != nil {
-			exec.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+			cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
 				Kind:   lipapi.CancelContextDone,
 				Detail: "interleaved executor handoff aborted",
-			})
+			}, exec.responsePipeline.log)
 		}
 		// Finalize the executor-leg usage-authority reservation. On this abort path
 		// s.executor is still nil (it is only assigned on the success branch of
@@ -483,7 +483,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		}
 		exec.recovery.appendTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, execAttempt.bleg, execAttempt.cand.Primary, started, exec.responsePipeline.nowTime(), billing.LegOutcomeCanceled)
 
-		exec.markFinished()
+		exec.terminal.finishResponse(exec.responsePipeline, execAttempt)
 	}
 	s.closeThinkerInner(ctx)
 
@@ -504,8 +504,8 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 			s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
-			s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, cmd)
+			s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed(), s.thinker.facts.billingCallState)
+			s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts.terminalFacts(), cmd)
 			return nil
 		})
 		s.finalizeThinkerAuthority(cleanupCtx, authorityapp.ReleaseKindLosing)
@@ -622,8 +622,8 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, sdkterminal.CommandCancel, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, sdkterminal.CommandCancel)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts.terminalFacts(), attempt, attempt.terminalEvidence(), sdkterminal.CommandCancel, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed(), s.thinker.facts.billingCallState)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts.terminalFacts(), sdkterminal.CommandCancel)
 				return nil
 			})
 			s.finalizeThinkerAuthority(ctx, authorityapp.ReleaseKindLosing)
@@ -650,7 +650,7 @@ func (s *interleavedContinuationStream) Close() error {
 		s.mu.Unlock()
 		parent := context.Background()
 		if thinker != nil {
-			parent = thinker.recvExecContext(parent)
+			parent = thinker.responsePipeline.withDecisionEvidence(thinker.facts.projectContext(parent, thinker.responsePipeline.log), thinker.terminal)
 		}
 		if executor != nil && executor.terminal != nil && executor.terminal.hasALeg() {
 			_ = executor.terminal.cancelALeg(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
@@ -675,7 +675,7 @@ func (s *interleavedContinuationStream) Close() error {
 		// outlives request cancellation. Background only when no parent exists.
 		parent := context.Background()
 		if s.thinker != nil {
-			parent = s.thinker.recvExecContext(parent)
+			parent = s.thinker.responsePipeline.withDecisionEvidence(s.thinker.facts.projectContext(parent, s.thinker.responsePipeline.log), s.thinker.terminal)
 		}
 		s.persistInterruptedThinkerMemo(parent)
 		if s.thinker != nil {
@@ -684,8 +684,8 @@ func (s *interleavedContinuationStream) Close() error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, sdkterminal.CommandClose, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, sdkterminal.CommandClose)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts.terminalFacts(), attempt, attempt.terminalEvidence(), sdkterminal.CommandClose, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed(), s.thinker.facts.billingCallState)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts.terminalFacts(), sdkterminal.CommandClose)
 				return nil
 			})
 			s.finalizeThinkerAuthority(parent, authorityapp.ReleaseKindLosing)

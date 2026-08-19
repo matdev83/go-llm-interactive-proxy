@@ -102,12 +102,9 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		}, accountingstream.Config{})
 		bindTestRuntimeOwners(rs, ex)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal completion path")
 		}
 		// The ok branch returns the synthesized usage event, not the finish event.
 		if ev.Kind != lipapi.EventUsageDelta {
@@ -122,12 +119,9 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		ex, rs := setupStream(t, auth)
 		ex.StreamUsage = nil
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal completion path")
 		}
 		// The fall-through returns the original finish event unchanged.
 		if ev.Kind != lipapi.EventResponseFinished {

@@ -165,12 +165,19 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	if err := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err != nil {
+		t.Fatalf("register replacement: %v", err)
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("replacement publication unexpectedly closed")
 	}
 
 	// The authoritative admit for the replacement must NOT overlap the prior

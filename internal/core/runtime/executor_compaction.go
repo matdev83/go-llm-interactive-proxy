@@ -124,17 +124,21 @@ func (p *responsePipeline) observeCompactionRelease(ctx context.Context, facts r
 }
 
 func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
+	return p.observeCompactionReleaseFinalEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, sessionID: facts.baseline.Session.AuthoritativeSessionID}, attempt, ev)
+}
+
+func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Context, evidence responseRequestEvidence, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
 	var dispatch compactionReleaseDispatch
 	if p == nil || p.detector == nil || attempt == nil || ev == nil {
 		return dispatch
 	}
 	observers := p.compactionObservers
 	meta := compactiondetect.ResponseMeta{
-		TraceID:    facts.traceID,
-		ALegID:     facts.aLegID,
+		TraceID:    evidence.traceID,
+		ALegID:     evidence.aLegID,
 		BLegID:     attempt.bleg.BLegID,
 		AttemptSeq: attempt.bleg.Seq,
-		SessionID:  facts.baseline.Session.AuthoritativeSessionID,
+		SessionID:  evidence.sessionID,
 	}
 	preview := safeCompactionPreviewResponse(p.detector, meta, *ev)
 	preservationMeta := compaction.PreservationMeta{

@@ -202,12 +202,9 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	// drain check; the drain path finalizes via the centralized helper (settle + losing release
 	// fallback) and emits the synthesized usage_delta, fixing both the leak and the client-reporting
 	// consistency issue.
-	ev, cont, err := rs.handleRecvError(context.Background(), context.Background(), context.DeadlineExceeded, idleContextDeadline{active: true, parent: context.Background()}, ttftContextDeadline{})
+	ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err != nil {
 		t.Fatalf("handleRecvError: %v", err)
-	}
-	if cont {
-		t.Fatal("expected idle recovery to return to the caller so the next Recv drains recoverDrain")
 	}
 	if ev.Kind != "" {
 		t.Fatalf("deferred idle recovery event kind = %q, want empty (finish stays in recoverDrain)", ev.Kind)

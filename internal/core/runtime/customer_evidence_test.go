@@ -155,8 +155,7 @@ func TestCustomerSettlement_AccumulatorDrivesOutputWhenSettleInputIsProviderAuth
 	}
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "released-body"})
-	stream.bindResponsePipeline()
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 
@@ -190,7 +189,6 @@ func TestCustomerSettlement_CountOutputUsesTextNotReasoningBuffer(t *testing.T) 
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: "REASONING-NOT-IN-TEXT"})
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, Delta: "{\"x\":1}"})
 
-	stream.bindResponsePipeline()
 	ev := stream.responsePipeline.resolveCustomerUsage(context.Background(), lipapi.Event{})
 	if counter.lastText != "ab" {
 		t.Fatalf("OutputText must be released text only; got %q", counter.lastText)
@@ -237,7 +235,6 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cd"})
-	stream.bindResponsePipeline()
 
 	authorityEv := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 99, OutputTokens: 99, TotalTokens: 198,
@@ -245,10 +242,10 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle replay: %v", err)
 	}
 

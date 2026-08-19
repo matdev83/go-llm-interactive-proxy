@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -88,13 +89,13 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 	}
 	if s.recovery != nil {
 		s.recovery.bindOpener(e, s.responsePipeline.bus, s.terminal.aLegScope())
-		s.recovery.attemptFactory = func(opened replacementOpenResult, facts recvTurnFacts) *attemptSession {
+		s.recovery.attemptFactory = func(opened replacementOpenResult, facts requestTerminalFacts) *attemptSession {
 			fs, maxArgs := e.resolveToolCallFinalizers()
 			return newAttemptSession(attemptSessionInput{
 				inner: opened.stream, bleg: opened.bleg, cand: opened.cand,
 				authority:             e.newAttemptAuthorityLifecycle(opened.authority, opened.cand),
 				accounting:            newAttemptAccountingTracker(e.now()),
-				toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+				toolFinal:             newToolCallAssembler(fs, maxArgs, facts.call.Tools),
 				promptCacheSource:     promptCacheObservationSource(opened.stream),
 				promptCacheController: promptCacheControllerFor(e.Backends[opened.cand.Primary.Backend]),
 				finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
@@ -107,6 +108,47 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 
 func testStoreInner(s *retryRecvStream, inner lipapi.ManagedEventStream) {
 	testAttemptSession(s).storeInner(inner)
+}
+
+type task51SingleEventStream struct {
+	event lipapi.Event
+	done  bool
+}
+
+type task51ErrorStream struct{ err error }
+
+func (s *task51ErrorStream) Recv(context.Context) (lipapi.Event, error) { return lipapi.Event{}, s.err }
+func (s *task51ErrorStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
+}
+func (s *task51ErrorStream) Close() error { return nil }
+
+func (s *task51SingleEventStream) Recv(context.Context) (lipapi.Event, error) {
+	if s.done {
+		return lipapi.Event{}, io.EOF
+	}
+	s.done = true
+	return s.event, nil
+}
+
+func (s *task51SingleEventStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
+}
+func (s *task51SingleEventStream) Close() error { return nil }
+
+func testRecvOne(ctx context.Context, s *retryRecvStream, ev lipapi.Event) (lipapi.Event, error) {
+	testStoreInner(s, &task51SingleEventStream{event: ev})
+	return s.Recv(ctx)
+}
+
+func testRecvEOF(ctx context.Context, s *retryRecvStream) (lipapi.Event, error) {
+	testStoreInner(s, &task51ErrorStream{err: io.EOF})
+	return s.Recv(ctx)
+}
+
+func testRecvError(ctx context.Context, s *retryRecvStream, err error) (lipapi.Event, error) {
+	testStoreInner(s, &task51ErrorStream{err: err})
+	return s.Recv(ctx)
 }
 
 type exposureAdmissionFunc func(context.Context, BillingExposureAdmissionInput) (billing.CallExposure, error)

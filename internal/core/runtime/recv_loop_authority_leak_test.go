@@ -88,7 +88,10 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	_, err = rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	if err == nil {
+		err = rs.terminal.registerReplacement(context.Background(), plan.open, plan.next)
+	}
 	if err == nil {
 		t.Fatal("expected tryReplacementIteration to surface the RegisterBLeg failure")
 	}

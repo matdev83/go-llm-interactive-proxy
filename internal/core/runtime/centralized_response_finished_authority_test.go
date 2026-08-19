@@ -180,12 +180,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, streamUsageWithCounts())
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the no-gates completion path")
 		}
 		if ev.Kind != lipapi.EventUsageDelta {
 			t.Fatalf("event kind = %q, want usage_delta (synthesized usage)", ev.Kind)
@@ -198,12 +195,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, nil)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the no-gates completion path")
 		}
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (fall-through branch)", ev.Kind)
@@ -256,12 +250,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		ex, rs := setupStream(t, auth, streamUsageWithCounts())
 		attachPassthroughGate(t, ex, rs)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the gated completion path")
 		}
 		if ev.Kind != lipapi.EventUsageDelta {
 			t.Fatalf("event kind = %q, want usage_delta (synthesized usage from gated ok branch)", ev.Kind)
@@ -275,12 +266,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		ex, rs := setupStream(t, auth, nil)
 		attachPassthroughGate(t, ex, rs)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the gated completion path")
 		}
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (gated fall-through branch)", ev.Kind)
@@ -294,12 +282,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		ex, rs := setupStream(t, auth, nil)
 		attachPassthroughGate(t, ex, rs)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the gated completion path")
 		}
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (gated fall-through branch)", ev.Kind)
@@ -381,13 +366,8 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 
 	callIdleRecovery := func(t *testing.T, rs *retryRecvStream) (lipapi.Event, bool, error) {
 		t.Helper()
-		return rs.handleRecvError(
-			context.Background(),
-			context.Background(),
-			context.DeadlineExceeded,
-			idleContextDeadline{active: true, parent: context.Background()},
-			ttftContextDeadline{},
-		)
+		ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
+		return ev, false, err
 	}
 
 	t.Run("idle_recovery/defers_and_emits_synthesized_usage_then_releases", func(t *testing.T) {
@@ -461,12 +441,12 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 
 		// handleGatedPath ok branch finalizes via the helper, sets the request terminal claim,
 		// and re-queues the finish to recoverDrain for the synthesized usage emission.
-		first, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		first, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
 		}
-		if cont || first.Kind != lipapi.EventUsageDelta {
-			t.Fatalf("first event = %#v cont=%v, want synthesized usage_delta cont=false", first, cont)
+		if first.Kind != lipapi.EventUsageDelta {
+			t.Fatalf("first event = %#v, want synthesized usage_delta", first)
 		}
 		if auth.settleCalls.Load() != 1 || auth.releaseCalls.Load() != 1 {
 			t.Fatalf("after gated ok branch: settle=%d release=%d, want 1/1", auth.settleCalls.Load(), auth.releaseCalls.Load())

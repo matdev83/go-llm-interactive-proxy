@@ -239,8 +239,7 @@ func phase71SettleCustomerFE(t *testing.T, frontendID string, released bool, wan
 	if released {
 		stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
 	}
-	stream.bindResponsePipeline()
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 

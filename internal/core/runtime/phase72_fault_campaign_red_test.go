@@ -98,7 +98,7 @@ func phase72FaultOutageEgressPersist(t *testing.T) {
 	}
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
-	err = stream.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta})
+	err = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta}, stream.facts.terminalFacts(), stream.responsePipeline)
 	if err == nil {
 		t.Fatal("journal outage on FE egress must fail settlement")
 	}
@@ -142,10 +142,10 @@ func phase72FaultAmbiguousSuccessOnceOnly(t *testing.T) {
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "y"})
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 9}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, usage); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, usage); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatal(err)
 	}
 	if prov.settleCalls.Load() != 1 {

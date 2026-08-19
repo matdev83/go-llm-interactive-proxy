@@ -37,8 +37,8 @@ func testTerminalizeRequest(s *retryRecvStream, ctx context.Context, cmd sdkterm
 		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
 			return nil
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
-		s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
+		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 		return nil
 	}
 	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
@@ -58,8 +58,8 @@ func testTerminalizeRequestForAttempt(s *retryRecvStream, ctx context.Context, c
 		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
 			return nil
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
-		s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
+		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 		return nil
 	}
 	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
@@ -82,7 +82,7 @@ func testTerminalizeAttemptForAttempt(s *retryRecvStream, ctx context.Context, c
 		if effects != nil {
 			err = effects(cctx)
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
 		return err
 	})
 }

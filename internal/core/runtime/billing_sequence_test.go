@@ -111,7 +111,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
 	bindTestRuntimeOwners(stream, executor)
-	stream.terminal.recordBillingLegForAttempt(ctx, stream.facts, stream.attempt.snapshot(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true)
+	stream.terminal.recordBillingLegForAttempt(ctx, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
 
 	// 4. Parallel loser producer (also covers the parallel winner path: the
 	// same reporting seam runs for both with distinct allocated sequences).
@@ -134,7 +134,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
 	bindTestRuntimeOwners(swallowed, executor)
-	swallowed.terminal.recordBillingLegForAttempt(ctx, swallowed.facts, swallowed.attempt.snapshot(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false)
+	swallowed.terminal.recordBillingLegForAttempt(ctx, swallowed.facts.terminalFacts(), swallowed.attempt.snapshot(), swallowed.attempt.require().terminalEvidence(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false, swallowed.facts.billingCallState)
 
 	mu.Lock()
 	got := map[string]int{}

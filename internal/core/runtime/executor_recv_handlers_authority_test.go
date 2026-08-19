@@ -92,8 +92,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("tool_reactor_failure", func(t *testing.T) {
@@ -107,8 +107,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		_, rs := setupRecvSuccessStream(t, auth, bus)
 		// Nil RuntimeSnapshot => applyToolPolicies returns nil, so the reactor error is reached.
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("response_part_hook_failure", func(t *testing.T) {
@@ -120,8 +120,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		_, rs := setupRecvSuccessStream(t, auth, bus)
 		ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hi"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("completion_gate_failure", func(t *testing.T) {
@@ -135,8 +135,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("mandatory_recorder_failure_gated", func(t *testing.T) {
@@ -156,15 +156,12 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
 		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (gated recorder failure must settle authority, not leak)", auth.settleCalls.Load())
@@ -191,15 +188,12 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hi"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
 		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (non-gated recorder failure must settle authority, not leak)", auth.settleCalls.Load())
@@ -230,15 +224,12 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex.StreamUsage = nil
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
 		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (must not double-settle when finalizeTokenAccounting already settled)", auth.settleCalls.Load())

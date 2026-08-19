@@ -96,7 +96,7 @@ func TestAttemptSidebandUsageRetainsSourceAttemptOwnershipAcrossSwap(t *testing.
 	// The helper must bind evidence to the source's attempt, not re-snapshot the slot.
 	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
 	rs.attempt.install(newAttempt)
-	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), retained, oldInner)
+	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(context.Background(), rs.facts, retained, oldInner)
 
 	if !retained.accounting.usageObserved {
 		t.Fatal("retained old attempt did not record sideband usage")

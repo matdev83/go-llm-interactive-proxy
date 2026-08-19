@@ -25,7 +25,7 @@ func TestTask41RecoveryBoundaryRejectsUnretiredPriorBeforeOpen(t *testing.T) {
 		admissionInput:  testAuthorityAdmissionInput(1),
 		admissionResult: authorityapp.AdmissionResult{Allowed: true, Reserved: true},
 	}, authorityCandidate())}
-	_, err := r.openReplacement(context.Background(), recvTurnFacts{}, newTurnTerminal(), prior)
+	_, err := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), prior, false)
 	if !errors.Is(err, errRecoveryPriorAttemptNotRetired) {
 		t.Fatalf("openReplacement error = %v, want %v", err, errRecoveryPriorAttemptNotRetired)
 	}
@@ -36,7 +36,7 @@ func TestTask41RecoveryBoundaryRejectsUnretiredPriorBeforeOpen(t *testing.T) {
 	settled := &attemptSession{authority: authorityLifecycle{
 		control: &authorityLifecycleControl{terminal: authorityTerminalReleased},
 	}}
-	if _, err := r.openReplacement(context.Background(), recvTurnFacts{}, newTurnTerminal(), settled); err != nil {
+	if _, err := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), settled, false); err != nil {
 		t.Fatalf("settled prior replacement: %v", err)
 	}
 	if got := opens.Load(); got != 1 {
@@ -52,7 +52,7 @@ func TestTask41RecoveryBoundaryRejectsCommittedTurnBeforeOpen(t *testing.T) {
 	}}
 	terminal := newTurnTerminal()
 	terminal.markCommitted(nil)
-	_, err := r.openReplacement(context.Background(), recvTurnFacts{}, terminal, nil)
+	_, err := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), nil, terminal.committed())
 	if !errors.Is(err, errRecoveryTurnCommitted) {
 		t.Fatalf("openReplacement error = %v, want %v", err, errRecoveryTurnCommitted)
 	}
@@ -106,7 +106,7 @@ func TestTask41RecoveryOwnershipShape(t *testing.T) {
 		t.Fatal("recovery adapter must localize the temporary attemptOpenParams translation")
 	}
 	_ = adapterSource
-	for _, façadeFile := range []string{"executor_recv_loop.go", "interleaved_open.go", "executor_recv_error.go", "executor_recv_handlers.go"} {
+	for _, façadeFile := range []string{"executor_recv_loop.go", "interleaved_open.go"} {
 		if containsIdent(t, filepath.Join(dir, façadeFile), "attemptOpenParams") {
 			t.Fatalf("recv/continuation façade %s must not construct or reference attemptOpenParams", façadeFile)
 		}

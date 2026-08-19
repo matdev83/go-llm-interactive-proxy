@@ -255,6 +255,10 @@ func clearAttemptToolState(p *responsePipeline, attempt *attemptSession) {
 	}
 }
 
+func (p *responsePipeline) clearAttemptState(attempt *attemptSession) {
+	clearAttemptToolState(p, attempt)
+}
+
 func (p *responsePipeline) enrichToolEvent(te *lipapi.ToolEvent) {
 	if p != nil {
 		p.toolClass.enrich(te)
@@ -356,6 +360,11 @@ func (p *responsePipeline) resolveCustomerUsage(ctx context.Context, usageEv lip
 			return ev
 		}
 	}
+	if reconstructor == nil && p.streamUsage != nil {
+		if result, err := p.streamUsage.Reconstruct(ctx, accountingstream.Input{OutputText: p.releasedOutputText(), Events: p.contentEvents()}); err == nil && len(result.Events) > 0 {
+			return customerPlaneUsageEvent(mergeUsageEventsForClient(result.Events, true))
+		}
+	}
 	if last.Kind != "" {
 		return last
 	}
@@ -364,6 +373,30 @@ func (p *responsePipeline) resolveCustomerUsage(ctx context.Context, usageEv lip
 		return lipapi.Event{Kind: lipapi.EventUsageDelta}
 	}
 	return out
+}
+
+func (p *responsePipeline) resolveCustomerUsageForTerminal(ctx context.Context, usageEv lipapi.Event, request requestTerminalFacts) lipapi.Event {
+	if p == nil {
+		return customerPlaneUsageEvent(usageEv)
+	}
+	p.eventsMu.Lock()
+	reconstructor := p.customerUsageFn
+	p.eventsMu.Unlock()
+	if reconstructor != nil {
+		return p.resolveCustomerUsage(ctx, usageEv)
+	}
+	if p.streamUsage != nil {
+		result, err := p.streamUsage.Reconstruct(ctx, accountingstream.Input{
+			Call: request.call, OutputText: p.releasedOutputText(), Events: p.contentEvents(),
+		})
+		if err != nil && p.log != nil {
+			p.log.DebugContext(ctx, "customer stream usage reconstruction", "error", err)
+		}
+		if len(result.Events) > 0 {
+			return applyFrontendIngressInput(ctx, customerPlaneUsageEvent(mergeUsageEventsForClient(result.Events, true)))
+		}
+	}
+	return p.resolveCustomerUsage(ctx, usageEv)
 }
 
 func (p *responsePipeline) contentEvents() []lipapi.Event {

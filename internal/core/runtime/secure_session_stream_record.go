@@ -51,13 +51,21 @@ func (p *responsePipeline) recordClientFacing(
 	ev lipapi.Event,
 	committed bool,
 ) responseRecordingResult {
-	if p == nil || p.secureSessionRecorder == nil || !facts.secureTurnOK {
+	return p.recordClientFacingEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, secureTurn: facts.secureTurn, secureTurnOK: facts.secureTurnOK}, attempt, ev, committed)
+}
+
+func (p *responsePipeline) recordClientFacingTerminal(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, ev lipapi.Event, committed bool) responseRecordingResult {
+	return p.recordClientFacingEvidence(ctx, request.responseEvidence(), attempt, ev, committed)
+}
+
+func (p *responsePipeline) recordClientFacingEvidence(ctx context.Context, evidence responseRequestEvidence, attempt *attemptSession, ev lipapi.Event, committed bool) responseRecordingResult {
+	if p == nil || p.secureSessionRecorder == nil || !evidence.secureTurnOK {
 		return responseRecordingResult{outcome: responseRecordingSkipped}
 	}
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		return responseRecordingResult{outcome: responseRecordingSkipped}
 	}
-	in := buildStreamEventRecordInput(facts, attempt, p.nowTime(), ev)
+	in := buildStreamEventRecordInputEvidence(evidence, attempt, p.nowTime(), ev)
 	err := p.secureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
 	if err != nil {
 		committed = committed || lipapi.OutputCommitted(ev)
@@ -80,10 +88,14 @@ func (p *responsePipeline) recordClientFacing(
 }
 
 func buildStreamEventRecordInput(facts recvTurnFacts, attempt *attemptSession, now time.Time, ev lipapi.Event) app.StreamEventRecordInput {
-	st := facts.secureTurn
+	return buildStreamEventRecordInputEvidence(responseRequestEvidence{traceID: facts.traceID, secureTurn: facts.secureTurn, secureTurnOK: facts.secureTurnOK}, attempt, now, ev)
+}
+
+func buildStreamEventRecordInputEvidence(evidence responseRequestEvidence, attempt *attemptSession, now time.Time, ev lipapi.Event) app.StreamEventRecordInput {
+	st := evidence.secureTurn
 	in := app.StreamEventRecordInput{
 		Now:       now,
-		TraceID:   strings.TrimSpace(facts.traceID),
+		TraceID:   strings.TrimSpace(evidence.traceID),
 		SessionID: st.SessionID,
 		TurnID:    st.TurnID,
 		BLegID:    strings.TrimSpace(attempt.bleg.BLegID),

@@ -2,16 +2,69 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
+
+func (a *attemptSession) finishAsReplaced(ctx context.Context) {
+	if a != nil && a.finalStreamObs != nil {
+		a.finalStreamObs.Finish(ctx, response.OutcomeReplaced)
+	}
+}
+
+func (a *attemptSession) receive(ctx context.Context, committed bool) (lipapi.Event, error) {
+	if a == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	inner := a.loadInner()
+	if inner == nil {
+		return lipapi.Event{}, io.EOF
+	}
+	ev, err := safety.CallValue(safety.BoundaryBackend, "backend_recv", func() (lipapi.Event, error) {
+		return inner.Recv(ctx)
+	})
+	if err != nil {
+		var pe *safety.PanicError
+		if errors.As(err, &pe) {
+			err = mapStreamPanic(pe, committed)
+		}
+	}
+	return ev, err
+}
+
+func backendReceivePanic(err error) bool {
+	var pe *safety.PanicError
+	return errors.As(err, &pe)
+}
+
+func (a *attemptSession) cancelAndClose(ctx context.Context, cause lipapi.CancelCause, logger *slog.Logger) {
+	if a == nil {
+		return
+	}
+	if inner := a.takeInner(); inner != nil {
+		cancelAndCloseInner(ctx, inner, cause, logger)
+	}
+}
+
+func (a *attemptSession) releaseSwallowedAuthority(ctx context.Context, p *responsePipeline) {
+	if a == nil || p == nil || a.authority.Settled() {
+		return
+	}
+	a.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, p.operatorUsageForFinalize())
+}
 
 // attemptSession is the owner of one opened B-leg. Every field in this type
 // has the same lifetime as the backend attempt and is discarded on replacement.
@@ -197,6 +250,19 @@ func (s *attemptSlot) closePublicationAndSnapshot() *attemptSession {
 	current := s.current
 	s.mu.Unlock()
 	return current
+}
+
+// publicationClosed reports that Close has won the replacement publication
+// boundary. Recv uses this narrow slot fact to avoid opening recovery work
+// after Close has detached the current inner stream but before terminal
+// completion becomes visible.
+func (s *attemptSlot) publicationIsClosed() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.publicationClosed
 }
 
 // swapIfOpen publishes a complete replacement only while the request slot is

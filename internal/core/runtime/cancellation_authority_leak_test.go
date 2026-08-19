@@ -99,7 +99,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		auth := cancelAfterUsageAuth(nil)
 		rs := setupStream(t, auth)
 
-		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (cancel after usage must settle the reservation, not leak)", auth.settleCalls.Load())
@@ -130,7 +130,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		auth := cancelAfterUsageAuth(errors.New("settle boom"))
 		rs := setupStream(t, auth)
 
-		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (single failed cancellation settle)", auth.settleCalls.Load())
@@ -163,7 +163,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		testAttemptSession(rs).authority.control.terminal = authorityTerminalSettled
 		testAttemptSession(rs).authority.control.mu.Unlock()
 
-		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		// With authoritative usage available (usageObserved=true) and the reservation
 		// already settled, the cancellation path calls ReconcileAuthoritative instead
@@ -211,7 +211,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 			t.Fatal("test staging: ctx must be canceled")
 		}
 
-		rs.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (canceled ctx must not prevent settlement)", auth.settleCalls.Load())
@@ -244,7 +244,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		rs.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (single failed cancellation settle)", auth.settleCalls.Load())
@@ -296,7 +296,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		}
 		testAttemptSession(rs).accounting.observeUsage(usageDelta)
 
-		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())

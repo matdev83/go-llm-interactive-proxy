@@ -26,7 +26,9 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 	}
 	bindTestRuntimeOwners(s, ex)
 	s.terminal.markCommitted(s.attempt.snapshot())
-	_, err := s.tryReplacementIteration(context.Background())
+	request := s.facts.terminalFacts()
+	request.replacementBlocked = true
+	_, err := s.recovery.tryReplacementIteration(context.Background(), request, s.attempt.require(), s.terminal.committed())
 	if err == nil {
 		t.Fatal("expected error")
 	}

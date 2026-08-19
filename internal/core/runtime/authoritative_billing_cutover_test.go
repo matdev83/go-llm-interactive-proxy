@@ -44,7 +44,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	installTestTurnTerminal(stream)
 	bindTestRuntimeOwners(stream, executor)
 
-	_, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	_, ok, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 	installTestTurnTerminal(stream)
 	bindTestRuntimeOwners(stream, executor)
 
-	usage, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	usage, ok, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	}, authorityCandidate())
 	bindTestRuntimeOwners(stream, executor)
 
-	stream.recordPartialTokenAccounting(context.Background(), stream.attempt.snapshot(), "authoritative-cutover", nil)
+	stream.terminal.recordPartialTokenAccounting(context.Background(), stream.attempt.snapshot(), "authoritative-cutover", nil, stream.facts.terminalFacts(), stream.responsePipeline)
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("non-money authority settle calls = %d, want 1", got)
 	}

@@ -300,7 +300,7 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 		traceID: "trace-par",
 	}), attempt: testAttemptSlot(out.bleg, out.cand, life)}
 	bindTestRuntimeOwners(stream, ex)
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
 	if att.settleCalls.Load() != 2 {
 		t.Fatalf("operator SettleAttempt=%d want 2 (winner+loser)", att.settleCalls.Load())

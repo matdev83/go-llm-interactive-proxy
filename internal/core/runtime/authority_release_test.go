@@ -115,7 +115,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
+	rs.terminal.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"), rs.facts.terminalFacts(), rs.responsePipeline)
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
@@ -145,12 +145,16 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 		t.Fatal("expected authority settled=true after failed partial settle losing-release so later handlers cannot double-release")
 	}
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open after failed settle")
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
 	}
 	// The prior reservation was already released (losing) and marked settled, so the
 	// replacement must NOT release it again.
@@ -179,6 +183,7 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	ttft := ttftBudget{start: time.Now().Add(-2 * time.Second), global: time.Second}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -190,23 +195,17 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery:         &recoveryController{ttft: &ttft},
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	_, cont, err := rs.handleRecvError(
-		context.Background(),
-		context.Background(),
-		context.DeadlineExceeded,
-		idleContextDeadline{},
-		ttftContextDeadline{scope: ttftTimeoutGlobal, parent: context.Background()},
-	)
+	_, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err == nil {
 		t.Fatal("expected global TTFT timeout error")
 	}
 	if !errors.Is(err, lipapi.ErrTTFTTimeout) {
 		t.Fatalf("error = %v, want ErrTTFTTimeout", err)
-	}
-	if cont {
-		t.Fatal("expected global TTFT timeout to stop the stream")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred TTFT must settle)", auth.releaseCalls.Load())
@@ -282,12 +281,20 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	prior := rs.attempt.require()
+	if got := prior.authority.stateSnapshot().admissionResult.ReservationID; got != "reservation-1" {
+		t.Fatalf("prior authority reservation ID = %q, want reservation-1", got)
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred prior must settle)", auth.releaseCalls.Load())
@@ -360,18 +367,10 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	recvErr := &lipapi.UpstreamFailureError{
-		Phase:       lipapi.PhasePreOutput,
-		Recoverable: true,
-		Reason:      "recv dropped",
-	}
-	_, cont, err := rs.handleRecvError(context.Background(), context.Background(), recvErr, idleContextDeadline{}, ttftContextDeadline{})
-	if err != nil {
-		t.Fatalf("handleRecvError: %v", err)
-	}
-	if !cont {
-		t.Fatal("expected recoverable pre-output recv failure to continue")
-	}
+	// Recv normally continues directly into replacement publication. Exercise
+	// the recoverable midpoint through the cohesive terminal owner so this
+	// assertion remains before recovery settles the prior attempt.
+	rs.terminal.terminalizeSwallowedAttempt(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.responsePipeline)
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls after swallowed recv = %d, want 0", auth.settleCalls.Load())
 	}
@@ -379,12 +378,16 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 		t.Fatal("expected authoritySettled to remain false after swallowed recv failure")
 	}
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred swallowed prior must settle)", auth.releaseCalls.Load())
@@ -458,7 +461,9 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 			traceID: "trace-1",
 		}),
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	// A pre-canceled context forces tryReplacementIteration to error at its ctx.Err() guard
 	// before any new stream/authority is admitted, leaving the swallowed reservation active.

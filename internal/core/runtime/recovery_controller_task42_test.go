@@ -170,7 +170,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 			if tc.configure != nil {
 				tc.configure(r)
 			}
-			_, gotErr := r.openReplacement(context.Background(), recvTurnFacts{}, nil, nil)
+			_, gotErr := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), nil, false)
 			if gotErr == nil {
 				t.Fatal("openReplacement error = nil, want no-eligible precedence result")
 			}
@@ -195,7 +195,7 @@ func TestTask42RecoveryBoundaryPassesRetiredPriorBeforeOpen(t *testing.T) {
 	prior := &attemptSession{authority: authorityLifecycle{
 		control: &authorityLifecycleControl{terminal: authorityTerminalReleased},
 	}}
-	if _, err := r.openReplacement(context.Background(), recvTurnFacts{}, newTurnTerminal(), prior); err != nil {
+	if _, err := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), prior, false); err != nil {
 		t.Fatalf("openReplacement: %v", err)
 	}
 	if got := opens.Load(); got != 1 {
@@ -233,7 +233,7 @@ func TestTask42RecoveryBoundaryNeverOpensCommittedOrUnretired(t *testing.T) {
 				opens.Add(1)
 				return replacementOpenResult{opened: true}, nil
 			}}
-			_, err := r.openReplacement(context.Background(), recvTurnFacts{}, tc.terminal, tc.prior)
+			_, err := r.openReplacement(context.Background(), recvTurnFacts{}.terminalFacts(), tc.prior, tc.terminal != nil && tc.terminal.committed())
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("openReplacement error = %v, want %v", err, tc.wantErr)
 			}
@@ -265,7 +265,9 @@ func TestTask42MandatoryRecorderCommittedNoReplacementOpen(t *testing.T) {
 	}
 	bindTestRuntimeOwners(s, ex)
 	s.terminal.markCommitted(s.attempt.snapshot())
-	_, err := s.tryReplacementIteration(context.Background())
+	request := s.facts.terminalFacts()
+	request.replacementBlocked = true
+	_, err := s.recovery.tryReplacementIteration(context.Background(), request, s.attempt.require(), s.terminal.committed())
 	if err == nil {
 		t.Fatal("tryReplacementIteration error = nil, want committed mandatory-recorder failure")
 	}

@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -16,7 +18,28 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
+
+func (f recvTurnFacts) attemptDiagAttrs(attempt *attemptSession) diag.AttrOpts {
+	attrs := diag.AttrOpts{CallID: f.traceID, BLegID: f.aLegID}
+	if attempt != nil {
+		attrs.BLegID = attempt.bleg.BLegID
+	}
+	return attrs
+}
+
+func (f recvTurnFacts) logDecision(ctx context.Context, logger *slog.Logger, key string, attrs ...slog.Attr) {
+	diag.LogDecision(ctx, logger, key, diag.AttrOpts{CallID: f.traceID, BLegID: f.aLegID}, attrs...)
+}
+
+func (f recvTurnFacts) logRecoverablePreOutput(ctx context.Context, logger *slog.Logger, candidate string) {
+	f.logDecision(ctx, logger, "recoverable_pre_output_swallowed", slog.String("candidate_key", candidate), slog.String("phase", "recv"))
+}
+
+func recvErrorDetail(err error) string {
+	return diag.TruncErrDetail(err, attemptReasonMaxRunes)
+}
 
 // recvTurnFactsInput is the assembly-only input for the immutable request facts
 // boundary. It is deliberately concrete and private; it is not a turn state bag.
@@ -208,6 +231,28 @@ func (f recvTurnFacts) projectContext(parent context.Context, logger *slog.Logge
 		ctx = hooks.WithDiagnosticsLogger(ctx, logger)
 	}
 	return ctx
+}
+
+func (f recvTurnFacts) hookMeta(bleg b2bua.BLegRecord, cand routing.AttemptCandidate) (sdk.PartMeta, sdk.ToolMeta) {
+	pm := sdk.PartMeta{
+		TraceID: f.traceID, ALegID: f.aLegID, BLegID: bleg.BLegID,
+		BackendID: strings.TrimSpace(cand.Primary.Backend), AttemptSeq: bleg.Seq,
+	}
+	tm := sdk.ToolMeta{TraceID: f.traceID, ALegID: f.aLegID, BLegID: bleg.BLegID, AttemptSeq: bleg.Seq}
+	if v, ok := f.viewsFor(nil); ok { //nolint:staticcheck // intentional nil context forces stream snapshot fallback
+		tm.Principal, tm.Scope, tm.Session, tm.Workspace = v.Principal, v.Scope, v.Session, v.Workspace
+	}
+	return pm, tm
+}
+
+func (f recvTurnFacts) viewsFor(ctx context.Context) (execctx.Views, bool) {
+	if v, ok := execctx.FromContext(ctx); ok {
+		return v, true
+	}
+	if f.recvViewsOK {
+		return cloneRecvViews(f.recvViews), true
+	}
+	return execctx.Views{}, false
 }
 
 func cloneRecvViews(v execctx.Views) execctx.Views {

@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +22,52 @@ import (
 type closeReplacementRaceStream struct {
 	cancelCalls atomic.Int32
 	closeCalls  atomic.Int32
+}
+
+// TestRetryRecvStreamClosePublicationMidpointDoesNotEnterRecovery is RED until
+// Recv observes that Close has closed the attempt publication window. The
+// request is already committed, but Close has not yet published terminal
+// completion; a nil current inner must therefore finish as EOF/cancellation,
+// never as a recovery-turn-committed error.
+func TestRetryRecvStreamClosePublicationMidpointDoesNotEnterRecovery(t *testing.T) {
+	var openCalls atomic.Int32
+	rs := &retryRecvStream{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "close-midpoint", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-close-midpoint",
+			aLegID:   "a-leg-close-midpoint",
+		}),
+		terminal:         newTurnTerminal(),
+		responsePipeline: newResponsePipeline(),
+		recovery: &recoveryController{
+			opener: func(context.Context, replacementOpenRequest) (replacementOpenResult, error) {
+				openCalls.Add(1)
+				return replacementOpenResult{opened: true}, nil
+			},
+		},
+		attempt: testAttemptSlot(
+			b2bua.BLegRecord{BLegID: "close-midpoint-bleg", Seq: 1},
+			authorityCandidate(),
+			authorityLifecycle{},
+		),
+	}
+	testStoreInner(rs, &closeReplacementRaceStream{})
+	current := rs.attempt.closePublicationAndSnapshot()
+	if current == nil || current != rs.attempt.snapshot() {
+		t.Fatal("Close midpoint must retain the current attempt snapshot")
+	}
+	if inner := current.takeInner(); inner == nil {
+		t.Fatal("Close midpoint must remove the current inner stream")
+	}
+	rs.terminal.markCommitted(current)
+
+	_, err := rs.Recv(context.Background())
+	if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "a-leg canceled") {
+		t.Fatalf("blocked Close midpoint returned %v", err)
+	}
+	if got := openCalls.Load(); got != 0 {
+		t.Fatalf("replacement opener calls = %d, want 0 after Close publication", got)
+	}
 }
 
 func (*closeReplacementRaceStream) Recv(context.Context) (lipapi.Event, error) {
@@ -97,8 +145,9 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 			authorityCandidate(),
 			testAuthorityLifecycle(ex, oldAuthority, authorityCandidate()),
 		),
+		responsePipeline: newResponsePipeline(),
 	}
-	rs.recovery.attemptFactory = func(opened replacementOpenResult, _ recvTurnFacts) *attemptSession {
+	rs.recovery.attemptFactory = func(opened replacementOpenResult, _ requestTerminalFacts) *attemptSession {
 		return newAttemptSession(attemptSessionInput{
 			inner: opened.stream,
 			bleg:  opened.bleg,
@@ -124,8 +173,18 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	}
 	resultCh := make(chan replacementResult, 1)
 	go func() {
-		opened, err := rs.tryReplacementIteration(context.Background())
-		resultCh <- replacementResult{opened: opened, err: err}
+		plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+		if err == nil && plan.opened {
+			if regErr := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err == nil {
+				err = regErr
+			}
+			if err == nil {
+				if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+					rs.terminal.cleanupUnpublishedReplacement(context.Background(), plan.next)
+				}
+			}
+		}
+		resultCh <- replacementResult{opened: plan.opened, err: err}
 	}()
 
 	select {

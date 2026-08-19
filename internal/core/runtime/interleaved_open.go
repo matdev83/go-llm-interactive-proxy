@@ -200,7 +200,8 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	// model/catalog refresh. Reattach the logical request's frozen views before
 	// any planning, capability resolution, or backend open; copying them onto the
 	// resulting stream afterward is too late.
-	boundCtx := from.recvExecContext(ctx)
+	boundCtx := from.facts.projectContext(ctx, from.responsePipeline.log)
+	boundCtx = from.responsePipeline.withDecisionEvidence(boundCtx, from.terminal)
 	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
 	if from.recovery == nil {
 		return nil, fmt.Errorf("executor: interleaved continuation recovery unavailable")
@@ -233,15 +234,20 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		}
 	}
 	fs, maxArgs := e.resolveToolCallFinalizers()
+	responsePipeline := newResponsePipelineForExecutor(e)
+	terminal := newTurnTerminalWithSharedALeg(from.terminal)
 	rs := &retryRecvStream{
 		facts:            from.facts.clone(),
 		recovery:         from.recovery,
-		responsePipeline: newResponsePipelineForExecutor(e),
+		responsePipeline: responsePipeline,
 		attempt:          attemptSlot{},
-		terminal:         newTurnTerminalWithSharedALeg(from.terminal),
+		terminal:         terminal,
 	}
 	bindTurnTerminalRuntime(rs.terminal, e)
-	rs.bindResponsePipeline()
+	responsePipeline.bindTerminalSnapshot(func() (bool, bool) { return terminal.committed(), terminal.accountingFinalized() })
+	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
+		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
+	})
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
 		bleg:                  out.bleg,

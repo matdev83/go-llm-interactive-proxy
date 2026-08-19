@@ -178,14 +178,9 @@ func TestTurnRecvOwnershipBaselineMatchesCurrentAST(t *testing.T) {
 	}
 }
 
-// TestTurnRecvOwnershipFinalTopology_RED is deliberately failing against the
-// flattened pre-migration type. It becomes the green architecture ratchet when
-// the final façade is an adapter over facts, attempt, recovery, response, and
-// terminal owners.
-func TestTurnRecvOwnershipFinalTopology_RED(t *testing.T) {
-	if os.Getenv("CHECK_TURN_RECV_FINAL_TOPOLOGY") != "1" {
-		t.Skip("set CHECK_TURN_RECV_FINAL_TOPOLOGY=1 to exercise the expected-red final topology ratchet")
-	}
+// TestTurnRecvOwnershipFinalTopology is the always-on architecture ratchet for
+// the final façade over facts, attempt, recovery, response, and terminal owners.
+func TestTurnRecvOwnershipFinalTopology(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	baseline, err := loadTurnRecvOwnershipBaseline(root)

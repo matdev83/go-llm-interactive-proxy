@@ -23,8 +23,10 @@ func TestRetryRecvStream_recvExecContext_mergesViewsAndRoutePrefs(t *testing.T) 
 			secureTurnOK: true,
 			secureTurn:   execctx.SecureSessionTurn{SessionID: domain.SessionID("ss"), TurnID: domain.TurnID("tt")},
 		}),
+		responsePipeline: newResponsePipeline(),
+		terminal:         newTurnTerminal(),
 	}
-	ctx := s.recvExecContext(context.Background())
+	ctx := s.responsePipeline.withDecisionEvidence(s.facts.projectContext(context.Background(), s.responsePipeline.log), s.terminal)
 	if got := diag.TraceID(ctx); got != "tr1" {
 		t.Fatalf("diag trace: got %q want tr1", got)
 	}

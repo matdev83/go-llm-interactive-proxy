@@ -74,7 +74,7 @@ func TestTask51BillingClosureAppendFailurePreservesDiagnosticLevels(t *testing.T
 				billingIdentityStamped: true, billingAccountID: "acct-1",
 				baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 			}
-			term.handoffBillingTurn(context.Background(), facts, sdkterminal.CommandNormalFinish)
+			term.handoffBillingTurn(context.Background(), facts.terminalFacts(), sdkterminal.CommandNormalFinish)
 			got := logs.String()
 			if !strings.Contains(got, `"level":"`+tc.level+`"`) {
 				t.Fatalf("append failure log level = %s, want %s: %s", got, tc.level, got)

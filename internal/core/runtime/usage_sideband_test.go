@@ -64,8 +64,8 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 	}
 	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
 	attempt := testAttemptSession(rs)
-	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
-	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
+	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(context.Background(), rs.facts, attempt, stream)
+	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(context.Background(), rs.facts, attempt, stream)
 
 	if got := len(rs.responsePipeline.seenEventsCopy()); got != 1 {
 		t.Fatalf("seen events = %d, want one sideband event", got)

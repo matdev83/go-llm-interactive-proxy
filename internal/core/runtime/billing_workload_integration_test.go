@@ -94,7 +94,7 @@ func TestBillingWorkloadIdentitySurvivesBareTerminalContextAndMatchesClosure(t *
 		}),
 	}
 	bindTestRuntimeOwners(stream, ex)
-	stream.terminal.handoffBillingTurn(bare, stream.facts, sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(bare, stream.facts.terminalFacts(), sdkterminal.CommandNormalFinish)
 	if gotCall.Workload != want {
 		t.Fatalf("call workload=%+v, want %+v", gotCall.Workload, want)
 	}
@@ -142,7 +142,7 @@ func TestTask51BillingLegProjectsFactsWithoutLogger(t *testing.T) {
 			routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	bindTestRuntimeOwners(stream, ex)
-	stream.terminal.recordBillingLegForAttempt(ctx, facts, stream.attempt.require(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true)
+	stream.terminal.recordBillingLegForAttempt(ctx, facts.terminalFacts(), stream.attempt.require(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, facts.billingCallState)
 	if got.Workload != want {
 		t.Fatalf("leg workload=%+v, want %v with nil logger", got.Workload, want)
 	}
@@ -173,11 +173,11 @@ func TestTask51NilLoggerSettlementProjection(t *testing.T) {
 	}
 	// Both settlement sites receive a bare context. The response owner exists,
 	// but deliberately has no logger; facts projection must still carry identity.
-	stream.finishCancellationAuthorityForAttempt(context.Background(), stream.attempt.require())
+	stream.terminal.finishCancellationAuthorityForAttempt(stream.facts.projectContext(context.Background(), stream.responsePipeline.log), stream.attempt.require(), stream.responsePipeline)
 	if requestAuthorityFrom(auth.applyCtx) != requestAuth || meteringHolderFrom(auth.applyCtx) != holder {
 		t.Fatalf("cancellation projection lost facts: requestAuth=%p/%p metering=%p/%p", requestAuthorityFrom(auth.applyCtx), requestAuth, meteringHolderFrom(auth.applyCtx), holder)
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(context.Background(), lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 1}); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(stream.facts.projectContext(context.Background(), stream.responsePipeline.log), lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 1}, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle request authority: %v", err)
 	}
 	if requestAuthorityFrom(settleCtx) != requestAuth || meteringHolderFrom(settleCtx) != holder {

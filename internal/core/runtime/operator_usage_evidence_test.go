@@ -137,9 +137,10 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 			lastAuthorityUsage: authoritative,
 			seenEvents:         []lipapi.Event{estimate},
 		},
+		terminal: newTurnTerminal(),
 	}
 
-	rs.settleCancellationAuthorityForAttempt(context.Background(), rs.attempt.snapshot())
+	rs.terminal.settleCancellationAuthorityForAttempt(context.Background(), rs.attempt.snapshot(), rs.responsePipeline)
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}

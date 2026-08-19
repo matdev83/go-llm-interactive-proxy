@@ -62,7 +62,7 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	// handleRecvEOF must defer finalizeTokenAccounting and settle to the downstream drain path
 	// in Recv: settle must not have run, recoverDrain must hold the Finish, and the stream
 	// must not yet be marked finished.
-	if _, err := rs.handleRecvEOF(context.Background()); err != nil {
+	if _, err := testRecvEOF(context.Background(), rs); err != nil {
 		t.Fatalf("handleRecvEOF: %v", err)
 	}
 	if auth.settleCalls.Load() != 0 {
@@ -162,12 +162,9 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	// centralized helper emits the synthesized usage_delta there). It returns a zero event with
 	// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check,
 	// rather than finalizing inline or driving a replacement iteration.
-	ev, cont, err := rs.handleRecvError(context.Background(), context.Background(), context.DeadlineExceeded, idleContextDeadline{active: true, parent: context.Background()}, ttftContextDeadline{})
+	ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err != nil {
 		t.Fatalf("handleRecvError: %v", err)
-	}
-	if cont {
-		t.Fatal("expected idle recovery to return to the caller so the next Recv drains recoverDrain")
 	}
 	if ev.Kind != "" {
 		t.Fatalf("deferred idle recovery event kind = %q, want empty (finish stays in recoverDrain)", ev.Kind)
@@ -297,7 +294,7 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
 	bindTestRuntimeOwners(rs, ex)
 
-	_, err := rs.handleRecvEOF(context.Background())
+	_, err := testRecvEOF(context.Background(), rs)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("handleRecvEOF err = %v, want EOF", err)
 	}
@@ -343,7 +340,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			}, authorityCandidate())),
 		}
 		bindTestRuntimeOwners(rs, ex)
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -393,7 +390,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
 		}
 		bindTestRuntimeOwners(rs, ex)
-		rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
+		rs.terminal.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"), rs.facts.terminalFacts(), rs.responsePipeline)
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("partial settle calls = %d, want 1", auth.settleCalls.Load())
 		}
@@ -408,7 +405,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		// reservation is already settled, so a strict reservation is not double-settled as
 		// Cancellation on top of the prior Partial settle. Previously this re-settled, which a
 		// strict authority store would reject or double-count; the leak fix removes that.
-		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 		if auth.settleCalls.Load() != 0 {
 			t.Fatalf("cancellation settle calls = %d, want 0 (already-settled reservation must not be double-settled)", auth.settleCalls.Load())
 		}
@@ -446,7 +443,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			}, authorityCandidate())),
 		}
 		bindTestRuntimeOwners(rs, ex)
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -503,7 +500,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			}, authorityCandidate())),
 		}
 		bindTestRuntimeOwners(rs, ex)
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}

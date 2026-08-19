@@ -382,7 +382,7 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	if testAttemptSession(rs).accounting.usageObserved {
 		t.Fatal("test staging: usageObserved must be false before persistCancellationBilling (path 2)")
 	}
-	rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
+	rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 	reserved, consumed = limitRow(t)
 	if reserved != 0 {

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -11,12 +12,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -65,7 +68,7 @@ type recoveryController struct {
 	suppressThinker     bool
 	suppressVisibleMemo bool
 	lastParallelFailure error
-	attemptFactory      func(replacementOpenResult, recvTurnFacts) *attemptSession
+	attemptFactory      func(replacementOpenResult, requestTerminalFacts) *attemptSession
 	postOpenLeg         func(context.Context, *billingCallState, string, b2bua.BLegRecord, routing.Primary, time.Time, time.Time)
 }
 
@@ -124,6 +127,60 @@ func newRecoveryController(in recoveryControllerInput) *recoveryController {
 		interleaved:                   in.interleaved,
 	}
 	return r
+}
+
+func (r *recoveryController) scopedIdleContext(parent context.Context, parentCancel context.CancelFunc, now time.Time) (context.Context, context.CancelFunc, idleContextDeadline) {
+	if r == nil || r.recoverPolicy == nil || parent == nil {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	deadline, ok := r.recoverPolicy.IdleDeadline()
+	if !ok {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	if !now.Before(deadline) {
+		deadline = now
+	}
+	if parentDeadline, ok := parent.Deadline(); ok && !deadline.Before(parentDeadline) {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	ctx, cancel := context.WithDeadline(parent, deadline)
+	return ctx, func() {
+		cancel()
+		parentCancel()
+	}, idleContextDeadline{active: true, parent: parent}
+}
+
+type recvRecoveryDecision struct {
+	finish      bool
+	recover     bool
+	reason      string
+	err         error
+	warning     lipapi.Event
+	finishEvent lipapi.Event
+}
+
+func (r *recoveryController) idleRecvDecision(now time.Time) recvRecoveryDecision {
+	if r == nil || r.recoverPolicy == nil {
+		return recvRecoveryDecision{}
+	}
+	dec := r.recoverPolicy.DecideIdle(now)
+	return recvRecoveryDecision{
+		finish:  dec.Kind == streamrecovery.DecisionFinishPostOutput,
+		recover: dec.Kind == streamrecovery.DecisionRecoverPreOutput,
+		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
+	}
+}
+
+func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision {
+	if r == nil || r.recoverPolicy == nil {
+		return recvRecoveryDecision{}
+	}
+	dec := r.recoverPolicy.DecideEOF(io.EOF, now)
+	return recvRecoveryDecision{
+		finish:  dec.Kind == streamrecovery.DecisionFinishPostOutput,
+		recover: dec.Kind == streamrecovery.DecisionRecoverPreOutput,
+		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
+	}
 }
 
 // bindOpener supports focused runtime fixtures that construct a stream owner
@@ -244,7 +301,7 @@ type priorAttemptOutcome struct {
 // replacementOpenRequest/result are the narrow D10 adapter seam. Consumers do
 // not need to know the upstream attemptOpenParams representation.
 type replacementOpenRequest struct {
-	facts               recvTurnFacts
+	facts               requestTerminalFacts
 	recovery            recoveryOpenSnapshot
 	prior               priorAttemptOutcome
 	isRetryPath         bool
@@ -263,6 +320,15 @@ type replacementOpenResult struct {
 	interleaved interleavedstate.State
 }
 
+// replacementIterationResult is the recovery-owned decision and fully built
+// next attempt. Slot publication and terminal registration remain outside this
+// value so Close can arbitrate publication in one explicit Recv sequence.
+type replacementIterationResult struct {
+	opened bool
+	open   replacementOpenResult
+	next   *attemptSession
+}
+
 type replacementOpener func(context.Context, replacementOpenRequest) (replacementOpenResult, error)
 
 // newReplacementOpener is the documented D10 upstream bridge. Recovery owns
@@ -279,8 +345,8 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 			traceID:                  req.facts.traceID,
 			aLegID:                   req.facts.aLegID,
 			aScope:                   aScope,
-			baseline:                 req.facts.baseline,
-			failoverReq:              capabilities.NewFailoverRequirementSet(req.facts.baseline),
+			baseline:                 req.facts.call,
+			failoverReq:              capabilities.NewFailoverRequirementSet(req.facts.call),
 			sel:                      p.sel,
 			requestSize:              p.requestSize,
 			session:                  p.session,
@@ -301,7 +367,7 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 			suppressVisibleMemo:      req.suppressVisibleMemo,
 			lastParallelFailure:      p.lastParallelFailure,
 			billingCallID:            req.facts.billingCallID,
-			billingCallState:         req.facts.billingCallState,
+			billingCallState:         req.facts.billingState,
 		})
 		if err != nil {
 			return replacementOpenResult{}, err
@@ -318,11 +384,11 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 	}
 }
 
-func (r *recoveryController) openReplacement(ctx context.Context, facts recvTurnFacts, terminal *turnTerminal, prior *attemptSession) (replacementOpenResult, error) {
+func (r *recoveryController) openReplacement(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementOpenResult, error) {
 	if r == nil || r.opener == nil {
 		return replacementOpenResult{}, errors.New("runtime: replacement opener unavailable")
 	}
-	if r.turnCommitted(terminal) {
+	if committed {
 		return replacementOpenResult{}, errRecoveryTurnCommitted
 	}
 	priorOutcome := priorAttemptOutcome{
@@ -333,7 +399,7 @@ func (r *recoveryController) openReplacement(ctx context.Context, facts recvTurn
 		return replacementOpenResult{}, errRecoveryPriorAttemptNotRetired
 	}
 	out, err := r.opener(ctx, replacementOpenRequest{
-		facts:               facts,
+		facts:               request,
 		recovery:            r.openSnapshot(),
 		prior:               priorOutcome,
 		isRetryPath:         true,
@@ -359,7 +425,7 @@ func (r *recoveryController) openInterleavedAttempt(
 		return attemptOpenResult{}, errors.New("runtime: interleaved opener unavailable")
 	}
 	out, err := r.opener(ctx, replacementOpenRequest{
-		facts:               facts,
+		facts:               facts.terminalFacts(),
 		recovery:            r.openSnapshot(),
 		prior:               priorAttemptOutcome{retired: true},
 		isRetryPath:         false,
@@ -397,11 +463,11 @@ func (r *recoveryController) resetPolicy(now func() time.Time) {
 	r.recoverPolicy = streamrecovery.NewPolicy(r.streamRecovery, now())
 }
 
-func (r *recoveryController) buildReplacementAttempt(out replacementOpenResult, facts recvTurnFacts) *attemptSession {
+func (r *recoveryController) buildReplacementAttempt(out replacementOpenResult, request requestTerminalFacts) *attemptSession {
 	if r == nil || r.attemptFactory == nil {
 		return nil
 	}
-	return r.attemptFactory(out, facts)
+	return r.attemptFactory(out, request)
 }
 
 func (r *recoveryController) logMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool) {
@@ -458,7 +524,7 @@ func (r *recoveryController) exclude(key string) {
 	r.excluded[key] = struct{}{}
 }
 
-func (r *recoveryController) commitAffinity(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, now time.Time, reason string) {
+func (r *recoveryController) commitAffinity(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, now time.Time, reason string) {
 	if r == nil || r.commitAffinityFn == nil || !r.affinitySet || !r.affinityKey.Valid() || attempt == nil {
 		return
 	}
@@ -467,6 +533,41 @@ func (r *recoveryController) commitAffinity(ctx context.Context, facts recvTurnF
 		if strings.TrimSpace(binding.BackendID) == "" {
 			return
 		}
-		r.commitAffinityFn(ctx, binding, facts.traceID)
+		r.commitAffinityFn(ctx, binding, request.traceID)
 	})
+}
+
+// tryReplacementIteration performs recovery-owned planning, admission, and
+// construction of one replacement attempt. Recv owns registration, slot
+// publication, response evidence, and terminal observation after this result.
+func (r *recoveryController) tryReplacementIteration(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementIterationResult, error) {
+	var result replacementIterationResult
+	if r == nil {
+		return result, errors.New("runtime: recv recovery controller unavailable")
+	}
+	if prior == nil {
+		return result, errors.New("runtime: replacement attempt unavailable")
+	}
+	ctx = diag.EnsureCallDiag(ctx, request.traceID, request.aLegID)
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if request.replacementBlocked {
+		return result, &lipapi.UpstreamFailureError{Phase: lipapi.PhasePostOutput, Recoverable: false, Reason: "secure session mandatory recorder failure after committed output", CandidateKey: strings.TrimSpace(prior.cand.Key)}
+	}
+	if !prior.authority.Settled() {
+		prior.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+	}
+	out, err := r.openReplacement(ctx, request, prior, committed)
+	if err != nil || !out.opened {
+		return result, err
+	}
+	next := r.buildReplacementAttempt(out, request)
+	if next == nil {
+		return result, errors.New("runtime: replacement attempt construction unavailable")
+	}
+	result.opened = true
+	result.open = out
+	result.next = next
+	return result, nil
 }

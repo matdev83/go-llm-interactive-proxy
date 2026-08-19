@@ -13,7 +13,7 @@ import (
 // handoffBillingTurn owns the request-level BillingCallID closure claim. The
 // terminal mutex remains held through the sink append so a failed append is
 // retryable while concurrent terminal paths cannot publish duplicate closures.
-func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFacts, command sdkterminal.Command) {
+func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerminalFacts, command sdkterminal.Command) {
 	if t == nil || t.appendBillingCall == nil || t.billingWorkload == nil {
 		return
 	}
@@ -25,16 +25,16 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFac
 	if err := facts.billingCallID.Validate(); err != nil {
 		return
 	}
-	if !facts.billingIdentityStamped {
+	if !facts.identityStamped {
 		return
 	}
-	accountID := strings.TrimSpace(facts.billingAccountID)
+	accountID := strings.TrimSpace(facts.accountID)
 	if accountID == "" {
 		return
 	}
-	ids := facts.billingCallState.freezeAllocatedBLegs()
+	ids := facts.billingState.freezeAllocatedBLegs()
 	now := t.nowTime()
-	started, finished := facts.billingCallState.timingBounds(now)
+	started, finished := facts.billingState.timingBounds(now)
 	workloadCtx := ctx
 	if facts.requestAuth != nil {
 		workloadCtx = withRequestAuthority(workloadCtx, facts.requestAuth)
@@ -44,12 +44,12 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFac
 		CallID:             facts.billingCallID,
 		AccountID:          accountID,
 		ALegID:             strings.TrimSpace(facts.aLegID),
-		SessionID:          strings.TrimSpace(facts.baseline.Session.AuthoritativeSessionID),
+		SessionID:          strings.TrimSpace(facts.sessionID),
 		StartedAt:          started,
 		FinishedAt:         finished,
 		Outcome:            turnOutcomeFromCommand(command),
-		CustomerPricingRef: facts.billingCustomerPricing,
-		ChargePolicyRef:    facts.billingChargePolicy,
+		CustomerPricingRef: facts.pricing,
+		ChargePolicyRef:    facts.chargePolicy,
 		ExpectedBLegIDs:    ids,
 		Workload:           t.billingWorkload(workloadCtx, facts.aLegID),
 	}

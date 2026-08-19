@@ -55,7 +55,7 @@ func TestTask32TerminalEconomics_ConcurrentFinalizationHasOneWinner(t *testing.T
 	results := make(chan error, 2)
 	var calls atomic.Int32
 	go func() {
-		_, _, err := stream.finalizeResponseFinishedAuthority(context.Background(), finish)
+		_, _, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 		calls.Add(1)
 		results <- err
 	}()
@@ -66,7 +66,7 @@ func TestTask32TerminalEconomics_ConcurrentFinalizationHasOneWinner(t *testing.T
 	}
 	loserDone := make(chan error, 1)
 	go func() {
-		_, _, err := stream.finalizeResponseFinishedAuthority(context.Background(), finish)
+		_, _, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 		calls.Add(1)
 		loserDone <- err
 	}()
@@ -121,7 +121,7 @@ func TestTask32TerminalEconomics_OldAttemptCallbackRecordsOnlyOldBLeg(t *testing
 		t.Fatalf("attempt swap detached=%p published=%v, want old=%p", detached, published, old)
 	}
 	callback := func(ctx context.Context) {
-		stream.terminal.recordBillingLegForAttempt(ctx, stream.facts, old, sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false)
+		stream.terminal.recordBillingLegForAttempt(ctx, stream.facts.terminalFacts(), old, old.terminalEvidence(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false, stream.facts.billingCallState)
 	}
 	callback(context.Background())
 	mu.Lock()
@@ -163,7 +163,7 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 	old := stream.attempt.snapshot()
 	callback := func(ctx context.Context) error {
 		result := testTerminalizeRequestForAttempt(stream, ctx, sdkterminal.CommandClose, old, func(cctx context.Context) error {
-			stream.settleCancellationAuthorityForAttempt(cctx, old)
+			stream.terminal.settleCancellationAuthorityForAttempt(cctx, old, stream.responsePipeline)
 			return nil
 		})
 		return result.Err

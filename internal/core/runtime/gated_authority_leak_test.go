@@ -150,12 +150,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		auth := makeAuth(nil)
 		_, rs := setupGatedStream(t, auth)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		assertSettledNotReleased(t, auth, rs, ev)
 	})
@@ -165,12 +162,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		auth := makeAuth(errors.New("settle boom"))
 		_, rs := setupGatedStream(t, auth)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		assertReleasedAfterFailedSettle(t, auth, rs)
 		if ev.Kind != lipapi.EventResponseFinished {
@@ -188,12 +182,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		}, accountingstream.Config{})
 		bindTestRuntimeOwners(rs, ex)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		// The ok branch returns the synthesized usage event, not the finish event.
 		if ev.Kind != lipapi.EventUsageDelta {

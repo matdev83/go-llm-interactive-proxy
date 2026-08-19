@@ -51,8 +51,8 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	closeDone := make(chan struct{})
 	go func() {
 		_ = testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
-			rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client close")
-			rs.markFinished()
+			rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client close", rs.facts.terminalFacts(), rs.responsePipeline)
+			rs.terminal.finishResponse(rs.responsePipeline, rs.attempt.snapshot())
 			return nil
 		})
 		close(closeDone)
@@ -60,7 +60,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	<-closeDone
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
-	_, ok, err := rs.finalizeResponseFinishedAuthority(context.Background(), finish)
+	_, ok, err := rs.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, rs.facts.terminalFacts(), rs.attempt.snapshot(), rs.responsePipeline)
 	if ok {
 		t.Fatal("NormalFinish must not report ok after Close won")
 	}
@@ -68,11 +68,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		t.Fatal("NormalFinish loser must surface cancel/error")
 	}
 
-	pm, _ := rs.recvHookMeta()
-	ev, cont, pathErr := rs.handleResponseFinishedPath(context.Background(), finish, pm)
-	if cont {
-		t.Fatal("must not continue after lost finish")
-	}
+	_, _, pathErr := rs.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, rs.facts.terminalFacts(), rs.attempt.snapshot(), rs.responsePipeline)
 	if pathErr == nil {
 		t.Fatal("handleResponseFinishedPath must error when Close already won")
 	}
@@ -81,9 +77,6 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	}
 	if errors.Is(pathErr, context.Canceled) && !errors.Is(pathErr, leglifecycle.ErrALegCanceled) {
 		t.Fatalf("must not surface bare context.Canceled: %v", pathErr)
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		t.Fatal("must not emit response_finished after Close won")
 	}
 }
 
@@ -209,8 +202,7 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 	bindTestRuntimeOwners(rs, ex)
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
-	pm, _ := rs.recvHookMeta()
-	_, _, err := rs.handleResponseFinishedPath(context.Background(), finish, pm)
+	_, err := testRecvOne(context.Background(), rs, finish)
 	if !errors.Is(err, encErr) {
 		t.Fatalf("err=%v want encoder", err)
 	}
@@ -250,8 +242,8 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 	}
 	installTestTurnTerminal(rs)
 	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
-		rs.persistCancellationBilling(cctx, rs.attempt.snapshot(), "context canceled")
-		rs.markFinished()
+		rs.terminal.persistCancellationBilling(cctx, rs.attempt.snapshot(), "context canceled", rs.facts.terminalFacts(), rs.responsePipeline)
+		rs.terminal.finishResponse(rs.responsePipeline, rs.attempt.snapshot())
 		return nil
 	})
 	if !r.Won || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
@@ -299,9 +291,9 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-part", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	installTestTurnTerminal(rs)
-	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
-	if !errors.Is(err, hookErr) || cont {
-		t.Fatalf("err=%v cont=%v", err, cont)
+	_, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+	if !errors.Is(err, hookErr) {
+		t.Fatalf("err=%v", err)
 	}
 	if rs.terminal == nil || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
 		t.Fatal("response part failure must terminalize request")

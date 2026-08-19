@@ -107,68 +107,69 @@ func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary)
 // recordBillingLegForAttempt records exactly one leg for the explicitly
 // snapshotted B-leg owner. Terminal callbacks may run after the attempt slot
 // has been replaced; never re-read the current slot here.
-func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, command sdkterminal.Command, streamEv lipapi.Event, committed bool) {
+func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, evidence attemptTerminalEvidence, command sdkterminal.Command, streamEv lipapi.Event, committed bool, billingState *billingCallState) {
 	if t == nil || t.billingEnabled == nil || !t.billingEnabled() || t.operatorRateRef == nil || t.billingWorkload == nil {
 		return
 	}
 	if attempt == nil || !attempt.claimBillingLegRecord() {
 		return
 	}
-	blegID := strings.TrimSpace(attempt.bleg.BLegID)
+	blegID := strings.TrimSpace(evidence.bleg.BLegID)
 	if blegID == "" {
-		blegID = billingSyntheticBLegID(attempt.bleg.Seq)
+		blegID = billingSyntheticBLegID(evidence.bleg.Seq)
 	}
-	if attempt.bleg.Seq > 0 {
-		facts.billingCallState.noteAllocatedBLeg(blegID, attempt.bleg.Seq)
+	if evidence.bleg.Seq > 0 && billingState != nil {
+		billingState.noteAllocatedBLeg(blegID, evidence.bleg.Seq)
 	}
 	now := t.nowTime()
-	started := attempt.accounting.requestStartedAt
+	started := evidence.startedAt
 	if started.IsZero() {
 		started = now
 	}
-	facts.billingCallState.noteLegTimes(started, now)
+	if billingState != nil {
+		billingState.noteLegTimes(started, now)
+	}
 	surfaced := billing.SurfacedNo
 	if command == sdkterminal.CommandNormalFinish || committed {
 		surfaced = billing.SurfacedYes
 	}
 	workloadCtx := ctx
-	workloadCtx = facts.projectContext(workloadCtx, t.log)
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:          facts.billingCallID,
-		aLegID:          facts.aLegID,
-		bLegID:          attempt.bleg.BLegID,
-		seq:             attempt.bleg.Seq,
-		primary:         attempt.cand.Primary,
+		callID:          request.billingCallID,
+		aLegID:          request.aLegID,
+		bLegID:          evidence.bleg.BLegID,
+		seq:             evidence.bleg.Seq,
+		primary:         evidence.candidate.Primary,
 		startedAt:       started,
 		finishedAt:      now,
 		command:         command,
 		surfaced:        surfaced,
-		finalize:        t.finalizeBillingEvidence(ctx, facts, attempt, "record_leg", streamEv),
+		finalize:        t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
 		stream:          streamEv,
-		operatorRateRef: t.operatorRateRef(workloadCtx, attempt.cand.Primary),
-		workload:        t.billingWorkload(workloadCtx, facts.aLegID),
+		operatorRateRef: t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
+		workload:        t.billingWorkload(workloadCtx, request.aLegID),
 	})
 	if t.observeBillingLeg != nil {
 		t.observeBillingLeg(ctx, legRecord)
 	}
 	if t.appendBillingLeg != nil {
-		t.appendBillingLeg(ctx, facts.billingCallID, legRecord)
+		t.appendBillingLeg(ctx, request.billingCallID, legRecord)
 	}
 }
 
-func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, reason string, fallback lipapi.Event) lipapi.Event {
+func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event) lipapi.Event {
 	if t == nil || t.finalizeBilling == nil {
 		return fallback
 	}
-	if attempt == nil {
+	if billingState == nil {
 		return fallback
 	}
-	ev, ok := facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
-		TraceID: strings.TrimSpace(facts.traceID),
-		ALegID:  strings.TrimSpace(facts.aLegID),
-		BLegID:  strings.TrimSpace(attempt.bleg.BLegID),
-		Backend: strings.TrimSpace(attempt.cand.Primary.Backend),
-		Model:   strings.TrimSpace(attempt.cand.Primary.Model),
+	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+		TraceID: strings.TrimSpace(request.traceID),
+		ALegID:  strings.TrimSpace(request.aLegID),
+		BLegID:  strings.TrimSpace(evidence.bleg.BLegID),
+		Backend: strings.TrimSpace(evidence.candidate.Primary.Backend),
+		Model:   strings.TrimSpace(evidence.candidate.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
 	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
 		return t.finalizeBilling(cctx, in)

@@ -92,8 +92,7 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 	}
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
-	stream.bindResponsePipeline()
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline)
 
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("customer SettleRequest calls=%d want 1", prov.settleCalls.Load())
@@ -254,7 +253,6 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 	}
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
-	stream.bindResponsePipeline()
 	stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeWinner, metering.SurfacedYes, beUsage)
 	customerEv := stream.responsePipeline.resolveCustomerUsage(ctx, authorityEv)
 	stream.terminal.emitFrontendEgressMeteringFact(ctx, stream.facts.traceID, customerEv)
@@ -340,9 +338,8 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	}
 	bindTestRuntimeOwners(stream, ex)
 	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
-	stream.bindResponsePipeline()
 	stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline)
 
 	var beEgress *metering.Fact
 	for i := range rec.facts {
@@ -591,7 +588,7 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 		traceID: "trace-parallel",
 	}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-winner"}, routing.AttemptCandidate{}, authorityLifecycle{})}
 	bindTestRuntimeOwners(stream, ex)
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
 	if reqProv.settleCalls.Load() != 1 {
 		t.Fatalf("customer settlements=%d want 1", reqProv.settleCalls.Load())

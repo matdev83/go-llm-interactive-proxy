@@ -133,7 +133,7 @@ func dispatchClientFacing(t *testing.T, s *retryRecvStream, ev lipapi.Event) {
 	if s.attempt.snapshot() == nil {
 		testAttemptSession(s)
 	}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+	if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 		t.Fatalf("dispatch %s %s: %v", ev.Kind, ev.ToolCallID, err)
 	}
 }
@@ -197,7 +197,7 @@ func TestDispatchClientFacingEvent_lifecycleClassification(t *testing.T) {
 		{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"},
 	}
 	for i, ev := range events {
-		if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+		if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 			t.Fatalf("event %d: %v", i, err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestDispatchClientFacingEvent_orphanNamelessIsConservative(t *testing.T) {
 	testAttemptSession(s)
 
 	ev := lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+	if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
 	if len(rec.seen) != 1 {
@@ -242,11 +242,11 @@ func TestDispatchClientFacingEvent_responsePartHookRenameRefreshesLifecycle(t *t
 	testAttemptSession(s)
 
 	start := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), start); err != nil {
+	if _, err := testRecvOne(context.Background(), s, start); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	delta := lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), delta); err != nil {
+	if _, err := testRecvOne(context.Background(), s, delta); err != nil {
 		t.Fatalf("delta: %v", err)
 	}
 
@@ -287,8 +287,16 @@ func TestFinalizerRenamedLifecycleClassifiedNormally(t *testing.T) {
 		if !ok {
 			break
 		}
-		if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
-			t.Fatalf("dispatch: %v", err)
+		prepared := recvEventPreparation{event: ev}
+		transformed := s.responsePipeline.transformClientEvent(context.Background(), s.facts, s.attempt.require(), ev, prepared)
+		if transformed.err != nil {
+			t.Fatalf("dispatch: %v", transformed.err)
+		}
+		if transformed.swallowed {
+			if transformed.sourceFinished {
+				s.responsePipeline.forgetToolClassification(transformed.sourceID)
+			}
+			continue
 		}
 	}
 
@@ -351,7 +359,9 @@ func TestDispatchClientFacingEvent_swallowedFinishCleanupPreventsStaleReuse(t *t
 	testAttemptSession(s)
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
-	_, swallowed, err := s.dispatchClientFacingEvent(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"})
+	prepared := recvEventPreparation{event: lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"}}
+	transformed := s.responsePipeline.transformClientEvent(context.Background(), s.facts, s.attempt.require(), prepared.event, prepared)
+	swallowed, err := transformed.swallowed, transformed.err
 	if err != nil {
 		t.Fatalf("finish: %v", err)
 	}
