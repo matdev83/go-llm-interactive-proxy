@@ -2,7 +2,7 @@
 
 ## Scope
 
-This analysis compares `requirements.md` against current `main` as of 2026-08-19. The repository already implements most of the difficult lifecycle and infrastructure around issue #369. The remaining gap is not a new generic compression subsystem; it is a narrow bridge between the existing reasoning-preservation artifact lifecycle and the generic auxiliary/background execution capability.
+This analysis compares the hardened `requirements.md` against current `main` as of 2026-08-19. The repository already implements most of the difficult lifecycle and infrastructure around issue #369. The remaining work is not a new generic compression subsystem; it is a narrow bridge between the existing reasoning-preservation artifact lifecycle and generic auxiliary/background execution, with five additional safety constraints discovered during PR review.
 
 ## Existing Authorities That Must Be Reused
 
@@ -10,25 +10,23 @@ This analysis compares `requirements.md` against current `main` as of 2026-08-19
 
 Current package: `internal/plugins/features/reasoningpreservation`.
 
-Important landed behavior:
+Landed behavior:
 
 - `StreamObserverFactory.Open` resolves capture eligibility for the surfaced candidate.
-- The observer consumes defensive canonical stream events and distinguishes text reasoning, reasoning signatures, opaque reasoning, exact reasoning parts, tools, text, images, and files.
+- Observer consumes defensive canonical stream events and distinguishes text reasoning, signatures, opaque reasoning, exact reasoning parts, tools, text, images, and files.
 - `Finish` commits only for `response.OutcomeSuccessReleased`.
 - Original reasoning is stored as `TurnArtifact.Reasoning []PlacedReasoning` with exact placement relative to non-reasoning parts.
-- The artifact is scoped through the authoritative session partition and matched later by the existing `AttemptTransform`.
-- Existing state is bounded by TTL, artifacts/session, bytes/turn, and bytes/session.
-- Existing telemetry intentionally avoids reasoning contents.
+- Artifact is scoped by authoritative session partition and later matched by existing `AttemptTransform`.
+- Authoritative state is bounded by TTL, turns/session, bytes/turn, and bytes/session.
+- Telemetry avoids reasoning contents.
 
-**Conclusion:** do not create another observer, reasoning transcript, matching engine, or replay owner. Compression must extend this feature after original artifact commit.
+**Conclusion:** do not create another observer, reasoning transcript, matching engine, or replay owner. Compression extends this feature only after original artifact commit.
 
-### 2. Exact/native replay is already a first-class contract
+### 2. Exact/native replay is already first-class
 
-The completed OpenAI Responses and direct Codex work already requires exact item/opaque/encrypted continuity. Direct Codex additionally owns native `/responses/compact` checkpoint behavior.
+Completed OpenAI Responses/direct Codex work requires exact item/opaque/encrypted continuity. Direct Codex owns native `/responses/compact` checkpoint behavior. Anthropic signed/redacted/opaque thinking also demonstrates structures where readable text is not sufficient proof of mutability.
 
-The standard composition also installs a bounded Codex companion rule/continuity marker around `reasoning-output-preservation`, but native connector policy remains separate.
-
-**Conclusion:** semantic compression is not a replacement for existing native compaction. Exactness must be represented as an explicit semantic classification and take precedence even when an exact artifact contains readable text.
+**Conclusion:** semantic compression is not native compaction replacement. Exactness must be explicit and override readable text.
 
 ### 3. Generic auxiliary/background infrastructure already exists
 
@@ -38,255 +36,299 @@ Current packages:
 - `internal/core/auxreq`;
 - runtime composition that binds generation-local auxiliary clients.
 
-Landed capabilities include:
+Landed capabilities:
 
 - normal Executor/routing/B2BUA execution;
 - detached private child calls;
-- originating principal scope propagation;
-- normal admission/billing/metering path;
-- bounded worker pool and queue;
+- originating principal/scope propagation;
+- ordinary admission/billing/metering;
+- bounded worker pool/queue/results;
 - coalescing;
-- generation pin retention;
-- bounded job timeout;
-- bounded retained results and TTL;
+- generation-pin retention;
+- bounded job timeout/result TTL/result bytes;
 - explicit `Forget`;
-- feature self-disable patterns from `compaction-continuity`.
+- feature self-disable patterns.
 
-**Conclusion:** do not add a provider client, compressor-specific worker pool, goroutine-per-artifact scheduler, second billing seam, or dependency on the `compactioncontinuity` feature package.
+Historical exported `BackgroundClient` contains `SubmitCollect`, `Await`, and `Forget` only.
+
+**Conclusion:** do not add provider client, compressor worker pool, goroutine-per-artifact scheduler, second billing seam, or dependency on `compactioncontinuity` feature semantics.
+
+### 4. Auxiliary model content and control-plane metadata are already separate
+
+`auxiliary.Request` envelope carries role, visibility, detached session mode, parent lineage, disabled plugins and canonical child `Call`. Core auxiliary execution also propagates cloned trusted principal/scope for authorization/accounting.
+
+**Conclusion:** the model-visible privacy boundary is `Call.Messages`/prompt content, not the entire auxiliary request. Required control-plane metadata must remain while staying out of the model prompt/content telemetry.
 
 ## Requirement-by-Requirement Gap Map
 
 | Requirement | Current state | Gap / action |
 |---|---|---|
-| R1 exact/native baseline | Strong existing exact replay/native compaction | Add explicit non-compressible semantic classification and architecture tests preventing exact payload egress to compressor |
-| R2 replay semantics | Replay dialect support exists, but no lossy/semantic replay class | Add one typed classification/profile authority used at capture and destination replay |
-| R3 opt-in config | Reasoning config has no `compression` block | Add strictly decoded nested config; disabled default and shadow/active modes |
-| R4 original-before-compression | Existing observer already has correct `success_released` append point | Hook optional submission only after successful original `Append`; no pre-commit job |
-| R5 non-destructive store | `TurnArtifact` contains original only | Add bounded pending/surrogate state plus CAS/update operations without replacing original |
-| R6 generic auxiliary | Infrastructure exists | Bind narrow generic auxiliary capability into reasoning feature; create feature-specific compressor request/validator only |
-| R7 billing | Aux execution already traverses ordinary economic path | Add compressor workload role and tests for originating principal/admission/settlement |
-| R8 output validation | No reasoning compressor exists | Add ordinary-text result validator, hard bounds, no-tools validation, savings policy |
-| R9 non-blocking adoption | `BackgroundClient` has `SubmitCollect`, blocking `Await`, `Forget` only | Add a generic non-blocking result inspection operation; avoid timing hacks/callback goroutines |
-| R10 target revalidation | AttemptTransform already validates replay dialects | Extend with semantic replay permission and surrogate selection; original remains fallback |
-| R11 shadow evidence | No compression telemetry | Add content-free compression outcome/size/savings metrics and shadow-only behavior |
-| R12 architecture | Existing ownership mostly correct | Avoid widening response observer services if a constructor/composition port suffices; add dependency/lifecycle gates |
-| R13 release evidence | Strong reasoning E2E and compaction/aux tests exist | Extend existing suites instead of building new Cartesian matrices |
+| R1 exact/native baseline | Strong existing exact replay/native compaction | Add explicit non-compressible semantic classification and egress architecture guards |
+| R2 replay semantics | Replay dialect support exists; no lossy/semantic class | Add one canonical typed classifier reused by source and active destination selection |
+| R3 opt-in bounded config | No `compression` block | Add strict nested config including raw output bytes and aggregate optional-state limits |
+| R4 original-before-compression | Correct `success_released` append point exists | Hook only after successful original append; reserve optional capacity before provider work |
+| R5 non-destructive store | Original-only artifact | Add CAS reservation/pending/surrogate state plus per-session and feature-instance aggregate limits |
+| R6 generic auxiliary/source compatibility | Background infrastructure exists; exported `BackgroundClient` has three methods | Add **separate optional poll capability**, not a required new method on `BackgroundClient` |
+| R7 ordinary-text privacy | Semantic structure is observable; no feature-specific compressor egress policy | Add narrow trusted allow/redact/deny egress decision and reuse existing sanitizer authority where available |
+| R8 metadata separation | Aux envelope/context already carries trusted identity/lineage | Make model-content vs control-plane contract explicit and test it |
+| R9 billing | Aux execution traverses ordinary economic path | Add workload role and originating principal/admission/settlement tests |
+| R10 result validation/allocation | No compressor exists | Add feature raw `max_output_bytes` before decode, strict schema/decoded bounds/savings |
+| R11 non-blocking adoption | `Await` blocks | Add source-compatible optional non-blocking poll capability; no callbacks/poll workers |
+| R12 target revalidation | AttemptTransform already validates replay dialects | Add surrogate selection using canonical class + existing destination replay support |
+| R13 shadow/release evidence | No compression telemetry/evidence | Add content-free shadow metrics, race/fuzz/security/performance/repository gates |
 
-## Critical Gap 1: There Is No Semantic Compression Classification
+## Critical Gap 1: No Semantic Compression Classification
 
-Current reasoning preservation knows whether a candidate is eligible for replay and which dialects it can represent. It does not currently say whether a retained artifact may be lossily rewritten.
+Current reasoning preservation knows candidate eligibility and representable dialects, but not whether a retained artifact may be lossily rewritten.
 
-Treating `ReasoningPart.Text != ""` as compressibility would be unsafe because:
+Unsafe shortcut: `ReasoningPart.Text != ""`.
 
-- exact Responses items may contain textual summary/content while still requiring exact item replay;
-- Anthropic thinking may carry signatures whose validity is coupled to content;
-- provider-native continuity/checkpoint artifacts may contain inspectable text but still be exact authority;
-- future providers may introduce new signed/opaque mixed structures.
+Why unsafe:
+
+- exact Responses items may contain readable text while exact item replay remains authority;
+- Anthropic thinking may carry signatures coupled to content;
+- provider-native continuity may expose inspectable text yet remain exact;
+- future providers may add mixed signed/opaque structures.
 
 ### Required remediation
 
-Introduce one typed semantic authority, feature/canonical in nature, with an unknown/default state that fails closed. A possible shape is:
+Add one pure canonical semantic authority with unknown default failing closed, conceptually:
 
 ```go
 type ReplaySemantics uint8
-
 const (
-    ReplaySemanticsUnknown ReplaySemantics = iota
-    ReplaySemanticsExact
-    ReplaySemanticsSemanticText
-    ReplaySemanticsNotPersisted
+    ReplayUnknown ReplaySemantics = iota
+    ReplayExactRequired
+    ReplaySemanticText
 )
 ```
 
-The final naming/location is a design choice, but capture submission and destination replay must consult the same authority.
+Source submission and destination surrogate selection consult the same authority. No provider-name conditionals.
 
-Do not create provider-name conditionals in core. Provider adapters/profile composition may contribute facts, while reasoning preservation resolves the effective semantic policy.
+## Critical Gap 2: Artifact Storage Cannot Represent Safe Async Compression
 
-## Critical Gap 2: Current Artifact Storage Cannot Represent Safe Async Compression
+Current artifact has ID, anchor, source identity, original placements, creation time, and original byte count. Missing:
 
-Current `TurnArtifact` has an ID, anchor, source identity, original placements, creation time, and original reasoning byte count. There is no place for:
-
-- a pending auxiliary job reference;
-- source/policy digest needed to validate a late result;
-- a validated surrogate;
-- surrogate byte/token accounting;
-- compression mode/profile metadata.
+- optional reservation/pending job reference;
+- source/policy digest for late-result validation;
+- validated surrogate;
+- optional byte/count accounting;
+- aggregate optional-state totals.
 
 ### Required remediation
 
-Keep `Reasoning` unchanged as the authoritative original and add bounded optional state. Conceptually:
+Keep `Reasoning` unchanged and authoritative. Add bounded optional state and internal atomic/CAS operations:
 
 ```text
 TurnArtifact
-  original reasoning placements  <-- authoritative
-  pending compression?           <-- optional bounded reference
-  validated surrogate?           <-- optional bounded replay optimization
+  original placements          authoritative
+  optional reservation/pending
+  optional validated surrogate
 ```
 
-The store needs atomic compare-and-set/equivalent operations such as:
+Reserve optional pending capacity **before** provider submission. Optional state must never evict an otherwise-retained original.
 
-- attach pending compression if artifact ID/anchor/revision still matches;
-- attach validated surrogate only for the matching pending/source revision;
-- clear/forget stale pending work;
-- preserve original even when optional compression budget is exhausted.
+## Critical Gap 3: Per-Session Optional Bounds Alone Are Insufficient
 
-A surrogate must never cause authoritative original eviction merely to fit an optimization. This suggests a dedicated bounded optional-compression byte budget or a store rule that rejects optional attachment rather than evicting the original.
-
-## Critical Gap 3: Background Result Adoption Needs a Non-Blocking API
-
-Current `pkg/lipsdk/auxiliary.BackgroundClient` is:
-
-```go
-SubmitCollect(...)
-Await(...)
-Forget(...)
-```
-
-`Await` is blocking until completion/error/context cancellation. Reasoning compression has no natural compaction barrier at which waiting is required, and waiting inside `StreamObserver.Finish` would make primary response release dependent on auxiliary inference.
-
-A separate callback/maintenance goroutine would introduce a new lifecycle owner and allow late callbacks to mutate retired feature/store state.
+The initial spec bounded pending/surrogate state per session/turn only. An attacker/high-volume user could create many sessions and grow feature/process memory proportionally.
 
 ### Required remediation
 
-Add a small additive generic non-blocking inspection API. Exact naming is design-level, e.g.:
+Add feature-instance hard limits:
+
+- total pending references across sessions;
+- total surrogate bytes across sessions.
+
+Maintain totals atomically with reservation, attach, delete, expiry, original eviction and stale cleanup. Multi-session tests prove aggregate exhaustion rejects optional state and originals remain intact.
+
+A future account-specific quota is product policy; the feature-instance hard bound is the minimum memory-safety requirement.
+
+## Critical Gap 4: Non-Blocking Adoption Must Preserve Exported SDK Source Compatibility
+
+Current exported interface:
 
 ```go
-type BackgroundResultState uint8
-
-type PollResult struct {
-    State BackgroundResultState // pending|completed|failed|not_found
-    Collected lipapi.Collected
-    Err error
+type BackgroundClient interface {
+    SubmitCollect(...)
+    Await(...)
+    Forget(...)
 }
+```
 
-Poll(id JobID) PollResult
+The initial design proposed adding `Poll` directly. That is source-incompatible for external implementations.
+
+`Await` with zero/tiny deadline is timing-dependent; waiting in observer/AttemptTransform adds latency; callbacks/maintenance goroutines add a new lifecycle owner.
+
+### Required remediation
+
+Keep `BackgroundClient` unchanged and add a separate optional feature-neutral capability, e.g.:
+
+```go
+type BackgroundPoller interface {
+    Poll(context.Context, JobID) (PollResult, error)
+}
 ```
 
 Properties:
 
-- no wait/sleep/timing race;
-- defensive result copy just like `Await`;
+- no wait/sleep;
+- pending/completed/failed/not-found states;
+- defensive completed-result copy;
 - no feature-specific fields;
 - bounded by existing scheduler retention;
-- safe on disabled/closed scheduler;
-- `Forget` remains explicit after terminal consumption.
+- `Forget` remains explicit;
+- standard scheduler implements both;
+- external historical `BackgroundClient` implementations still compile.
 
-Reasoning `AttemptTransform` can then poll once during a later matching replay. If still pending, it uses the original immediately. If complete, it validates and CAS-adopts the surrogate. This intentionally trades earliest-possible compression benefit for lower latency/lifecycle risk.
+Reasoning `AttemptTransform` polls once during later matching replay; pending means immediate original fallback.
 
-## Critical Gap 4: Final-Stream `response.Services` Is Deliberately Empty
+## Critical Gap 5: Raw Result Must Be Bounded Before JSON Decode
 
-`pkg/lipsdk/response.StreamObserver` currently documents final-stream observation as read-only and `response.Services` as an empty forward-compatible bag. Injecting generic state/Aux into that bag merely for #369 would broaden a clean SDK contract and make an optimization look like a generic observer authority.
+The initial spec had model `MaxOutputTokens` and decoded `MaxSurrogateBytes` but no feature-level raw collected-response byte bound.
+
+Why this matters:
+
+- provider/model can ignore token guidance;
+- JSON/schema overhead is not counted by decoded surrogate limit;
+- converting an entire oversized collected response to one string before validation can allocate well beyond intended feature bounds.
 
 ### Required remediation
 
-Prefer composition-time constructor injection into the reasoning-preservation feature:
+Add `max_output_bytes` and enforce:
 
 ```text
-runtime/standard composition
-    -> generation-bound auxiliary.BackgroundClient
-    -> reasoning preservation InstanceParts / compressor port
-    -> observer and AttemptTransform share the narrow port/store
+completed Collected
+  -> reject tools/non-text
+  -> iterate text fragments with byte counter
+  -> exceed max_output_bytes => reject before decode
+  -> materialize bounded raw bytes
+  -> strict JSON decode
+  -> decoded surrogate/savings validation
 ```
 
-Compression-disabled construction should remain the current config-only path and should not require BackgroundAux.
+Generic scheduler `MaxResultBytes` remains an outer defense-in-depth ceiling, not a substitute for the feature-specific limit. Add oversized raw-response tests that prove JSON decode is not reached.
 
-Only widen `response.Services` if design validation proves constructor/composition injection cannot express the lifecycle safely. Current brownfield evidence suggests widening is unnecessary.
+## Critical Gap 6: Ordinary Semantic Text Can Still Be Sensitive
 
-## Critical Gap 5: The Compaction Continuity Extractor Is Reusable as a Pattern, Not as a Dependency
+Canonical `SemanticText` only says the representation can be transformed. It can still contain secrets, PII, proprietary code, regulated/customer data, or material constrained by retention/residency/consent/provider policy.
 
-`internal/plugins/features/compactioncontinuity/extractor` already demonstrates:
-
-- fixed system policy;
-- untrusted delimited input;
-- independently routed detached no-tools child;
-- plugin self-disable;
-- strict input/output bounds;
-- background submission;
-- validated result parsing.
-
-But it is semantically wrong to import it for #369 because it encodes continuity capsule schemas, source references, branch revisions, plan/decision extraction, and compaction-specific role names.
+Detached/private execution does not establish permission to process that text through another route/provider.
 
 ### Required remediation
 
-Build a much smaller reasoning compressor package under the reasoning-preservation feature (or a narrowly reusable semantic-text helper only if another immediate caller exists). Its input is eligible reasoning text only; its output is bounded text only.
+Before out-of-trust-boundary submission, require a narrow trusted compressor-egress decision over explicit route/purpose/trusted principal policy context:
 
-Avoid premature genericization: the reusable infrastructure is `auxiliary`, not the feature-specific prompt/schema.
+- allow;
+- redact then allow;
+- deny.
 
-## Critical Gap 6: Existing Store Bounds Need Explicit Optional-State Semantics
+Policy covers applicable retention, residency, consent/legal-basis and provider-processing constraints. Reuse existing trusted secret/redaction authority when available. If required redaction cannot be satisfied, deny compression/fail-open to original.
 
-The current store bounds authoritative artifacts. Storing both original and surrogate increases memory even though the product goal is reduced reinjected context/cost.
+Sanitize **before** input-size accounting and provider submission. Explicit route string alone is not consent.
 
-Unsafe options include:
+This is feature-scoped; do not create a general compliance platform merely for #369.
 
-- counting surrogate bytes against the same cap and evicting the original;
-- replacing original bytes with surrogate bytes;
-- retaining a surrogate after original expiry;
-- leaving pending result references indefinitely.
+## Critical Gap 7: Control-Plane Metadata Must Not Be Confused With Model Input
 
-### Required remediation
-
-Specify and test:
-
-- original artifact bounds remain unchanged;
-- optional compression state has its own bounded budget/count or is rejected before it can force original eviction;
-- pending/surrogate lifetime is capped by original TTL;
-- stale/expired/evicted original means result cannot be adopted;
-- scheduler result is forgotten after terminal adoption/rejection when safely possible.
-
-## Critical Gap 7: Source and Destination Safety Are Separate Checks
-
-A source artifact may be semantically compressible while a later destination candidate requires exact replay or cannot represent semantic text.
+The auxiliary path legitimately needs role, visibility, parent lineage, and cloned principal/scope for authorization, routing, correlation and billing. Removing them would break existing auxiliary semantics.
 
 ### Required remediation
 
-Use two gates:
+Keep those values in trusted auxiliary envelope/execution context while prohibiting their copy into:
 
-1. **source gate** after original commit: is this artifact/profile safe to send to a semantic compressor?
-2. **destination gate** during AttemptTransform: may this candidate legally receive the surrogate instead of the original?
+- compressor `Call.Messages`;
+- local segment JSON;
+- content-bearing telemetry/logs.
 
-The destination gate must re-evaluate the current candidate profile. It must not trust the source backend/model or compressor result as proof.
+Tests inspect both envelope and model prompt to prove this separation.
 
-## Critical Gap 8: Shadow Mode Must Be a Real Behavioral State
+## Critical Gap 8: Final-Stream `response.Services` Is Deliberately Empty
 
-A simple config flag that generates metrics while active substitution accidentally occurs would defeat staged rollout.
+Injecting generic Aux/state into `response.Services` merely for #369 would broaden a clean SDK contract.
 
 ### Required remediation
 
-Define replay selection such that:
+Prefer construction-time injection:
 
-- `disabled`: no job/state/telemetry;
-- `shadow`: job + validation + optional surrogate storage; original always replayed;
-- `active`: surrogate may be selected only after all source/result/destination checks.
+```text
+runtime composition
+    -> generation-bound BackgroundClient
+    -> optional BackgroundPoller
+    -> trusted egress/sanitizer policy
+    -> reasoning-preservation InstanceParts
+    -> observer + AttemptTransform + TurnStore
+```
 
-Tests must assert actual backend-visible historical reasoning, not merely internal flags.
+Compression-disabled path should require none of these. Widen `response.Services` only if later implementation proof demands it.
 
-## Interaction with Concurrent Active Specs
+## Critical Gap 9: Compaction-Continuity Extractor Is a Pattern, Not a Dependency
 
-Current active Kiro specs include pipeline/terminal ownership simplifications and other unrelated work. Implementation of this spec must rebase/revalidate if those active specs materially change:
+It demonstrates fixed policy, untrusted delimited input, detached no-tools child, self-disable, bounded input/output, background submission and strict result validation. But its capsule/source/branch semantics are wrong for #369.
+
+### Required remediation
+
+Build a much smaller reasoning-compressor subdomain under reasoning preservation. Reuse `auxiliary`, not compaction feature packages.
+
+## Critical Gap 10: Source and Destination Safety Are Separate
+
+A source may be semantically compressible while a later destination cannot represent that dialect.
+
+### Required remediation
+
+Two gates:
+
+1. source canonical semantic classification + egress policy before compression;
+2. destination reclassification + existing `ReasoningReplaySupport` before active substitution.
+
+Stored surrogate is not destination permission.
+
+## Critical Gap 11: Shadow Mode Must Be a Real Behavioral State
+
+Internal mode flag is insufficient if backend-visible substitution can occur accidentally.
+
+### Required remediation
+
+- disabled: no job/state/compression telemetry;
+- shadow: full compression/adoption/evidence path, **original always replayed**;
+- active: surrogate selection only after source/result/destination checks.
+
+Tests assert actual backend-visible historical reasoning.
+
+## Interaction With Concurrent Active Specs
+
+Current active Kiro specs include request/terminal ownership simplifications. Implementation must rebase/revalidate if they materially change:
 
 - final stream observer lifecycle;
-- request AttemptTransform ownership/order;
+- attempt-transform ownership/order;
 - runtime feature composition;
-- auxiliary client/scheduler ownership;
+- auxiliary scheduler ownership;
 - generation retirement.
 
-The SDD should not freeze incidental function names that are expected to move under active simplification work; it should freeze semantic ownership and ordering instead.
+Freeze semantic ownership/order, not incidental function names.
 
-## Requirements Corrections Applied After Gap Analysis
+## Requirements Corrections Applied
 
-The initial requirements were hardened by this analysis in the following ways:
+Initial brownfield analysis corrected requirements by:
 
-1. made non-blocking result inspection an explicit generic infrastructure requirement rather than hand-waving asynchronous CAS attachment;
-2. prohibited completion callbacks/feature maintenance goroutines in v1;
-3. required optional compression state to be unable to evict/destroy authoritative originals merely for memory budget;
-4. required constructor/composition injection before considering `response.Services` widening;
-5. separated source compressibility from destination surrogate replay permission;
-6. clarified that generic aux infrastructure is a dependency but `compactioncontinuity` feature semantics and compaction detection are not;
-7. made shadow mode backend-visible non-substitution testable;
-8. required active pipeline simplification specs to trigger revalidation if they move lifecycle ownership.
+1. making non-blocking result inspection explicit;
+2. prohibiting callback/maintenance polling in v1;
+3. making optional state unable to evict authoritative originals;
+4. preferring constructor/composition injection over response-service widening;
+5. separating source compressibility from destination representability;
+6. excluding `compactioncontinuity` feature semantics from dependency surface;
+7. making shadow mode backend-visible/testable;
+8. requiring revalidation after pipeline simplifications.
+
+Post-PR CodeRabbit review added five further corrections:
+
+9. raw `max_output_bytes` before full materialization/JSON decode;
+10. separate optional `BackgroundPoller` to preserve exported `BackgroundClient` source compatibility;
+11. feature-instance aggregate pending/surrogate bounds across sessions;
+12. explicit model-visible vs control-plane metadata separation;
+13. trusted ordinary-text egress allow/redact/deny policy with redaction before provider submission.
 
 ## Gap Analysis Verdict
 
-**GO to design, with the above remediations mandatory.**
+**GO to implementation design/tasks after all remediations above.**
 
-The brownfield repository already owns the hardest machinery. The implementation should be relatively narrow if it resists duplicating infrastructure. The main new risk is not compressor prompting; it is safe asynchronous result adoption while retaining original exact state and respecting destination replay semantics.
+The brownfield repository still owns the hardest machinery. The implementation remains relatively narrow if it reuses existing authorities. The principal risks are safe asynchronous result adoption, strict exact/native exclusion, ordinary-text egress protection, raw response allocation safety, and bounded optional state across many sessions—not compressor prompting itself.
