@@ -37,7 +37,7 @@ func (e *Executor) compactionServices() compaction.Services {
 		services.State = e.RuntimeSnapshot.State()
 	}
 	if e != nil {
-		services.BackgroundAux = e.CompactionRuntime.BackgroundAux
+		services.BackgroundAux = e.BackgroundAux
 	}
 	return services
 }
@@ -51,7 +51,7 @@ func (e *Executor) compactionServices() compaction.Services {
 // observer registration so later preservation consumers can use its state and
 // pure previews.
 func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out attemptOpenResult) compaction.PreservationMeta {
-	if e == nil || e.CompactionRuntime.Detector == nil || prep == nil {
+	if e == nil || e.Detector == nil || prep == nil {
 		return compaction.PreservationMeta{}
 	}
 	observers := e.compactionObservers()
@@ -62,7 +62,7 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 		AttemptSeq: out.bleg.Seq,
 		SessionID:  prep.baseline.Session.AuthoritativeSessionID,
 	}
-	events := safeCompactionRequestOpened(e.CompactionRuntime.Detector, meta, prep.baseline)
+	events := safeCompactionRequestOpened(e.Detector, meta, prep.baseline)
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:    meta.TraceID,
 		SessionID:  meta.SessionID,
@@ -125,7 +125,7 @@ func (s *retryRecvStream) observeCompactionRelease(ctx context.Context, ev lipap
 
 func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev *lipapi.Event) compactionReleaseDispatch {
 	var dispatch compactionReleaseDispatch
-	if s == nil || s.executor == nil || s.executor.CompactionRuntime.Detector == nil {
+	if s == nil || s.executor == nil || s.executor.Detector == nil {
 		return dispatch
 	}
 	observers := s.executor.compactionObservers()
@@ -136,7 +136,7 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 		AttemptSeq: s.bleg.Seq,
 		SessionID:  s.baseline.Session.AuthoritativeSessionID,
 	}
-	preview := safeCompactionPreviewResponse(s.executor.CompactionRuntime.Detector, meta, *ev)
+	preview := safeCompactionPreviewResponse(s.executor.Detector, meta, *ev)
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:       meta.TraceID,
 		SessionID:     meta.SessionID,
@@ -174,7 +174,7 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 		preservationMeta,
 		s.executor.compactionServices(),
 	)
-	events := safeCompactionResponseReleased(s.executor.CompactionRuntime.Detector, meta, *ev)
+	events := safeCompactionResponseReleased(s.executor.Detector, meta, *ev)
 	dispatch = compactionReleaseDispatch{meta: preservationMeta, enabled: true}
 	if len(events) == 0 {
 		return dispatch

@@ -29,11 +29,13 @@ func TestWithSecureSessionTurnNilParent(t *testing.T) {
 func TestWithSecureSessionTurnProjectsContentFreeSDKPolicy(t *testing.T) {
 	t.Parallel()
 
-	ctx := WithSecureSessionTurn(nil, SecureSessionTurn{
-		SessionID: domain.SessionID("s"),
-		TurnID:    domain.TurnID("t"),
-		Policy:    domain.PolicyMetadata{TranscriptEnabled: true},
-	}) //nolint:staticcheck // SA1012: exercise nil-parent hardening
+	ctx := WithSecureSessionTurn(
+		nil, //nolint:staticcheck // SA1012: exercise nil-parent → TODO() branch
+		SecureSessionTurn{
+			SessionID: domain.SessionID("s"),
+			TurnID:    domain.TurnID("t"),
+			Policy:    domain.PolicyMetadata{TranscriptEnabled: true},
+		})
 	got, ok := session.SecureTurnPolicyFromContext(ctx)
 	if !ok || !got.TranscriptEnabled {
 		t.Fatalf("public secure-turn policy = %+v ok=%v", got, ok)

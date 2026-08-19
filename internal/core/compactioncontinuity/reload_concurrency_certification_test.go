@@ -78,6 +78,7 @@ func certificationRequest(binding, parentALeg, childALeg, selector string) auxil
 }
 
 func TestReloadConcurrencyCertification_InFlightJobRetainsCapturedGeneration(t *testing.T) {
+	t.Parallel()
 	first, second := certificationGenerationRunners(t)
 	scheduler, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return first }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
 	if err != nil {
@@ -179,6 +180,7 @@ func TestReloadConcurrencyCertification_InFlightJobRetainsCapturedGeneration(t *
 }
 
 func TestReloadConcurrencyCertification_ExplicitCorrectionWinsLateResult(t *testing.T) {
+	t.Parallel()
 	coordinator, err := NewBranchCoordinator(Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +211,7 @@ func TestReloadConcurrencyCertification_ExplicitCorrectionWinsLateResult(t *test
 	go func() {
 		<-start
 		var commitErr error
-		for attempt := 0; attempt < 32; attempt++ {
+		for range 32 {
 			state, found, snapshotErr := coordinator.Snapshot(parent)
 			if snapshotErr != nil || !found {
 				commitErr = snapshotErr
@@ -248,6 +250,7 @@ func TestReloadConcurrencyCertification_ExplicitCorrectionWinsLateResult(t *test
 }
 
 func TestReloadConcurrencyCertification_ResetAndForkDoNotLeakParentState(t *testing.T) {
+	t.Parallel()
 	coordinator, err := NewBranchCoordinator(Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +290,7 @@ func TestReloadConcurrencyCertification_ResetAndForkDoNotLeakParentState(t *test
 		"fork-without-parent": mustCertificationBranch(t, "fork-session", "fork-a", parent.PrincipalPartition),
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := coordinator.Capture(key); err != nil {
 				t.Fatal(err)
 			}
@@ -298,6 +302,7 @@ func TestReloadConcurrencyCertification_ResetAndForkDoNotLeakParentState(t *test
 }
 
 func TestReloadConcurrencyCertification_ExpiryClearsBranchAndResultTogether(t *testing.T) {
+	t.Parallel()
 	clock := &certificationClock{now: time.Unix(100, 0)}
 	coordinator, err := NewBranchCoordinator(Config{TTL: time.Second, Now: clock.Now})
 	if err != nil {

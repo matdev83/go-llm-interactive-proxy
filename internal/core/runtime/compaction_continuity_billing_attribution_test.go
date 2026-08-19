@@ -256,11 +256,12 @@ func TestCompactionContinuityBillingAttributesDetachedChildToOriginatingAccount(
 
 	var primaryLegs, childLegs []billing.CallLegUsageRecord
 	for _, leg := range legs {
-		if leg.CallID == primaryCallID {
+		switch leg.CallID {
+		case primaryCallID:
 			primaryLegs = append(primaryLegs, leg)
-		} else if leg.CallID == childCallID {
+		case childCallID:
 			childLegs = append(childLegs, leg)
-		} else {
+		default:
 			t.Fatalf("leg has unknown BillingCallID %q", leg.CallID)
 		}
 		if leg.AttemptSeq <= 0 {
