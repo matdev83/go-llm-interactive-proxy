@@ -50,6 +50,61 @@ func installTestTurnTerminal(s *retryRecvStream) {
 	}
 }
 
+// bindTestRuntimeOwners composes the concrete response and terminal owners
+// for a direct fixture. The executor is used only as a construction source;
+// neither owner retains the broad object.
+func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
+	if s == nil || e == nil {
+		return
+	}
+	installTestTurnTerminal(s)
+	deps := newResponsePipelineForExecutor(e)
+	if s.responsePipeline == nil {
+		s.responsePipeline = deps
+	} else {
+		p := s.responsePipeline
+		p.bus = deps.bus
+		p.log = deps.log
+		p.now = deps.now
+		p.runtimeSnapshot = deps.runtimeSnapshot
+		p.extensionMetrics = deps.extensionMetrics
+		p.policyDiagnostics = deps.policyDiagnostics
+		p.policyEvidenceEmitter = deps.policyEvidenceEmitter
+		p.streamUsage = deps.streamUsage
+		p.secureSessionRecorder = deps.secureSessionRecorder
+		p.secureSessionMetrics = deps.secureSessionMetrics
+		p.secureRecordingMandatory = deps.secureRecordingMandatory
+		p.backends = deps.backends
+		p.detector = deps.detector
+		p.compactionObservers = deps.compactionObservers
+		p.compactionPreservers = deps.compactionPreservers
+		p.compactionServices = deps.compactionServices
+		p.keepwarm = deps.keepwarm
+		p.completionBufferLimits = deps.completionBufferLimits
+	}
+	bindTurnTerminalRuntime(s.terminal, e)
+	if attempt := s.attempt.snapshot(); attempt != nil {
+		attempt.recordAttemptLoggedFn = e.recordAttemptLogged
+	}
+	if s.recovery != nil {
+		s.recovery.bindOpener(e, s.responsePipeline.bus, s.terminal.aLegScope())
+		s.recovery.attemptFactory = func(opened replacementOpenResult, facts recvTurnFacts) *attemptSession {
+			fs, maxArgs := e.resolveToolCallFinalizers()
+			return newAttemptSession(attemptSessionInput{
+				inner: opened.stream, bleg: opened.bleg, cand: opened.cand,
+				authority:             e.newAttemptAuthorityLifecycle(opened.authority, opened.cand),
+				accounting:            newAttemptAccountingTracker(e.now()),
+				toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+				promptCacheSource:     promptCacheObservationSource(opened.stream),
+				promptCacheController: promptCacheControllerFor(e.Backends[opened.cand.Primary.Backend]),
+				finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+				recordAttemptLoggedFn: e.recordAttemptLogged,
+			})
+		}
+		s.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
+	}
+}
+
 func testStoreInner(s *retryRecvStream, inner lipapi.ManagedEventStream) {
 	testAttemptSession(s).storeInner(inner)
 }
@@ -99,11 +154,18 @@ func withTestRecvFacts(s *retryRecvStream, update func(recvTurnFacts) recvTurnFa
 	return s
 }
 
-func stampStreamIdentity(s *retryRecvStream) *retryRecvStream {
+// stampStreamIdentity wires the concrete response and terminal owners for a
+// direct fixture. The optional executor is only a construction source; it is
+// never retained by retryRecvStream or either owner.
+func stampStreamIdentity(s *retryRecvStream, executors ...*Executor) *retryRecvStream {
 	if s == nil {
 		return nil
 	}
-	installTestTurnTerminal(s)
+	if len(executors) > 0 && executors[0] != nil {
+		bindTestRuntimeOwners(s, executors[0])
+	} else {
+		installTestTurnTerminal(s)
+	}
 	return withTestRecvFacts(s, func(f recvTurnFacts) recvTurnFacts {
 		f.billingAccountID = "acct"
 		f.billingCustomerPricing = billing.VersionRef{ID: "pricing:test", Version: "1"}

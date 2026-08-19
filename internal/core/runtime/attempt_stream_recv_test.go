@@ -89,8 +89,6 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	ex.Store = st
 	ex.Bus = bus
 	s := &retryRecvStream{
-		executor: ex,
-		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -100,19 +98,20 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 			traceID: "t1",
 		}),
 		recovery: newRecoveryController(recoveryControllerInput{
-			executor: ex,
-			bus:      bus,
-			budget:   &attemptBudget{max: 3, used: 0},
-			sel:      sel,
-			session:  &routing.SessionRoutingState{},
-			excluded: map[string]struct{}{},
-			rng:      routing.NewSeededRng(1),
+			opener:         newReplacementOpener(ex, bus, nil),
+			streamRecovery: ex.StreamRecovery,
+			nowFn:          ex.now,
+			budget:         &attemptBudget{max: 3, used: 0},
+			sel:            sel,
+			session:        &routing.SessionRoutingState{},
+			excluded:       map[string]struct{}{},
+			rng:            routing.NewSeededRng(1),
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),
-		responsePipeline: newResponsePipeline(),
+		responsePipeline: &responsePipeline{bus: bus},
 	}
 	testStoreInner(s, inner)
 
@@ -156,7 +155,7 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	if !ok || out.Command != sdkterminal.CommandClose {
 		t.Fatalf("request outcome=%+v ok=%v want CommandClose", out, ok)
 	}
-	if !s.isFinished() {
+	if !s.terminal.finished() {
 		t.Fatal("stream must be finished after concurrent Close")
 	}
 }

@@ -326,7 +326,6 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	state := attemptAuthorityState{admissionInput: admissionInput, admissionResult: admissionResult}
 
 	rs := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:         "req-cancel-reconcile",
@@ -338,6 +337,7 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate()), newAttemptAccountingTracker(at)),
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{}},
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	// Step 1: settle as Partial with no usage — the estimate fallback applies,
 	// so Consumed = 8 (the reserved estimate), and the lifecycle is marked settled.

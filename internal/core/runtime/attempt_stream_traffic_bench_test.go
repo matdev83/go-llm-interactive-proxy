@@ -43,7 +43,6 @@ func benchRetryRecvForTrafficEmit() (*retryRecvStream, lipapi.Event, sdk.PartMet
 	ex := TestExecutor()
 	ex.RuntimeSnapshot = snap
 	s := &retryRecvStream{
-		executor: ex,
 		attempt: testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{
 			Primary: routing.Primary{Backend: "bench-backend", Model: "m"},
 			Key:     "bench-backend:m",
@@ -65,7 +64,7 @@ func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		s.responsePipeline.emitTraffic(ctx, s.executor, s.attempt.snapshot(), sdktraffic.LegBTP, ev, pm)
+		s.responsePipeline.emitTraffic(ctx, s.attempt.snapshot(), sdktraffic.LegBTP, ev, pm)
 	}
 }
 
@@ -75,7 +74,7 @@ func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_ = s.responsePipeline.emitTrafficPTCFinal(ctx, s.executor, s.facts, s.attempt.snapshot(), &ev, pm)
+		_ = s.responsePipeline.emitTrafficPTCFinal(ctx, s.facts, s.attempt.snapshot(), &ev, pm)
 	}
 }
 

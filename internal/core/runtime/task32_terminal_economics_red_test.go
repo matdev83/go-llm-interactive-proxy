@@ -25,30 +25,32 @@ func TestTask32TerminalEconomics_ConcurrentFinalizationHasOneWinner(t *testing.T
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var enteredOnce sync.Once
-	stream := &retryRecvStream{
-		executor: &Executor{
-			CoreRuntime: CoreRuntime{Backends: map[string]execbackend.Backend{
-				"backend": {
-					FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-						finalizerCalls.Add(1)
-						enteredOnce.Do(func() { close(entered) })
-						<-release
-						return lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: 3}, nil
-					},
+	executor := &Executor{
+		CoreRuntime: CoreRuntime{Backends: map[string]execbackend.Backend{
+			"backend": {
+				FinalizeBilling: func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+					finalizerCalls.Add(1)
+					enteredOnce.Do(func() { close(entered) })
+					<-release
+					return lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: 3}, nil
 				},
-			}},
-			BillingRuntime: BillingRuntime{BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.CallLegUsageRecord) {
-				legCalls.Add(1)
-			})},
-		},
-		terminal: newTurnTerminal(),
-		facts:    testRecvTurnFacts(recvTurnFacts{aLegID: "a-finalize"}),
+			},
+		}},
+		BillingRuntime: BillingRuntime{BillingLegObserver: BillingLegObserverFunc(func(context.Context, billing.CallLegUsageRecord) {
+			legCalls.Add(1)
+		})},
+	}
+	stream := &retryRecvStream{
+		responsePipeline: newResponsePipelineForExecutor(executor),
+		terminal:         newTurnTerminal(),
+		facts:            testRecvTurnFacts(recvTurnFacts{aLegID: "a-finalize"}),
 		attempt: testAttemptSlot(
 			b2bua.BLegRecord{ALegID: "a-finalize", BLegID: "b-finalize", Seq: 1},
 			routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 			authorityLifecycle{},
 		),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
 	results := make(chan error, 2)
 	var calls atomic.Int32
@@ -102,10 +104,10 @@ func TestTask32TerminalEconomics_OldAttemptCallbackRecordsOnlyOldBLeg(t *testing
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts:    testRecvTurnFacts(recvTurnFacts{aLegID: "a-old"}),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	old := newAttemptSession(attemptSessionInput{
 		bleg: b2bua.BLegRecord{ALegID: "a-old", BLegID: "b-old", Seq: 1},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "old-backend", Model: "old-model"}},
@@ -119,7 +121,7 @@ func TestTask32TerminalEconomics_OldAttemptCallbackRecordsOnlyOldBLeg(t *testing
 		t.Fatalf("attempt swap detached=%p published=%v, want old=%p", detached, published, old)
 	}
 	callback := func(ctx context.Context) {
-		stream.recordBillingLegForAttempt(ctx, old, sdkterminal.CommandSwallowedAttempt)
+		stream.terminal.recordBillingLegForAttempt(ctx, stream.facts, old, sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false)
 	}
 	callback(context.Background())
 	mu.Lock()
@@ -147,12 +149,14 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 			t.Fatalf("StoreBackendIngress(%s): %v", blegID, err)
 		}
 	}
+	executor := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: recorder}}
 	stream := &retryRecvStream{
-		executor: &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: recorder}},
-		terminal: newTurnTerminal(),
-		facts:    testRecvTurnFacts(recvTurnFacts{traceID: "request-meter"}),
-		attempt:  attemptSlot{},
+		responsePipeline: newResponsePipelineForExecutor(executor),
+		terminal:         newTurnTerminal(),
+		facts:            testRecvTurnFacts(recvTurnFacts{traceID: "request-meter"}),
+		attempt:          attemptSlot{},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	stream.attempt.install(newAttemptSession(attemptSessionInput{
 		bleg: b2bua.BLegRecord{BLegID: "b-old-meter", Seq: 1},
 	}))

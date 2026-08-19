@@ -76,8 +76,6 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		}
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
-			bus:      hooks.New(hooks.Config{}),
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-centralized", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 				traceID:  "trace-centralized",
@@ -86,6 +84,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -101,7 +100,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 	// the finish as the emitted out event.
 	attachPassthroughGate := func(t *testing.T, ex *Executor, rs *retryRecvStream) {
 		t.Helper()
-		bus := rs.bus
+		bus := rs.responsePipeline.bus
 		if bus == nil {
 			bus = hooks.New(hooks.Config{})
 		}
@@ -218,7 +217,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		t.Parallel()
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, streamUsageWithCounts())
-		rs.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		ev, err := rs.Recv(context.Background())
 		if err != nil {
@@ -234,7 +233,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		t.Parallel()
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, nil)
-		rs.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		ev, err := rs.Recv(context.Background())
 		if err != nil {
@@ -243,7 +242,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (drain fall-through branch)", ev.Kind)
 		}
-		if !rs.isFinished() {
+		if !rs.terminal.finished() {
 			t.Fatal("expected stream marked finished after the drain fall-through branch")
 		}
 		assertReleasedAfterFailedSettle(t, auth, rs)
@@ -315,7 +314,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		t.Parallel()
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, streamUsageWithCounts())
-		rs.gateDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.gateDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		// First Recv pops the finish, finalizes via the helper, re-queues the finish, and emits
 		// the synthesized usage_delta. The finish itself surfaces on the next Recv (drain fall-through).
@@ -337,7 +336,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		t.Parallel()
 		auth := makeFailingSettleAuth()
 		_, rs := setupStream(t, auth, nil)
-		rs.gateDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.gateDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		ev, err := rs.Recv(context.Background())
 		if err != nil {
@@ -346,7 +345,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (gate-drain fall-through branch)", ev.Kind)
 		}
-		if !rs.isFinished() {
+		if !rs.terminal.finished() {
 			t.Fatal("expected stream marked finished after the gate-drain fall-through branch")
 		}
 		assertReleasedAfterFailedSettle(t, auth, rs)
@@ -363,7 +362,6 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		start := time.Unix(1, 0)
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-centralized-idle", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 				traceID:  "trace-centralized-idle",
@@ -375,7 +373,8 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				Enabled:     true,
 				IdleTimeout: time.Second,
 			}, start)}}
-		rs.visibleText.WriteString("hello")
+		bindTestRuntimeOwners(rs, ex)
+		rs.responsePipeline.visibleText.WriteString("hello")
 		rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 		return ex, rs
 	}
@@ -413,7 +412,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if auth.settleCalls.Load() != 0 || auth.releaseCalls.Load() != 0 {
 			t.Fatalf("settle=%d release=%d, want 0/0 (finalization deferred to the drain path)", auth.settleCalls.Load(), auth.releaseCalls.Load())
 		}
-		if rs.isFinished() {
+		if rs.terminal.finished() {
 			t.Fatal("stream must not be marked finished before the drain path runs")
 		}
 

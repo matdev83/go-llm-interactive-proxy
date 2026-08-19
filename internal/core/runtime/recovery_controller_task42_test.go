@@ -159,8 +159,8 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				},
 			}
 			r := &recoveryController{
-				executor:          ex,
 				opener:            newReplacementOpener(ex, nil, nil),
+				streamRecovery:    ex.StreamRecovery,
 				sel:               sel,
 				session:           &routing.SessionRoutingState{},
 				excluded:          map[string]struct{}{selector: {}},
@@ -257,14 +257,14 @@ func TestTask42MandatoryRecorderCommittedNoReplacementOpen(t *testing.T) {
 		terminal:         newTurnTerminal(),
 		recovery:         recovery,
 		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
-		executor:         ex,
 		attempt:          testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "committed-candidate"}, authorityLifecycle{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "task42-mandatory",
 			aLegID:  "task42-a-leg",
 		}),
 	}
-	s.markCommitted()
+	bindTestRuntimeOwners(s, ex)
+	s.terminal.markCommitted(s.attempt.snapshot())
 	_, err := s.tryReplacementIteration(context.Background())
 	if err == nil {
 		t.Fatal("tryReplacementIteration error = nil, want committed mandatory-recorder failure")

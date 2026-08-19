@@ -127,7 +127,7 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 		}
 		ev, err := s.thinker.Recv(ctx)
 		if err != nil {
-			if errors.Is(err, io.EOF) && s.thinker.isFinished() {
+			if errors.Is(err, io.EOF) && s.thinker.terminal.finished() {
 				// Only response_finished completion sets the request terminal's
 				// accounting-finalized claim.
 				// Truncated EOF / cancel / error terminals must not open an executor
@@ -193,9 +193,9 @@ func (s *interleavedContinuationStream) recordVisibleOutput(ev lipapi.Event) {
 		return
 	}
 	s.thinker.markOutputCommitted(ev)
-	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.now(), ev)
+	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.responsePipeline.nowTime(), ev)
 	if s.thinker.recovery != nil && s.thinker.recovery.recoverPolicy != nil {
-		s.thinker.recovery.recoverPolicy.ObserveClientEvent(ev, s.thinker.now())
+		s.thinker.recovery.recoverPolicy.ObserveClientEvent(ev, s.thinker.responsePipeline.nowTime())
 	}
 	s.visibleCommitted = true
 }
@@ -207,7 +207,7 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		s.mu.Unlock()
 		return state, nil
 	}
-	if s.phase != interleavedPhaseThinker || s.recorder == nil || s.thinker == nil || s.thinker.executor == nil {
+	if s.phase != interleavedPhaseThinker || s.recorder == nil || s.thinker == nil || s.thinker.recovery == nil {
 		s.mu.Unlock()
 		return s.state, nil
 	}
@@ -237,17 +237,17 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		s.mu.Lock()
 		s.memoPersisted = false
 		s.mu.Unlock()
-		if s.thinker != nil && s.thinker.executor != nil {
-			s.thinker.executor.logInterleavedMemoStoreSkipped(persistCtx, s.thinker.facts.traceID, reason, interrupted)
+		if s.thinker != nil && s.thinker.recovery != nil {
+			s.thinker.recovery.logMemoStoreSkipped(persistCtx, s.thinker.facts.traceID, reason, interrupted)
 		}
 		return s.state, nil
 	}
 	memo.VisibleToClient = s.visibleCommitted
-	s.thinker.executor.logInterleavedMemoCaptured(persistCtx, s.thinker.facts.traceID, memo)
+	s.thinker.recovery.logMemoCaptured(persistCtx, s.thinker.facts.traceID, memo)
 	if !interrupted {
-		s.thinker.executor.logInterleavedPhaseTransition(persistCtx, s.thinker.facts.traceID)
+		s.thinker.recovery.logPhaseTransition(persistCtx, s.thinker.facts.traceID)
 	}
-	state, err := s.thinker.executor.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo)
+	state, err := s.thinker.recovery.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo)
 	if err != nil {
 		s.mu.Lock()
 		s.memoPersisted = false
@@ -276,7 +276,7 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 		s.finishWithCleanup(ctx)
 		return lipapi.Event{}, err
 	}
-	execStream, err := s.thinker.executor.openInterleavedExecutorContinuation(ctx, s.thinker, state)
+	execStream, err := s.thinker.recovery.openInterleavedContinuation(ctx, s.thinker, state)
 	if err != nil {
 		s.finishWithCleanup(ctx)
 		return lipapi.Event{}, err
@@ -287,7 +287,7 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 	}
 	s.closeThinkerInner(ctx)
 	if s.visibleCommitted {
-		execStream.markCommitted()
+		execStream.terminal.markCommitted(execStream.attempt.snapshot())
 		if execStream.recovery != nil && execStream.recovery.ttft != nil {
 			execStream.recovery.ttft.markCommitted()
 		}
@@ -413,7 +413,7 @@ func (s *interleavedContinuationStream) finalizeThinkerAuthority(ctx context.Con
 	if attempt == nil || attempt.authority.Settled() {
 		return
 	}
-	attempt.authority.finalizeIncurredOrRelease(ctx, kind, s.thinker.operatorUsageForFinalize())
+	attempt.authority.finalizeIncurredOrRelease(ctx, kind, s.thinker.responsePipeline.operatorUsageForFinalize())
 }
 
 func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
@@ -440,12 +440,12 @@ func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 				}
 			}
 			attempt := s.thinker.attempt.snapshot()
-			_ = s.thinker.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+			_ = s.thinker.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.thinker.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.recordBillingLegForAttempt(cctx, attempt, cmd)
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, cmd)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, cmd)
 				return nil
 			})
 			// If another owner already won the request terminal (e.g. truncated
@@ -474,14 +474,14 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		// exec.authority would otherwise leak. Incurred work settles; never-opened
 		// admissions release. Mirrors sibling L1/L8 sites with ReleaseKindSwallowed
 		// posture since the aborted attempt produced no client-facing output.
-		execAttempt.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
+		execAttempt.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.responsePipeline.operatorUsageForFinalize())
 
 		// Record the continuation B-leg terminal row:
 		started := execAttempt.accounting.requestStartedAt
 		if started.IsZero() {
-			started = exec.now()
+			started = exec.responsePipeline.nowTime()
 		}
-		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, execAttempt.bleg, execAttempt.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
+		exec.recovery.appendTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, execAttempt.bleg, execAttempt.cand.Primary, started, exec.responsePipeline.nowTime(), billing.LegOutcomeCanceled)
 
 		exec.markFinished()
 	}
@@ -500,12 +500,12 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 	}
 	if s.thinker != nil {
 		attempt := s.thinker.attempt.snapshot()
-		_ = s.thinker.terminal.terminalizeSnapshot(cleanupCtx, cmd, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		_ = s.thinker.terminal.terminalizeSnapshot(cleanupCtx, cmd, attempt, s.thinker.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.thinker.recordBillingLegForAttempt(cctx, attempt, cmd)
-			s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, cmd)
+			s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, cmd, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
+			s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, cmd)
 			return nil
 		})
 		s.finalizeThinkerAuthority(cleanupCtx, authorityapp.ReleaseKindLosing)
@@ -537,8 +537,8 @@ func (s *interleavedContinuationStream) recvExecutor(ctx context.Context) (lipap
 
 func (s *interleavedContinuationStream) persistInterruptedThinkerMemo(ctx context.Context) {
 	if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
-		if s.thinker != nil && s.thinker.executor != nil {
-			s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.facts.traceID, persistErr)
+		if s.thinker != nil && s.thinker.recovery != nil {
+			s.thinker.recovery.logMemoPersistFailed(ctx, s.thinker.facts.traceID, persistErr)
 		}
 	}
 }
@@ -603,7 +603,7 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 	}
 
 	var res lipapi.CancelResult
-	if !active.isFinished() {
+	if !active.terminal.finished() {
 		if active.terminal != nil && active.terminal.hasALeg() {
 			_ = active.terminal.cancelALeg(ctx, cause)
 			res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
@@ -618,12 +618,12 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 		s.persistInterruptedThinkerMemo(ctx)
 		if s.thinker != nil {
 			attempt := s.thinker.attempt.snapshot()
-			_ = s.thinker.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandCancel, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+			_ = s.thinker.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandCancel, attempt, s.thinker.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandCancel)
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, sdkterminal.CommandCancel)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, sdkterminal.CommandCancel, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, sdkterminal.CommandCancel)
 				return nil
 			})
 			s.finalizeThinkerAuthority(ctx, authorityapp.ReleaseKindLosing)
@@ -650,9 +650,7 @@ func (s *interleavedContinuationStream) Close() error {
 		s.mu.Unlock()
 		parent := context.Background()
 		if thinker != nil {
-			if cached := thinker.cachedExecContext(); cached != nil {
-				parent = context.WithoutCancel(cached)
-			}
+			parent = thinker.recvExecContext(parent)
 		}
 		if executor != nil && executor.terminal != nil && executor.terminal.hasALeg() {
 			_ = executor.terminal.cancelALeg(parent, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
@@ -677,19 +675,17 @@ func (s *interleavedContinuationStream) Close() error {
 		// outlives request cancellation. Background only when no parent exists.
 		parent := context.Background()
 		if s.thinker != nil {
-			if cached := s.thinker.cachedExecContext(); cached != nil {
-				parent = cached
-			}
+			parent = s.thinker.recvExecContext(parent)
 		}
 		s.persistInterruptedThinkerMemo(parent)
 		if s.thinker != nil {
 			attempt := s.thinker.attempt.snapshot()
-			_ = s.thinker.terminal.terminalizeSnapshot(parent, sdkterminal.CommandClose, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+			_ = s.thinker.terminal.terminalizeSnapshot(parent, sdkterminal.CommandClose, attempt, s.thinker.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.thinker.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandClose)
-				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, sdkterminal.CommandClose)
+				s.thinker.terminal.recordBillingLegForAttempt(cctx, s.thinker.facts, attempt, sdkterminal.CommandClose, s.thinker.responsePipeline.billingEvidenceFallback(), s.thinker.terminal.committed())
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, sdkterminal.CommandClose)
 				return nil
 			})
 			s.finalizeThinkerAuthority(parent, authorityapp.ReleaseKindLosing)

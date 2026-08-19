@@ -55,7 +55,6 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{
 					ID:         "request-cancel-usage-leak",
@@ -281,7 +280,6 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		}
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{
 					ID:         "request-store-unavailable",

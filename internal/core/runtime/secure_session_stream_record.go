@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -47,24 +48,23 @@ func (p *responsePipeline) recordClientFacing(
 	ctx context.Context,
 	facts recvTurnFacts,
 	attempt *attemptSession,
-	executor *Executor,
 	ev lipapi.Event,
 	committed bool,
 ) responseRecordingResult {
-	if p == nil || executor == nil || executor.SecureSessionRecorder == nil || !facts.secureTurnOK {
+	if p == nil || p.secureSessionRecorder == nil || !facts.secureTurnOK {
 		return responseRecordingResult{outcome: responseRecordingSkipped}
 	}
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		return responseRecordingResult{outcome: responseRecordingSkipped}
 	}
-	in := buildStreamEventRecordInput(facts, attempt, executor, ev)
-	err := executor.SecureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
+	in := buildStreamEventRecordInput(facts, attempt, p.nowTime(), ev)
+	err := p.secureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
 	if err != nil {
 		committed = committed || lipapi.OutputCommitted(ev)
-		if executor.SecureSessionMetrics != nil {
-			executor.SecureSessionMetrics.ObserveRecorderStreamEventFailed(committed, executor.SecureSessionRecordingMandatory)
+		if p.secureSessionMetrics != nil {
+			p.secureSessionMetrics.ObserveRecorderStreamEventFailed(committed, p.secureRecordingMandatory)
 		}
-		if executor.SecureSessionRecordingMandatory {
+		if p.secureRecordingMandatory {
 			outcome := responseRecordingMandatoryPreOutputFailure
 			if committed {
 				outcome = responseRecordingMandatoryPostCommitFailure
@@ -79,9 +79,8 @@ func (p *responsePipeline) recordClientFacing(
 	return responseRecordingResult{outcome: responseRecordingRecorded}
 }
 
-func buildStreamEventRecordInput(facts recvTurnFacts, attempt *attemptSession, executor *Executor, ev lipapi.Event) app.StreamEventRecordInput {
+func buildStreamEventRecordInput(facts recvTurnFacts, attempt *attemptSession, now time.Time, ev lipapi.Event) app.StreamEventRecordInput {
 	st := facts.secureTurn
-	now := executor.now()
 	in := app.StreamEventRecordInput{
 		Now:       now,
 		TraceID:   strings.TrimSpace(facts.traceID),

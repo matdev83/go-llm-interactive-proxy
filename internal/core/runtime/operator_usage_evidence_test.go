@@ -43,12 +43,12 @@ func TestOperatorUsageForFinalizePrefersLastAuthorityUsage(t *testing.T) {
 		},
 	}
 
-	got := s.operatorUsageForFinalize()
+	got := s.responsePipeline.operatorUsageForFinalize()
 	if got.InputTokens != authoritative.InputTokens || got.OutputTokens != authoritative.OutputTokens {
 		t.Fatalf("operator finalize usage = %#v, want authoritative lastAuthorityUsage", got)
 	}
 
-	customer := s.usageEvidenceOrEmpty()
+	customer := s.responsePipeline.usageEvidenceOrEmpty()
 	if customer.InputTokens != estimate.InputTokens {
 		t.Fatalf("customer usageEvidenceOrEmpty = %#v, want seenEvents-first estimate", customer)
 	}
@@ -68,12 +68,12 @@ func TestOperatorUsageForFinalizeFallsBackToSeenEventsThenEmptyShell(t *testing.
 		},
 	}
 	withSeen := &retryRecvStream{responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{seen}}}
-	got := withSeen.operatorUsageForFinalize()
+	got := withSeen.responsePipeline.operatorUsageForFinalize()
 	if got.InputTokens != seen.InputTokens || got.Kind != lipapi.EventUsageDelta {
 		t.Fatalf("seen-events fallback = %#v, want %#v", got, seen)
 	}
 
-	empty := (&retryRecvStream{responsePipeline: newResponsePipeline()}).operatorUsageForFinalize()
+	empty := (&retryRecvStream{responsePipeline: newResponsePipeline()}).responsePipeline.operatorUsageForFinalize()
 	if empty.Kind != lipapi.EventUsageDelta || empty.InputTokens != 0 || empty.TotalTokens != 0 {
 		t.Fatalf("unobserved shell = %#v, want empty UsageDelta shell", empty)
 	}
@@ -128,7 +128,6 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 	}
 	cand := routing.AttemptCandidate{Key: "cand", Primary: routing.Primary{Backend: "b", Model: "m"}}
 	rs := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:  aLegID,
 			traceID: "trace-op-usage",

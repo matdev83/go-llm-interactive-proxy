@@ -17,6 +17,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	e := a.Executor
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
+	bindTurnTerminalRuntime(terminal, e)
 	rs := &retryRecvStream{
 		facts: newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:               prep.baseline,
@@ -36,27 +37,47 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 			billingCallID:          prep.billingCallID,
 			billingCallState:       prep.billingCallState,
 		}),
-		executor:           e,
-		bus:                prep.bus,
-		attempt:            attemptSlot{},
-		responsePipeline:   newResponsePipeline(prep.compactionOpenMeta),
-		terminal:           terminal,
+		attempt:          attemptSlot{},
+		responsePipeline: newResponsePipelineForExecutor(e, prep.compactionOpenMeta),
+		terminal:         terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
-			executor:    e,
-			bus:         prep.bus,
-			aScope:      prep.aScope,
-			budget:      plan.budget,
-			ttft:        &plan.ttft,
-			sel:         plan.sel,
-			requestSize: plan.requestSize,
-			session:     plan.session,
-			excluded:    plan.excluded,
-			rng:         plan.rng,
-			affinityKey: plan.affinityKey,
-			affinitySet: plan.affinitySet,
-			interleaved: out.interleaved,
+			opener:                        newReplacementOpener(e, prep.bus, prep.aScope),
+			streamRecovery:                e.StreamRecovery,
+			nowFn:                         e.now,
+			logMemoStoreSkippedFn:         e.logInterleavedMemoStoreSkipped,
+			logMemoCapturedFn:             e.logInterleavedMemoCaptured,
+			logPhaseTransitionFn:          e.logInterleavedPhaseTransition,
+			persistCapturedMemoFn:         e.persistCapturedMemo,
+			openInterleavedContinuationFn: e.openInterleavedExecutorContinuation,
+			logMemoPersistFailedFn:        e.logInterleavedMemoPersistFailed,
+			appendTerminalLegFn:           e.appendIndependentTerminalLeg,
+			commitAffinityFn:              recoveryCommitAffinityCallback(e),
+			budget:                        plan.budget,
+			ttft:                          &plan.ttft,
+			sel:                           plan.sel,
+			requestSize:                   plan.requestSize,
+			session:                       plan.session,
+			excluded:                      plan.excluded,
+			rng:                           plan.rng,
+			affinityKey:                   plan.affinityKey,
+			affinitySet:                   plan.affinitySet,
+			interleaved:                   out.interleaved,
 		}),
 	}
+	rs.recovery.attemptFactory = func(opened replacementOpenResult, facts recvTurnFacts) *attemptSession {
+		fs, maxArgs := e.resolveToolCallFinalizers()
+		return newAttemptSession(attemptSessionInput{
+			inner: opened.stream, bleg: opened.bleg, cand: opened.cand,
+			authority:             e.newAttemptAuthorityLifecycle(opened.authority, opened.cand),
+			accounting:            newAttemptAccountingTracker(e.now()),
+			toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+			promptCacheSource:     promptCacheObservationSource(opened.stream),
+			promptCacheController: promptCacheControllerFor(e.Backends[opened.cand.Primary.Backend]),
+			finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+			recordAttemptLoggedFn: e.recordAttemptLogged,
+		})
+	}
+	rs.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
 	rs.bindResponsePipeline()
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
@@ -68,24 +89,25 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		promptCacheSource:     promptCacheObservationSource(out.stream),
 		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+		recordAttemptLoggedFn: e.recordAttemptLogged,
 	}))
 	rs.consumeBackendUsageEvidenceForAttempt(ctx, rs.attempt.require(), out.stream)
 	views, viewsOK := rs.viewsFor(ctx)
-	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, e, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
+	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()
 		}
 		return nil, err
 	}
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {
-		rs.isInterleavedThinker = true
+		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true
 		return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
 	}
 	if e.shouldWrapVisibleInterleavedThinker(out.cand) {
-		rs.isInterleavedThinker = true
+		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)
 		prep.streamReturned = true

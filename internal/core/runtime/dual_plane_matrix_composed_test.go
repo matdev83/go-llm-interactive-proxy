@@ -296,9 +296,10 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-par",
 	}), attempt: testAttemptSlot(out.bleg, out.cand, life)}
+	bindTestRuntimeOwners(stream, ex)
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if att.settleCalls.Load() != 2 {
@@ -368,7 +369,6 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
 	rs := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: p.baseline,
 			aLegID:   aLegID,
@@ -378,6 +378,7 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		attempt:          testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 	testStoreInner(rs, out.stream)
 
 	var lastErr error
@@ -420,7 +421,6 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: p.baseline,
 			aLegID:   aLegID,
@@ -429,6 +429,7 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
 		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	bindTestRuntimeOwners(rs, ex)
 	testStoreInner(rs, out.stream)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
@@ -747,7 +748,6 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: p.baseline,
 			aLegID:   aLegID,
@@ -758,6 +758,7 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
+	bindTestRuntimeOwners(rs, ex)
 	testStoreInner(rs, out.stream)
 	for {
 		_, rerr := rs.Recv(ctx)

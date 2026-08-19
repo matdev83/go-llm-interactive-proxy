@@ -232,7 +232,8 @@ func TestTask43FacadeDoesNotRetainResponsePipelineStateOrForwarders(t *testing.T
 				continue
 			}
 			for _, field := range st.Fields.List {
-				if len(field.Names) == 0 && strings.Contains(formatNode(fset, field.Type), "*responsePipeline") {
+				if (len(field.Names) == 0 && strings.Contains(formatNode(fset, field.Type), "*responsePipeline")) ||
+					(len(field.Names) == 1 && field.Names[0].Name == "responsePipeline" && strings.Contains(formatNode(fset, field.Type), "responsePipeline")) {
 					ownerRefs++
 				}
 			}

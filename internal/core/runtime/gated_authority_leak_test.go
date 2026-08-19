@@ -83,8 +83,6 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		bus := hooks.New(hooks.Config{})
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
-			bus:      bus,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 				traceID:  "trace-gated-leak",
@@ -96,6 +94,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -187,6 +186,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
+		bindTestRuntimeOwners(rs, ex)
 
 		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {

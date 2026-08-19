@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"context"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -34,6 +36,7 @@ type attemptSession struct {
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
 	finalStreamObs        *extensions.FinalStreamObservationSession
+	recordAttemptLoggedFn func(context.Context, recordAttemptParams, diag.AttrOpts)
 }
 
 // claimBillingLegRecord is scoped to one attemptSession, which represents one
@@ -88,6 +91,7 @@ type attemptSessionInput struct {
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
 	finalStreamObs        *extensions.FinalStreamObservationSession
+	recordAttemptLoggedFn func(context.Context, recordAttemptParams, diag.AttrOpts)
 }
 
 func newAttemptSession(in attemptSessionInput) *attemptSession {
@@ -103,6 +107,13 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		promptCacheSource:     in.promptCacheSource,
 		promptCacheController: in.promptCacheController,
 		finalStreamObs:        in.finalStreamObs,
+		recordAttemptLoggedFn: in.recordAttemptLoggedFn,
+	}
+}
+
+func (a *attemptSession) recordAttemptLogged(ctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
+	if a != nil && a.recordAttemptLoggedFn != nil {
+		a.recordAttemptLoggedFn(ctx, p, attrs)
 	}
 }
 

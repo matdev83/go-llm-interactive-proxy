@@ -3,11 +3,18 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -42,9 +49,79 @@ type turnTerminal struct {
 	commitment               atomic.Bool
 	completion               atomic.Bool
 	accountingFinalizedState atomic.Bool
+	// interleavedThinker records the construction-time role of this terminal
+	// view. It is terminal orchestration metadata, not facade state.
+	interleavedThinker bool
 
 	billingClosureMu      sync.Mutex
 	billingClosureSuccess bool
+
+	// Terminal-side runtime operations are injected individually at the
+	// composition boundary. The terminal owner never receives the broad
+	// Executor service surface.
+	log                        *slog.Logger
+	now                        func() time.Time
+	billingEnabled             func() bool
+	operatorRateRef            func(context.Context, routing.Primary) billing.VersionRef
+	billingWorkload            func(context.Context, string) billing.WorkloadIdentity
+	observeBillingLeg          func(context.Context, billing.CallLegUsageRecord)
+	appendBillingLeg           func(context.Context, billing.BillingCallID, billing.CallLegUsageRecord)
+	appendBillingCall          func(context.Context, billing.CallUsageRecord) error
+	logBillingAppendFailure    func(context.Context, string, string, error)
+	finalizeBilling            func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
+	releaseRequestAuthority    func(context.Context) error
+	settleRequestAuthority     func(context.Context, []metering.Fact) error
+	emitFrontendEgress         func(context.Context, string, lipapi.Event) (metering.Fact, bool)
+	meteringRecorderPresent    bool
+	requestAuthorityNeedsRetry func(context.Context) bool
+	emitBackendEgress          func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
+}
+
+func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
+	if t == nil || e == nil {
+		return
+	}
+	t.log = e.Log
+	t.now = e.now
+	t.billingEnabled = e.billingEnabled
+	t.operatorRateRef = e.operatorRateRef
+	t.billingWorkload = e.billingWorkloadIdentityForALeg
+	t.observeBillingLeg = e.observeBillingLeg
+	t.appendBillingLeg = e.appendIndependentCallLeg
+	if e.TerminalUsageSink != nil {
+		t.appendBillingCall = e.TerminalUsageSink.AppendCall
+	}
+	t.logBillingAppendFailure = e.logBillingUsageAppendFailure
+	t.finalizeBilling = e.callFinalizeBilling
+	t.releaseRequestAuthority = e.releaseRequestAuthority
+	t.settleRequestAuthority = e.settleRequestAuthority
+	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
+	t.meteringRecorderPresent = e.MeteringRecorder != nil
+	t.requestAuthorityNeedsRetry = func(ctx context.Context) bool {
+		if e.RequestCoordinator == nil {
+			return false
+		}
+		st := requestAuthorityFrom(ctx)
+		return st != nil && !st.Settled
+	}
+	t.emitBackendEgress = e.emitBackendEgressMeteringFact
+}
+
+func (t *turnTerminal) nowTime() time.Time {
+	if t != nil && t.now != nil {
+		return t.now()
+	}
+	return time.Now()
+}
+
+func (t *turnTerminal) setInterleavedThinker() {
+	if t != nil {
+		t.interleavedThinker = true
+	}
+}
+
+func (t *turnTerminal) isInterleavedThinker() bool {
+	return t != nil && t.interleavedThinker
 }
 
 func newTurnTerminal() *turnTerminal {

@@ -103,7 +103,6 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 
 	// 3. Opened winner producer (recordBillingLeg path).
 	stream := &retryRecvStream{
-		executor: executor,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:           "a-1",
 			billingCallID:    callID,
@@ -111,7 +110,8 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
-	stream.recordBillingLegForAttempt(ctx, stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
+	bindTestRuntimeOwners(stream, executor)
+	stream.terminal.recordBillingLegForAttempt(ctx, stream.facts, stream.attempt.snapshot(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true)
 
 	// 4. Parallel loser producer (also covers the parallel winner path: the
 	// same reporting seam runs for both with distinct allocated sequences).
@@ -126,7 +126,6 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	// 5. Swallowed producer (recordBillingLeg with the swallowed command uses
 	// the attempt's own sequence).
 	swallowed := &retryRecvStream{
-		executor: executor,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:           "a-1",
 			billingCallID:    callID,
@@ -134,7 +133,8 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
-	swallowed.recordBillingLegForAttempt(ctx, swallowed.attempt.snapshot(), sdkterminal.CommandSwallowedAttempt)
+	bindTestRuntimeOwners(swallowed, executor)
+	swallowed.terminal.recordBillingLegForAttempt(ctx, swallowed.facts, swallowed.attempt.snapshot(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false)
 
 	mu.Lock()
 	got := map[string]int{}

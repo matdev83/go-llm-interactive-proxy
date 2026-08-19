@@ -37,8 +37,6 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "req-close-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-close-finish",
@@ -47,7 +45,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}}},
 	}
-	rs.markCommitted()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 	installTestTurnTerminal(rs)
 
 	closeDone := make(chan struct{})
@@ -104,8 +102,6 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg("a-recv-after-close")
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "req-recv-after-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-recv-after-close",
@@ -199,8 +195,6 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline:     lipapi.Call{ID: "req-enc", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:      "trace-enc",
@@ -210,8 +204,9 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}}},
 	}
-	rs.markCommitted()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 	installTestTurnTerminal(rs)
+	bindTestRuntimeOwners(rs, ex)
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
 	pm, _ := rs.recvHookMeta()
@@ -245,8 +240,7 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "req-cancel", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-cancel",
@@ -269,7 +263,7 @@ func TestPhase42_NoRetryAfterOutput_GateReplacement(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
 	installTestTurnTerminal(rs)
-	rs.markCommitted()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandGateReplacement, nil)
 	if r.Won || !errors.Is(r.Err, sdk.ErrOutputCommitted) {
 		t.Fatalf("got %+v", r)
@@ -296,8 +290,7 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      bus,
+		responsePipeline: &responsePipeline{bus: bus},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "req-part", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-part",
@@ -320,19 +313,19 @@ func TestPhase42_EventsMu_ClearAndSnapshot(t *testing.T) {
 	rs := &retryRecvStream{
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}}},
 	}
-	rs.visibleText.WriteString("a")
+	rs.responsePipeline.visibleText.WriteString("a")
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_ = rs.seenEventsCopy()
+		_ = rs.responsePipeline.seenEventsCopy()
 	}()
 	go func() {
 		defer wg.Done()
-		rs.clearClientAccumulators()
+		rs.responsePipeline.clearClientAccumulators()
 	}()
 	wg.Wait()
-	if got := rs.seenEventsCopy(); len(got) != 0 {
+	if got := rs.responsePipeline.seenEventsCopy(); len(got) != 0 {
 		t.Fatalf("cleared accumulators len=%d", len(got))
 	}
 }

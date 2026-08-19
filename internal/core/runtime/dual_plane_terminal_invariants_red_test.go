@@ -84,13 +84,14 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 	call, output := clientVisibleCount(delivered.InputTokens, delivered.OutputTokens)
 	ex.StreamUsage = accountingstream.New(&stubStreamCounter{call: call, output: output}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID:  "trace-cust-usage",
 			baseline: lipapi.Call{ID: "req-cust-usage"},
 		}),
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
 	stream.bindResponsePipeline()
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
@@ -245,16 +246,18 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 		output: output,
 	}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID:  "trace-compress",
 			baseline: lipapi.Call{ID: "req-compress"},
 		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
 	stream.bindResponsePipeline()
-	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, beUsage)
-	stream.emitFrontendEgressMeteringFact(ctx, authorityEv)
+	stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeWinner, metering.SurfacedYes, beUsage)
+	customerEv := stream.responsePipeline.resolveCustomerUsage(ctx, authorityEv)
+	stream.terminal.emitFrontendEgressMeteringFact(ctx, stream.facts.traceID, customerEv)
 
 	if len(rec.facts) != 2 {
 		t.Fatalf("facts=%d want BE+FE", len(rec.facts))
@@ -329,15 +332,16 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	call, output := clientVisibleCount(delivered.InputTokens, deliveredOut)
 	ex.StreamUsage = accountingstream.New(&stubStreamCounter{call: call, output: output}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID:  "trace-filter",
 			baseline: lipapi.Call{ID: "req-filter"},
 		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
 	stream.bindResponsePipeline()
-	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
+	stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
 	var beEgress *metering.Fact
@@ -389,16 +393,17 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 		t.Fatal(err)
 	}
 	ctx := withMeteringHolder(context.Background(), holder)
-	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-zero",
 	}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{})}
+	bindTestRuntimeOwners(stream, ex)
 
 	t.Run("absent_cost_must_not_synthesize_present_money_on_customer", func(t *testing.T) {
 		absent := lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 1, OutputTokens: 1, TotalTokens: 2,
 			Currency: "USD", CostNanoUnits: 0, CostPresent: false,
 		}
-		fe, ok := stream.emitFrontendEgressMeteringFact(ctx, absent)
+		fe, ok := stream.terminal.emitFrontendEgressMeteringFact(ctx, stream.facts.traceID, absent)
 		if !ok {
 			t.Fatal("expected FE fact")
 		}
@@ -413,8 +418,8 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 			Currency: "USD", CostNanoUnits: 0, CostPresent: true,
 			CostSource: string(lipapi.UsageSourceProviderReported),
 		}
-		stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, zero)
-		fe, ok := stream.emitFrontendEgressMeteringFact(ctx, zero)
+		stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeWinner, metering.SurfacedYes, zero)
+		fe, ok := stream.terminal.emitFrontendEgressMeteringFact(ctx, stream.facts.traceID, zero)
 		if !ok {
 			t.Fatal("expected FE fact")
 		}
@@ -582,9 +587,10 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	if !winnerLife.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-parallel",
 	}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-winner"}, routing.AttemptCandidate{}, authorityLifecycle{})}
+	bindTestRuntimeOwners(stream, ex)
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if reqProv.settleCalls.Load() != 1 {
@@ -668,7 +674,6 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 	life.backendAttempted.Store(true)
 
 	stream := &retryRecvStream{
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "trace-sw",
 		}),
@@ -681,9 +686,10 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 			},
 		}}},
 	}
-	usage := stream.operatorUsageForFinalize()
+	bindTestRuntimeOwners(stream, ex)
+	usage := stream.responsePipeline.operatorUsageForFinalize()
 	testAttemptSession(stream).authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, usage)
-	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usage)
+	stream.terminal.emitBackendEgressMeteringFactForAttempt(ctx, stream.attempt.snapshot(), metering.AttemptOutcomeFailed, metering.SurfacedNo, usage)
 
 	if attProv.settleCalls.Load() != 1 {
 		t.Fatalf("swallowed incurred SettleAttempt=%d want 1", attProv.settleCalls.Load())

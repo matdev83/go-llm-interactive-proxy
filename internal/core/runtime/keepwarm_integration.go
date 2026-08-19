@@ -46,8 +46,8 @@ func (c backendPromptCacheController) Release(ctx context.Context, req promptcac
 // terminal handlers only announce that the response_finished event committed;
 // this method snapshots attempt-local prompt-cache observations and logical
 // response tool evidence exactly once.
-func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *attemptSession, kw *keepwarm.Orchestrator, committed bool) {
-	if p == nil || kw == nil || attempt == nil {
+func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *attemptSession, committed bool) {
+	if p == nil || p.keepwarm == nil || attempt == nil {
 		return
 	}
 	p.keepwarmArmOnce.Do(func() {
@@ -58,7 +58,7 @@ func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *at
 		if len(observations) == 0 {
 			return
 		}
-		kw.ArmCommittedTurn(keepwarm.ArmInput{
+		p.keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
 			ALegID:              facts.aLegID,
 			BLegID:              attempt.bleg.BLegID,
 			CommittedSuccessful: committed,

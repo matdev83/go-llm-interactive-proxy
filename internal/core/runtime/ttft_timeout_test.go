@@ -181,8 +181,6 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 	}
 	ttft := newTTFTBudget(time.Now(), sel)
 	s := &retryRecvStream{
-		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
 			aLegID:   "a1",
@@ -236,8 +234,6 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &retryRecvStream{
-		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
 			aLegID:   "a1",

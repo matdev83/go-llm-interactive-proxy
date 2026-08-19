@@ -205,8 +205,8 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if from.recovery == nil {
 		return nil, fmt.Errorf("executor: interleaved continuation recovery unavailable")
 	}
-	from.recovery.bindOpener(e, from.bus, from.terminal.aLegScope())
-	out, err := from.recovery.openInterleavedAttempt(boundCtx, facts, from.bus, from.terminal.aLegScope(), state)
+	from.recovery.bindOpener(e, from.responsePipeline.bus, from.terminal.aLegScope())
+	out, err := from.recovery.openInterleavedAttempt(boundCtx, facts, state)
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
 	}
@@ -235,13 +235,12 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
 		facts:            from.facts.clone(),
-		executor:         e,
-		bus:              from.bus,
 		recovery:         from.recovery,
-		responsePipeline: newResponsePipeline(),
+		responsePipeline: newResponsePipelineForExecutor(e),
 		attempt:          attemptSlot{},
 		terminal:         newTurnTerminalWithSharedALeg(from.terminal),
 	}
+	bindTurnTerminalRuntime(rs.terminal, e)
 	rs.bindResponsePipeline()
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,
@@ -253,6 +252,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		promptCacheSource:     promptCacheObservationSource(out.stream),
 		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+		recordAttemptLoggedFn: e.recordAttemptLogged,
 	}))
 	return rs, nil
 }

@@ -41,7 +41,6 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-eof-recovery",
@@ -55,9 +54,10 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		}},
 		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)}}
-	rs.visibleText.WriteString("hello")
+	bindTestRuntimeOwners(rs, ex)
+	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	rs.markCommitted()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 
 	// handleRecvEOF must defer finalizeTokenAccounting and settle to the downstream drain path
 	// in Recv: settle must not have run, recoverDrain must hold the Finish, and the stream
@@ -68,10 +68,10 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0 (deferred to drain path)", auth.settleCalls.Load())
 	}
-	if len(rs.recoverDrain) == 0 {
+	if len(rs.responsePipeline.recoverDrain) == 0 {
 		t.Fatal("recoverDrain should hold the deferred Finish after handleRecvEOF")
 	}
-	if rs.isFinished() {
+	if rs.terminal.finished() {
 		t.Fatal("stream should not be marked finished before the drain path runs")
 	}
 
@@ -91,7 +91,7 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	if finishEv.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("event kind = %q, want response_finished", finishEv.Kind)
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream should be marked finished after the drain path runs")
 	}
 	if auth.settleCalls.Load() != 1 {
@@ -137,7 +137,6 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-idle-finish",
@@ -154,7 +153,8 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 		}, start)}}
-	rs.visibleText.WriteString("hello")
+	bindTestRuntimeOwners(rs, ex)
+	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 
 	// handleRecvError now defers response_finished authority finalization to the recoverDrain
@@ -175,10 +175,10 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0 (finalization deferred to the drain path)", auth.settleCalls.Load())
 	}
-	if len(rs.recoverDrain) == 0 {
+	if len(rs.responsePipeline.recoverDrain) == 0 {
 		t.Fatal("recoverDrain should hold the deferred finish after handleRecvError")
 	}
-	if rs.isFinished() {
+	if rs.terminal.finished() {
 		t.Fatal("stream should not be marked finished before the drain path runs")
 	}
 
@@ -206,7 +206,7 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	if !sawSynthesizedUsage {
 		t.Fatal("expected the drain path to emit the synthesized usage_delta before the finish")
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream should be marked finished after the drain path runs")
 	}
 	if auth.settleCalls.Load() != 1 {
@@ -236,7 +236,6 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-close"},
 			traceID:  "trace-close",
@@ -247,6 +246,7 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	bindTestRuntimeOwners(rs, ex)
 	testStoreInner(rs, lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
 
 	if err := rs.Close(); err != nil {
@@ -284,7 +284,6 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-eof-failure"},
 			traceID:  "trace-eof-failure",
@@ -296,6 +295,7 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 		}, authorityCandidate())),
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
 		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
+	bindTestRuntimeOwners(rs, ex)
 
 	_, err := rs.handleRecvEOF(context.Background())
 	if !errors.Is(err, io.EOF) {
@@ -334,7 +334,6 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		}, accountingstream.Config{})
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
@@ -343,6 +342,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
@@ -383,7 +383,6 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-partial"},
 			}),
@@ -393,6 +392,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			}, authorityCandidate())),
 			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
 		}
+		bindTestRuntimeOwners(rs, ex)
 		rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("partial settle calls = %d, want 1", auth.settleCalls.Load())
@@ -437,7 +437,6 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
@@ -446,6 +445,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
@@ -494,7 +494,6 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
@@ -503,6 +502,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)

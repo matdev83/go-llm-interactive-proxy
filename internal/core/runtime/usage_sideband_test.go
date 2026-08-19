@@ -67,10 +67,10 @@ func TestConsumeBackendUsageEvidenceDrainsOnceWithoutCanonicalRecv(t *testing.T)
 	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
 	rs.consumeBackendUsageEvidenceForAttempt(context.Background(), attempt, stream)
 
-	if got := len(rs.seenEventsCopy()); got != 1 {
+	if got := len(rs.responsePipeline.seenEventsCopy()); got != 1 {
 		t.Fatalf("seen events = %d, want one sideband event", got)
 	}
-	if ev := rs.seenEventsCopy()[0]; ev.Kind != lipapi.EventUsageDelta || ev.InputTokens != 13 {
+	if ev := rs.responsePipeline.seenEventsCopy()[0]; ev.Kind != lipapi.EventUsageDelta || ev.InputTokens != 13 {
 		t.Fatalf("sideband event = %#v", ev)
 	}
 }

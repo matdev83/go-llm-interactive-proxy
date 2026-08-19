@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -55,8 +54,6 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
-			bus:      hooks.New(hooks.Config{}),
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-finished-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 				traceID:  "trace-finished-leak",
@@ -65,6 +62,7 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-finished-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -102,6 +100,7 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
+		bindTestRuntimeOwners(rs, ex)
 
 		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {

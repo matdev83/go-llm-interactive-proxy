@@ -21,7 +21,6 @@ import (
 // needed for one emitted response event; it is not a general runtime bag.
 type responseEventInput struct {
 	facts     recvTurnFacts
-	executor  *Executor
 	attempt   *attemptSession
 	recovery  *recoveryController
 	pm        sdk.PartMeta
@@ -45,35 +44,33 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 	if in.attempt == nil {
 		return lipapi.Event{}, responseRecordingResult{}, errNilRetryRecvStream
 	}
-	if in.executor != nil {
-		if err := extensions.RunFinalStreamObservationStage(ctx, in.executor.Log, in.executor.ExtensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
-			p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
-			return lipapi.Event{}, responseRecordingResult{}, err
-		}
+	if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
+		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
+		return lipapi.Event{}, responseRecordingResult{}, err
 	}
 
 	recording := responseRecordingResult{outcome: responseRecordingSkipped}
 	if !in.recorded {
-		recording = p.recordClientFacing(ctx, in.facts, in.attempt, in.executor, ev, in.committed)
+		recording = p.recordClientFacing(ctx, in.facts, in.attempt, ev, in.committed)
 		if recording.failed() && recording.mandatory() {
 			p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
 			return lipapi.Event{}, recording, recording.err
 		}
-		if recording.err != nil && in.executor != nil && in.executor.Log != nil {
-			in.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", recording.err)
+		if recording.err != nil && p.log != nil {
+			p.log.DebugContext(ctx, "secure_session recorder stream", "error", recording.err)
 		}
 	}
 
 	if in.finishBeforeRelease && ev.Kind == lipapi.EventResponseFinished {
 		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeSuccessReleased)
 	}
-	releaseDispatch := p.emitTrafficPTCFinal(ctx, in.executor, in.facts, in.attempt, &ev, in.pm)
+	releaseDispatch := p.emitTrafficPTCFinal(ctx, in.facts, in.attempt, &ev, in.pm)
 	p.rememberClientEvent(ev)
 	if in.finishAfterRemember && ev.Kind == lipapi.EventResponseFinished {
 		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeSuccessReleased)
 	}
 	p.commitAffinityIfOutput(ctx, in.recovery, in.facts, in.attempt, in.now, ev)
-	p.notifyCompactionAfterRelease(ctx, in.executor, ev, releaseDispatch)
+	p.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
 	return ev, recording, nil
 }
 
@@ -86,30 +83,30 @@ func (p *responsePipeline) commitAffinityIfOutput(ctx context.Context, recovery 
 	}
 }
 
-func (p *responsePipeline) emitTrafficPTCFinal(ctx context.Context, executor *Executor, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
+func (p *responsePipeline) emitTrafficPTCFinal(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
 	if ev == nil {
 		return compactionReleaseDispatch{}
 	}
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		return compactionReleaseDispatch{}
 	}
-	dispatch := p.observeCompactionReleaseFinal(ctx, facts, executor, attempt, ev)
-	p.emitTraffic(ctx, executor, attempt, sdktraffic.LegPTC, *ev, pm)
+	dispatch := p.observeCompactionReleaseFinal(ctx, facts, attempt, ev)
+	p.emitTraffic(ctx, attempt, sdktraffic.LegPTC, *ev, pm)
 	return dispatch
 }
 
-func (p *responsePipeline) emitTraffic(ctx context.Context, executor *Executor, attempt *attemptSession, leg sdktraffic.Leg, ev lipapi.Event, pm sdk.PartMeta) {
-	if executor == nil || executor.RuntimeSnapshot == nil || attempt == nil {
+func (p *responsePipeline) emitTraffic(ctx context.Context, attempt *attemptSession, leg sdktraffic.Leg, ev lipapi.Event, pm sdk.PartMeta) {
+	if p == nil || p.runtimeSnapshot == nil || attempt == nil {
 		return
 	}
-	bundle := coretraffic.PortBundleFromSnapshot(executor.RuntimeSnapshot)
+	bundle := coretraffic.PortBundleFromSnapshot(p.runtimeSnapshot)
 	if bundle.EmitIsNoop() {
 		return
 	}
 	b, err := json.Marshal(ev)
 	if err != nil {
-		if executor.Log != nil {
-			executor.Log.DebugContext(ctx, "response pipeline traffic marshal skipped", "leg", leg, "error", err)
+		if p.log != nil {
+			p.log.DebugContext(ctx, "response pipeline traffic marshal skipped", "leg", leg, "error", err)
 		}
 		return
 	}
@@ -129,11 +126,11 @@ func (p *responsePipeline) emitTraffic(ctx context.Context, executor *Executor, 
 // emitUsage observes provider/customer usage without importing settlement or
 // terminal authority. Attempt identity is explicit so replacement evidence
 // cannot be attributed to the current slot accidentally.
-func (p *responsePipeline) emitUsage(ctx context.Context, executor *Executor, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
-	if p == nil || executor == nil || executor.RuntimeSnapshot == nil || ev.Kind != lipapi.EventUsageDelta || attempt == nil {
+func (p *responsePipeline) emitUsage(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
+	if p == nil || p.runtimeSnapshot == nil || ev.Kind != lipapi.EventUsageDelta || attempt == nil {
 		return
 	}
-	obs := executor.RuntimeSnapshot.UsageObserver()
+	obs := p.runtimeSnapshot.UsageObserver()
 	if obs == nil {
 		return
 	}
@@ -152,8 +149,15 @@ func (p *responsePipeline) emitUsage(ctx context.Context, executor *Executor, fa
 		ReasoningTokens: ev.ReasoningTokens, TotalTokens: ev.TotalTokens,
 		CostNanoUnits: ev.CostNanoUnits, Currency: strings.TrimSpace(ev.Currency),
 		CostSource: strings.TrimSpace(ev.CostSource), RawUsageJSON: strings.TrimSpace(ev.RawUsageJSON),
-		RecordedAt: executor.now(),
-	}); err != nil && executor.Log != nil {
-		executor.Log.DebugContext(ctx, "usage observer error", "error", err)
+		RecordedAt: p.nowTime(),
+	}); err != nil && p.log != nil {
+		p.log.DebugContext(ctx, "usage observer error", "error", err)
 	}
+}
+
+func (p *responsePipeline) nowTime() time.Time {
+	if p != nil && p.now != nil {
+		return p.now()
+	}
+	return time.Now()
 }

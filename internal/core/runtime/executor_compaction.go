@@ -119,16 +119,16 @@ func (e *Executor) notifyCompactionOpenFailed(ctx context.Context, prep *prepare
 // returned event is never altered (requirements 3.3, 8.4). The detector is
 // committed even when no metadata observers are configured; dispatch is only
 // the optional public side effect.
-func (p *responsePipeline) observeCompactionRelease(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, ev lipapi.Event) {
-	p.observeCompactionReleaseFinal(ctx, facts, executor, attempt, &ev)
+func (p *responsePipeline) observeCompactionRelease(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
+	p.observeCompactionReleaseFinal(ctx, facts, attempt, &ev)
 }
 
-func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
+func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
 	var dispatch compactionReleaseDispatch
-	if p == nil || executor == nil || executor.Detector == nil || attempt == nil || ev == nil {
+	if p == nil || p.detector == nil || attempt == nil || ev == nil {
 		return dispatch
 	}
-	observers := executor.compactionObservers()
+	observers := p.compactionObservers
 	meta := compactiondetect.ResponseMeta{
 		TraceID:    facts.traceID,
 		ALegID:     facts.aLegID,
@@ -136,7 +136,7 @@ func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, fa
 		AttemptSeq: attempt.bleg.Seq,
 		SessionID:  facts.baseline.Session.AuthoritativeSessionID,
 	}
-	preview := safeCompactionPreviewResponse(executor.Detector, meta, *ev)
+	preview := safeCompactionPreviewResponse(p.detector, meta, *ev)
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:       meta.TraceID,
 		SessionID:     meta.SessionID,
@@ -166,15 +166,15 @@ func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, fa
 	// observation, so detector and client receive the same final event.
 	_ = extensions.RunCompactionPreserverBeforeResponseRelease(
 		ctx,
-		executor.Log,
-		executor.ExtensionMetrics,
-		executor.compactionPreservers(),
+		p.log,
+		p.extensionMetrics,
+		p.compactionPreservers,
 		ev,
 		preview,
 		preservationMeta,
-		executor.compactionServices(),
+		p.compactionServices,
 	)
-	events := safeCompactionResponseReleased(executor.Detector, meta, *ev)
+	events := safeCompactionResponseReleased(p.detector, meta, *ev)
 	dispatch = compactionReleaseDispatch{meta: preservationMeta, enabled: true}
 	if len(events) == 0 {
 		return dispatch
@@ -183,18 +183,18 @@ func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, fa
 	return dispatch
 }
 
-func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, executor *Executor, ev lipapi.Event, dispatch compactionReleaseDispatch) {
-	if p == nil || executor == nil || !dispatch.enabled {
+func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, ev lipapi.Event, dispatch compactionReleaseDispatch) {
+	if p == nil || !dispatch.enabled {
 		return
 	}
 	_ = extensions.RunCompactionPreserverAfterResponseRelease(
 		ctx,
-		executor.Log,
-		executor.ExtensionMetrics,
-		executor.compactionPreservers(),
+		p.log,
+		p.extensionMetrics,
+		p.compactionPreservers,
 		ev,
 		dispatch.meta,
-		executor.compactionServices(),
+		p.compactionServices,
 	)
 }
 

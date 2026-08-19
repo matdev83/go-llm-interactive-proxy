@@ -61,9 +61,9 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	attempt := s.attempt.require()
 	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	if idleDeadline.expired(recvCtx, err) && s.recovery != nil && s.recovery.recoverPolicy != nil {
-		dec := s.recovery.recoverPolicy.DecideIdle(s.now())
+		dec := s.recovery.recoverPolicy.DecideIdle(s.responsePipeline.nowTime())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			attempt.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,
 				BLeg:      attempt.bleg,
 				Cand:      attempt.cand,
@@ -75,9 +75,9 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
 			}
 			if dec.Warning.Kind != "" {
-				s.appendRecoveryDrain(dec.Warning)
+				s.responsePipeline.appendRecoveryDrain(dec.Warning)
 			}
-			s.appendRecoveryDrain(dec.Finish)
+			s.responsePipeline.appendRecoveryDrain(dec.Finish)
 			// Defer response_finished authority finalization to the recoverDrain drain path on the
 			// next Recv call, matching handleRecvEOF's single-owner invariant. Surface the head
 			// event (the warning when present) through the response observation boundary and keep the finish in
@@ -86,15 +86,15 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			// emits the synthesized usage_delta (the client-reporting consistency fix). Return
 			// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check;
 			// a continue would skip that check and wrongly drive a replacement iteration.
-			ev, _ := s.popRecoveryDrain()
+			ev, _ := s.responsePipeline.popRecoveryDrain()
 			if ev.Kind == lipapi.EventResponseFinished {
-				s.prependRecoveryDrain(ev)
+				s.responsePipeline.prependRecoveryDrain(ev)
 				return lipapi.Event{}, false, nil
 			}
 			pm, _ := s.recvHookMeta()
 			out, recording, emitErr := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
-				facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
-				pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+				facts: s.facts, attempt: attempt, recovery: s.recovery,
+				pm: pm, committed: s.terminal.committed(), now: s.responsePipeline.nowTime(), finishBeforeRelease: true,
 			})
 			if emitErr != nil {
 				cmd := sdkterminal.CommandPartialError
@@ -109,7 +109,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			return out, false, emitErr
 		}
 		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			attempt.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,
 				BLeg:      attempt.bleg,
 				Cand:      attempt.cand,
@@ -124,11 +124,11 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			return lipapi.Event{}, true, nil
 		}
 	}
-	if ttftDeadline.expired(recvCtx, err) && !s.isCommitted() {
+	if ttftDeadline.expired(recvCtx, err) && !s.terminal.committed() {
 		ttftScope := ttftDeadline.scope
 		if ttftScope == ttftTimeoutLeaf {
 			tf := ttftFailure(ttftScope, attempt.cand.Key)
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			attempt.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,
 				BLeg:      attempt.bleg,
 				Cand:      attempt.cand,
@@ -137,8 +137,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				DetailErr: tf,
 			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 			if c := attempt.takeInner(); c != nil {
-				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(
+				if cerr := c.Close(); cerr != nil && s.responsePipeline != nil && s.responsePipeline.log != nil {
+					s.responsePipeline.log.DebugContext(
 						ctx, "retry_recv inner stream close",
 						"reason", "leaf_ttft_timeout",
 						"error", cerr,
@@ -149,7 +149,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			return lipapi.Event{}, true, nil
 		}
 		tf := ttftFailure(ttftScope, attempt.cand.Key)
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+		attempt.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.facts.aLegID,
 			BLeg:      attempt.bleg,
 			Cand:      attempt.cand,
@@ -158,25 +158,25 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			DetailErr: tf,
 		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 		if c := attempt.takeInner(); c != nil {
-			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-				s.executor.Log.DebugContext(
+			if cerr := c.Close(); cerr != nil && s.responsePipeline != nil && s.responsePipeline.log != nil {
+				s.responsePipeline.log.DebugContext(
 					ctx, "retry_recv inner stream close",
 					"reason", "global_ttft_timeout",
 					"error", cerr,
 				)
 			}
 		}
-		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandTimeout, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
-			attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandTimeout, attempt, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+			attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.responsePipeline.operatorUsageForFinalize())
 			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandTimeout)
-			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandTimeout)
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, sdkterminal.CommandTimeout, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+			s.terminal.handoffBillingTurn(cctx, s.facts, sdkterminal.CommandTimeout)
 			return nil
 		})
-		if !s.isFinished() {
+		if !s.terminal.finished() {
 			s.markFinished()
 		}
 		s.terminal.endALeg(aLegEndBase)
@@ -184,14 +184,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 		reason := cancellationAttemptReason(ctx, err)
-		if s.executor != nil && s.executor.Log != nil && err != nil {
-			s.executor.Log.DebugContext(
+		if s.responsePipeline != nil && s.responsePipeline.log != nil && err != nil {
+			s.responsePipeline.log.DebugContext(
 				ctx, "retry_recv context cancellation",
 				"reason", reason,
 				"recv_error_detail", diag.TruncErrDetail(err, attemptReasonMaxRunes),
 			)
 		}
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+		attempt.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.facts.aLegID,
 			BLeg:      attempt.bleg,
 			Cand:      attempt.cand,
@@ -210,25 +210,25 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			cmd = sdkterminal.CommandTimeout
 		}
-		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.persistCancellationBilling(cctx, attempt, reason)
 			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeCancelled)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.recordBillingLegForAttempt(cctx, attempt, cmd)
-			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+			s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
 			return nil
 		})
-		if !s.isFinished() {
+		if !s.terminal.finished() {
 			s.markFinished()
 		}
 		s.terminal.endALeg(aLegEndBase)
 		return lipapi.Event{}, false, err
 	}
-	if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {
+	if s.terminal.committed() || !lipapi.IsRecoverablePreOutput(err) {
 		surfErr := err
-		if s.isCommitted() && lipapi.IsRecoverablePreOutput(err) {
+		if s.terminal.committed() && lipapi.IsRecoverablePreOutput(err) {
 			surfErr = &lipapi.UpstreamFailureError{
 				Phase:        lipapi.PhasePostOutput,
 				Recoverable:  false,
@@ -236,7 +236,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				CandidateKey: attempt.cand.Key,
 			}
 		}
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+		attempt.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.facts.aLegID,
 			BLeg:      attempt.bleg,
 			Cand:      attempt.cand,
@@ -249,24 +249,24 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.As(err, &pe) {
 			cmd = sdkterminal.CommandPanic
 		}
-		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.recordPartialTokenAccounting(cctx, attempt, attemptReasonDetail(surfErr), surfErr)
 			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.recordBillingLegForAttempt(cctx, attempt, cmd)
-			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+			s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
 			return nil
 		})
-		if !s.isFinished() {
+		if !s.terminal.finished() {
 			s.markFinished()
 		}
 		return lipapi.Event{}, false, surfErr
 	}
 	var log *slog.Logger
-	if s.executor != nil {
-		log = s.executor.Log
+	if s.responsePipeline != nil {
+		log = s.responsePipeline.log
 	}
 	diag.LogDecision(
 		ctx, log, "recoverable_pre_output_swallowed",
@@ -274,7 +274,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		slog.String("candidate_key", attempt.cand.Key),
 		slog.String("phase", "recv"),
 	)
-	s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+	attempt.recordAttemptLogged(ctx, recordAttemptParams{
 		ALegID:    s.facts.aLegID,
 		BLeg:      attempt.bleg,
 		Cand:      attempt.cand,
@@ -285,20 +285,20 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// Recoverable pre-output failover terminalizes only the attempt plane for
 	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
 	// owns the reservation release via a fresh attempt terminal.
-	attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+	attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		// A swallowed pre-output attempt must release its strict reservation for
 		// failover, but any advisory/unreserved rules still need the observed usage
 		// fact. Apply only the unreserved projection here; do not settle the
 		// reservation before the replacement decision.
-		usageEv := s.operatorUsageForFinalize()
+		usageEv := s.responsePipeline.operatorUsageForFinalize()
 		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, usageEv)
-		s.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
-		s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandSwallowedAttempt)
+		s.terminal.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, sdkterminal.CommandSwallowedAttempt, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
 		return nil
 	})
 	if c := attempt.takeInner(); c != nil {
-		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(
+		if cerr := c.Close(); cerr != nil && s.responsePipeline != nil && s.responsePipeline.log != nil {
+			s.responsePipeline.log.DebugContext(
 				ctx, "retry_recv inner stream close",
 				"reason", "recoverable_pre_output",
 				"error", cerr,

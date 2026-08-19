@@ -219,9 +219,10 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
-	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-append-retry",
 	})}
+	bindTestRuntimeOwners(stream, ex)
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
 
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)

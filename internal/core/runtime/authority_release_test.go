@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -96,8 +95,6 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -116,6 +113,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 			{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11, Currency: "USD"},
 		}},
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
 	if auth.settleCalls.Load() != 1 {
@@ -183,7 +181,6 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
 			traceID:  "trace-ttft",
@@ -267,8 +264,6 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -285,6 +280,7 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	opened, err := rs.tryReplacementIteration(context.Background())
 	if err != nil {
@@ -346,8 +342,6 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -364,6 +358,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	recvErr := &lipapi.UpstreamFailureError{
 		Phase:       lipapi.PhasePreOutput,
@@ -449,8 +444,6 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -502,7 +495,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	if settle.OutputCommitted {
 		t.Fatal("expected replacement-error swallowed settle to record outputCommitted=false")
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("expected stream to be marked finished after terminal replacement error")
 	}
 }

@@ -9,11 +9,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 )
 
-func (p *responsePipeline) streamObserverMeta(facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool) response.StreamMeta {
+func (p *responsePipeline) streamObserverMeta(facts recvTurnFacts, attempt *attemptSession, views execctx.Views, viewsOK bool) response.StreamMeta {
 	backendID := strings.TrimSpace(attempt.cand.Primary.Backend)
 	var prefixes []string
-	if executor != nil {
-		if be, ok := executor.Backends[backendID]; ok {
+	if p != nil {
+		if be, ok := p.backends[backendID]; ok {
 			prefixes = execbackend.CloneBackendPrefixes(be)
 		}
 	}
@@ -30,18 +30,18 @@ func (p *responsePipeline) streamObserverMeta(facts recvTurnFacts, executor *Exe
 	return meta
 }
 
-func (p *responsePipeline) openFinalStreamObservation(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool, committed bool) error {
-	if p == nil || executor == nil || executor.RuntimeSnapshot == nil {
+func (p *responsePipeline) openFinalStreamObservation(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, views execctx.Views, viewsOK bool, committed bool) error {
+	if p == nil || p.runtimeSnapshot == nil {
 		return nil
 	}
-	factories := executor.RuntimeSnapshot.StreamObserverFactories()
+	factories := p.runtimeSnapshot.StreamObserverFactories()
 	if len(factories) == 0 {
 		return nil
 	}
 	if attempt == nil || attempt.finalStreamObs == nil {
 		return nil
 	}
-	if err := attempt.finalStreamObs.Open(ctx, factories, p.streamObserverMeta(facts, executor, attempt, views, viewsOK), response.Services{}); err != nil && !committed {
+	if err := attempt.finalStreamObs.Open(ctx, factories, p.streamObserverMeta(facts, attempt, views, viewsOK), response.Services{}); err != nil && !committed {
 		return err
 	}
 	return nil
@@ -56,7 +56,7 @@ func (p *responsePipeline) finishFinalStreamObservation(ctx context.Context, att
 	}
 }
 
-func (p *responsePipeline) cycleFinalStreamObservation(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool, outcome response.StreamOutcome, committed bool) error {
+func (p *responsePipeline) cycleFinalStreamObservation(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, views execctx.Views, viewsOK bool, outcome response.StreamOutcome, committed bool) error {
 	p.finishFinalStreamObservation(ctx, attempt, outcome)
-	return p.openFinalStreamObservation(ctx, facts, executor, attempt, views, viewsOK, committed)
+	return p.openFinalStreamObservation(ctx, facts, attempt, views, viewsOK, committed)
 }

@@ -98,7 +98,8 @@ func TestInterleavedThinkerError_FinalizesAuthority(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
-	from.isInterleavedThinker = true
+	installTestTurnTerminal(from)
+	from.terminal.setInterleavedThinker()
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
@@ -134,7 +135,8 @@ func TestInterleavedThinkerEOF_Truncated_NoContinuation(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
-	from.isInterleavedThinker = true
+	installTestTurnTerminal(from)
+	from.terminal.setInterleavedThinker()
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
@@ -181,7 +183,8 @@ func TestInterleavedThinkerCancel_FinalizesAuthority(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
-	from.isInterleavedThinker = true
+	installTestTurnTerminal(from)
+	from.terminal.setInterleavedThinker()
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
@@ -212,7 +215,8 @@ func TestInterleavedThinkerResponseFinished_OpensContinuation(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
-	from.isInterleavedThinker = true
+	installTestTurnTerminal(from)
+	from.terminal.setInterleavedThinker()
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(5),
 		admissionResult: authorityapp.AdmissionResult{
@@ -332,7 +336,8 @@ func setupInterleavedAssignedExecutorGate(t *testing.T) (
 		return f
 	})
 	from = stampStreamIdentity(from)
-	from.isInterleavedThinker = true
+	installTestTurnTerminal(from)
+	from.terminal.setInterleavedThinker()
 	installTestTurnTerminal(from)
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(5),

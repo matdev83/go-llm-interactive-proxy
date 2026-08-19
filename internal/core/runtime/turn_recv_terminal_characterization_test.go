@@ -32,8 +32,6 @@ func newCharacterizationStream(t *testing.T, inner lipapi.ManagedEventStream) *r
 	ex.Store = store
 	ex.Bus = bus
 	s := &retryRecvStream{
-		executor: ex,
-		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},

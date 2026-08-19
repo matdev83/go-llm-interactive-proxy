@@ -156,8 +156,6 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	priorState := out.authority
 	priorCand := out.cand
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: authorityOpenParams(t, aLegID, budget).baseline,
 			aLegID:   aLegID,
@@ -166,6 +164,7 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 		recovery: &recoveryController{budget: budget, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(out.bleg, priorCand, testAuthorityLifecycle(ex, priorState, priorCand)),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	opened, err := rs.tryReplacementIteration(context.Background())
 	if err != nil {

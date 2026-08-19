@@ -42,8 +42,6 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 	}
 
 	from := &retryRecvStream{
-		executor: ex,
-		bus:      ex.Bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -61,6 +59,7 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "thinker-bleg", Seq: 1}, routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}}, authorityLifecycle{}),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(from, ex)
 	return ex, from
 }
 

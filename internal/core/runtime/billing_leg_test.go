@@ -27,7 +27,6 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -48,6 +47,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 			},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 
 	first := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if first.Err != nil {
@@ -88,13 +88,13 @@ func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if result.Err != nil {
 		t.Fatalf("observer panic changed terminal result: %v", result.Err)
@@ -109,7 +109,6 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -120,11 +119,12 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("first attempt terminalization: %v", result.Err)
 	}
 	stream.attempt.install(newAttemptSession(attemptSessionInput{bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}}))
-	stream.lastAuthorityUsage = lipapi.Event{}
+	stream.responsePipeline.lastAuthorityUsage = lipapi.Event{}
 	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("replacement attempt terminalization: %v", result.Err)
 	}
@@ -170,7 +170,6 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 		},
 	}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -182,6 +181,7 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
@@ -229,7 +229,6 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 		},
 	}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -249,6 +248,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 			},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
@@ -289,7 +289,6 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 		},
 	}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -301,6 +300,7 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("finalize failure changed terminal result: %v", result.Err)
 	}
@@ -319,7 +319,6 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 	params := make(url.Values)
 	params.Set("provider", "openai")
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -328,6 +327,7 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 			Backend: "backend-azure", Model: "model-x", Params: params,
 		}}, authorityLifecycle{}),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
@@ -344,13 +344,13 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "", ALegID: "a-1", Seq: 3}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
@@ -370,7 +370,6 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 		}),
 	}}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
@@ -393,6 +392,7 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 			},
 		}},
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
@@ -427,17 +427,17 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 		},
 	}
 	stream := &retryRecvStream{
-		executor: executor,
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}, authorityLifecycle{}),
 	}
+	bindTestRuntimeOwners(stream, executor)
 	if !stream.finalizeBillingAfterCancel(context.Background(), stream.attempt.snapshot(), "client canceled") {
 		t.Fatal("quota finalize should succeed")
 	}
-	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandCancel)
+	stream.terminal.recordBillingLegForAttempt(context.Background(), stream.facts, stream.attempt.snapshot(), sdkterminal.CommandCancel, lipapi.Event{}, false)
 	if calls != 1 {
 		t.Fatalf("FinalizeBilling calls = %d, want 1 shared snapshot for quota and LUR", calls)
 	}

@@ -13,7 +13,6 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -48,19 +47,11 @@ type retryRecvStream struct {
 	// remains owned by cohesive collaborators.
 	facts recvTurnFacts
 
-	*responsePipeline
-	executor *Executor
-	bus      *hooks.Bus
+	responsePipeline *responsePipeline
 
 	attempt  attemptSlot
 	terminal *turnTerminal
 	recovery *recoveryController
-
-	cachedCtxMu sync.Mutex
-	lastParent  context.Context
-	cachedCtx   context.Context
-
-	isInterleavedThinker bool
 }
 
 // consumeBackendUsageEvidenceForAttempt binds provider sideband evidence to
@@ -86,34 +77,15 @@ func (s *retryRecvStream) consumeBackendUsageEvidenceForAttempt(
 		if !attempt.rememberUsageEvidenceOnce(ev) {
 			continue
 		}
-		s.rememberInternalUsage(ev)
+		s.responsePipeline.rememberInternalUsage(ev)
 		attempt.accounting.observeUsage(ev)
-		s.responsePipeline.emitUsage(ctx, s.executor, s.facts, attempt, ev)
+		s.responsePipeline.emitUsage(ctx, s.facts, attempt, ev)
 	}
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
 
 var errNilRetryRecvStream = errors.New("runtime: nil retryRecvStream")
-
-func (s *retryRecvStream) now() time.Time {
-	if s != nil && s.executor != nil {
-		return s.executor.now()
-	}
-	return time.Now()
-}
-
-func (s *retryRecvStream) isFinished() bool {
-	if s == nil {
-		return false
-	}
-	if s.responsePipeline != nil && !s.responsePipeline.bound() {
-		// Production assembly binds immediately after construction. Keep this
-		// nil-safe fallback for focused tests that use direct stream literals.
-		s.bindResponsePipeline()
-	}
-	return s.terminal != nil && s.terminal.finished()
-}
 
 func (s *retryRecvStream) bindResponsePipeline() {
 	if s == nil {
@@ -126,7 +98,7 @@ func (s *retryRecvStream) bindResponsePipeline() {
 		return s.terminal.committed(), s.terminal.accountingFinalized()
 	})
 	s.responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
-		return reconstructCustomerUsageForResponse(ctx, s.executor, s.facts, s.attempt.snapshot(), text, events)
+		return reconstructCustomerUsageForResponse(ctx, s.responsePipeline.streamUsage, s.responsePipeline.log, s.facts, s.attempt.snapshot(), text, events)
 	})
 }
 
@@ -142,31 +114,6 @@ func (s *retryRecvStream) markFinished() {
 	}
 }
 
-func (s *retryRecvStream) isCommitted() bool {
-	return s != nil && s.terminal != nil && s.terminal.committed()
-}
-
-func (s *retryRecvStream) markCommitted() {
-	if s != nil {
-		if s.terminal != nil {
-			s.terminal.markCommitted(s.attempt.snapshot())
-		}
-	}
-}
-
-// cachedExecContext returns the request-scoped exec context derived from the most
-// recent Recv parent, or nil when Recv never ran. Close and other caller-less
-// terminal paths derive from it via context.WithoutCancel so work that must
-// outlive request cancellation still sees request-scoped values.
-func (s *retryRecvStream) cachedExecContext() context.Context {
-	if s == nil {
-		return nil
-	}
-	s.cachedCtxMu.Lock()
-	defer s.cachedCtxMu.Unlock()
-	return s.cachedCtx
-}
-
 func (s *retryRecvStream) cancelAndCloseInner(
 	ctx context.Context,
 	c lipapi.ManagedEventStream,
@@ -176,8 +123,8 @@ func (s *retryRecvStream) cancelAndCloseInner(
 		return
 	}
 	_ = c.Cancel(ctx, cause)
-	if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(
+	if cerr := c.Close(); cerr != nil && s.responsePipeline != nil && s.responsePipeline.log != nil {
+		s.responsePipeline.log.DebugContext(
 			ctx, "retry_recv inner stream close",
 			"reason", string(cause.Kind),
 			"error", cerr,
@@ -230,24 +177,16 @@ func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
 }
 
 // recvExecContext attaches request metadata to parent and returns a child context.
-// It caches the result based on parent to avoid repeated allocations in Recv.
+// The immutable request facts make this projection repeatable without storing a
+// request context on the EventStream facade.
 func (s *retryRecvStream) recvExecContext(parent context.Context) context.Context {
-	s.cachedCtxMu.Lock()
-	defer s.cachedCtxMu.Unlock()
-
-	if s.lastParent == parent && s.cachedCtx != nil {
-		return s.cachedCtx
-	}
 
 	var logger *slog.Logger
-	if s.executor != nil && s.executor.Log != nil {
-		logger = s.executor.Log
+	if s.responsePipeline != nil && s.responsePipeline.log != nil {
+		logger = s.responsePipeline.log
 	}
 	ctx := s.facts.projectContext(parent, logger)
 	ctx = s.withDecisionEvidence(ctx)
-
-	s.lastParent = parent
-	s.cachedCtx = ctx
 	return ctx
 }
 
@@ -299,22 +238,11 @@ func (s *retryRecvStream) viewsFor(ctx context.Context) (execctx.Views, bool) {
 
 func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
 	if lipapi.OutputCommitted(ev) {
-		s.markCommitted()
+		s.terminal.markCommitted(s.attempt.snapshot())
 		if s.recovery != nil && s.recovery.ttft != nil {
 			s.recovery.ttft.markCommitted()
 		}
 	}
-}
-
-func (s *retryRecvStream) popToolFinalDrain() (lipapi.Event, bool) {
-	if s == nil {
-		return lipapi.Event{}, false
-	}
-	attempt := s.attempt.snapshot()
-	if attempt == nil || attempt.toolFinal == nil {
-		return lipapi.Event{}, false
-	}
-	return attempt.toolFinal.popDrain()
 }
 
 func (s *retryRecvStream) Close() error {
@@ -327,51 +255,46 @@ func (s *retryRecvStream) Close() error {
 	if current != nil {
 		c = current.takeInner()
 	}
-	// lipapi.EventStream.Close has no caller context. Terminal Close work must
-	// outlive request cancellation, so detach cancel from the last Recv parent
-	// when one was observed; Background only when no parent exists.
-	ctx := s.cachedExecContext()
-	if ctx == nil {
-		ctx = context.Background()
-	} else {
-		ctx = context.WithoutCancel(ctx)
-	}
+	// lipapi.EventStream.Close has no caller context. Project a detached
+	// request context from immutable facts; no mutable context cache belongs on
+	// the EventStream facade.
+	ctx := s.recvExecContext(context.Background())
 	if c == nil {
-		if !s.isFinished() {
-			s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		if !s.terminal.finished() {
+			s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.responsePipeline.finishFinalStreamObservation(cctx, current, response.OutcomeClosed)
 				s.persistCancellationBilling(cctx, current, "client closed")
 				s.markFinished()
 				return nil
 			}, func(cctx context.Context, _ coreterm.Outcome) error {
-				s.recordBillingLegForAttempt(cctx, current, sdkterminal.CommandClose)
-				s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandClose)
+				s.terminal.recordBillingLegForAttempt(cctx, s.facts, current, sdkterminal.CommandClose, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+				s.terminal.handoffBillingTurn(cctx, s.facts, sdkterminal.CommandClose)
 				return nil
 			})
-			if !s.isFinished() {
+			if !s.terminal.finished() {
 				s.markFinished()
 			}
 		}
 		s.terminal.endALeg(aLegEndBase)
 		return nil
 	}
-	if !s.isFinished() {
+	if !s.terminal.finished() {
 		if s.terminal != nil && s.terminal.hasALeg() {
 			_ = s.terminal.cancelALeg(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.responsePipeline.finishFinalStreamObservation(cctx, current, response.OutcomeClosed)
 			s.persistCancellationBilling(cctx, current, "client closed")
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.recordBillingLegForAttempt(cctx, current, sdkterminal.CommandClose)
-			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandClose)
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts, current, sdkterminal.CommandClose, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+			s.terminal.handoffBillingTurn(cctx, s.facts, sdkterminal.CommandClose)
 			return nil
 		})
-		if !s.isFinished() {
+		if !s.terminal.finished() {
 			s.markFinished()
 		}
 		if s.terminal != nil && s.terminal.hasALeg() {
@@ -389,12 +312,12 @@ func (s *retryRecvStream) Close() error {
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
 		attempt := s.attempt.require()
-		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandPanic, attempt, s.accumulatorSnapshot(), func(context.Context, coreterm.Outcome) error { return nil }, func(cctx context.Context, _ coreterm.Outcome) error {
-			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandPanic)
-			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandPanic)
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandPanic, attempt, s.responsePipeline.accumulatorSnapshot(), func(context.Context, coreterm.Outcome) error { return nil }, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, sdkterminal.CommandPanic, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed())
+			s.terminal.handoffBillingTurn(cctx, s.facts, sdkterminal.CommandPanic)
 			return nil
 		})
-		if s.executor != nil && s.executor.Log != nil {
+		if s.responsePipeline != nil && s.responsePipeline.log != nil {
 			// lipapi.EventStream.Close has no context; EnsureCallDiag guarantees call/leg ids
 			// on the detached close context so isolated-panic logs still correlate by trace_id / b_leg.
 			logCtx := diag.EnsureCallDiag(ctx, s.facts.traceID, s.facts.aLegID)
@@ -403,7 +326,7 @@ func (s *retryRecvStream) Close() error {
 				AttemptSeq: int(attempt.bleg.Seq),
 			})
 			attrs = diag.AppendIsolatedCrashStack(attrs, pe)
-			s.executor.Log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
+			s.responsePipeline.log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
 		}
 		return nil
 	}
@@ -411,10 +334,10 @@ func (s *retryRecvStream) Close() error {
 }
 
 func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) error {
-	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil {
+	if s == nil || s.responsePipeline == nil || s.responsePipeline.runtimeSnapshot == nil {
 		return nil
 	}
-	policies := s.executor.RuntimeSnapshot.ToolCallPoliciesExecution()
+	policies := s.responsePipeline.runtimeSnapshot.ToolCallPoliciesExecution()
 	if len(policies) == 0 {
 		return nil
 	}
@@ -436,14 +359,14 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 	}
 	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
 		Ctx:      ctx,
-		Log:      s.executor.Log,
-		Obs:      s.executor.ExtensionMetrics,
+		Log:      s.responsePipeline.log,
+		Obs:      s.responsePipeline.extensionMetrics,
 		Policies: policies,
 		Event:    te,
 		Meta:     polMeta,
 		Svc: toolpolicy.Services{
-			State: s.executor.RuntimeSnapshot.State(),
-			Aux:   s.executor.RuntimeSnapshot.Aux(),
+			State: s.responsePipeline.runtimeSnapshot.State(),
+			Aux:   s.responsePipeline.runtimeSnapshot.Aux(),
 		},
 	})
 	return err
@@ -454,11 +377,11 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 // evidence themselves (requirements 3.3, 3.4, 4.2, 9.1). Runtime only
 // establishes the seam; it does not emit aggregate runtime evidence.
 func (s *retryRecvStream) withDecisionEvidence(ctx context.Context) context.Context {
-	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil {
+	if s == nil || s.responsePipeline == nil || s.responsePipeline.runtimeSnapshot == nil {
 		return ctx
 	}
-	snap := s.executor.RuntimeSnapshot
-	emitter := s.executor.policyEvidenceEmitter(snap)
+	snap := s.responsePipeline.runtimeSnapshot
+	emitter := s.responsePipeline.policyEvidenceEmitter(snap)
 	// Attach the seam whenever a snapshot is present so non-default timeout budgets
 	// are enforced on stream stages even without a policy observer. Emitter stays
 	// nil for the no-op observer default so no evidence/logs are produced.
@@ -466,7 +389,7 @@ func (s *retryRecvStream) withDecisionEvidence(ctx context.Context) context.Cont
 		Emitter:               emitter,
 		TimeoutBudget:         snap.TimeoutBudgetSource(),
 		TimeoutGuard:          snap.ProviderTimeoutGuard(),
-		OutputCommittedSource: s.isCommitted,
+		OutputCommittedSource: func() bool { return s.terminal != nil && s.terminal.committed() },
 	}
 	ctx = extensions.WithDecisionEvidence(ctx, ev)
 	ctx = hooks.WithToolReactorEvidence(ctx, extensions.NewToolReactorEvidenceFunc(ev))
@@ -487,16 +410,16 @@ func (s *retryRecvStream) completionSnapshot(ctx context.Context) *extensions.Re
 	if snap := extensions.RequestRuntimeSnapshotFromContext(ctx); snap != nil {
 		return snap
 	}
-	if s.executor != nil {
-		return s.executor.RuntimeSnapshot
+	if s.responsePipeline != nil {
+		return s.responsePipeline.runtimeSnapshot
 	}
 	return nil
 }
 
 func (s *retryRecvStream) completionGatesFromContext(ctx context.Context) []completion.Gate {
 	var fallback extensions.CompletionGatesView
-	if s.executor != nil {
-		fallback = s.executor.RuntimeSnapshot
+	if s.responsePipeline != nil {
+		fallback = s.responsePipeline.runtimeSnapshot
 	}
 	return extensions.CompletionGatesFromContext(ctx, fallback)
 }

@@ -103,29 +103,22 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 	return fact, true
 }
 
-func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, outcome metering.AttemptOutcome, surfaced metering.SurfacedState, usageEv lipapi.Event) {
-	if s == nil {
-		return
-	}
-	s.emitBackendEgressMeteringFactForAttempt(ctx, s.attempt.snapshot(), outcome, surfaced, usageEv)
-}
-
-func (s *retryRecvStream) emitBackendEgressMeteringFactForAttempt(
+func (t *turnTerminal) emitBackendEgressMeteringFactForAttempt(
 	ctx context.Context,
 	attempt *attemptSession,
 	outcome metering.AttemptOutcome,
 	surfaced metering.SurfacedState,
 	usageEv lipapi.Event,
 ) {
-	if s == nil || s.executor == nil || attempt == nil {
+	if t == nil || t.emitBackendEgress == nil || attempt == nil {
 		return
 	}
-	s.executor.emitBackendEgressMeteringFact(ctx, attempt.bleg.BLegID, outcome, surfaced, usageEv)
+	t.emitBackendEgress(ctx, attempt.bleg.BLegID, outcome, surfaced, usageEv)
 }
 
-func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) (metering.Fact, bool) {
-	if s == nil || s.executor == nil {
+func (t *turnTerminal) emitFrontendEgressMeteringFact(ctx context.Context, traceID string, usageEv lipapi.Event) (metering.Fact, bool) {
+	if t == nil || t.emitFrontendEgress == nil {
 		return metering.Fact{}, false
 	}
-	return s.executor.emitFrontendEgressMeteringFact(ctx, s.facts.traceID, s.resolveCustomerUsage(ctx, usageEv))
+	return t.emitFrontendEgress(ctx, traceID, usageEv)
 }

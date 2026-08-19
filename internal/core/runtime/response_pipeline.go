@@ -8,10 +8,17 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	secureapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
+	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -23,6 +30,27 @@ import (
 // commitment authority.
 type responsePipeline struct {
 	eventsMu sync.Mutex
+
+	// Concrete response-side dependencies are captured at composition time. No
+	// request operation needs the broad Executor service surface.
+	bus                      *hooks.Bus
+	log                      *slog.Logger
+	now                      func() time.Time
+	runtimeSnapshot          *extensions.RequestRuntimeSnapshot
+	extensionMetrics         extensions.StageMetrics
+	policyDiagnostics        bool
+	policyEvidenceEmitter    func(*extensions.RequestRuntimeSnapshot) *extensions.EvidenceEmitter
+	streamUsage              *accountingstream.Reconstructor
+	secureSessionRecorder    secureapp.GateRecording
+	secureSessionMetrics     SecureSessionMetrics
+	secureRecordingMandatory bool
+	backends                 map[string]execbackend.Backend
+	detector                 *compactiondetect.Detector
+	compactionObservers      []compaction.Observer
+	compactionPreservers     []compaction.Preserver
+	compactionServices       compaction.Services
+	keepwarm                 *keepwarm.Orchestrator
+	completionBufferLimits   completion.BufferLimits
 
 	customer    *customerEvidenceAccumulator
 	seenEvents  []lipapi.Event
@@ -62,6 +90,43 @@ func newResponsePipeline(openMeta ...compaction.PreservationMeta) *responsePipel
 		p.compactionOpenMeta = openMeta[0]
 	}
 	return p
+}
+
+func newResponsePipelineForExecutor(executor *Executor, openMeta ...compaction.PreservationMeta) *responsePipeline {
+	p := newResponsePipeline(openMeta...)
+	if executor == nil {
+		return p
+	}
+	p.log = executor.Log
+	p.bus = executor.Bus
+	p.now = executor.now
+	p.runtimeSnapshot = executor.RuntimeSnapshot
+	p.extensionMetrics = executor.ExtensionMetrics
+	p.policyDiagnostics = executor.PolicyDiagnosticsEnabled
+	p.policyEvidenceEmitter = executor.policyEvidenceEmitter
+	p.streamUsage = executor.StreamUsage
+	p.secureSessionRecorder = executor.SecureSessionRecorder
+	p.secureSessionMetrics = executor.SecureSessionMetrics
+	p.secureRecordingMandatory = executor.SecureSessionRecordingMandatory
+	p.backends = executor.Backends
+	p.detector = executor.Detector
+	if executor.RuntimeSnapshot != nil {
+		p.compactionObservers = executor.RuntimeSnapshot.CompactionObservers()
+		p.compactionPreservers = executor.RuntimeSnapshot.CompactionPreservers()
+		p.runtimeSnapshot = executor.RuntimeSnapshot
+		p.compactionServices.State = executor.RuntimeSnapshot.State()
+	}
+	p.compactionServices.BackgroundAux = executor.BackgroundAux
+	p.keepwarm = executor.Keepwarm
+	p.completionBufferLimits = executor.CompletionBufferLimits
+	return p
+}
+
+func completionBufferLimitsFor(p *responsePipeline) completion.BufferLimits {
+	if p == nil {
+		return completion.BufferLimits{}
+	}
+	return p.completionBufferLimits
 }
 
 func (p *responsePipeline) ensure() {

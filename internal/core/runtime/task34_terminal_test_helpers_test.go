@@ -37,11 +37,11 @@ func testTerminalizeRequest(s *retryRecvStream, ctx context.Context, cmd sdkterm
 		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
 			return nil
 		}
-		s.recordBillingLegForAttempt(cctx, attempt, cmd)
-		s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
+		s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
 		return nil
 	}
-	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), wrapped, requestAfter)
+	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
 }
 
 func testTerminalizeRequestForAttempt(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
@@ -58,11 +58,11 @@ func testTerminalizeRequestForAttempt(s *retryRecvStream, ctx context.Context, c
 		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
 			return nil
 		}
-		s.recordBillingLegForAttempt(cctx, attempt, cmd)
-		s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
+		s.terminal.handoffBillingTurn(cctx, s.facts, cmd)
 		return nil
 	}
-	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), wrapped, requestAfter)
+	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
 }
 
 func testTerminalizeAttempt(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
@@ -77,12 +77,12 @@ func testTerminalizeAttemptForAttempt(s *retryRecvStream, ctx context.Context, c
 	if s == nil || attempt == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
-	return attempt.terminalizeSnapshot(ctx, cmd, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+	return attempt.terminalizeSnapshot(ctx, cmd, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		var err error
 		if effects != nil {
 			err = effects(cctx)
 		}
-		s.recordBillingLegForAttempt(cctx, attempt, cmd)
+		s.terminal.recordBillingLegForAttempt(cctx, s.facts, attempt, cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish)
 		return err
 	})
 }

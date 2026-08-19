@@ -76,8 +76,6 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	}
 	terminal := newTurnTerminal()
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: params.baseline,
 			aLegID:   aLegID,
@@ -85,20 +83,32 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 		}),
 		terminal: terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
-			executor: ex,
-			bus:      hooks.New(hooks.Config{}),
-			aScope:   terminal.aLegScope(),
-			budget:   budget,
-			sel:      sel,
-			session:  &routing.SessionRoutingState{},
-			excluded: map[string]struct{}{},
-			rng:      routing.NewSeededRng(1),
+			opener:         newReplacementOpener(ex, hooks.New(hooks.Config{}), terminal.aLegScope()),
+			streamRecovery: ex.StreamRecovery,
+			nowFn:          ex.now,
+			budget:         budget,
+			sel:            sel,
+			session:        &routing.SessionRoutingState{},
+			excluded:       map[string]struct{}{},
+			rng:            routing.NewSeededRng(1),
 		}),
 		attempt: testAttemptSlot(
 			b2bua.BLegRecord{ALegID: aLegID, BLegID: "old-bleg", Seq: 1},
 			authorityCandidate(),
 			testAuthorityLifecycle(ex, oldAuthority, authorityCandidate()),
 		),
+	}
+	rs.recovery.attemptFactory = func(opened replacementOpenResult, _ recvTurnFacts) *attemptSession {
+		return newAttemptSession(attemptSessionInput{
+			inner: opened.stream,
+			bleg:  opened.bleg,
+			cand:  opened.cand,
+			authority: ex.newAttemptAuthorityLifecycle(
+				opened.authority,
+				opened.cand,
+			),
+			accounting: newAttemptAccountingTracker(ex.now()),
+		})
 	}
 	testStoreInner(rs, oldStream)
 	oldAttempt := rs.attempt.snapshot()
@@ -127,7 +137,7 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	if err := rs.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("request must be finished after Close terminalizes the old stream")
 	}
 	if got := oldStream.closeCalls.Load(); got != 1 {
@@ -153,7 +163,7 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	if got := replacementStream.closeCalls.Load(); got != 1 {
 		t.Fatalf("replacement stream Close calls = %d, want 1", got)
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("request must remain finished after replacement Open completes")
 	}
 

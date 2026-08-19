@@ -51,7 +51,7 @@ func TestRecv_earlyCtxCancel_nilExecutorWithInner_noPanic(t *testing.T) {
 	t.Parallel()
 	inner := &ttftBlockingRecvStream{}
 	rs := &retryRecvStream{
-		bus: hooks.New(hooks.Config{}),
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "nil-exec", Messages: testMinimalUserMessages()},
 			aLegID:   "a1",
@@ -113,8 +113,6 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 	initial.admissionResult.ReservationID = "reservation-swallowed"
 	cand := routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "early-nil-inner", Messages: testMinimalUserMessages(), Route: lipapi.RouteIntent{Selector: "backend-1:model-1"}},
 			aLegID:   aLegID,
@@ -123,6 +121,7 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 		recovery: &recoveryController{budget: &attemptBudget{max: 3}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(bleg, cand, testAuthorityLifecycle(ex, initial, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	testAttemptSession(rs).finalStreamObs = sess
+	bindTestRuntimeOwners(rs, ex)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -184,7 +183,7 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 
 func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 	t.Parallel()
-	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
+	_, _, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
 	obs := &earlyCancelFinishObs{}
 	sess := &extensions.FinalStreamObservationSession{}
 	if err := sess.Open(context.Background(), []response.StreamObserverFactory{earlyCancelFinishFactory{obs: obs}}, response.StreamMeta{
@@ -193,8 +192,7 @@ func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "dl", Messages: testMinimalUserMessages()},
 			aLegID:   aLegID,

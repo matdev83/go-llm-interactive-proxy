@@ -13,13 +13,13 @@ import (
 // handoffBillingTurn owns the request-level BillingCallID closure claim. The
 // terminal mutex remains held through the sink append so a failed append is
 // retryable while concurrent terminal paths cannot publish duplicate closures.
-func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFacts, executor *Executor, command sdkterminal.Command) {
-	if t == nil || executor == nil {
+func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFacts, command sdkterminal.Command) {
+	if t == nil || t.appendBillingCall == nil || t.billingWorkload == nil {
 		return
 	}
 	t.billingClosureMu.Lock()
 	defer t.billingClosureMu.Unlock()
-	if !executor.hasTerminalCallSink() || t.billingClosureSuccess {
+	if t.appendBillingCall == nil || t.billingClosureSuccess {
 		return
 	}
 	if err := facts.billingCallID.Validate(); err != nil {
@@ -33,7 +33,7 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFac
 		return
 	}
 	ids := facts.billingCallState.freezeAllocatedBLegs()
-	now := executor.now()
+	now := t.nowTime()
 	started, finished := facts.billingCallState.timingBounds(now)
 	workloadCtx := ctx
 	if facts.requestAuth != nil {
@@ -51,22 +51,24 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts recvTurnFac
 		CustomerPricingRef: facts.billingCustomerPricing,
 		ChargePolicyRef:    facts.billingChargePolicy,
 		ExpectedBLegIDs:    ids,
-		Workload:           executor.billingWorkloadIdentityForALeg(workloadCtx, facts.aLegID),
+		Workload:           t.billingWorkload(workloadCtx, facts.aLegID),
 	}
 	sealed, err := record.Seal()
 	if err != nil {
-		if executor.Log != nil {
-			executor.Log.DebugContext(ctx, "billing call-closure seal failed", "error", err)
+		if t.log != nil {
+			t.log.DebugContext(ctx, "billing call-closure seal failed", "error", err)
 		}
 		return
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err = safety.Call(safety.BoundaryStream, "billing_call_closure", func() error {
-		return executor.TerminalUsageSink.AppendCall(persistCtx, sealed)
+		return t.appendBillingCall(persistCtx, sealed)
 	})
 	if err != nil {
-		executor.logBillingUsageAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
+		if t.logBillingAppendFailure != nil {
+			t.logBillingAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
+		}
 		return
 	}
 	t.billingClosureSuccess = true

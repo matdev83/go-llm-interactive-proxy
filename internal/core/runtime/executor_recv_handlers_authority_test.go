@@ -48,10 +48,9 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 	setupRecvSuccessStream := func(t *testing.T, auth *recordingAuthorityService, bus *hooks.Bus) (*Executor, *retryRecvStream) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+		ex.Bus = bus
 		rs := &retryRecvStream{
 			terminal: newTurnTerminal(),
-			executor: ex,
-			bus:      bus,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-recv", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 				traceID:  "trace-recv",
@@ -60,6 +59,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -90,6 +90,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			ToolCallPolicies: []toolpolicy.Policy{denyingToolPolicyStub{}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
 		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
 		assertSettledNotLeaked(t, auth, rs, err, cont)
@@ -132,6 +133,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			CompletionGates: []completion.Gate{failingCompletionGateStub{err: gateErr}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
 		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
 		assertSettledNotLeaked(t, auth, rs, err, cont)
@@ -152,6 +154,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 			f.secureTurnOK = true
 			return f
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
 		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
 		if err == nil {
@@ -186,6 +189,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 			f.secureTurnOK = true
 			return f
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hi"}
 		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
 		if err == nil {
@@ -224,6 +228,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		// StreamUsage == nil => finalizeTokenAccounting settles Final and returns ok=false,
 		// so the handler falls through to the client-facing recorder that then fails.
 		ex.StreamUsage = nil
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
 		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
 		if err == nil {

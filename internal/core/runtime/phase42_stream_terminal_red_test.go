@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -79,8 +78,6 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	cand := authorityCandidate()
 	entered := make(chan struct{}, 1)
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "req-recv-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			traceID:  "trace-recv-close",
@@ -92,7 +89,7 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 		}}},
 	}
 	testStoreInner(rs, &blockUntilCancelStream{entered: entered})
-	rs.markCommitted()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 	installTestTurnTerminal(rs)
 
 	ctx := t.Context()
@@ -112,7 +109,7 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream must be finished after Close/Recv race")
 	}
 	if rs.terminal == nil || rs.terminal.requestTerminal() == nil || rs.terminal.requestTerminal().Owner() == nil {

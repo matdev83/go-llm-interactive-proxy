@@ -103,7 +103,6 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 			BillingIdentity: testBillingIdentity(),
 		}}
 		stream := &retryRecvStream{
-			executor: executor,
 			terminal: newTurnTerminal(),
 			facts: testRecvTurnFacts(recvTurnFacts{
 				aLegID:        "a-task34-gate",
@@ -116,14 +115,14 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 				authorityLifecycle{},
 			),
 		}
-		stream = stampStreamIdentity(stream)
+		stream = stampStreamIdentity(stream, executor)
 		turn := stream.terminal
 		attempt := stream.attempt.snapshot()
 		turn.markCommitted(attempt)
 		var attemptEffects atomic.Int32
 		requestEffects := func(ctx context.Context, _ coreterm.Outcome) error {
-			stream.recordBillingLegForAttempt(ctx, attempt, sdkterminal.CommandGateReplacement)
-			stream.terminal.handoffBillingTurn(ctx, stream.facts, stream.executor, sdkterminal.CommandGateReplacement)
+			stream.terminal.recordBillingLegForAttempt(ctx, stream.facts, attempt, sdkterminal.CommandGateReplacement, lipapi.Event{}, false)
+			stream.terminal.handoffBillingTurn(ctx, stream.facts, sdkterminal.CommandGateReplacement)
 			return nil
 		}
 		result := turn.terminalizeSnapshot(context.Background(), sdkterminal.CommandGateReplacement, attempt, coreterm.NewAccumulatorSnapshot(nil, false), func(context.Context, coreterm.Outcome) error {

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -31,8 +30,6 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
-		executor: executor,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			aLegID:   aLegID,
@@ -45,6 +42,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
 	installTestTurnTerminal(stream)
+	bindTestRuntimeOwners(stream, executor)
 
 	_, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err != nil {
@@ -83,8 +81,6 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 	}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor: executor,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			aLegID:   aLegID,
@@ -97,6 +93,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
 	installTestTurnTerminal(stream)
+	bindTestRuntimeOwners(stream, executor)
 
 	usage, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err != nil {
@@ -129,7 +126,6 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
-		executor: executor,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: aLegID,
 		}),
@@ -139,6 +135,7 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
+	bindTestRuntimeOwners(stream, executor)
 
 	stream.recordPartialTokenAccounting(context.Background(), stream.attempt.snapshot(), "authoritative-cutover", nil)
 	if got := auth.settleCalls.Load(); got != 1 {

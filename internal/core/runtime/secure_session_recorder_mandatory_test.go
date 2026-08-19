@@ -18,14 +18,14 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 		terminal:         newTurnTerminal(),
 		recovery:         &recoveryController{},
 		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
-		executor:         ex,
 		attempt:          testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "cand-1"}, authorityLifecycle{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "tr-mand",
 			aLegID:  "a-mand",
 		}),
 	}
-	s.markCommitted()
+	bindTestRuntimeOwners(s, ex)
+	s.terminal.markCommitted(s.attempt.snapshot())
 	_, err := s.tryReplacementIteration(context.Background())
 	if err == nil {
 		t.Fatal("expected error")

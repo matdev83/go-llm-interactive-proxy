@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -148,8 +147,6 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
 				ID:    "request-1",
@@ -166,6 +163,7 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, priorCand, testAuthorityLifecycle(ex, priorAuthority, priorCand)),
 		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	opened, err := rs.tryReplacementIteration(context.Background())
 	if err != nil {
