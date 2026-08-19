@@ -201,3 +201,30 @@ Integration review repairs:
 Preliminary Task 6.5 evidence:
 
 - `make quality-checks` — pass after all production changes, including formatting, module/build checks, full vet, architecture, goroutine allowlist and hot-path guardrails.
+
+## Wave 8 — Final lint repair and repository certification
+
+Implementation commits:
+
+- `3324f031` (`test(compaction): harden auxiliary scheduler checks`)
+- `7f6180ab` (`test(compaction): satisfy runtime certification lint`)
+- `5949f2c6` (`test(compaction): harden feature certification checks`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 6.5 | Pending stacked PR CI | Final simplification review found no duplicate detector, transcript, billing, workflow, provider-client or branch authority; lint repairs are limited to checked errors, formatting, standard-library modernizations and isolated parallel-test hygiene | New-code lint is clean; quality, unit, default, parity, docs, config and module gates pass. Local `make qa` completes its tests but the final repository-wide lint step reports 136 findings inherited from the PR2 base; none are new relative to `58cd8481` |
+
+Integrated evidence:
+
+- `golangci-lint run --new-from-rev 58cd8481ee89ded5cc57e63bf4892a6d0bff9b0c ./...` — pass, `0 issues`.
+- `make quality-checks` — pass.
+- `make test-unit` — pass.
+- `make test` — pass, including connector modules and contract suites.
+- `make parity-checks` — pass.
+- `make docs-check` — pass.
+- `make example-config-check` — pass; the runtimebundle selector has no matching test in this tree and exits successfully after deterministic docs/config checks.
+- `go mod verify` — pass, all modules verified.
+- Focused changed packages pass with `-count=3 -shuffle=on`; `go vet` and `git diff --check` pass.
+- Windows race execution remains unavailable because ThreadSanitizer fails allocation with error 87; deterministic repeated, checkptr and goleak-backed coverage is green.
+- Local `make qa` reaches the final lint target after its full test run, then fails on 136 repository-wide baseline findings. The diff-scoped lint command above proves the certification slice introduces none.
+- Task 6.5 remains pending until the stacked PR's required CI is green; the spec remains active and ready for implementation until all stacked PRs are merged and merged `main` is verified.
