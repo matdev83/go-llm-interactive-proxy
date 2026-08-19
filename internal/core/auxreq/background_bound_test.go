@@ -48,10 +48,18 @@ func TestBackgroundScheduler_BindRunnerKeepsEachGenerationImmutable(t *testing.T
 	second := &boundGenerationRunner{name: "second"}
 	var active atomic.Value
 	active.Store(auxreq.ExecutorRunner(first))
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
-		return active.Load().(auxreq.ExecutorRunner)
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
+		runner, ok := active.Load().(auxreq.ExecutorRunner)
+		if !ok {
+			panic("active runner has unexpected type")
+		}
+		return runner
 	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
-	firstClient := s.BindRunner(active.Load().(auxreq.ExecutorRunner))
+	firstRunner, ok := active.Load().(auxreq.ExecutorRunner)
+	if !ok {
+		t.Fatal("active runner has unexpected type")
+	}
+	firstClient := s.BindRunner(firstRunner)
 
 	firstID, err := firstClient.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "bound-first"})
 	if err != nil {
@@ -64,7 +72,11 @@ func TestBackgroundScheduler_BindRunnerKeepsEachGenerationImmutable(t *testing.T
 	}
 	// Simulate the active generation changing after the first view was bound.
 	active.Store(auxreq.ExecutorRunner(second))
-	secondClient := s.BindRunner(active.Load().(auxreq.ExecutorRunner))
+	secondRunner, ok := active.Load().(auxreq.ExecutorRunner)
+	if !ok {
+		t.Fatal("active runner has unexpected type")
+	}
+	secondClient := s.BindRunner(secondRunner)
 	secondID, err := secondClient.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "bound-second"})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +107,7 @@ func TestBackgroundScheduler_BoundRunnerRetainsAndReleasesOneAsyncPin(t *testing
 	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return nil
 	}, auxreq.SchedulerConfig{})
 	client := s.BindRunner(backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
@@ -124,7 +136,7 @@ func TestBackgroundScheduler_BoundCoalescedSubmissionSkipsRunnerAndPin(t *testin
 	ctx := genpin.WithRetainer(context.Background(), ret)
 	var firstCalls atomic.Int32
 	var secondCalls atomic.Int32
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return nil
 	}, auxreq.SchedulerConfig{})
 	firstClient := s.BindRunner(backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
@@ -167,7 +179,7 @@ func TestBackgroundScheduler_NilBoundRunnerFailsWithoutAdmission(t *testing.T) {
 	ret := &countingRetainer{pin: &countingPin{}}
 	ret.allow.Store(true)
 	ctx := genpin.WithRetainer(context.Background(), ret)
-	s := newBackground(t, context.Background(), func() auxreq.ExecutorRunner {
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
 		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
 			return finishedStream(), nil
 		})
