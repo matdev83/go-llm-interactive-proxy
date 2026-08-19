@@ -157,7 +157,7 @@ func TestInterleavedThinkerEOF_Truncated_NoContinuation(t *testing.T) {
 		t.Fatal("expected executor continuation to not be opened for truncated thinker EOF")
 	}
 
-	reqTerm, _ := from.snapshotTerminals()
+	reqTerm, _ := testTerminalOwners(from)
 	if reqTerm.Owner().State() == sdkterminal.StateOpen {
 		t.Fatal("expected request terminal to be terminalized (not StateOpen) due to truncated EOF")
 	}

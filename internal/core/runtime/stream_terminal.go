@@ -173,25 +173,6 @@ type accumulatorSnapWire struct {
 	Final  bool   `json:"f"`
 }
 
-// snapshotTerminals returns coherent request/attempt owners. Production
-// construction installs the turn terminal and attempt before the stream is
-// exposed; an unconstructed direct fixture returns nil and is rejected by the
-// terminal call sites until its explicit test owner is installed.
-func (s *retryRecvStream) snapshotTerminals() (req, att *streamTerminal) {
-	if s == nil {
-		return nil, nil
-	}
-	if s.terminal == nil {
-		return nil, nil
-	}
-	request := s.terminal.requestTerminal()
-	attempt := s.attempt.snapshot()
-	if attempt != nil {
-		return request, attempt.terminal
-	}
-	return request, nil
-}
-
 func (s *retryRecvStream) accumulatorSnapshot() coreterm.AccumulatorSnapshot {
 	if s == nil {
 		return coreterm.NewAccumulatorSnapshot(nil, false)
@@ -228,104 +209,6 @@ func (s *retryRecvStream) clearClientAccumulators() {
 	defer s.eventsMu.Unlock()
 	s.seenEvents = nil
 	s.visibleText.Reset()
-}
-
-// runStreamTerminal claims the request owner (when legal) and nested attempt
-// owner, then runs effects once under the winner. Attempt-only / request-only
-// commands skip the nested plane. Losers await completion without re-running effects.
-func (s *retryRecvStream) runStreamTerminal(
-	ctx context.Context,
-	cmd sdk.Command,
-	effects func(context.Context) error,
-) coreterm.Result {
-	if s == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	return s.runStreamTerminalForAttempt(ctx, cmd, s.attempt.snapshot(), effects)
-}
-
-// runStreamTerminalForAttempt is the explicit-attempt seam used when an
-// economic terminal effect has already captured its B-leg. It never consults
-// the mutable attempt slot after that capture.
-func (s *retryRecvStream) runStreamTerminalForAttempt(
-	ctx context.Context,
-	cmd sdk.Command,
-	attempt *attemptSession,
-	effects func(context.Context) error,
-) coreterm.Result {
-	if s == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	if s.terminal == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	snapFn := func() coreterm.AccumulatorSnapshot { return s.accumulatorSnapshot() }
-
-	runEffects := func(cctx context.Context, _ coreterm.Outcome) error {
-		if effects == nil {
-			return nil
-		}
-		return effects(cctx)
-	}
-
-	r := s.terminal.terminalizeWithRequestAfter(ctx, cmd, attempt, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
-		err := runEffects(cctx, out)
-		return err
-	}, func(cctx context.Context, _ coreterm.Outcome) error {
-		if !cmd.AllowsScope(sdk.ScopeRequest) {
-			return nil
-		}
-		s.recordBillingLegForAttempt(cctx, attempt, cmd)
-		s.handoffBillingTurn(cctx, cmd)
-		return nil
-	})
-	// Committed GateReplacement cannot take ownership (D13) but still freezes
-	// call-closure: no further B-leg can be allocated, and TUR/retry stay off.
-	if !r.Won && cmd == sdk.CommandGateReplacement && errors.Is(r.Err, sdk.ErrOutputCommitted) {
-		s.recordBillingLegForAttempt(ctx, attempt, cmd)
-		s.handoffBillingTurn(ctx, cmd)
-	}
-	return r
-}
-
-// runAttemptTerminal claims only the attempt owner (swallowed/parallel/open seams).
-func (s *retryRecvStream) runAttemptTerminal(
-	ctx context.Context,
-	cmd sdk.Command,
-	effects func(context.Context) error,
-) coreterm.Result {
-	if s == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	att := s.attempt.snapshot()
-	return s.runAttemptTerminalForAttempt(ctx, cmd, att, effects)
-}
-
-func (s *retryRecvStream) runAttemptTerminalForAttempt(
-	ctx context.Context,
-	cmd sdk.Command,
-	att *attemptSession,
-	effects func(context.Context) error,
-) coreterm.Result {
-	if s == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	if att == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	if att.terminal == nil {
-		return coreterm.Result{Err: sdk.ErrInvalid}
-	}
-	return att.terminal.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
-		return s.accumulatorSnapshot()
-	}, func(cctx context.Context, _ coreterm.Outcome) error {
-		var err error
-		if effects != nil {
-			err = effects(cctx)
-		}
-		s.recordBillingLegForAttempt(cctx, att, cmd)
-		return err
-	})
 }
 
 // terminalizeAttemptEphemeral runs attempt-scoped terminalization without a stream

@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	completion "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -288,11 +289,15 @@ func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev
 // request terminal so settle/release/facts run once under the owner.
 func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdkterminal.Command, reason string, cause error) {
 	attempt := s.attempt.require()
-	_ = s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+	_ = s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		if !attempt.authority.Settled() {
 			s.recordPartialTokenAccounting(cctx, attempt, reason, cause)
 		}
 		s.markFinished()
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		s.recordBillingLegForAttempt(cctx, attempt, cmd)
+		s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
 		return nil
 	})
 	if !s.isFinished() {
@@ -352,10 +357,14 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 			DetailErr: io.EOF,
 		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 	}
-	s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandEOF, attempt, func(cctx context.Context) error {
+	s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandEOF, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		s.recordPartialTokenAccounting(cctx, attempt, "stream ended without response_finished", io.EOF)
 		s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 		s.markFinished()
+		return nil
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandEOF)
+		s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandEOF)
 		return nil
 	})
 	if !s.isFinished() {

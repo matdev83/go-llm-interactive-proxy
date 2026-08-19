@@ -289,9 +289,19 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	}
 	var r terminal.Result
 	if s.isInterleavedThinker {
-		r = s.runAttemptTerminalForAttempt(ctx, sdkterminal.CommandNormalFinish, attempt, effects)
+		r = attempt.terminalizeSnapshot(ctx, sdkterminal.CommandNormalFinish, s.accumulatorSnapshot(), func(cctx context.Context, _ terminal.Outcome) error {
+			err := effects(cctx)
+			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandNormalFinish)
+			return err
+		})
 	} else {
-		r = s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandNormalFinish, attempt, effects)
+		r = s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandNormalFinish, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ terminal.Outcome) error {
+			return effects(cctx)
+		}, func(cctx context.Context, _ terminal.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandNormalFinish)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandNormalFinish)
+			return nil
+		})
 	}
 	if !r.Won {
 		// Another exit path already terminalized; surface cancel/error consistently.

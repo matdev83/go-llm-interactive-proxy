@@ -45,14 +45,14 @@ func TestTurnTerminal_AttemptTerminalLifetimeFollowsReplacement(t *testing.T) {
 	first := newAttemptSession(attemptSessionInput{})
 	second := newAttemptSession(attemptSessionInput{})
 
-	firstResult := turn.terminalize(context.Background(), sdkterminal.CommandSwallowedAttempt, first,
+	firstResult := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandSwallowedAttempt, first,
 		func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot(nil, false)
 		}, nil)
 	if !firstResult.Won || !first.terminal.Owner().State().IsTerminal() {
 		t.Fatalf("first attempt terminalize: result=%+v state=%q", firstResult, first.terminal.Owner().State())
 	}
-	secondResult := turn.terminalize(context.Background(), sdkterminal.CommandSwallowedAttempt, second,
+	secondResult := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandSwallowedAttempt, second,
 		func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot(nil, false)
 		}, nil)
@@ -77,11 +77,11 @@ func TestTurnTerminal_RequestAndAttemptScopeEffectsExactlyOnce(t *testing.T) {
 		return coreterm.NewAccumulatorSnapshot([]byte("snapshot"), false)
 	}
 
-	winner := turn.terminalize(context.Background(), sdkterminal.CommandClose, attempt, snap, effect)
+	winner := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandClose, attempt, snap, effect)
 	if !winner.Won || winner.Err != nil {
 		t.Fatalf("winner=%+v", winner)
 	}
-	loser := turn.terminalize(context.Background(), sdkterminal.CommandClose, attempt, snap, effect)
+	loser := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandClose, attempt, snap, effect)
 	if loser.Won || loser.Err != nil {
 		t.Fatalf("idempotent loser=%+v", loser)
 	}
@@ -102,7 +102,7 @@ func TestTurnTerminal_AttemptErrorPropagatesAndSettledAttemptFallsBackToRequestE
 
 	failedTurn := newTurnTerminal()
 	failedAttempt := newAttemptSession(attemptSessionInput{})
-	failed := failedTurn.terminalize(context.Background(), sdkterminal.CommandClose, failedAttempt, snap,
+	failed := testTurnTerminalize(failedTurn, context.Background(), sdkterminal.CommandClose, failedAttempt, snap,
 		func(context.Context, coreterm.Outcome) error { return effectErr })
 	if !failed.Won || !errors.Is(failed.Err, effectErr) {
 		t.Fatalf("attempt error result=%+v want propagated error", failed)
@@ -118,7 +118,7 @@ func TestTurnTerminal_AttemptErrorPropagatesAndSettledAttemptFallsBackToRequestE
 		t.Fatalf("pre-settle attempt: %+v", initial)
 	}
 	var fallbackEffects atomic.Int32
-	result := settledTurn.terminalize(context.Background(), sdkterminal.CommandClose, settledAttempt, snap,
+	result := testTurnTerminalize(settledTurn, context.Background(), sdkterminal.CommandClose, settledAttempt, snap,
 		func(context.Context, coreterm.Outcome) error {
 			fallbackEffects.Add(1)
 			return nil
@@ -142,7 +142,7 @@ func TestTurnTerminal_RequestWinnerFallsBackAfterConflictingSettledAttempt(t *te
 	}
 
 	var effects atomic.Int32
-	result := turn.terminalize(context.Background(), sdkterminal.CommandClose, attempt, snap,
+	result := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandClose, attempt, snap,
 		func(context.Context, coreterm.Outcome) error {
 			effects.Add(1)
 			return nil
@@ -170,7 +170,7 @@ func TestTurnTerminal_ConcurrentLoserWaitsAndSharesWinnerOutcome(t *testing.T) {
 	results := make(chan coreterm.Result, 2)
 
 	go func() {
-		results <- turn.terminalize(context.Background(), sdkterminal.CommandClose, attempt,
+		results <- testTurnTerminalize(turn, context.Background(), sdkterminal.CommandClose, attempt,
 			func() coreterm.AccumulatorSnapshot {
 				return coreterm.NewAccumulatorSnapshot([]byte("winner"), false)
 			}, func(context.Context, coreterm.Outcome) error {
@@ -189,7 +189,7 @@ func TestTurnTerminal_ConcurrentLoserWaitsAndSharesWinnerOutcome(t *testing.T) {
 	loserDone := make(chan struct{})
 	go func() {
 		close(loserReady)
-		results <- turn.terminalize(context.Background(), sdkterminal.CommandEOF, attempt,
+		results <- testTurnTerminalize(turn, context.Background(), sdkterminal.CommandEOF, attempt,
 			func() coreterm.AccumulatorSnapshot {
 				return coreterm.NewAccumulatorSnapshot([]byte("loser"), false)
 			}, nil)
@@ -225,7 +225,7 @@ func TestTurnTerminal_CommittedGateReplacementRejectsWithoutClaim(t *testing.T) 
 	turn := newTurnTerminal()
 	attempt := newAttemptSession(attemptSessionInput{})
 	turn.markCommitted(attempt)
-	r := turn.terminalize(context.Background(), sdkterminal.CommandGateReplacement, attempt,
+	r := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandGateReplacement, attempt,
 		func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot([]byte("not marked by snap"), false)
 		}, func(context.Context, coreterm.Outcome) error {

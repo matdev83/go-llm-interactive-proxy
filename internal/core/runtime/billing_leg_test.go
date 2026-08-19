@@ -49,11 +49,11 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 		},
 	}
 
-	first := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	first := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if first.Err != nil {
 		t.Fatalf("first terminalization: %v", first.Err)
 	}
-	second := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	second := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if second.Err != nil {
 		t.Fatalf("repeated terminalization: %v", second.Err)
 	}
@@ -95,7 +95,7 @@ func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
-	result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+	result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if result.Err != nil {
 		t.Fatalf("observer panic changed terminal result: %v", result.Err)
 	}
@@ -120,12 +120,12 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		},
 	}
-	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("first attempt terminalization: %v", result.Err)
 	}
 	stream.attempt.install(newAttemptSession(attemptSessionInput{bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}}))
 	stream.lastAuthorityUsage = lipapi.Event{}
-	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("replacement attempt terminalization: %v", result.Err)
 	}
 	if len(records) != 2 || records[0].BLegID != "b-1" || records[1].BLegID != "b-2" {
@@ -182,7 +182,7 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		},
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
 	if finalizeCalls != 1 {
@@ -249,7 +249,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 			},
 		},
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
 	if len(records) != 1 {
@@ -301,7 +301,7 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		},
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("finalize failure changed terminal result: %v", result.Err)
 	}
 	if len(records) != 1 || !records[0].Evidence.InputTokens.Present || records[0].Evidence.InputTokens.Value != 12 {
@@ -328,7 +328,7 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 			Backend: "backend-azure", Model: "model-x", Params: params,
 		}}, authorityLifecycle{}),
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if got.BackendID != "backend-azure" || got.ProviderID != "openai" {
@@ -351,7 +351,7 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "", ALegID: "a-1", Seq: 3}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if got.BLegID != "seq_3" {
@@ -393,7 +393,7 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 			},
 		},
 	}
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatalf("terminalization: %v", result.Err)
 	}
 	if len(records) != 1 {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -199,78 +200,86 @@ func (t *turnTerminal) unclaimAccountingFinalization() {
 	}
 }
 
-// Terminalize composes request and explicitly snapshotted attempt ownership
-// according to the command's declared scopes. Request effects are executed by
-// the request winner; when a command also covers attempts, the attempt winner
-// executes the same effect callback first. An idempotent attempt observation
-// then allows request effects to run without repeating attempt effects, matching
-// the existing runStreamTerminal behavior.
-func (t *turnTerminal) terminalize(
+// terminalizeSnapshot composes request and explicitly captured attempt
+// ownership according to the command's declared scopes. The evidence snapshot
+// and attempt pointer are values supplied by the caller before any terminal
+// work starts; this prevents a replacement from changing the B-leg attributed
+// to an in-flight terminal effect.
+//
+// attemptEffects are the attempt-local effects. requestEffects are the
+// request-after effects (including request-level economic closure). Keeping the
+// pair explicit avoids a broad effects bag while preserving the old nested
+// terminal semantics: an attempt winner runs attemptEffects once, an attempt
+// loser falls back to the request invocation, and requestEffects runs once for
+// the request winner.
+func (t *turnTerminal) terminalizeSnapshot(
 	ctx context.Context,
 	cmd sdkterminal.Command,
 	attempt *attemptSession,
-	snapFn func() coreterm.AccumulatorSnapshot,
-	effects func(context.Context, coreterm.Outcome) error,
-) coreterm.Result {
-	return t.terminalizeWithRequestAfter(ctx, cmd, attempt, snapFn, effects, nil)
-}
-
-// terminalizeWithRequestAfter is the composition seam used by the stream
-// façade. requestAfter runs once for every request claim, including when the
-// attempt has already settled or when a different attempt command conflicts;
-// this preserves request-level publication/closure side effects without
-// repeating attempt effects.
-func (t *turnTerminal) terminalizeWithRequestAfter(
-	ctx context.Context,
-	cmd sdkterminal.Command,
-	attempt *attemptSession,
-	snapFn func() coreterm.AccumulatorSnapshot,
-	effects func(context.Context, coreterm.Outcome) error,
-	requestAfter func(context.Context, coreterm.Outcome) error,
+	snapshot coreterm.AccumulatorSnapshot,
+	attemptEffects func(context.Context, coreterm.Outcome) error,
+	requestEffects func(context.Context, coreterm.Outcome) error,
 ) coreterm.Result {
 	if t == nil || t.request == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
 	if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
-		if attempt == nil || attempt.terminal == nil {
+		if attempt == nil {
 			return coreterm.Result{Err: sdkterminal.ErrInvalid}
 		}
-		return attempt.terminal.Terminalize(ctx, cmd, snapFn, effects)
+		return attempt.terminalizeSnapshot(ctx, cmd, snapshot, attemptEffects)
 	}
 
-	requestSnap := func() coreterm.AccumulatorSnapshot {
-		var snap coreterm.AccumulatorSnapshot
-		if snapFn != nil {
-			snap = snapFn()
-		}
-		if t.committed() && !snap.OutputCommitted() {
-			snap = coreterm.NewAccumulatorSnapshot(snap.Bytes(), true)
-		}
-		return snap
+	if t.committed() && !snapshot.OutputCommitted() {
+		snapshot = coreterm.NewAccumulatorSnapshot(snapshot.Bytes(), true)
 	}
 
-	return t.request.Terminalize(ctx, cmd, requestSnap, func(cctx context.Context, out coreterm.Outcome) error {
+	r := t.request.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
+		return snapshot.Clone()
+	}, func(cctx context.Context, out coreterm.Outcome) error {
 		var effectErr error
-		if cmd.AllowsScope(sdkterminal.ScopeAttempt) && attempt != nil && attempt.terminal != nil {
-			attemptResult := attempt.terminal.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
-				return out.Snapshot.Clone()
-			}, effects)
+		if cmd.AllowsScope(sdkterminal.ScopeAttempt) && attempt != nil {
+			attemptResult := attempt.terminalizeSnapshot(cctx, cmd, out.Snapshot, attemptEffects)
 			if attemptResult.Won {
 				effectErr = attemptResult.Err
-			} else if effects != nil {
-				// Any non-winning attempt result (same-command observation or
-				// conflict with an earlier attempt command) falls back to the
-				// request effect, as in the previous nested facade.
-				effectErr = effects(cctx, out)
+			} else if attemptEffects != nil {
+				// A settled/conflicting attempt still allows the request owner to
+				// apply the request-scoped fallback effect once.
+				effectErr = attemptEffects(cctx, out)
 			}
-		} else if effects != nil {
-			effectErr = effects(cctx, out)
+		} else if attemptEffects != nil {
+			effectErr = attemptEffects(cctx, out)
 		}
-		if requestAfter != nil {
-			if afterErr := requestAfter(cctx, out); effectErr == nil {
-				effectErr = afterErr
+		if requestEffects != nil {
+			if requestErr := requestEffects(cctx, out); effectErr == nil {
+				effectErr = requestErr
 			}
 		}
 		return effectErr
 	})
+	// A committed gate replacement cannot claim the request owner, but it still
+	// closes the request-level billing/economic window. The closure owner
+	// supplies its own once/dedupe guard, so competing rejected gate attempts
+	// may safely invoke this narrow request-after seam.
+	if !r.Won && cmd == sdkterminal.CommandGateReplacement && errors.Is(r.Err, sdkterminal.ErrOutputCommitted) && requestEffects != nil {
+		_ = requestEffects(ctx, r.Outcome)
+	}
+	return r
+}
+
+// terminalizeSnapshot is the attempt owner operation used by turnTerminal and
+// by explicit attempt-retirement paths. It accepts a captured evidence value
+// and never consults the mutable attempt slot.
+func (a *attemptSession) terminalizeSnapshot(
+	ctx context.Context,
+	cmd sdkterminal.Command,
+	snapshot coreterm.AccumulatorSnapshot,
+	effects func(context.Context, coreterm.Outcome) error,
+) coreterm.Result {
+	if a == nil || a.terminal == nil {
+		return coreterm.Result{Err: sdkterminal.ErrInvalid}
+	}
+	return a.terminal.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
+		return snapshot.Clone()
+	}, effects)
 }

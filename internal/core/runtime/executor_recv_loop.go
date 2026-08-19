@@ -71,10 +71,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			cmd = sdkterminal.CommandTimeout
 		}
-		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.persistCancellationBilling(cctx, attempt, reason)
 			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 			s.markFinished()
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, cmd)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
 			return nil
 		})
 		if !s.isFinished() {
@@ -168,14 +172,19 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				// that release, so release it here when it has not already been
 				// settled, then tear down the stream like the other terminal recv exits.
 				if !attempt.authority.Settled() {
-					s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+					attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 						attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+						s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandSwallowedAttempt)
 						return nil
 					})
 				}
-				s.runStreamTerminal(ctx, sdkterminal.CommandPartialError, func(cctx context.Context) error {
+				s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandPartialError, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 					s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 					s.markFinished()
+					return nil
+				}, func(cctx context.Context, _ coreterm.Outcome) error {
+					s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandPartialError)
+					s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandPartialError)
 					return nil
 				})
 				if !s.isFinished() {
@@ -234,10 +243,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					DetailErr: scopeErr,
 				}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 				_ = attempt.takeInner()
-				s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandCancel, attempt, func(cctx context.Context) error {
+				s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandCancel, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 					s.persistCancellationBilling(cctx, attempt, "a-leg canceled")
 					s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 					s.markFinished()
+					return nil
+				}, func(cctx context.Context, _ coreterm.Outcome) error {
+					s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandCancel)
+					s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandCancel)
 					return nil
 				})
 				if !s.isFinished() {
@@ -276,7 +289,11 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	if s.isCommitted() && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 		// Output committed: compete for gate-replacement rejection evidence (D13) without effects.
-		_ = s.runStreamTerminal(ctx, sdkterminal.CommandGateReplacement, nil)
+		_ = s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandGateReplacement, attempt, s.accumulatorSnapshot(), nil, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandGateReplacement)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandGateReplacement)
+			return nil
+		})
 		return false, &lipapi.UpstreamFailureError{
 			Phase:        lipapi.PhasePostOutput,
 			Recoverable:  false,
@@ -307,7 +324,11 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		// finish authority directly in that case. Direct replacement callers still
 		// claim the fresh attempt terminal before applying the same effects.
 		if owner := attempt.terminal.Owner(); owner != nil && owner.State() == sdkterminal.StateOpen {
-			s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, finalize)
+			attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
+				err := finalize(cctx)
+				s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandSwallowedAttempt)
+				return err
+			})
 		} else {
 			_ = finalize(ctx)
 		}
@@ -389,9 +410,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		if freshInner != nil {
 			s.cancelAndCloseInner(cleanupCtx, freshInner, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		_ = next.terminal.Terminalize(cleanupCtx, sdkterminal.CommandSwallowedAttempt, func() coreterm.AccumulatorSnapshot {
-			return coreterm.NewAccumulatorSnapshot(nil, false)
-		}, func(cctx context.Context, _ coreterm.Outcome) error {
+		_ = next.terminalizeSnapshot(cleanupCtx, sdkterminal.CommandSwallowedAttempt, coreterm.NewAccumulatorSnapshot(nil, false), func(cctx context.Context, _ coreterm.Outcome) error {
 			next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 			return nil
 		})

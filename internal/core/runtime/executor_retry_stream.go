@@ -29,6 +29,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -526,10 +527,14 @@ func (s *retryRecvStream) Close() error {
 	}
 	if c == nil {
 		if !s.isFinished() {
-			s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandClose, current, func(cctx context.Context) error {
+			s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
 				s.persistCancellationBilling(cctx, current, "client closed")
 				s.markFinished()
+				return nil
+			}, func(cctx context.Context, _ coreterm.Outcome) error {
+				s.recordBillingLegForAttempt(cctx, current, sdkterminal.CommandClose)
+				s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandClose)
 				return nil
 			})
 			if !s.isFinished() {
@@ -545,10 +550,14 @@ func (s *retryRecvStream) Close() error {
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandClose, current, func(cctx context.Context) error {
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
 			s.persistCancellationBilling(cctx, current, "client closed")
 			s.markFinished()
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, current, sdkterminal.CommandClose)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandClose)
 			return nil
 		})
 		if !s.isFinished() {
@@ -569,7 +578,11 @@ func (s *retryRecvStream) Close() error {
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
 		attempt := s.attempt.require()
-		s.runStreamTerminal(ctx, sdkterminal.CommandPanic, func(context.Context) error { return nil })
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandPanic, attempt, s.accumulatorSnapshot(), func(context.Context, coreterm.Outcome) error { return nil }, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandPanic)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandPanic)
+			return nil
+		})
 		if s.executor != nil && s.executor.Log != nil {
 			// lipapi.EventStream.Close has no context; EnsureCallDiag guarantees call/leg ids
 			// on the detached close context so isolated-panic logs still correlate by trace_id / b_leg.

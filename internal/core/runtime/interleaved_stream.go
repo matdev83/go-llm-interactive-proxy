@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -438,8 +439,13 @@ func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 					}
 				}
 			}
-			_ = s.thinker.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			attempt := s.thinker.attempt.snapshot()
+			_ = s.thinker.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			}, func(cctx context.Context, _ coreterm.Outcome) error {
+				s.thinker.recordBillingLegForAttempt(cctx, attempt, cmd)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, cmd)
 				return nil
 			})
 			// If another owner already won the request terminal (e.g. truncated
@@ -493,8 +499,13 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		cmd = sdkterminal.CommandTimeout
 	}
 	if s.thinker != nil {
-		_ = s.thinker.runStreamTerminal(cleanupCtx, cmd, func(cctx context.Context) error {
+		attempt := s.thinker.attempt.snapshot()
+		_ = s.thinker.terminal.terminalizeSnapshot(cleanupCtx, cmd, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.thinker.recordBillingLegForAttempt(cctx, attempt, cmd)
+			s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, cmd)
 			return nil
 		})
 		s.finalizeThinkerAuthority(cleanupCtx, authorityapp.ReleaseKindLosing)
@@ -606,8 +617,13 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 	if thinkerPhase {
 		s.persistInterruptedThinkerMemo(ctx)
 		if s.thinker != nil {
-			_ = s.thinker.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
+			attempt := s.thinker.attempt.snapshot()
+			_ = s.thinker.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandCancel, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			}, func(cctx context.Context, _ coreterm.Outcome) error {
+				s.thinker.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandCancel)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, sdkterminal.CommandCancel)
 				return nil
 			})
 			s.finalizeThinkerAuthority(ctx, authorityapp.ReleaseKindLosing)
@@ -667,8 +683,13 @@ func (s *interleavedContinuationStream) Close() error {
 		}
 		s.persistInterruptedThinkerMemo(parent)
 		if s.thinker != nil {
-			_ = s.thinker.runStreamTerminal(parent, sdkterminal.CommandClose, func(cctx context.Context) error {
+			attempt := s.thinker.attempt.snapshot()
+			_ = s.thinker.terminal.terminalizeSnapshot(parent, sdkterminal.CommandClose, attempt, s.thinker.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 				s.finalizeThinkerAuthority(cctx, authorityapp.ReleaseKindLosing)
+				return nil
+			}, func(cctx context.Context, _ coreterm.Outcome) error {
+				s.thinker.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandClose)
+				s.thinker.terminal.handoffBillingTurn(cctx, s.thinker.facts, s.thinker.executor, sdkterminal.CommandClose)
 				return nil
 			})
 			s.finalizeThinkerAuthority(parent, authorityapp.ReleaseKindLosing)

@@ -212,21 +212,6 @@ func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billi
 	return finalize
 }
 
-func isBillingTurnTerminalCommand(command sdkterminal.Command) bool {
-	switch command {
-	case sdkterminal.CommandNormalFinish, sdkterminal.CommandEOF, sdkterminal.CommandCancel,
-		sdkterminal.CommandClose, sdkterminal.CommandTimeout, sdkterminal.CommandPartialError,
-		sdkterminal.CommandFrontendEncoderFailure:
-		return true
-	default:
-		return false
-	}
-}
-
-func isCallClosureTerminalCommand(command sdkterminal.Command) bool {
-	return command.AllowsScope(sdkterminal.ScopeRequest)
-}
-
 func legOutcomeFromCommand(command sdkterminal.Command) billing.LegOutcome {
 	switch command {
 	case sdkterminal.CommandNormalFinish:
@@ -251,16 +236,6 @@ func turnOutcomeFromCommand(command sdkterminal.Command) billing.TurnOutcome {
 	default:
 		return billing.TurnOutcomeFailed
 	}
-}
-
-func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkterminal.Command) {
-	if s == nil || s.executor == nil || !isCallClosureTerminalCommand(command) {
-		return
-	}
-	if s.terminal == nil {
-		return
-	}
-	s.terminal.handoffBillingTurn(ctx, s.facts, s.executor, command)
 }
 
 func billingSyntheticBLegID(seq int) string {

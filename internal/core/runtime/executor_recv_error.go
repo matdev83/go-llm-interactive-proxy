@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -153,10 +154,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandTimeout, attempt, func(cctx context.Context) error {
+		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandTimeout, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
 			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandTimeout)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, sdkterminal.CommandTimeout)
 			return nil
 		})
 		if !s.isFinished() {
@@ -193,10 +198,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			cmd = sdkterminal.CommandTimeout
 		}
-		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.persistCancellationBilling(cctx, attempt, reason)
 			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 			s.markFinished()
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, cmd)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
 			return nil
 		})
 		if !s.isFinished() {
@@ -228,10 +237,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.As(err, &pe) {
 			cmd = sdkterminal.CommandPanic
 		}
-		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.recordPartialTokenAccounting(cctx, attempt, attemptReasonDetail(surfErr), surfErr)
 			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
+			return nil
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			s.recordBillingLegForAttempt(cctx, attempt, cmd)
+			s.terminal.handoffBillingTurn(cctx, s.facts, s.executor, cmd)
 			return nil
 		})
 		if !s.isFinished() {
@@ -260,7 +273,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// Recoverable pre-output failover terminalizes only the attempt plane for
 	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
 	// owns the reservation release via a fresh attempt terminal.
-	s.runAttemptTerminalForAttempt(ctx, sdkterminal.CommandSwallowedAttempt, attempt, func(cctx context.Context) error {
+	attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		// A swallowed pre-output attempt must release its strict reservation for
 		// failover, but any advisory/unreserved rules still need the observed usage
 		// fact. Apply only the unreserved projection here; do not settle the
@@ -268,6 +281,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		usageEv := s.operatorUsageForFinalize()
 		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, usageEv)
 		s.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+		s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandSwallowedAttempt)
 		return nil
 	})
 	if c := attempt.takeInner(); c != nil {

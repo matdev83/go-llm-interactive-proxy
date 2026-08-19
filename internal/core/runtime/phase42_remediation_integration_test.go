@@ -52,7 +52,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 
 	closeDone := make(chan struct{})
 	go func() {
-		_ = rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+		_ = testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
 			rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client close")
 			rs.markFinished()
 			return nil
@@ -254,7 +254,7 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	installTestTurnTerminal(rs)
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
+	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
 		rs.persistCancellationBilling(cctx, rs.attempt.snapshot(), "context canceled")
 		rs.markFinished()
 		return nil
@@ -269,7 +269,7 @@ func TestPhase42_NoRetryAfterOutput_GateReplacement(t *testing.T) {
 	rs := &retryRecvStream{}
 	installTestTurnTerminal(rs)
 	rs.markCommitted()
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandGateReplacement, nil)
+	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandGateReplacement, nil)
 	if r.Won || !errors.Is(r.Err, sdk.ErrOutputCommitted) {
 		t.Fatalf("got %+v", r)
 	}

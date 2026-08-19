@@ -137,7 +137,7 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	closes.Wait()
 	wg.Wait()
 
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	if req == nil || att == nil {
 		t.Fatal("terminal owners must be initialized after concurrent Close")
 	}

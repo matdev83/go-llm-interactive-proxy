@@ -93,7 +93,7 @@ func TestRetryRecvStreamCharacterization_NormalEventOrdering(t *testing.T) {
 	if _, err := s.Recv(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("post-finish Recv error=%v want io.EOF", err)
 	}
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 		if term == nil {
 			t.Fatalf("%s terminal is nil", name)
@@ -132,7 +132,7 @@ func TestRetryRecvStreamCharacterization_EOFWithoutFinishIsTerminal(t *testing.T
 	if _, err := s.Recv(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("post-EOF Recv error=%v want io.EOF", err)
 	}
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 		out, ok := term.Owner().Outcome()
 		if !ok || out.Command != sdkterminal.CommandEOF {
@@ -233,7 +233,7 @@ func TestRetryRecvStreamCharacterization_BlockedRecvCloseOrdering(t *testing.T) 
 	if got := inner.closeCount.Load(); got != 1 {
 		t.Fatalf("backend Close calls=%d want 1", got)
 	}
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 		out, ok := term.Owner().Outcome()
 		if !ok || out.Command != sdkterminal.CommandClose {
@@ -296,7 +296,7 @@ func TestRetryRecvStreamCharacterization_CancelAndTimeoutTerminalVocabulary(t *t
 			if got := inner.closeCount.Load(); got != 1 {
 				t.Fatalf("backend Close calls=%d want 1", got)
 			}
-			req, att := s.snapshotTerminals()
+			req, att := testTerminalOwners(s)
 			for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 				out, ok := term.Owner().Outcome()
 				if !ok || out.Command != tt.wantCmd {
@@ -332,7 +332,7 @@ func TestRetryRecvStreamCharacterization_PreCommitFatalError(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("Recv error=%v want sentinel", err)
 	}
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 		out, ok := term.Owner().Outcome()
 		if !ok || out.Command != sdkterminal.CommandPartialError {
@@ -375,7 +375,7 @@ func TestRetryRecvStreamCharacterization_PostCommitPanicIsFatal(t *testing.T) {
 	if !errors.As(err, &upstream) || upstream.Phase != lipapi.PhasePostOutput || upstream.Recoverable {
 		t.Fatalf("panic error=%v want non-recoverable post-output UpstreamFailureError", err)
 	}
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	for name, term := range map[string]*streamTerminal{"request": req, "attempt": att} {
 		out, ok := term.Owner().Outcome()
 		if !ok || out.Command != sdkterminal.CommandPartialError {
@@ -395,7 +395,7 @@ func TestRetryRecvStreamCharacterization_LosingTerminalClaimWaitsAndDoesNotRepea
 	var effects atomic.Int32
 	winnerDone := make(chan coreTerminalResult, 1)
 	go func() {
-		result := s.runStreamTerminal(parent, sdkterminal.CommandClose, func(ctx context.Context) error {
+		result := testTerminalizeRequest(s, parent, sdkterminal.CommandClose, func(ctx context.Context) error {
 			effects.Add(1)
 			deadline, hasDeadline := ctx.Deadline()
 			cancel()
@@ -413,7 +413,7 @@ func TestRetryRecvStreamCharacterization_LosingTerminalClaimWaitsAndDoesNotRepea
 	}
 	loserDone := make(chan coreTerminalResult, 1)
 	go func() {
-		result := s.runStreamTerminal(context.Background(), sdkterminal.CommandEOF, nil)
+		result := testTerminalizeRequest(s, context.Background(), sdkterminal.CommandEOF, nil)
 		loserDone <- coreTerminalResult{result: result}
 	}()
 	select {

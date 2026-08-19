@@ -51,7 +51,7 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 	if executor.hasTerminalSink() || executor.hasTerminalCallSink() {
 		t.Fatal("runtime without TerminalUsageSink must not report a terminal handoff")
 	}
@@ -83,7 +83,7 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	state := stream.facts.billingCallState
 	state.noteAllocatedBLeg("b-2", 2)
 	state.noteAllocatedBLeg("b-1", 1)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 	if len(got) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(got))
 	}
@@ -101,7 +101,7 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	}
 
 	state.noteAllocatedBLeg("b-3", 3)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 	frozen := state.freezeAllocatedBLegs()
 	if len(frozen) != 2 || frozen[0] != "b-1" || frozen[1] != "b-2" {
 		t.Fatalf("allocated set grew after terminal freeze: %#v", frozen)
@@ -127,7 +127,7 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 }
 
 func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
@@ -151,7 +151,7 @@ func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 }
 
 func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
@@ -178,7 +178,7 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
-	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.terminal.handoffBillingTurn(context.Background(), stream.facts, stream.executor, sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(calls))
 	}
@@ -216,7 +216,7 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 				attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 			}
 			stream = stampStreamIdentity(stream)
-			result := stream.runStreamTerminal(context.Background(), command, nil)
+			result := testTerminalizeRequest(stream, context.Background(), command, nil)
 			if result.Err != nil {
 				t.Fatalf("request-owner %s: %v", command, result.Err)
 			}
@@ -233,7 +233,7 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 				t.Fatalf("expected B-legs for %s = %#v", command, got[0].ExpectedBLegIDs)
 			}
 
-			later := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
+			later := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
 			if later.Won {
 				t.Fatalf("later finish must lose after %s already owns the request", command)
 			}
@@ -416,7 +416,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
-	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if len(got) != 0 {
@@ -430,7 +430,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		bleg: b2bua.BLegRecord{BLegID: "b-replacement", ALegID: "a-1", Seq: 2},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 	}))
-	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if len(got) != 1 {

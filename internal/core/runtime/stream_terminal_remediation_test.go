@@ -82,7 +82,7 @@ func TestStreamTerminal_NestedAttemptSkipped_RequestOnlyCommand(t *testing.T) {
 	testAttemptSession(rs)
 	installTestTurnTerminal(rs)
 	var requestEffects atomic.Int32
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandFrontendEncoderFailure, func(context.Context) error {
+	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandFrontendEncoderFailure, func(context.Context) error {
 		requestEffects.Add(1)
 		return nil
 	})
@@ -103,7 +103,7 @@ func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.
 	testAttemptSession(rs)
 	installTestTurnTerminal(rs)
 	effectErr := errors.New("attempt settle failed")
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
 		return effectErr
 	})
 	if !r.Won || !errors.Is(r.Err, effectErr) {
@@ -167,7 +167,7 @@ func TestStreamTerminal_OutputCommittedAfterClaim_AwaitsWinner(t *testing.T) {
 	}
 }
 
-func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *testing.T) {
+func TestTerminalOwner_concurrentEffectsOnce(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
 	testAttemptSession(rs)
@@ -177,7 +177,7 @@ func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *tes
 	var wg sync.WaitGroup
 	for range n {
 		wg.Go(func() {
-			r := rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+			r := testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
 				effects.Add(1)
 				return nil
 			})
@@ -194,10 +194,10 @@ func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *tes
 	if winners.Load() != 1 {
 		t.Fatalf("winners=%d want 1", winners.Load())
 	}
-	req, att := rs.snapshotTerminals()
-	req2, att2 := rs.snapshotTerminals()
+	req, att := testTerminalOwners(rs)
+	req2, att2 := testTerminalOwners(rs)
 	if req != req2 || att != att2 {
-		t.Fatal("snapshotTerminals must return stable owners after init")
+		t.Fatal("terminal owners must remain stable after init")
 	}
 	if !req.Owner().State().IsTerminal() || !att.Owner().State().IsTerminal() {
 		t.Fatalf("request=%q attempt=%q", req.Owner().State(), att.Owner().State())
@@ -221,7 +221,7 @@ func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceReques
 	for range 16 {
 		wg.Go(func() {
 			<-start
-			_ = rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
+			_ = testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
 				effects.Add(1)
 				return nil
 			})
@@ -232,7 +232,7 @@ func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceReques
 	if effects.Load() != 1 {
 		t.Fatalf("request-plane effects=%d want 1", effects.Load())
 	}
-	req, _ := rs.snapshotTerminals()
+	req, _ := testTerminalOwners(rs)
 	if !req.Owner().State().IsTerminal() {
 		t.Fatalf("request state=%q", req.Owner().State())
 	}
