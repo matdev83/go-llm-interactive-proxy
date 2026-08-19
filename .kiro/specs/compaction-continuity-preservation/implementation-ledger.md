@@ -173,3 +173,31 @@ Integration review notes:
 - The policy resolver carries no branch, account, session, prompt, output, or capsule content, and detached auxiliary contexts cannot recursively apply parent session overrides.
 - Reload certification uses distinct private child A-legs while all continuity mutation remains keyed by the captured parent `BranchKey`.
 - No task checkbox was edited because `tasks.md` contains plan headings rather than completion checkboxes; this ledger remains the completion authority until final merged-main verification.
+
+## Wave 7 — Failure diagnostics, opaque boundary, shutdown, and security certification
+
+Implementation commits:
+
+- `1f6e98f2` (`test(compaction): certify scheduler shutdown`)
+- `95770be4` (`feat(compaction): add content-free observability`)
+- `af0a0672` (`fix(compaction): preserve feature SDK boundary`)
+- `3bde134c` (`feat(compaction): enforce plaintext augmentation boundary`)
+- `acee2849` (`test(arch): certify continuity security boundaries`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 4.5 | Complete for current canonical contract | A private explicit verified-plaintext matcher has an intentionally empty allowlist because canonical `CompactionItem` exposes only encrypted/opaque fields; response preservation never guesses text, never mutates opaque/signature/extension bytes, and always records boundary/revision reinjection fallback | Feature/API/OpenResponses protocol suite `-count=5`, exact byte fixtures, same-revision/two-boundary release test and `go vet` pass |
+| 5.4 | Complete | Bounded content-free feature observations cover detector previews/events, carrier/eligibility/intents, job outcomes, capsule revisions/sizes/counts, barriers, augmentation/reinjection/watermarks and callback failure stages; correlations are hashed and direct-sink labels bounded; scheduler/billing retain queue/token/cost/accounting truth | Feature subtree `-count=3`, fail-open failure matrix, `go vet`, `git diff --check`, and preliminary full quality gate pass |
+| 6.3 | Complete, race runner unavailable | Production scheduler/ProcessServices tests cover pin retain/release, invalid preview submission without a pin, saturation, timeout, parent cancellation isolation, close linearization, queued cancellation, late completion, callback re-entry outside scheduler locks, bounded results/branches/intents and idempotent process shutdown | Auxreq certification `-count=50`, runtimebundle certification `-count=20`, independent focused `-count=10`, checkptr and full package tests pass; Windows race runner unavailable with ThreadSanitizer allocation error 87 |
+| 6.4 | Complete | Dependency, AST/import, public-shape and live contract tests forbid provider/wire/core leakage, alternate persistence/money/workflow paths and wire-settable detached control; certify sanitized egress, detector-owned identity, content-free observer surfaces, fail-open non-retry authority, opaque identity and independent-leg billing evidence | Certification `-count=10`, full `internal/archtest/...`, scoped contracts and `go vet` pass |
+
+Integration review repairs:
+
+- The first Task 6.4 run caught an official-feature-to-`internal/core` dependency introduced by session policy. `af0a0672` replaced it with defensive-copy `pkg/lipsdk/session` views projected by core and masks inherited session/secure-turn authority for detached children.
+- Transcript authorization now rejects disagreement between authoritative session and scope workspace views; a focused regression prevents cross-workspace reads.
+- Observability emission bounds rule/evidence labels before every sink, hashes correlations, discards error/content strings and remains panic-isolated from primary request authority.
+- Current response augmentation is intentionally unavailable rather than approximated: mandatory canonical reinjection supplies continuity until a future canonical field has an explicit mutable-plaintext contract.
+
+Preliminary Task 6.5 evidence:
+
+- `make quality-checks` — pass after all production changes, including formatting, module/build checks, full vet, architecture, goroutine allowlist and hot-path guardrails.
