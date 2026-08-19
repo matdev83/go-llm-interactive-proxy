@@ -332,6 +332,7 @@ func TestRunCompactionPreserverBeforeResponseRelease_nestedItemRollbackPreserves
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.build()
 			want := tt.build()
 			p := responsePreserver{preservingCallback{id: "nested", response: func(ev *lipapi.Event) error {

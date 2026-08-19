@@ -32,6 +32,7 @@ func (p lifecyclePreserver) AfterResponseRelease(_ context.Context, ev lipapi.Ev
 }
 
 func TestRunCompactionPreserverRequestOpenFailed_optionalOrderedFailOpen(t *testing.T) {
+	t.Parallel()
 	order := make([]string, 0, 3)
 	ps := []compaction.Preserver{
 		lifecyclePreserver{preservingCallback: preservingCallback{id: "one"}, failed: func() error {
@@ -53,6 +54,7 @@ func TestRunCompactionPreserverRequestOpenFailed_optionalOrderedFailOpen(t *test
 }
 
 func TestRunCompactionPreserverAfterResponseRelease_isolatedFailOpen(t *testing.T) {
+	t.Parallel()
 	original := lipapi.Event{Kind: lipapi.EventItem, Item: &lipapi.Item{Kind: lipapi.ItemKindMessage, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "original"}}}}
 	seen := make([]string, 0, 3)
 	ps := []compaction.Preserver{

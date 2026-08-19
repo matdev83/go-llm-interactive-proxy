@@ -106,8 +106,12 @@ func TestCompactionContinuitySecurity_ContentFreePublicSurfaces(t *testing.T) {
 	assertExactFields(t, "billing.CallLegUsageRecord", reflect.TypeFor[billing.CallLegUsageRecord](), "ALegID", "AttemptSeq", "BackendID", "BLegID", "CallID", "Evidence", "Fingerprint", "FinishedAt", "Key", "ModelID", "OperatorRateRef", "Outcome", "ProviderID", "StartedAt", "Surfaced", "Workload")
 
 	for _, value := range []any{
-		compaction.Event{}, compaction.PreservationMeta{}, compaction.RequestPreview{},
-		compaction.ResponsePreview{}, observability.Observation{}, billing.WorkloadIdentity{},
+		compaction.Event{},
+		compaction.PreservationMeta{},
+		compaction.RequestPreview{},
+		compaction.ResponsePreview{},
+		observability.Observation{},
+		billing.WorkloadIdentity{},
 	} {
 		raw, err := json.Marshal(value)
 		if err != nil {
@@ -364,8 +368,7 @@ func assertTypeKeysAbsent(t *testing.T, typ reflect.Type, forbidden map[string]s
 			return
 		}
 		seen[current] = true
-		for i := 0; i < current.NumField(); i++ {
-			field := current.Field(i)
+		for field := range current.Fields() {
 			key := strings.ToLower(field.Name)
 			if tag := strings.Split(field.Tag.Get("json"), ",")[0]; tag != "" && tag != "-" {
 				key = strings.ToLower(tag)
