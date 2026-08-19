@@ -35,6 +35,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -204,6 +205,10 @@ type InterleavedRuntime struct {
 // responses, retries, accounting, or client framing.
 type CompactionRuntime struct {
 	Detector *compactiondetect.Detector
+	// BackgroundAux is the generation-bound process scheduler client. The
+	// scheduler itself remains process-owned; this interface lets callbacks
+	// submit work against the executor's frozen generation binding.
+	BackgroundAux auxiliary.BackgroundClient
 }
 
 // ExecutorConfig groups executor dependencies for explicit construction at the

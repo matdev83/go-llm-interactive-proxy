@@ -197,13 +197,14 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 				return lipapi.Event{}, false, err
 			}
 		}
+		releaseDispatch := s.emitTrafficPTCFinal(ctx, &out, pm)
 		s.rememberClientEvent(out)
 		if out.Kind == lipapi.EventResponseFinished {
 			s.commitSuccessfulTurn()
 			s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 		}
 		s.commitAffinityIfOutput(ctx, out)
-		s.emitTrafficPTC(ctx, out, pm)
+		s.notifyCompactionAfterRelease(ctx, out, releaseDispatch)
 		return out, false, nil
 	}
 	out, err := s.emitClientFacingObserved(ctx, out, pm)
@@ -249,10 +250,11 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 			return lipapi.Event{}, false, obsErr
 		}
 	}
+	releaseDispatch := s.emitTrafficPTCFinal(ctx, &ev, pm)
 	s.rememberClientEvent(ev)
 	s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 	s.commitAffinityIfOutput(ctx, ev)
-	s.emitTrafficPTC(ctx, ev, pm)
+	s.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
 	return ev, false, nil
 }
 

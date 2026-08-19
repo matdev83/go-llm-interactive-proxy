@@ -53,7 +53,7 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 			billingCallState:         prep.billingCallState,
 		})
 		if err != nil {
-			return attemptOpenResult{}, fmt.Errorf("executor: plan or open attempt: %w", err)
+			return out, fmt.Errorf("executor: plan or open attempt: %w", err)
 		}
 		if !out.opened {
 			plan.interleaved = out.interleaved
@@ -76,7 +76,7 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 				// Open succeeded and NextBLeg was noted, but no terminal recorder owns
 				// the stream. Emit Failed usage before Execute's abort closure freezes.
 				e.appendPostOpenTerminalLeg(ctx, prep.billingCallState, prep.aLeg.ALegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
-				return attemptOpenResult{}, err
+				return out, err
 			}
 		}
 		return out, nil

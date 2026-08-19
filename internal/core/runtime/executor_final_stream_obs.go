@@ -88,13 +88,18 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 		}
 	}
-	// Remember only after mandatory recording succeeds (or is best-effort), so
-	// undelivered client output is not settled into customer evidence.
-	s.rememberClientEvent(ev)
 	if ev.Kind == lipapi.EventResponseFinished {
 		s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 	}
+	// Compaction preservation and committed detector observation run before the
+	// event is remembered or returned, so customer evidence and the client see
+	// the same finalized canonical event.
+	releaseDispatch := s.emitTrafficPTCFinal(ctx, &ev, pm)
+	// Remember only after mandatory recording and compaction finalization succeed
+	// (or are best-effort), so undelivered client output is not settled into
+	// customer evidence.
+	s.rememberClientEvent(ev)
 	s.commitAffinityIfOutput(ctx, ev)
-	s.emitTrafficPTC(ctx, ev, pm)
+	s.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
 	return ev, nil
 }

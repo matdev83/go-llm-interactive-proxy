@@ -37,6 +37,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
@@ -64,13 +65,14 @@ type retryRecvStream struct {
 	budget   *attemptBudget
 	ttft     *ttftBudget
 
-	aLegID      string
-	traceID     string
-	sel         *routing.Selector
-	requestSize routing.RequestSizeEstimate
-	session     *routing.SessionRoutingState
-	excluded    map[string]struct{}
-	rng         routing.Rng
+	aLegID             string
+	traceID            string
+	compactionOpenMeta compaction.PreservationMeta
+	sel                *routing.Selector
+	requestSize        routing.RequestSizeEstimate
+	session            *routing.SessionRoutingState
+	excluded           map[string]struct{}
+	rng                routing.Rng
 
 	lastHardReject           lipapi.NegotiationResult
 	lastHardTransportReject  lipapi.TransportNegotiationResult
@@ -552,20 +554,31 @@ func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, p
 	s.emitTraffic(ctx, sdktraffic.LegBTP, ev, pm)
 }
 
+// emitTrafficPTC preserves the value-shaped test/diagnostic helper contract.
+// Production release paths use emitTrafficPTCFinal so preservation can mutate
+// the event before it is remembered or returned.
 func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
+	_ = s.emitTrafficPTCFinal(ctx, &ev, pm)
+}
+
+func (s *retryRecvStream) emitTrafficPTCFinal(ctx context.Context, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
+	if ev == nil {
+		return compactionReleaseDispatch{}
+	}
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		// Keepalives are proxy-internal artifacts, never released to the client,
 		// so they are not client traffic and are not observed (they cannot
 		// match any compaction rule and must not refresh A-leg activity).
-		return
+		return compactionReleaseDispatch{}
 	}
 	// Final release seam: every canonical event actually released to the client
 	// passes through here exactly once (live, gated, tool-finalizer, and
 	// recovery drains). Compaction response observation must stay at this
 	// single chokepoint, not on branch-specific paths (design-review
 	// constraint; requirement 8.4). It never alters the event.
-	s.observeCompactionRelease(ctx, ev)
-	s.emitTraffic(ctx, sdktraffic.LegPTC, ev, pm)
+	dispatch := s.observeCompactionReleaseFinal(ctx, ev)
+	s.emitTraffic(ctx, sdktraffic.LegPTC, *ev, pm)
+	return dispatch
 }
 
 func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, ev lipapi.Event, pm sdk.PartMeta) {

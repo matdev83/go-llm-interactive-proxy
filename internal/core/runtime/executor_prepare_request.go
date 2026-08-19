@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -48,6 +49,10 @@ type preparedRequest struct {
 	execSpan         trace.Span
 	metering         *checkpoint.RequestHolder
 	routeAuth        routeAuthoritySnapshot
+	// compactionOpenMeta carries the exact transaction committed by the
+	// request-side detector into the terminal response release seam. It is
+	// only a fallback when the pure response preview has no transaction.
+	compactionOpenMeta compaction.PreservationMeta
 }
 
 // prepareRequest executes phases 1-9 of the former inline [Executor.Execute]:

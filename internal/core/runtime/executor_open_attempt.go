@@ -712,7 +712,7 @@ func (e *Executor) openPlannedCandidate(
 				if stream != nil {
 					_ = stream.Close()
 				}
-				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+				return attemptOpenResult{opened: true}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
 		memoUpdate = shapeRes.MemoUpdate
@@ -723,14 +723,14 @@ func (e *Executor) openPlannedCandidate(
 				if stream != nil {
 					_ = stream.Close()
 				}
-				return zero, err
+				return attemptOpenResult{opened: true}, err
 			}
 		} else if nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, p.aLegID, interleaved); perr != nil {
 				if stream != nil {
 					_ = stream.Close()
 				}
-				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+				return attemptOpenResult{opened: true}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
 	}
