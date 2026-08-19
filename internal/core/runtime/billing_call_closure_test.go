@@ -796,7 +796,11 @@ func TestExecutor_InterleavedCancelDuringTransition_ClosureSealed(t *testing.T) 
 
 	time.Sleep(100 * time.Millisecond)
 
-	_ = secondStream.(lipapi.ManagedEventStream).Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone})
+	managed, ok := secondStream.(lipapi.ManagedEventStream)
+	if !ok {
+		t.Fatal("second stream does not support managed cancellation")
+	}
+	_ = managed.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone})
 
 	close(blockChan)
 
@@ -900,7 +904,7 @@ func TestExecutor_InterleavedCloseDuringTransition_ClosureSealed(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	_ = secondStream.(lipapi.ManagedEventStream).Close()
+	_ = secondStream.Close()
 
 	close(blockChan)
 

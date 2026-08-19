@@ -450,24 +450,11 @@ func (r *recoveryController) openInterleavedAttempt(
 	}, err
 }
 
-// turnCommitted reads the sole request-terminal commitment authority. Recovery
-// does not keep a second commitment flag and cannot open after output wins.
-func (r *recoveryController) turnCommitted(terminal *turnTerminal) bool {
-	return r != nil && terminal != nil && terminal.committed()
-}
-
 func (r *recoveryController) resetPolicy(now func() time.Time) {
 	if r == nil || now == nil {
 		return
 	}
 	r.recoverPolicy = streamrecovery.NewPolicy(r.streamRecovery, now())
-}
-
-func (r *recoveryController) buildReplacementAttempt(out replacementOpenResult, request requestTerminalFacts) *attemptSession {
-	if r == nil || r.attemptFactory == nil {
-		return nil
-	}
-	return r.attemptFactory(out, request)
 }
 
 func (r *recoveryController) logMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool) {
@@ -562,7 +549,10 @@ func (r *recoveryController) tryReplacementIteration(ctx context.Context, reques
 	if err != nil || !out.opened {
 		return result, err
 	}
-	next := r.buildReplacementAttempt(out, request)
+	if r.attemptFactory == nil {
+		return result, errors.New("runtime: replacement attempt construction unavailable")
+	}
+	next := r.attemptFactory(out, request)
 	if next == nil {
 		return result, errors.New("runtime: replacement attempt construction unavailable")
 	}

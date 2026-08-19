@@ -43,7 +43,7 @@ func TestRecvTurnFacts_ClonesMutableRequestFacts(t *testing.T) {
 	}
 	views := execctx.Views{Session: session.SessionView{ClientSessionHint: "session-original", Labels: map[string]string{"label": "original"}}}
 	prefs := []string{"backend-original:model"}
-	facts := newRecvTurnFacts(nil, recvTurnFactsInput{
+	facts := newRecvTurnFacts(context.Background(), recvTurnFactsInput{
 		baseline:     call,
 		traceID:      "trace-original",
 		aLegID:       "a-leg-original",
@@ -98,7 +98,7 @@ func TestRecvTurnFacts_ProjectContextRetainsPinnedFactsOnBareContext(t *testing.
 	pricing := billing.VersionRef{ID: "pricing-original", Version: "1"}
 	policy := billing.VersionRef{ID: "policy-original", Version: "1"}
 	identity := modelview.Derive(7, "config-original", "registry-original", "catalog-original")
-	facts := newRecvTurnFacts(nil, recvTurnFactsInput{
+	facts := newRecvTurnFacts(context.Background(), recvTurnFactsInput{
 		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "session-original"}},
 		traceID:  "trace-original",
 		aLegID:   "a-leg-original",
@@ -171,7 +171,7 @@ func TestRecvTurnFacts_ProjectContextRetainsPinnedFactsOnBareContext(t *testing.
 func TestRecvTurnFacts_ProjectContextDefensiveProjection(t *testing.T) {
 	t.Parallel()
 
-	facts := newRecvTurnFacts(nil, recvTurnFactsInput{
+	facts := newRecvTurnFacts(context.Background(), recvTurnFactsInput{
 		recvViews: execctx.Views{
 			Session:     session.SessionView{Labels: map[string]string{"session": "stored"}},
 			Annotations: map[string]string{"annotation": "stored"},
@@ -204,7 +204,7 @@ func TestNewRecvTurnFacts_InitializesStableBillingState(t *testing.T) {
 	t.Parallel()
 
 	callID := billing.BillingCallID("bc_0123456789abcdef0123456789abcdef")
-	facts := newRecvTurnFacts(nil, recvTurnFactsInput{billingCallID: callID})
+	facts := newRecvTurnFacts(context.Background(), recvTurnFactsInput{billingCallID: callID})
 	if facts.billingCallState == nil {
 		t.Fatal("facts must own a stable billing call-state reference")
 	}

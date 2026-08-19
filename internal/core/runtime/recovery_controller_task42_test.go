@@ -49,6 +49,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				var got *lipapi.TransportRejectError
 				if !errors.As(err, &got) || !reflect.DeepEqual(got, transportWant) {
 					t.Fatalf("error = %v, want transport reject %+v", err, transportWant)
@@ -68,6 +69,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				if err != errTask42Admission {
 					t.Fatalf("error = %v, want independent admission error %v", err, errTask42Admission)
 				}
@@ -82,6 +84,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				var got *lipapi.RejectError
 				if !errors.As(err, &got) || !reflect.DeepEqual(got, capabilityWant) {
 					t.Fatalf("error = %v, want capability reject %+v", err, capabilityWant)
@@ -99,6 +102,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				if err != lipapi.ErrAllCandidatesContextLimitExceeded {
 					t.Fatalf("error = %v, want context-limit sentinel", err)
 				}
@@ -111,6 +115,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				if err != lipapi.ErrAllCandidatesExcluded {
 					t.Fatalf("error = %v, want aggregate transform-exclusion sentinel", err)
 				}
@@ -122,6 +127,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				r.lastParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				if err != errTask42Parallel {
 					t.Fatalf("error = %v, want independent parallel failure %v", err, errTask42Parallel)
 				}
@@ -130,6 +136,7 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "routing no-eligible error is final fallback",
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				if !errors.Is(err, routing.ErrNoEligibleCandidate) {
 					t.Fatalf("error = %v, want wrapped routing.ErrNoEligibleCandidate", err)
 				}

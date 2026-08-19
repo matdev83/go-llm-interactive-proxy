@@ -148,31 +148,7 @@ func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts 
 }
 
 func (f recvTurnFacts) clone() recvTurnFacts {
-	return newRecvTurnFacts(nil, recvTurnFactsInput{
-		baseline:               f.baseline,
-		traceID:                f.traceID,
-		aLegID:                 f.aLegID,
-		recvViews:              f.recvViews,
-		recvViewsOK:            f.recvViewsOK,
-		routePrefs:             f.routePrefs,
-		secureTurn:             f.secureTurn,
-		secureTurnOK:           f.secureTurnOK,
-		boundRegistry:          f.boundRegistry,
-		boundRegistryOK:        f.boundRegistryOK,
-		boundCatalog:           f.boundCatalog,
-		boundCatalogOK:         f.boundCatalogOK,
-		nativeResolver:         f.nativeResolver,
-		modelViewID:            f.modelViewID,
-		modelViewIDOK:          f.modelViewIDOK,
-		metering:               f.metering,
-		requestAuth:            f.requestAuth,
-		billingAccountID:       f.billingAccountID,
-		billingCustomerPricing: f.billingCustomerPricing,
-		billingChargePolicy:    f.billingChargePolicy,
-		billingIdentityStamped: f.billingIdentityStamped,
-		billingCallID:          f.billingCallID,
-		billingCallState:       f.billingCallState,
-	})
+	return newRecvTurnFacts(context.Background(), recvTurnFactsInput(f))
 }
 
 // captureBoundModelViews freezes the request's model publications before any

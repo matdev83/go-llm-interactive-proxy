@@ -199,6 +199,7 @@ func TestTurnRecvOwnershipFinalTopology(t *testing.T) {
 
 func TestGenerateTurnRecvOwnershipBaseline(t *testing.T) {
 	if os.Getenv("GENERATE_TURN_RECV_BASELINE") != "1" {
+		t.Parallel()
 		t.Skip("set GENERATE_TURN_RECV_BASELINE=1 to regenerate the deterministic Phase-A artifact")
 	}
 	root := repoRoot(t)

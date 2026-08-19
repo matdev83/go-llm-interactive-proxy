@@ -253,8 +253,6 @@ func (t *turnTerminal) settleRequestAuthorityWithFrontendEgress(ctx context.Cont
 	if t == nil {
 		return nil
 	}
-	if p != nil {
-	}
 	if !p.markCustomerSettled() {
 		return nil
 	}

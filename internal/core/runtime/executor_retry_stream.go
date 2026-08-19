@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -104,10 +105,5 @@ func (s *retryRecvStream) Close() error {
 }
 
 func gateBufHasCommittedOutput(buf []lipapi.Event) bool {
-	for _, ev := range buf {
-		if lipapi.OutputCommitted(ev) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(buf, lipapi.OutputCommitted)
 }
