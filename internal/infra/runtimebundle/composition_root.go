@@ -57,14 +57,19 @@ func registrySatisfiesEnabledBackendProfiles(cfg *config.Config, reg *pluginreg.
 // InspectPrepared; Artifacts must be closed before staging removal (Windows
 // holds staged executable handles open until VerifiedArtifact.Close).
 type discoveredBackendInstall struct {
-	Host       *processhost.Host
-	StagingDir string
-	Artifacts  []*trust.VerifiedArtifact
+	ResourcePool *backendResourcePool
+	Host         *processhost.Host
+	StagingDir   string
+	Artifacts    []*trust.VerifiedArtifact
 }
 
 func (d *discoveredBackendInstall) release() {
 	if d == nil {
 		return
+	}
+	if d.ResourcePool != nil {
+		_ = d.ResourcePool.Close()
+		d.ResourcePool = nil
 	}
 	if d.Host != nil {
 		_ = d.Host.Close()
@@ -109,32 +114,24 @@ func installDiscoveredBackendExports(cfg *config.Config, reg *pluginreg.Registry
 	if registrySatisfiesEnabledBackendProfiles(cfg, reg) {
 		return nil, nil
 	}
-	disc, staging, err := prepareDiscoveredPluginInstall(cfg, reg)
+	disc, resourcePool, staging, err := prepareDiscoveredPluginInstall(cfg, reg)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: backend discovery: %w", err)
 	}
 	if disc == nil {
 		return nil, nil
 	}
-	if err := InstallDiscoveredExports(reg, disc.Host, disc.Exports, disc.Options); err != nil {
-		if disc.Host != nil {
-			_ = disc.Host.Close()
-		}
-		for _, a := range disc.Trusted {
-			_ = a.Close()
-		}
-		if staging != "" {
-			_ = removeAllRetry(staging, 8, 25*time.Millisecond)
-		}
+	install := &discoveredBackendInstall{
+		ResourcePool: resourcePool,
+		Host:         disc.Host,
+		StagingDir:   staging,
+		Artifacts:    append([]*trust.VerifiedArtifact(nil), disc.Trusted...),
+	}
+	if err := installDiscoveredExportsWithPool(reg, disc.Host, disc.Exports, disc.Options, resourcePool); err != nil {
+		install.release()
 		return nil, fmt.Errorf("runtimebundle: discovered plugin install: %w", err)
 	}
-	arts := make([]*trust.VerifiedArtifact, 0, len(disc.Trusted))
-	arts = append(arts, disc.Trusted...)
-	return &discoveredBackendInstall{
-		Host:       disc.Host,
-		StagingDir: staging,
-		Artifacts:  arts,
-	}, nil
+	return install, nil
 }
 
 func initProcessTracing(ctx context.Context, cfg *config.Config) (tracing.Result, error) {

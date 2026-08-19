@@ -67,26 +67,26 @@ func ResolvePluginCatalog(cfg *config.Config, reg *pluginreg.Registry, stagingDi
 
 // prepareDiscoveredPluginInstall builds production host + installable exports
 // for Build when typed backend discovery is enabled. Returns nil install when
-// discovery is disabled. Caller owns host/staging cleanup via returned closer
-// (register before plugin instance cleanups so dispose order is reverse).
-func prepareDiscoveredPluginInstall(cfg *config.Config, reg *pluginreg.Registry) (*DiscoveredPluginInstall, string, error) {
+// discovery is disabled. The private pool is created beside the host and is
+// transferred with the install ownership bundle before factory registration.
+func prepareDiscoveredPluginInstall(cfg *config.Config, reg *pluginreg.Registry) (*DiscoveredPluginInstall, *backendResourcePool, string, error) {
 	if cfg == nil || !cfg.Plugins.BackendDiscovery.Enabled {
-		return nil, "", nil
+		return nil, nil, "", nil
 	}
 	staging, err := os.MkdirTemp("", "go-lip-plugin-serve-*")
 	if err != nil {
-		return nil, "", fmt.Errorf("runtimebundle: plugin staging: %w", err)
+		return nil, nil, "", fmt.Errorf("runtimebundle: plugin staging: %w", err)
 	}
 	resolved, err := ResolvePluginCatalog(cfg, reg, staging)
 	if err != nil {
 		closeVerifiedArtifacts(resolved.TrustBySafe)
 		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	if resolved.CatalogErr != nil {
 		closeVerifiedArtifacts(resolved.TrustBySafe)
 		_ = removeAllRetry(staging, 8, 25*time.Millisecond)
-		return nil, "", resolved.CatalogErr
+		return nil, nil, "", resolved.CatalogErr
 	}
 	trusted := make([]*trust.VerifiedArtifact, 0, len(resolved.TrustBySafe))
 	for _, tr := range resolved.TrustBySafe {
@@ -95,10 +95,11 @@ func prepareDiscoveredPluginInstall(cfg *config.Config, reg *pluginreg.Registry)
 		}
 	}
 	host := processhost.NewHost(processhost.Config{})
+	resourcePool := newBackendResourcePool()
 	return &DiscoveredPluginInstall{
 		Host:    host,
 		Exports: resolved.Installable,
 		Trusted: trusted,
 		Options: DiscoveredInstallOptions{},
-	}, staging, nil
+	}, resourcePool, staging, nil
 }

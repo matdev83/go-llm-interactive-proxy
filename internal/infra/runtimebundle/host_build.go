@@ -106,19 +106,22 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 		return nil, joinInitialFailureCleanup(ctx, err, nil, nil, shutTracing)
 	}
 	var pluginHost *processhost.Host
+	var pluginResourcePool *backendResourcePool
 	var pluginStaging string
 	var pluginArtifacts []*trust.VerifiedArtifact
 	if discInstall != nil {
+		pluginResourcePool = discInstall.ResourcePool
 		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
 		pluginArtifacts = discInstall.Artifacts
 	}
 
 	ps, err := ops.process(ctx, processBuildInput{
 		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
-		Tracing:          ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
-		PluginHost:       pluginHost,
-		PluginArtifacts:  pluginArtifacts,
-		PluginStagingDir: pluginStaging,
+		Tracing:            ProcessTracing{Shutdown: traceShutdown, Active: traceRes.Active},
+		PluginResourcePool: pluginResourcePool,
+		PluginHost:         pluginHost,
+		PluginArtifacts:    pluginArtifacts,
+		PluginStagingDir:   pluginStaging,
 	})
 	if err != nil {
 		return nil, joinInitialFailureCleanup(ctx, fmt.Errorf("runtimebundle: process services: %w", err), nil, nil, shutTracing)
@@ -196,15 +199,16 @@ type hostBuildOps struct {
 }
 
 type processBuildInput struct {
-	Cfg              *config.Config
-	Logger           *slog.Logger
-	Registry         *pluginreg.Registry
-	SecretEnv        coresg.Environment
-	Production       ProductionOptions
-	Tracing          ProcessTracing
-	PluginHost       *processhost.Host
-	PluginArtifacts  []*trust.VerifiedArtifact
-	PluginStagingDir string
+	Cfg                *config.Config
+	Logger             *slog.Logger
+	Registry           *pluginreg.Registry
+	SecretEnv          coresg.Environment
+	Production         ProductionOptions
+	Tracing            ProcessTracing
+	PluginResourcePool *backendResourcePool
+	PluginHost         *processhost.Host
+	PluginArtifacts    []*trust.VerifiedArtifact
+	PluginStagingDir   string
 }
 type initialPublishInput struct {
 	Process   *ProcessServices
@@ -229,10 +233,11 @@ func buildProcessServicesOp(ctx context.Context, in processBuildInput) (*Process
 			Extensions:     ExtensionsOptions{SecretGuardEnvironment: in.SecretEnv},
 			Production:     in.Production,
 		},
-		Tracing:          in.Tracing,
-		PluginHost:       in.PluginHost,
-		PluginArtifacts:  in.PluginArtifacts,
-		PluginStagingDir: in.PluginStagingDir,
+		Tracing:            in.Tracing,
+		PluginResourcePool: in.PluginResourcePool,
+		PluginHost:         in.PluginHost,
+		PluginArtifacts:    in.PluginArtifacts,
+		PluginStagingDir:   in.PluginStagingDir,
 	})
 }
 

@@ -18,6 +18,10 @@ import (
 // partial failures dispose acquired resources in reverse order.
 func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessServices, error) {
 	releasePluginOwnership := func() {
+		if in.PluginResourcePool != nil {
+			_ = in.PluginResourcePool.Close()
+			in.PluginResourcePool = nil
+		}
 		if in.PluginHost != nil {
 			_ = in.PluginHost.Close()
 			in.PluginHost = nil
@@ -82,10 +86,11 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return nil, withDisposedClosers(err, ps.closers)
 	}
 
-	// Process-owned host/artifacts/staging: register first → dispose last in
-	// reverse acquisition order (… → host → artifacts → staging). Staging
-	// removal must run only after VerifiedArtifact handles are closed so
-	// Windows can delete the staged executables.
+	// Process-owned pool/host/artifacts/staging: register in acquisition order
+	// (staging → artifacts → host → pool) so reverse disposal keeps the pool
+	// ahead of Host.Close and artifact/staging teardown. Staging removal must
+	// run only after VerifiedArtifact handles are closed so Windows can delete
+	// the staged executables.
 	if dir := strings.TrimSpace(in.PluginStagingDir); dir != "" {
 		stagingDir := dir
 		register(func() error {
@@ -109,6 +114,11 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		pluginHost := in.PluginHost
 		register(pluginHost.Close)
 		in.PluginHost = nil
+	}
+	if in.PluginResourcePool != nil {
+		resourcePool := in.PluginResourcePool
+		register(resourcePool.Close)
+		in.PluginResourcePool = nil
 	}
 
 	// Discovery/trust catalog is process-owned and startup-fixed (req 7.3, 8.7).

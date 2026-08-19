@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/adapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/discovery"
@@ -92,6 +93,19 @@ func InstallDiscoveredExports(
 	exports []ValidatedExport,
 	opt DiscoveredInstallOptions,
 ) error {
+	return installDiscoveredExportsWithPool(reg, host, exports, opt, nil)
+}
+
+// installDiscoveredExportsWithPool is the private composition seam used by
+// discovered-install preparation. The pool is captured lexically by each
+// factory closure; public callers retain the established isolated path.
+func installDiscoveredExportsWithPool(
+	reg *pluginreg.Registry,
+	host *processhost.Host,
+	exports []ValidatedExport,
+	opt DiscoveredInstallOptions,
+	resourcePool *backendResourcePool,
+) error {
 	if reg == nil {
 		return fmt.Errorf("runtimebundle: InstallDiscoveredExports: nil registry")
 	}
@@ -130,8 +144,18 @@ func InstallDiscoveredExports(
 
 		export := exp
 		factoryKind := kind
-		fn := func(instanceID string, n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
-			return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy, activationSeq)
+		var fn pluginreg.LifecycleBackendFactory
+		if export.Model == processhost.ProcessModelPerInstance {
+			// Only overlap-safe per-instance factories capture the private pool;
+			// shared-artifact factories retain their existing isolated path.
+			pool := resourcePool
+			fn = func(instanceID string, n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+				return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy, activationSeq, pool)
+			}
+		} else {
+			fn = func(instanceID string, n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
+				return buildDiscoveredBackend(host, export, factoryKind, instanceID, n, dial, policy, activationSeq, nil)
+			}
 		}
 		if err := reg.RegisterDiscoveredLifecycleBackendWithProfiles(kind, fn, export.Profile, export.ExecProfile); err != nil {
 			return err
@@ -155,34 +179,107 @@ func buildDiscoveredBackend(
 	dial DialSessionFunc,
 	policy backendplugin.RuntimePolicy,
 	activationSeq *atomic.Uint64,
+	resourcePool *backendResourcePool,
 ) (pluginreg.BackendBuildResult, error) {
+	input, err := prepareDiscoveredPhysicalInput(export, factoryKind, instanceID, n, policy)
+	if err != nil {
+		return pluginreg.BackendBuildResult{}, err
+	}
+	if resourcePool == nil {
+		backend, cleanup, err := buildDiscoveredPhysical(context.Background(), host, export, input, dial, activationSeq, func(generation uint64) {
+			_ = host.InvalidateProcessGeneration(generation)
+		})
+		if err != nil {
+			return pluginreg.BackendBuildResult{}, err
+		}
+		return pluginreg.BackendBuildResult{Backend: backend, Cleanup: cleanup}, nil
+	}
+
+	identity, shareable, identityErr := physicalIdentity(input)
+	if identityErr != nil || !shareable {
+		// An incomplete identity is deliberately non-shareable. Preserve the
+		// existing generation-local construction path rather than turning an
+		// optimization eligibility failure into a new runtime error.
+		backend, cleanup, err := buildDiscoveredPhysical(context.Background(), host, export, input, dial, activationSeq, func(generation uint64) {
+			_ = host.InvalidateProcessGeneration(generation)
+		})
+		if err != nil {
+			return pluginreg.BackendBuildResult{}, err
+		}
+		return pluginreg.BackendBuildResult{Backend: backend, Cleanup: cleanup}, nil
+	}
+
+	return resourcePool.Acquire(context.Background(), identity, func(buildCtx context.Context, incarnation uint64) (execbackend.Backend, func() error, error) {
+		return buildDiscoveredPhysical(buildCtx, host, export, input, dial, activationSeq, func(generation uint64) {
+			resourcePool.Invalidate(identity, incarnation)
+			_ = host.InvalidateProcessGeneration(generation)
+		})
+	})
+}
+
+// prepareDiscoveredPhysicalInput freezes the effective input used for both
+// identity and physical construction. Provider-specific parsing remains in the
+// connector; this boundary only preserves the opaque Configure bytes and the
+// host-owned policy/artifact/process facts.
+func prepareDiscoveredPhysicalInput(
+	export ValidatedExport,
+	factoryKind, instanceID string,
+	n yaml.Node,
+	policy backendplugin.RuntimePolicy,
+) (backendResourcePhysicalInput, error) {
 	instanceID = strings.TrimSpace(instanceID)
 	if instanceID == "" {
-		return pluginreg.BackendBuildResult{}, fmt.Errorf("runtimebundle: discovered backend %q: empty instance id", factoryKind)
+		return backendResourcePhysicalInput{}, fmt.Errorf("runtimebundle: discovered backend %q: empty instance id", factoryKind)
 	}
 	raw, err := encodeOpaqueYAML(n)
 	if err != nil {
-		return pluginreg.BackendBuildResult{}, fmt.Errorf("runtimebundle: discovered backend %q: encode config: %w", factoryKind, err)
+		return backendResourcePhysicalInput{}, fmt.Errorf("runtimebundle: discovered backend %q: encode config: %w", factoryKind, err)
 	}
+	artifactDigest := ""
+	if export.Artifact != nil {
+		artifactDigest = export.Artifact.DigestHex
+	}
+	return backendResourcePhysicalInput{
+		InstanceID:     instanceID,
+		FactoryKind:    factoryKind,
+		ArtifactDigest: artifactDigest,
+		ProcessModel:   export.Model,
+		ConfigureYAML:  raw,
+		RuntimePolicy:  policy,
+	}, nil
+}
 
+// buildDiscoveredPhysical performs one new host activation and adapter build.
+// The caller supplies the context so pooled construction is owned by the pool,
+// while the public isolated path retains its existing background lifetime.
+func buildDiscoveredPhysical(
+	ctx context.Context,
+	host *processhost.Host,
+	export ValidatedExport,
+	input backendResourcePhysicalInput,
+	dial DialSessionFunc,
+	activationSeq *atomic.Uint64,
+	invalidateGeneration func(uint64),
+) (execbackend.Backend, func() error, error) {
 	// Per-instance overlap across generations must not collide on Host's
 	// InstanceID map: mint a unique activation handle while dialing with the
-	// logical configured instance id (req 8.8 / reload candidate coexistence).
-	hostInstanceID := instanceID
+	// logical configured instance id.
+	hostInstanceID := input.InstanceID
 	if export.Model == processhost.ProcessModelPerInstance {
-		hostInstanceID = fmt.Sprintf("%s#%d", instanceID, activationSeq.Add(1))
+		hostInstanceID = fmt.Sprintf("%s#%d", input.InstanceID, activationSeq.Add(1))
 	}
 
 	var session ExecuteSession
 	var profile backendplugin.ResolvedProfile
-	act, err := host.Activate(context.Background(), processhost.ActivateRequest{
+	act, err := host.Activate(ctx, processhost.ActivateRequest{
 		InstanceID:  hostInstanceID,
 		Artifact:    export.Artifact,
 		Model:       export.Model,
 		Sharing:     export.Sharing,
-		FactoryKind: factoryKind,
-		ConfigYAML:  raw,
-		Policy:      policy,
+		FactoryKind: input.FactoryKind,
+		ConfigYAML:  input.ConfigureYAML,
+		Secrets:     input.Secrets,
+		Policy:      input.RuntimePolicy,
 		DialAndConfigure: func(ctx context.Context, conn net.Conn, peer processhost.PeerIdentity, generation uint64, secrets backendplugin.SecretBundle, configYAML []byte) error {
 			sess, prof, err := dial(ctx, DialSessionRequest{
 				Conn:        conn,
@@ -190,9 +287,9 @@ func buildDiscoveredBackend(
 				Generation:  generation,
 				Secrets:     secrets,
 				ConfigYAML:  configYAML,
-				InstanceID:  instanceID,
-				FactoryKind: factoryKind,
-				Policy:      policy,
+				InstanceID:  input.InstanceID,
+				FactoryKind: input.FactoryKind,
+				Policy:      input.RuntimePolicy,
 			})
 			if err != nil {
 				return err
@@ -203,27 +300,31 @@ func buildDiscoveredBackend(
 		},
 	})
 	if err != nil {
-		return pluginreg.BackendBuildResult{}, fmt.Errorf("runtimebundle: discovered backend %q instance %q: activate: %w", factoryKind, instanceID, err)
+		return execbackend.Backend{}, nil, fmt.Errorf("runtimebundle: discovered backend %q instance %q: activate: %w", input.FactoryKind, input.InstanceID, err)
 	}
 	if session == nil {
 		_ = act.Cleanup()
-		return pluginreg.BackendBuildResult{}, fmt.Errorf("runtimebundle: discovered backend %q instance %q: nil session after configure", factoryKind, instanceID)
+		return execbackend.Backend{}, nil, fmt.Errorf("runtimebundle: discovered backend %q instance %q: nil session after configure", input.FactoryKind, input.InstanceID)
 	}
 
 	generation := act.Generation
 	prefixes := append([]string(nil), profile.RoutePrefixes...)
 	if len(prefixes) == 0 {
-		prefixes = []string{factoryKind}
+		prefixes = []string{input.FactoryKind}
 	}
 	neg := backendplugin.Negotiation{Compatible: true}
 	if ns, ok := session.(adapter.NegotiatedSession); ok {
 		neg = ns.Negotiation()
 	}
 	br := adapter.Build(session, profile, adapter.Options{
-		InstanceID:    instanceID,
+		InstanceID:    input.InstanceID,
 		RoutePrefixes: prefixes,
 		Negotiation:   neg,
 		InvalidateGeneration: func() {
+			if invalidateGeneration != nil {
+				invalidateGeneration(generation)
+				return
+			}
 			_ = host.InvalidateProcessGeneration(generation)
 		},
 	})
@@ -237,7 +338,11 @@ func buildDiscoveredBackend(
 		}
 		return out
 	}
-	return pluginreg.BackendBuildResult{Backend: br.Backend, Cleanup: cleanup}, nil
+	if br == nil {
+		_ = cleanup()
+		return execbackend.Backend{}, nil, fmt.Errorf("runtimebundle: discovered backend %q instance %q: nil adapter build", input.FactoryKind, input.InstanceID)
+	}
+	return br.Backend, cleanup, nil
 }
 
 func defaultDialSession(ctx context.Context, req DialSessionRequest) (ExecuteSession, backendplugin.ResolvedProfile, error) {

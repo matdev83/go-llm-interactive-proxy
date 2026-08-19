@@ -27,6 +27,11 @@ const AtomicOwnedResourceLifecycleOverlayMax = 92
 // additions for this feature independently from the legacy convergence delta.
 const KeepwarmOrchestrationOverlayMax = 650
 
+// BackendResourcePoolOverlayMax is the measured backend-connector-resource-
+// reconciliation overlay for the private resource-pool implementation. Keep
+// 25 lines of ratchet headroom over the measured 356-line overlay.
+const BackendResourcePoolOverlayMax = 381
+
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
 	"/compatible_admission.go",
@@ -58,6 +63,10 @@ var keepwarmOrchestrationOverlayPathMarkers = []string{
 	"/admin/keepwarm/handler.go",
 }
 
+var backendResourcePoolOverlayPathMarkers = []string{
+	"/backend_resource_pool.go",
+}
+
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
 // production files are selected by path and ratcheted separately from the legacy
 // Req 11.5 convergence delta.
@@ -74,6 +83,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Billing host composition", max: BillingHostCompositionOverlayMax, markers: billingHostCompositionOverlayPathMarkers},
 	{name: "Atomic owned resource lifecycle", max: AtomicOwnedResourceLifecycleOverlayMax, markers: atomicOwnedResourceLifecycleOverlayPathMarkers},
 	{name: "Keep-warm orchestration", max: KeepwarmOrchestrationOverlayMax, markers: keepwarmOrchestrationOverlayPathMarkers},
+	{name: "Backend resource pool", max: BackendResourcePoolOverlayMax, markers: backendResourcePoolOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

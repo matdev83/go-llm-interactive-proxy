@@ -37,6 +37,12 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, accounting, metering, and terminal-work teardown (req 6.2–6.5, 13.8).",
 	},
 	{
+		Symbol: "backend_resource_pool.go:build:acq#0:assign:entry.cleanup=cleanup#0",
+		Class:  ownershipProcess,
+		Source: "backend_resource_pool.go → backendResourceEntry composite physical cleanup",
+		Notes:  "The pool entry is the sole process ownership authority for composite physical cleanup; generations receive only idempotent lease release.",
+	},
+	{
 		Symbol: "validate_distribution.go:validateDistribution:acq#0:assign:traceShutdownRaw=traceRes.Shutdown#0",
 		Class:  ownershipProcess,
 		Source: "validate_distribution.go → tracing.Init Result.Shutdown",

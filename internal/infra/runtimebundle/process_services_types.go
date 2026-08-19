@@ -98,13 +98,15 @@ type ProcessServicesInput struct {
 	Log     *slog.Logger
 	Opts    *BuildOptions
 	Tracing ProcessTracing
-	// PluginHost, PluginArtifacts, and PluginStagingDir are process-owned
-	// discovered-plugin resources. When set, NewProcessServices takes sole
-	// ownership and disposes them once after generation retirement in reverse
-	// acquisition order (host → artifacts → staging), so Windows releases the
-	// staged executable handles (VerifiedArtifact.Close) before staging removal.
-	PluginHost       *processhost.Host
-	PluginArtifacts  []*trust.VerifiedArtifact
-	PluginStagingDir string
-	BackgroundAux    *BackgroundAuxScheduler // transferred and closed with process
+	// PluginResourcePool, PluginHost, PluginArtifacts, and PluginStagingDir are
+	// process-owned discovered-plugin resources. When set, NewProcessServices
+	// takes sole ownership and disposes them once after generation retirement in
+	// reverse acquisition order (pool → host → artifacts → staging), so pooled
+	// physical cleanup can still use the live host and Windows releases staged
+	// executable handles before staging removal.
+	PluginResourcePool *backendResourcePool
+	PluginHost         *processhost.Host
+	PluginArtifacts    []*trust.VerifiedArtifact
+	PluginStagingDir   string
+	BackgroundAux      *BackgroundAuxScheduler // transferred and closed with process
 }
