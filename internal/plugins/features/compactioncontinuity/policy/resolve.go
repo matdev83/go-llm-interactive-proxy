@@ -72,7 +72,7 @@ func Resolve(ctx context.Context, defaults Defaults, maxima HardMaxima) (Effecti
 	effective.TrustedSession = trusted
 	if trusted {
 		override := overrideFromContext(ctx)
-		mergeOverride(&override, views.Session.Labels)
+		mergeOverride(&override, views.Labels)
 		applyOverride(&effective, override, maxima)
 	}
 	if effective.Enabled && !approvedRoute(effective.Extractor.Route, effective.Extractor.Inherit, maxima) {

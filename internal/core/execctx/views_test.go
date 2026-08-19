@@ -90,3 +90,49 @@ func TestWithViews_mapIsolation(t *testing.T) {
 		t.Fatalf("context annotations should be a copy, got %q", got.Annotations["a"])
 	}
 }
+
+func TestWithViews_ProjectsAuthoritativeSessionToPublicSDKContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := execctx.WithViews(context.Background(), execctx.Views{
+		Session: session.SessionView{
+			AuthoritativeSessionID: "session-authoritative",
+			Labels:                 map[string]string{"policy": "trusted"},
+		},
+	})
+	got, ok := session.SessionViewFromContext(ctx)
+	if !ok || got.AuthoritativeSessionID != "session-authoritative" || got.Labels["policy"] != "trusted" {
+		t.Fatalf("public session view = %+v ok=%v", got, ok)
+	}
+}
+
+func TestWithViews_DetachedChildMasksParentSessionAuthority(t *testing.T) {
+	t.Parallel()
+
+	parent := execctx.WithViews(context.Background(), execctx.Views{
+		Session: session.SessionView{AuthoritativeSessionID: "parent-session"},
+	})
+	child := execctx.WithDetachedSession(parent, execctx.DetachedSession{ParentSessionID: "parent-session"})
+	child = execctx.WithViews(child, execctx.Views{Session: session.SessionView{ALegID: "child-a-leg"}})
+	got, ok := session.SessionViewFromContext(child)
+	if !ok {
+		t.Fatal("detached child session view missing")
+	}
+	if got.AuthoritativeSessionID != "" {
+		t.Fatalf("detached child inherited primary session authority: %+v", got)
+	}
+}
+
+func TestWithViews_DetachedChildMasksPrimarySecureTurnPolicy(t *testing.T) {
+	t.Parallel()
+
+	parent := execctx.WithViews(context.Background(), execctx.Views{
+		Session: session.SessionView{AuthoritativeSessionID: "parent-session"},
+	})
+	parent = session.WithSecureTurnPolicy(parent, session.SecureTurnPolicyView{TranscriptEnabled: true})
+	child := execctx.WithDetachedSession(parent, execctx.DetachedSession{ParentSessionID: "parent-session"})
+	child = execctx.WithViews(child, execctx.Views{Session: session.SessionView{ALegID: "child-a-leg"}})
+	if _, ok := session.SecureTurnPolicyFromContext(child); ok {
+		t.Fatal("detached child inherited primary secure-turn policy")
+	}
+}

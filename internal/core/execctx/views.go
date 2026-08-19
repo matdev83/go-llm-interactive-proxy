@@ -3,6 +3,7 @@ package execctx
 import (
 	"context"
 	"maps"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -35,7 +36,18 @@ func WithViews(ctx context.Context, v Views) context.Context {
 		ctx = context.TODO()
 	}
 	v = copyViews(v)
-	return context.WithValue(ctx, keyViews, v)
+	// Keep the internal aggregate for core consumers and project the same
+	// defensive snapshots onto the public SDK context seams for feature
+	// plugins. Session is always attached, including an empty view, so a
+	// detached child cannot inherit the parent's authoritative session.
+	ctx = context.WithValue(ctx, keyViews, v)
+	ctx = session.WithSessionView(ctx, v.Session)
+	if strings.TrimSpace(v.Session.AuthoritativeSessionID) == "" {
+		ctx = session.WithoutSecureTurnPolicy(ctx)
+	}
+	ctx = scope.WithScope(ctx, v.Scope)
+	ctx = execview.WithPrincipal(ctx, v.Principal)
+	return ctx
 }
 
 // FromContext returns the views attached with [WithViews], if any. The returned Views is a

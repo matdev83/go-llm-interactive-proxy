@@ -6,19 +6,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
-func trustedViews(ctx context.Context) (execctx.Views, bool) {
-	views, ok := execctx.FromContext(ctx)
-	if !ok || strings.TrimSpace(views.Session.AuthoritativeSessionID) == "" {
-		return execctx.Views{}, false
+func trustedViews(ctx context.Context) (session.SessionView, bool) {
+	view, ok := session.SessionViewFromContext(ctx)
+	if !ok || strings.TrimSpace(view.AuthoritativeSessionID) == "" {
+		return session.SessionView{}, false
 	}
-	if mode, marked := execctx.SessionModeFromContext(ctx); marked && mode == execctx.SessionModeDetached {
-		return execctx.Views{}, false
-	}
-	return views, true
+	return view, true
 }
 
 func overrideFromContext(ctx context.Context) Override {
@@ -182,5 +178,5 @@ func cloneOverride(in Override) Override {
 // WithSecureTurn is a test/composition helper that carries only the existing
 // trusted secure-session policy seam; it has no wire representation.
 func WithSecureTurn(ctx context.Context, transcriptEnabled bool) context.Context {
-	return execctx.WithSecureSessionTurn(ctx, execctx.SecureSessionTurn{SessionID: domain.SessionID("policy-session"), TurnID: domain.TurnID("policy-turn"), Policy: domain.PolicyMetadata{TranscriptEnabled: transcriptEnabled}})
+	return session.WithSecureTurnPolicy(ctx, session.SecureTurnPolicyView{TranscriptEnabled: transcriptEnabled})
 }

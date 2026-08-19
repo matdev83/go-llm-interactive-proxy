@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
 // keySecureTurn is offset next to [keyViews] to avoid context key collisions.
@@ -23,7 +24,10 @@ func WithSecureSessionTurn(ctx context.Context, t SecureSessionTurn) context.Con
 	if ctx == nil {
 		ctx = context.TODO()
 	}
-	return context.WithValue(ctx, keySecureTurn, t)
+	ctx = context.WithValue(ctx, keySecureTurn, t)
+	return session.WithSecureTurnPolicy(ctx, session.SecureTurnPolicyView{
+		TranscriptEnabled: t.Policy.TranscriptEnabled,
+	})
 }
 
 // SecureSessionTurnFromContext returns the turn binding attached with [WithSecureSessionTurn], if any.

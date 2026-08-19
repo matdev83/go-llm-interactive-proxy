@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -32,11 +31,9 @@ func baseMaxima() policy.HardMaxima {
 }
 
 func trustedContext(labels map[string]string) context.Context {
-	return execctx.WithViews(context.Background(), execctx.Views{
-		Principal: execview.PrincipalView{ID: "principal-1"},
-		Scope:     scope.PrincipalScopeView{PrincipalID: scope.Known("principal-1"), TenantID: scope.Known("tenant-1"), WorkspaceID: scope.Known("workspace-1")},
-		Session:   session.SessionView{AuthoritativeSessionID: "session-1", WorkspaceID: "workspace-1", Labels: labels},
-	})
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "principal-1"})
+	ctx = scope.WithScope(ctx, scope.PrincipalScopeView{PrincipalID: scope.Known("principal-1"), TenantID: scope.Known("tenant-1"), WorkspaceID: scope.Known("workspace-1")})
+	return session.WithSessionView(ctx, session.SessionView{AuthoritativeSessionID: "session-1", WorkspaceID: "workspace-1", Labels: labels})
 }
 
 func TestResolve_DefaultsWinWithoutOverride(t *testing.T) {
@@ -225,7 +222,7 @@ func TestResolve_LabelOverrideIsTrustedOnlyWithAuthoritativeSession(t *testing.T
 		t.Fatalf("partial category label did not preserve omitted values: %+v", got.Preserve)
 	}
 
-	got, err = policy.Resolve(execctx.WithViews(context.Background(), execctx.Views{Session: session.SessionView{ClientSessionHint: "client"}, Annotations: labels}), baseDefaults(), baseMaxima())
+	got, err = policy.Resolve(session.WithSessionView(context.Background(), session.SessionView{ClientSessionHint: "client", Labels: labels}), baseDefaults(), baseMaxima())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +278,26 @@ func TestTranscriptAuthorizationPreservesTenantWorkspace(t *testing.T) {
 	}
 	if policy.AuthorizeTranscriptScope(ctx, "tenant-other", "workspace-1") {
 		t.Fatal("cross-tenant transcript read allowed")
+	}
+}
+
+func TestTranscriptAuthorization_DetachedChildWithoutAuthoritativeSession(t *testing.T) {
+	parent := policy.WithSecureTurn(trustedContext(nil), true)
+	child := session.WithSessionView(parent, session.SessionView{ALegID: "child-a-leg"})
+	if _, ok := policy.TranscriptAuthorizationFromContext(child); ok {
+		t.Fatal("detached child inherited primary transcript authority")
+	}
+}
+
+func TestTranscriptAuthorization_RejectsSessionScopeWorkspaceMismatch(t *testing.T) {
+	ctx := policy.WithSecureTurn(trustedContext(nil), true)
+	ctx = scope.WithScope(ctx, scope.PrincipalScopeView{
+		PrincipalID: scope.Known("principal-1"),
+		TenantID:    scope.Known("tenant-1"),
+		WorkspaceID: scope.Known("workspace-other"),
+	})
+	if _, ok := policy.TranscriptAuthorizationFromContext(ctx); ok {
+		t.Fatal("mismatched session and scope workspaces authorized transcript access")
 	}
 }
 
