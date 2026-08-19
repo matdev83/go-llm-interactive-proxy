@@ -6,11 +6,13 @@ Go-LIP needs an optional transport-level GeoIP access-control layer that can rej
 
 The feature is an **HTTP ingress security control**, not an LLM routing/admission policy. Its value depends on running before authentication, frontend parsing, routing, persistence, and model work. It is defense in depth: it reduces attack surface and resource consumption, but does not replace authentication, rate limiting, network firewalls, WAFs, or identity policy.
 
+Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a98bf53ffb57bd61560607`. This revision incorporates the resulting management-plane, generation-pinning, database-provisioning, `check-config`, and cache-mechanism clarifications.
+
 ## Boundary Context
 
 ### In scope
 
-- Optional country-based allow/deny policy for the standard HTTP data plane.
+- Optional country-based allow/deny policy for the canonical standard HTTP data plane.
 - Exact Apache-style `deny_allow` and `allow_deny` rule-class precedence.
 - IPv4 and IPv6 exact-address/CIDR allow/deny overrides.
 - Direct-peer client-IP resolution by default.
@@ -20,6 +22,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 - Runtime reload of pure enforcement policy through the existing immutable generation mechanism.
 - Fail-closed behavior for unsafe address resolution and lookup failures.
 - Bounded-cardinality observability, hard parser/resource bounds, race/concurrency coverage, and benchmarks.
+- Deterministic offline/static configuration validation integrated with existing `check-config` behavior.
 
 ### Out of scope
 
@@ -30,6 +33,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 - CDN/vendor-specific client-IP headers.
 - DNS/hostname rules.
 - Retroactive termination of already accepted long-lived streams after policy reload.
+- Automatic application of data-plane GeoIP policy to the separate process-owned reload management listener.
 - A distributed database-update coordinator for multi-replica fleets.
 - A mandatory per-IP lookup cache.
 - Changing existing authentication peer-attribution semantics.
@@ -53,6 +57,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 - **Policy generation:** immutable request-plane generation compiled by the existing runtime reload architecture.
 - **Managed database:** MMDB maintained by the proxy using MaxMind's authenticated update protocol.
 - **Local database:** operator-managed MMDB file read by the proxy without automatic download ownership.
+- **Provisioned database service:** process-owned country lookup constructed at process startup even if request enforcement is currently disabled.
 
 ## Requirement 1: Early Ingress Enforcement and Disabled Fast Path
 
@@ -72,6 +77,8 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 1.6. Existing behavior for allowed traffic SHALL remain unchanged except for the bounded cost of enabled client-IP resolution, policy evaluation, and local country lookup when required.
 
+1.7. A configured process-owned database service MAY load/update GeoIP data while request enforcement is disabled; this SHALL NOT weaken the zero-work request-path contract in 1.3-1.4.
+
 ## Requirement 2: Ordered Allow/Deny Policy Semantics
 
 **Objective:** As an operator, I want deterministic Apache-style rule-class precedence so broad country rules and narrow exceptions compose predictably.
@@ -88,7 +95,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 2.5. THE engine SHALL NOT use first-match firewall semantics where rule ordering within a class changes the result.
 
-2.6. A CIDR exception SHALL therefore be able to override a broad country rule according to the selected second-phase precedence, including the motivating case of denying country `RU` while allowing a Moscow office CIDR under `deny_allow`.
+2.6. A CIDR exception SHALL therefore be able to override a broad country rule according to the selected second-phase precedence, including denying country `RU` while allowing a Moscow office CIDR under `deny_allow`.
 
 2.7. THE compiled policy SHALL be immutable for the lifetime of one request-plane generation.
 
@@ -120,7 +127,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 4.1. THE configuration SHALL accept ISO-3166 alpha-2 country codes and normalize them to uppercase at compile time.
 
-4.2. INVALID or unsupported country-code syntax SHALL reject configuration before publication.
+4.2. INVALID country-code syntax SHALL reject configuration before publication; implementations SHOULD validate against a maintained ISO-3166 alpha-2 set rather than only checking string length.
 
 4.3. THE lookup adapter SHALL map policy country only from the MMDB `country.iso_code` semantic field.
 
@@ -146,7 +153,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 5.4. GeoIP client-IP resolution SHALL NOT alter the existing transport-authentication peer attribution contract as a side effect.
 
-5.5. THE resolved address parser SHALL support ordinary Go host:port forms and normalized IPv6 without performing hostname resolution.
+5.5. THE resolved address parser SHALL support ordinary Go host:port forms and host-only test/server forms without performing hostname resolution.
 
 ## Requirement 6: Explicit Trusted Reverse-Proxy Resolution
 
@@ -190,13 +197,15 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 7.7. IF a compiled policy has no country rules whose result could affect the decision, THEN the request path SHALL avoid MMDB lookup.
 
-## Requirement 8: Database Readiness and Last-Known-Good Behavior
+7.8. Long-lived local-reader reuse, rather than a request-triggered backend or per-IP cache, SHALL be the baseline mechanism satisfying the issue's requirement to avoid repeated expensive GeoIP backend work.
+
+## Requirement 8: Database Readiness, Provisioning, and Last-Known-Good Behavior
 
 **Objective:** As an operator, I want enforcement never to silently run without trustworthy country data, while transient update outages do not take down a proxy with a valid database.
 
 ### Acceptance Criteria
 
-8.1. BEFORE publishing an enabled GeoIP request generation, THE composition/runtime boundary SHALL verify that a usable country-lookup service is ready.
+8.1. BEFORE publishing an enabled GeoIP request generation whose compiled policy can require country lookup, THE composition/runtime boundary SHALL verify that a usable country-lookup service is ready.
 
 8.2. IF enforcement is enabled at startup and no valid LKG database exists, THEN managed mode SHALL make one bounded initial acquisition attempt before serving the enabled request plane.
 
@@ -204,9 +213,15 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 8.4. ONCE a valid LKG exists, later update-network failures SHALL retain the existing reader and SHALL NOT make otherwise valid allowed requests depend on MaxMind network availability.
 
-8.5. A local database source SHALL fail startup/candidate readiness when its configured file is absent, unreadable, corrupt, or semantically incompatible.
+8.5. A local database source SHALL fail startup/candidate readiness when its configured file is absent, unreadable, corrupt, or semantically incompatible and country lookup is required by an enabled generation.
 
 8.6. THE process service SHALL expose bounded readiness/status information without exposing credentials or per-client data.
+
+8.7. IF database service configuration is present while enforcement is disabled, THE process MAY provision/load/update the service so a later pure-policy reload can enable GeoIP without process restart.
+
+8.8. IF no process-owned database service was configured at startup, THEN a later reload that enables a country-dependent policy SHALL reject candidate publication; adding/changing the process-owned database source requires restart under v1 lifecycle classification.
+
+8.9. A policy containing only decisive CIDR rules that provably never needs country lookup MAY operate without MMDB readiness, but the compiler SHALL prove that property rather than fail open dynamically.
 
 ## Requirement 9: Managed Automatic Database Updates
 
@@ -218,7 +233,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 9.2. THE standard updater SHALL use MaxMind's supported authenticated update protocol/client rather than scraping release artifacts, hard-coding ad-hoc download URLs, or shelling out to an external updater executable.
 
-9.3. THE updater SHALL use the current database checksum/update token to avoid downloading unchanged data when the upstream protocol reports no update.
+9.3. THE updater SHALL use the current database checksum/update token only for upstream change detection and SHALL NOT treat MD5 as a cryptographic authenticity guarantee.
 
 9.4. THE configured/default update cadence SHALL be conservative, bounded, and jittered to avoid synchronized fleet bursts; v1 defaults SHALL target approximately daily checks rather than minute-scale polling.
 
@@ -254,11 +269,13 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 10.5. THE config-reload classifier SHALL explicitly classify every GeoIP field; no new GeoIP subtree SHALL bypass typed reload/restart policy.
 
-10.6. Enabling GeoIP by reload SHALL fail candidate publication if the process-owned country lookup is not provisioned and ready.
+10.6. Enabling GeoIP by reload SHALL fail candidate publication if the compiled policy needs country lookup and the process-owned country lookup is not provisioned and ready.
 
 10.7. Disabling GeoIP by reload SHALL publish a generation without the ingress wrapper while leaving process-owned resources subject to their configured lifecycle.
 
 10.8. A request SHALL use one immutable GeoIP policy generation for its admission decision.
+
+10.9. New generations SHALL NOT mutate process-owned reader/updater configuration as a side effect of pure-policy reload.
 
 ## Requirement 11: HTTP Denial and Information-Disclosure Contract
 
@@ -284,7 +301,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 12.1. GeoIP SHALL expose dedicated process metrics for bounded decision outcomes and database/update health.
 
-12.2. Metrics SHALL use only finite labels such as decision/reason/result classes and SHALL NOT label by source IP, CIDR text, arbitrary header value, or other attacker-controlled high-cardinality strings.
+12.2. Metrics SHALL use only finite labels such as decision/reason/result classes and SHALL NOT label by source IP, CIDR text, arbitrary header value, raw country supplied by a client, or other attacker-controlled high-cardinality strings.
 
 12.3. GeoIP-denied requests SHALL bypass the normal access-log middleware and general request tracing/HTTP metrics by virtue of the early gate placement.
 
@@ -293,6 +310,8 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 12.5. Database updater failures/recovery SHALL be observable through bounded metrics and bounded operational logs that redact credentials.
 
 12.6. Diagnostic/status surfaces SHALL never expose MaxMind license keys or raw forwarding headers.
+
+12.7. Recommended decision-reason dimensions SHALL remain finite (for example `cidr_allow`, `cidr_deny`, `country_allow`, `country_deny`, `default_allow`, `default_deny`, `client_ip_error`, `lookup_error`) rather than recording literal rule values.
 
 ## Requirement 13: Resource Bounds, Security, and Performance Gates
 
@@ -314,7 +333,7 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 
 13.7. Integration tests SHALL prove that a denied request does not reach auth, frontend decode, routing, persistence/model fakes, normal access logging, general HTTP metrics, or OTel middleware.
 
-13.8. Reload tests SHALL prove valid policy changes affect new requests atomically, invalid candidates preserve the old policy, enable requires a ready lookup, and disable removes request-path GeoIP work.
+13.8. Reload tests SHALL prove valid policy changes affect newly admitted requests atomically, invalid candidates preserve the old policy, enable requires a ready lookup when needed, and disable removes request-path GeoIP work.
 
 13.9. Updater tests SHALL cover unchanged, successful, timeout, authentication failure, truncated/oversized/corrupt MMDB, disk failure, concurrent swap, restart LKG recovery, and cleanup ordering.
 
@@ -325,3 +344,45 @@ The feature is an **HTTP ingress security control**, not an LLM routing/admissio
 13.12. MaxMind credentials SHALL come from an existing secure secret/environment convention, SHALL NOT be embedded in diagnostics/config dumps, and SHALL NOT be logged.
 
 13.13. The repository/binary SHALL NOT bundle a GeoLite database; operator setup/documentation SHALL cover data-source licensing/attribution/update obligations.
+
+## Requirement 14: Brownfield Plane and Generation Compatibility
+
+**Objective:** As a Go-LIP maintainer, I want GeoIP to fit existing listener and generation boundaries without creating a parallel control plane or changing unrelated transport semantics.
+
+### Acceptance Criteria
+
+14.1. V1 GeoIP enforcement SHALL wrap the canonical standard **data-plane generation** produced by `ComposeStandardHTTP` and SHALL NOT automatically wrap the separate process-owned runtime-config management listener.
+
+14.2. The existing management listener's loopback/dedicated-token trust model SHALL remain unchanged by this feature; applying GeoIP to management traffic requires a separate explicit design.
+
+14.3. WHEN a new GeoIP policy generation is published, newly admitted requests/connections SHALL use the new generation according to existing runtime-host selection semantics.
+
+14.4. Requests and long-lived SSE/WebSocket work already pinned to an older generation SHALL continue on that generation and SHALL NOT be retroactively terminated solely because a later GeoIP policy would deny their source.
+
+14.5. GeoIP SHALL NOT add a parallel file watcher, reload API, configuration store, service locator, or global mutable policy pointer outside the existing generation/process-service architecture.
+
+14.6. GeoIP SHALL NOT require changes to backend plugins/connectors or frontend protocol DTOs/error renderers.
+
+14.7. Existing auth `PeerIP` attribution derived from direct `RemoteAddr` SHALL remain unchanged unless separately redesigned outside this spec.
+
+## Requirement 15: Configuration Validation and Operator Contract
+
+**Objective:** As an operator, I want invalid policy rejected deterministically before publication and configuration validation to work without live MaxMind connectivity.
+
+### Acceptance Criteria
+
+15.1. THE configuration model SHALL place GeoIP under the deployment access/security configuration and SHALL validate policy order, countries, CIDRs, client-IP source, trusted-proxy requirements, database source mode, update bounds, and mutually exclusive source fields.
+
+15.2. THE implementation SHALL support an explicit v1 database source distinction equivalent to `managed` versus `local`, where managed mode owns updates and local mode treats the file as operator-owned.
+
+15.3. Managed MaxMind credentials SHALL NOT be required in reloadable policy fields; credential acquisition SHALL be process/startup-owned and redacted from diagnostics.
+
+15.4. `check-config` SHALL validate all static GeoIP syntax/semantics and reload classification without contacting MaxMind or performing any database download/update.
+
+15.5. `check-config` MAY structurally validate an explicitly available local MMDB path, but absence of external network connectivity SHALL NOT make an otherwise static configuration check fail.
+
+15.6. Runtime startup/candidate activation SHALL perform the separate lookup-readiness check required by Requirement 8; static config validity SHALL NOT be confused with live resource readiness.
+
+15.7. Documentation SHALL include examples for deny-list posture, allow-list posture, country deny plus office CIDR exception, direct-peer deployment, trusted reverse-proxy deployment, managed updates, local MMDB, runtime reload, and recovery from an invalid candidate.
+
+15.8. Documentation SHALL warn that GeoIP is approximate defense in depth and can be bypassed by VPN/proxy/relay infrastructure; it SHALL NOT be presented as identity or sanctions-compliance proof.
