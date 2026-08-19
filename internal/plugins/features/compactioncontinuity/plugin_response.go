@@ -4,14 +4,16 @@ import (
 	"context"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/augmentation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/observability"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
 
-// BeforeResponseRelease consumes only an existing pending result. Without a
-// verified plaintext augmentation capability, it records the capsule for the
-// next eligible request and leaves the canonical event byte-for-byte intact.
+// BeforeResponseRelease consumes only an existing pending result. The
+// augmentation matcher is an explicit empty allowlist for today's canonical
+// compaction contract, so it records the capsule for the next eligible request
+// and leaves the canonical event byte-for-byte intact.
 func (p *Plugin) BeforeResponseRelease(ctx context.Context, ev *lipapi.Event, preview compaction.ResponsePreview, meta compaction.PreservationMeta, services compaction.Services) (err error) {
 	defer func() {
 		if recover() != nil {
@@ -66,9 +68,10 @@ func (p *Plugin) BeforeResponseRelease(ctx context.Context, ev *lipapi.Event, pr
 		p.observeFailure(observability.StageAugmentation, observability.OutcomeSkipped, boundary, "")
 		return nil
 	}
+	_, plaintextCarrier := augmentation.Match(ev)
 	if prepared {
 		outcome := observability.OutcomePending
-		if ev != nil && ev.Item != nil && ev.Item.Compaction != nil {
+		if !plaintextCarrier && ev != nil && ev.Item != nil && ev.Item.Compaction != nil {
 			outcome = observability.OutcomeOpaque
 		}
 		p.observe(observability.Observation{Stage: observability.StageAugmentation, Outcome: outcome, CorrelationHash: observability.HashID(boundary), Revision: state.Revision})
