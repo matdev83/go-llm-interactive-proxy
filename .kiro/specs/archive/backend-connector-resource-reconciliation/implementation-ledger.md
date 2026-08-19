@@ -42,4 +42,4 @@ Commit mapping: Kiro Tasks 1.1–4.5 production code, tests, architecture fences
 
 | Slice | Changed files | Commit | PR | CI / merge / archive state |
 |---|---:|---|---|---|
-| Implementation | 25 | `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd`; `1f903ebc` | [PR #381](https://github.com/matdev83/go-llm-interactive-proxy/pull/381) | draft PR opened; CI/merge/merged-main verification pending, so archive is not eligible |
+| Implementation | 26 | `2fdf8e0e0c467a87325e5bbcd2ec6a2e5cb8f1cd`; `1f903ebc`; `06f999f5`; `7828868c`; `adb90b12` | [PR #381](https://github.com/matdev83/go-llm-interactive-proxy/pull/381) | merged as `4a1417cd34e26d5918b35becbba1c3e5705724a4`; fresh QA, CodeQL, security, official compliance, coverage, process-tree, and Linux/macOS/Windows CI passed; merged-main focused runtimebundle, compaction, runtime, auxiliary, and architecture tests plus `lipstd` build/help and fixture tidy verification passed; archive eligible |
