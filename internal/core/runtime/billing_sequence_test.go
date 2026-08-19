@@ -103,12 +103,14 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 
 	// 3. Opened winner producer (recordBillingLeg path).
 	stream := &retryRecvStream{
-		executor:         executor,
-		aLegID:           "a-1",
-		billingCallID:    callID,
-		billingCallState: state,
-		bleg:             b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5},
-		cand:             routing.AttemptCandidate{Primary: primary("backend", "model")},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:           "a-1",
+			billingCallID:    callID,
+			billingCallState: state,
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5},
+		cand: routing.AttemptCandidate{Primary: primary("backend", "model")},
 	}
 	stream.recordBillingLeg(ctx, sdkterminal.CommandNormalFinish)
 
@@ -125,12 +127,14 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	// 5. Swallowed producer (recordBillingLeg with the swallowed command uses
 	// the attempt's own sequence).
 	swallowed := &retryRecvStream{
-		executor:         executor,
-		aLegID:           "a-1",
-		billingCallID:    callID,
-		billingCallState: state,
-		bleg:             b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7},
-		cand:             routing.AttemptCandidate{Primary: primary("backend", "model")},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:           "a-1",
+			billingCallID:    callID,
+			billingCallState: state,
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7},
+		cand: routing.AttemptCandidate{Primary: primary("backend", "model")},
 	}
 	swallowed.recordBillingLeg(ctx, sdkterminal.CommandSwallowedAttempt)
 

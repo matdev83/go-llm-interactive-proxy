@@ -17,8 +17,10 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 		secureRecvRecordingHardStop: true,
 		executor:                    ex,
 		cand:                        routing.AttemptCandidate{Key: "cand-1"},
-		traceID:                     "tr-mand",
-		aLegID:                      "a-mand",
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID: "tr-mand",
+			aLegID:  "a-mand",
+		}),
 	}
 	s.markCommitted()
 	_, err := s.tryReplacementIteration(context.Background())

@@ -130,11 +130,11 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 	}
 	observers := s.executor.compactionObservers()
 	meta := compactiondetect.ResponseMeta{
-		TraceID:    s.traceID,
-		ALegID:     s.aLegID,
+		TraceID:    s.facts.traceID,
+		ALegID:     s.facts.aLegID,
 		BLegID:     s.bleg.BLegID,
 		AttemptSeq: s.bleg.Seq,
-		SessionID:  s.baseline.Session.AuthoritativeSessionID,
+		SessionID:  s.facts.baseline.Session.AuthoritativeSessionID,
 	}
 	preview := safeCompactionPreviewResponse(s.executor.Detector, meta, *ev)
 	preservationMeta := compaction.PreservationMeta{

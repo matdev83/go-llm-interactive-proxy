@@ -54,14 +54,16 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        hooks.New(hooks.Config{}),
-			baseline:   lipapi.Call{ID: "request-finished-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			executor: ex,
+			bus:      hooks.New(hooks.Config{}),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-finished-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-finished-leak",
+				aLegID:   aLegID,
+			}),
 			bleg:       b2bua.BLegRecord{BLegID: "b-leg-finished-leak", Seq: 1},
 			cand:       authorityCandidate(),
 			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-finished-leak",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs

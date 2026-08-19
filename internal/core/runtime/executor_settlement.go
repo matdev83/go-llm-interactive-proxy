@@ -88,10 +88,9 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 	if s == nil || s.executor == nil {
 		return false
 	}
-	s.ensureBillingCallState()
-	ev, ok := s.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
-		TraceID: strings.TrimSpace(s.traceID),
-		ALegID:  strings.TrimSpace(s.aLegID),
+	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+		TraceID: strings.TrimSpace(s.facts.traceID),
+		ALegID:  strings.TrimSpace(s.facts.aLegID),
 		BLegID:  strings.TrimSpace(s.bleg.BLegID),
 		Backend: strings.TrimSpace(s.cand.Primary.Backend),
 		Model:   strings.TrimSpace(s.cand.Primary.Model),
@@ -131,11 +130,11 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 		model = s.cand.Primary.Model
 	}
 	if err := obs.OnUsage(ctx, usage.Event{
-		TraceID:          strings.TrimSpace(s.traceID),
-		ALegID:           strings.TrimSpace(s.aLegID),
+		TraceID:          strings.TrimSpace(s.facts.traceID),
+		ALegID:           strings.TrimSpace(s.facts.aLegID),
 		BLegID:           strings.TrimSpace(s.bleg.BLegID),
 		PrincipalID:      strings.TrimSpace(principalID),
-		SessionID:        strings.TrimSpace(s.baseline.Session.CorrelationID()),
+		SessionID:        strings.TrimSpace(s.facts.baseline.Session.CorrelationID()),
 		AttemptSeq:       int(s.bleg.Seq),
 		BackendID:        strings.TrimSpace(s.cand.Primary.Backend),
 		Model:            strings.TrimSpace(model),
@@ -183,7 +182,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
 		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
 		Model:      strings.TrimSpace(s.cand.Primary.Model),
-		Call:       s.baseline,
+		Call:       s.facts.baseline,
 		OutputText: s.releasedOutputText(),
 		Events:     events,
 	})
@@ -287,7 +286,7 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 	var fact metering.Fact
 	var persisted bool
 	if s.executor != nil {
-		fact, persisted = s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, customerEv)
+		fact, persisted = s.executor.emitFrontendEgressMeteringFact(ctx, s.facts.traceID, customerEv)
 	}
 	if persisted {
 		facts = []metering.Fact{fact}
@@ -339,7 +338,7 @@ func (s *retryRecvStream) customerUsageFromReleased(ctx context.Context) lipapi.
 	if s == nil || s.executor == nil || s.executor.StreamUsage == nil {
 		return lipapi.Event{}
 	}
-	call := s.baseline
+	call := s.facts.baseline
 	backend := strings.TrimSpace(s.cand.Primary.Backend)
 	model := strings.TrimSpace(s.cand.Primary.Model)
 	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {

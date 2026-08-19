@@ -28,9 +28,11 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 		lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
@@ -87,9 +89,11 @@ func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 	}
 	result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil)
 	if result.Err != nil {
@@ -106,9 +110,11 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 		lastAuthorityUsage: lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 9,
 			UsagePresence: lipapi.UsagePresence{InputTokens: true},
@@ -167,9 +173,11 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 		lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
@@ -224,9 +232,11 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 	}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 		lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
@@ -282,9 +292,11 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 		lastAuthorityUsage: lipapi.Event{
 			Kind:          lipapi.EventUsageDelta,
 			InputTokens:   12,
@@ -310,8 +322,10 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 	params.Set("provider", "openai")
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{
 			Backend: "backend-azure", Model: "model-x", Params: params,
 		}},
@@ -333,9 +347,11 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "", ALegID: "a-1", Seq: 3},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "", ALegID: "a-1", Seq: 3},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 	}
 	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
@@ -357,9 +373,11 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 		seenEvents: []lipapi.Event{
 			{
 				Kind:          lipapi.EventUsageDelta,
@@ -412,9 +430,11 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   "a-1",
-		bleg:     b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: "a-1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 	}
 	if !stream.finalizeBillingAfterCancel(context.Background(), "client canceled") {
 		t.Fatal("quota finalize should succeed")

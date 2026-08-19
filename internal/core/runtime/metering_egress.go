@@ -114,7 +114,7 @@ func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, us
 	if s == nil || s.executor == nil {
 		return metering.Fact{}, false
 	}
-	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, s.resolveCustomerUsage(ctx, usageEv))
+	return s.executor.emitFrontendEgressMeteringFact(ctx, s.facts.traceID, s.resolveCustomerUsage(ctx, usageEv))
 }
 
 func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {

@@ -90,9 +90,11 @@ func phase72FaultOutageEgressPersist(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-outage",
+		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-outage",
+			baseline: lipapi.Call{ID: "req-outage"},
+		}),
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-outage"},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	err = stream.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta})
@@ -130,9 +132,11 @@ func phase72FaultAmbiguousSuccessOnceOnly(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-once",
+		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-once",
+			baseline: lipapi.Call{ID: "req-once"},
+		}),
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-once"},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "y"})
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 9}

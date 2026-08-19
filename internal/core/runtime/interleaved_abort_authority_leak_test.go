@@ -327,8 +327,11 @@ func setupInterleavedAssignedExecutorGate(t *testing.T) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	from.billingCallID = callID
-	stampStreamIdentity(from)
+	from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+		f.billingCallID = callID
+		return f
+	})
+	from = stampStreamIdentity(from)
 	from.isInterleavedThinker = true
 	from.ensureTerminals()
 	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{

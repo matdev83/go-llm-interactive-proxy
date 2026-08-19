@@ -12,7 +12,7 @@ import (
 
 // beforeEmitClientFacing records one post-hook canonical event before it is emitted to the client.
 func (s *retryRecvStream) beforeEmitClientFacing(ctx context.Context, ev lipapi.Event) error {
-	if s == nil || s.executor == nil || s.executor.SecureSessionRecorder == nil || !s.secureTurnOK {
+	if s == nil || s.executor == nil || s.executor.SecureSessionRecorder == nil || !s.facts.secureTurnOK {
 		return nil
 	}
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
@@ -33,11 +33,11 @@ func (s *retryRecvStream) beforeEmitClientFacing(ctx context.Context, ev lipapi.
 }
 
 func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.StreamEventRecordInput {
-	st := s.secureTurn
+	st := s.facts.secureTurn
 	now := s.executor.now()
 	in := app.StreamEventRecordInput{
 		Now:       now,
-		TraceID:   strings.TrimSpace(s.traceID),
+		TraceID:   strings.TrimSpace(s.facts.traceID),
 		SessionID: st.SessionID,
 		TurnID:    st.TurnID,
 		BLegID:    strings.TrimSpace(s.bleg.BLegID),

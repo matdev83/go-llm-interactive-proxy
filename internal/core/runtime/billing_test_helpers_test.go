@@ -34,12 +34,33 @@ func testBillingIdentity() BillingIdentity {
 	}
 }
 
-func stampStreamIdentity(s *retryRecvStream) {
-	if s == nil {
-		return
+func testRecvTurnFacts(f recvTurnFacts) recvTurnFacts {
+	if f.billingCallState == nil {
+		f.billingCallState = newBillingCallState(f.billingCallID)
 	}
-	s.billingAccountID = "acct"
-	s.billingCustomerPricing = billing.VersionRef{ID: "pricing:test", Version: "1"}
-	s.billingChargePolicy = billing.VersionRef{ID: "policy:test", Version: "1"}
-	s.billingIdentityStamped = true
+	return f
+}
+
+func withTestRecvFacts(s *retryRecvStream, update func(recvTurnFacts) recvTurnFacts) *retryRecvStream {
+	if s == nil {
+		return nil
+	}
+	// Test callers invoke this while constructing a stream, before any lock or
+	// terminal state is used. Keep the original stream identity so this helper
+	// does not copy mutex-bearing retryRecvStream state.
+	s.facts = update(testRecvTurnFacts(s.facts))
+	return s
+}
+
+func stampStreamIdentity(s *retryRecvStream) *retryRecvStream {
+	if s == nil {
+		return nil
+	}
+	return withTestRecvFacts(s, func(f recvTurnFacts) recvTurnFacts {
+		f.billingAccountID = "acct"
+		f.billingCustomerPricing = billing.VersionRef{ID: "pricing:test", Version: "1"}
+		f.billingChargePolicy = billing.VersionRef{ID: "policy:test", Version: "1"}
+		f.billingIdentityStamped = true
+		return f
+	})
 }

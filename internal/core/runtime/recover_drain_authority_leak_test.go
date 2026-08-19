@@ -57,14 +57,16 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        hooks.New(hooks.Config{}),
-			baseline:   lipapi.Call{ID: "request-recover-drain-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			executor: ex,
+			bus:      hooks.New(hooks.Config{}),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-recover-drain-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-recover-drain-leak",
+				aLegID:   aLegID,
+			}),
 			bleg:       b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1},
 			cand:       authorityCandidate(),
 			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-recover-drain-leak",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs
@@ -177,9 +179,13 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-idle-finish-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-idle-finish-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-idle-finish-leak",
+			aLegID:   aLegID,
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
@@ -191,8 +197,6 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 		}, start),
-		traceID:    "trace-idle-finish-leak",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")

@@ -31,13 +31,15 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
-		executor:   executor,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: executor,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			aLegID:   aLegID,
+			traceID:  "trace-authoritative-success",
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
 		cand:       authorityCandidate(),
-		aLegID:     aLegID,
-		traceID:    "trace-authoritative-success",
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
@@ -83,13 +85,15 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 	}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor:   executor,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: executor,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			aLegID:   aLegID,
+			traceID:  "trace-authoritative-protocol",
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
 		cand:       authorityCandidate(),
-		aLegID:     aLegID,
-		traceID:    "trace-authoritative-protocol",
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
@@ -130,8 +134,10 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
 		executor: executor,
-		aLegID:   aLegID,
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: aLegID,
+		}),
+		cand: authorityCandidate(),
 	}
 	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),

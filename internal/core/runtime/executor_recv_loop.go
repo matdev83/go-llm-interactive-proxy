@@ -56,13 +56,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		reason := cancellationAttemptReason(ctx, err)
 		if s.executor != nil {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
+				ALegID:    s.facts.aLegID,
 				BLeg:      s.bleg,
 				Cand:      s.cand,
 				Outcome:   lipapi.AttemptCancelled,
 				Reason:    reason,
 				DetailErr: err,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 		}
 		cmd := sdkterminal.CommandCancel
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -217,13 +217,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if err != nil && s.aScope != nil {
 			if scopeErr := s.aScope.Err(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    s.aLegID,
+					ALegID:    s.facts.aLegID,
 					BLeg:      s.bleg,
 					Cand:      s.cand,
 					Outcome:   lipapi.AttemptCancelled,
 					Reason:    "a-leg canceled",
 					DetailErr: scopeErr,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+				}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 				_ = s.takeAndNilInner()
 				s.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
 					s.persistCancellationBilling(cctx, "a-leg canceled")
@@ -260,7 +260,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 // It returns opened=true when s.inner is ready, opened=false when the caller should emit
 // a keepalive (Req 5.5) and invoke Recv again, or a non-nil error when the replacement path is exhausted.
 func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened bool, err error) {
-	ctx = diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
+	ctx = diag.EnsureCallDiag(ctx, s.facts.traceID, s.facts.aLegID)
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -296,11 +296,11 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	}
 	out, err := s.executor.tryPlanOpenOnce(ctx, attemptOpenParams{
 		bus:                      s.bus,
-		traceID:                  s.traceID,
-		aLegID:                   s.aLegID,
+		traceID:                  s.facts.traceID,
+		aLegID:                   s.facts.aLegID,
 		aScope:                   s.aScope,
-		baseline:                 s.baseline,
-		failoverReq:              capabilities.NewFailoverRequirementSet(s.baseline),
+		baseline:                 s.facts.baseline,
+		failoverReq:              capabilities.NewFailoverRequirementSet(s.facts.baseline),
 		sel:                      s.sel,
 		requestSize:              s.requestSize,
 		session:                  s.session,
@@ -320,8 +320,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		suppressThinker:          s.suppressThinker,
 		suppressVisibleMemo:      s.suppressVisibleMemo,
 		lastParallelFailure:      &s.lastParallelFailure,
-		billingCallID:            s.billingCallID,
-		billingCallState:         s.billingCallState,
+		billingCallID:            s.facts.billingCallID,
+		billingCallState:         s.facts.billingCallState,
 	})
 	if err != nil {
 		return false, err
@@ -348,7 +348,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 				l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 				return nil
 			})
-			s.executor.appendPostOpenTerminalLeg(ctx, s.billingCallState, s.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+			s.executor.appendPostOpenTerminalLeg(ctx, s.facts.billingCallState, s.facts.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return false, err
 		}
 	}

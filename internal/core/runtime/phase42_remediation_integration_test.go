@@ -37,14 +37,16 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-close-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-close-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-close-finish",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1},
 		cand:       cand,
 		authority:  testAuthorityLifecycle(ex, state, cand),
-		traceID:    "trace-close-finish",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}},
 	}
@@ -105,14 +107,16 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg("a-recv-after-close")
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-recv-after-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-recv-after-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-recv-after-close",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1},
 		cand:       cand,
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-recv-after-close",
-		aLegID:     aLegID,
 		aScope:     aScope,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
@@ -200,17 +204,19 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor:     ex,
-		bus:          hooks.New(hooks.Config{}),
-		baseline:     lipapi.Call{ID: "req-enc", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:         b2bua.BLegRecord{BLegID: "b-enc", Seq: 1},
-		cand:         cand,
-		authority:    testAuthorityLifecycle(ex, state, cand),
-		traceID:      "trace-enc",
-		aLegID:       aLegID,
-		accounting:   newAttemptAccountingTracker(time.Unix(1, 0)),
-		seenEvents:   []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
-		secureTurnOK: true,
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline:     lipapi.Call{ID: "req-enc", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:      "trace-enc",
+			aLegID:       aLegID,
+			secureTurnOK: true,
+		}),
+		bleg:       b2bua.BLegRecord{BLegID: "b-enc", Seq: 1},
+		cand:       cand,
+		authority:  testAuthorityLifecycle(ex, state, cand),
+		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
 	}
 	rs.markCommitted()
 	rs.ensureTerminals()
@@ -247,14 +253,16 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-cancel", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-cancel", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-cancel",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1},
 		cand:       cand,
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-cancel",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	rs.ensureTerminals()
@@ -299,14 +307,16 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "req-part", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-part", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-part",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-part", Seq: 1},
 		cand:       cand,
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-part",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	rs.ensureTerminals()

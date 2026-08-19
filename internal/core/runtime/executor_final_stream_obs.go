@@ -21,14 +21,14 @@ func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.Strea
 		}
 	}
 	meta := response.StreamMeta{
-		TraceID: s.traceID, ALegID: s.aLegID, BLegID: s.bleg.BLegID, CandidateKey: s.cand.Key,
+		TraceID: s.facts.traceID, ALegID: s.facts.aLegID, BLegID: s.bleg.BLegID, CandidateKey: s.cand.Key,
 		BackendID: backendID, BackendPrefixes: prefixes, Model: strings.TrimSpace(s.cand.Primary.Model),
 		AttemptSeq: s.bleg.Seq,
 	}
 	if v, ok := s.viewsFor(ctx); ok {
 		meta.Scope = v.Scope.Clone()
 		meta.Session, meta.Workspace = cloneSessionView(v.Session), cloneWorkspaceView(v.Workspace)
-		meta.Session.ALegID = s.aLegID
+		meta.Session.ALegID = s.facts.aLegID
 	}
 	return meta
 }

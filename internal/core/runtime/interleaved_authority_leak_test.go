@@ -44,18 +44,20 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 	from := &retryRecvStream{
 		executor: ex,
 		bus:      ex.Bus,
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:   &attemptBudget{max: 3, used: 0},
-		aLegID:   aLegID,
-		traceID:  "trace-1",
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
@@ -171,7 +173,7 @@ func TestOpenInterleavedExecutorContinuation_RegisterBLegFailureReleasesLocalAut
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 
 	coord := ex.ALegLifecycle
-	aLegID := from.aLegID
+	aLegID := from.facts.aLegID
 	// Cancel the A-leg inside backend.Open so RegisterBLeg fails with ErrALegCanceled
 	// after out.authority was reserved. A fixed stream is returned so the coordinator's
 	// cancel cleanup has a B-leg attempt to tear down.

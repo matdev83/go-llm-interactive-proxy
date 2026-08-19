@@ -229,9 +229,11 @@ func phase71SettleCustomerFE(t *testing.T, frontendID string, released bool, wan
 	}})
 
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-" + frontendID,
+		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-" + frontendID,
+			baseline: call,
+		}),
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: call,
 	}
 	if released {
 		stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})

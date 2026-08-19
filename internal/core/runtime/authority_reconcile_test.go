@@ -327,16 +327,18 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{
-			ID:         "req-cancel-reconcile",
-			Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-		},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:         "req-cancel-reconcile",
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+			},
+			traceID: "trace-cancel-reconcile",
+			aLegID:  "a-cr",
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-cr", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  newAuthorityLifecycle(svc, nil, state, authorityCandidate()),
 		seenEvents: []lipapi.Event{},
-		traceID:    "trace-cancel-reconcile",
-		aLegID:     "a-cr",
 		accounting: newAttemptAccountingTracker(at),
 	}
 

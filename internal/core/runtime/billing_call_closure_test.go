@@ -42,11 +42,14 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := &retryRecvStream{executor: executor, aLegID: "a-legacy", billingCallID: callID,
-		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
-		bleg:     b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
-	stampStreamIdentity(stream)
+	stream := &retryRecvStream{executor: executor, facts: testRecvTurnFacts(recvTurnFacts{
+		aLegID:        "a-legacy",
+		billingCallID: callID,
+		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
+	}),
+		bleg: b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
+	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if executor.hasTerminalSink() || executor.hasTerminalCallSink() {
@@ -68,16 +71,17 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream := &retryRecvStream{
-		executor:      executor,
-		aLegID:        "a-shared",
-		billingCallID: callID,
-		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
-		bleg:          b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-shared", Seq: 1},
-		cand:          routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-shared",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-shared", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stampStreamIdentity(stream)
-	state := newBillingCallState(callID)
-	stream.billingCallState = state
+	stream = stampStreamIdentity(stream)
+	state := stream.facts.billingCallState
 	state.noteAllocatedBLeg("b-2", 2)
 	state.noteAllocatedBLeg("b-1", 1)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
@@ -116,12 +120,14 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 		BillingIdentity: testBillingIdentity(),
 	}}
 	stream := &retryRecvStream{
-		executor: executor, aLegID: "a-1",
-		baseline: lipapi.Call{},
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		executor: executor, facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:   "a-1",
+			baseline: lipapi.Call{},
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 }
@@ -138,12 +144,15 @@ func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream := &retryRecvStream{
-		executor: executor, aLegID: "a-1", billingCallID: callID,
-		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-a"}},
-		bleg:     b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:     routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		executor: executor, facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-1",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-a"}},
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 }
@@ -162,14 +171,16 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream := &retryRecvStream{
-		executor:      executor,
-		aLegID:        "a-1",
-		billingCallID: callID,
-		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
-		bleg:          b2bua.BLegRecord{BLegID: "b-win", ALegID: "a-1", Seq: 1},
-		cand:          routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-1",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-win", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 {
@@ -200,14 +211,16 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 				t.Fatal(err)
 			}
 			stream := &retryRecvStream{
-				executor:      executor,
-				aLegID:        "a-1",
-				billingCallID: callID,
-				baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
-				bleg:          b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-				cand:          routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+				executor: executor,
+				facts: testRecvTurnFacts(recvTurnFacts{
+					aLegID:        "a-1",
+					billingCallID: callID,
+					baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
+				}),
+				bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
+				cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 			}
-			stampStreamIdentity(stream)
+			stream = stampStreamIdentity(stream)
 			result := stream.runStreamTerminal(context.Background(), command, nil)
 			if result.Err != nil {
 				t.Fatalf("request-owner %s: %v", command, result.Err)
@@ -260,15 +273,17 @@ func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *te
 		t.Fatal(err)
 	}
 	stream := &retryRecvStream{
-		executor:                    executor,
-		aLegID:                      "a-1",
-		billingCallID:               callID,
-		baseline:                    lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-1",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
+		}),
 		bleg:                        b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
 		cand:                        routing.AttemptCandidate{Key: "cand-1", Primary: routing.Primary{Backend: "backend", Model: "model"}},
 		secureRecvRecordingHardStop: true,
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	stream.markCommitted()
 	_, err = stream.tryReplacementIteration(context.Background())
 	var uf *lipapi.UpstreamFailureError
@@ -398,21 +413,23 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		t.Fatal(err)
 	}
 	stream := &retryRecvStream{
-		executor:      executor,
-		aLegID:        "a-1",
-		billingCallID: callID,
-		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
-		bleg:          b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1},
-		cand:          routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-1",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("swallowed attempt-terminal must not append call-closure, got %d", len(got))
 	}
-	if stream.billingCallState != nil && stream.billingCallState.hasFrozen {
+	if stream.facts.billingCallState != nil && stream.facts.billingCallState.hasFrozen {
 		t.Fatal("swallowed attempt-terminal must not freeze allocated B-legs")
 	}
 
@@ -448,15 +465,17 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 	}
 
 	stream := &retryRecvStream{
-		executor:             executor,
-		aLegID:               "a-shared",
-		billingCallID:        callID,
-		baseline:             lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
+		executor: executor,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-shared",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
+		}),
 		bleg:                 b2bua.BLegRecord{BLegID: "b-thinker", ALegID: "a-shared", Seq: 1},
 		cand:                 routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 		isInterleavedThinker: true,
 	}
-	stampStreamIdentity(stream)
+	stream = stampStreamIdentity(stream)
 	stream.ensureTerminals()
 
 	// A normal finish of a thinker must only claim attempt terminal and NOT write call closure
@@ -489,11 +508,14 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 	ex, thinker := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 
 	// Set billing identity fields on the thinker stream
-	thinker.billingCallID = callID
-	thinker.billingAccountID = "acct-cont"
-	thinker.billingCustomerPricing = billing.VersionRef{ID: "pricing:cont", Version: "1"}
-	thinker.billingChargePolicy = billing.VersionRef{ID: "policy:cont", Version: "1"}
-	thinker.billingIdentityStamped = true
+	thinker = withTestRecvFacts(thinker, func(f recvTurnFacts) recvTurnFacts {
+		f.billingCallID = callID
+		f.billingAccountID = "acct-cont"
+		f.billingCustomerPricing = billing.VersionRef{ID: "pricing:cont", Version: "1"}
+		f.billingChargePolicy = billing.VersionRef{ID: "policy:cont", Version: "1"}
+		f.billingIdentityStamped = true
+		return f
+	})
 	thinker.customer = newCustomerEvidenceAccumulator()
 
 	state := interleavedstate.State{}
@@ -502,19 +524,19 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 		t.Fatalf("openInterleavedExecutorContinuation: %v", err)
 	}
 
-	if cont.billingCallID != thinker.billingCallID {
+	if cont.facts.billingCallID != thinker.facts.billingCallID {
 		t.Errorf("continuation missing billingCallID")
 	}
-	if cont.billingAccountID != thinker.billingAccountID {
+	if cont.facts.billingAccountID != thinker.facts.billingAccountID {
 		t.Errorf("continuation missing billingAccountID")
 	}
-	if cont.billingCustomerPricing != thinker.billingCustomerPricing {
+	if cont.facts.billingCustomerPricing != thinker.facts.billingCustomerPricing {
 		t.Errorf("continuation missing billingCustomerPricing")
 	}
-	if cont.billingChargePolicy != thinker.billingChargePolicy {
+	if cont.facts.billingChargePolicy != thinker.facts.billingChargePolicy {
 		t.Errorf("continuation missing billingChargePolicy")
 	}
-	if cont.billingIdentityStamped != thinker.billingIdentityStamped {
+	if cont.facts.billingIdentityStamped != thinker.facts.billingIdentityStamped {
 		t.Errorf("continuation missing billingIdentityStamped")
 	}
 	if cont.customer == nil {

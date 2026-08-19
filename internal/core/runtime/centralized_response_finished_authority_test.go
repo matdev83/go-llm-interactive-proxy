@@ -75,14 +75,16 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			ex.StreamUsage = streamUsage
 		}
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        hooks.New(hooks.Config{}),
-			baseline:   lipapi.Call{ID: "request-centralized", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			executor: ex,
+			bus:      hooks.New(hooks.Config{}),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-centralized", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-centralized",
+				aLegID:   aLegID,
+			}),
 			bleg:       b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1},
 			cand:       authorityCandidate(),
 			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-centralized",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs
@@ -361,8 +363,12 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		}
 		start := time.Unix(1, 0)
 		rs := &retryRecvStream{
-			executor:   ex,
-			baseline:   lipapi.Call{ID: "request-centralized-idle", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			executor: ex,
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-centralized-idle", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-centralized-idle",
+				aLegID:   aLegID,
+			}),
 			bleg:       b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1},
 			cand:       authorityCandidate(),
 			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
@@ -371,8 +377,6 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				Enabled:     true,
 				IdleTimeout: time.Second,
 			}, start),
-			traceID:    "trace-centralized-idle",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(start),
 		}
 		rs.visibleText.WriteString("hello")

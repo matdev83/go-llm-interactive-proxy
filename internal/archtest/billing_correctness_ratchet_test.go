@@ -317,6 +317,104 @@ func (e *Executor) Execute() {}
 	}
 }
 
+func TestEvaluateBillingCallScopedStateOwnershipRejectsDirectRetryOwner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeBillingCallScopedOwnerFixtures(t, root, `
+type retryRecvStream struct {
+	billingCallState *billingCallState
+}
+`, `
+type recvTurnFacts struct{}
+`, "")
+
+	got := evaluateCallScopedOwnerFixtures(t, root)
+	assertMissingBillingOwner(t, got, "recvTurnFacts", "direct retry ownership must not satisfy the request facts owner")
+}
+
+func TestEvaluateBillingCallScopedStateOwnershipRejectsWrongFactsOwner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeBillingCallScopedOwnerFixtures(t, root, `
+type retryRecvStream struct{}
+`, `
+type recvTurnFactsInput struct {
+	billingCallState *billingCallState
+}
+
+type recvTurnFacts struct{}
+`, "")
+
+	got := evaluateCallScopedOwnerFixtures(t, root)
+	assertMissingBillingOwner(t, got, "recvTurnFacts", "assembly input ownership must not satisfy the request facts owner")
+}
+
+func TestEvaluateBillingCallScopedStateOwnershipAcceptsRecvTurnFactsOwner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeBillingCallScopedOwnerFixtures(t, root, `
+type retryRecvStream struct{}
+`, `
+type recvTurnFacts struct {
+	billingCallState *billingCallState
+}
+`, "")
+
+	got := evaluateCallScopedOwnerFixtures(t, root)
+	if len(got) != 0 {
+		t.Fatalf("recvTurnFacts must own billingCallState without direct retry ownership findings:\n%s", formatRatchetFindings(got))
+	}
+}
+
+func writeBillingCallScopedOwnerFixtures(t *testing.T, root, retryBody, factsBody, factsInputBody string) {
+	t.Helper()
+	fixtures := map[string]string{
+		"internal/core/runtime/executor.go": `package runtime
+
+type Executor struct{}
+`,
+		"internal/core/runtime/executor_prepare_request.go": `package runtime
+
+type preparedRequest struct {
+	billingCallID    string
+	billingCallState *billingCallState
+}
+`,
+		"internal/core/runtime/executor_retry_stream.go": "package runtime\n" + retryBody,
+		"internal/core/runtime/recv_turn_facts.go":       "package runtime\n" + factsInputBody + "\n" + factsBody,
+	}
+	for rel, body := range fixtures {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func evaluateCallScopedOwnerFixtures(t *testing.T, root string) []RuleFinding {
+	t.Helper()
+	got, err := EvaluateBillingCallScopedStateOwnership(root)
+	if err != nil {
+		t.Fatalf("evaluate call-scoped state ownership: %v", err)
+	}
+	return got
+}
+
+func assertMissingBillingOwner(t *testing.T, findings []RuleFinding, owner, message string) {
+	t.Helper()
+	for _, finding := range findings {
+		if finding.Rule == BillingCorrectnessRuleCallScopedStateOwnerMissing &&
+			finding.Path == "internal/core/runtime/recv_turn_facts.go" &&
+			strings.Contains(finding.Detail, owner+" must own the private billingCallState field") {
+			return
+		}
+	}
+	t.Fatalf("%s; got:\n%s", message, formatRatchetFindings(findings))
+}
+
 func TestBillingCorrectnessRatchetRuleNamesReferenced(t *testing.T) {
 	t.Parallel()
 	seen := make(map[string]struct{})

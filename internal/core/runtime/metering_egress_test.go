@@ -119,8 +119,10 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 	ctx := withMeteringHolder(context.Background(), holder)
 	stream := &retryRecvStream{
 		executor: ex,
-		traceID:  "req-eg",
-		bleg:     b2bua.BLegRecord{BLegID: "b-leg-1"},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID: "req-eg",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b-leg-1"},
 	}
 	usageEv := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 1, TotalTokens: 4}
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, usageEv)

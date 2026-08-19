@@ -34,13 +34,15 @@ func newCharacterizationStream(t *testing.T, inner lipapi.ManagedEventStream) *r
 	s := &retryRecvStream{
 		executor: ex,
 		bus:      bus,
-		baseline: lipapi.Call{
-			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
-		},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+			},
+			aLegID:  "a-characterization",
+			traceID: "t-characterization",
+		}),
 		budget:   &attemptBudget{max: 3},
-		aLegID:   "a-characterization",
-		traceID:  "t-characterization",
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},

@@ -183,11 +183,13 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 	s := &retryRecvStream{
 		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
 		bus:      hooks.New(hooks.Config{}),
-		baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
 		budget:   &attemptBudget{max: 1},
 		ttft:     &ttft,
-		aLegID:   "a1",
-		traceID:  "t1",
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
@@ -241,11 +243,13 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 	s := &retryRecvStream{
 		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
 		bus:      hooks.New(hooks.Config{}),
-		baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
 		budget:   &attemptBudget{max: 1},
 		ttft:     &ttftBudget{start: time.Now()},
-		aLegID:   "a1",
-		traceID:  "t1",
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},

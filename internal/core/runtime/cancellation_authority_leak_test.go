@@ -56,10 +56,14 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{
-				ID:         "request-cancel-usage-leak",
-				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-			},
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "request-cancel-usage-leak",
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+				},
+				traceID: "trace-cancel-usage-leak",
+				aLegID:  aLegID,
+			}),
 			bleg: b2bua.BLegRecord{BLegID: "b-leg-cancel-usage-leak", Seq: 1},
 			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
@@ -67,8 +71,6 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate()),
 			seenEvents: []lipapi.Event{usageDelta},
-			traceID:    "trace-cancel-usage-leak",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		// Simulate handleRecvSuccess having processed the EventUsageDelta: this flips
@@ -283,10 +285,14 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{
-				ID:         "request-store-unavailable",
-				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-			},
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "request-store-unavailable",
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+				},
+				traceID: "trace-store-unavailable",
+				aLegID:  aLegID,
+			}),
 			bleg: b2bua.BLegRecord{BLegID: "b-leg-store-unavailable", Seq: 1},
 			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
@@ -294,8 +300,6 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate()),
 			seenEvents: []lipapi.Event{usageDelta},
-			traceID:    "trace-store-unavailable",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		rs.accounting.observeUsage(usageDelta)

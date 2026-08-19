@@ -14,13 +14,15 @@ func TestRetryRecvStream_recvExecContext_mergesViewsAndRoutePrefs(t *testing.T) 
 	t.Parallel()
 	want := execctx.Views{Session: session.SessionView{ClientSessionHint: "sid"}}
 	s := &retryRecvStream{
-		traceID:      "tr1",
-		aLegID:       "a1",
-		recvViewsOK:  true,
-		recvViews:    want,
-		routePrefs:   []string{"cand-a", "cand-b"},
-		secureTurnOK: true,
-		secureTurn:   execctx.SecureSessionTurn{SessionID: domain.SessionID("ss"), TurnID: domain.TurnID("tt")},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:      "tr1",
+			aLegID:       "a1",
+			recvViewsOK:  true,
+			recvViews:    want,
+			routePrefs:   []string{"cand-a", "cand-b"},
+			secureTurnOK: true,
+			secureTurn:   execctx.SecureSessionTurn{SessionID: domain.SessionID("ss"), TurnID: domain.TurnID("tt")},
+		}),
 	}
 	ctx := s.recvExecContext(context.Background())
 	if got := diag.TraceID(ctx); got != "tr1" {

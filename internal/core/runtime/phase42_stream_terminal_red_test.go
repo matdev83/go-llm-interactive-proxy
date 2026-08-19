@@ -79,14 +79,16 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	cand := authorityCandidate()
 	entered := make(chan struct{}, 1)
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-recv-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-recv-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-recv-close",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-recv-close", Seq: 1},
 		cand:       cand,
 		authority:  testAuthorityLifecycle(ex, state, cand),
-		traceID:    "trace-recv-close",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		seenEvents: []lipapi.Event{{
 			Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5,

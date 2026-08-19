@@ -108,7 +108,6 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	if s == nil || s.executor == nil || !s.executor.billingEnabled() {
 		return
 	}
-	s.ensureBillingCallState()
 	blegID := strings.TrimSpace(s.bleg.BLegID)
 	if blegID == "" {
 		blegID = billingSyntheticBLegID(s.bleg.Seq)
@@ -124,22 +123,22 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	s.billingLegRecorded[blegID] = struct{}{}
 	s.billingLegMu.Unlock()
 	if s.bleg.Seq > 0 {
-		s.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
+		s.facts.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
 	}
 	now := s.now()
 	started := s.accounting.requestStartedAt
 	if started.IsZero() {
 		started = now
 	}
-	s.billingCallState.noteLegTimes(started, now)
+	s.facts.billingCallState.noteLegTimes(started, now)
 	surfaced := billing.SurfacedNo
 	if command == sdkterminal.CommandNormalFinish || s.isCommitted() {
 		surfaced = billing.SurfacedYes
 	}
 	streamEv := s.billingEvidenceFallback()
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:          s.billingCallID,
-		aLegID:          s.aLegID,
+		callID:          s.facts.billingCallID,
+		aLegID:          s.facts.aLegID,
 		bLegID:          s.bleg.BLegID,
 		seq:             s.bleg.Seq,
 		primary:         s.cand.Primary,
@@ -150,10 +149,10 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
 		stream:          streamEv,
 		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
-		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
+		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.facts.aLegID),
 	})
 	s.executor.observeBillingLeg(ctx, legRecord)
-	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
+	s.executor.appendIndependentCallLeg(ctx, s.facts.billingCallID, legRecord)
 }
 
 func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason string) lipapi.Event {
@@ -161,10 +160,9 @@ func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason st
 	if s == nil || s.executor == nil {
 		return fallback
 	}
-	s.ensureBillingCallState()
-	ev, ok := s.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
-		TraceID: strings.TrimSpace(s.traceID),
-		ALegID:  strings.TrimSpace(s.aLegID),
+	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+		TraceID: strings.TrimSpace(s.facts.traceID),
+		ALegID:  strings.TrimSpace(s.facts.aLegID),
 		BLegID:  strings.TrimSpace(s.bleg.BLegID),
 		Backend: strings.TrimSpace(s.cand.Primary.Backend),
 		Model:   strings.TrimSpace(s.cand.Primary.Model),

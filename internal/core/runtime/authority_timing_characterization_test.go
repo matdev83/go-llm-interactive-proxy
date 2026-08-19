@@ -156,12 +156,14 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	priorState := out.authority
 	priorCand := out.cand
 	rs := &retryRecvStream{
-		executor:  ex,
-		bus:       hooks.New(hooks.Config{}),
-		baseline:  authorityOpenParams(t, aLegID, budget).baseline,
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: authorityOpenParams(t, aLegID, budget).baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-1",
+		}),
 		budget:    budget,
-		aLegID:    aLegID,
-		traceID:   "trace-1",
 		sel:       sel,
 		session:   &routing.SessionRoutingState{},
 		excluded:  map[string]struct{}{},

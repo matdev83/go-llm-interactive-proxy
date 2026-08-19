@@ -66,11 +66,14 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	from.metering = holder
-	from.requestAuth = requestAuth
-	from.recvViewsOK = true
-	from.recvViews = execctx.Views{Session: session.SessionView{ClientSessionHint: "pinned-session"}}
-	from.routePrefs = []string{"backend-1:vendor/model-1"}
+	from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+		f.metering = holder
+		f.requestAuth = requestAuth
+		f.recvViewsOK = true
+		f.recvViews = execctx.Views{Session: session.SessionView{ClientSessionHint: "pinned-session"}}
+		f.routePrefs = []string{"backend-1:vendor/model-1"}
+		return f
+	})
 	from.sel, err = routing.Parse("backend-1:vendor/model-1")
 	if err != nil {
 		t.Fatalf("parse pinned selector: %v", err)
@@ -78,18 +81,20 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 	if err := routing.BindNativeModelIDs(from.sel, boundRegistry); err != nil {
 		t.Fatalf("bind pinned native model: %v", err)
 	}
-	from.secureTurnOK = true
-	from.secureTurn = execctx.SecureSessionTurn{SessionID: domain.SessionID("secure-session"), TurnID: domain.TurnID("turn-A")}
-	from.boundRegistry = boundRegistry
-	from.boundRegistryOK = true
-	from.boundCatalog = boundCatalog
-	from.boundCatalogOK = true
-	from.nativeResolver = boundRegistry
-	from.modelViewID = modelview.Derive(7, "config-A", boundRegistry.Generation(), boundCatalog.Generation())
-	from.modelViewIDOK = true
-	from.billingCallID = callID
-	from.billingCallState = newBillingCallState(callID)
-	stampStreamIdentity(from)
+	from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+		f.secureTurnOK = true
+		f.secureTurn = execctx.SecureSessionTurn{SessionID: domain.SessionID("secure-session"), TurnID: domain.TurnID("turn-A")}
+		f.boundRegistry = boundRegistry
+		f.boundRegistryOK = true
+		f.boundCatalog = boundCatalog
+		f.boundCatalogOK = true
+		f.nativeResolver = boundRegistry
+		f.modelViewID = modelview.Derive(7, "config-A", boundRegistry.Generation(), boundCatalog.Generation())
+		f.modelViewIDOK = true
+		f.billingCallID = callID
+		return f
+	})
+	from = stampStreamIdentity(from)
 
 	// Refresh both live publications after the thinker stream has captured A.
 	catalog.PublishSnapshot(modelcatalog.Snapshot{
@@ -120,8 +125,8 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 		t.Fatal("backend did not receive continuation context")
 	}
 
-	if got := diagTraceIDForTurnRecvPinning(openedCtx); got != from.traceID {
-		t.Fatalf("trace id = %q, want %q", got, from.traceID)
+	if got := diagTraceIDForTurnRecvPinning(openedCtx); got != from.facts.traceID {
+		t.Fatalf("trace id = %q, want %q", got, from.facts.traceID)
 	}
 	gotViews, ok := execctx.FromContext(openedCtx)
 	if !ok || gotViews.Session.ClientSessionHint != "pinned-session" {
@@ -157,19 +162,19 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 		t.Fatalf("native resolver binding = ok:%v %+v, want native-A", ok, gotBinding)
 	}
 	gotIdentity, ok := modelview.FromContext(openedCtx)
-	if !ok || gotIdentity != from.modelViewID {
-		t.Fatalf("model-view identity = ok:%v %+v, want %+v", ok, gotIdentity, from.modelViewID)
+	if !ok || gotIdentity != from.facts.modelViewID {
+		t.Fatalf("model-view identity = ok:%v %+v, want %+v", ok, gotIdentity, from.facts.modelViewID)
 	}
 	if openedCandidate.Primary.Model != "native-A" || openedCandidate.Primary.NativeModel != "native-A" {
 		t.Fatalf("backend candidate = %+v, want pinned native-A", openedCandidate.Primary)
 	}
 
 	gotContinuation := continuation
-	if gotContinuation.billingCallID != callID || gotContinuation.billingAccountID != from.billingAccountID || !gotContinuation.billingIdentityStamped {
-		t.Fatalf("billing identity = call:%q account:%q stamped:%v, want call:%q account:%q stamped:true", gotContinuation.billingCallID, gotContinuation.billingAccountID, gotContinuation.billingIdentityStamped, callID, from.billingAccountID)
+	if gotContinuation.facts.billingCallID != callID || gotContinuation.facts.billingAccountID != from.facts.billingAccountID || !gotContinuation.facts.billingIdentityStamped {
+		t.Fatalf("billing identity = call:%q account:%q stamped:%v, want call:%q account:%q stamped:true", gotContinuation.facts.billingCallID, gotContinuation.facts.billingAccountID, gotContinuation.facts.billingIdentityStamped, callID, from.facts.billingAccountID)
 	}
-	if gotContinuation.boundRegistry != boundRegistry || gotContinuation.boundCatalog != boundCatalog || gotContinuation.modelViewID != from.modelViewID {
-		t.Fatalf("continuation model views were not copied: registry=%v catalog=%v identity=%+v", gotContinuation.boundRegistry == boundRegistry, gotContinuation.boundCatalog == boundCatalog, gotContinuation.modelViewID)
+	if gotContinuation.facts.boundRegistry != boundRegistry || gotContinuation.facts.boundCatalog != boundCatalog || gotContinuation.facts.modelViewID != from.facts.modelViewID {
+		t.Fatalf("continuation model views were not copied: registry=%v catalog=%v identity=%+v", gotContinuation.facts.boundRegistry == boundRegistry, gotContinuation.facts.boundCatalog == boundCatalog, gotContinuation.facts.modelViewID)
 	}
 }
 

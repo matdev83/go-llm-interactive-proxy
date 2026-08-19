@@ -149,18 +149,20 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
 		sel:       sel,
 		session:   &routing.SessionRoutingState{},
 		excluded:  map[string]struct{}{},

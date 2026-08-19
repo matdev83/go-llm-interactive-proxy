@@ -58,7 +58,7 @@ func (s *retryRecvStream) commitSuccessfulTurn() {
 			return
 		}
 		s.executor.Keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
-			ALegID:              s.aLegID,
+			ALegID:              s.facts.aLegID,
 			BLegID:              s.bleg.BLegID,
 			CommittedSuccessful: s.isCommitted(),
 			ToolEvents:          s.committedToolEventsSnapshot(),

@@ -234,16 +234,16 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 		s.memoPersisted = false
 		s.mu.Unlock()
 		if s.thinker != nil && s.thinker.executor != nil {
-			s.thinker.executor.logInterleavedMemoStoreSkipped(persistCtx, s.thinker.traceID, reason, interrupted)
+			s.thinker.executor.logInterleavedMemoStoreSkipped(persistCtx, s.thinker.facts.traceID, reason, interrupted)
 		}
 		return s.state, nil
 	}
 	memo.VisibleToClient = s.visibleCommitted
-	s.thinker.executor.logInterleavedMemoCaptured(persistCtx, s.thinker.traceID, memo)
+	s.thinker.executor.logInterleavedMemoCaptured(persistCtx, s.thinker.facts.traceID, memo)
 	if !interrupted {
-		s.thinker.executor.logInterleavedPhaseTransition(persistCtx, s.thinker.traceID)
+		s.thinker.executor.logInterleavedPhaseTransition(persistCtx, s.thinker.facts.traceID)
 	}
-	state, err := s.thinker.executor.persistCapturedMemo(persistCtx, s.thinker.aLegID, state, memo)
+	state, err := s.thinker.executor.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo)
 	if err != nil {
 		s.mu.Lock()
 		s.memoPersisted = false
@@ -459,7 +459,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		if started.IsZero() {
 			started = exec.now()
 		}
-		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.billingCallState, exec.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
+		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
 
 		exec.markFinished()
 	}
@@ -511,7 +511,7 @@ func (s *interleavedContinuationStream) recvExecutor(ctx context.Context) (lipap
 func (s *interleavedContinuationStream) persistInterruptedThinkerMemo(ctx context.Context) {
 	if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
 		if s.thinker != nil && s.thinker.executor != nil {
-			s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.traceID, persistErr)
+			s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.facts.traceID, persistErr)
 		}
 	}
 }

@@ -14,33 +14,32 @@ func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command s
 	if !s.executor.hasTerminalCallSink() || s.billingCallClosureSuccess {
 		return
 	}
-	s.ensureBillingCallState()
-	if err := s.billingCallID.Validate(); err != nil {
+	if err := s.facts.billingCallID.Validate(); err != nil {
 		return
 	}
-	if !s.billingIdentityStamped {
+	if !s.facts.billingIdentityStamped {
 		return
 	}
-	accountID := strings.TrimSpace(s.billingAccountID)
+	accountID := strings.TrimSpace(s.facts.billingAccountID)
 	if accountID == "" {
 		return
 	}
-	ids := s.billingCallState.freezeAllocatedBLegs()
+	ids := s.facts.billingCallState.freezeAllocatedBLegs()
 	now := s.now()
-	started, finished := s.billingCallState.timingBounds(now)
+	started, finished := s.facts.billingCallState.timingBounds(now)
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
-		CallID:             s.billingCallID,
+		CallID:             s.facts.billingCallID,
 		AccountID:          accountID,
-		ALegID:             strings.TrimSpace(s.aLegID),
-		SessionID:          strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
+		ALegID:             strings.TrimSpace(s.facts.aLegID),
+		SessionID:          strings.TrimSpace(s.facts.baseline.Session.AuthoritativeSessionID),
 		StartedAt:          started,
 		FinishedAt:         finished,
 		Outcome:            turnOutcomeFromCommand(command),
-		CustomerPricingRef: s.billingCustomerPricing,
-		ChargePolicyRef:    s.billingChargePolicy,
+		CustomerPricingRef: s.facts.billingCustomerPricing,
+		ChargePolicyRef:    s.facts.billingChargePolicy,
 		ExpectedBLegIDs:    ids,
-		Workload:           s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
+		Workload:           s.executor.billingWorkloadIdentityForALeg(ctx, s.facts.aLegID),
 	}
 	sealed, err := record.Seal()
 	if err != nil {

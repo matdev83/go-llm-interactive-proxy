@@ -1,0 +1,222 @@
+package runtime
+
+import (
+	"context"
+	"log/slog"
+	"maps"
+	"slices"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// recvTurnFactsInput is the assembly-only input for the immutable request facts
+// boundary. It is deliberately concrete and private; it is not a turn state bag.
+type recvTurnFactsInput struct {
+	baseline lipapi.Call
+	traceID  string
+	aLegID   string
+
+	recvViews   execctx.Views
+	recvViewsOK bool
+	routePrefs  []string
+
+	secureTurn   execctx.SecureSessionTurn
+	secureTurnOK bool
+
+	boundRegistry   modelregistry.BoundView
+	boundRegistryOK bool
+	boundCatalog    modelcatalog.BoundView
+	boundCatalogOK  bool
+	nativeResolver  routing.NativeModelResolver
+	modelViewID     modelview.Identity
+	modelViewIDOK   bool
+
+	metering    *checkpoint.RequestHolder
+	requestAuth *requestAuthorityState
+
+	billingAccountID       string
+	billingCustomerPricing billing.VersionRef
+	billingChargePolicy    billing.VersionRef
+	billingIdentityStamped bool
+	billingCallID          billing.BillingCallID
+	billingCallState       *billingCallState
+}
+
+// recvTurnFacts is the request-lifetime authority for facts needed after stream
+// assembly. Its slices/maps are owned clones; the referenced owner pointers have
+// their own lifecycle and synchronization. It intentionally contains no retry,
+// event, terminal, current-attempt, or lock-bearing state.
+type recvTurnFacts struct {
+	baseline lipapi.Call
+	traceID  string
+	aLegID   string
+
+	recvViews   execctx.Views
+	recvViewsOK bool
+	routePrefs  []string
+
+	secureTurn   execctx.SecureSessionTurn
+	secureTurnOK bool
+
+	boundRegistry   modelregistry.BoundView
+	boundRegistryOK bool
+	boundCatalog    modelcatalog.BoundView
+	boundCatalogOK  bool
+	nativeResolver  routing.NativeModelResolver
+	modelViewID     modelview.Identity
+	modelViewIDOK   bool
+
+	metering    *checkpoint.RequestHolder
+	requestAuth *requestAuthorityState
+
+	billingAccountID       string
+	billingCustomerPricing billing.VersionRef
+	billingChargePolicy    billing.VersionRef
+	billingIdentityStamped bool
+	billingCallID          billing.BillingCallID
+	billingCallState       *billingCallState
+}
+
+func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {
+	f := recvTurnFacts{
+		baseline:               lipapi.CloneCall(in.baseline),
+		traceID:                in.traceID,
+		aLegID:                 in.aLegID,
+		recvViews:              cloneRecvViews(in.recvViews),
+		recvViewsOK:            in.recvViewsOK,
+		routePrefs:             slices.Clone(in.routePrefs),
+		secureTurn:             in.secureTurn,
+		secureTurnOK:           in.secureTurnOK,
+		boundRegistry:          in.boundRegistry,
+		boundRegistryOK:        in.boundRegistryOK,
+		boundCatalog:           in.boundCatalog,
+		boundCatalogOK:         in.boundCatalogOK,
+		nativeResolver:         in.nativeResolver,
+		modelViewID:            in.modelViewID,
+		modelViewIDOK:          in.modelViewIDOK,
+		metering:               in.metering,
+		requestAuth:            in.requestAuth,
+		billingAccountID:       in.billingAccountID,
+		billingCustomerPricing: in.billingCustomerPricing,
+		billingChargePolicy:    in.billingChargePolicy,
+		billingIdentityStamped: in.billingIdentityStamped,
+		billingCallID:          in.billingCallID,
+		billingCallState:       in.billingCallState,
+	}
+	if f.billingCallState == nil {
+		if f.billingCallID == "" {
+			if callID, err := billing.NewBillingCallID(); err == nil {
+				f.billingCallID = callID
+			}
+		}
+		f.billingCallState = newBillingCallState(f.billingCallID)
+	}
+	f.captureBoundModelViews(ctx)
+	return f
+}
+
+func (f recvTurnFacts) clone() recvTurnFacts {
+	return newRecvTurnFacts(nil, recvTurnFactsInput{
+		baseline:               f.baseline,
+		traceID:                f.traceID,
+		aLegID:                 f.aLegID,
+		recvViews:              f.recvViews,
+		recvViewsOK:            f.recvViewsOK,
+		routePrefs:             f.routePrefs,
+		secureTurn:             f.secureTurn,
+		secureTurnOK:           f.secureTurnOK,
+		boundRegistry:          f.boundRegistry,
+		boundRegistryOK:        f.boundRegistryOK,
+		boundCatalog:           f.boundCatalog,
+		boundCatalogOK:         f.boundCatalogOK,
+		nativeResolver:         f.nativeResolver,
+		modelViewID:            f.modelViewID,
+		modelViewIDOK:          f.modelViewIDOK,
+		metering:               f.metering,
+		requestAuth:            f.requestAuth,
+		billingAccountID:       f.billingAccountID,
+		billingCustomerPricing: f.billingCustomerPricing,
+		billingChargePolicy:    f.billingChargePolicy,
+		billingIdentityStamped: f.billingIdentityStamped,
+		billingCallID:          f.billingCallID,
+		billingCallState:       f.billingCallState,
+	})
+}
+
+// captureBoundModelViews freezes the request's model publications before any
+// recv-phase replacement. The source context is consulted only at assembly time.
+func (f *recvTurnFacts) captureBoundModelViews(ctx context.Context) {
+	if v, ok := modelregistry.BoundViewFromContext(ctx); ok {
+		f.boundRegistry = v
+		f.boundRegistryOK = true
+	}
+	if v, ok := modelcatalog.BoundViewFromContext(ctx); ok {
+		f.boundCatalog = v
+		f.boundCatalogOK = true
+	}
+	if r, ok := routing.NativeModelResolverFromContext(ctx); ok {
+		f.nativeResolver = r
+	}
+	if id, ok := modelview.FromContext(ctx); ok {
+		f.modelViewID = id
+		f.modelViewIDOK = true
+	}
+}
+
+// projectContext mirrors authoritative facts into the caller context for
+// existing hooks, SDK seams, and diagnostics. It never reads live generation
+// state and does not own cancellation or deadlines.
+func (f recvTurnFacts) projectContext(parent context.Context, logger *slog.Logger) context.Context {
+	ctx := diag.EnsureCallDiag(parent, f.traceID, f.aLegID)
+	if f.metering != nil {
+		ctx = withMeteringHolder(ctx, f.metering)
+	}
+	if f.requestAuth != nil {
+		ctx = withRequestAuthority(ctx, f.requestAuth)
+	}
+	if f.recvViewsOK {
+		ctx = execctx.WithViews(ctx, cloneRecvViews(f.recvViews))
+	}
+	if f.secureTurnOK {
+		ctx = execctx.WithSecureSessionTurn(ctx, f.secureTurn)
+	}
+	if len(f.routePrefs) > 0 {
+		ctx = execctx.WithRouteCandidatePreferences(ctx, slices.Clone(f.routePrefs))
+	}
+	if f.boundRegistryOK {
+		ctx = modelregistry.WithBoundView(ctx, f.boundRegistry)
+	}
+	if f.boundCatalogOK {
+		ctx = modelcatalog.WithBoundView(ctx, f.boundCatalog)
+	}
+	if f.nativeResolver != nil {
+		ctx = routing.WithNativeModelResolver(ctx, f.nativeResolver)
+	}
+	if f.modelViewIDOK {
+		ctx = modelview.WithIdentity(ctx, f.modelViewID)
+	}
+	if logger != nil {
+		ctx = hooks.WithDiagnosticsLogger(ctx, logger)
+	}
+	return ctx
+}
+
+func cloneRecvViews(v execctx.Views) execctx.Views {
+	v.Principal.Claims = maps.Clone(v.Principal.Claims)
+	v.Principal.Roles = slices.Clone(v.Principal.Roles)
+	v.Scope = v.Scope.Clone()
+	v.Session.Labels = maps.Clone(v.Session.Labels)
+	v.Workspace.Labels = maps.Clone(v.Workspace.Labels)
+	v.Workspace.Markers = slices.Clone(v.Workspace.Markers)
+	v.Annotations = maps.Clone(v.Annotations)
+	return v
+}

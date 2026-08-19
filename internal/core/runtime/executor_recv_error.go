@@ -62,13 +62,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		dec := s.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
+				ALegID:    s.facts.aLegID,
 				BLeg:      s.bleg,
 				Cand:      s.cand,
 				Outcome:   lipapi.AttemptSuccess,
 				Reason:    dec.Reason,
 				DetailErr: context.DeadlineExceeded,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
 			}
@@ -96,13 +96,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
+				ALegID:    s.facts.aLegID,
 				BLeg:      s.bleg,
 				Cand:      s.cand,
 				Outcome:   lipapi.AttemptSwallowedFailure,
 				Reason:    dec.Reason,
 				DetailErr: dec.Err,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
 			}
@@ -115,13 +115,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if ttftScope == ttftTimeoutLeaf {
 			tf := ttftFailure(ttftScope, s.cand.Key)
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
+				ALegID:    s.facts.aLegID,
 				BLeg:      s.bleg,
 				Cand:      s.cand,
 				Outcome:   lipapi.AttemptSwallowedFailure,
 				Reason:    ttftAttemptReason(ttftScope),
 				DetailErr: tf,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
 				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 					s.executor.Log.DebugContext(
@@ -136,13 +136,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		tf := ttftFailure(ttftScope, s.cand.Key)
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:    s.aLegID,
+			ALegID:    s.facts.aLegID,
 			BLeg:      s.bleg,
 			Cand:      s.cand,
 			Outcome:   lipapi.AttemptSurfacedFailure,
 			Reason:    ttftAttemptReason(ttftScope),
 			DetailErr: tf,
-		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 		if c := s.takeAndNilInner(); c != nil {
 			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 				s.executor.Log.DebugContext(
@@ -174,13 +174,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			)
 		}
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:    s.aLegID,
+			ALegID:    s.facts.aLegID,
 			BLeg:      s.bleg,
 			Cand:      s.cand,
 			Outcome:   lipapi.AttemptCancelled,
 			Reason:    reason,
 			DetailErr: err,
-		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 		if c := s.takeAndNilInner(); c != nil {
 			if s.aScope != nil {
 				_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
@@ -215,13 +215,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			}
 		}
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:    s.aLegID,
+			ALegID:    s.facts.aLegID,
 			BLeg:      s.bleg,
 			Cand:      s.cand,
 			Outcome:   lipapi.AttemptSurfacedFailure,
 			Reason:    attemptReasonDetail(surfErr),
 			DetailErr: surfErr,
-		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 		cmd := sdkterminal.CommandPartialError
 		var pe *safety.PanicError
 		if errors.As(err, &pe) {
@@ -244,18 +244,18 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	}
 	diag.LogDecision(
 		ctx, log, "recoverable_pre_output_swallowed",
-		diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
+		diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID},
 		slog.String("candidate_key", s.cand.Key),
 		slog.String("phase", "recv"),
 	)
 	s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-		ALegID:    s.aLegID,
+		ALegID:    s.facts.aLegID,
 		BLeg:      s.bleg,
 		Cand:      s.cand,
 		Outcome:   lipapi.AttemptSwallowedFailure,
 		Reason:    "recoverable pre-output (recv)",
 		DetailErr: err,
-	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+	}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 	// Recoverable pre-output failover terminalizes only the attempt plane for
 	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
 	// owns the reservation release via a fresh attempt terminal.

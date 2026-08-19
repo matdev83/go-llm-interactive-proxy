@@ -296,7 +296,9 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{executor: ex, traceID: "trace-par", bleg: out.bleg}
+	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+		traceID: "trace-par",
+	}), bleg: out.bleg}
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if att.settleCalls.Load() != 2 {
@@ -366,11 +368,13 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
+		executor: ex,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-no-retry",
+		}),
 		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-no-retry",
 		bleg:       out.bleg,
 		cand:       out.cand,
 		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
@@ -422,11 +426,13 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
+		executor: ex,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-cancel",
+		}),
 		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-cancel",
 		bleg:       out.bleg,
 		cand:       out.cand,
 		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
@@ -754,11 +760,13 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
+		executor: ex,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-comp",
+		}),
 		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-comp",
 		bleg:       out.bleg,
 		cand:       out.cand,
 		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),

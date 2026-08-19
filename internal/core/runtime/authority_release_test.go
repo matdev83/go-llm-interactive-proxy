@@ -97,18 +97,20 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
 		sel:       sel,
 		session:   &routing.SessionRoutingState{},
 		excluded:  map[string]struct{}{},
@@ -187,15 +189,17 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+			traceID:  "trace-ttft",
+			aLegID:   "a-leg-ttft",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()),
-		traceID:    "trace-ttft",
-		aLegID:     "a-leg-ttft",
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 
@@ -272,18 +276,20 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
 		sel:       sel,
 		session:   &routing.SessionRoutingState{},
 		excluded:  map[string]struct{}{},
@@ -354,18 +360,20 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
 		sel:       sel,
 		session:   &routing.SessionRoutingState{},
 		excluded:  map[string]struct{}{},
@@ -460,18 +468,20 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
 		budget:     &attemptBudget{max: 3, used: 0},
-		aLegID:     aLegID,
-		traceID:    "trace-1",
 		sel:        sel,
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},

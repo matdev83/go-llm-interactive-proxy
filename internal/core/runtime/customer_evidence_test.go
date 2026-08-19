@@ -147,9 +147,11 @@ func TestCustomerSettlement_AccumulatorDrivesOutputWhenSettleInputIsProviderAuth
 	}
 
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-acc-auth",
+		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-acc-auth",
+			baseline: lipapi.Call{ID: "req-acc-auth"},
+		}),
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-acc-auth"},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "released-body"})
 	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
@@ -178,7 +180,9 @@ func TestCustomerSettlement_CountOutputUsesTextNotReasoningBuffer(t *testing.T) 
 	counter := &capturingStreamCounter{call: call, output: output}
 	ex := &Executor{}
 	ex.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
-	stream := &retryRecvStream{executor: ex, customer: newCustomerEvidenceAccumulator(), baseline: lipapi.Call{ID: "c"}}
+	stream := &retryRecvStream{executor: ex, customer: newCustomerEvidenceAccumulator(), facts: testRecvTurnFacts(recvTurnFacts{
+		baseline: lipapi.Call{ID: "c"},
+	})}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: "REASONING-NOT-IN-TEXT"})
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, Delta: "{\"x\":1}"})
@@ -222,7 +226,10 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 
-	stream := &retryRecvStream{executor: ex, traceID: "trace-acc", customer: newCustomerEvidenceAccumulator(), baseline: lipapi.Call{ID: "req-acc"}}
+	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+		traceID:  "trace-acc",
+		baseline: lipapi.Call{ID: "req-acc"},
+	}), customer: newCustomerEvidenceAccumulator()}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cd"})
 

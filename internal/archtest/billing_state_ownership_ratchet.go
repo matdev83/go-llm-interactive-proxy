@@ -174,8 +174,8 @@ func runtimeBillingCallIDAliases(root string) map[string]struct{} {
 	return billingCallIDAliases(files)
 }
 
-// scanCallScopedStateOwners requires the request-scoped owner structs to carry
-// the private billingCallState object.
+// scanCallScopedStateOwners requires preparedRequest and the request-lifetime
+// recvTurnFacts owner to carry the private billingCallState object.
 func scanCallScopedStateOwners(root string) []RuleFinding {
 	var out []RuleFinding
 	for _, require := range []struct {
@@ -185,7 +185,7 @@ func scanCallScopedStateOwners(root string) []RuleFinding {
 	}{
 		{rel: "internal/core/runtime/executor_prepare_request.go", typeName: "preparedRequest", fieldName: "billingCallID"},
 		{rel: "internal/core/runtime/executor_prepare_request.go", typeName: "preparedRequest", fieldName: "billingCallState"},
-		{rel: "internal/core/runtime/executor_retry_stream.go", typeName: "retryRecvStream", fieldName: "billingCallState"},
+		{rel: "internal/core/runtime/recv_turn_facts.go", typeName: "recvTurnFacts", fieldName: "billingCallState"},
 	} {
 		f, err := parseProductionFile(root, require.rel)
 		if err != nil || f == nil {

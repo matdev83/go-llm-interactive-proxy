@@ -41,9 +41,13 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-eof-recovery",
+			aLegID:   "a-leg-eof-recovery",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
@@ -52,8 +56,6 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
 		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start),
-		traceID:       "trace-eof-recovery",
-		aLegID:        "a-leg-eof-recovery",
 		accounting:    newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
@@ -138,9 +140,13 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-idle-finish",
+			aLegID:   aLegID,
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
@@ -152,8 +158,6 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 		}, start),
-		traceID:    "trace-idle-finish",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
@@ -238,15 +242,17 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-close"},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-close"},
+			traceID:  "trace-close",
+			aLegID:   aLegID,
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()),
-		traceID: "trace-close",
-		aLegID:  aLegID,
 	}
 	rs.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
 
@@ -285,17 +291,19 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-eof-failure"},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-eof-failure"},
+			traceID:  "trace-eof-failure",
+			aLegID:   "a-leg-eof-failure",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+		cand: authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate()),
 		seenEvents:    []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
 		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start),
-		traceID:       "trace-eof-failure",
-		aLegID:        "a-leg-eof-failure",
 		accounting:    newAttemptAccountingTracker(start),
 	}
 
@@ -336,9 +344,11 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		}, accountingstream.Config{})
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
@@ -384,9 +394,11 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{ID: "request-partial"},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-partial"},
+			}),
+			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(8),
 				admissionResult: auth.admitResult,
@@ -437,9 +449,11 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
@@ -493,9 +507,11 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 
 		rs := &retryRecvStream{
 			executor: ex,
-			baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
+			cand: authorityCandidate(),
 			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,

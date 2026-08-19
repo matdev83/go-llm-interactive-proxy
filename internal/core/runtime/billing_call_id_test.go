@@ -109,13 +109,13 @@ func TestFailoverAndParallelBLegsSharePreparedBillingCallID(t *testing.T) {
 	if !ok {
 		t.Fatalf("want *retryRecvStream, got %T", got)
 	}
-	if rs.billingCallID != prep.billingCallID || rs.billingCallID == "" {
-		t.Fatalf("assembled stream BillingCallID = %q, want prepared %q", rs.billingCallID, prep.billingCallID)
+	if rs.facts.billingCallID != prep.billingCallID || rs.facts.billingCallID == "" {
+		t.Fatalf("assembled stream BillingCallID = %q, want prepared %q", rs.facts.billingCallID, prep.billingCallID)
 	}
 	legs := []string{"b_fail", "b_retry", "b_par"}
 	seen := make(map[billing.ProviderCostOperationKey]struct{}, len(legs))
 	for _, bLeg := range legs {
-		key, err := billing.NewProviderCostOperationKey(rs.billingCallID, bLeg)
+		key, err := billing.NewProviderCostOperationKey(rs.facts.billingCallID, bLeg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -390,10 +390,10 @@ func TestRequestLocalBillingCallIDIsNotOnProviderWireTypes(t *testing.T) {
 
 func billingCallIDFromStream(stream lipapi.EventStream) (billing.BillingCallID, bool) {
 	rs, ok := stream.(*retryRecvStream)
-	if !ok || rs == nil || rs.billingCallID == "" {
+	if !ok || rs == nil || rs.facts.billingCallID == "" {
 		return "", false
 	}
-	return rs.billingCallID, true
+	return rs.facts.billingCallID, true
 }
 
 func assertNoBillingCallIDWireField(t *testing.T, sample any) {

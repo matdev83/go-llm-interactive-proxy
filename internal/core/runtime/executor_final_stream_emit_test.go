@@ -106,14 +106,16 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "emit-obs", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "emit-obs", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-emit",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-		traceID:    "trace-emit",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -197,7 +199,10 @@ func TestEmitClientFacingObserved_mandatoryBeforeEmitFinishFailed(t *testing.T) 
 	recErr := errors.New("recorder boom")
 	ex.SecureSessionRecorder = failingSecureRecorderEmit{err: recErr}
 	ex.SecureSessionRecordingMandatory = true
-	rs.secureTurnOK = true
+	rs = withTestRecvFacts(rs, func(f recvTurnFacts) recvTurnFacts {
+		f.secureTurnOK = true
+		return f
+	})
 
 	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err == nil {
@@ -266,7 +271,10 @@ func TestEmitClientFacingObserved_MandatoryFailureDoesNotRemember(t *testing.T) 
 	recErr := errors.New("recorder boom")
 	ex.SecureSessionRecorder = failingSecureRecorderEmit{err: recErr}
 	ex.SecureSessionRecordingMandatory = true
-	rs.secureTurnOK = true
+	rs = withTestRecvFacts(rs, func(f recvTurnFacts) recvTurnFacts {
+		f.secureTurnOK = true
+		return f
+	})
 
 	_, err := rs.emitClientFacingObserved(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "undelivered"}, sdkhooks.PartMeta{})
 	if !errors.Is(err, recErr) {
@@ -351,10 +359,12 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 		Roles:       []string{"reader"},
 	}
 	rs := &retryRecvStream{
-		traceID: "t1",
-		aLegID:  "a1",
-		bleg:    b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:    authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID: "t1",
+			aLegID:  "a1",
+		}),
+		bleg: b2bua.BLegRecord{BLegID: "b1", Seq: 1},
+		cand: authorityCandidate(),
 	}
 	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: orig.Clone()})
 	meta := rs.streamObserverMeta(ctx)
@@ -509,14 +519,16 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "emit-race", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "emit-race", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-race",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-		traceID:    "trace-race",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -607,14 +619,16 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "cycle-open", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "cycle-open", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-cycle-open",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-		traceID:    "trace-cycle-open",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -657,14 +671,16 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "cycle-post", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "cycle-post", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-cycle-post",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-		traceID:    "trace-cycle-post",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -698,14 +714,16 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "obs-fail", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "obs-fail", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-obs-fail",
+			aLegID:   aLegID,
+		}),
 		bleg:       b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1},
 		cand:       authorityCandidate(),
 		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-		traceID:    "trace-obs-fail",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -750,9 +768,13 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	})
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
-		executor:  ex,
-		bus:       bus,
-		baseline:  lipapi.Call{ID: "idle-warn", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex,
+		bus:      bus,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "idle-warn", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-idle-warn",
+			aLegID:   aLegID,
+		}),
 		bleg:      b2bua.BLegRecord{BLegID: "b-leg-idle-warn", Seq: 1},
 		cand:      authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
@@ -764,8 +786,6 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			IdleTimeout: time.Second,
 			EmitWarning: true,
 		}, start),
-		traceID:    "trace-idle-warn",
-		aLegID:     aLegID,
 		accounting: newAttemptAccountingTracker(start),
 	}
 	rs.visibleText.WriteString("hello")
@@ -812,9 +832,13 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		StreamObserverFactories: []response.StreamObserverFactory{factory2},
 	})
 	rs2 := &retryRecvStream{
-		executor:  ex2,
-		bus:       bus2,
-		baseline:  lipapi.Call{ID: "eof-warn", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		executor: ex2,
+		bus:      bus2,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "eof-warn", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-eof-warn",
+			aLegID:   aLegID2,
+		}),
 		bleg:      b2bua.BLegRecord{BLegID: "b-leg-eof-warn", Seq: 1},
 		cand:      authorityCandidate(),
 		authority: testAuthorityLifecycle(ex2, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
@@ -826,8 +850,6 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			IdleTimeout: time.Second,
 			EmitWarning: true,
 		}, start),
-		traceID:    "trace-eof-warn",
-		aLegID:     aLegID2,
 		accounting: newAttemptAccountingTracker(start),
 	}
 	rs2.visibleText.WriteString("hello")

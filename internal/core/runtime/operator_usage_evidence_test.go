@@ -126,9 +126,11 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 	}
 	cand := routing.AttemptCandidate{Key: "cand", Primary: routing.Primary{Backend: "b", Model: "m"}}
 	rs := &retryRecvStream{
-		executor:           ex,
-		aLegID:             aLegID,
-		traceID:            "trace-op-usage",
+		executor: ex,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:  aLegID,
+			traceID: "trace-op-usage",
+		}),
 		bleg:               b2bua.BLegRecord{BLegID: "b-leg-op", Seq: 1},
 		cand:               cand,
 		authority:          testAuthorityLifecycle(ex, state, cand),

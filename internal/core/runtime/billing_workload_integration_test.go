@@ -71,9 +71,14 @@ func TestBillingWorkloadIdentitySurvivesBareTerminalContextAndMatchesClosure(t *
 		t.Fatalf("leg workload=%+v, want %+v", gotLeg.Workload, want)
 	}
 	stream := &retryRecvStream{
-		executor: ex, aLegID: "child-a", billingCallID: callID, billingCallState: state,
-		billingIdentityStamped: true, billingAccountID: "acct:principal",
-		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "child-session"}},
+		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:                 "child-a",
+			billingCallID:          callID,
+			billingCallState:       state,
+			billingIdentityStamped: true,
+			billingAccountID:       "acct:principal",
+			baseline:               lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "child-session"}},
+		}),
 	}
 	stream.appendCallClosureLocked(bare, sdkterminal.CommandNormalFinish)
 	if gotCall.Workload != want {

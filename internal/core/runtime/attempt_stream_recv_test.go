@@ -91,13 +91,15 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	s := &retryRecvStream{
 		executor: ex,
 		bus:      bus,
-		baseline: lipapi.Call{
-			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
-		},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+			},
+			aLegID:  "a1",
+			traceID: "t1",
+		}),
 		budget:   &attemptBudget{max: 3, used: 0},
-		aLegID:   "a1",
-		traceID:  "t1",
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},

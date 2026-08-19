@@ -82,14 +82,16 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		bus := hooks.New(hooks.Config{})
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        bus,
-			baseline:   lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			executor: ex,
+			bus:      bus,
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-gated-leak",
+				aLegID:   aLegID,
+			}),
 			bleg:       b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1},
 			cand:       authorityCandidate(),
 			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-gated-leak",
-			aLegID:     aLegID,
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{

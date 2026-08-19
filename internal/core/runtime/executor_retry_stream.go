@@ -20,17 +20,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -56,17 +51,18 @@ import (
 // and does not clear s.inner. Recv clears inner on cancellation and recoverable-recv teardown paths.
 // Recv must not be called concurrently from multiple goroutines; the stream is not multi-Recv-safe.
 type retryRecvStream struct {
+	// facts is the sole request-lifetime receive authority. It contains only
+	// immutable request facts; retry, event, terminal, attempt, and lock state
+	// remains owned directly by this stream.
+	facts recvTurnFacts
+
 	seenEvents  []lipapi.Event
 	visibleText strings.Builder
 	executor    *Executor
 	bus         *hooks.Bus
-	// baseline is the post-submit immutable logical client request (per-attempt state derives via CloneCall).
-	baseline lipapi.Call
-	budget   *attemptBudget
-	ttft     *ttftBudget
+	budget      *attemptBudget
+	ttft        *ttftBudget
 
-	aLegID             string
-	traceID            string
 	compactionOpenMeta compaction.PreservationMeta
 	sel                *routing.Selector
 	requestSize        routing.RequestSizeEstimate
@@ -92,37 +88,13 @@ type retryRecvStream struct {
 	affinitySet        bool
 	affinityCommitOnce sync.Once
 
-	// recvViews / routePrefs preserve [execctx] values from prepare so Recv callers can pass a bare HTTP context.
-	recvViews   execctx.Views
-	recvViewsOK bool
-	routePrefs  []string
 	cachedCtxMu sync.Mutex
 	lastParent  context.Context
 	cachedCtx   context.Context
 
-	// boundRegistry / boundCatalog / nativeResolver freeze the request-bound
-	// model views captured at assemble time so recv-phase replacement with a
-	// bare context cannot fall back to a live catalog/registry after refresh.
-	boundRegistry   modelregistry.BoundView
-	boundRegistryOK bool
-	boundCatalog    modelcatalog.BoundView
-	boundCatalogOK  bool
-	nativeResolver  routing.NativeModelResolver
-	modelViewID     modelview.Identity
-	modelViewIDOK   bool
-
-	// metering retains the prepare-time RequestHolder so Recv/terminal paths can
-	// reattach it when callers pass a bare context (auxiliary child streams).
-	metering *checkpoint.RequestHolder
-	// requestAuth retains prepare-time request-authority state so Recv/settle paths
-	// can reattach it when callers pass a bare context (mirrors metering).
-	requestAuth *requestAuthorityState
 	// customer records released client-visible content for FE egress settlement.
 	customer *customerEvidenceAccumulator
 
-	// secureTurn preserves validated secure-session ids for attempt trace/outcome on recv paths.
-	secureTurn   execctx.SecureSessionTurn
-	secureTurnOK bool
 	// secureRecvRecordingHardStop blocks recv-phase B-leg replacement after a mandatory recorder failure
 	// once client-visible output is committed for this stream.
 	secureRecvRecordingHardStop bool
@@ -187,15 +159,7 @@ type retryRecvStream struct {
 	billingLegRecorded        map[string]struct{}
 	billingCallClosureMu      sync.Mutex
 	billingCallClosureSuccess bool
-	// Billing identity is copied from the admitted exposure so terminal usage
-	// append does not re-resolve pricing or policy.
-	billingAccountID       string
-	billingCustomerPricing billing.VersionRef
-	billingChargePolicy    billing.VersionRef
-	billingIdentityStamped bool
-	billingCallID          billing.BillingCallID
-	billingCallState       *billingCallState
-	isInterleavedThinker   bool
+	isInterleavedThinker      bool
 
 	finalStreamObs    *extensions.FinalStreamObservationSession
 	internalUsageKeys map[string]struct{}
@@ -400,37 +364,11 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 		return s.cachedCtx
 	}
 
-	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
-	if s.metering != nil {
-		ctx = withMeteringHolder(ctx, s.metering)
-	}
-	if s.requestAuth != nil {
-		ctx = withRequestAuthority(ctx, s.requestAuth)
-	}
-	if s.recvViewsOK {
-		ctx = execctx.WithViews(ctx, s.recvViews)
-	}
-	if s.secureTurnOK {
-		ctx = execctx.WithSecureSessionTurn(ctx, s.secureTurn)
-	}
-	if len(s.routePrefs) > 0 {
-		ctx = execctx.WithRouteCandidatePreferences(ctx, s.routePrefs)
-	}
-	if s.boundRegistryOK {
-		ctx = modelregistry.WithBoundView(ctx, s.boundRegistry)
-	}
-	if s.boundCatalogOK {
-		ctx = modelcatalog.WithBoundView(ctx, s.boundCatalog)
-	}
-	if s.nativeResolver != nil {
-		ctx = routing.WithNativeModelResolver(ctx, s.nativeResolver)
-	}
-	if s.modelViewIDOK {
-		ctx = modelview.WithIdentity(ctx, s.modelViewID)
-	}
+	var logger *slog.Logger
 	if s.executor != nil && s.executor.Log != nil {
-		ctx = hooks.WithDiagnosticsLogger(ctx, s.executor.Log)
+		logger = s.executor.Log
 	}
+	ctx := s.facts.projectContext(parent, logger)
 	ctx = s.withDecisionEvidence(ctx)
 
 	s.lastParent = parent
@@ -438,56 +376,18 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	return ctx
 }
 
-// captureBoundModelViews freezes request-bound registry/catalog/resolver/identity
-// onto the stream exactly once from the prepare/assemble context. Recv-phase
-// replacement must reattach these views rather than loading a second live view.
-func captureBoundModelViews(ctx context.Context, s *retryRecvStream) {
-	if s == nil {
-		return
-	}
-	if v, ok := modelregistry.BoundViewFromContext(ctx); ok {
-		s.boundRegistry = v
-		s.boundRegistryOK = true
-	}
-	if v, ok := modelcatalog.BoundViewFromContext(ctx); ok {
-		s.boundCatalog = v
-		s.boundCatalogOK = true
-	}
-	if r, ok := routing.NativeModelResolverFromContext(ctx); ok {
-		s.nativeResolver = r
-	}
-	if id, ok := modelview.FromContext(ctx); ok {
-		s.modelViewID = id
-		s.modelViewIDOK = true
-	}
-}
-
-// copyBoundModelViews copies frozen model-view fields from src onto dst (parallel
-// / interleaved continuation streams must retain the same immutable view).
-func copyBoundModelViews(dst, src *retryRecvStream) {
-	if dst == nil || src == nil {
-		return
-	}
-	dst.boundRegistry = src.boundRegistry
-	dst.boundRegistryOK = src.boundRegistryOK
-	dst.boundCatalog = src.boundCatalog
-	dst.boundCatalogOK = src.boundCatalogOK
-	dst.nativeResolver = src.nativeResolver
-	dst.modelViewID = src.modelViewID
-	dst.modelViewIDOK = src.modelViewIDOK
-}
-
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
+	traceID, aLegID := s.facts.traceID, s.facts.aLegID
 	pm := sdk.PartMeta{
-		TraceID:    s.traceID,
-		ALegID:     s.aLegID,
+		TraceID:    traceID,
+		ALegID:     aLegID,
 		BLegID:     s.bleg.BLegID,
 		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
 		AttemptSeq: s.bleg.Seq,
 	}
 	tm := sdk.ToolMeta{
-		TraceID:    s.traceID,
-		ALegID:     s.aLegID,
+		TraceID:    traceID,
+		ALegID:     aLegID,
 		BLegID:     s.bleg.BLegID,
 		AttemptSeq: s.bleg.Seq,
 	}
@@ -509,8 +409,8 @@ func (s *retryRecvStream) viewsFor(ctx context.Context) (execctx.Views, bool) {
 	if v, ok := execctx.FromContext(ctx); ok {
 		return v, true
 	}
-	if s != nil && s.recvViewsOK {
-		return s.recvViews, true
+	if s.facts.recvViewsOK {
+		return cloneRecvViews(s.facts.recvViews), true
 	}
 	return execctx.Views{}, false
 }
@@ -546,7 +446,7 @@ func (s *retryRecvStream) commitAffinity(ctx context.Context, reason string) {
 			}
 			return
 		}
-		s.executor.noteRouteDecision(persistCtx, s.traceID, "affinity_bind", binding.BackendID)
+		s.executor.noteRouteDecision(persistCtx, s.facts.traceID, "affinity_bind", binding.BackendID)
 	})
 }
 
@@ -703,9 +603,9 @@ func (s *retryRecvStream) Close() error {
 		if s.executor != nil && s.executor.Log != nil {
 			// lipapi.EventStream.Close has no context; EnsureCallDiag guarantees call/leg ids
 			// on the detached close context so isolated-panic logs still correlate by trace_id / b_leg.
-			logCtx := diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
+			logCtx := diag.EnsureCallDiag(ctx, s.facts.traceID, s.facts.aLegID)
 			attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
-				AttrOpts:   diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
+				AttrOpts:   diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID},
 				AttemptSeq: int(s.bleg.Seq),
 			})
 			attrs = diag.AppendIsolatedCrashStack(attrs, pe)
@@ -817,11 +717,11 @@ func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) 
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:  s.aLegID,
+			ALegID:  s.facts.aLegID,
 			BLeg:    s.bleg,
 			Cand:    s.cand,
 			Outcome: lipapi.AttemptSuccess,
-		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
 		s.markFinished()
 	}
 	return ev
@@ -863,8 +763,8 @@ func (s *retryRecvStream) completionGatedEmit(
 	if ev.Kind == lipapi.EventResponseFinished {
 		snap := s.completionSnapshot(ctx)
 		meta := completion.Meta{
-			TraceID:    s.traceID,
-			ALegID:     s.aLegID,
+			TraceID:    s.facts.traceID,
+			ALegID:     s.facts.aLegID,
 			BLegID:     s.bleg.BLegID,
 			AttemptSeq: s.bleg.Seq,
 		}

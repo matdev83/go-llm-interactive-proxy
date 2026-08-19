@@ -51,11 +51,13 @@ func TestRecv_earlyCtxCancel_nilExecutorWithInner_noPanic(t *testing.T) {
 	t.Parallel()
 	inner := &ttftBlockingRecvStream{}
 	rs := &retryRecvStream{
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{ID: "nil-exec", Messages: testMinimalUserMessages()},
+		bus: hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "nil-exec", Messages: testMinimalUserMessages()},
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
 		budget:   &attemptBudget{max: 1},
-		aLegID:   "a1",
-		traceID:  "t1",
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
 		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
@@ -115,12 +117,14 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 	initial.admissionResult.ReservationID = "reservation-swallowed"
 	cand := routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}
 	rs := &retryRecvStream{
-		executor:       ex,
-		bus:            hooks.New(hooks.Config{}),
-		baseline:       lipapi.Call{ID: "early-nil-inner", Messages: testMinimalUserMessages(), Route: lipapi.RouteIntent{Selector: "backend-1:model-1"}},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "early-nil-inner", Messages: testMinimalUserMessages(), Route: lipapi.RouteIntent{Selector: "backend-1:model-1"}},
+			aLegID:   aLegID,
+			traceID:  "t-early",
+		}),
 		budget:         &attemptBudget{max: 3},
-		aLegID:         aLegID,
-		traceID:        "t-early",
 		sel:            sel,
 		session:        &routing.SessionRoutingState{},
 		excluded:       map[string]struct{}{},
@@ -201,12 +205,14 @@ func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &retryRecvStream{
-		executor:       ex,
-		bus:            hooks.New(hooks.Config{}),
-		baseline:       lipapi.Call{ID: "dl", Messages: testMinimalUserMessages()},
+		executor: ex,
+		bus:      hooks.New(hooks.Config{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "dl", Messages: testMinimalUserMessages()},
+			aLegID:   aLegID,
+			traceID:  "t-dl",
+		}),
 		budget:         &attemptBudget{max: 1},
-		aLegID:         aLegID,
-		traceID:        "t-dl",
 		session:        &routing.SessionRoutingState{},
 		excluded:       map[string]struct{}{},
 		bleg:           b2bua.BLegRecord{BLegID: "b1", Seq: 1},
