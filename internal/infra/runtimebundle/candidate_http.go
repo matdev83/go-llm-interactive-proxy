@@ -23,6 +23,7 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	infraGeoIP "github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
@@ -43,6 +44,7 @@ type candidateSecurityGroup struct {
 	secureSessionStore ssessionapp.Store
 	authEvents         *auth.EventDispatcher
 	runtimeSnapshot    *extensions.RequestRuntimeSnapshot
+	geoip              *config.CompiledGeoIP
 }
 type candidateModelGroup struct {
 	catalog         *modelcatalog.CatalogRuntime
@@ -78,6 +80,7 @@ type candidateProcessRefs struct {
 	meteringQuerier       metering.Querier
 	keepwarmPolicy        *keepwarm.PolicyStore
 	keepwarmRegistry      *keepwarm.ManagerRegistry
+	geoip                 *infraGeoIP.Service
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

@@ -8,11 +8,13 @@ package contract
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	coregeoip "github.com/matdev83/go-llm-interactive-proxy/internal/core/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -48,6 +50,28 @@ type HTTPSecurityInput struct {
 	SecureSessionStore   ssessiondiag.Store
 	UsageAuthority       cpadmin.AccountingAuthorityQueries
 	ConcurrencyAuthority cpadmin.ConcurrencyAuthorityQueries
+	GeoIP                GeoIPSecurityInput
+}
+
+// GeoIPResolverConfig carries only generation-scoped address-source policy.
+// Fixed parser bounds are owned by the HTTP adapter and are not caller knobs.
+type GeoIPResolverConfig struct {
+	Source         config.ClientIPSource
+	TrustedProxies []netip.Prefix
+}
+
+// GeoIPObserver receives finite-label decision outcomes only.
+type GeoIPObserver interface {
+	Decision(coregeoip.Reason, bool)
+}
+
+// GeoIPSecurityInput is a non-owning projection of the process lookup service
+// and immutable generation policy into the standard data-plane handler graph.
+type GeoIPSecurityInput struct {
+	Policy   *coregeoip.Policy
+	Lookup   coregeoip.CountryLookup
+	Resolver GeoIPResolverConfig
+	Observer GeoIPObserver
 }
 
 type HTTPOperationsInput struct {

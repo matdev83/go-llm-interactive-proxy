@@ -66,6 +66,9 @@ func validateStructural(ctx context.Context, in ValidateStructuralInput, ops str
 		return fmt.Errorf("runtimebundle: nil effective config")
 	}
 	cfg := effective.Config
+	if _, err := config.CompileGeoIP(cfg.Access.GeoIP); err != nil {
+		return fmt.Errorf("runtimebundle: structural GeoIP: %w", err)
+	}
 
 	reg, regs, err := ops.registry(cfg, in.Mandatory)
 	if err != nil {
