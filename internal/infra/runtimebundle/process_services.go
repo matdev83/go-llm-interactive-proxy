@@ -153,7 +153,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	if controlPlane != nil {
 		register(controlPlane.closer)
 	}
-	if err := configureProcessBilling(owner, parent, in.Cfg, in.Opts); err != nil {
+	if err := configureProcessBilling(owner, in.Cfg, in.Opts); err != nil {
 		return fail(err)
 	}
 	policyObs := assemblePolicyObserverChain(in.Opts, controlPlane)
