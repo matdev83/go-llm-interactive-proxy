@@ -212,7 +212,7 @@ Implementation commits:
 
 | Task | Status | Reviewed implementation | Verification |
 | --- | --- | --- | --- |
-| 6.5 | Pending stacked PR CI | Final simplification review found no duplicate detector, transcript, billing, workflow, provider-client or branch authority; lint repairs are limited to checked errors, formatting, standard-library modernizations and isolated parallel-test hygiene | New-code lint is clean; quality, unit, default, parity, docs, config and module gates pass. Local `make qa` completes its tests but the final repository-wide lint step reports 136 findings inherited from the PR2 base; none are new relative to `58cd8481` |
+| 6.5 | Complete | Final simplification review found no duplicate detector, transcript, billing, workflow, provider-client or branch authority; lint repairs are limited to checked errors, formatting, standard-library modernizations and isolated parallel-test hygiene | New-code lint is clean; local quality, unit, default, parity, docs, config and module gates pass; stacked PR #383 is green across QA, all platform tests, process-tree checks, coverage, pinned suite, hygiene and bridge tests |
 
 Integrated evidence:
 
@@ -227,4 +227,5 @@ Integrated evidence:
 - Focused changed packages pass with `-count=3 -shuffle=on`; `go vet` and `git diff --check` pass.
 - Windows race execution remains unavailable because ThreadSanitizer fails allocation with error 87; deterministic repeated, checkptr and goleak-backed coverage is green.
 - Local `make qa` reaches the final lint target after its full test run, then fails on 136 repository-wide baseline findings. The diff-scoped lint command above proves the certification slice introduces none.
-- Task 6.5 remains pending until the stacked PR's required CI is green; the spec remains active and ready for implementation until all stacked PRs are merged and merged `main` is verified.
+- Stacked PR [#383](https://github.com/matdev83/go-llm-interactive-proxy/pull/383) is green: QA, repository hygiene, pinned 17-case suite, measured OpenResponses coverage, bridge tests, process-tree checks on Windows/Linux/macOS and platform tests on Windows/Linux/macOS all passed; the conditional platform-smoke job was skipped by its scope gate.
+- Task 6.5 is complete. The spec remains active and ready for implementation until all stacked PRs are merged and merged `main` is verified.
