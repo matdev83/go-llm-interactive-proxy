@@ -284,7 +284,7 @@ func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *te
 	if !errors.As(err, &uf) || uf.Phase != lipapi.PhasePostOutput || uf.Recoverable {
 		t.Fatalf("unexpected replacement error: %v", err)
 	}
-	if stream.requestTerm != nil && stream.requestTerm.Owner().State().IsTerminal() {
+	if stream.terminal != nil && stream.terminal.requestTerminal() != nil && stream.terminal.requestTerminal().Owner().State().IsTerminal() {
 		t.Fatal("committed gate-replacement must not take request ownership")
 	}
 	if len(got) != 1 {
@@ -469,7 +469,7 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 		isInterleavedThinker: true,
 	}
 	stream = stampStreamIdentity(stream)
-	stream.ensureTerminals()
+	installTestTurnTerminal(stream)
 
 	// A normal finish of a thinker must only claim attempt terminal and NOT write call closure
 	ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
@@ -481,8 +481,8 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 	if len(closures) != 0 {
 		t.Fatalf("thinker B-leg normal finish must not write call closure, got %+v", closures)
 	}
-	if stream.requestTerm.Owner().State() != sdkterminal.StateOpen {
-		t.Fatalf("thinker B-leg normal finish must keep request terminal Open, got %s", stream.requestTerm.Owner().State())
+	if stream.terminal.requestTerminal().Owner().State() != sdkterminal.StateOpen {
+		t.Fatalf("thinker B-leg normal finish must keep request terminal Open, got %s", stream.terminal.requestTerminal().Owner().State())
 	}
 	if testAttemptSession(stream).terminal.Owner().State() != sdkterminal.StateReleased {
 		t.Fatalf("thinker B-leg normal finish must release attempt terminal, got %s", testAttemptSession(stream).terminal.Owner().State())

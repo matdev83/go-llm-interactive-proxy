@@ -80,7 +80,7 @@ func TestStreamTerminal_NestedAttemptSkipped_RequestOnlyCommand(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
 	testAttemptSession(rs)
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	var requestEffects atomic.Int32
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandFrontendEncoderFailure, func(context.Context) error {
 		requestEffects.Add(1)
@@ -101,7 +101,7 @@ func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.
 	t.Parallel()
 	rs := &retryRecvStream{}
 	testAttemptSession(rs)
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	effectErr := errors.New("attempt settle failed")
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
 		return effectErr
@@ -109,8 +109,8 @@ func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.
 	if !r.Won || !errors.Is(r.Err, effectErr) {
 		t.Fatalf("got %+v", r)
 	}
-	if rs.requestTerm.Owner().State() != sdk.StateFailed {
-		t.Fatalf("request state=%q", rs.requestTerm.Owner().State())
+	if rs.terminal.requestTerminal().Owner().State() != sdk.StateFailed {
+		t.Fatalf("request state=%q", rs.terminal.requestTerminal().Owner().State())
 	}
 	if testAttemptSession(rs).terminal.Owner().State() != sdk.StateFailed {
 		t.Fatalf("attempt state=%q", testAttemptSession(rs).terminal.Owner().State())
@@ -208,7 +208,7 @@ func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceReques
 	t.Parallel()
 	rs := &retryRecvStream{}
 	testAttemptSession(rs)
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	var effects atomic.Int32
 	start := make(chan struct{})
 	var wg sync.WaitGroup

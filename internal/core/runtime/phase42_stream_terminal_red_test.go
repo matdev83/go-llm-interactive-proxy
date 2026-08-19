@@ -93,7 +93,7 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	}
 	testStoreInner(rs, &blockUntilCancelStream{entered: entered})
 	rs.markCommitted()
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 
 	ctx := t.Context()
 
@@ -115,18 +115,18 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	if !rs.isFinished() {
 		t.Fatal("stream must be finished after Close/Recv race")
 	}
-	if rs.requestTerm == nil || rs.requestTerm.Owner() == nil {
+	if rs.terminal == nil || rs.terminal.requestTerminal() == nil || rs.terminal.requestTerminal().Owner() == nil {
 		t.Fatal("request terminal owner must be installed")
 	}
-	if !rs.requestTerm.Owner().State().IsTerminal() {
-		t.Fatalf("request terminal state=%q", rs.requestTerm.Owner().State())
+	if !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
+		t.Fatalf("request terminal state=%q", rs.terminal.requestTerminal().Owner().State())
 	}
 	// One settle (cancellation/final) — never two competing terminal settlements.
 	settles := auth.settleCalls.Load()
 	if settles != 1 {
 		t.Fatalf("settleCalls=%d want 1 (recv/close must not double-settle); recvErr=%v", settles, recvErr)
 	}
-	if out, ok := rs.requestTerm.Owner().Outcome(); !ok || out.Snapshot.Bytes() == nil {
+	if out, ok := rs.terminal.requestTerminal().Owner().Outcome(); !ok || out.Snapshot.Bytes() == nil {
 		t.Fatal("winner must publish accumulator snapshot")
 	}
 }

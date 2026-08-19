@@ -147,6 +147,7 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	auth.prereserve("reservation-prior")
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{

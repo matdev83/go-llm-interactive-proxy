@@ -28,6 +28,7 @@ func TestBillingLegHandoffIsTerminalOnlyAndIdempotent(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -88,6 +89,7 @@ func TestBillingLegObserverPanicCannotChangeTerminalResult(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -108,6 +110,7 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -168,6 +171,7 @@ func TestBillingLegUsesFinalizeBillingWhenSupported(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -226,6 +230,7 @@ func TestBillingLegPreservesStreamAuthoritativeZeroCostAcrossFinalize(t *testing
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -285,6 +290,7 @@ func TestBillingLegFallsBackWhenFinalizeBillingFails(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -314,6 +320,7 @@ func TestBillingLegUsesDistinctProviderParamWhenPresent(t *testing.T) {
 	params.Set("provider", "openai")
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -338,6 +345,7 @@ func TestBillingLegEmptyBLegIDUsesColonFreeSyntheticID(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -363,6 +371,7 @@ func TestBillingLegFallbackUsesLastUsageDeltaNotCumulativeSum(t *testing.T) {
 	}}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),
@@ -419,6 +428,7 @@ func TestFinalizeBillingOncePerBLegForQuotaAndLUR(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: "a-1",
 		}),

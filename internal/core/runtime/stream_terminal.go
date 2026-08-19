@@ -173,31 +173,23 @@ type accumulatorSnapWire struct {
 	Final  bool   `json:"f"`
 }
 
-// snapshotTerminals returns coherent request/attempt owners. The request owner
-// is lazy for focused test fixtures; production construction installs the
-// attempt owner before the stream is exposed.
+// snapshotTerminals returns coherent request/attempt owners. Production
+// construction installs the turn terminal and attempt before the stream is
+// exposed; an unconstructed direct fixture returns nil and is rejected by the
+// terminal call sites until its explicit test owner is installed.
 func (s *retryRecvStream) snapshotTerminals() (req, att *streamTerminal) {
 	if s == nil {
 		return nil, nil
 	}
-	s.termMu.Lock()
-	if s.requestTerm == nil {
-		s.requestTerm = newStreamTerminal(sdk.ScopeRequest)
+	if s.terminal == nil {
+		return nil, nil
 	}
-	request := s.requestTerm
-	s.termMu.Unlock()
+	request := s.terminal.requestTerminal()
 	attempt := s.attempt.snapshot()
 	if attempt != nil {
 		return request, attempt.terminal
 	}
 	return request, nil
-}
-
-func (s *retryRecvStream) ensureTerminals() {
-	if s == nil {
-		return
-	}
-	_, _ = s.snapshotTerminals()
 }
 
 func (s *retryRecvStream) accumulatorSnapshot() coreterm.AccumulatorSnapshot {
@@ -249,7 +241,9 @@ func (s *retryRecvStream) runStreamTerminal(
 	if s == nil {
 		return coreterm.Result{Err: sdk.ErrInvalid}
 	}
-	req, att := s.snapshotTerminals()
+	if s.terminal == nil {
+		return coreterm.Result{Err: sdk.ErrInvalid}
+	}
 	snapFn := func() coreterm.AccumulatorSnapshot { return s.accumulatorSnapshot() }
 
 	runEffects := func(cctx context.Context, _ coreterm.Outcome) error {
@@ -259,26 +253,16 @@ func (s *retryRecvStream) runStreamTerminal(
 		return effects(cctx)
 	}
 
-	if !cmd.AllowsScope(sdk.ScopeRequest) {
-		return att.Terminalize(ctx, cmd, snapFn, runEffects)
-	}
-	r := req.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
-		var err error
-		if cmd.AllowsScope(sdk.ScopeAttempt) {
-			ar := att.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
-				return out.Snapshot.Clone()
-			}, runEffects)
-			if ar.Won {
-				err = ar.Err
-			} else {
-				err = runEffects(cctx, out)
-			}
-		} else {
-			err = runEffects(cctx, out)
+	r := s.terminal.terminalizeWithRequestAfter(ctx, cmd, s.attempt.snapshot(), snapFn, func(cctx context.Context, out coreterm.Outcome) error {
+		err := runEffects(cctx, out)
+		return err
+	}, func(cctx context.Context, _ coreterm.Outcome) error {
+		if !cmd.AllowsScope(sdk.ScopeRequest) {
+			return nil
 		}
 		s.recordBillingLeg(cctx, cmd)
 		s.handoffBillingTurn(cctx, cmd)
-		return err
+		return nil
 	})
 	// Committed GateReplacement cannot take ownership (D13) but still freezes
 	// call-closure: no further B-leg can be allocated, and TUR/retry stay off.
@@ -299,6 +283,9 @@ func (s *retryRecvStream) runAttemptTerminal(
 		return coreterm.Result{Err: sdk.ErrInvalid}
 	}
 	_, att := s.snapshotTerminals()
+	if att == nil {
+		return coreterm.Result{Err: sdk.ErrInvalid}
+	}
 	return att.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
 		return s.accumulatorSnapshot()
 	}, func(cctx context.Context, _ coreterm.Outcome) error {

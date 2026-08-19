@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
@@ -77,8 +76,7 @@ type retryRecvStream struct {
 	transformExcludes        transformExcludeTracker
 
 	attempt            attemptSlot
-	committed          atomic.Bool
-	finished           atomic.Bool
+	terminal           *turnTerminal
 	endOnce            sync.Once
 	affinityKey        affinity.Key
 	affinitySet        bool
@@ -135,11 +133,6 @@ type retryRecvStream struct {
 	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
 	toolClass toolEventClassificationState
 
-	// requestTerm is the CAS terminal owner for this stream lifecycle; each
-	// attemptSession owns its ScopeAttempt terminal.
-	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
-	termMu      sync.Mutex
-	requestTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
 	// billingLegRecorded guards one LUR per B-leg on this stream. Request and
@@ -224,28 +217,29 @@ func (s *retryRecvStream) now() time.Time {
 }
 
 func (s *retryRecvStream) isFinished() bool {
-	return s != nil && s.finished.Load()
+	return s != nil && s.terminal != nil && s.terminal.finished()
 }
 
 func (s *retryRecvStream) markFinished() {
 	if s != nil {
+		if s.terminal == nil || !s.terminal.markFinished() {
+			return
+		}
 		// Terminal ownership: every finish path clears attempt-local assembler
 		// state here (normal response_finished, recover-drain finish, gate finish,
 		// error/EOF/Close finishes). Nonterminal clears stay at their call sites.
 		s.resetToolFinal()
-		s.finished.Store(true)
 	}
 }
 
 func (s *retryRecvStream) isCommitted() bool {
-	return s != nil && s.committed.Load()
+	return s != nil && s.terminal != nil && s.terminal.committed()
 }
 
 func (s *retryRecvStream) markCommitted() {
 	if s != nil {
-		s.committed.Store(true)
-		if attempt := s.attempt.snapshot(); attempt != nil {
-			attempt.authority.markOutputCommitted()
+		if s.terminal != nil {
+			s.terminal.markCommitted(s.attempt.snapshot())
 		}
 	}
 }

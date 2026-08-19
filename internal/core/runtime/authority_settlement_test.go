@@ -40,6 +40,7 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
@@ -136,6 +137,7 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
@@ -235,6 +237,7 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	}
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-close"},
@@ -282,6 +285,7 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-eof-failure"},
@@ -332,6 +336,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
@@ -380,6 +385,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		}
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-partial"},
@@ -433,6 +439,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex.StreamUsage = accountingstream.New(nil, accountingstream.Config{})
 
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
@@ -489,6 +496,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex.StreamUsage = nil
 
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},

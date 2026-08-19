@@ -83,6 +83,7 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 			traceID:  "trace-1",
 		}),
 		budget:   budget,
+		terminal: newTurnTerminal(),
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},

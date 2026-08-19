@@ -95,6 +95,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	initialCand := routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -186,6 +187,7 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	}
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
@@ -269,6 +271,7 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -351,6 +354,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -457,6 +461,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{

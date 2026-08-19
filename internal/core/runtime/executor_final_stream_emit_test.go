@@ -106,6 +106,7 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -356,6 +357,7 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 		Roles:       []string{"reader"},
 	}
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "t1",
 			aLegID:  "a1",
@@ -515,6 +517,7 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -612,6 +615,7 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -661,6 +665,7 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -701,6 +706,7 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 		StreamObserverFactories: []response.StreamObserverFactory{factory},
 	})
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -752,6 +758,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	})
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      bus,
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -813,6 +820,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		StreamObserverFactories: []response.StreamObserverFactory{factory2},
 	})
 	rs2 := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex2,
 		bus:      bus2,
 		facts: testRecvTurnFacts(recvTurnFacts{

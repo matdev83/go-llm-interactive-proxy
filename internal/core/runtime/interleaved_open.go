@@ -274,6 +274,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		customer:            newCustomerEvidenceAccumulator(),
 		attempt:             attemptSlot{},
+		terminal:            newTurnTerminal(),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,

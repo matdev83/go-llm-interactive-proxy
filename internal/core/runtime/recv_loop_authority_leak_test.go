@@ -71,6 +71,7 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	priorAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
 		facts: testRecvTurnFacts(recvTurnFacts{

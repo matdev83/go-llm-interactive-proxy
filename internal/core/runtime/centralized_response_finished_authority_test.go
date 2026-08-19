@@ -75,6 +75,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			ex.StreamUsage = streamUsage
 		}
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			bus:      hooks.New(hooks.Config{}),
 			facts: testRecvTurnFacts(recvTurnFacts{
@@ -360,6 +361,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		}
 		start := time.Unix(1, 0)
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-centralized-idle", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},

@@ -54,6 +54,7 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			bus:      hooks.New(hooks.Config{}),
 			facts: testRecvTurnFacts(recvTurnFacts{

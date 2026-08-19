@@ -48,7 +48,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}},
 	}
 	rs.markCommitted()
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 
 	closeDone := make(chan struct{})
 	go func() {
@@ -123,7 +123,7 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 		release: release,
 		finish:  lipapi.Event{Kind: lipapi.EventResponseFinished},
 	})
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 
 	recvDone := make(chan error, 1)
 	go func() {
@@ -210,7 +210,7 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
 	}
 	rs.markCommitted()
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
 	pm, _ := rs.recvHookMeta()
@@ -218,7 +218,7 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 	if !errors.Is(err, encErr) {
 		t.Fatalf("err=%v want encoder", err)
 	}
-	out, ok := rs.requestTerm.Owner().Outcome()
+	out, ok := rs.terminal.requestTerminal().Owner().Outcome()
 	if !ok || out.Command != sdk.CommandFrontendEncoderFailure {
 		t.Fatalf("terminal outcome=%+v ok=%v want frontend_encoder_failure", out, ok)
 	}
@@ -253,28 +253,28 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
 		rs.persistCancellationBilling(cctx, "context canceled")
 		rs.markFinished()
 		return nil
 	})
-	if !r.Won || !rs.requestTerm.Owner().State().IsTerminal() {
-		t.Fatalf("cancel terminalize: %+v state=%q", r, rs.requestTerm.Owner().State())
+	if !r.Won || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
+		t.Fatalf("cancel terminalize: %+v state=%q", r, rs.terminal.requestTerminal().Owner().State())
 	}
 }
 
 func TestPhase42_NoRetryAfterOutput_GateReplacement(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	rs.markCommitted()
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandGateReplacement, nil)
 	if r.Won || !errors.Is(r.Err, sdk.ErrOutputCommitted) {
 		t.Fatalf("got %+v", r)
 	}
-	if rs.requestTerm.Owner().State() != sdk.StateOpen {
-		t.Fatalf("open+committed rejection must leave owner open, state=%q", rs.requestTerm.Owner().State())
+	if rs.terminal.requestTerminal().Owner().State() != sdk.StateOpen {
+		t.Fatalf("open+committed rejection must leave owner open, state=%q", rs.terminal.requestTerminal().Owner().State())
 	}
 }
 
@@ -304,12 +304,12 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-part", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	if !errors.Is(err, hookErr) || cont {
 		t.Fatalf("err=%v cont=%v", err, cont)
 	}
-	if rs.requestTerm == nil || !rs.requestTerm.Owner().State().IsTerminal() {
+	if rs.terminal == nil || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
 		t.Fatal("response part failure must terminalize request")
 	}
 }

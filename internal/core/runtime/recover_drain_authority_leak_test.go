@@ -57,6 +57,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			bus:      hooks.New(hooks.Config{}),
 			facts: testRecvTurnFacts(recvTurnFacts{
@@ -175,6 +176,7 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
 		executor: ex,
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{ID: "request-idle-finish-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},

@@ -44,7 +44,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
-	stream.ensureTerminals()
+	installTestTurnTerminal(stream)
 
 	_, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err != nil {
@@ -96,7 +96,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
-	stream.ensureTerminals()
+	installTestTurnTerminal(stream)
 
 	usage, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 	if err != nil {

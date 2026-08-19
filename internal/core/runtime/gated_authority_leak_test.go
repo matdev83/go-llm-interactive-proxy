@@ -82,6 +82,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		bus := hooks.New(hooks.Config{})
 		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
 			executor: ex,
 			bus:      bus,
 			facts: testRecvTurnFacts(recvTurnFacts{

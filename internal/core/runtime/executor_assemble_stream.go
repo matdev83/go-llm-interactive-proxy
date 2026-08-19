@@ -6,7 +6,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
@@ -54,7 +53,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		recoverPolicy:      streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		aScope:             prep.aScope,
 		interleaved:        out.interleaved,
-		requestTerm:        newStreamTerminal(sdkterminal.ScopeRequest),
+		terminal:           newTurnTerminal(),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,

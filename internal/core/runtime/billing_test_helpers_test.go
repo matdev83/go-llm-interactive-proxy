@@ -30,12 +30,24 @@ func testAttemptSession(s *retryRecvStream) *attemptSession {
 	if s == nil {
 		return nil
 	}
+	if s.terminal == nil {
+		s.terminal = newTurnTerminal()
+	}
 	if attempt := s.attempt.snapshot(); attempt != nil {
 		return attempt
 	}
 	attempt := newAttemptSession(attemptSessionInput{})
 	s.attempt.install(attempt)
 	return attempt
+}
+
+// installTestTurnTerminal is the explicit fixture constructor for direct
+// retryRecvStream tests. Production assembly always installs this owner before
+// exposure; tests must do so before any concurrent Recv/Close or terminal use.
+func installTestTurnTerminal(s *retryRecvStream) {
+	if s != nil && s.terminal == nil {
+		s.terminal = newTurnTerminal()
+	}
 }
 
 func testStoreInner(s *retryRecvStream, inner lipapi.ManagedEventStream) {
@@ -91,6 +103,7 @@ func stampStreamIdentity(s *retryRecvStream) *retryRecvStream {
 	if s == nil {
 		return nil
 	}
+	installTestTurnTerminal(s)
 	return withTestRecvFacts(s, func(f recvTurnFacts) recvTurnFacts {
 		f.billingAccountID = "acct"
 		f.billingCustomerPricing = billing.VersionRef{ID: "pricing:test", Version: "1"}

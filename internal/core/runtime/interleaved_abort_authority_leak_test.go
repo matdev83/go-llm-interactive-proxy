@@ -333,7 +333,7 @@ func setupInterleavedAssignedExecutorGate(t *testing.T) (
 	})
 	from = stampStreamIdentity(from)
 	from.isInterleavedThinker = true
-	from.ensureTerminals()
+	installTestTurnTerminal(from)
 	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(5),
 		admissionResult: authorityapp.AdmissionResult{
