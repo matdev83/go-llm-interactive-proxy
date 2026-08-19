@@ -123,6 +123,10 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 	if services.BackgroundAux == nil {
 		return nil
 	}
+	cfg, enabled := p.effectiveConfig(ctx)
+	if !enabled {
+		return nil
+	}
 	event, ok := committedEvent(events)
 	if !ok {
 		return nil
@@ -168,7 +172,7 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 		Previous:   sourceWindow.HighWatermark,
 		Recognizer: carrierRecognizer{},
 		Config: source.Config{
-			MaxBytes: stateBound(p.cfg.Source.MaxBytes, source.DefaultConfig().MaxBytes),
+			MaxBytes: stateBound(cfg.Source.MaxBytes, source.DefaultConfig().MaxBytes),
 		},
 	})
 	if err != nil {
@@ -194,7 +198,7 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 		capsuleDirty = true
 	}
 	for _, entry := range prepared.NewEntries {
-		if entry.Carrier == nil || !p.cfg.Preserve.Plan {
+		if entry.Carrier == nil || !cfg.Preserve.Plan {
 			continue
 		}
 		update, matched, extractErr := extractCarrierUpdate(*entry.Carrier)
@@ -211,8 +215,8 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 
 	if capsuleDirty {
 		previous, err = capsule.PruneWithLimits(previous, capsule.Limits{
-			MaxBytes:  p.cfg.Capsule.MaxBytes,
-			MaxTokens: p.cfg.Capsule.MaxTokens,
+			MaxBytes:  cfg.Capsule.MaxBytes,
+			MaxTokens: cfg.Capsule.MaxTokens,
 		})
 		if err != nil {
 			return nil
@@ -230,7 +234,7 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 			return nil
 		}
 	}
-	if previewBound && state.PendingInjection != nil && state.PendingInjection.BoundaryKey != event.TransactionID && injectionContainsProjection(call, previous, parent.Binding, p.cfg) {
+	if previewBound && state.PendingInjection != nil && state.PendingInjection.BoundaryKey != event.TransactionID && injectionContainsProjection(call, previous, parent.Binding, cfg) {
 		_, _ = p.parent.SetPendingInjection(ctx, parent, InjectionTarget{BoundaryKey: event.TransactionID, CapsuleRevision: state.PendingInjection.CapsuleRevision})
 		p.rebindPreparedMarker(meta, event.TransactionID, state.PendingInjection.CapsuleRevision)
 	}
@@ -238,13 +242,13 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 	// A plan carrier is sufficient only when the operator requested plan-only
 	// preservation. User decisions, constraints, rationale, or rejected
 	// alternatives remain semantic categories and keep the model eligible.
-	if !semanticExtractionEligible(p.cfg, prepared.Candidate || previewBound, deterministicCount > 0) || state.PendingJobID != "" {
+	if !semanticExtractionEligible(cfg, prepared.Candidate || previewBound, deterministicCount > 0) || state.PendingJobID != "" {
 		return nil
 	}
 	coalesceKey := coalesceKey(parent.Binding, event.TransactionID, watermark)
 	input := extractor.Input{
-		Route:               p.cfg.Extractor.Route,
-		Inherit:             p.cfg.Extractor.Inherit,
+		Route:               cfg.Extractor.Route,
+		Inherit:             cfg.Extractor.Inherit,
 		InheritedRoute:      call.Route.Selector,
 		ParentBranchBinding: parent.Binding,
 		ParentTraceID:       parent.TraceID,
@@ -253,9 +257,9 @@ func (p *Plugin) RequestOpened(ctx context.Context, call lipapi.Call, events []c
 		Previous:            previous,
 		SanitizedDelta:      prepared.NewEntries,
 		SourceHighWatermark: watermark,
-		MaxInputTokens:      p.cfg.Extractor.MaxInputTokens,
-		MaxOutputTokens:     p.cfg.Extractor.MaxOutputTokens,
-		Timeout:             p.cfg.Extractor.Timeout,
+		MaxInputTokens:      cfg.Extractor.MaxInputTokens,
+		MaxOutputTokens:     cfg.Extractor.MaxOutputTokens,
+		Timeout:             cfg.Extractor.Timeout,
 	}
 	jobID, err := extractor.Submit(ctx, services.BackgroundAux, input, coalesceKey)
 	if err != nil {
