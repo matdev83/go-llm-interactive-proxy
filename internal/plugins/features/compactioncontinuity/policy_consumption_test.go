@@ -11,6 +11,7 @@ import (
 )
 
 func TestEffectiveConfigConsumesOnlyTrustedSessionPolicy(t *testing.T) {
+	t.Parallel()
 	cfg, err := (Config{Extractor: ExtractorConfig{Enabled: true, Route: "route:default"}}).Normalize()
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +21,7 @@ func TestEffectiveConfigConsumesOnlyTrustedSessionPolicy(t *testing.T) {
 		Scope:   scope.PrincipalScopeView{PrincipalID: scope.Known("principal-1")},
 		Session: session.SessionView{AuthoritativeSessionID: "session-1"},
 	})
-	override := policy.Override{Route: "route:approved", RouteSet: true, Limits: policy.LimitOverride{MaxInputTokens: intPtr(6000)}}
+	override := policy.Override{Route: "route:approved", RouteSet: true, Limits: policy.LimitOverride{MaxInputTokens: new(6000)}}
 	got, ok := p.effectiveConfig(policy.WithTrustedOverride(trusted, override))
 	if !ok || got.Extractor.Route != "route:approved" || got.Extractor.MaxInputTokens != 6000 {
 		t.Fatalf("trusted policy was not consumed: ok=%v cfg=%+v", ok, got)
@@ -32,17 +33,15 @@ func TestEffectiveConfigConsumesOnlyTrustedSessionPolicy(t *testing.T) {
 }
 
 func TestEffectiveConfigTrustedDisableStopsContinuityWork(t *testing.T) {
+	t.Parallel()
 	cfg, err := (Config{Extractor: ExtractorConfig{Enabled: true, Route: "route:default"}}).Normalize()
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := &Plugin{cfg: cfg}
 	ctx := execctx.WithViews(context.Background(), execctx.Views{Session: session.SessionView{AuthoritativeSessionID: "session-1"}})
-	ctx = policy.WithTrustedOverride(ctx, policy.Override{Enabled: boolPtr(false)})
+	ctx = policy.WithTrustedOverride(ctx, policy.Override{Enabled: new(false)})
 	if _, ok := p.effectiveConfig(ctx); ok {
 		t.Fatal("trusted session disable did not stop continuity work")
 	}
 }
-
-func intPtr(v int) *int    { return &v }
-func boolPtr(v bool) *bool { return &v }

@@ -81,12 +81,15 @@ func matrixPlanPayload(statuses ...string) string {
 
 func matrixCall(previous lipapi.Call, carrierID string, statuses []string, userID, userText string) lipapi.Call {
 	out := lipapi.CloneCall(previous)
-	out.Items = append(out.Items,
+	out.Items = append(
+		out.Items,
 		lipapi.Item{Kind: lipapi.ItemKindToolCall, ID: carrierID, ToolCall: &lipapi.ToolCallItem{
 			Name: "update_plan", CallID: carrierID, Arguments: []byte(matrixPlanPayload(statuses...)),
 		}},
-		lipapi.Item{Kind: lipapi.ItemKindMessage, ID: userID, Role: lipapi.RoleUser,
-			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: userText}}},
+		lipapi.Item{
+			Kind: lipapi.ItemKindMessage, ID: userID, Role: lipapi.RoleUser,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: userText}},
+		},
 	)
 	return out
 }
@@ -116,6 +119,7 @@ func matrixOpen(t *testing.T, plugin *Plugin, parent *openParentFake, background
 }
 
 func TestRepeatedCompactionSemanticMatrix(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	var call lipapi.Call
 	var revisions []capsule.Envelope
@@ -123,7 +127,8 @@ func TestRepeatedCompactionSemanticMatrix(t *testing.T) {
 		{Kind: lipapi.ItemKindMessage, ID: "plan-1", Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "Implementation plan: inspect bounded state before release."}}},
 		{Kind: lipapi.ItemKindMessage, ID: "choice-1", Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "I choose the bounded adapter; constraint: no provider SDK. Rationale: safety. Reject the unbounded alternative. Open question: can reload preserve state?"}}},
 	}}
-	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-1", matrixResultWithPlan(1,
+	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-1", matrixResultWithPlan(
+		1,
 		&matrixDecision{ID: "decision-bounded", ConflictKey: "product.mode", Statement: "Use the bounded adapter.", Status: "active", Rationale: "Explicit user safety choice.", SourceRef: "choice-1"},
 		[]matrixPlanUpdate{{ID: capsule.StableStepID("inspect bounded state"), Text: "inspect bounded state", Status: "pending", SourceRef: "plan-1"}},
 		matrixFact{Kind: "constraint", ID: "constraint-sdk", Statement: "No provider SDK in core.", Status: "active", Rationale: "Keep the boundary portable.", SourceRef: "choice-1"},
@@ -131,12 +136,14 @@ func TestRepeatedCompactionSemanticMatrix(t *testing.T) {
 		matrixFact{Kind: "open_question", ID: "question-reload", Statement: "Can reload preserve state?", Status: "active", SourceRef: "choice-1"},
 	)))
 	call = matrixCall(call, "carrier-2", []string{"in_progress", "pending"}, "choice-2", "Correction: use the bounded adapter with strict validation; do not use the unbounded path.")
-	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-2", matrixResultWithPlan(3,
+	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-2", matrixResultWithPlan(
+		3,
 		&matrixDecision{ID: "decision-bounded-v2", ConflictKey: "product.mode", Supersedes: []string{"decision-bounded"}, Statement: "Use the bounded adapter with strict validation.", Status: "active", Rationale: "Correction after review.", SourceRef: "choice-2"},
 		nil,
 	)))
 	call = matrixCall(call, "carrier-3", []string{"completed", "in_progress", "pending"}, "choice-3", "Proceed with validation and keep the remaining release step open.")
-	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-3", matrixResultWithPlan(5,
+	revisions = append(revisions, matrixOpen(t, plugin, parent, background, call, "compact-3", matrixResultWithPlan(
+		5,
 		nil,
 		nil,
 		matrixFact{Kind: "rejected_alternative", ID: "reject-legacy", Statement: "Reject the legacy rewrite path.", Status: "rejected", Rationale: "It loses authoritative state.", SourceRef: "choice-3"},
@@ -202,6 +209,7 @@ func TestRepeatedCompactionSemanticMatrix(t *testing.T) {
 }
 
 func TestRepeatedCompactionPaths(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name     string
 		preserve PreserveConfig
@@ -213,6 +221,7 @@ func TestRepeatedCompactionPaths(t *testing.T) {
 		{"mixed", PreserveConfig{Plan: true, UserDecisions: true}, true, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			parent := &openParentFake{branch: ParentBranch{Binding: "sha256:" + strings.Repeat("b", 64), TraceID: "trace", ALegID: "parent-a", BLegID: "parent-b"}}
 			background := &openBackgroundFake{}
 			cfg := openConfig(t)
@@ -234,6 +243,7 @@ func TestRepeatedCompactionPaths(t *testing.T) {
 }
 
 func TestRepeatedCompactionOpaqueBoundariesReinjectSameRevision(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	cfg := plugin.cfg
 	cfg.Preserve = PreserveConfig{Plan: true}
@@ -288,9 +298,11 @@ func TestRepeatedCompactionOpaqueBoundariesReinjectSameRevision(t *testing.T) {
 func hasDecisionStatus(e capsule.Envelope, id string, status capsule.DecisionStatus) bool {
 	return slices.ContainsFunc(e.Decisions, func(d capsule.Decision) bool { return d.ID == id && d.Status == status })
 }
+
 func hasFactStatus(items []capsule.Fact, id string, status capsule.FactStatus) bool {
 	return slices.ContainsFunc(items, func(f capsule.Fact) bool { return f.ID == id && f.Status == status })
 }
+
 func stepStatus(e capsule.Envelope, text string) capsule.StepStatus {
 	for _, s := range e.Plan.Steps {
 		if s.Text == text {
@@ -299,6 +311,7 @@ func stepStatus(e capsule.Envelope, text string) capsule.StepStatus {
 	}
 	return ""
 }
+
 func uniqueFacts(e capsule.Envelope) bool {
 	seen := map[string]bool{}
 	for _, group := range [][]capsule.Fact{e.Constraints, e.RejectedAlternatives, e.OpenQuestions} {
@@ -317,6 +330,7 @@ func uniqueFacts(e capsule.Envelope) bool {
 	}
 	return true
 }
+
 func promptsBounded(background *openBackgroundFake) bool {
 	for _, request := range background.submits {
 		if request.Call == nil || len(request.Call.Messages) < 2 || len(request.Call.Messages[1].Parts) == 0 || len(request.Call.Messages[1].Parts[0].Text) > 12_000 {

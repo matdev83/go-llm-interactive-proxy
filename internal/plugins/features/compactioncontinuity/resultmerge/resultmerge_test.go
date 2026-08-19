@@ -144,6 +144,7 @@ func validFixture(t *testing.T) (Job, *fakeBackground, *fakeParent, *fakeDecoder
 }
 
 func TestService_ConsumesValidatedResultAndForgetsRawOutput(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, base := validFixture(t)
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
 	if err != nil {
@@ -176,6 +177,7 @@ func TestService_ConsumesValidatedResultAndForgetsRawOutput(t *testing.T) {
 }
 
 func TestServiceRejectsWrongBranchResultAndForgetsIt(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	decoder.delta.BranchBinding = "sha256:" + strings.Repeat("b", 64)
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -193,6 +195,7 @@ func TestServiceRejectsWrongBranchResultAndForgetsIt(t *testing.T) {
 }
 
 func TestServiceRejectsConflictInvalidDeltaWithoutStateChange(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	decoder.delta.Decisions = append(decoder.delta.Decisions, capsule.Decision{
 		ID: "decision-1", ConflictKey: "runtime.mode", Statement: "different statement",
@@ -217,6 +220,7 @@ func TestServiceRejectsConflictInvalidDeltaWithoutStateChange(t *testing.T) {
 }
 
 func TestServiceRejectsStoredDigestMismatchBeforeDecode(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	parent.state.CapsuleDigest[0]++
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -234,6 +238,7 @@ func TestServiceRejectsStoredDigestMismatchBeforeDecode(t *testing.T) {
 }
 
 func TestServiceLateResultCannotDefeatNewerParentRevision(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, base := validFixture(t)
 	newer, _, _ := testCapsule(t, job.ParentBranchBinding)
 	newer.Revision = base.Revision + 1

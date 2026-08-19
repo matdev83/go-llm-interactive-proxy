@@ -9,6 +9,7 @@ import (
 )
 
 func TestReloadConcurrencyCertification_NewGenerationOnlyUsesNewExtractorPolicy(t *testing.T) {
+	t.Parallel()
 	oldConfig := openConfig(t)
 	oldParent := &openParentFake{branch: ParentBranch{
 		Binding: "sha256:" + repeatCertificationByte('b', 64), TraceID: "old-trace", ALegID: "old-a", BLegID: "old-b",
@@ -62,6 +63,7 @@ func TestReloadConcurrencyCertification_NewGenerationOnlyUsesNewExtractorPolicy(
 }
 
 func TestReloadConcurrencyCertification_DisabledGenerationSubmitsNoNewJob(t *testing.T) {
+	t.Parallel()
 	base := openConfig(t)
 	base.Extractor.Enabled = false
 	parent := &openParentFake{branch: ParentBranch{

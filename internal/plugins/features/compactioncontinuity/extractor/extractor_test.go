@@ -13,6 +13,7 @@ import (
 )
 
 func TestBuildRequestDetachedNoToolsIndependentRouteAndNoBranchExposure(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session-parent", "a-parent", "acct")
 	if err != nil {
 		t.Fatal(err)
@@ -76,6 +77,7 @@ func TestBuildRequestDetachedNoToolsIndependentRouteAndNoBranchExposure(t *testi
 }
 
 func TestBuildRequestCapturesInputTokenBoundAndOutputBudget(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +102,7 @@ func TestBuildRequestCapturesInputTokenBoundAndOutputBudget(t *testing.T) {
 }
 
 func TestSubmitRejectsPromptOverMaxInputTokensBeforeSubmission(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +126,7 @@ func TestSubmitRejectsPromptOverMaxInputTokensBeforeSubmission(t *testing.T) {
 }
 
 func TestParseResultStrictlyValidatesSchemaBaseAndReferences(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +163,7 @@ func TestParseResultStrictlyValidatesSchemaBaseAndReferences(t *testing.T) {
 		"bad conflict key":   strings.Replace(raw, `"architecture.billing.mode"`, `"Architecture Billing Mode"`, 1),
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := ParseResult([]byte(invalid), ParseOptions{Previous: previous, ExpectedBranch: branch, AllowedSourceRefs: []string{"item-user-1"}}); err == nil {
 				t.Fatalf("invalid result accepted: %s", invalid)
 			}
@@ -167,6 +172,7 @@ func TestParseResultStrictlyValidatesSchemaBaseAndReferences(t *testing.T) {
 }
 
 func TestParseResultRejectsDepthAndOversizedOutput(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -186,6 +192,7 @@ func TestParseResultRejectsDepthAndOversizedOutput(t *testing.T) {
 }
 
 func TestParseResultSourceRefsRequireExactAllowlistMembership(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -204,6 +211,7 @@ func TestParseResultSourceRefsRequireExactAllowlistMembership(t *testing.T) {
 }
 
 func TestParseResultAllowsExactSemanticRetryButRejectsChangedDecision(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +241,7 @@ func TestParseResultAllowsExactSemanticRetryButRejectsChangedDecision(t *testing
 		"authority": strings.Replace(exact, `"source_ref":"item-1"`, `"authority":"user_explicit","source_ref":"item-1"`, 1),
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := ParseResult([]byte(changed), ParseOptions{Previous: previous, ExpectedBranch: branch, AllowedSourceRefs: []string{"item-1"}}); err == nil {
 				t.Fatalf("changed same-ID semantic decision accepted: %s", changed)
 			}
@@ -241,6 +250,7 @@ func TestParseResultAllowsExactSemanticRetryButRejectsChangedDecision(t *testing
 }
 
 func TestParseResultRejectsDuplicateRemovalAndCrossCollectionDecisionIDs(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +277,7 @@ func TestParseResultRejectsDuplicateRemovalAndCrossCollectionDecisionIDs(t *test
 }
 
 func TestResultDeltaPreservesValidatedDecisionTransitions(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)
@@ -298,6 +309,7 @@ func TestResultDeltaPreservesValidatedDecisionTransitions(t *testing.T) {
 }
 
 func TestParseResultRejectsRemovalOfProtectedDecisionAuthorities(t *testing.T) {
+	t.Parallel()
 	protected := []capsule.Authority{
 		capsule.AuthorityUserExplicit,
 		capsule.AuthorityUserAcceptance,
@@ -305,6 +317,7 @@ func TestParseResultRejectsRemovalOfProtectedDecisionAuthorities(t *testing.T) {
 	}
 	for _, authority := range protected {
 		t.Run(string(authority), func(t *testing.T) {
+			t.Parallel()
 			branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 			if err != nil {
 				t.Fatal(err)
@@ -360,6 +373,7 @@ func (f *fakeClient) Stream(context.Context, auxiliary.Request) (lipapi.EventStr
 }
 
 func TestCollectUsesExactlyOneChildCallAndNoSummaryRewrite(t *testing.T) {
+	t.Parallel()
 	branch, err := capsule.NewBranchBinding("session", "parent-a", "account")
 	if err != nil {
 		t.Fatal(err)

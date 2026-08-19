@@ -139,5 +139,7 @@ func (p *Plugin) AfterResponseRelease(ctx context.Context, ev lipapi.Event, meta
 	return nil
 }
 
-var _ compaction.RequestOpenFailedPreserver = (*Plugin)(nil)
-var _ compaction.AfterResponseReleasePreserver = (*Plugin)(nil)
+var (
+	_ compaction.RequestOpenFailedPreserver    = (*Plugin)(nil)
+	_ compaction.AfterResponseReleasePreserver = (*Plugin)(nil)
+)

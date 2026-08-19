@@ -9,6 +9,7 @@ import (
 )
 
 func TestServiceValidatesParentBeforeAwait(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	parent.validateErr = ErrWrongParentBranch
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -25,6 +26,7 @@ func TestServiceValidatesParentBeforeAwait(t *testing.T) {
 }
 
 func TestServiceTimeoutKeepsPendingResult(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	background.awaitErr = context.DeadlineExceeded
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})
@@ -41,6 +43,7 @@ func TestServiceTimeoutKeepsPendingResult(t *testing.T) {
 }
 
 func TestServiceRejectsInvalidResultAndForgetsIt(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, _ := validFixture(t)
 	decoder.err = errors.New("invalid extractor schema")
 	service, err := New(background, parent, decoder, Config{MaxCapsuleBytes: 32 * 1024})

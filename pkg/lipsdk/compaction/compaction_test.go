@@ -87,12 +87,10 @@ func TestEvent_metadataOnlyPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantKeys := []string{"Phase", "Evidence", "RuleID", "TransactionID", "TraceID", "ALegID", "BLegID", "AttemptSeq", "SessionID", "OccurredAt"}
-	gotKeys := make([]string, 0, len(m))
 	for _, k := range wantKeys {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("event JSON missing metadata key %q: %s", k, raw)
 		}
-		gotKeys = append(gotKeys, k)
 	}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("event JSON exposes %d keys %v; want exactly %v (content must never leak)", len(m), reflect.ValueOf(m).MapKeys(), wantKeys)
@@ -105,7 +103,7 @@ func TestPreserver_isContentBearingAndDistinctFromObserver(t *testing.T) {
 	t.Parallel()
 	var _ Preserver = preservingStub{}
 	var _ Observer = ObserverFunc(nil)
-	if reflect.TypeOf((*Preserver)(nil)).Elem() == reflect.TypeOf((*Observer)(nil)).Elem() {
+	if reflect.TypeFor[Preserver]() == reflect.TypeFor[Observer]() {
 		t.Fatal("Preserver must remain distinct from Observer")
 	}
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "secret"}}}}}
@@ -128,9 +126,11 @@ func (preservingStub) ID() string { return "preserver" }
 func (preservingStub) BeforeRequest(context.Context, *lipapi.Call, RequestPreview, PreservationMeta, Services) error {
 	return nil
 }
+
 func (preservingStub) RequestOpened(context.Context, lipapi.Call, []Event, PreservationMeta, Services) error {
 	return nil
 }
+
 func (preservingStub) BeforeResponseRelease(context.Context, *lipapi.Event, ResponsePreview, PreservationMeta, Services) error {
 	return nil
 }

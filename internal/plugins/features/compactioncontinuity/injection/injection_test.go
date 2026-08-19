@@ -13,6 +13,7 @@ import (
 )
 
 func TestInjectLegacyAuthorityAddsOneProxyInstruction(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	call := lipapi.Call{Messages: []lipapi.Message{{
 		Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("continue")},
@@ -44,6 +45,7 @@ func TestInjectLegacyAuthorityAddsOneProxyInstruction(t *testing.T) {
 }
 
 func TestInjectItemAuthorityAddsOneCanonicalMessageItem(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	call := lipapi.Call{Items: []lipapi.Item{{
 		Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser,
@@ -70,6 +72,7 @@ func TestInjectItemAuthorityAddsOneCanonicalMessageItem(t *testing.T) {
 }
 
 func TestInjectExactlyOnceForCallLocalBoundaryRevisionMarker(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	base := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}}
 	first, err := Inject(Input{Call: base, Capsule: e, ExpectedBranchBinding: e.BranchBinding, BoundaryKey: "txn-1"})
@@ -86,6 +89,7 @@ func TestInjectExactlyOnceForCallLocalBoundaryRevisionMarker(t *testing.T) {
 }
 
 func TestInjectSameRevisionDifferentBoundariesAreIndependent(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	base := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}}
 	first, err := Inject(Input{Call: base, Capsule: e, ExpectedBranchBinding: e.BranchBinding, BoundaryKey: "txn-1"})
@@ -102,13 +106,16 @@ func TestInjectSameRevisionDifferentBoundariesAreIndependent(t *testing.T) {
 }
 
 func TestInjectRejectsWrongBranchAndDigestWithoutMutation(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}}
 	before := lipapi.CloneCall(call)
 
 	wrongBranch := e
 	wrongBranch.BranchBinding, _ = capsule.NewBranchBinding("other", "a", "")
-	wrongBranch.Seal()
+	if err := wrongBranch.Seal(); err != nil {
+		t.Fatal(err)
+	}
 	got, err := Inject(Input{Call: call, Capsule: wrongBranch, ExpectedBranchBinding: e.BranchBinding, BoundaryKey: "txn"})
 	if err == nil || !reflect.DeepEqual(got.Call, call) || got.Applied || got.Marker != (Marker{}) {
 		t.Fatalf("wrong branch did not roll back: got=%+v err=%v", got, err)
@@ -126,6 +133,7 @@ func TestInjectRejectsWrongBranchAndDigestWithoutMutation(t *testing.T) {
 }
 
 func TestInjectPreservesOpaqueAndEncryptedItemsByteForByte(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	opaque := []byte(`{"provider":"opaque","bytes":[1,2,3]}`)
 	call := lipapi.Call{Items: []lipapi.Item{
@@ -148,6 +156,7 @@ func TestInjectPreservesOpaqueAndEncryptedItemsByteForByte(t *testing.T) {
 }
 
 func TestInjectBudgetFailureReturnsExactCallAndNoMarker(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}}
 	got, err := Inject(Input{Call: call, Capsule: e, ExpectedBranchBinding: e.BranchBinding, BoundaryKey: "txn", Limits: ProjectionLimits{MaxBytes: 1, MaxTokens: 1}})
@@ -157,6 +166,7 @@ func TestInjectBudgetFailureReturnsExactCallAndNoMarker(t *testing.T) {
 }
 
 func TestInjectPreservesNonNilEmptyAuthoritySlices(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	itemCall := lipapi.Call{Items: []lipapi.Item{}, PreviousResponseID: "resp-previous"}
 	legacyCall := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}, Instructions: []lipapi.Message{}}
@@ -178,6 +188,7 @@ func TestInjectPreservesNonNilEmptyAuthoritySlices(t *testing.T) {
 }
 
 func TestSerializeBlockIsDeterministicAndDoesNotExposeBindingMetadata(t *testing.T) {
+	t.Parallel()
 	e := testCapsule(t)
 	a, err := SerializeBlock(e, e.BranchBinding, ProjectionLimits{MaxBytes: 16_384, MaxTokens: 4_096})
 	if err != nil {
@@ -196,6 +207,7 @@ func TestSerializeBlockIsDeterministicAndDoesNotExposeBindingMetadata(t *testing
 }
 
 func TestTokenEquivalentUsesConservativeOneByteConvention(t *testing.T) {
+	t.Parallel()
 	const input = "éx"
 	if got, want := TokenEquivalent([]byte(input)), len([]byte(input)); got != want {
 		t.Fatalf("TokenEquivalent(%q) = %d, want conservative byte count %d", input, got, want)

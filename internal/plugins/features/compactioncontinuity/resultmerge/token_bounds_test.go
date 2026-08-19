@@ -9,6 +9,7 @@ import (
 )
 
 func TestServiceEnforcesConfiguredCapsuleTokenBoundAfterMerge(t *testing.T) {
+	t.Parallel()
 	job, background, parent, decoder, base := validFixture(t)
 	decoder.delta.Plan = &capsule.Plan{
 		Status: capsule.PlanAccepted,

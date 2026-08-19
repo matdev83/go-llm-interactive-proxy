@@ -54,6 +54,7 @@ func TestPlaintextAugmentationBoundary_hasNoVerifiedCanonicalCarrier(t *testing.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if _, ok := augmentation.Match(&tt.event); ok {
 				t.Fatal("unverified canonical event matched as mutable plaintext")
 			}
@@ -62,8 +63,10 @@ func TestPlaintextAugmentationBoundary_hasNoVerifiedCanonicalCarrier(t *testing.
 }
 
 func TestPlaintextAugmentationBoundary_preservesOpaqueBytesAndQueuesReinjection(t *testing.T) {
+	t.Parallel()
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "feature-off", true: "feature-on"}[enabled], func(t *testing.T) {
+			t.Parallel()
 			plugin, parent, background := openFixture(t)
 			if !enabled {
 				cfg := plugin.cfg
@@ -135,6 +138,7 @@ func TestPlaintextAugmentationBoundary_preservesOpaqueBytesAndQueuesReinjection(
 }
 
 func TestPlaintextAugmentationBoundary_reusesSameRevisionAtDistinctBoundaries(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	seedPlaintextBoundaryState(t, parent)
 	for i, boundary := range []string{"boundary-1", "boundary-2"} {

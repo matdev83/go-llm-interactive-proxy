@@ -3,6 +3,7 @@ package extractor
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -170,12 +171,7 @@ func activeByConflict(key string, active map[string]capsule.Decision) (capsule.D
 }
 
 func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func validateSourceRef(value string, l Limits, allowed map[string]struct{}) error {

@@ -13,6 +13,7 @@ import (
 )
 
 func TestObservabilityRecorderUsesBoundedContentFreeSeries(t *testing.T) {
+	t.Parallel()
 	recorder := observability.NewRecorder(2)
 	recorder.Observe(observability.Observation{
 		Stage:           observability.StagePreview,
@@ -51,6 +52,7 @@ func TestObservabilityRecorderUsesBoundedContentFreeSeries(t *testing.T) {
 }
 
 func TestPluginObservabilityReportsFailuresWithoutBranchOrContent(t *testing.T) {
+	t.Parallel()
 	var observations []observability.Observation
 	sink := observability.Func(func(sample observability.Observation) {
 		observations = append(observations, sample)
@@ -70,6 +72,7 @@ func TestPluginObservabilityReportsFailuresWithoutBranchOrContent(t *testing.T) 
 }
 
 func TestPluginObservabilityReportsQueueSaturationAndKeepsPrimaryOpenAuthority(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	recorder := observability.NewRecorder(64)
 	plugin.obs = recorder
@@ -86,6 +89,7 @@ func TestPluginObservabilityReportsQueueSaturationAndKeepsPrimaryOpenAuthority(t
 }
 
 func TestPluginObservabilityReportsBarrierTimeoutAndPreservesPendingResult(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	recorder := observability.NewRecorder(64)
 	plugin.obs = recorder
@@ -107,6 +111,7 @@ func TestPluginObservabilityReportsBarrierTimeoutAndPreservesPendingResult(t *te
 }
 
 func TestPluginObservabilityReportsCallbackPanicAsFeatureLocal(t *testing.T) {
+	t.Parallel()
 	parent := &panicCaptureParent{openParentFake: &openParentFake{branch: ParentBranch{Binding: "parent"}}}
 	recorder := observability.NewRecorder(64)
 	plugin, err := NewWithObservability(openConfig(t), parent, recorder)
@@ -122,6 +127,7 @@ func TestPluginObservabilityReportsCallbackPanicAsFeatureLocal(t *testing.T) {
 }
 
 func TestPluginObservabilityReportsRollbackWithoutMutatingPrimaryCall(t *testing.T) {
+	t.Parallel()
 	plugin, parent, background := openFixture(t)
 	recorder := observability.NewRecorder(64)
 	plugin.obs = recorder
@@ -140,6 +146,7 @@ func TestPluginObservabilityReportsRollbackWithoutMutatingPrimaryCall(t *testing
 }
 
 func TestPluginObservabilityReportsInvalidAndStaleResultsAsFailOpen(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		payload string
@@ -149,6 +156,7 @@ func TestPluginObservabilityReportsInvalidAndStaleResultsAsFailOpen(t *testing.T
 		{name: "stale", payload: `{"schema_version":1,"base_revision":999,"facts":[],"plan_updates":[],"decision_updates":[],"remove_or_supersede":[]}`, outcome: observability.OutcomeStale},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			plugin, parent, background := openFixture(t)
 			recorder := observability.NewRecorder(64)
 			plugin.obs = recorder
