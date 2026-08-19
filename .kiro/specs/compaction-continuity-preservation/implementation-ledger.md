@@ -149,3 +149,27 @@ Integrated evidence:
 - Runtimebundle convergence remains within the existing package ceiling; connector/core accounting uses measured-plus-25 caps.
 - Windows race execution remains unavailable because ThreadSanitizer fails allocation with error 87; deterministic count/checkptr/goleak-backed tests are green.
 - PR2 changes 93 paths relative to `feat/compaction-continuity-preservation`, below the 100-path repository limit.
+- Stacked PR [#382](https://github.com/matdev83/go-llm-interactive-proxy/pull/382) is green: repository hygiene, pinned 17-case suite, measured OpenResponses coverage, bridge tests, process-tree checks on Windows/Linux/macOS, platform tests on Windows/Linux/macOS, and full `qa` all passed; the conditional platform-smoke job was skipped by its scope gate.
+
+## Wave 6 — Trusted policy, repeated compaction, reload safety, and operations
+
+Implementation commits:
+
+- `f7e998a8` (`feat(compaction): enforce trusted continuity policy`)
+- `b471a221` (`test(compaction): certify repeated continuity`)
+- `e352c307` (`docs(compaction): document continuity operations`)
+- `c24d0f94` (`test(compaction): certify reload continuity`)
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 5.3 | Complete | Request-local effective policy resolves immutable operator bounds over proxy-owned session-open labels/typed overrides; detached and unauthenticated contexts cannot set egress policy; route/category/limit controls only narrow enabled global policy; source preparation consumes the existing request secret matcher and optional transcript authorization preserves tenant/workspace scope | Feature subtree `-count=3`, policy/adversarial suite, and `go vet` pass; Windows race runner unavailable with ThreadSanitizer allocation error 87 |
+| 5.5 | Complete | Disabled-by-default configuration and operator guide document detector prerequisites, explicit extractor routing, all bounds, successful-Open billing gate, detached/private child semantics, originating-user cost, privacy/egress, opaque fallback, process/reload durability and restart limits | Core config, feature, standard-plugin and runtimebundle tests pass; docs/link/config checks and `git diff --check` pass |
+| 6.1 | Complete | Three successive compactions cover semantic and deterministic facts, validated conflict-key supersession, pending/in-progress/completed plan progression, digest/binding validation, whole-fact pruning, deterministic-only/semantic-only/mixed paths and same-revision reinjection across opaque boundaries | Focused matrix `-count=20`, feature subtree `-count=20`, extractor fuzz, independent focused rerun and diff checks pass |
+| 6.2 | Complete, race runner unavailable | Real scheduler and BranchCoordinator tests retain submit-time runner/route/timeout and captured parent binding across reload, reject child-branch authority and stale merges, preserve explicit correction under either race order, isolate reset/new/fork branches, expire pending state coherently, and prevent disabled generations from submitting | Combined focused packages pass; certification suite `-count=50`; strict checkptr `-count=20`; `go vet` pass; Windows race runner unavailable with ThreadSanitizer allocation error 87 |
+
+Integration review notes:
+
+- Session policy labels are produced by registered proxy-owned session-open extensions and copied into the authoritative secure-session execution view; client session hints and arbitrary canonical metadata are not consulted.
+- The policy resolver carries no branch, account, session, prompt, output, or capsule content, and detached auxiliary contexts cannot recursively apply parent session overrides.
+- Reload certification uses distinct private child A-legs while all continuity mutation remains keyed by the captured parent `BranchKey`.
+- No task checkbox was edited because `tasks.md` contains plan headings rather than completion checkboxes; this ledger remains the completion authority until final merged-main verification.
