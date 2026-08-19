@@ -28,6 +28,7 @@ type Bundle struct {
 	TerminalWork        *TerminalWorkProm
 	Reload              *ReloadProm
 	Keepwarm            *KeepwarmProm
+	GeoIP               *GeoIPProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 }
@@ -50,6 +51,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	tw := RegisterTerminalWorkProm(r)
 	reload := RegisterReloadProm(r)
 	keepwarm := RegisterKeepwarmProm(r)
+	geoip := RegisterGeoIPProm(r)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -64,6 +66,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		TerminalWork:        tw,
 		Reload:              reload,
 		Keepwarm:            keepwarm,
+		GeoIP:               geoip,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 	}

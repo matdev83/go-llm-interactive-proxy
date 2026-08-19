@@ -3,6 +3,7 @@ package stdhttp
 import (
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -10,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
+	geoipingress "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/geoip"
 )
 
 // stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [ComposeStandardHTTP] / generation host).
@@ -56,6 +58,15 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	}
 	if cfg != nil && cfg.Observability.Tracing.Enabled {
 		h = tracing.HTTPMiddleware(true, h)
+	}
+	if sec.GeoIP.Policy != nil {
+		geo := sec.GeoIP
+		h = geoipingress.Middleware(geoipingress.Input{
+			Policy:   geo.Policy,
+			Lookup:   geo.Lookup,
+			Resolver: geoipingress.ResolverConfig{Source: geoipingress.Source(geo.Resolver.Source), TrustedProxies: append([]netip.Prefix(nil), geo.Resolver.TrustedProxies...)},
+			Observer: geo.Observer,
+		}, h)
 	}
 	if in.testOuterWrap != nil {
 		h = in.testOuterWrap(h)

@@ -3,7 +3,57 @@ package config
 // AccessConfig selects deployment access posture (single-user vs multi-user).
 // Empty Mode is normalized to single_user during validation/load.
 type AccessConfig struct {
-	Mode string `yaml:"mode"`
+	Mode  string      `yaml:"mode"`
+	GeoIP GeoIPConfig `yaml:"geoip"`
+}
+
+// GeoIPConfig describes the reloadable request-plane policy and the optional
+// process-owned country database source.
+type GeoIPConfig struct {
+	Enabled  bool              `yaml:"enabled"`
+	Order    string            `yaml:"order"`
+	Allow    GeoIPRuleConfig   `yaml:"allow"`
+	Deny     GeoIPRuleConfig   `yaml:"deny"`
+	ClientIP GeoIPClientConfig `yaml:"client_ip"`
+	Database GeoIPDBConfig     `yaml:"database"`
+}
+
+type GeoIPRuleConfig struct {
+	Countries []string `yaml:"countries"`
+	CIDRs     []string `yaml:"cidrs"`
+}
+
+type ClientIPSource string
+
+const (
+	ClientIPSourceDirect        ClientIPSource = "direct"
+	ClientIPSourceXForwardedFor ClientIPSource = "x_forwarded_for"
+	ClientIPSourceForwarded     ClientIPSource = "forwarded"
+)
+
+type GeoIPClientConfig struct {
+	Source         ClientIPSource `yaml:"source"`
+	TrustedProxies []string       `yaml:"trusted_proxies"`
+}
+
+type GeoIPDatabaseSource string
+
+const (
+	GeoIPDatabaseSourceManaged GeoIPDatabaseSource = "managed"
+	GeoIPDatabaseSourceLocal   GeoIPDatabaseSource = "local"
+)
+
+type GeoIPDBConfig struct {
+	Source    GeoIPDatabaseSource `yaml:"source"`
+	Edition   string              `yaml:"edition"`
+	Directory string              `yaml:"directory"`
+	LocalPath string              `yaml:"local_path"`
+	Update    GeoIPUpdateConfig   `yaml:"update"`
+}
+
+type GeoIPUpdateConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Interval string `yaml:"interval"`
 }
 
 // AuthLocalAPIKeyRecord is one operator-configured API key (secret material belongs

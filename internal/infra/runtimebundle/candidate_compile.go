@@ -59,6 +59,14 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err := validateCandidateManifestOwnership(cfg, opts.PluginRegistry); err != nil {
 		return nil, err
 	}
+	compiledGeoIP, err := config.CompileGeoIP(cfg.Access.GeoIP)
+	if err != nil {
+		return nil, err
+	}
+	if compiledGeoIP.Enabled() && compiledGeoIP.Policy() != nil && compiledGeoIP.Policy().NeedsCountryLookup() &&
+		(ps.GeoIP == nil || !ps.GeoIP.Ready()) {
+		return nil, fmt.Errorf("runtimebundle: GeoIP country lookup is not ready")
+	}
 
 	if err := ClassifyFeatureLifecycles(opts.FeatureLifecycles); err != nil {
 		return nil, err
@@ -217,6 +225,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			secureSessionStore: execRun.SecureSessionStore,
 			authEvents:         sec.AuthEvents,
 			runtimeSnapshot:    ext.Snap,
+			geoip:              compiledGeoIP,
 		},
 		models: candidateModelGroup{
 			catalog:         execRun.CatalogRuntime,
@@ -252,6 +261,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			meteringQuerier:       ps.MeteringQuerier,
 			keepwarmPolicy:        ps.KeepwarmPolicy,
 			keepwarmRegistry:      ps.KeepwarmRegistry,
+			geoip:                 ps.GeoIP,
 		},
 		ledger:            ledger,
 		terminalWorkReady: twReady,

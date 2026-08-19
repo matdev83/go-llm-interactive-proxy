@@ -63,7 +63,7 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	}
 	restart := func(path string) { blocked = append(blocked, path) }
 
-	classifyAccess(active, candidate, restart)
+	classifyAccess(active, candidate, reload, restart)
 	classifyLogging(active, candidate, restart)
 	classifyDiagnostics(active, candidate, restart)
 	classifyObservability(active, candidate, restart)
@@ -118,10 +118,33 @@ func ClassifyEffective(active, candidate *config.EffectiveConfig) ([]SafeChange,
 	return Classify(active.Config, candidate.Config)
 }
 
-func classifyAccess(active, candidate *config.Config, restart noteFn) {
+func classifyAccess(active, candidate *config.Config, reload, restart noteFn) {
 	if active.Access.Mode != candidate.Access.Mode {
 		restart("access")
 	}
+	classifyGeoIP(active, candidate, restart, reload)
+}
+
+func classifyGeoIP(active, candidate *config.Config, restart, reload noteFn) {
+	a, c := active.Access.GeoIP, candidate.Access.GeoIP
+	if a.Enabled != c.Enabled {
+		reload("access.geoip.enabled")
+	}
+	diffStr(reload, "access.geoip.order", a.Order, c.Order)
+	diffStrSlice(reload, "access.geoip.allow.countries", a.Allow.Countries, c.Allow.Countries)
+	diffStrSlice(reload, "access.geoip.allow.cidrs", a.Allow.CIDRs, c.Allow.CIDRs)
+	diffStrSlice(reload, "access.geoip.deny.countries", a.Deny.Countries, c.Deny.Countries)
+	diffStrSlice(reload, "access.geoip.deny.cidrs", a.Deny.CIDRs, c.Deny.CIDRs)
+	diffStr(reload, "access.geoip.client_ip.source", string(a.ClientIP.Source), string(c.ClientIP.Source))
+	diffStrSlice(reload, "access.geoip.client_ip.trusted_proxies", a.ClientIP.TrustedProxies, c.ClientIP.TrustedProxies)
+	diffStr(restart, "access.geoip.database.source", string(a.Database.Source), string(c.Database.Source))
+	diffStr(restart, "access.geoip.database.edition", a.Database.Edition, c.Database.Edition)
+	diffStr(restart, "access.geoip.database.directory", a.Database.Directory, c.Database.Directory)
+	diffStr(restart, "access.geoip.database.local_path", a.Database.LocalPath, c.Database.LocalPath)
+	if a.Database.Update.Enabled != c.Database.Update.Enabled {
+		restart("access.geoip.database.update.enabled")
+	}
+	diffStr(restart, "access.geoip.database.update.interval", a.Database.Update.Interval, c.Database.Update.Interval)
 }
 
 func classifyLogging(active, candidate *config.Config, restart noteFn) {

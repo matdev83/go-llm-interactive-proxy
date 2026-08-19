@@ -27,6 +27,11 @@ const AtomicOwnedResourceLifecycleOverlayMax = 92
 // additions for this feature independently from the legacy convergence delta.
 const KeepwarmOrchestrationOverlayMax = 650
 
+// GeoIPIngressOverlayMax ratchets the early GeoIP ingress policy, resolver,
+// process composition, and middleware-boundary additions independently from
+// the historical convergence delta.
+const GeoIPIngressOverlayMax = 700
+
 // BackendResourcePoolOverlayMax is the measured backend-connector-resource-
 // reconciliation overlay for the private resource-pool implementation. Keep
 // 25 lines of ratchet headroom over the measured 356-line overlay.
@@ -67,6 +72,12 @@ var backendResourcePoolOverlayPathMarkers = []string{
 	"/backend_resource_pool.go",
 }
 
+var geoIPIngressOverlayPathMarkers = []string{
+	"/stdhttp/geoip/",
+	"/runtimebundle/geoip_process.go",
+	"/stdhttp/middleware.go",
+}
+
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
 // production files are selected by path and ratcheted separately from the legacy
 // Req 11.5 convergence delta.
@@ -84,6 +95,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Atomic owned resource lifecycle", max: AtomicOwnedResourceLifecycleOverlayMax, markers: atomicOwnedResourceLifecycleOverlayPathMarkers},
 	{name: "Keep-warm orchestration", max: KeepwarmOrchestrationOverlayMax, markers: keepwarmOrchestrationOverlayPathMarkers},
 	{name: "Backend resource pool", max: BackendResourcePoolOverlayMax, markers: backendResourcePoolOverlayPathMarkers},
+	{name: "GeoIP ingress", max: GeoIPIngressOverlayMax, markers: geoIPIngressOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.
