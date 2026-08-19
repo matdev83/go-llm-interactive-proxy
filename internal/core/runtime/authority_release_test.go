@@ -110,14 +110,12 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:    &attemptBudget{max: 3, used: 0},
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      initialCand,
-		authority: testAuthorityLifecycle(ex, initialAuthority, initialCand),
+		budget:   &attemptBudget{max: 3, used: 0},
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		rng:      routing.NewSeededRng(1),
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, initialCand, testAuthorityLifecycle(ex, initialAuthority, initialCand)),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11, Currency: "USD"},
 		},
@@ -149,7 +147,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if release.OutputCommitted {
 		t.Fatal("expected losing release to record outputCommitted=false")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=true after failed partial settle losing-release so later handlers cannot double-release")
 	}
 
@@ -165,10 +163,10 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if auth.releaseCalls.Load() != 1 {
 		t.Fatalf("release calls = %d, want 1 (prior already released; replacement must not double-release)", auth.releaseCalls.Load())
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=false after replacement reset to a fresh reservation")
 	}
 }
@@ -194,12 +192,10 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 			traceID:  "trace-ttft",
 			aLegID:   "a-leg-ttft",
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 
@@ -238,7 +234,7 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	if settle.OutputCommitted {
 		t.Fatal("expected global TTFT losing settle to record outputCommitted=false")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=true after global TTFT timeout losing-settle so later handlers cannot double-settle")
 	}
 }
@@ -289,14 +285,12 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:    &attemptBudget{max: 3, used: 0},
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority: testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
+		budget:   &attemptBudget{max: 3, used: 0},
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		rng:      routing.NewSeededRng(1),
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 	}
 
 	opened, err := rs.tryReplacementIteration(context.Background())
@@ -319,10 +313,10 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if settle.Kind != authorityapp.SettlementKindSwallowed {
 		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
 	}
 }
@@ -373,14 +367,12 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:    &attemptBudget{max: 3, used: 0},
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority: testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
+		budget:   &attemptBudget{max: 3, used: 0},
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		rng:      routing.NewSeededRng(1),
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 	}
 
 	recvErr := &lipapi.UpstreamFailureError{
@@ -398,7 +390,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls after swallowed recv = %d, want 0", auth.settleCalls.Load())
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to remain false after swallowed recv failure")
 	}
 
@@ -422,10 +414,10 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if settle.Kind != authorityapp.SettlementKindSwallowed {
 		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
 	}
 }
@@ -486,9 +478,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},
 		rng:        routing.NewSeededRng(1),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:       routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority:  testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 

@@ -64,9 +64,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 				traceID:  "trace-recover-drain-leak",
 				aLegID:   aLegID,
 			}),
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs
@@ -93,7 +91,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}
@@ -184,12 +182,10 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 			traceID:  "trace-idle-finish-leak",
 			aLegID:   aLegID,
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -266,7 +262,7 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	if rel.ReservationID != reservationID {
 		t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 	}
 }

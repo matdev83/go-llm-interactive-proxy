@@ -128,12 +128,13 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 	if s == nil || s.executor == nil || s.executor.Detector == nil {
 		return dispatch
 	}
+	attempt := s.attempt.require()
 	observers := s.executor.compactionObservers()
 	meta := compactiondetect.ResponseMeta{
 		TraceID:    s.facts.traceID,
 		ALegID:     s.facts.aLegID,
-		BLegID:     s.bleg.BLegID,
-		AttemptSeq: s.bleg.Seq,
+		BLegID:     attempt.bleg.BLegID,
+		AttemptSeq: attempt.bleg.Seq,
 		SessionID:  s.facts.baseline.Session.AuthoritativeSessionID,
 	}
 	preview := safeCompactionPreviewResponse(s.executor.Detector, meta, *ev)

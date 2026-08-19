@@ -82,9 +82,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				traceID:  "trace-centralized",
 				aLegID:   aLegID,
 			}),
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs
@@ -129,7 +127,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}
@@ -145,7 +143,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (successful final settle must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	}
@@ -369,9 +367,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 				traceID:  "trace-centralized-idle",
 				aLegID:   aLegID,
 			}),
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 			seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hello"}},
 			recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 				Enabled:     true,
@@ -492,7 +488,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 1 {
 			t.Fatalf("release calls = %d, want 1 (idempotent: re-queued finish must not double-release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after the centralized finalization")
 		}
 	})

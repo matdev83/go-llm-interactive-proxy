@@ -298,7 +298,7 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	}
 	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-par",
-	}), bleg: out.bleg}
+	}), attempt: testAttemptSlot(out.bleg, out.cand, life)}
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if att.settleCalls.Load() != 2 {
@@ -375,16 +375,14 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 			traceID:  "trace-no-retry",
 		}),
 		budget:     p.budget,
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		attempt:    testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand)),
 		sel:        mustParseSelector(t, "backend-1:model-1|backend-2:model-2"),
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},
 		rng:        routing.NewSeededRng(1),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
-	rs.storeInner(out.stream)
+	testStoreInner(rs, out.stream)
 
 	var lastErr error
 	for range 8 {
@@ -433,16 +431,14 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 			traceID:  "trace-cancel",
 		}),
 		budget:     p.budget,
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		attempt:    testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand)),
 		sel:        mustParseSelector(t, "backend-1:model-1"),
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},
 		rng:        routing.NewSeededRng(1),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
-	rs.storeInner(out.stream)
+	testStoreInner(rs, out.stream)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -465,7 +461,7 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	if req.releaseCalls.Load() != 1 {
 		t.Fatalf("customer ReleaseRequest=%d want 1 (pre-output cancel terminal)", req.releaseCalls.Load())
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("attempt authority must be terminal after cancel Recv")
 	}
 }
@@ -767,9 +763,7 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 			traceID:  "trace-comp",
 		}),
 		budget:     p.budget,
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		attempt:    testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand)),
 		sel:        mustParseSelector(t, "backend-1:model-1"),
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},
@@ -777,7 +771,7 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		customer:   newCustomerEvidenceAccumulator(),
 	}
-	rs.storeInner(out.stream)
+	testStoreInner(rs, out.stream)
 	for {
 		_, rerr := rs.Recv(ctx)
 		if rerr != nil {

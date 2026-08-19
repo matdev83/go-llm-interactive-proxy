@@ -46,12 +46,10 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 			traceID:  "trace-eof-recovery",
 			aLegID:   "a-leg-eof-recovery",
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -145,12 +143,10 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 			traceID:  "trace-idle-finish",
 			aLegID:   aLegID,
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -218,7 +214,7 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after recovery finish")
 	}
 	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
@@ -247,14 +243,12 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 			traceID:  "trace-close",
 			aLegID:   aLegID,
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 	}
-	rs.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
+	testStoreInner(rs, lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
 
 	if err := rs.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -269,7 +263,7 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	if !got.ClientCanceled {
 		t.Fatal("expected client canceled settlement")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after Close")
 	}
 }
@@ -296,12 +290,10 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 			traceID:  "trace-eof-failure",
 			aLegID:   "a-leg-eof-failure",
 		}),
-		bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand: authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
+		}, authorityCandidate())),
 		seenEvents:    []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
 		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start),
 		accounting:    newAttemptAccountingTracker(start),
@@ -347,12 +339,10 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
-			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
@@ -397,12 +387,10 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-partial"},
 			}),
-			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(8),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 			seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
 		}
 		rs.recordPartialTokenAccounting(context.Background(), "partial", errors.New("stream dropped"))
@@ -427,7 +415,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (already-settled reservation must not be released)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled to remain true after cancellation billing on an already-settled reservation")
 		}
 	})
@@ -452,12 +440,10 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
-			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
@@ -485,7 +471,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		if settle.EstimatedUsage.Value != 7 {
 			t.Fatalf("estimated usage = %d, want 7", settle.EstimatedUsage.Value)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	})
@@ -510,12 +496,10 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			facts: testRecvTurnFacts(recvTurnFacts{
 				baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
 			}),
-			bleg: b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
 		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
@@ -537,7 +521,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		if settle.ReservationID != "reservation-authority-only" {
 			t.Fatalf("settle reservation ID = %q, want reservation-authority-only", settle.ReservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	})

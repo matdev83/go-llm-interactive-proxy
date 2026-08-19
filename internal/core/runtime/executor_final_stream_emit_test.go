@@ -113,9 +113,7 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 			traceID:  "trace-emit",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -363,8 +361,7 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 			traceID: "t1",
 			aLegID:  "a1",
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand: authorityCandidate(),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, authorityCandidate(), authorityLifecycle{}),
 	}
 	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: orig.Clone()})
 	meta := rs.streamObserverMeta(ctx)
@@ -526,9 +523,7 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 			traceID:  "trace-race",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -626,9 +621,7 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 			traceID:  "trace-cycle-open",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -678,9 +671,7 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 			traceID:  "trace-cycle-post",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -721,9 +712,7 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 			traceID:  "trace-obs-fail",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
@@ -775,9 +764,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			traceID:  "trace-idle-warn",
 			aLegID:   aLegID,
 		}),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-idle-warn", Seq: 1},
-		cand:      authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-idle-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
@@ -839,9 +826,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			traceID:  "trace-eof-warn",
 			aLegID:   aLegID2,
 		}),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-eof-warn", Seq: 1},
-		cand:      authorityCandidate(),
-		authority: testAuthorityLifecycle(ex2, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-eof-warn", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex2, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},

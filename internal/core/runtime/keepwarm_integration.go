@@ -57,14 +57,15 @@ func (s *retryRecvStream) commitSuccessfulTurn() {
 		if len(observations) == 0 {
 			return
 		}
+		attempt := s.attempt.require()
 		s.executor.Keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
 			ALegID:              s.facts.aLegID,
-			BLegID:              s.bleg.BLegID,
+			BLegID:              attempt.bleg.BLegID,
 			CommittedSuccessful: s.isCommitted(),
 			ToolEvents:          s.committedToolEventsSnapshot(),
 			Observations:        observations,
-			BackendInstanceID:   s.cand.Primary.Backend,
-			CanonicalModelID:    s.cand.Primary.Model,
+			BackendInstanceID:   attempt.cand.Primary.Backend,
+			CanonicalModelID:    attempt.cand.Primary.Model,
 			Controller:          s.promptCacheController,
 		})
 	})

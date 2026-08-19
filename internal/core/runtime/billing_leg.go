@@ -108,9 +108,10 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	if s == nil || s.executor == nil || !s.executor.billingEnabled() {
 		return
 	}
-	blegID := strings.TrimSpace(s.bleg.BLegID)
+	attempt := s.attempt.require()
+	blegID := strings.TrimSpace(attempt.bleg.BLegID)
 	if blegID == "" {
-		blegID = billingSyntheticBLegID(s.bleg.Seq)
+		blegID = billingSyntheticBLegID(attempt.bleg.Seq)
 	}
 	s.billingLegMu.Lock()
 	if s.billingLegRecorded == nil {
@@ -122,8 +123,8 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	}
 	s.billingLegRecorded[blegID] = struct{}{}
 	s.billingLegMu.Unlock()
-	if s.bleg.Seq > 0 {
-		s.facts.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
+	if attempt.bleg.Seq > 0 {
+		s.facts.billingCallState.noteAllocatedBLeg(blegID, attempt.bleg.Seq)
 	}
 	now := s.now()
 	started := s.accounting.requestStartedAt
@@ -139,16 +140,16 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          s.facts.billingCallID,
 		aLegID:          s.facts.aLegID,
-		bLegID:          s.bleg.BLegID,
-		seq:             s.bleg.Seq,
-		primary:         s.cand.Primary,
+		bLegID:          attempt.bleg.BLegID,
+		seq:             attempt.bleg.Seq,
+		primary:         attempt.cand.Primary,
 		startedAt:       started,
 		finishedAt:      now,
 		command:         command,
 		surfaced:        surfaced,
 		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
 		stream:          streamEv,
-		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
+		operatorRateRef: s.executor.operatorRateRef(ctx, attempt.cand.Primary),
 		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.facts.aLegID),
 	})
 	s.executor.observeBillingLeg(ctx, legRecord)
@@ -160,12 +161,13 @@ func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason st
 	if s == nil || s.executor == nil {
 		return fallback
 	}
+	attempt := s.attempt.require()
 	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.facts.traceID),
 		ALegID:  strings.TrimSpace(s.facts.aLegID),
-		BLegID:  strings.TrimSpace(s.bleg.BLegID),
-		Backend: strings.TrimSpace(s.cand.Primary.Backend),
-		Model:   strings.TrimSpace(s.cand.Primary.Model),
+		BLegID:  strings.TrimSpace(attempt.bleg.BLegID),
+		Backend: strings.TrimSpace(attempt.cand.Primary.Backend),
+		Model:   strings.TrimSpace(attempt.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
 	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
 		return s.executor.callFinalizeBilling(cctx, in)

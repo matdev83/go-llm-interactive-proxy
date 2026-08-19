@@ -20,15 +20,15 @@ import (
 )
 
 // TestInterleavedAbortExecutorHandoff_ReleasesExecutorLegAuthority reproduces L1b: the L1
-// fix populated exec.authority on the retryRecvStream returned by
+// fix populated the executor attemptSession on the retryRecvStream returned by
 // openInterleavedExecutorContinuation, which correctly handles the normal Recv-to-EOF and
 // error paths but exposed a leak on the abort path. In beginExecutorContinuation, when
-// handoffAborted returns non-nil AFTER the executor open succeeded (so exec.authority is
+// handoffAborted returns non-nil AFTER the executor open succeeded (so executor authority is
 // reserved) but BEFORE the first Recv, abortExecutorHandoff is invoked while s.executor is
 // still nil (it is only assigned on the success path), so the normal
 // closeActiveInner/finishWithCleanup executor cleanup never runs for this exec stream.
 // abortExecutorHandoff closed the inner and marked the stream finished but never released
-// exec.authority, leaking the freshly admitted executor-leg reservation.
+// exec attempt authority, leaking the freshly admitted executor-leg reservation.
 //
 // This stages that exact window: the executor open succeeds and reserves
 // "reservation-executor-abort", then handoffAborted returns io.EOF (the combined stream is
@@ -57,7 +57,7 @@ func TestInterleavedAbortExecutorHandoff_ReleasesExecutorLegAuthority(t *testing
 	s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})
 
 	// Mark the combined stream finished so handoffAborted returns io.EOF AFTER the
-	// executor open succeeds (populating exec.authority) but BEFORE the first Recv,
+	// executor open succeeds (populating the executor attemptSession) but BEFORE the first Recv,
 	// routing beginExecutorContinuation into the abort branch. s.executor is still nil
 	// at this point, so the normal executor cleanup path cannot release the reservation.
 	s.mu.Lock()
@@ -99,12 +99,12 @@ func TestInterleavedThinkerError_FinalizesAuthority(t *testing.T) {
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 	from.isInterleavedThinker = true
-	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
-	}, from.cand)
+	}, testAttemptSession(from).cand)
 
-	from.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{
+	testStoreInner(from, lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventError, ErrorCode: "thinker_failed", ErrorMessage: "thinker-failed"},
 	}))
 
@@ -135,13 +135,13 @@ func TestInterleavedThinkerEOF_Truncated_NoContinuation(t *testing.T) {
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 	from.isInterleavedThinker = true
-	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
-	}, from.cand)
+	}, testAttemptSession(from).cand)
 
 	// Truncated thinker EOF: no response_finished, so tokenAccountingFinalized stays false.
-	from.storeInner(lipapi.NewFixedEventStream(nil))
+	testStoreInner(from, lipapi.NewFixedEventStream(nil))
 
 	s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})
 
@@ -182,11 +182,11 @@ func TestInterleavedThinkerCancel_FinalizesAuthority(t *testing.T) {
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 	from.isInterleavedThinker = true
-	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
-	}, from.cand)
-	from.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{
+	}, testAttemptSession(from).cand)
+	testStoreInner(from, lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 	}))
 
@@ -213,7 +213,7 @@ func TestInterleavedThinkerResponseFinished_OpensContinuation(t *testing.T) {
 	}
 	ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
 	from.isInterleavedThinker = true
-	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(5),
 		admissionResult: authorityapp.AdmissionResult{
 			Allowed:        true,
@@ -222,8 +222,8 @@ func TestInterleavedThinkerResponseFinished_OpensContinuation(t *testing.T) {
 			ReservedAmount: authorityInputAmount(5),
 			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
 		},
-	}, from.cand)
-	from.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{
+	}, testAttemptSession(from).cand)
+	testStoreInner(from, lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseFinished},
 	}))
 
@@ -334,7 +334,7 @@ func setupInterleavedAssignedExecutorGate(t *testing.T) (
 	from = stampStreamIdentity(from)
 	from.isInterleavedThinker = true
 	from.ensureTerminals()
-	from.authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+	testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
 		admissionInput: testAuthorityAdmissionInput(5),
 		admissionResult: authorityapp.AdmissionResult{
 			Allowed:        true,
@@ -343,8 +343,8 @@ func setupInterleavedAssignedExecutorGate(t *testing.T) (
 			ReservedAmount: authorityInputAmount(5),
 			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
 		},
-	}, from.cand)
-	from.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{
+	}, testAttemptSession(from).cand)
+	testStoreInner(from, lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseFinished},
 	}))
 
@@ -382,8 +382,8 @@ func waitAssignedExecutorRecv(t *testing.T, s *interleavedContinuationStream, en
 	if s.executor == nil {
 		t.Fatal("executor continuation must be assigned before first Recv")
 	}
-	thinkerID = s.thinker.bleg.BLegID
-	execID = s.executor.bleg.BLegID
+	thinkerID = testAttemptSession(s.thinker).bleg.BLegID
+	execID = testAttemptSession(s.executor).bleg.BLegID
 	if thinkerID == "" || execID == "" {
 		t.Fatalf("missing B-leg IDs thinker=%q executor=%q", thinkerID, execID)
 	}

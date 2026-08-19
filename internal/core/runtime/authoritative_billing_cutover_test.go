@@ -38,11 +38,10 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 			aLegID:   aLegID,
 			traceID:  "trace-authoritative-success",
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:       authorityCandidate(),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
@@ -58,7 +57,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("attempt authority settle calls = %d, want 1 on authoritative success finish", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("authoritative success finish left attempt authority unsettled")
 	}
 	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
@@ -92,11 +91,10 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 			aLegID:   aLegID,
 			traceID:  "trace-authoritative-protocol",
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:       authorityCandidate(),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
@@ -115,7 +113,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("attempt authority settle calls = %d, want 1", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("authoritative protocol-usage finish left attempt authority unsettled")
 	}
 }
@@ -137,9 +135,9 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID: aLegID,
 		}),
-		cand: authorityCandidate(),
+		attempt: testAttemptSlot(b2bua.BLegRecord{}, authorityCandidate(), authorityLifecycle{}),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
@@ -148,7 +146,7 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("non-money authority settle calls = %d, want 1", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("non-money authority lifecycle was not finalized")
 	}
 }

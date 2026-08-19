@@ -86,15 +86,13 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 			traceID:  "trace-recv-close",
 			aLegID:   aLegID,
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-recv-close", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, state, cand),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-close", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		seenEvents: []lipapi.Event{{
 			Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5,
 		}},
 	}
-	rs.storeInner(&blockUntilCancelStream{entered: entered})
+	testStoreInner(rs, &blockUntilCancelStream{entered: entered})
 	rs.markCommitted()
 	rs.ensureTerminals()
 

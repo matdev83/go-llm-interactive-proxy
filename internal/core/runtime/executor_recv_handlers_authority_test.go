@@ -56,9 +56,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 				traceID:  "trace-recv",
 				aLegID:   aLegID,
 			}),
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		return ex, rs
@@ -78,7 +76,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (success-event failures settle partial usage)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after authority cleanup")
 		}
 	}
@@ -170,7 +168,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after gated recorder failure")
 		}
 	})
@@ -201,7 +199,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (non-gated recorder failure must settle authority, not leak)", auth.settleCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after non-gated recorder failure")
 		}
 	})
@@ -239,7 +237,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (must not double-settle when finalizeTokenAccounting already settled)", auth.settleCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("authoritySettled should remain true after the recorder failure")
 		}
 	})

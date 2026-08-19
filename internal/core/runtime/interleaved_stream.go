@@ -350,14 +350,17 @@ func (s *interleavedContinuationStream) closeThinkerInner(ctx context.Context) {
 	}
 	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 	defer cleanupCancel()
-	if inner := s.thinker.takeAndNilInner(); inner != nil {
-		s.thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-			Kind:   lipapi.CancelContextDone,
-			Detail: "interleaved thinker handoff",
-		})
+	thinkerAttempt := s.thinker.attempt.snapshot()
+	if thinkerAttempt != nil {
+		if inner := thinkerAttempt.takeInner(); inner != nil {
+			s.thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+				Kind:   lipapi.CancelContextDone,
+				Detail: "interleaved thinker handoff",
+			})
+		}
 	}
-	if s.thinker.aScope != nil && s.thinker.bleg.BLegID != "" {
-		s.thinker.aScope.ReleaseBLeg(s.thinker.bleg.BLegID)
+	if thinkerAttempt != nil && s.thinker.aScope != nil && thinkerAttempt.bleg.BLegID != "" {
+		s.thinker.aScope.ReleaseBLeg(thinkerAttempt.bleg.BLegID)
 	}
 }
 
@@ -372,32 +375,41 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 	defer cleanupCancel()
 
 	if phase == interleavedPhaseExecutor && executor != nil {
-		if inner := executor.takeAndNilInner(); inner != nil {
-			executor.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-				Kind:   lipapi.CancelContextDone,
-				Detail: "interleaved executor finished",
-			})
+		if executorAttempt := executor.attempt.snapshot(); executorAttempt != nil {
+			if inner := executorAttempt.takeInner(); inner != nil {
+				executor.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+					Kind:   lipapi.CancelContextDone,
+					Detail: "interleaved executor finished",
+				})
+			}
 		}
 		return
 	}
 	if thinker != nil {
-		if inner := thinker.takeAndNilInner(); inner != nil {
-			thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-				Kind:   lipapi.CancelContextDone,
-				Detail: "interleaved thinker finished",
-			})
+		thinkerAttempt := thinker.attempt.snapshot()
+		if thinkerAttempt != nil {
+			if inner := thinkerAttempt.takeInner(); inner != nil {
+				thinker.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
+					Kind:   lipapi.CancelContextDone,
+					Detail: "interleaved thinker finished",
+				})
+			}
 		}
-		if thinker.aScope != nil && thinker.bleg.BLegID != "" {
-			thinker.aScope.ReleaseBLeg(thinker.bleg.BLegID)
+		if thinkerAttempt != nil && thinker.aScope != nil && thinkerAttempt.bleg.BLegID != "" {
+			thinker.aScope.ReleaseBLeg(thinkerAttempt.bleg.BLegID)
 		}
 	}
 }
 
 func (s *interleavedContinuationStream) finalizeThinkerAuthority(ctx context.Context, kind authorityapp.ReleaseKind) {
-	if s == nil || s.thinker == nil || s.thinker.authority.Settled() {
+	if s == nil || s.thinker == nil {
 		return
 	}
-	s.thinker.authority.finalizeIncurredOrRelease(ctx, kind, s.thinker.operatorUsageForFinalize())
+	attempt := s.thinker.attempt.snapshot()
+	if attempt == nil || attempt.authority.Settled() {
+		return
+	}
+	attempt.authority.finalizeIncurredOrRelease(ctx, kind, s.thinker.operatorUsageForFinalize())
 }
 
 func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
@@ -439,7 +451,8 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 	defer cleanupCancel()
 	if exec != nil {
-		if inner := exec.takeAndNilInner(); inner != nil {
+		execAttempt := exec.attempt.require()
+		if inner := execAttempt.takeInner(); inner != nil {
 			exec.cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
 				Kind:   lipapi.CancelContextDone,
 				Detail: "interleaved executor handoff aborted",
@@ -452,14 +465,14 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		// exec.authority would otherwise leak. Incurred work settles; never-opened
 		// admissions release. Mirrors sibling L1/L8 sites with ReleaseKindSwallowed
 		// posture since the aborted attempt produced no client-facing output.
-		exec.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
+		execAttempt.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
 
 		// Record the continuation B-leg terminal row:
 		started := exec.accounting.requestStartedAt
 		if started.IsZero() {
 			started = exec.now()
 		}
-		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, exec.bleg, exec.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
+		exec.executor.appendIndependentTerminalLeg(cleanupCtx, exec.facts.billingCallState, exec.facts.aLegID, execAttempt.bleg, execAttempt.cand.Primary, started, exec.now(), billing.LegOutcomeCanceled)
 
 		exec.markFinished()
 	}
@@ -582,8 +595,10 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 		if active.aScope != nil {
 			_ = active.aScope.Cancel(ctx, cause)
 			res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
-		} else if inner := active.loadInner(); inner != nil {
-			res = inner.Cancel(ctx, cause)
+		} else if activeAttempt := active.attempt.snapshot(); activeAttempt != nil {
+			if inner := activeAttempt.loadInner(); inner != nil {
+				res = inner.Cancel(ctx, cause)
+			}
 		}
 	}
 

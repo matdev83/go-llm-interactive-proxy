@@ -3,9 +3,34 @@ package runtime
 import (
 	"context"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+func testAttemptSlot(bleg b2bua.BLegRecord, cand routing.AttemptCandidate, authority authorityLifecycle) attemptSlot {
+	return attemptSlot{current: newAttemptSession(attemptSessionInput{bleg: bleg, cand: cand, authority: authority})}
+}
+
+// testAttemptSession installs a complete default fixture for direct retry-stream
+// tests. Production assembly and replacement install complete sessions before
+// exposing a stream, so production code never creates a partial attempt.
+func testAttemptSession(s *retryRecvStream) *attemptSession {
+	if s == nil {
+		return nil
+	}
+	if attempt := s.attempt.snapshot(); attempt != nil {
+		return attempt
+	}
+	attempt := newAttemptSession(attemptSessionInput{})
+	s.attempt.install(attempt)
+	return attempt
+}
+
+func testStoreInner(s *retryRecvStream, inner lipapi.ManagedEventStream) {
+	testAttemptSession(s).storeInner(inner)
+}
 
 type exposureAdmissionFunc func(context.Context, BillingExposureAdmissionInput) (billing.CallExposure, error)
 

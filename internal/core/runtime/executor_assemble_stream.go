@@ -46,9 +46,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		session:               plan.session,
 		excluded:              plan.excluded,
 		rng:                   plan.rng,
-		bleg:                  out.bleg,
-		cand:                  out.cand,
-		authority:             e.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		attempt:               attemptSlot{},
 		affinityKey:           plan.affinityKey,
 		affinitySet:           plan.affinitySet,
 		customer:              newCustomerEvidenceAccumulator(),
@@ -58,11 +56,10 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		interleaved:           out.interleaved,
 		toolFinal:             newToolCallAssembler(fs, maxArgs, prep.baseline.Tools),
 		requestTerm:           newStreamTerminal(sdkterminal.ScopeRequest),
-		attemptTerm:           newStreamTerminal(sdkterminal.ScopeAttempt),
 		promptCacheSource:     promptCacheObservationSource(out.stream),
 		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
 	}
-	rs.storeInner(out.stream)
+	rs.attempt.install(newAttemptSession(attemptSessionInput{inner: out.stream, bleg: out.bleg, cand: out.cand, authority: e.newAttemptAuthorityLifecycle(out.authority, out.cand)}))
 	rs.consumeBackendUsageEvidence(ctx, out.stream)
 	if err := rs.openFinalStreamObservation(ctx); err != nil {
 		if out.stream != nil {

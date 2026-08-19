@@ -33,6 +33,7 @@ func (s *retryRecvStream) beforeEmitClientFacing(ctx context.Context, ev lipapi.
 }
 
 func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.StreamEventRecordInput {
+	attempt := s.attempt.require()
 	st := s.facts.secureTurn
 	now := s.executor.now()
 	in := app.StreamEventRecordInput{
@@ -40,8 +41,8 @@ func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.Stream
 		TraceID:   strings.TrimSpace(s.facts.traceID),
 		SessionID: st.SessionID,
 		TurnID:    st.TurnID,
-		BLegID:    strings.TrimSpace(s.bleg.BLegID),
-		BackendID: strings.TrimSpace(s.cand.Primary.Backend),
+		BLegID:    strings.TrimSpace(attempt.bleg.BLegID),
+		BackendID: strings.TrimSpace(attempt.cand.Primary.Backend),
 		Policy:    st.Policy,
 		EventKind: string(ev.Kind),
 	}

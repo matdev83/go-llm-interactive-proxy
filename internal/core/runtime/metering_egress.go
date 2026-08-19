@@ -107,7 +107,7 @@ func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, out
 	if s == nil || s.executor == nil {
 		return
 	}
-	s.executor.emitBackendEgressMeteringFact(ctx, s.bleg.BLegID, outcome, surfaced, usageEv)
+	s.executor.emitBackendEgressMeteringFact(ctx, s.attempt.require().bleg.BLegID, outcome, surfaced, usageEv)
 }
 
 func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) (metering.Fact, bool) {

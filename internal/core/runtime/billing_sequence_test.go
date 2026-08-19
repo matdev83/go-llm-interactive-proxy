@@ -109,8 +109,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 			billingCallID:    callID,
 			billingCallState: state,
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5},
-		cand: routing.AttemptCandidate{Primary: primary("backend", "model")},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
 	stream.recordBillingLeg(ctx, sdkterminal.CommandNormalFinish)
 
@@ -133,8 +132,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 			billingCallID:    callID,
 			billingCallState: state,
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7},
-		cand: routing.AttemptCandidate{Primary: primary("backend", "model")},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
 	swallowed.recordBillingLeg(ctx, sdkterminal.CommandSwallowedAttempt)
 

@@ -131,9 +131,7 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-op-usage",
 		}),
-		bleg:               b2bua.BLegRecord{BLegID: "b-leg-op", Seq: 1},
-		cand:               cand,
-		authority:          testAuthorityLifecycle(ex, state, cand),
+		attempt:            testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-op", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand)),
 		lastAuthorityUsage: authoritative,
 		seenEvents:         []lipapi.Event{estimate},
 	}

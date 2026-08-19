@@ -193,10 +193,9 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:     routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary},
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
 	}
-	s.storeInner(stream)
+	testStoreInner(s, stream)
 	ev, err := s.Recv(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -253,13 +252,12 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 		sel:      sel,
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand: routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "slow:m",
 			Primary: routing.Primary{Backend: "slow", Model: "m", TTFTTimeout: &leaf},
-		},
+		}, authorityLifecycle{}),
 	}
-	s.storeInner(stream)
+	testStoreInner(s, stream)
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	_, err = s.Recv(ctx)

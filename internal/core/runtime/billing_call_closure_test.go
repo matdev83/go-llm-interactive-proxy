@@ -47,8 +47,8 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 		billingCallID: callID,
 		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
 	}),
-		bleg: b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}}
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
+	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
@@ -77,8 +77,7 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-shared", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-shared", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
 	state := stream.facts.billingCallState
@@ -124,8 +123,7 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 			aLegID:   "a-1",
 			baseline: lipapi.Call{},
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
@@ -149,8 +147,7 @@ func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-a"}},
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
@@ -177,8 +174,7 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-win", ALegID: "a-1", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-win", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
 	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
@@ -217,8 +213,7 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 					billingCallID: callID,
 					baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 				}),
-				bleg: b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-				cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+				attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 			}
 			stream = stampStreamIdentity(stream)
 			result := stream.runStreamTerminal(context.Background(), command, nil)
@@ -279,8 +274,7 @@ func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *te
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 		}),
-		bleg:                        b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1},
-		cand:                        routing.AttemptCandidate{Key: "cand-1", Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt:                     testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Key: "cand-1", Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 		secureRecvRecordingHardStop: true,
 	}
 	stream = stampStreamIdentity(stream)
@@ -419,8 +413,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1},
-		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
 	if result := stream.runAttemptTerminal(context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
@@ -433,9 +426,10 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		t.Fatal("swallowed attempt-terminal must not freeze allocated B-legs")
 	}
 
-	stream.bleg = b2bua.BLegRecord{BLegID: "b-replacement", ALegID: "a-1", Seq: 2}
-	stream.cand = routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}
-	stream.resetAttemptTerminal()
+	stream.attempt.install(newAttemptSession(attemptSessionInput{
+		bleg: b2bua.BLegRecord{BLegID: "b-replacement", ALegID: "a-1", Seq: 2},
+		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
+	}))
 	if result := stream.runStreamTerminal(context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
@@ -471,8 +465,7 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-shared"}},
 		}),
-		bleg:                 b2bua.BLegRecord{BLegID: "b-thinker", ALegID: "a-shared", Seq: 1},
-		cand:                 routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
+		attempt:              testAttemptSlot(b2bua.BLegRecord{BLegID: "b-thinker", ALegID: "a-shared", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 		isInterleavedThinker: true,
 	}
 	stream = stampStreamIdentity(stream)
@@ -491,8 +484,8 @@ func TestInterleavedThinkerBillingCorrectness(t *testing.T) {
 	if stream.requestTerm.Owner().State() != sdkterminal.StateOpen {
 		t.Fatalf("thinker B-leg normal finish must keep request terminal Open, got %s", stream.requestTerm.Owner().State())
 	}
-	if stream.attemptTerm.Owner().State() != sdkterminal.StateReleased {
-		t.Fatalf("thinker B-leg normal finish must release attempt terminal, got %s", stream.attemptTerm.Owner().State())
+	if testAttemptSession(stream).terminal.Owner().State() != sdkterminal.StateReleased {
+		t.Fatalf("thinker B-leg normal finish must release attempt terminal, got %s", testAttemptSession(stream).terminal.Owner().State())
 	}
 
 	// 2. Verify continuation stream carries billing identity/snapshot fields from thinker.

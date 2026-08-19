@@ -89,9 +89,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 				traceID:  "trace-gated-leak",
 				aLegID:   aLegID,
 			}),
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate())),
 			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
@@ -116,7 +114,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (successful final settle must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle on gated completion")
 		}
 	}
@@ -142,7 +140,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}

@@ -47,13 +47,14 @@ import (
 // releases attempt authority at terminal.
 //
 // Concurrency: one goroutine calls Recv until completion (lipapi.EventStream). Close may run
-// concurrently with Recv blocked on the active inner stream; Close forwards to that inner stream
-// and does not clear s.inner. Recv clears inner on cancellation and recoverable-recv teardown paths.
+// concurrently with Recv blocked on the active inner stream; Close forwards to that attempt stream
+// and does not clear the attempt pointer. Recv clears the attempt stream on cancellation and
+// recoverable-recv teardown paths.
 // Recv must not be called concurrently from multiple goroutines; the stream is not multi-Recv-safe.
 type retryRecvStream struct {
 	// facts is the sole request-lifetime receive authority. It contains only
 	// immutable request facts; retry, event, terminal, attempt, and lock state
-	// remains owned directly by this stream.
+	// remains owned by cohesive collaborators.
 	facts recvTurnFacts
 
 	seenEvents  []lipapi.Event
@@ -76,11 +77,7 @@ type retryRecvStream struct {
 	isContextLimitExhaustion bool
 	transformExcludes        transformExcludeTracker
 
-	innerMu            sync.Mutex
-	inner              lipapi.ManagedEventStream
-	bleg               b2bua.BLegRecord
-	cand               routing.AttemptCandidate
-	authority          authorityLifecycle
+	attempt            attemptSlot
 	committed          atomic.Bool
 	finished           atomic.Bool
 	endOnce            sync.Once
@@ -136,20 +133,19 @@ type retryRecvStream struct {
 	// replacement iterations so eventual ErrNoEligibleCandidate surfaces root causes.
 	lastParallelFailure error
 
-	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
+	// toolFinal remains request-owned until the response-pipeline tranche moves
+	// per-B-leg tool state into attemptSession.
 	toolFinal *toolCallAssembler
 	// toolClass correlates per-ToolCallID derived classification within this stream.
 	// Event processing is single-Recv-owned; its state has a small internal mutex
 	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
 	toolClass toolEventClassificationState
 
-	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
+	// requestTerm is the CAS terminal owner for this stream lifecycle; each
+	// attemptSession owns its ScopeAttempt terminal.
 	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
-	// termMu guards pointer publish/replace; callers snapshot under the lock and
-	// must not hold termMu across Terminalize/effects.
 	termMu      sync.Mutex
 	requestTerm *streamTerminal
-	attemptTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
 	usageMu  sync.Mutex
@@ -215,18 +211,6 @@ var _ lipapi.EventStream = (*retryRecvStream)(nil)
 
 var errNilRetryRecvStream = errors.New("runtime: nil retryRecvStream")
 
-func (s *retryRecvStream) loadInner() lipapi.ManagedEventStream {
-	s.innerMu.Lock()
-	defer s.innerMu.Unlock()
-	return s.inner
-}
-
-func (s *retryRecvStream) storeInner(stream lipapi.ManagedEventStream) {
-	s.innerMu.Lock()
-	s.inner = stream
-	s.innerMu.Unlock()
-}
-
 func (s *retryRecvStream) now() time.Time {
 	if s != nil && s.executor != nil {
 		return s.executor.now()
@@ -255,7 +239,9 @@ func (s *retryRecvStream) isCommitted() bool {
 func (s *retryRecvStream) markCommitted() {
 	if s != nil {
 		s.committed.Store(true)
-		s.authority.markOutputCommitted()
+		if attempt := s.attempt.snapshot(); attempt != nil {
+			attempt.authority.markOutputCommitted()
+		}
 	}
 }
 
@@ -270,15 +256,6 @@ func (s *retryRecvStream) cachedExecContext() context.Context {
 	s.cachedCtxMu.Lock()
 	defer s.cachedCtxMu.Unlock()
 	return s.cachedCtx
-}
-
-// takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
-func (s *retryRecvStream) takeAndNilInner() lipapi.ManagedEventStream {
-	s.innerMu.Lock()
-	c := s.inner
-	s.inner = nil
-	s.innerMu.Unlock()
-	return c
 }
 
 func (s *retryRecvStream) cancelAndCloseInner(
@@ -377,19 +354,26 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 }
 
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
+	attempt := s.attempt.snapshot()
+	var bleg b2bua.BLegRecord
+	var cand routing.AttemptCandidate
+	if attempt != nil {
+		bleg = attempt.bleg
+		cand = attempt.cand
+	}
 	traceID, aLegID := s.facts.traceID, s.facts.aLegID
 	pm := sdk.PartMeta{
 		TraceID:    traceID,
 		ALegID:     aLegID,
-		BLegID:     s.bleg.BLegID,
-		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
-		AttemptSeq: s.bleg.Seq,
+		BLegID:     bleg.BLegID,
+		BackendID:  strings.TrimSpace(cand.Primary.Backend),
+		AttemptSeq: bleg.Seq,
 	}
 	tm := sdk.ToolMeta{
 		TraceID:    traceID,
 		ALegID:     aLegID,
-		BLegID:     s.bleg.BLegID,
-		AttemptSeq: s.bleg.Seq,
+		BLegID:     bleg.BLegID,
+		AttemptSeq: bleg.Seq,
 	}
 	// Authoritative scope/identity from the request-scoped execctx views snapshot
 	// kept on the stream so stream-stage reactors see proxy-validated attribution
@@ -435,7 +419,8 @@ func (s *retryRecvStream) commitAffinity(ctx context.Context, reason string) {
 		return
 	}
 	s.affinityCommitOnce.Do(func() {
-		binding := affinity.BindingFromCandidate(s.affinityKey, s.cand, s.now(), reason)
+		attempt := s.attempt.require()
+		binding := affinity.BindingFromCandidate(s.affinityKey, attempt.cand, s.now(), reason)
 		if strings.TrimSpace(binding.BackendID) == "" {
 			return
 		}
@@ -502,7 +487,7 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 		ALegID:      pm.ALegID,
 		BLegID:      pm.BLegID,
 		AttemptSeq:  pm.AttemptSeq,
-		BackendID:   strings.TrimSpace(s.cand.Primary.Backend),
+		BackendID:   strings.TrimSpace(s.attempt.require().cand.Primary.Backend),
 		PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
 		Scope:       sc,
 	}
@@ -545,7 +530,10 @@ func (s *retryRecvStream) Close() error {
 		return nil
 	}
 	s.resetToolFinal()
-	c := s.takeAndNilInner()
+	var c lipapi.ManagedEventStream
+	if attempt := s.attempt.snapshot(); attempt != nil {
+		c = attempt.takeInner()
+	}
 	// lipapi.EventStream.Close has no caller context. Terminal Close work must
 	// outlive request cancellation, so detach cancel from the last Recv parent
 	// when one was observed; Background only when no parent exists.
@@ -599,14 +587,15 @@ func (s *retryRecvStream) Close() error {
 	}
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
+		attempt := s.attempt.require()
 		s.runStreamTerminal(ctx, sdkterminal.CommandPanic, func(context.Context) error { return nil })
 		if s.executor != nil && s.executor.Log != nil {
 			// lipapi.EventStream.Close has no context; EnsureCallDiag guarantees call/leg ids
 			// on the detached close context so isolated-panic logs still correlate by trace_id / b_leg.
 			logCtx := diag.EnsureCallDiag(ctx, s.facts.traceID, s.facts.aLegID)
 			attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
-				AttrOpts:   diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID},
-				AttemptSeq: int(s.bleg.Seq),
+				AttrOpts:   diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID},
+				AttemptSeq: int(attempt.bleg.Seq),
 			})
 			attrs = diag.AppendIsolatedCrashStack(attrs, pe)
 			s.executor.Log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
@@ -716,12 +705,13 @@ func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) 
 		s.markCommitted()
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
+		attempt := s.attempt.require()
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:  s.facts.aLegID,
-			BLeg:    s.bleg,
-			Cand:    s.cand,
+			BLeg:    attempt.bleg,
+			Cand:    attempt.cand,
 			Outcome: lipapi.AttemptSuccess,
-		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 		s.markFinished()
 	}
 	return ev
@@ -761,12 +751,13 @@ func (s *retryRecvStream) completionGatedEmit(
 		return first, nil
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
+		attempt := s.attempt.require()
 		snap := s.completionSnapshot(ctx)
 		meta := completion.Meta{
 			TraceID:    s.facts.traceID,
 			ALegID:     s.facts.aLegID,
-			BLegID:     s.bleg.BLegID,
-			AttemptSeq: s.bleg.Seq,
+			BLegID:     attempt.bleg.BLegID,
+			AttemptSeq: attempt.bleg.Seq,
 		}
 		// Authoritative scope/identity from the request-scoped execctx views so
 		// completion-gate decision evidence carries proxy-validated attribution

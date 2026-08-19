@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -43,10 +44,10 @@ func benchRetryRecvForTrafficEmit() (*retryRecvStream, lipapi.Event, sdk.PartMet
 	ex.RuntimeSnapshot = snap
 	s := &retryRecvStream{
 		executor: ex,
-		cand: routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{
 			Primary: routing.Primary{Backend: "bench-backend", Model: "m"},
 			Key:     "bench-backend:m",
-		},
+		}, authorityLifecycle{}),
 	}
 	ev := lipapi.Event{
 		Kind:  lipapi.EventTextDelta,

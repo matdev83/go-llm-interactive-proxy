@@ -79,6 +79,7 @@ func TestStreamTerminal_EffectPanic_AdvancesFailed(t *testing.T) {
 func TestStreamTerminal_NestedAttemptSkipped_RequestOnlyCommand(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
+	testAttemptSession(rs)
 	rs.ensureTerminals()
 	var requestEffects atomic.Int32
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandFrontendEncoderFailure, func(context.Context) error {
@@ -91,14 +92,15 @@ func TestStreamTerminal_NestedAttemptSkipped_RequestOnlyCommand(t *testing.T) {
 	if requestEffects.Load() != 1 {
 		t.Fatalf("request effects=%d", requestEffects.Load())
 	}
-	if rs.attemptTerm.Owner().State() != sdk.StateOpen {
-		t.Fatalf("attempt must stay open when nested skipped, state=%q", rs.attemptTerm.Owner().State())
+	if testAttemptSession(rs).terminal.Owner().State() != sdk.StateOpen {
+		t.Fatalf("attempt must stay open when nested skipped, state=%q", testAttemptSession(rs).terminal.Owner().State())
 	}
 }
 
 func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
+	testAttemptSession(rs)
 	rs.ensureTerminals()
 	effectErr := errors.New("attempt settle failed")
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
@@ -110,8 +112,8 @@ func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.
 	if rs.requestTerm.Owner().State() != sdk.StateFailed {
 		t.Fatalf("request state=%q", rs.requestTerm.Owner().State())
 	}
-	if rs.attemptTerm.Owner().State() != sdk.StateFailed {
-		t.Fatalf("attempt state=%q", rs.attemptTerm.Owner().State())
+	if testAttemptSession(rs).terminal.Owner().State() != sdk.StateFailed {
+		t.Fatalf("attempt state=%q", testAttemptSession(rs).terminal.Owner().State())
 	}
 }
 
@@ -168,6 +170,7 @@ func TestStreamTerminal_OutputCommittedAfterClaim_AwaitsWinner(t *testing.T) {
 func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
+	testAttemptSession(rs)
 	var effects atomic.Int32
 	var winners atomic.Int32
 	const n = 32
@@ -201,9 +204,10 @@ func TestRetryRecvStream_runStreamTerminal_concurrentLazyInit_effectsOnce(t *tes
 	}
 }
 
-func TestRetryRecvStream_resetAttemptTerminal_concurrentWithClose_noDeadlockOnceRequest(t *testing.T) {
+func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceRequest(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
+	testAttemptSession(rs)
 	rs.ensureTerminals()
 	var effects atomic.Int32
 	start := make(chan struct{})
@@ -211,7 +215,7 @@ func TestRetryRecvStream_resetAttemptTerminal_concurrentWithClose_noDeadlockOnce
 	for range 16 {
 		wg.Go(func() {
 			<-start
-			rs.resetAttemptTerminal()
+			rs.attempt.install(newAttemptSession(attemptSessionInput{}))
 		})
 	}
 	for range 16 {

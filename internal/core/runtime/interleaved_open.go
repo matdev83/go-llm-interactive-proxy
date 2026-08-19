@@ -271,11 +271,9 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		suppressVisibleMemo: true,
 		accounting:          newAttemptAccountingTracker(e.now()),
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		authority:           e.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		bleg:                out.bleg,
-		cand:                out.cand,
 		customer:            newCustomerEvidenceAccumulator(),
+		attempt:             attemptSlot{},
 	}
-	rs.storeInner(out.stream)
+	rs.attempt.install(newAttemptSession(attemptSessionInput{inner: out.stream, bleg: out.bleg, cand: out.cand, authority: e.newAttemptAuthorityLifecycle(out.authority, out.cand)}))
 	return rs, nil
 }

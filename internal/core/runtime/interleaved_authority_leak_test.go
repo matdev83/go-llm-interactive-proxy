@@ -63,8 +63,7 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 		excluded: map[string]struct{}{},
 		rng:      routing.NewSeededRng(1),
 		aScope:   aScope,
-		bleg:     b2bua.BLegRecord{BLegID: "thinker-bleg", Seq: 1},
-		cand:     routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "thinker-bleg", Seq: 1}, routing.AttemptCandidate{Key: "backend-1:model-1", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}}, authorityLifecycle{}),
 	}
 	return ex, from
 }
@@ -72,8 +71,8 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 // TestOpenInterleavedExecutorContinuation_SettlesExecutorLegAuthority reproduces L1: the
 // executor-leg reservation returned by tryPlanOpenOnce/openPlannedCandidate was never
 // tracked on the continuation's retryRecvStream because the rs literal omitted
-// `authority: out.authority`. finalizeTokenAccounting/recordPartialTokenAccounting then
-// settled the zero s.authority (a no-op), leaking the freshly admitted reservation on
+// the executor continuation's attemptSession. finalizeTokenAccounting/recordPartialTokenAccounting then
+// settled the wrong lifecycle (a no-op), leaking the freshly admitted reservation on
 // every thinker->executor handoff. This drives the continuation in BOTH hidden and
 // visible mode and asserts the executor-leg reservation is settled (not leaked) on a
 // normal response_finished EOF, with the captured ReservationID observed.
@@ -154,8 +153,8 @@ func TestOpenInterleavedExecutorContinuation_SettlesExecutorLegAuthority(t *test
 // reproduces L8: when RegisterBLeg fails inside openInterleavedExecutorContinuation (the
 // A-leg is canceled mid-flight during backend.Open, after out.authority was admitted),
 // the error branch returned without releasing the freshly admitted local out.authority.
-// After L1's fix rs.authority is populated only in the rs literal AFTER this branch, so
-// here the LOCAL out.authority must be settled (not rs.authority). Incurred Open work
+// After L1's fix the continuation session is populated only after this branch, so
+// here the LOCAL out.authority must be settled (not a stream placeholder). Incurred Open work
 // settles with SettlementKindSwallowed; mirrors sibling RegisterBLeg-failure sites.
 func TestOpenInterleavedExecutorContinuation_RegisterBLegFailureReleasesLocalAuthority(t *testing.T) {
 	t.Parallel()

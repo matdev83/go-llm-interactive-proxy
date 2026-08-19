@@ -173,19 +173,24 @@ type accumulatorSnapWire struct {
 	Final  bool   `json:"f"`
 }
 
-// snapshotTerminals returns coherent request/attempt owners, initializing them
-// once under termMu. Callers must use the returned pointers for the duration of
-// a terminalize attempt and must not hold termMu across Terminalize/effects.
+// snapshotTerminals returns coherent request/attempt owners. The request owner
+// is lazy for focused test fixtures; production construction installs the
+// attempt owner before the stream is exposed.
 func (s *retryRecvStream) snapshotTerminals() (req, att *streamTerminal) {
+	if s == nil {
+		return nil, nil
+	}
 	s.termMu.Lock()
-	defer s.termMu.Unlock()
 	if s.requestTerm == nil {
 		s.requestTerm = newStreamTerminal(sdk.ScopeRequest)
 	}
-	if s.attemptTerm == nil {
-		s.attemptTerm = newStreamTerminal(sdk.ScopeAttempt)
+	request := s.requestTerm
+	s.termMu.Unlock()
+	attempt := s.attempt.snapshot()
+	if attempt != nil {
+		return request, attempt.terminal
 	}
-	return s.requestTerm, s.attemptTerm
+	return request, nil
 }
 
 func (s *retryRecvStream) ensureTerminals() {
@@ -193,17 +198,6 @@ func (s *retryRecvStream) ensureTerminals() {
 		return
 	}
 	_, _ = s.snapshotTerminals()
-}
-
-// resetAttemptTerminal replaces attempt ownership for a replacement transition.
-// In-flight Close/Recv that already snapshotted keep their prior attempt owner.
-func (s *retryRecvStream) resetAttemptTerminal() {
-	if s == nil {
-		return
-	}
-	s.termMu.Lock()
-	s.attemptTerm = newStreamTerminal(sdk.ScopeAttempt)
-	s.termMu.Unlock()
 }
 
 func (s *retryRecvStream) accumulatorSnapshot() coreterm.AccumulatorSnapshot {

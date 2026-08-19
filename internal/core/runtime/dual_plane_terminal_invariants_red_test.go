@@ -247,7 +247,7 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
 			traceID:  "trace-compress",
 			baseline: lipapi.Call{ID: "req-compress"},
-		}), bleg: b2bua.BLegRecord{BLegID: "b-1"},
+		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
 		customer: newCustomerEvidenceAccumulator(),
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
@@ -330,7 +330,7 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 		executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
 			traceID:  "trace-filter",
 			baseline: lipapi.Call{ID: "req-filter"},
-		}), bleg: b2bua.BLegRecord{BLegID: "b-1"},
+		}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
 		customer: newCustomerEvidenceAccumulator(),
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
@@ -388,7 +388,7 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 	ctx := withMeteringHolder(context.Background(), holder)
 	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-zero",
-	}), bleg: b2bua.BLegRecord{BLegID: "b-1"}}
+	}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1"}, routing.AttemptCandidate{}, authorityLifecycle{})}
 
 	t.Run("absent_cost_must_not_synthesize_present_money_on_customer", func(t *testing.T) {
 		absent := lipapi.Event{
@@ -581,7 +581,7 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	}
 	stream := &retryRecvStream{executor: ex, facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-parallel",
-	}), bleg: b2bua.BLegRecord{BLegID: "b-winner"}}
+	}), attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-winner"}, routing.AttemptCandidate{}, authorityLifecycle{})}
 	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if reqProv.settleCalls.Load() != 1 {
@@ -669,8 +669,7 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "trace-sw",
 		}),
-		bleg:      b2bua.BLegRecord{BLegID: "b-sw"},
-		authority: life,
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-sw"}, routing.AttemptCandidate{}, life),
 		seenEvents: []lipapi.Event{{
 			Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 4, TotalTokens: 13,
 			CostNanoUnits: 33, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
@@ -680,7 +679,7 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 		}},
 	}
 	usage := stream.operatorUsageForFinalize()
-	stream.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, usage)
+	testAttemptSession(stream).authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, usage)
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usage)
 
 	if attProv.settleCalls.Load() != 1 {

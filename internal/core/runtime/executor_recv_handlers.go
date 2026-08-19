@@ -44,11 +44,12 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	s.emitUsage(ctx, ev)
 
 	if s.toolFinal != nil && s.toolFinal.enabled() {
+		attempt := s.attempt.require()
 		meta := toolcall.Meta{
 			TraceID:    s.facts.traceID,
 			ALegID:     s.facts.aLegID,
-			BLegID:     s.bleg.BLegID,
-			AttemptSeq: s.bleg.Seq,
+			BLegID:     attempt.bleg.BLegID,
+			AttemptSeq: attempt.bleg.Seq,
 		}
 		held, ferr := s.toolFinal.ingest(ctx, ev, meta)
 		if ferr != nil {
@@ -123,15 +124,18 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 // with, a swallowed bool when the reactor asked to drop the event, or a
 // non-nil error from policy or reactor execution.
 func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.ToolEvent, ev lipapi.Event, tm sdk.ToolMeta) (lipapi.Event, bool, error) {
+	attempt := s.attempt.snapshot()
 	if err := s.applyToolPolicies(ctx, te, tm); err != nil {
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:    s.facts.aLegID,
-			BLeg:      s.bleg,
-			Cand:      s.cand,
-			Outcome:   lipapi.AttemptSurfacedFailure,
-			Reason:    attemptReasonDetail(err),
-			DetailErr: err,
-		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
+		if attempt != nil {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.facts.aLegID,
+				BLeg:      attempt.bleg,
+				Cand:      attempt.cand,
+				Outcome:   lipapi.AttemptSurfacedFailure,
+				Reason:    attemptReasonDetail(err),
+				DetailErr: err,
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
+		}
 		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 		return lipapi.Event{}, false, err
 	}
@@ -216,6 +220,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 // and attempt success recording. Mandatory encoder/evidence preflight competes
 // before NormalFinish settlement so encoder failure can own the terminal.
 func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, bool, error) {
+	attempt := s.attempt.require()
 	if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
 		return lipapi.Event{}, false, err
 	}
@@ -234,10 +239,10 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}
 	s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 		ALegID:  s.facts.aLegID,
-		BLeg:    s.bleg,
-		Cand:    s.cand,
+		BLeg:    attempt.bleg,
+		Cand:    attempt.cand,
 		Outcome: lipapi.AttemptSuccess,
-	}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
+	}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 	s.commitSuccessfulTurn()
 	s.markFinished()
 	s.finishALegScope()
@@ -280,8 +285,9 @@ func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev
 // terminalizePartialFailure routes mid-stream / finish-adjacent failures through the
 // request terminal so settle/release/facts run once under the owner.
 func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdkterminal.Command, reason string, cause error) {
+	attempt := s.attempt.require()
 	_ = s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
-		if !s.authority.Settled() {
+		if !attempt.authority.Settled() {
 			s.recordPartialTokenAccounting(cctx, reason, cause)
 		}
 		s.markFinished()
@@ -293,6 +299,7 @@ func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdk
 }
 
 func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
+	attempt := s.attempt.require()
 	s.resetToolFinal()
 	// Truncated upstream: never run completion gates on a partial buffer (replace gates could
 	// synthesize response_finished and mask the failure).
@@ -305,12 +312,12 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,
-				BLeg:      s.bleg,
-				Cand:      s.cand,
+				BLeg:      attempt.bleg,
+				Cand:      attempt.cand,
 				Outcome:   lipapi.AttemptSuccess,
 				Reason:    dec.Reason,
 				DetailErr: io.EOF,
-			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
+			}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 			// Defer finalizeTokenAccounting and settle to the downstream drain path in Recv.
 			// The drain path is the single owner of token-accounting finalization and authority
 			// settlement for response_finished, so the Finish event stays in recoverDrain until
@@ -336,12 +343,12 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	if !s.isFinished() {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.facts.aLegID,
-			BLeg:      s.bleg,
-			Cand:      s.cand,
+			BLeg:      attempt.bleg,
+			Cand:      attempt.cand,
 			Outcome:   lipapi.AttemptSurfacedFailure,
 			Reason:    "stream ended without response_finished",
 			DetailErr: io.EOF,
-		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: s.bleg.BLegID})
+		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 	}
 	s.runStreamTerminal(ctx, sdkterminal.CommandEOF, func(cctx context.Context) error {
 		s.recordPartialTokenAccounting(cctx, "stream ended without response_finished", io.EOF)

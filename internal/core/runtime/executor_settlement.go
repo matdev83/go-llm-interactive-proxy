@@ -43,7 +43,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 // finishCancellationAuthority is the single cancellation tail: advisory usage
 // apply, then request-authority settle or unused-hold release.
 func (s *retryRecvStream) finishCancellationAuthority(ctx context.Context) {
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
+	s.attempt.require().authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		return
@@ -60,8 +60,9 @@ func (s *retryRecvStream) finishCancellationAuthority(ctx context.Context) {
 // estimated settlement with the authoritative usage event. When not yet settled,
 // it falls back to settleCancellationAuthority which settles as a Cancellation.
 func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Context) {
-	if s.authority.Settled() {
-		s.authority.ReconcileAuthoritative(ctx, s.operatorUsageForFinalize())
+	attempt := s.attempt.require()
+	if attempt.authority.Settled() {
+		attempt.authority.ReconcileAuthoritative(ctx, s.operatorUsageForFinalize())
 		return
 	}
 	s.settleCancellationAuthority(ctx)
@@ -76,11 +77,11 @@ func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Con
 // a non-canceled context to Settle so cancellation of the client request does not
 // abort the post-output settlement (requirement 11.7).
 func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
-	if s == nil || s.authority.Settled() {
+	if s == nil || s.attempt.require().authority.Settled() {
 		return
 	}
 	usageEv := s.operatorUsageForFinalize()
-	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
+	s.attempt.require().authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
 
@@ -88,12 +89,13 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 	if s == nil || s.executor == nil {
 		return false
 	}
+	attempt := s.attempt.require()
 	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.facts.traceID),
 		ALegID:  strings.TrimSpace(s.facts.aLegID),
-		BLegID:  strings.TrimSpace(s.bleg.BLegID),
-		Backend: strings.TrimSpace(s.cand.Primary.Backend),
-		Model:   strings.TrimSpace(s.cand.Primary.Model),
+		BLegID:  strings.TrimSpace(attempt.bleg.BLegID),
+		Backend: strings.TrimSpace(attempt.cand.Primary.Backend),
+		Model:   strings.TrimSpace(attempt.cand.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
 	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
 		return s.executor.callFinalizeBilling(cctx, in)
@@ -120,23 +122,24 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 	if obs == nil {
 		return
 	}
+	attempt := s.attempt.require()
 	principalID := ""
 	scopeView := scopeFromCtx(ctx)
 	if scopeView.PrincipalID.IsKnown() {
 		principalID = strings.TrimSpace(scopeView.PrincipalID.String())
 	}
 	model := ""
-	if s.cand.Primary.Model != "" {
-		model = s.cand.Primary.Model
+	if attempt.cand.Primary.Model != "" {
+		model = attempt.cand.Primary.Model
 	}
 	if err := obs.OnUsage(ctx, usage.Event{
 		TraceID:          strings.TrimSpace(s.facts.traceID),
 		ALegID:           strings.TrimSpace(s.facts.aLegID),
-		BLegID:           strings.TrimSpace(s.bleg.BLegID),
+		BLegID:           strings.TrimSpace(attempt.bleg.BLegID),
 		PrincipalID:      strings.TrimSpace(principalID),
 		SessionID:        strings.TrimSpace(s.facts.baseline.Session.CorrelationID()),
-		AttemptSeq:       int(s.bleg.Seq),
-		BackendID:        strings.TrimSpace(s.cand.Primary.Backend),
+		AttemptSeq:       int(attempt.bleg.Seq),
+		BackendID:        strings.TrimSpace(attempt.cand.Primary.Backend),
 		Model:            strings.TrimSpace(model),
 		Scope:            scopeView.Clone(),
 		InputTokens:      ev.InputTokens,
@@ -173,15 +176,16 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	if s == nil || s.executor == nil {
 		return lipapi.Event{}, false, nil
 	}
+	attempt := s.attempt.require()
 	if s.executor.StreamUsage == nil {
 		s.lastAuthorityUsage = lipapi.Event{}
-		s.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
+		attempt.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 		return lipapi.Event{}, false, nil
 	}
 	events := append(s.seenEventsCopy(), finish)
 	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
-		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
-		Model:      strings.TrimSpace(s.cand.Primary.Model),
+		Backend:    strings.TrimSpace(attempt.cand.Primary.Backend),
+		Model:      strings.TrimSpace(attempt.cand.Primary.Model),
 		Call:       s.facts.baseline,
 		OutputText: s.releasedOutputText(),
 		Events:     events,
@@ -191,7 +195,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	}
 	if len(result.Events) == 0 {
 		s.lastAuthorityUsage = lipapi.Event{}
-		s.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
+		attempt.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 		return lipapi.Event{}, false, nil
 	}
 	authorityEv := authorityUsageEvent(result.Events)
@@ -207,7 +211,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 	// The legacy token ledger is intentionally not written here. Client-visible
 	// usage remains a protocol/read-side projection; monetary settlement is owned
 	// by the sealed current-record post-usage processor.
-	s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
+	attempt.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
 	return clientUsageEv, true, nil
 }
 
@@ -226,6 +230,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 // client cancellation, and is idempotent via the store source key (duplicate finalize calls
 // are no-ops at the runtime guard and at the store).
 func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	attempt := s.attempt.require()
 	if s.tokenAccountingFinalized {
 		return lipapi.Event{}, false, nil
 	}
@@ -245,7 +250,7 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		if authorityEv.Kind == "" {
 			authorityEv = usageEv
 		}
-		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
+		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
 		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 		if s.isInterleavedThinker {
 			return nil
@@ -339,8 +344,11 @@ func (s *retryRecvStream) customerUsageFromReleased(ctx context.Context) lipapi.
 		return lipapi.Event{}
 	}
 	call := s.facts.baseline
-	backend := strings.TrimSpace(s.cand.Primary.Backend)
-	model := strings.TrimSpace(s.cand.Primary.Model)
+	var backend, model string
+	if attempt := s.attempt.snapshot(); attempt != nil {
+		backend = strings.TrimSpace(attempt.cand.Primary.Backend)
+		model = strings.TrimSpace(attempt.cand.Primary.Model)
+	}
 	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {
 		if holder.FrontendIngress.Call.ID != "" {
 			call = holder.FrontendIngress.Call
@@ -586,8 +594,9 @@ func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reas
 	// Keep non-money attempt/request coordination only. Do not write the legacy
 	// token ledger or settle monetary exposure from stream usage.
 	usageEv := s.operatorUsageForFinalize()
-	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
+	attempt := s.attempt.require()
+	attempt.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
+	attempt.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())

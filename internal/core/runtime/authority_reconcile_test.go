@@ -335,19 +335,17 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 			traceID: "trace-cancel-reconcile",
 			aLegID:  "a-cr",
 		}),
-		bleg:       b2bua.BLegRecord{BLegID: "b-cr", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  newAuthorityLifecycle(svc, nil, state, authorityCandidate()),
+		attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate())),
 		seenEvents: []lipapi.Event{},
 		accounting: newAttemptAccountingTracker(at),
 	}
 
 	// Step 1: settle as Partial with no usage — the estimate fallback applies,
 	// so Consumed = 8 (the reserved estimate), and the lifecycle is marked settled.
-	// Use rs.authority directly so the settled guard is set on the stream's
-	// authority value, not a separate copy.
-	rs.authority.Settle(context.Background(), authorityapp.SettlementKindPartial, lipapi.Event{}, false)
-	if !rs.authority.Settled() {
+	// Use the current attempt authority so the settled guard is set on the
+	// session-owned value, not a separate copy.
+	testAttemptSession(rs).authority.Settle(context.Background(), authorityapp.SettlementKindPartial, lipapi.Event{}, false)
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected lifecycle settled after partial settle")
 	}
 
@@ -394,7 +392,7 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	if consumed != 5 {
 		t.Fatalf("after reconcile, consumed = %d, want 5 (authoritative adjustment from 8)", consumed)
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected lifecycle to remain settled after reconcile")
 	}
 }

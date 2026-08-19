@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -122,7 +123,7 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "req-eg",
 		}),
-		bleg: b2bua.BLegRecord{BLegID: "b-leg-1"},
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1"}, routing.AttemptCandidate{}, authorityLifecycle{}),
 	}
 	usageEv := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 1, TotalTokens: 4}
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, usageEv)

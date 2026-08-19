@@ -13,7 +13,8 @@ import (
 )
 
 func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.StreamMeta {
-	backendID := strings.TrimSpace(s.cand.Primary.Backend)
+	attempt := s.attempt.require()
+	backendID := strings.TrimSpace(attempt.cand.Primary.Backend)
 	var prefixes []string
 	if s.executor != nil {
 		if be, ok := s.executor.Backends[backendID]; ok {
@@ -21,9 +22,9 @@ func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.Strea
 		}
 	}
 	meta := response.StreamMeta{
-		TraceID: s.facts.traceID, ALegID: s.facts.aLegID, BLegID: s.bleg.BLegID, CandidateKey: s.cand.Key,
-		BackendID: backendID, BackendPrefixes: prefixes, Model: strings.TrimSpace(s.cand.Primary.Model),
-		AttemptSeq: s.bleg.Seq,
+		TraceID: s.facts.traceID, ALegID: s.facts.aLegID, BLegID: attempt.bleg.BLegID, CandidateKey: attempt.cand.Key,
+		BackendID: backendID, BackendPrefixes: prefixes, Model: strings.TrimSpace(attempt.cand.Primary.Model),
+		AttemptSeq: attempt.bleg.Seq,
 	}
 	if v, ok := s.viewsFor(ctx); ok {
 		meta.Scope = v.Scope.Clone()

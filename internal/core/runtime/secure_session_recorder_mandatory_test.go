@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -16,7 +17,7 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 	s := &retryRecvStream{
 		secureRecvRecordingHardStop: true,
 		executor:                    ex,
-		cand:                        routing.AttemptCandidate{Key: "cand-1"},
+		attempt:                     testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "cand-1"}, authorityLifecycle{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "tr-mand",
 			aLegID:  "a-mand",

@@ -60,10 +60,9 @@ func TestRecv_earlyCtxCancel_nilExecutorWithInner_noPanic(t *testing.T) {
 		budget:   &attemptBudget{max: 1},
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:     routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}},
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}),
 	}
-	rs.storeInner(inner)
+	testStoreInner(rs, inner)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	defer func() {
@@ -129,9 +128,7 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 		session:        &routing.SessionRoutingState{},
 		excluded:       map[string]struct{}{},
 		rng:            routing.NewSeededRng(1),
-		bleg:           bleg,
-		cand:           cand,
-		authority:      testAuthorityLifecycle(ex, initial, cand),
+		attempt:        testAttemptSlot(bleg, cand, testAuthorityLifecycle(ex, initial, cand)),
 		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
 		finalStreamObs: sess,
 	}
@@ -215,8 +212,7 @@ func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 		budget:         &attemptBudget{max: 1},
 		session:        &routing.SessionRoutingState{},
 		excluded:       map[string]struct{}{},
-		bleg:           b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:           routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}},
+		attempt:        testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}),
 		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
 		finalStreamObs: sess,
 	}

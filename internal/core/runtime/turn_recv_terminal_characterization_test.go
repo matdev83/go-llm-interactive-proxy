@@ -47,13 +47,12 @@ func newCharacterizationStream(t *testing.T, inner lipapi.ManagedEventStream) *r
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
 		rng:      routing.NewSeededRng(1),
-		bleg:     b2bua.BLegRecord{BLegID: "b-characterization", Seq: 1},
-		cand: routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-characterization", Seq: 1}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
-		},
+		}, authorityLifecycle{}),
 	}
-	s.storeInner(inner)
+	testStoreInner(s, inner)
 	return s
 }
 

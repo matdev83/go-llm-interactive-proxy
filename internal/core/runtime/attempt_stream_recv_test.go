@@ -104,13 +104,12 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
 		rng:      routing.NewSeededRng(1),
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand: routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
-		},
+		}, authorityLifecycle{}),
 	}
-	s.storeInner(inner)
+	testStoreInner(s, inner)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {

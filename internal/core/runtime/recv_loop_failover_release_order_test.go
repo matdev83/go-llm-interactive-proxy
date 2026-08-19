@@ -162,14 +162,12 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:    &attemptBudget{max: 3, used: 0},
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      priorCand,
-		authority: testAuthorityLifecycle(ex, priorAuthority, priorCand),
+		budget:   &attemptBudget{max: 3, used: 0},
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		rng:      routing.NewSeededRng(1),
+		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, priorCand, testAuthorityLifecycle(ex, priorAuthority, priorCand)),
 	}
 
 	opened, err := rs.tryReplacementIteration(context.Background())
@@ -201,10 +199,10 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	if !auth.isActive("reservation-repl") {
 		t.Fatal("replacement reservation must be active after successful open")
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-repl" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-repl", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-repl" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-repl", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=false after replacement reset to a fresh reservation")
 	}
 }
