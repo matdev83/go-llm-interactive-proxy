@@ -153,6 +153,7 @@ type OperatorCostRow struct {
 	BLegID      string
 	ProviderID  string
 	ModelID     string
+	Workload    WorkloadIdentity
 	Transaction JournalTransaction
 	Amount      Money
 }

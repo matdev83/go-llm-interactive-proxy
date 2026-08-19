@@ -2,6 +2,7 @@ package billingstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -112,7 +113,7 @@ func (s *DurableStore) OperatorCostReport(ctx context.Context, filter billing.Re
 		attr := cogsByLeg[cogsLegKey(leg.TurnID, leg.BLegID)]
 		rows = append(rows, billing.OperatorCostRow{
 			TURKey: leg.TURKey, TurnID: leg.TurnID, ALegID: leg.ALegID, BLegID: leg.BLegID,
-			ProviderID: leg.ProviderID, ModelID: leg.ModelID, Transaction: attr.Last,
+			ProviderID: leg.ProviderID, ModelID: leg.ModelID, Workload: leg.Workload, Transaction: attr.Last,
 			Amount: billing.Money{Nano: attr.Amount, Currency: currency},
 		})
 	}
@@ -294,13 +295,15 @@ func (s *DurableStore) loadJournalRange(ctx context.Context, accountID, currency
 }
 
 type operatorLegRow struct {
-	Key        string `bun:"leg_key"`
-	TURKey     string `bun:"tur_key"`
-	TurnID     string `bun:"turn_id"`
-	ALegID     string `bun:"a_leg_id"`
-	BLegID     string `bun:"b_leg_id"`
-	ProviderID string `bun:"provider_id"`
-	ModelID    string `bun:"model_id"`
+	Key         string `bun:"leg_key"`
+	TURKey      string `bun:"tur_key"`
+	TurnID      string `bun:"turn_id"`
+	ALegID      string `bun:"a_leg_id"`
+	BLegID      string `bun:"b_leg_id"`
+	ProviderID  string `bun:"provider_id"`
+	ModelID     string `bun:"model_id"`
+	PayloadJSON string `bun:"payload_json"`
+	Workload    billing.WorkloadIdentity
 }
 
 func (s *DurableStore) loadOperatorLegPage(ctx context.Context, accountID string, filter billing.ReportFilter) ([]operatorLegRow, string, error) {
@@ -308,7 +311,7 @@ func (s *DurableStore) loadOperatorLegPage(ctx context.Context, accountID string
 	if afterKey == "" {
 		afterKey = strings.TrimSpace(filter.Page.AfterKey)
 	}
-	query := `SELECT l.usage_leg_key AS leg_key, l.call_id AS tur_key, l.call_id AS turn_id, l.a_leg_id, l.b_leg_id, l.provider_id, l.model_id FROM usage_leg_records l JOIN usage_call_records c ON c.call_id = l.call_id WHERE c.account_id = ? AND l.usage_leg_key > ?`
+	query := `SELECT l.usage_leg_key AS leg_key, l.call_id AS tur_key, l.call_id AS turn_id, l.a_leg_id, l.b_leg_id, l.provider_id, l.model_id, l.payload_json FROM usage_leg_records l JOIN usage_call_records c ON c.call_id = l.call_id WHERE c.account_id = ? AND l.usage_leg_key > ?`
 	args := []any{accountID, afterKey}
 	if !filter.From.IsZero() {
 		query += ` AND l.finished_at >= ?`
@@ -330,6 +333,16 @@ func (s *DurableStore) loadOperatorLegPage(ctx context.Context, accountID string
 		if len(rows) > 0 {
 			next = rows[len(rows)-1].Key
 		}
+	}
+	for i := range rows {
+		var record billing.CallLegUsageRecord
+		if err := json.Unmarshal([]byte(rows[i].PayloadJSON), &record); err != nil {
+			return nil, "", fmt.Errorf("billingstore: decode operator leg workload: %w", err)
+		}
+		if err := record.Workload.Validate(); err != nil {
+			return nil, "", fmt.Errorf("billingstore: invalid operator leg workload: %w", err)
+		}
+		rows[i].Workload = record.Workload
 	}
 	return rows, next, nil
 }

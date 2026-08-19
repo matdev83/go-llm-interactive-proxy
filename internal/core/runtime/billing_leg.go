@@ -39,6 +39,7 @@ type billingLegDraft struct {
 	finalize        lipapi.Event
 	stream          lipapi.Event
 	operatorRateRef billing.VersionRef
+	workload        billing.WorkloadIdentity
 }
 
 func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
@@ -70,6 +71,7 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		Outcome:         legOutcomeFromCommand(draft.command),
 		Surfaced:        draft.surfaced,
 		Evidence:        evidence,
+		Workload:        draft.workload,
 	}
 }
 
@@ -86,15 +88,9 @@ func normalizeBillingEvidenceIdentity(evidence billing.FinalBillingEvidence, cal
 		evidence.Authority = billing.EvidenceAuthorityUnavailable
 	}
 	if strings.TrimSpace(evidence.DedupeKey) == "" {
-		id := strings.TrimSpace(callID.String())
-		if id == "" {
-			id = "unknown-call"
+		if fallback, err := billing.DedupeKeyForBLeg(callID, bLegID); err == nil {
+			evidence.DedupeKey = fallback
 		}
-		bLegID = strings.TrimSpace(bLegID)
-		if bLegID == "" {
-			bLegID = "unknown-b-leg"
-		}
-		evidence.DedupeKey = "lip-b-leg:" + id + ":" + bLegID
 	}
 	return evidence
 }
@@ -154,6 +150,7 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
 		stream:          streamEv,
 		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
+		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
 	})
 	s.executor.observeBillingLeg(ctx, legRecord)
 	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
@@ -308,6 +305,13 @@ func (e *Executor) appendIndependentCallLeg(ctx context.Context, callID billing.
 		return
 	}
 	leg.CallID = callID
+	leg.Evidence = normalizeBillingEvidenceIdentity(leg.Evidence, callID, leg.BLegID)
+	if err := billing.ValidateIndependentLeg(leg); err != nil {
+		if e.Log != nil {
+			e.Log.ErrorContext(ctx, "billing call-leg append rejected: invalid independent leg", "error", err, "b_leg_id", leg.BLegID)
+		}
+		return
+	}
 	independent := leg
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
@@ -352,6 +356,7 @@ func (e *Executor) appendIndependentTerminalLeg(ctx context.Context, state *bill
 		StartedAt: started, FinishedAt: finished, Outcome: outcome, Surfaced: billing.SurfacedNo,
 		Evidence:        billing.FinalBillingEvidence{Source: billing.EvidenceSourceUnavailable, Authority: billing.EvidenceAuthorityUnavailable},
 		OperatorRateRef: e.operatorRateRef(ctx, primary),
+		Workload:        e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}
 	var callID billing.BillingCallID
 	if state != nil {
@@ -428,6 +433,7 @@ func (e *Executor) recordParallelBillingLeg(ctx context.Context, leg *parallelLe
 		finalize:        finalizeEv,
 		stream:          fallback,
 		operatorRateRef: e.operatorRateRef(ctx, leg.cand.Primary),
+		workload:        e.billingWorkloadIdentityForALeg(ctx, leg.bleg.ALegID),
 	})
 	e.observeBillingLeg(ctx, legRecord)
 	if leg.billingCallState != nil {

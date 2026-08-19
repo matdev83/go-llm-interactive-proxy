@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
@@ -44,6 +46,11 @@ type requestAuthorityState struct {
 	cancelRequest            context.CancelFunc
 	LeaseSetReleaseAcceptErr error
 	LeaseSetUncertainErr     error
+	// Workload is trusted content-free billing classification captured before
+	// terminal paths may receive a bare caller context.
+	Workload         billing.WorkloadIdentity
+	workloadMu       sync.RWMutex
+	workloadByALegID map[string]billing.WorkloadIdentity
 }
 
 // leaseRenewTarget is one occupancy the heartbeat renews until settle/release.
@@ -72,12 +79,46 @@ func requestAuthorityFrom(ctx context.Context) *requestAuthorityState {
 	return st
 }
 
+func (st *requestAuthorityState) setWorkloadForALeg(aLegID string, workload billing.WorkloadIdentity) {
+	if st == nil || workload.IsZero() {
+		return
+	}
+	aLegID = strings.TrimSpace(aLegID)
+	if aLegID == "" {
+		return
+	}
+	st.workloadMu.Lock()
+	if st.workloadByALegID == nil {
+		st.workloadByALegID = make(map[string]billing.WorkloadIdentity)
+	}
+	st.workloadByALegID[aLegID] = workload
+	st.workloadMu.Unlock()
+}
+
+func (st *requestAuthorityState) workloadForALeg(aLegID string) (billing.WorkloadIdentity, bool) {
+	if st == nil {
+		return billing.WorkloadIdentity{}, false
+	}
+	aLegID = strings.TrimSpace(aLegID)
+	if aLegID == "" {
+		return billing.WorkloadIdentity{}, false
+	}
+	st.workloadMu.RLock()
+	workload, ok := st.workloadByALegID[aLegID]
+	st.workloadMu.RUnlock()
+	return workload, ok
+}
+
 // admitRequestAuthorityOnce runs the logical-request coordinator after FE ingress
 // (requirements 4.5, 8.1, 9.3, 10.4). Nil coordinator still persists FE ingress when
 // a MeteringRecorder is configured (task 3.3), then returns.
 func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLegID, traceID string, sc scope.PrincipalScopeView) (context.Context, error) {
 	if e == nil {
 		return ctx, nil
+	}
+	workload, err := billingWorkloadIdentityForALeg(ctx, aLegID)
+	if err != nil {
+		return ctx, fmt.Errorf("executor: billing workload identity: %w", err)
 	}
 	if err := e.enrichFrontendIngressQuantities(ctx); err != nil {
 		return ctx, fmt.Errorf("executor: frontend ingress counting: %w", err)
@@ -92,6 +133,9 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 			exec = e.SnapshotGeneration.CurrentExecutable()
 		}
 		if exec == nil || exec.RequestCoord == nil {
+			if !workload.IsZero() {
+				return withRequestAuthority(ctx, &requestAuthorityState{Workload: workload}), nil
+			}
 			return ctx, nil
 		}
 	}
@@ -102,6 +146,10 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		policy := strings.ToLower(strings.TrimSpace(e.ConcurrencyAuxiliaryLeasePolicy))
 		if policy == "" || policy == "inherit" || execctx.AuxiliaryDepth(ctx) == 0 {
 			// Default: auxiliary Execute reuses parent occupancy (requirement 10.10).
+			if workload.IsZero() {
+				return ctx, nil
+			}
+			parent.setWorkloadForALeg(aLegID, workload)
 			return ctx, nil
 		}
 		// acquire_own: continue into Admit with auxiliary lifecycle below.
@@ -161,6 +209,9 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		if boundGen != nil {
 			boundGen.Release()
 		}
+		if !workload.IsZero() {
+			return withRequestAuthority(ctx, &requestAuthorityState{Workload: workload}), nil
+		}
 		return ctx, nil
 	}
 	d, err := coord.Admit(ctx, in)
@@ -201,6 +252,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		FailureBehavior: d.Lease.FailureBehavior,
 		ExecutableGen:   boundGen,
 		cancelRequest:   hbCancel,
+		Workload:        workload,
 	}
 	outCtx := withRequestAuthority(hbCtx, st)
 	e.startLeaseHeartbeat(outCtx, st)

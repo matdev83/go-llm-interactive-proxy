@@ -7,9 +7,14 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 var (
@@ -39,6 +44,69 @@ type (
 type BillingExposureAdmissionInput struct {
 	BillingAdmissionInput
 	CallID string
+}
+
+// billingWorkloadIdentity projects only trusted detached auxiliary lineage
+// into the durable billing identity. Primary calls retain the legacy zero
+// workload projection; an auxiliary role is accepted only after the detached
+// policy has bounded it and the core billing mapper allowlists it.
+func billingWorkloadIdentity(ctx context.Context) (billing.WorkloadIdentity, error) {
+	return billingWorkloadIdentityForALeg(ctx, diag.ALegID(ctx))
+}
+
+func billingWorkloadIdentityForALeg(ctx context.Context, aLegID string) (billing.WorkloadIdentity, error) {
+	if ctx == nil {
+		return billing.WorkloadIdentity{}, nil
+	}
+	meta, detached := execctx.DetachedSessionFromContext(ctx)
+	sc, _ := scope.ScopeFromContext(ctx)
+	if detached && strings.TrimSpace(meta.AuxiliaryRole) != "" {
+		fact := metering.Fact{
+			Lifecycle: metering.LifecycleAuxiliaryRequest,
+			Scope:     sc,
+		}
+		return coremetering.ProjectWorkloadIdentity(fact, meta.AuxiliaryRole)
+	}
+	if st := requestAuthorityFrom(ctx); st != nil {
+		if workload, ok := st.workloadForALeg(aLegID); ok {
+			return workload, nil
+		}
+		if !st.Workload.IsZero() {
+			return st.Workload, nil
+		}
+	}
+	if !detached && sc.Origin != scope.OriginInternal {
+		return billing.WorkloadIdentity{}, nil
+	}
+	role := ""
+	if detached {
+		role = meta.AuxiliaryRole
+	}
+	if strings.TrimSpace(role) == "" {
+		// Requests without trusted workload metadata remain unclassified; never
+		// infer a role from call, provider, or model content.
+		return billing.WorkloadIdentity{}, nil
+	}
+	fact := metering.Fact{Lifecycle: metering.LifecycleAuxiliaryRequest, Scope: sc}
+	return coremetering.ProjectWorkloadIdentity(fact, role)
+}
+
+// (e *Executor).billingWorkloadIdentity is the terminal-path accessor. The
+// request-authority carrier survives bare Recv contexts and takes precedence;
+// direct context extraction remains useful for focused producer tests.
+func (e *Executor) billingWorkloadIdentity(ctx context.Context) billing.WorkloadIdentity {
+	return e.billingWorkloadIdentityForALeg(ctx, diag.ALegID(ctx))
+}
+
+func (e *Executor) billingWorkloadIdentityForALeg(ctx context.Context, aLegID string) billing.WorkloadIdentity {
+	identity, err := billingWorkloadIdentityForALeg(ctx, aLegID)
+	if err != nil {
+		if e != nil && e.Log != nil {
+			e.Log.DebugContext(ctx, "billing workload identity unavailable", "error", err)
+		}
+		return billing.WorkloadIdentity{}
+	}
+	return identity
 }
 
 func (e *Executor) checkCheapCredit(ctx context.Context, prep *preparedRequest) error {
@@ -162,6 +230,7 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 		CustomerPricingRef: prep.billingCustomerPricing,
 		ChargePolicyRef:    prep.billingChargePolicy,
 		ExpectedBLegIDs:    prep.billingCallState.freezeAllocatedBLegs(),
+		Workload:           e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}
 	sealed, err := record.Seal()
 	if err != nil {
