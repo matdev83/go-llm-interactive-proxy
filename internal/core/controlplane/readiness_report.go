@@ -24,6 +24,7 @@ type ReadinessReportSources struct {
 	UsageAuthority            func(context.Context) (cp.AccountingAuthorityStatus, error)
 	ConcurrencyAuthority      func(context.Context) (cp.ConcurrencyAuthorityStatus, error)
 	MeteringJournal           func(context.Context) (cp.ReadinessComponentStatus, error)
+	BillingSpool              func(context.Context) (cp.ReadinessComponentStatus, error)
 	SnapshotStates            func() (usage, concurrency, rating cp.CapabilityState)
 	ExecutableGeneration      func() cp.ExecutableGenerationStatus
 	RequestCoordinatorEnabled bool
@@ -71,16 +72,11 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 			LastUpdatedAt: now,
 		}
 	}
-	if src.MeteringJournal != nil {
-		if row, err := src.MeteringJournal(ctx); err == nil {
-			row.LastUpdatedAt = now
-			components = append(components, row)
-		} else {
-			components = append(components, disabledComponent(cp.ReadinessComponentMeteringJournal, now))
-		}
-	} else {
-		components = append(components, disabledComponent(cp.ReadinessComponentMeteringJournal, now))
-	}
+	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentMeteringJournal, src.MeteringJournal, cp.ReadinessComponentStatus{})
+	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentBillingSpool, src.BillingSpool, cp.ReadinessComponentStatus{
+		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable,
+		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess, StoreBacking: "injected",
+	})
 	if src.ControlPlane != nil {
 		if st, err := src.ControlPlane(ctx); err == nil {
 			components = append(components, cp.ReadinessComponentStatus{
@@ -142,26 +138,12 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
 	}
 	components = append(components, executableGenerationComponent(execStatus, now))
-	if src.SecretGuardQuarantine != nil {
-		if row, err := src.SecretGuardQuarantine(ctx); err == nil {
-			row.LastUpdatedAt = now
-			components = append(components, row)
-		} else {
-			components = append(components, unavailableComponent(cp.ReadinessComponentSecretGuardQuarantine, "", now))
-		}
-	} else {
-		components = append(components, disabledComponent(cp.ReadinessComponentSecretGuardQuarantine, now))
-	}
-	if src.TerminalRecovery != nil {
-		if row, err := src.TerminalRecovery(ctx); err == nil {
-			row.LastUpdatedAt = now
-			components = append(components, row)
-		} else {
-			components = append(components, unavailableComponent(cp.ReadinessComponentTerminalRecovery, "", now))
-		}
-	} else {
-		components = append(components, disabledComponent(cp.ReadinessComponentTerminalRecovery, now))
-	}
+	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentSecretGuardQuarantine, src.SecretGuardQuarantine, cp.ReadinessComponentStatus{
+		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable, EnforcementScope: cp.EnforcementScopeDisabled,
+	})
+	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentTerminalRecovery, src.TerminalRecovery, cp.ReadinessComponentStatus{
+		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable, EnforcementScope: cp.EnforcementScopeDisabled,
+	})
 	return cp.ReadinessReport{
 		Components:           components,
 		ExecutableGeneration: execStatus,
@@ -209,6 +191,22 @@ func unavailableComponent(id cp.ReadinessComponentID, backing string, at time.Ti
 		StoreBacking:     backing,
 		LastUpdatedAt:    at,
 	}
+}
+
+func appendReadinessProbe(components []cp.ReadinessComponentStatus, ctx context.Context, now time.Time, id cp.ReadinessComponentID, probe func(context.Context) (cp.ReadinessComponentStatus, error), fallback cp.ReadinessComponentStatus) []cp.ReadinessComponentStatus {
+	if probe == nil {
+		return append(components, disabledComponent(id, now))
+	}
+	row, err := probe(ctx)
+	if err != nil {
+		if fallback.State == "" {
+			return append(components, disabledComponent(id, now))
+		}
+		fallback.Component, fallback.LastUpdatedAt = id, now
+		return append(components, fallback)
+	}
+	row.LastUpdatedAt = now
+	return append(components, row)
 }
 
 func enabledComponent(id cp.ReadinessComponentID, enabled bool, providerIDs []string, at time.Time) cp.ReadinessComponentStatus {

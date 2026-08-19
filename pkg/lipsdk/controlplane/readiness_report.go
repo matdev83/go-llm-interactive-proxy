@@ -54,6 +54,7 @@ type ReadinessComponentID string
 
 const (
 	ReadinessComponentMeteringJournal       ReadinessComponentID = "metering_journal"
+	ReadinessComponentBillingSpool          ReadinessComponentID = "billing_spool"
 	ReadinessComponentControlPlane          ReadinessComponentID = "control_plane"
 	ReadinessComponentUsageAuthority        ReadinessComponentID = "usage_authority"
 	ReadinessComponentConcurrencyAuthority  ReadinessComponentID = "concurrency_authority"

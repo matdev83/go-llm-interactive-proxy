@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -18,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingspool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
@@ -40,6 +42,97 @@ func TestBuildReadinessReportService_secretGuardQuarantineDisabledWithoutSecureS
 		t.Fatalf("state=%q want disabled", row.State)
 	}
 }
+
+func TestBuildReadinessReportService_billingSpoolReadiness(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		sink       billing.TerminalUsageSink
+		wantState  controlplane.CapabilityState
+		wantReason controlplane.ReasonCode
+	}{
+		{
+			name:       "no sink is disabled",
+			wantState:  controlplane.CapabilityDisabled,
+			wantReason: controlplane.ReasonDisabled,
+		},
+		{
+			name:       "non health sink is disabled",
+			sink:       readinessPlainSink{},
+			wantState:  controlplane.CapabilityDisabled,
+			wantReason: controlplane.ReasonDisabled,
+		},
+		{
+			name:       "ready",
+			sink:       &readinessBillingSpoolSink{health: billingspool.Health{State: billingspool.HealthReady}},
+			wantState:  controlplane.CapabilityReady,
+			wantReason: controlplane.ReasonNone,
+		},
+		{
+			name:       "degraded",
+			sink:       &readinessBillingSpoolSink{health: billingspool.Health{State: billingspool.HealthDegraded}},
+			wantState:  controlplane.CapabilityDegraded,
+			wantReason: controlplane.ReasonStoreNotReady,
+		},
+		{
+			name:       "full",
+			sink:       &readinessBillingSpoolSink{health: billingspool.Health{State: billingspool.HealthFull}},
+			wantState:  controlplane.CapabilityUnavailable,
+			wantReason: controlplane.ReasonStoreNotReady,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := buildReadinessReportService(readinessReportBuildInput{
+				Production: ProductionOptions{BillingTerminalUsageSink: tc.sink},
+			})
+			report, err := svc.Report(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := mustReadinessRow(t, report, controlplane.ReadinessComponentBillingSpool)
+			if row.State != tc.wantState {
+				t.Fatalf("state=%q want %q", row.State, tc.wantState)
+			}
+			if row.Reason != tc.wantReason {
+				t.Fatalf("reason=%q want %q", row.Reason, tc.wantReason)
+			}
+			if tc.sink != nil && row.State != controlplane.CapabilityDisabled {
+				if row.EnforcementScope != controlplane.EnforcementScopeAdvisorySingleProcess {
+					t.Fatalf("scope=%q want advisory_single_process", row.EnforcementScope)
+				}
+				if row.StoreBacking != "injected" {
+					t.Fatalf("store_backing=%q want injected", row.StoreBacking)
+				}
+			}
+		})
+	}
+}
+
+type readinessBillingSpoolSink struct {
+	health billingspool.Health
+}
+
+type readinessPlainSink struct{}
+
+func (readinessPlainSink) AppendCall(context.Context, billing.CallUsageRecord) error {
+	return nil
+}
+
+func (readinessPlainSink) AppendLeg(context.Context, billing.CallLegUsageRecord) error {
+	return nil
+}
+
+func (s *readinessBillingSpoolSink) AppendCall(context.Context, billing.CallUsageRecord) error {
+	return nil
+}
+
+func (s *readinessBillingSpoolSink) AppendLeg(context.Context, billing.CallLegUsageRecord) error {
+	return nil
+}
+
+func (s *readinessBillingSpoolSink) Health() billingspool.Health { return s.health }
 
 func TestBuildReadinessReportService_secretGuardQuarantineReadyWhenSecureSessionPresent(t *testing.T) {
 	t.Parallel()
