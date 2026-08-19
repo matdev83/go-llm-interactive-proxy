@@ -15,11 +15,11 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 	ex := TestExecutor()
 	ex.SecureSessionRecordingMandatory = true
 	s := &retryRecvStream{
-		terminal:                    newTurnTerminal(),
-		recovery:                    &recoveryController{},
-		secureRecvRecordingHardStop: true,
-		executor:                    ex,
-		attempt:                     testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "cand-1"}, authorityLifecycle{}),
+		terminal:         newTurnTerminal(),
+		recovery:         &recoveryController{},
+		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
+		executor:         ex,
+		attempt:          testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "cand-1"}, authorityLifecycle{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "tr-mand",
 			aLegID:  "a-mand",

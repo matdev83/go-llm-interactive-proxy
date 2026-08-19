@@ -277,8 +277,8 @@ func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *te
 			billingCallID: callID,
 			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-1"}},
 		}),
-		attempt:                     testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Key: "cand-1", Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
-		secureRecvRecordingHardStop: true,
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Key: "cand-1", Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
+		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
 	}
 	stream = stampStreamIdentity(stream)
 	stream.markCommitted()

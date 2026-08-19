@@ -393,7 +393,7 @@ func TestDispatchClientFacingEvent_resetToolFinalClearsAbandonedState(t *testing
 	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
-	s.resetToolFinal()
+	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
 
 	if len(rec.seen) != 2 {

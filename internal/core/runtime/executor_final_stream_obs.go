@@ -5,110 +5,58 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
-	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.StreamMeta {
-	attempt := s.attempt.require()
+func (p *responsePipeline) streamObserverMeta(facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool) response.StreamMeta {
 	backendID := strings.TrimSpace(attempt.cand.Primary.Backend)
 	var prefixes []string
-	if s.executor != nil {
-		if be, ok := s.executor.Backends[backendID]; ok {
+	if executor != nil {
+		if be, ok := executor.Backends[backendID]; ok {
 			prefixes = execbackend.CloneBackendPrefixes(be)
 		}
 	}
 	meta := response.StreamMeta{
-		TraceID: s.facts.traceID, ALegID: s.facts.aLegID, BLegID: attempt.bleg.BLegID, CandidateKey: attempt.cand.Key,
+		TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, CandidateKey: attempt.cand.Key,
 		BackendID: backendID, BackendPrefixes: prefixes, Model: strings.TrimSpace(attempt.cand.Primary.Model),
 		AttemptSeq: attempt.bleg.Seq,
 	}
-	if v, ok := s.viewsFor(ctx); ok {
-		meta.Scope = v.Scope.Clone()
-		meta.Session, meta.Workspace = cloneSessionView(v.Session), cloneWorkspaceView(v.Workspace)
-		meta.Session.ALegID = s.facts.aLegID
+	if viewsOK {
+		meta.Scope = views.Scope.Clone()
+		meta.Session, meta.Workspace = cloneSessionView(views.Session), cloneWorkspaceView(views.Workspace)
+		meta.Session.ALegID = facts.aLegID
 	}
 	return meta
 }
 
-func (s *retryRecvStream) openFinalStreamObservation(ctx context.Context) error {
-	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil {
+func (p *responsePipeline) openFinalStreamObservation(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool, committed bool) error {
+	if p == nil || executor == nil || executor.RuntimeSnapshot == nil {
 		return nil
 	}
-	factories := s.executor.RuntimeSnapshot.StreamObserverFactories()
+	factories := executor.RuntimeSnapshot.StreamObserverFactories()
 	if len(factories) == 0 {
 		return nil
 	}
-	attempt := s.attempt.snapshot()
 	if attempt == nil || attempt.finalStreamObs == nil {
 		return nil
 	}
-	if err := attempt.finalStreamObs.Open(ctx, factories, s.streamObserverMeta(ctx), response.Services{}); err != nil && !s.isCommitted() {
+	if err := attempt.finalStreamObs.Open(ctx, factories, p.streamObserverMeta(facts, executor, attempt, views, viewsOK), response.Services{}); err != nil && !committed {
 		return err
 	}
 	return nil
 }
 
-func (s *retryRecvStream) finishFinalStreamObservation(ctx context.Context, outcome response.StreamOutcome) {
-	if s == nil {
+func (p *responsePipeline) finishFinalStreamObservation(ctx context.Context, attempt *attemptSession, outcome response.StreamOutcome) {
+	if p == nil {
 		return
 	}
-	if attempt := s.attempt.snapshot(); attempt != nil && attempt.finalStreamObs != nil {
+	if attempt != nil && attempt.finalStreamObs != nil {
 		attempt.finalStreamObs.Finish(ctx, outcome)
 	}
 }
 
-func (s *retryRecvStream) cycleFinalStreamObservation(ctx context.Context, outcome response.StreamOutcome) error {
-	s.finishFinalStreamObservation(ctx, outcome)
-	return s.openFinalStreamObservation(ctx)
-}
-
-func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, error) {
-	var finalStreamObs *extensions.FinalStreamObservationSession
-	if attempt := s.attempt.snapshot(); attempt != nil {
-		finalStreamObs = attempt.finalStreamObs
-	}
-	if s.executor != nil {
-		if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, finalStreamObs, ev, s.isCommitted()); err != nil {
-			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
-			if !s.isCommitted() {
-				s.terminal.endALeg(aLegEndBase)
-			}
-			return lipapi.Event{}, err
-		}
-	}
-	if lipapi.OutputCommitted(ev) {
-		s.markOutputCommitted(ev)
-	}
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
-			if !s.isCommitted() {
-				s.terminal.endALeg(aLegEndBase)
-			}
-			return lipapi.Event{}, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
-	}
-	// Compaction preservation and committed detector observation run before the
-	// event is remembered or returned, so customer evidence and the client see
-	// the same finalized canonical event.
-	releaseDispatch := s.emitTrafficPTCFinal(ctx, &ev, pm)
-	// Remember only after mandatory recording and compaction finalization succeed
-	// (or are best-effort), so undelivered client output is not settled into
-	// customer evidence.
-	s.rememberClientEvent(ev)
-	s.commitAffinityIfOutput(ctx, ev)
-	s.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
-	return ev, nil
+func (p *responsePipeline) cycleFinalStreamObservation(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, views execctx.Views, viewsOK bool, outcome response.StreamOutcome, committed bool) error {
+	p.finishFinalStreamObservation(ctx, attempt, outcome)
+	return p.openFinalStreamObservation(ctx, facts, executor, attempt, views, viewsOK, committed)
 }

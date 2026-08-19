@@ -3,14 +3,13 @@ package runtime
 // Stream lifecycle helpers (loadInner, storeInner, Close, handleRecvSuccess,
 // handleRecvEOF, etc.) and the recv-phase support surface (stream-evidence
 // seam, traffic emission) for retryRecvStream. Response/event evidence and
-// completion-gate state live in responsePipeline. The
-// inner-loop control (Recv and tryReplacementIteration) has been extracted
+// completion-gate, logical-tool, and response-observation state live in
+// responsePipeline. The inner-loop control (Recv and tryReplacementIteration) has been extracted
 // to executor_recv_loop.go; the retryRecvStream type itself, its error
 // sentinel, and the lipapi.EventStream interface assertion remain here.
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -25,17 +24,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
-	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // retryRecvStream is the recv-phase and terminal turn owner: it wraps a backend
@@ -57,8 +52,6 @@ type retryRecvStream struct {
 	executor *Executor
 	bus      *hooks.Bus
 
-	compactionOpenMeta compaction.PreservationMeta
-
 	attempt  attemptSlot
 	terminal *turnTerminal
 	recovery *recoveryController
@@ -67,19 +60,7 @@ type retryRecvStream struct {
 	lastParent  context.Context
 	cachedCtx   context.Context
 
-	// secureRecvRecordingHardStop blocks recv-phase B-leg replacement after a mandatory recorder failure
-	// once client-visible output is committed for this stream.
-	secureRecvRecordingHardStop bool
-
-	// toolClass correlates per-ToolCallID derived classification within this stream.
-	// Event processing is single-Recv-owned; its state has a small internal mutex
-	// because Close/terminal cleanup may clear it concurrently while Recv blocks.
-	toolClass toolEventClassificationState
-
 	isInterleavedThinker bool
-
-	committedTools  []lipapi.ToolEvent
-	keepwarmArmOnce sync.Once
 }
 
 // consumeBackendUsageEvidenceForAttempt binds provider sideband evidence to
@@ -107,7 +88,7 @@ func (s *retryRecvStream) consumeBackendUsageEvidenceForAttempt(
 		}
 		s.rememberInternalUsage(ev)
 		attempt.accounting.observeUsage(ev)
-		s.emitUsage(ctx, ev)
+		s.responsePipeline.emitUsage(ctx, s.executor, s.facts, attempt, ev)
 	}
 }
 
@@ -144,9 +125,6 @@ func (s *retryRecvStream) bindResponsePipeline() {
 		}
 		return s.terminal.committed(), s.terminal.accountingFinalized()
 	})
-	s.responsePipeline.bindToolEventHook(func(tool lipapi.ToolEvent) {
-		s.committedTools = append(s.committedTools, tool)
-	})
 	s.responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
 		return reconstructCustomerUsageForResponse(ctx, s.executor, s.facts, s.attempt.snapshot(), text, events)
 	})
@@ -160,7 +138,7 @@ func (s *retryRecvStream) markFinished() {
 		// Terminal ownership: every finish path clears attempt-local assembler
 		// state here (normal response_finished, recover-drain finish, gate finish,
 		// error/EOF/Close finishes). Nonterminal clears stay at their call sites.
-		s.resetToolFinal()
+		clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	}
 }
 
@@ -319,12 +297,6 @@ func (s *retryRecvStream) viewsFor(ctx context.Context) (execctx.Views, bool) {
 	return execctx.Views{}, false
 }
 
-func (s *retryRecvStream) commitAffinityIfOutput(ctx context.Context, ev lipapi.Event) {
-	if lipapi.OutputCommitted(ev) && s.recovery != nil {
-		s.recovery.commitAffinity(ctx, s.facts, s.attempt.snapshot(), s.now(), "output_committed")
-	}
-}
-
 func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
 	if lipapi.OutputCommitted(ev) {
 		s.markCommitted()
@@ -332,90 +304,6 @@ func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
 			s.recovery.ttft.markCommitted()
 		}
 	}
-}
-
-func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
-	s.emitTraffic(ctx, sdktraffic.LegBTP, ev, pm)
-}
-
-// emitTrafficPTC preserves the value-shaped test/diagnostic helper contract.
-// Production release paths use emitTrafficPTCFinal so preservation can mutate
-// the event before it is remembered or returned.
-func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
-	_ = s.emitTrafficPTCFinal(ctx, &ev, pm)
-}
-
-func (s *retryRecvStream) emitTrafficPTCFinal(ctx context.Context, ev *lipapi.Event, pm sdk.PartMeta) compactionReleaseDispatch {
-	if ev == nil {
-		return compactionReleaseDispatch{}
-	}
-	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
-		// Keepalives are proxy-internal artifacts, never released to the client,
-		// so they are not client traffic and are not observed (they cannot
-		// match any compaction rule and must not refresh A-leg activity).
-		return compactionReleaseDispatch{}
-	}
-	// Final release seam: every canonical event actually released to the client
-	// passes through here exactly once (live, gated, tool-finalizer, and
-	// recovery drains). Compaction response observation must stay at this
-	// single chokepoint, not on branch-specific paths (design-review
-	// constraint; requirement 8.4). It never alters the event.
-	dispatch := s.observeCompactionReleaseFinal(ctx, ev)
-	s.emitTraffic(ctx, sdktraffic.LegPTC, *ev, pm)
-	return dispatch
-}
-
-func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, ev lipapi.Event, pm sdk.PartMeta) {
-	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
-		return
-	}
-	bundle := coretraffic.PortBundleFromSnapshot(s.executor.RuntimeSnapshot)
-	if bundle.EmitIsNoop() {
-		return
-	}
-	b, err := json.Marshal(ev)
-	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", leg, "error", err)
-		}
-		return
-	}
-	sc := scopeFromCtx(ctx)
-	meta := sdktraffic.CaptureMeta{
-		TraceID:     pm.TraceID,
-		ALegID:      pm.ALegID,
-		BLegID:      pm.BLegID,
-		AttemptSeq:  pm.AttemptSeq,
-		BackendID:   strings.TrimSpace(s.attempt.require().cand.Primary.Backend),
-		PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
-		Scope:       sc,
-	}
-	bundle.Emit(
-		ctx,
-		leg,
-		meta,
-		"lip/canonical+json",
-		"application/json",
-		b,
-	)
-}
-
-// resetToolFinal clears assembler and tool-classification state at
-// attempt-lifecycle transitions that are not (or may not be) paired with
-// markFinished: B-leg replacement, finalizer reject/error before finish,
-// Close (may already be finished), and EOF/error entry (some branches defer
-// finish to recoverDrain). Terminal finishes clear via markFinished.
-// toolClass shares the same single-Recv event-processing contract as the
-// attempt-local tool finalizer;
-// its internal mutex covers concurrent terminal cleanup.
-func (s *retryRecvStream) resetToolFinal() {
-	if s == nil {
-		return
-	}
-	if attempt := s.attempt.snapshot(); attempt != nil && attempt.toolFinal != nil {
-		attempt.toolFinal.clear()
-	}
-	s.toolClass.clear()
 }
 
 func (s *retryRecvStream) popToolFinalDrain() (lipapi.Event, bool) {
@@ -434,7 +322,7 @@ func (s *retryRecvStream) Close() error {
 		return nil
 	}
 	current := s.attempt.closePublicationAndSnapshot()
-	s.resetToolFinal()
+	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	var c lipapi.ManagedEventStream
 	if current != nil {
 		c = current.takeInner()
@@ -451,7 +339,7 @@ func (s *retryRecvStream) Close() error {
 	if c == nil {
 		if !s.isFinished() {
 			s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
-				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+				s.responsePipeline.finishFinalStreamObservation(cctx, current, response.OutcomeClosed)
 				s.persistCancellationBilling(cctx, current, "client closed")
 				s.markFinished()
 				return nil
@@ -474,7 +362,7 @@ func (s *retryRecvStream) Close() error {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
 		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandClose, current, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
-			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+			s.responsePipeline.finishFinalStreamObservation(cctx, current, response.OutcomeClosed)
 			s.persistCancellationBilling(cctx, current, "client closed")
 			s.markFinished()
 			return nil

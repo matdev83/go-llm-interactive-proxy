@@ -59,7 +59,7 @@ func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 // or return the (event, err) pair to the client (false).
 func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
 	attempt := s.attempt.require()
-	s.resetToolFinal()
+	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	if idleDeadline.expired(recvCtx, err) && s.recovery != nil && s.recovery.recoverPolicy != nil {
 		dec := s.recovery.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
@@ -80,7 +80,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			s.appendRecoveryDrain(dec.Finish)
 			// Defer response_finished authority finalization to the recoverDrain drain path on the
 			// next Recv call, matching handleRecvEOF's single-owner invariant. Surface the head
-			// event (the warning when present) via emitClientFacingObserved and keep the finish in
+			// event (the warning when present) through the response observation boundary and keep the finish in
 			// recoverDrain; when the head is the finish itself, re-queue it and return a zero event
 			// so the next Recv call's drain path finalizes via finalizeResponseFinishedAuthority and
 			// emits the synthesized usage_delta (the client-reporting consistency fix). Return
@@ -92,7 +92,20 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				return lipapi.Event{}, false, nil
 			}
 			pm, _ := s.recvHookMeta()
-			out, emitErr := s.emitClientFacingObserved(ctx, ev, pm)
+			out, recording, emitErr := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
+				facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+				pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+			})
+			if emitErr != nil {
+				cmd := sdkterminal.CommandPartialError
+				if recording.mandatory() {
+					cmd = sdkterminal.CommandFrontendEncoderFailure
+				}
+				s.terminalizePartialFailure(ctx, cmd, attemptReasonDetail(emitErr), emitErr)
+			}
+			if emitErr == nil && lipapi.OutputCommitted(out) {
+				s.markOutputCommitted(out)
+			}
 			return out, false, emitErr
 		}
 		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
@@ -155,7 +168,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandTimeout, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
-			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
@@ -199,7 +212,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.persistCancellationBilling(cctx, attempt, reason)
-			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
+			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeCancelled)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {
@@ -238,7 +251,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 			s.recordPartialTokenAccounting(cctx, attempt, attemptReasonDetail(surfErr), surfErr)
-			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+			s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		}, func(cctx context.Context, _ coreterm.Outcome) error {

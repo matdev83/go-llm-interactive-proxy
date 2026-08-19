@@ -14,7 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 // persistCancellationBilling settles non-money usage-authority reservations for a
@@ -120,64 +119,12 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, attemp
 	defer cancel()
 	attempt.accounting.observeUsage(ev)
 	s.rememberClientEvent(ev)
-	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recErr)
+	recording := s.responsePipeline.recordClientFacing(persistCtx, s.facts, attempt, s.executor, ev, s.isCommitted())
+	if recording.err != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recording.err)
 	}
-	s.emitUsageForAttempt(persistCtx, attempt, ev)
+	s.responsePipeline.emitUsage(persistCtx, s.executor, s.facts, attempt, ev)
 	return true
-}
-
-func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
-	if s == nil {
-		return
-	}
-	s.emitUsageForAttempt(ctx, s.attempt.snapshot(), ev)
-}
-
-func (s *retryRecvStream) emitUsageForAttempt(ctx context.Context, attempt *attemptSession, ev lipapi.Event) {
-	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil || ev.Kind != lipapi.EventUsageDelta {
-		return
-	}
-	obs := s.executor.RuntimeSnapshot.UsageObserver()
-	if obs == nil {
-		return
-	}
-	if attempt == nil {
-		return
-	}
-	principalID := ""
-	scopeView := scopeFromCtx(ctx)
-	if scopeView.PrincipalID.IsKnown() {
-		principalID = strings.TrimSpace(scopeView.PrincipalID.String())
-	}
-	model := ""
-	if attempt.cand.Primary.Model != "" {
-		model = attempt.cand.Primary.Model
-	}
-	if err := obs.OnUsage(ctx, usage.Event{
-		TraceID:          strings.TrimSpace(s.facts.traceID),
-		ALegID:           strings.TrimSpace(s.facts.aLegID),
-		BLegID:           strings.TrimSpace(attempt.bleg.BLegID),
-		PrincipalID:      strings.TrimSpace(principalID),
-		SessionID:        strings.TrimSpace(s.facts.baseline.Session.CorrelationID()),
-		AttemptSeq:       int(attempt.bleg.Seq),
-		BackendID:        strings.TrimSpace(attempt.cand.Primary.Backend),
-		Model:            strings.TrimSpace(model),
-		Scope:            scopeView.Clone(),
-		InputTokens:      ev.InputTokens,
-		OutputTokens:     ev.OutputTokens,
-		CacheReadTokens:  ev.CacheReadTokens,
-		CacheWriteTokens: ev.CacheWriteTokens,
-		ReasoningTokens:  ev.ReasoningTokens,
-		TotalTokens:      ev.TotalTokens,
-		CostNanoUnits:    ev.CostNanoUnits,
-		Currency:         strings.TrimSpace(ev.Currency),
-		CostSource:       strings.TrimSpace(ev.CostSource),
-		RawUsageJSON:     strings.TrimSpace(ev.RawUsageJSON),
-		RecordedAt:       s.executor.now(),
-	}); err != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(ctx, "usage observer error", "error", err)
-	}
 }
 
 func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event) (lipapi.Event, error) {
@@ -186,11 +133,23 @@ func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Ev
 		s.recovery.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
 	pm, _ := s.recvHookMeta()
-	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	attempt := s.attempt.require()
+	out, recording, err := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
+		facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+		pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+	})
 	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		s.terminalizePartialFailure(ctx, cmd, attemptReasonDetail(err), err)
 		return lipapi.Event{}, err
 	}
-	s.emitUsage(ctx, out)
+	if lipapi.OutputCommitted(out) {
+		s.markOutputCommitted(out)
+	}
+	s.responsePipeline.emitUsage(ctx, s.executor, s.facts, attempt, out)
 	return out, nil
 }
 

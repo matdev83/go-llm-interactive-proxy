@@ -119,25 +119,24 @@ func (e *Executor) notifyCompactionOpenFailed(ctx context.Context, prep *prepare
 // returned event is never altered (requirements 3.3, 8.4). The detector is
 // committed even when no metadata observers are configured; dispatch is only
 // the optional public side effect.
-func (s *retryRecvStream) observeCompactionRelease(ctx context.Context, ev lipapi.Event) {
-	s.observeCompactionReleaseFinal(ctx, &ev)
+func (p *responsePipeline) observeCompactionRelease(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, ev lipapi.Event) {
+	p.observeCompactionReleaseFinal(ctx, facts, executor, attempt, &ev)
 }
 
-func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev *lipapi.Event) compactionReleaseDispatch {
+func (p *responsePipeline) observeCompactionReleaseFinal(ctx context.Context, facts recvTurnFacts, executor *Executor, attempt *attemptSession, ev *lipapi.Event) compactionReleaseDispatch {
 	var dispatch compactionReleaseDispatch
-	if s == nil || s.executor == nil || s.executor.Detector == nil {
+	if p == nil || executor == nil || executor.Detector == nil || attempt == nil || ev == nil {
 		return dispatch
 	}
-	attempt := s.attempt.require()
-	observers := s.executor.compactionObservers()
+	observers := executor.compactionObservers()
 	meta := compactiondetect.ResponseMeta{
-		TraceID:    s.facts.traceID,
-		ALegID:     s.facts.aLegID,
+		TraceID:    facts.traceID,
+		ALegID:     facts.aLegID,
 		BLegID:     attempt.bleg.BLegID,
 		AttemptSeq: attempt.bleg.Seq,
-		SessionID:  s.facts.baseline.Session.AuthoritativeSessionID,
+		SessionID:  facts.baseline.Session.AuthoritativeSessionID,
 	}
-	preview := safeCompactionPreviewResponse(s.executor.Detector, meta, *ev)
+	preview := safeCompactionPreviewResponse(executor.Detector, meta, *ev)
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:       meta.TraceID,
 		SessionID:     meta.SessionID,
@@ -153,7 +152,7 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 	// preview. Preserve response correlation and use only the request-side
 	// transaction/rule/evidence as a fallback in that case.
 	if strings.TrimSpace(preservationMeta.TransactionID) == "" {
-		fallback := s.compactionOpenMeta
+		fallback := p.compactionOpenMeta
 		preservationMeta.TransactionID = fallback.TransactionID
 		if preservationMeta.RuleID == "" {
 			preservationMeta.RuleID = fallback.RuleID
@@ -167,15 +166,15 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 	// observation, so detector and client receive the same final event.
 	_ = extensions.RunCompactionPreserverBeforeResponseRelease(
 		ctx,
-		s.executor.Log,
-		s.executor.ExtensionMetrics,
-		s.executor.compactionPreservers(),
+		executor.Log,
+		executor.ExtensionMetrics,
+		executor.compactionPreservers(),
 		ev,
 		preview,
 		preservationMeta,
-		s.executor.compactionServices(),
+		executor.compactionServices(),
 	)
-	events := safeCompactionResponseReleased(s.executor.Detector, meta, *ev)
+	events := safeCompactionResponseReleased(executor.Detector, meta, *ev)
 	dispatch = compactionReleaseDispatch{meta: preservationMeta, enabled: true}
 	if len(events) == 0 {
 		return dispatch
@@ -184,18 +183,18 @@ func (s *retryRecvStream) observeCompactionReleaseFinal(ctx context.Context, ev 
 	return dispatch
 }
 
-func (s *retryRecvStream) notifyCompactionAfterRelease(ctx context.Context, ev lipapi.Event, dispatch compactionReleaseDispatch) {
-	if s == nil || s.executor == nil || !dispatch.enabled {
+func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, executor *Executor, ev lipapi.Event, dispatch compactionReleaseDispatch) {
+	if p == nil || executor == nil || !dispatch.enabled {
 		return
 	}
 	_ = extensions.RunCompactionPreserverAfterResponseRelease(
 		ctx,
-		s.executor.Log,
-		s.executor.ExtensionMetrics,
-		s.executor.compactionPreservers(),
+		executor.Log,
+		executor.ExtensionMetrics,
+		executor.compactionPreservers(),
 		ev,
 		dispatch.meta,
-		s.executor.compactionServices(),
+		executor.compactionServices(),
 	)
 }
 

@@ -1,8 +1,8 @@
 package runtime
 
 // Per-event recv handlers for retryRecvStream. Stream lifecycle (Recv,
-// tryReplacementIteration, Close), the support surface (completion gates,
-// stream-evidence seam, traffic emission), and the type definition itself
+// tryReplacementIteration, Close), the support surface (completion gates and
+// stream-evidence seam), and the type definition itself
 // remain in executor_retry_stream.go; this file owns the two per-event
 // branches the inner loop dispatches to when a backend event arrives
 // successfully or with io.EOF.
@@ -14,7 +14,6 @@ import (
 	"log/slog"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -23,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
+	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // handleRecvSuccess is the per-event success path dispatched by Recv. It runs
@@ -43,8 +43,8 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	}
 	attempt.accounting.observeUsage(ev)
 	pm, _ := s.recvHookMeta()
-	s.emitTrafficBTP(ctx, ev, pm)
-	s.emitUsage(ctx, ev)
+	s.responsePipeline.emitTraffic(ctx, s.executor, attempt, sdktraffic.LegBTP, ev, pm)
+	s.responsePipeline.emitUsage(ctx, s.executor, s.facts, attempt, ev)
 
 	if attempt.toolFinal != nil && attempt.toolFinal.enabled() {
 		meta := toolcall.Meta{
@@ -55,7 +55,7 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 		}
 		held, ferr := attempt.toolFinal.ingest(ctx, ev, meta)
 		if ferr != nil {
-			s.resetToolFinal()
+			clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 			return lipapi.Event{}, false, ferr
 		}
 		if held {
@@ -70,6 +70,11 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 // completion gates, client accounting, and PTC for one client-facing event.
 // Used for both live backend events (after BTP) and finalized drain replay.
 func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	if s.responsePipeline == nil {
+		// Production assembly always installs the owner before exposure. Keep
+		// direct test fixtures nil-safe while they migrate to owner builders.
+		s.responsePipeline = newResponsePipeline()
+	}
 	attempt := s.attempt.require()
 	pm, tm := s.recvHookMeta()
 
@@ -80,11 +85,11 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 		isToolEvent = true
 		sourceID = te.ToolCallID
 		sourceFinished = te.Kind == lipapi.ToolEventFinished
-		s.toolClass.enrich(&te)
+		s.responsePipeline.enrichToolEvent(&te)
 		nextEv, swallowed, err := s.handleToolEventPath(ctx, te, ev, tm)
 		if err != nil || swallowed {
 			if swallowed && sourceFinished {
-				s.toolClass.forget(sourceID)
+				s.responsePipeline.forgetToolClassification(sourceID)
 			}
 			return lipapi.Event{}, swallowed, err
 		}
@@ -99,9 +104,9 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	ev = evp
 
 	if isToolEvent {
-		s.toolClass.observeFinalName(sourceID, ev)
+		s.responsePipeline.observeToolFinalName(sourceID, ev)
 		if sourceFinished {
-			s.toolClass.forget(sourceID)
+			s.responsePipeline.forgetToolClassification(sourceID)
 		}
 	}
 
@@ -116,8 +121,25 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	if ev.Kind == lipapi.EventResponseFinished {
 		return s.handleResponseFinishedPath(ctx, ev, pm)
 	}
-	out, err := s.emitClientFacingObserved(ctx, ev, pm)
-	return out, false, err
+	out, recording, err := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
+		facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+		pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+	})
+	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		s.terminalizePartialFailure(ctx, cmd, attemptReasonDetail(err), err)
+		if !s.isCommitted() {
+			s.terminal.endALeg(aLegEndBase)
+		}
+		return lipapi.Event{}, false, err
+	}
+	if lipapi.OutputCommitted(out) {
+		s.markOutputCommitted(out)
+	}
+	return out, false, nil
 }
 
 // handleToolEventPath runs tool policies, tool reactors, remembers the
@@ -150,7 +172,7 @@ func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.Too
 	if !res.Emit {
 		return lipapi.Event{}, true, nil
 	}
-	s.toolClass.rememberEffective(te.ToolCallID, res.Event)
+	s.responsePipeline.rememberEffectiveTool(te.ToolCallID, res.Event)
 	if res.Event.Kind != "" {
 		ev = lipapi.MergeToolEventInto(ev, res.Event)
 	}
@@ -202,7 +224,8 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		return lipapi.Event{}, false, gerr
 	}
 	if replaced {
-		if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
+		views, viewsOK := s.viewsFor(ctx)
+		if err := s.responsePipeline.cycleFinalStreamObservation(ctx, s.facts, s.executor, attempt, views, viewsOK, response.OutcomeGateReplaced, s.isCommitted()); err != nil {
 			return lipapi.Event{}, false, err
 		}
 	}
@@ -212,8 +235,14 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 	// Without this the reservation stays locked until the accounting window resets.
 	finishPreflighted := false
 	if out.Kind == lipapi.EventResponseFinished && (s.terminal == nil || !s.terminal.accountingFinalized()) {
-		if err := s.mandatoryClientFacingPreflight(ctx, out); err != nil {
-			return lipapi.Event{}, false, err
+		recording := s.responsePipeline.recordClientFacing(ctx, s.facts, attempt, s.executor, out, s.isCommitted())
+		if recording.mandatory() {
+			s.responsePipeline.finishFinalStreamObservation(ctx, attempt, response.OutcomeFailed)
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(recording.err), recording.err)
+			return lipapi.Event{}, false, recording.err
+		}
+		if recording.err != nil && s.executor != nil && s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", recording.err)
 		}
 		finishPreflighted = true
 		usageEv, ok, err := s.finalizeResponseFinishedAuthority(ctx, out)
@@ -242,27 +271,37 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		s.recovery.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
 	if finishPreflighted {
-		// Evidence already recorded in mandatoryClientFacingPreflight; still
-		// observe + remember/emit without re-running beforeEmit.
-		if s.executor != nil {
-			if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, attempt.finalStreamObs, out, s.isCommitted()); err != nil {
-				s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-				s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
-				return lipapi.Event{}, false, err
-			}
+		// Evidence already recorded in the mandatory preflight; response
+		// observation now owns final observer/traffic/evidence ordering.
+		out, _, err := s.responsePipeline.observeClientFacing(ctx, out, responseEventInput{
+			facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+			pm: pm, committed: s.isCommitted(), now: s.now(), recorded: true, finishAfterRemember: true,
+		})
+		if err != nil {
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
+			return lipapi.Event{}, false, err
 		}
-		releaseDispatch := s.emitTrafficPTCFinal(ctx, &out, pm)
-		s.rememberClientEvent(out)
 		if out.Kind == lipapi.EventResponseFinished {
-			s.commitSuccessfulTurn()
-			s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
+			s.responsePipeline.commitSuccessfulTurn(s.facts, attempt, s.executor.Keepwarm, s.isCommitted())
 		}
-		s.commitAffinityIfOutput(ctx, out)
-		s.notifyCompactionAfterRelease(ctx, out, releaseDispatch)
 		return out, false, nil
 	}
-	out, err := s.emitClientFacingObserved(ctx, out, pm)
-	return out, false, err
+	if lipapi.OutputCommitted(out) {
+		s.markOutputCommitted(out)
+	}
+	out, recording, err := s.responsePipeline.observeClientFacing(ctx, out, responseEventInput{
+		facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+		pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+	})
+	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		s.terminalizePartialFailure(ctx, cmd, attemptReasonDetail(err), err)
+		return lipapi.Event{}, false, err
+	}
+	return out, false, nil
 }
 
 // handleResponseFinishedPath finalizes the response_finished branch: token
@@ -271,8 +310,14 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 // before NormalFinish settlement so encoder failure can own the terminal.
 func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, bool, error) {
 	attempt := s.attempt.require()
-	if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
-		return lipapi.Event{}, false, err
+	recording := s.responsePipeline.recordClientFacing(ctx, s.facts, attempt, s.executor, ev, s.isCommitted())
+	if recording.mandatory() {
+		s.responsePipeline.finishFinalStreamObservation(ctx, attempt, response.OutcomeFailed)
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(recording.err), recording.err)
+		return lipapi.Event{}, false, recording.err
+	}
+	if recording.err != nil && s.executor != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", recording.err)
 	}
 	usageEv, ok, err := s.finalizeResponseFinishedAuthority(ctx, ev)
 	if err != nil {
@@ -293,43 +338,18 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 		Cand:    attempt.cand,
 		Outcome: lipapi.AttemptSuccess,
 	}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
-	s.commitSuccessfulTurn()
+	s.responsePipeline.commitSuccessfulTurn(s.facts, attempt, s.executor.Keepwarm, s.isCommitted())
 	s.markFinished()
 	s.terminal.endALeg(aLegEndBase)
-	// Evidence already recorded in mandatoryClientFacingPreflight; still observe
-	// + remember/emit without re-running beforeEmit (NormalFinish already competed).
-	if s.executor != nil {
-		if obsErr := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, attempt.finalStreamObs, ev, s.isCommitted()); obsErr != nil {
-			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(obsErr), obsErr)
-			return lipapi.Event{}, false, obsErr
-		}
+	out, _, obsErr := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
+		facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+		pm: pm, committed: s.isCommitted(), now: s.now(), recorded: true, finishAfterRemember: true,
+	})
+	if obsErr != nil {
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(obsErr), obsErr)
+		return lipapi.Event{}, false, obsErr
 	}
-	releaseDispatch := s.emitTrafficPTCFinal(ctx, &ev, pm)
-	s.rememberClientEvent(ev)
-	s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
-	s.commitAffinityIfOutput(ctx, ev)
-	s.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
-	return ev, false, nil
-}
-
-// mandatoryClientFacingPreflight runs beforeEmitClientFacing before NormalFinish.
-// On mandatory failure it claims FrontendEncoderFailure (competing with Close/cancel)
-// and settles partial accounting when the attempt is not yet settled.
-func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev lipapi.Event) error {
-	err := s.beforeEmitClientFacing(ctx, ev)
-	if err == nil {
-		return nil
-	}
-	if s.executor == nil || !s.executor.SecureSessionRecordingMandatory {
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-		return nil
-	}
-	s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-	s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
-	return err
+	return out, false, nil
 }
 
 // terminalizePartialFailure routes mid-stream / finish-adjacent failures through the
@@ -354,7 +374,7 @@ func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdk
 
 func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
 	attempt := s.attempt.require()
-	s.resetToolFinal()
+	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	// Truncated upstream: never run completion gates on a partial buffer (replace gates could
 	// synthesize response_finished and mask the failure).
 	gates := s.completionGatesFromContext(ctx)
@@ -390,7 +410,18 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 				return lipapi.Event{}, nil
 			}
 			pm, _ := s.recvHookMeta()
-			return s.emitClientFacingObserved(ctx, ev, pm)
+			out, recording, emitErr := s.responsePipeline.observeClientFacing(ctx, ev, responseEventInput{
+				facts: s.facts, executor: s.executor, attempt: attempt, recovery: s.recovery,
+				pm: pm, committed: s.isCommitted(), now: s.now(), finishBeforeRelease: true,
+			})
+			if emitErr != nil {
+				cmd := sdkterminal.CommandPartialError
+				if recording.mandatory() {
+					cmd = sdkterminal.CommandFrontendEncoderFailure
+				}
+				s.terminalizePartialFailure(ctx, cmd, attemptReasonDetail(emitErr), emitErr)
+			}
+			return out, emitErr
 		}
 	}
 	if !s.isFinished() {
@@ -405,7 +436,7 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	}
 	s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandEOF, attempt, s.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		s.recordPartialTokenAccounting(cctx, attempt, "stream ended without response_finished", io.EOF)
-		s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+		s.responsePipeline.finishFinalStreamObservation(cctx, attempt, response.OutcomeFailed)
 		s.markFinished()
 		return nil
 	}, func(cctx context.Context, _ coreterm.Outcome) error {

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 )
 
@@ -33,18 +34,34 @@ type responsePipeline struct {
 
 	recoverDrain []lipapi.Event
 
+	// toolClass and committedTools live for the logical response. The active
+	// attempt's assembler/finalizer remains on attemptSession and is replaced
+	// with every B-leg.
+	toolClass      toolEventClassificationState
+	committedTools []lipapi.ToolEvent
+
+	// compactionOpenMeta is request-side response correlation carried into the
+	// final release seam. It is response evidence, not terminal authority.
+	compactionOpenMeta compaction.PreservationMeta
+
+	// recordingOutcome is the last typed secure-recording result. It lets the
+	// caller apply replacement/terminal policy without a second hard-stop flag.
+	recordingOutcome responseRecordingOutcome
+
 	lastAuthorityUsage lipapi.Event
 	lastCustomerUsage  lipapi.Event
+	keepwarmArmOnce    sync.Once
 
 	terminalSnapshot func() (committed, accountingFinalized bool)
-	toolEventHook    func(lipapi.ToolEvent)
 	customerUsageFn  func(context.Context, string, []lipapi.Event) lipapi.Event
 }
 
-func newResponsePipeline() *responsePipeline {
-	return &responsePipeline{
-		customer: newCustomerEvidenceAccumulator(),
+func newResponsePipeline(openMeta ...compaction.PreservationMeta) *responsePipeline {
+	p := &responsePipeline{customer: newCustomerEvidenceAccumulator()}
+	if len(openMeta) > 0 {
+		p.compactionOpenMeta = openMeta[0]
 	}
+	return p
 }
 
 func (p *responsePipeline) ensure() {
@@ -75,15 +92,6 @@ func (p *responsePipeline) bindTerminalSnapshot(snapshot func() (bool, bool)) {
 	}
 	p.eventsMu.Lock()
 	p.terminalSnapshot = snapshot
-	p.eventsMu.Unlock()
-}
-
-func (p *responsePipeline) bindToolEventHook(hook func(lipapi.ToolEvent)) {
-	if p == nil {
-		return
-	}
-	p.eventsMu.Lock()
-	p.toolEventHook = hook
 	p.eventsMu.Unlock()
 }
 
@@ -124,8 +132,8 @@ func (p *responsePipeline) rememberClientEvent(ev lipapi.Event) {
 	} else if ev.Kind == lipapi.EventTextDelta {
 		p.visibleText.WriteString(ev.Delta)
 	}
-	if tool, ok := lipapi.ToolEventFromEvent(ev); ok && p.toolEventHook != nil {
-		p.toolEventHook(tool)
+	if tool, ok := lipapi.ToolEventFromEvent(ev); ok {
+		p.committedTools = append(p.committedTools, tool)
 	}
 	p.seenEvents = append(p.seenEvents, ev)
 	p.eventsMu.Unlock()
@@ -161,6 +169,76 @@ func (p *responsePipeline) clearClientAccumulators() {
 	if p.customer != nil {
 		p.customer.resetContent()
 	}
+}
+
+// clearToolClassification drops correlation for an attempt transition or
+// terminal cleanup. The logical committed-tool evidence remains available for
+// the successful-turn keep-warm handoff.
+func (p *responsePipeline) clearToolClassification() {
+	if p == nil {
+		return
+	}
+	p.toolClass.clear()
+}
+
+func clearAttemptToolState(p *responsePipeline, attempt *attemptSession) {
+	if attempt != nil && attempt.toolFinal != nil {
+		attempt.toolFinal.clear()
+	}
+	if p != nil {
+		p.clearToolClassification()
+	}
+}
+
+func (p *responsePipeline) enrichToolEvent(te *lipapi.ToolEvent) {
+	if p != nil {
+		p.toolClass.enrich(te)
+	}
+}
+
+func (p *responsePipeline) forgetToolClassification(id string) {
+	if p != nil {
+		p.toolClass.forget(id)
+	}
+}
+
+func (p *responsePipeline) observeToolFinalName(id string, ev lipapi.Event) {
+	if p != nil {
+		p.toolClass.observeFinalName(id, ev)
+	}
+}
+
+func (p *responsePipeline) rememberEffectiveTool(id string, ev lipapi.ToolEvent) {
+	if p != nil {
+		p.toolClass.rememberEffective(id, ev)
+	}
+}
+
+func (p *responsePipeline) committedToolEventsSnapshot() []lipapi.ToolEvent {
+	if p == nil {
+		return nil
+	}
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	return append([]lipapi.ToolEvent(nil), p.committedTools...)
+}
+
+func (p *responsePipeline) recordingBlocksReplacement() bool {
+	if p == nil {
+		return false
+	}
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	return p.recordingOutcome == responseRecordingMandatoryPostCommitFailure
+}
+
+func (p *responsePipeline) setRecordingOutcome(outcome responseRecordingOutcome) {
+	if p == nil {
+		return
+	}
+	p.eventsMu.Lock()
+	p.recordingOutcome = outcome
+	p.eventsMu.Unlock()
 }
 
 // resetForReplacement clears evidence whose lifetime is one B-leg. Gate and

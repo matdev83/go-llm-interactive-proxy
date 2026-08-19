@@ -42,15 +42,15 @@ func (c backendPromptCacheController) Release(ctx context.Context, req promptcac
 	return c.backend.ReleasePromptCache(ctx, req)
 }
 
-// commitSuccessfulTurn is the single stream-to-maintenance boundary. The
+// commitSuccessfulTurn is the single response-to-maintenance boundary. The
 // terminal handlers only announce that the response_finished event committed;
-// this method snapshots observations and tool evidence exactly once.
-func (s *retryRecvStream) commitSuccessfulTurn() {
-	if s == nil || s.executor == nil || s.executor.Keepwarm == nil {
+// this method snapshots attempt-local prompt-cache observations and logical
+// response tool evidence exactly once.
+func (p *responsePipeline) commitSuccessfulTurn(facts recvTurnFacts, attempt *attemptSession, kw *keepwarm.Orchestrator, committed bool) {
+	if p == nil || kw == nil || attempt == nil {
 		return
 	}
-	s.keepwarmArmOnce.Do(func() {
-		attempt := s.attempt.require()
+	p.keepwarmArmOnce.Do(func() {
 		if attempt.promptCacheSource == nil || attempt.promptCacheController == nil {
 			return
 		}
@@ -58,24 +58,15 @@ func (s *retryRecvStream) commitSuccessfulTurn() {
 		if len(observations) == 0 {
 			return
 		}
-		s.executor.Keepwarm.ArmCommittedTurn(keepwarm.ArmInput{
-			ALegID:              s.facts.aLegID,
+		kw.ArmCommittedTurn(keepwarm.ArmInput{
+			ALegID:              facts.aLegID,
 			BLegID:              attempt.bleg.BLegID,
-			CommittedSuccessful: s.isCommitted(),
-			ToolEvents:          s.committedToolEventsSnapshot(),
+			CommittedSuccessful: committed,
+			ToolEvents:          p.committedToolEventsSnapshot(),
 			Observations:        observations,
 			BackendInstanceID:   attempt.cand.Primary.Backend,
 			CanonicalModelID:    attempt.cand.Primary.Model,
 			Controller:          attempt.promptCacheController,
 		})
 	})
-}
-
-func (s *retryRecvStream) committedToolEventsSnapshot() []lipapi.ToolEvent {
-	if s == nil {
-		return nil
-	}
-	s.eventsMu.Lock()
-	defer s.eventsMu.Unlock()
-	return append([]lipapi.ToolEvent(nil), s.committedTools...)
 }

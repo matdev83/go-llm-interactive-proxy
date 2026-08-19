@@ -38,9 +38,8 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		}),
 		executor:           e,
 		bus:                prep.bus,
-		compactionOpenMeta: prep.compactionOpenMeta,
 		attempt:            attemptSlot{},
-		responsePipeline:   newResponsePipeline(),
+		responsePipeline:   newResponsePipeline(prep.compactionOpenMeta),
 		terminal:           terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
 			executor:    e,
@@ -71,7 +70,8 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
 	}))
 	rs.consumeBackendUsageEvidenceForAttempt(ctx, rs.attempt.require(), out.stream)
-	if err := rs.openFinalStreamObservation(ctx); err != nil {
+	views, viewsOK := rs.viewsFor(ctx)
+	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, e, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		if out.stream != nil {
 			_ = out.stream.Close()
 		}

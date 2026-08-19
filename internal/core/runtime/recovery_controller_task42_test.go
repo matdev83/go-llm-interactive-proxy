@@ -254,11 +254,11 @@ func TestTask42MandatoryRecorderCommittedNoReplacementOpen(t *testing.T) {
 		return replacementOpenResult{opened: true}, nil
 	}}
 	s := &retryRecvStream{
-		terminal:                    newTurnTerminal(),
-		recovery:                    recovery,
-		secureRecvRecordingHardStop: true,
-		executor:                    ex,
-		attempt:                     testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "committed-candidate"}, authorityLifecycle{}),
+		terminal:         newTurnTerminal(),
+		recovery:         recovery,
+		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
+		executor:         ex,
+		attempt:          testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "committed-candidate"}, authorityLifecycle{}),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			traceID: "task42-mandatory",
 			aLegID:  "task42-a-leg",

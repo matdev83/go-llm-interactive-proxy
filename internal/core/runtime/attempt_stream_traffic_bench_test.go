@@ -65,7 +65,7 @@ func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		s.emitTrafficBTP(ctx, ev, pm)
+		s.responsePipeline.emitTraffic(ctx, s.executor, s.attempt.snapshot(), sdktraffic.LegBTP, ev, pm)
 	}
 }
 
@@ -75,7 +75,7 @@ func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		s.emitTrafficPTC(ctx, ev, pm)
+		_ = s.responsePipeline.emitTrafficPTCFinal(ctx, s.executor, s.facts, s.attempt.snapshot(), &ev, pm)
 	}
 }
 

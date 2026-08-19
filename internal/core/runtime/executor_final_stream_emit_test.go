@@ -25,6 +25,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 type emitTestObserver struct {
@@ -117,7 +118,8 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-emit", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("open observer: %v", err)
 	}
 	return ex, rs
@@ -172,7 +174,7 @@ func TestEmitClientFacingObserved_recoverDrainFinishObservedAndReleased(t *testi
 	outcomes := append([]response.StreamOutcome(nil), obs.outcomes...)
 	obs.mu.Unlock()
 	if !sawUsage {
-		t.Fatal("synthesized usage must be Observed via emitClientFacingObserved")
+		t.Fatal("synthesized usage must pass through the response observation boundary")
 	}
 	if !sawFinished {
 		t.Fatal("recoverDrain pop must Observe response_finished")
@@ -237,9 +239,21 @@ func TestEmitClientFacingObserved_RemembersAfterSuccessfulRecording(t *testing.T
 	_, rs := setupEmitObserverStream(t, auth, factory, nil)
 	rs.customer = newCustomerEvidenceAccumulator()
 
-	out, err := rs.emitClientFacingObserved(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, sdkhooks.PartMeta{})
+	attempt := rs.attempt.require()
+	out, recording, err := rs.responsePipeline.observeClientFacing(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, responseEventInput{
+		facts: rs.facts, executor: rs.executor, attempt: attempt, recovery: rs.recovery,
+		pm: sdkhooks.PartMeta{}, committed: rs.isCommitted(), now: rs.now(), finishBeforeRelease: true,
+	})
 	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		rs.terminalizePartialFailure(context.Background(), cmd, attemptReasonDetail(err), err)
 		t.Fatalf("emit: %v", err)
+	}
+	if lipapi.OutputCommitted(out) {
+		rs.markOutputCommitted(out)
 	}
 	if out.Delta != "hello" {
 		t.Fatalf("delta=%q", out.Delta)
@@ -275,7 +289,21 @@ func TestEmitClientFacingObserved_MandatoryFailureDoesNotRemember(t *testing.T) 
 		return f
 	})
 
-	_, err := rs.emitClientFacingObserved(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "undelivered"}, sdkhooks.PartMeta{})
+	attempt := rs.attempt.require()
+	out, recording, err := rs.responsePipeline.observeClientFacing(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "undelivered"}, responseEventInput{
+		facts: rs.facts, executor: rs.executor, attempt: attempt, recovery: rs.recovery,
+		pm: sdkhooks.PartMeta{}, committed: rs.isCommitted(), now: rs.now(), finishBeforeRelease: true,
+	})
+	if err != nil {
+		cmd := sdkterminal.CommandPartialError
+		if recording.mandatory() {
+			cmd = sdkterminal.CommandFrontendEncoderFailure
+		}
+		rs.terminalizePartialFailure(context.Background(), cmd, attemptReasonDetail(err), err)
+	}
+	if lipapi.OutputCommitted(out) {
+		rs.markOutputCommitted(out)
+	}
 	if !errors.Is(err, recErr) {
 		t.Fatalf("err=%v want recorder boom", err)
 	}
@@ -366,7 +394,9 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, authorityCandidate(), authorityLifecycle{}),
 	}
 	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: orig.Clone()})
-	meta := rs.streamObserverMeta(ctx)
+	attempt := rs.attempt.require()
+	views, viewsOK := rs.viewsFor(ctx)
+	meta := rs.responsePipeline.streamObserverMeta(rs.facts, rs.executor, attempt, views, viewsOK)
 	if meta.Scope.PrincipalID.String() != "orig-principal" {
 		t.Fatalf("meta scope=%q", meta.Scope.PrincipalID)
 	}
@@ -529,7 +559,8 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-race", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("open observer: %v", err)
 	}
 	// Non-terminal drain event so Recv Observes before markFinished; Close must serialize Finish.
@@ -628,7 +659,8 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-open", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("initial open: %v", err)
 	}
 	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -679,7 +711,8 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cycle-post", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("initial open: %v", err)
 	}
 	rs.markCommitted()
@@ -718,9 +751,11 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 			traceID:  "trace-obs-fail",
 			aLegID:   aLegID,
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-obs-fail", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: newResponsePipeline(),
 	}
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
@@ -781,7 +816,8 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		}, start)}}
 	rs.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
+	views, viewsOK := rs.viewsFor(context.Background())
+	if err := rs.responsePipeline.openFinalStreamObservation(context.Background(), rs.facts, rs.executor, rs.attempt.require(), views, viewsOK, rs.isCommitted()); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 
@@ -812,7 +848,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	}
 	obs.mu.Unlock()
 	if !sawWarn {
-		t.Fatal("idle recovery warning must be Observed via emitClientFacingObserved")
+		t.Fatal("idle recovery warning must pass through the response observation boundary")
 	}
 
 	// EOF recovery warning path
@@ -842,7 +878,8 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		}, start)}}
 	rs2.visibleText.WriteString("hello")
 	rs2.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	if err := rs2.openFinalStreamObservation(context.Background()); err != nil {
+	views2, views2OK := rs2.viewsFor(context.Background())
+	if err := rs2.responsePipeline.openFinalStreamObservation(context.Background(), rs2.facts, rs2.executor, rs2.attempt.require(), views2, views2OK, rs2.isCommitted()); err != nil {
 		t.Fatalf("open eof: %v", err)
 	}
 	ev2, err := rs2.handleRecvEOF(context.Background())
@@ -862,6 +899,6 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	}
 	obs2.mu.Unlock()
 	if !sawEOFWarn {
-		t.Fatal("EOF recovery warning must be Observed via emitClientFacingObserved")
+		t.Fatal("EOF recovery warning must pass through the response observation boundary")
 	}
 }
