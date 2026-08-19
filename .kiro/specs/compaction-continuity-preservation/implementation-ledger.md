@@ -53,3 +53,29 @@ Integration review repairs:
 - ProcessServices coordinator composition preserves the critical-file and connector-overlay ratchets without whitespace deletion or cap changes.
 
 Environment limitation remains unchanged: targeted race execution cannot start under Windows because ThreadSanitizer exits with allocation error 87.
+
+## Wave 3 — Feature configuration and pure continuity semantics
+
+Implementation commit: pending at review time.
+
+| Task | Status | Reviewed implementation | Verification |
+| --- | --- | --- | --- |
+| 1.5 | Partial | Capsule binding/digest, conflict-key precedence, atomic supersession, deterministic pruning, and versioned Codex/OpenCode/Cline carrier fixtures; billing and repeated-compaction integration remain later work | Capsule/carrier suites `-count=20`; parser/carrier fuzz; `go vet` |
+| 3.1 | Complete | Official standard feature registration, strict bounded D18-compatible configuration, disabled-by-default semantic extraction, explicit route/inherit validation, immutable value snapshots, and enabled-generation prerequisite gate | Feature/standardplugins/runtimebundle tests and `go vet` — pass |
+| 3.2 | Complete | Self-binding capsule v1, typed canonical digest, strict parse/validation, parent-only supersedes references, conflict precedence, stale rejection, whole-fact pruning, and versioned carrier normalization | Pure feature suites `-count=20`; fuzz and lint evidence — pass |
+| 3.3 | Partial | Pure bounded canonical source preparation, existing secretguard integration, untrusted tool framing, deterministic incremental watermark, and pay-only eligibility | Source suite `-count=20`, fuzz and `go vet` — pass; successful-Open commit integration remains Task 4.1 |
+
+Integration review repairs:
+
+- Missing or disabled feature registration is a true prerequisite-gate no-op, including with nil process services; enabled registration still fails clearly when any required capability is missing.
+- Configuration and sanitizer implementations are split by concern; every new production file is below 330 lines without weakening file-budget checks.
+- A losing mixed-authority decision candidate cannot partially supersede prior active decisions, and same-delta/forward supersedes references are rejected rather than treated as parent state.
+- Carrier recognition remains a small explicit shape catalog and does not infer agent/provider brands.
+- Sanitized source preparation never commits state or starts auxiliary work; those lifecycle effects remain reserved for successful primary Open integration.
+
+Integrated evidence:
+
+- `go test -count=1 ./internal/plugins/features/compactioncontinuity/... ./internal/standardplugins ./internal/infra/runtimebundle` — pass.
+- `go vet ./internal/plugins/features/compactioncontinuity/... ./internal/standardplugins ./internal/infra/runtimebundle` — pass.
+- `go test -count=1 ./internal/archtest -run "TestCriticalFileBudgets|TestShrinkage_ConnectorOverlayExactMeasured"` — pass.
+- `git diff --check` — clean.

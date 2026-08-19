@@ -58,6 +58,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
+	if err := validateCompactionContinuityGeneration(ps, regs); err != nil {
+		return nil, err
+	}
 	merged, err := featurebundle.MergeFeatureSurface(ps.FactoryCatalog, regs)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
