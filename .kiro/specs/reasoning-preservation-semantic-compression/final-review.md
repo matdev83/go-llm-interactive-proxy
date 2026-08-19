@@ -2,9 +2,9 @@
 
 ## Verdict
 
-**GO as a specification; not approved for implementation yet.**
+**GO as a specification after CodeRabbit hardening; not approved for implementation yet.**
 
-The full Kiro SDD workflow has completed through tasks generation and brownfield correction. `spec.json` approvals intentionally remain false and `ready_for_implementation` remains false pending maintainer review.
+The full Kiro SDD workflow has completed through tasks generation, brownfield correction, and post-PR review hardening. `spec.json` approvals intentionally remain false and `ready_for_implementation` remains false pending maintainer review.
 
 ## Supersession Decision
 
@@ -18,176 +18,195 @@ It does not supersede or reopen:
 - `openai-codex-native-compaction`;
 - `compaction-continuity-preservation`.
 
-Those completed specs still describe required behavior. The new spec extends reasoning preservation with one optional semantic-surrogate lane and reuses generic auxiliary infrastructure produced by later work.
+Those completed specs still describe required behavior. This spec extends reasoning preservation with one optional semantic-surrogate lane and reuses generic auxiliary infrastructure produced by later work.
 
 There was no previous dedicated Kiro implementation spec for issue #369, so there is no #369 spec to supersede.
 
 ## Workflow Audit
 
-Completed steps:
+Completed:
 
-1. initialized a new isolated Kiro spec;
-2. generated EARS-style requirements from issue #369 plus current architecture;
-3. performed brownfield requirements/current-state gap analysis;
-4. recorded architectural research and dependency decisions;
-5. generated the initial design;
-6. performed brownfield design validation;
-7. returned Round-1 NO-GO for unnecessary ABI/routing breadth;
-8. corrected requirements/research/design;
-9. performed Round-2 design validation and reached GO;
-10. generated TDD-first dependency-ordered implementation tasks;
-11. performed this final traceability/scope review.
+1. spec initialization;
+2. EARS-style requirements generation;
+3. brownfield requirements/code gap analysis;
+4. requirements reconciliation;
+5. implementation research and architecture decisions;
+6. initial design generation;
+7. brownfield design validation — **NO-GO** on unnecessary semantic ABI, route inheritance, and optional-state breadth;
+8. requirements/research/design correction;
+9. corrected design validation — **GO**;
+10. TDD-first task generation;
+11. initial final scope/traceability review — **GO for maintainer review**;
+12. CodeRabbit cross-check of five major findings;
+13. requirements/design/tasks/reviews hardening for all five validated findings;
+14. final post-review consistency assessment — **GO**.
 
-## Key Brownfield Corrections
+## CodeRabbit Findings Assessment
 
-The design-review loop materially simplified the initial approach:
+All five unresolved CodeRabbit findings were verified as real.
 
-### Removed new backend semantic-permission ABI
+### 1. Missing raw compressor-result byte limit — accepted
 
-V1 does not add a new `SemanticTextDialects` field through backend/plugin replay capabilities and does not add source ReplaySupport to final StreamMeta. A conservative canonical artifact/dialect classifier is sufficient for the initial plain-text positive class; existing destination `ReasoningReplaySupport` still proves representability.
+The previous spec bounded requested output tokens and decoded surrogate bytes but did not explicitly bound the complete raw collected response before JSON decode.
 
-This reduces backend/plugin/profile churn and avoids a new compatibility surface before evidence requires it.
+The corrected spec now requires:
 
-### Removed primary-route inheritance
+- `max_output_bytes` distinct from `max_output_tokens` and `max_surrogate_bytes`;
+- fragment-by-fragment local byte counting before full string construction/JSON decode;
+- rejection as `raw_oversize` before decoding once the limit is exceeded;
+- tests where a syntactically valid JSON tail exists only beyond the configured raw limit.
 
-V1 requires an explicit independently configured compressor route. It does not widen final stream metadata with the original route selector or reconstruct routing from selected backend/model identity.
+This closes a local allocation/parser DoS gap.
 
-### Strengthened optional-state safety
+### 2. `BackgroundClient` source compatibility — accepted
 
-Both pending references and surrogate text have separate optional budgets. Optional compression state cannot force eviction of an otherwise-retained authoritative original merely to fit an optimization.
+The previous design proposed `Poll` as though it could simply be added to exported `auxiliary.BackgroundClient`. That would break external implementations satisfying the historical three-method interface.
 
-### Resolved async result adoption explicitly
+The corrected design keeps `BackgroundClient` unchanged and adds a separate optional `BackgroundPoller` capability. Standard scheduler composition used by compression must implement both, while historical external implementations remain source-compatible.
 
-Current `BackgroundClient` lacks a non-blocking result state API. The spec introduces one small generic Poll/equivalent operation rather than using zero-timeout Await, blocking response/replay, callbacks, or another feature-owned worker.
+### 3. Missing aggregate optional-state budget — accepted
 
-## Core Invariants Audit
+Per-session limits alone do not bound a process/feature instance if many sessions are created.
+
+The corrected spec adds:
+
+- feature-instance `MaxPendingTotal`;
+- feature-instance `MaxSurrogateBytesTotal`;
+- reservation before provider submission;
+- atomic counter maintenance through attach/delete/expiry/eviction;
+- multi-session aggregate-exhaustion and race tests.
+
+Optional budget exhaustion skips compression and never evicts authoritative originals.
+
+### 4. Model-visible vs control-plane metadata wording — accepted
+
+The corrected privacy boundary is explicit:
+
+- `Role`, `Visibility`, detached session mode, parent lineage, and cloned trusted principal/scope remain **control-plane metadata** for authorization, routing, correlation, generation ownership, and billing;
+- they are excluded from child canonical `Call.Messages`, compressor JSON payload, and content-bearing telemetry;
+- documentation no longer claims session/account identity is absent from the entire auxiliary request/execution context.
+
+### 5. Ordinary semantic text still needs data-processing policy — accepted
+
+`SemanticText` is a representation property, not a sensitivity classification. Preserved reasoning may contain secrets, personal data, proprietary code, or residency/retention-constrained content.
+
+The corrected design therefore requires a narrow trusted compression-egress decision before any out-of-trust-boundary submission:
+
+- `allow`;
+- `redact_then_allow`;
+- `deny`.
+
+The decision covers applicable operator retention, residency, consent/legal-basis, and provider-processing constraints. Existing trusted secret/redaction policy is reused where available. If policy requires redaction but no trusted sanitizer can satisfy it, compression is denied and the original remains authoritative.
+
+This is deliberately feature-scoped; it does not introduce a generic compliance platform.
+
+## Final Architecture Assessment
+
+### Original reasoning authority
+
+**PASS.** Original `TurnArtifact.Reasoning` is always authoritative. Compression state is optional and cannot become the only retained copy.
 
 ### Exact/native continuity
 
-PASS.
+**PASS.** OpenAI Responses exact items, Codex encrypted/native state, Anthropic signed/redacted/opaque thinking, unknown/malformed forms, and exact-bearing structures never enter semantic compression.
 
-- exact OpenAI Responses items never compress;
-- signed/redacted/opaque Anthropic reasoning never compresses;
-- direct Codex encrypted/native checkpoint state is outside semantic compression;
-- readable text cannot override exact/signature/opaque authority;
-- unknown/malformed/mixed uncertainty fails closed;
-- original artifact remains retained after successful compression.
+### Capture ordering
 
-### Surfaced-winner lifecycle
+**PASS.** Compression cannot start until the surfaced winner reaches `success_released` and the original artifact append succeeds.
 
-PASS.
+### Optional-state memory safety
 
-Compression submission occurs only after the existing original TurnStore append succeeds for `OutcomeSuccessReleased`. Parallel losers, swallowed retries/failovers, cancellation, close, response replacement and completion-gate replacement cannot submit compressor work.
+**PASS after hardening.** Pending and surrogate state are bounded separately from authoritative reasoning at both per-session and feature-instance aggregate levels.
 
-### Storage authority
+### Background execution
 
-PASS.
+**PASS after hardening.** Existing bounded process scheduler is reused. Non-blocking adoption uses an additive optional poll capability rather than breaking exported `BackgroundClient`.
 
-`reasoning-output-preservation` remains sole owner of the artifact store and historical reinjection. No second transcript/reasoning database is introduced.
+### Parser/allocation safety
 
-### Auxiliary architecture
-
-PASS.
-
-Compressor inference uses generic `pkg/lipsdk/auxiliary` and ordinary Executor/routing/B2BUA/billing. No provider client, second scheduler, callback worker, second ledger or `compactioncontinuity` feature dependency is introduced.
-
-### Latency behavior
-
-PASS.
-
-Observer Finish never waits for compression. V1 AttemptTransform only performs non-blocking Poll; a pending result means immediate original replay. No preservation barrier is introduced.
-
-### Billing
-
-PASS.
-
-Additional inference is attributable to the originating principal, uses ordinary admission/metering/settlement, gets a separate auxiliary workload role, remains excluded from primary protocol-visible usage, and is still accountable when incurred work produces invalid/stale/unused output.
+**PASS after hardening.** Raw response bytes are bounded before JSON decode, then decoded surrogate bytes and savings are validated separately.
 
 ### Privacy/security
 
-PASS.
+**PASS after hardening.** Ordinary text requires explicit data-egress approval/redaction-or-denial. Model-visible content is separated from trusted auxiliary control-plane metadata. Content-bearing telemetry remains content-free.
 
-Only eligible reasoning text reaches the compressor. Transcript, ordinary assistant output, tools/results, files/media, signatures, opaque/native data, session/account identifiers and credentials are excluded. Model output is strict bounded indexed JSON; telemetry is content-free.
+### Billing/accounting
 
-### Scalability
+**PASS.** Compressor inference follows ordinary auxiliary admission/routing/B2BUA/usage/provider-cost/settlement and originating-principal attribution. Primary protocol usage remains separate.
 
-PASS.
+### Replay safety
 
-The design uses canonical semantic/exact fixtures plus existing replay support and routing lifecycle tests. It explicitly rejects provider-by-provider Cartesian compatibility matrices.
+**PASS.** Shadow mode always restores originals. Active mode is explicit and only substitutes independently semantic-text placements after reclassifying the original and verifying destination `ReasoningReplaySupport`.
 
-## Implementation Order Audit
+### Tool/order/native integrity
 
-The task plan has **32 tasks across 7 phases**, with no phase exceeding five tasks:
+**PASS.** Surrogate selection can change only eligible textual reasoning payloads. Placement, tool IDs/order, ordinary assistant text, signatures, opaque/native fields, files/images, and reasoning/action/observation ordering remain unchanged.
 
-1. 5 RED safety/ownership contract tasks;
-2. 5 minimal foundation tasks;
-3. 4 isolated compressor-domain tasks;
-4. 4 original-first shadow-submission tasks;
-5. 4 non-blocking shadow-adoption tasks;
-6. 5 active destination-gated replay tasks;
-7. 5 certification/closeout tasks.
+### Retry/failover
 
-The dependency chain prevents unsafe early activation:
+**PASS.** Compression is optimization-local and cannot become primary retry/failover authority after downstream output commitment.
+
+### Backend scalability
+
+**PASS.** Compatibility is driven by canonical semantic/exact fixtures plus existing replay-support contracts, not backend Cartesian matrices.
+
+### Architectural minimality
+
+**PASS.** The design still avoids:
+
+- a second provider client;
+- a second generic worker/task runtime;
+- another transcript database;
+- another billing ledger/pricing engine;
+- provider-specific compressor branches in generic core;
+- a new backend semantic-permission ABI in v1;
+- route inheritance machinery;
+- synchronous compressor waits;
+- callback polling machinery;
+- a generic privacy/compliance subsystem.
+
+## Implementation Order Review
+
+The final task order remains intentionally conservative:
 
 ```text
-RED exact + disabled contracts
--> classifier/config/Poll/store foundations
--> compressor domain
--> original-first shadow submission
--> shadow non-blocking adoption
--> active replay
--> release certification
+Phase 1  RED exact/disabled/privacy/raw-bound/aggregate/source-compat contracts
+Phase 2  canonical classifier + config + optional Poll + bounded store/composition
+Phase 3  egress/sanitizer + compressor builder + pre-decode raw bound + strict validator
+Phase 4  original-first shadow submission only
+Phase 5  non-blocking shadow adoption only
+Phase 6  explicit destination-gated active replay
+Phase 7  billing/privacy/concurrency/parser/performance/repository certification
 ```
 
-Backend-visible semantic substitution cannot be implemented before Phase 6.
+Backend-visible semantic substitution is impossible before Phase 6.
 
-## Requirements Traceability Audit
+## Residual Risks
 
-All 13 requirement groups are represented in the design traceability table and implementation tasks.
+The remaining risks are implementation risks rather than unresolved design gaps:
 
-High-risk requirements receive multiple independent evidence lanes:
+- semantic compression can lose useful reasoning even when structurally safe; active mode is therefore explicit and should follow shadow evidence;
+- provider data-processing guarantees are only as trustworthy as the operator's configured/connected policy authority;
+- process-local v1 state is lost on restart, consistent with current reasoning-preservation durability;
+- current active request/terminal-pipeline simplification specs may move integration seams before implementation, requiring revalidation against merged `main`;
+- additional canonical text dialects should not be enabled without measured evidence.
 
-- R1/R2 exact and semantic classification: Phase 1, 2, 6, 7;
-- R4 surfaced-winner/original-first: Phase 1 and 4 plus E2E;
-- R5 store safety: Phase 1, 2, 4, 5;
-- R6/R7 auxiliary and billing: Phase 1, 3, 4, 7;
-- R9 async non-blocking adoption: Phase 1, 2, 5;
-- R10 active replay: Phase 5 shadow proof then Phase 6 active proof;
-- R11 shadow evidence: Phase 3, 5, 7;
-- R12 lifecycle/security architecture: every integration/certification phase;
-- R13 release gates: Phase 7 plus focused gates throughout.
+None requires reopening completed exact/native continuity specs.
 
-No implementation task is intentionally orphaned from requirements, and no requirement relies only on documentation/manual review.
+## Final Traceability and Scope Gate
 
-## Revalidation Triggers Before Implementation
+The normative `requirements.md`, `design.md`, and `tasks.md` now consistently cover the five review-hardening additions:
 
-Implementation agents must re-read current `main` before coding because active request/terminal ownership simplification specs may merge first. Revalidation is mandatory if any of these move:
+1. raw compressor `max_output_bytes` before decode;
+2. source-compatible optional `BackgroundPoller`;
+3. feature-instance aggregate optional-state budgets;
+4. model-visible/control-plane metadata separation;
+5. ordinary-text data-egress policy and redaction-or-denial.
 
-- final surfaced stream observer ownership/order;
-- AttemptTransform ownership/order;
-- feature/runtime composition;
-- auxiliary BackgroundClient/scheduler lifecycle;
-- generation retirement/pinning semantics.
+The PR remains specification-only. No production code, runtime behavior, configuration defaults, provider adapters, or billing implementation are changed by this branch.
 
-The implementation must adapt to moved owners rather than recreating stale seams. Semantic ordering from this SDD remains authoritative.
+## Final Verdict
 
-## Explicit Non-Goals Preserved
+**GO for maintainer review.**
 
-The spec does not plan:
-
-- durable/distributed compression state;
-- a second transcript database;
-- native Codex compaction replacement;
-- semantic compression of exact/signed/opaque reasoning;
-- primary-route inheritance in v1;
-- a new backend semantic capability ABI in v1;
-- synchronous compressor waits;
-- completion callbacks or feature maintenance workers;
-- provider Cartesian conformance matrices;
-- claims that lossy semantic compression is mathematically equivalent to original reasoning.
-
-## Final Scope Assessment
-
-The expected implementation is substantially narrower than issue #369 would have been before the reasoning-preservation and compaction-continuity work landed. Most difficult infrastructure already exists. The new generic work is intentionally limited to non-blocking background result inspection; remaining behavior stays inside the existing reasoning-preservation owner.
-
-**Final spec decision: GO for maintainer review / approval, as a follow-up SDD.**
+The review comments identified genuine omissions, and the spec has been corrected rather than defended. The resulting architecture is safer without materially expanding the core design: original-first, asynchronous, bounded at every layer, source-compatible, privacy-gated, shadow-first, and exact/native continuity preserving.
