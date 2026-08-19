@@ -10,7 +10,7 @@
 
 ## Phase 1 — Freeze Scale, Identity, Lifetime, and Concurrency Contracts
 
-### Task 1.1 — Build the high-cardinality reload characterization harness
+- [x] 1.1 Build the high-cardinality reload characterization harness
 
 - Add a deterministic runtimebundle fixture with at least 100 enabled synthetic discovered `per_instance` connector instances and no external credentials.
 - Count physical build/factory invocation, processhost Activate/launch, Configure, physical cleanup, and later lease acquire/release operations.
@@ -20,9 +20,13 @@
 
 _Requirements: 1.1–1.7, 2.2, 9.1, 9.4_
 
-_Validation: deterministic current O(N) reconstruction is recorded and target count assertions are RED._
+_Boundary: `internal/infra/runtimebundle` characterization tests and benchmarks only; no production reuse_
 
-### Task 1.2 — Lock complete physical identity and drift behavior with RED tests
+_Depends: None_
+
+_Validation: `go test -count=1 -run 'Test.*BackendResource.*(HighCardinality|Reload)' ./internal/infra/runtimebundle`; deterministic current O(N) reconstruction is recorded and target count assertions are RED._
+
+- [x] 1.2 Lock complete physical identity and drift behavior with RED tests
 
 - Add table-driven identity tests for logical instance/factory, artifact digest, process model, opaque Configure bytes, normalized RuntimePolicy, and secret fingerprint.
 - Prove config/artifact/secret/policy differences cannot alias; prove `shared_artifact` is non-pooled fallback rather than a pooled replacement case.
@@ -32,9 +36,13 @@ _Validation: deterministic current O(N) reconstruction is recorded and target co
 
 _Requirements: 3.1–3.12, 8.1, 8.10, 9.4–9.5_
 
-_Validation: focused identity/construction tests are RED and fail closed on omitted input treatment._
+_Boundary: `internal/infra/runtimebundle` physical-identity contract tests only_
 
-### Task 1.3 — Freeze reserved-claim and entry-ownership state machine with RED tests
+_Depends: None; may proceed in parallel with Task 1.1_
+
+_Validation: `go test -count=1 -run 'TestBackendResourceIdentity' ./internal/infra/runtimebundle`; focused identity/construction tests are RED and fail closed on omitted input treatment._
+
+- [x] 1.3 Freeze reserved-claim and entry-ownership state machine with RED tests
 
 - Add first/live/concurrent Acquire tests where every building-entry waiter reserves its prospective claim before waiting; include a deterministic first-release-before-waiter-wake schedule.
 - Add cancellation/failure tests proving waiter cancellation drops only its claim, failed builds are not negative-cached, and a later Acquire can retry.
@@ -44,9 +52,13 @@ _Validation: focused identity/construction tests are RED and fail closed on omit
 
 _Requirements: 4.1–4.4, 4.8–4.11, 6.1–6.8, 7.1–7.3, 7.7, 9.1–9.2, 9.7_
 
-_Validation: tests are RED against the absent pool and pin zero-ref handoff/detached/double-cleanup races._
+_Boundary: `internal/infra/runtimebundle` private pool state-machine tests only_
 
-### Task 1.4 — Freeze Acquire/Close linearization and builder lifetime with RED tests
+_Depends: Task 1.2 for the frozen semantic identity test shape_
+
+_Validation: `go test -count=1 -run 'TestBackendResourcePool.*(Acquire|Release|Invalidate|Cleanup)' ./internal/infra/runtimebundle`; tests are RED against the absent pool and pin zero-ref handoff/detached/double-cleanup races._
+
+- [x] 1.4 Freeze Acquire/Close linearization and builder lifetime with RED tests
 
 - Add a terminal Close linearization test proving no new claim can be reserved and no pending build result can be handed off after `closing=true` linearizes.
 - Add a physical builder that blocks until its **pool-owned** context is canceled; Pool.Close must cancel it, join it, and prevent late publication before returning.
@@ -56,9 +68,13 @@ _Validation: tests are RED against the absent pool and pin zero-ref handoff/deta
 
 _Requirements: 4.5–4.7, 7.5, 7.7, 7.9, 9.1–9.3, 9.6_
 
-_Validation: shutdown-race tests are RED and define the pool's terminal linearization contract._
+_Boundary: `internal/infra/runtimebundle` private pool shutdown/cancellation tests only_
 
-### Task 1.5 — Freeze cleanup handoff, candidate isolation, and standard Session concurrency
+_Depends: Task 1.3 for the reserved-claim and entry state-machine contract_
+
+_Validation: `go test -count=1 -run 'TestBackendResourcePool.*(Close|Cancel|Late|Builder)' ./internal/infra/runtimebundle`; shutdown-race tests are RED and define the pool's terminal linearization contract._
+
+- [x] 1.5 Freeze cleanup handoff, candidate isolation, and standard Session concurrency
 
 - Add an ownership test counting adapter/session cleanup, `ActivateResult.Cleanup`/host instance cleanup, pool cleanup, and later `Host.Close`, proving one physical resource is not torn down twice.
 - Add candidate rollback with active+candidate sharing: rollback releases only the candidate claim and leaves active execution/query behavior available.
@@ -68,11 +84,15 @@ _Validation: shutdown-race tests are RED and define the pool's terminal lineariz
 
 _Requirements: 5.4–5.11, 7.1–7.10, 8.2–8.5, 8.11, 9.6–9.7, 9.10_
 
-_Validation: last-good isolation, cleanup ownership, established Session concurrency, and teardown-order assertions are RED._
+_Boundary: `internal/infra/runtimebundle` integration contracts plus `pkg/lipsdk/backendplugin/host` standard Session characterization tests_
+
+_Depends: Tasks 1.1, 1.3, and 1.4_
+
+_Validation: `go test -count=1 ./internal/infra/runtimebundle ./pkg/lipsdk/backendplugin/host`; last-good isolation, cleanup ownership, established Session concurrency, and teardown-order assertions are RED._
 
 ## Phase 2 — Implement the Minimal Private Identity and Reconciliation Owner
 
-### Task 2.1 — Implement explicit fail-closed physical identity
+- [x] 2.1 Implement explicit fail-closed physical identity
 
 - Add one package-private identity builder at the discovered physical construction/configure choke point using domain-separated, length-framed SHA-256 inputs.
 - Explicitly project every RuntimePolicy field and deterministic opaque Configure bytes; hash sorted length-framed secret names/values without retaining plaintext.
@@ -82,9 +102,13 @@ _Validation: last-good isolation, cleanup ownership, established Session concurr
 
 _Requirements: 3.1–3.12, 8.1, 8.10_
 
-_Validation: focused identity tests green and no secret/raw identity leakage exists._
+_Boundary: `internal/infra/runtimebundle` private physical-input and identity implementation_
 
-### Task 2.2 — Implement reserved-claim entries and exactly-once physical cleanup
+_Depends: Task 1.2 RED identity/privacy/drift contracts_
+
+_Validation: `go test -count=1 -run 'TestBackendResourceIdentity' ./internal/infra/runtimebundle`; focused identity tests green and no secret/raw identity leakage exists._
+
+- [x] 2.2 Implement reserved-claim entries and exactly-once physical cleanup
 
 - Add a package-private entry model with building/live/detached/failed state, exact incarnation token, pre-reserved claims, readiness signaling, and current semantic indexing.
 - Add a process-owned set of every successful physical entry until its entry-level cleanup-once completes, including invalidated/detached entries.
@@ -94,9 +118,13 @@ _Validation: focused identity tests green and no secret/raw identity leakage exi
 
 _Requirements: 4.1–4.4, 4.8–4.11, 6.1–6.8, 7.1–7.3, 7.7_
 
-_Validation: reserved-claim, detached ownership, invalidation and cleanup-race tests green under `-race`._
+_Boundary: `internal/infra/runtimebundle` private connector pool entry, lease, invalidation, and cleanup ownership_
 
-### Task 2.3 — Implement pool-owned physical builders and terminal Close
+_Depends: Tasks 1.3 and 2.1_
+
+_Validation: `go test -count=1 -run 'TestBackendResourcePool.*(Acquire|Release|Invalidate|Cleanup)' ./internal/infra/runtimebundle`; targeted `-race` where supported._
+
+- [x] 2.3 Implement pool-owned physical builders and terminal Close
 
 - Create one pool-owned cancellable build root; absent identity starts exactly one joined builder goroutine and all callers wait as claimants rather than owning the build.
 - Pass pool builder context through pooled `processhost.Activate`/Configure instead of a background lifetime; caller cancellation abandons only that caller's reservation.
@@ -106,9 +134,13 @@ _Validation: reserved-claim, detached ownership, invalidation and cleanup-race t
 
 _Requirements: 4.5–4.8, 7.5, 7.7, 7.9_
 
-_Validation: no builder can outlive Pool.Close or publish after its terminal boundary._
+_Boundary: `internal/infra/runtimebundle` private pool builder lifetime and terminal shutdown_
 
-### Task 2.4 — Transfer pool ownership through existing process construction
+_Depends: Tasks 1.4 and 2.2_
+
+_Validation: `go test -count=1 -run 'TestBackendResourcePool.*(Close|Cancel|Late|Builder)' ./internal/infra/runtimebundle`; no builder can outlive Pool.Close or publish after its terminal boundary._
+
+- [x] 2.4 Transfer pool ownership through existing process construction
 
 - Create the pool beside `processhost.Host` during discovered-install preparation and capture it lexically in eligible discovered factory closures.
 - Extend the private install/process-build ownership bundle so pool lifetime transfers into `ProcessServices` without global/setter lookup.
@@ -118,11 +150,15 @@ _Validation: no builder can outlive Pool.Close or publish after its terminal bou
 
 _Requirements: 2.1, 2.6–2.9, 7.3–7.10_
 
-_Validation: success and partial-startup ownership transfer is exactly once and dependency ordered._
+_Boundary: `internal/infra/runtimebundle` discovered-install and `ProcessServices` composition/ownership wiring_
+
+_Depends: Tasks 1.5 and 2.3_
+
+_Validation: `go test -count=1 -run 'Test.*(Discovered|ProcessServices|Ownership|Teardown)' ./internal/infra/runtimebundle`; success and partial-startup ownership transfer is exactly once and dependency ordered._
 
 ## Phase 3 — Integrate Reuse at the Discovered `per_instance` Factory Seam
 
-### Task 3.1 — Split preparation, physical construction, and lease acquisition
+- [x] 3.1 Split preparation, physical construction, and lease acquisition
 
 - Refactor discovered backend construction into effective input/identity preparation, the current physical Activate/Configure/adapter build, and pool Acquire without provider-specific branches.
 - Preserve unique host activation IDs for every **new** per-instance physical incarnation and leave processhost ownership keys unchanged.
@@ -132,9 +168,13 @@ _Validation: success and partial-startup ownership transfer is exactly once and 
 
 _Requirements: 1.4–1.5, 2.2–2.7, 4.2, 4.9–4.11, 7.1–7.3_
 
-_Validation: unchanged reload performs zero physical reconstruction; K changed configs produce K physical builds._
+_Boundary: `internal/infra/runtimebundle` discovered `per_instance` factory composition seam only_
 
-### Task 3.2 — Bind invalidation to exact pooled incarnation
+_Depends: Tasks 1.1 and 2.1–2.4_
+
+_Validation: `go test -count=1 -run 'Test.*BackendResource.*(HighCardinality|Reload|Reuse)' ./internal/infra/runtimebundle`; unchanged reload performs zero physical reconstruction and K changed configs produce K physical builds._
+
+- [x] 3.2 Bind invalidation to exact pooled incarnation
 
 - Wrap newly built pooled adapter invalidation so it detaches only the exact pool entry/incarnation before/atomically with delegating to `processhost.InvalidateProcessGeneration`.
 - Preserve processhost physical reap/recovery and cleanup normalization; invalidation does not decrement generation claims or live-substitute a replacement.
@@ -144,9 +184,13 @@ _Validation: unchanged reload performs zero physical reconstruction; K changed c
 
 _Requirements: 6.1–6.8, 7.3, 8.7, 8.9_
 
-_Validation: invalidation/replacement tests green and existing processhost invalidation suites remain green._
+_Boundary: `internal/infra/runtimebundle` pooled adapter invalidation binding; existing `processhost` supervision remains unchanged_
 
-### Task 3.3 — Preserve generation-local state and query-only candidate behavior
+_Depends: Tasks 1.3, 2.2, and 3.1_
+
+_Validation: `go test -count=1 -run 'Test.*(Invalidat|Incarnation)' ./internal/infra/runtimebundle ./internal/infra/backendplugins/processhost`; invalidation/replacement tests and existing processhost suites remain green._
+
+- [x] 3.3 Preserve generation-local state and query-only candidate behavior
 
 - Continue building new generation-local inventories, model registry/catalog, executor/routing/policy/billing views, handler, lifecycle context, and `ResourceLedger` from leased backends.
 - Ensure a reuse hit performs no Configure/Start/Stop/Close/mutating preflight and candidate rollback never invalidates because the candidate failed.
@@ -156,9 +200,13 @@ _Validation: invalidation/replacement tests green and existing processhost inval
 
 _Requirements: 5.1–5.11, 8.4, 8.6–8.11_
 
-_Validation: backend recomposition/no-drop suites plus query-only/cross-generation tests green._
+_Boundary: `internal/infra/runtimebundle` candidate/reload integration tests and existing generation-local composition; no canonical/core semantics changes_
 
-### Task 3.4 — Add architecture fences against scope creep and cleanup bypass
+_Depends: Tasks 1.5, 3.1, and 3.2_
+
+_Validation: `go test -count=1 ./internal/infra/runtimebundle ./pkg/lipsdk/backendplugin/host`; backend recomposition/no-drop plus query-only/cross-generation tests green._
+
+- [x] 3.4 Add architecture fences against scope creep and cleanup bypass
 
 - Prove the pool remains private to runtime composition and is absent from request execution, public SDKs, provider-specific packages, and connector authoring APIs.
 - Reject generic service/container/keyed runtime registry APIs introduced for this feature.
@@ -168,11 +216,15 @@ _Validation: backend recomposition/no-drop suites plus query-only/cross-generati
 
 _Requirements: 2.1, 2.5–2.9, 4.10–4.11, 7.3, 8.2, 8.8–8.10, 9.8_
 
-_Validation: representative forbidden architecture fixtures fail and intended private design passes._
+_Boundary: `internal/archtest` static architecture contracts only_
+
+_Depends: Tasks 3.1–3.3 so fences inspect the final production shape_
+
+_Validation: `go test -count=1 ./internal/archtest/...`; representative forbidden architecture fixtures fail and intended private design passes._
 
 ## Phase 4 — Certify ROI, Identity, Concurrency, and Simplicity
 
-### Task 4.1 — Certify the high-cardinality generation-reload matrix
+- [x] 4.1 Certify the high-cardinality generation-reload matrix
 
 - Run the 100-enabled-connector fixture for unchanged, one/K config changes, remove/disable, candidate rollback, and invalidation-then-rebuild.
 - Assert physical build/Activate/Configure counts are `0` for unchanged reuse and proportional only to changed/unusable identities.
@@ -182,9 +234,13 @@ _Validation: representative forbidden architecture fixtures fail and intended pr
 
 _Requirements: 1.1–1.7, 4.9, 5.2–5.5, 6.4–6.6, 7.5_
 
-_Validation: structural O(N) physical build -> O(K) physical build claim is green without timing thresholds._
+_Boundary: `internal/infra/runtimebundle` deterministic integration evidence only_
 
-### Task 4.2 — Certify the focused physical identity/construction matrix
+_Depends: Tasks 3.1–3.3_
+
+_Validation: `go test -count=1 -run 'Test.*BackendResource.*(HighCardinality|Reload|Matrix)' ./internal/infra/runtimebundle`; structural O(N) physical build -> O(K) physical build claim is green without timing thresholds._
+
+- [x] 4.2 Certify the focused physical identity/construction matrix
 
 - Exercise distinct artifact digests, secret fingerprints, normalized RuntimePolicy values, factory/logical IDs, and process models directly at the physical identity/construction seam.
 - Prove each eligible identity difference misses the existing pool entry and creates a fresh resource when construction is otherwise shareable.
@@ -194,9 +250,13 @@ _Validation: structural O(N) physical build -> O(K) physical build claim is gree
 
 _Requirements: 3.1–3.12, 9.4–9.5_
 
-_Validation: all physical identity dimensions are covered without inventing unsupported reload behavior._
+_Boundary: `internal/infra/runtimebundle` focused identity/construction evidence only_
 
-### Task 4.3 — Run race, leak, security, conformance, and reload regression gates
+_Depends: Tasks 2.1 and 3.1_
+
+_Validation: `go test -count=1 -run 'TestBackendResourceIdentity' ./internal/infra/runtimebundle`; all physical identity dimensions are covered without inventing unsupported reload behavior._
+
+- [x] 4.3 Run race, leak, security, conformance, and reload regression gates
 
 - Run targeted `-race`/goleak for reserved claims, Acquire/Close/build cancellation, invalidation, entry cleanup, and overlapping standard-host operations.
 - Run processhost activation/cleanup/invalidation and executable backend-plugin security/conformance suites.
@@ -206,9 +266,13 @@ _Validation: all physical identity dimensions are covered without inventing unsu
 
 _Requirements: 7.7–7.10, 8.4–8.10, 9.1–9.9_
 
-_Validation: concurrency/security/reload/repository gates green._
+_Boundary: repository verification across runtimebundle, processhost, backend-plugin host/security/conformance, reload, and architecture tests_
 
-### Task 4.4 — Record performance and Session overlap evidence
+_Depends: Tasks 3.1–3.4 and 4.1–4.2_
+
+_Validation: focused uncached tests, targeted `go test -race` where supported, `go mod verify`, `make quality-checks`, `make test-unit`, connector/reload/conformance/security suites; all applicable gates green._
+
+- [x] 4.4 Record performance and Session overlap evidence
 
 - Run comparable high-cardinality candidate-build benchmarks and report timing/allocations separately from deterministic work counts.
 - Deterministically hold a retained old-generation Execute and start a new-generation Execute on the same pooled standard Session; record the existing serialization behavior and cancellation/close outcome.
@@ -218,9 +282,13 @@ _Validation: concurrency/security/reload/repository gates green._
 
 _Requirements: 1.6–1.7, 8.2–8.3, 8.8, 8.11, 9.10_
 
-_Validation: ROI evidence includes both lifecycle savings and the real overlap-scheduling tradeoff._
+_Boundary: `internal/infra/runtimebundle` benchmarks and `pkg/lipsdk/backendplugin/host` Session overlap characterization only_
 
-### Task 4.5 — Perform final simplification and authority audit
+_Depends: Tasks 3.3 and 4.1_
+
+_Validation: targeted `go test -bench 'BackendResource' -benchmem ./internal/infra/runtimebundle` plus uncached Session overlap tests; ROI evidence includes lifecycle savings and the real overlap-scheduling tradeoff._
+
+- [x] 4.5 Perform final simplification and authority audit
 
 - Remove duplicate ownership stacks, generic wrappers, public knobs, request-path coupling, or unused lifecycle abstractions from the implementation diff.
 - Confirm `ProcessServices`, `ResourceLedger`, `processhost.Host`, runtimehost generation refs, and unique activation IDs remain the same authorities.
@@ -230,7 +298,11 @@ _Validation: ROI evidence includes both lifecycle savings and the real overlap-s
 
 _Requirements: 1.7, 2.1–2.9, 7.1–7.10, 9.8–9.10_
 
-_Validation: final diff remains narrowly connector-lifecycle focused and evidence-backed._
+_Boundary: holistic reviewed feature diff and Kiro implementation evidence; no new feature scope_
+
+_Depends: Tasks 4.1–4.4_
+
+_Validation: complete diff/authority audit, `git diff --check`, changed-file limit check, and all final repository gates; final diff remains narrowly connector-lifecycle focused and evidence-backed._
 
 ## Requirement Coverage Matrix
 
