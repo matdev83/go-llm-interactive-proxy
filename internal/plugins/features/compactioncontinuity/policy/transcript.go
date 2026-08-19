@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
 // TranscriptAuthorizationFromContext returns the already-authorized scope for
@@ -16,25 +16,28 @@ func TranscriptAuthorizationFromContext(ctx context.Context) (TranscriptAuthoriz
 	if !trusted {
 		return TranscriptAuthorization{}, false
 	}
-	turn, ok := execctx.SecureSessionTurnFromContext(ctx)
-	if !ok || !turn.Policy.TranscriptEnabled {
+	turn, ok := session.SecureTurnPolicyFromContext(ctx)
+	if !ok || !turn.TranscriptEnabled {
 		return TranscriptAuthorization{}, false
 	}
-	principal := strings.TrimSpace(views.Scope.PrincipalID.String())
-	if principal == "" && views.Scope.SubjectKind != scope.SubjectLocal {
+	trustedScope, _ := scope.ScopeFromContext(ctx)
+	principal := strings.TrimSpace(trustedScope.PrincipalID.String())
+	if principal == "" && trustedScope.SubjectKind != scope.SubjectLocal {
 		return TranscriptAuthorization{}, false
 	}
-	workspaceID := strings.TrimSpace(views.Workspace.ID)
+	sessionWorkspace := strings.TrimSpace(views.WorkspaceID)
+	scopeWorkspace := strings.TrimSpace(trustedScope.WorkspaceID.String())
+	if sessionWorkspace != "" && scopeWorkspace != "" && sessionWorkspace != scopeWorkspace {
+		return TranscriptAuthorization{}, false
+	}
+	workspaceID := sessionWorkspace
 	if workspaceID == "" {
-		workspaceID = strings.TrimSpace(views.Scope.WorkspaceID.String())
-	}
-	if sessionWorkspace := strings.TrimSpace(views.Session.WorkspaceID); sessionWorkspace != "" && workspaceID != "" && sessionWorkspace != workspaceID {
-		return TranscriptAuthorization{}, false
+		workspaceID = scopeWorkspace
 	}
 	return TranscriptAuthorization{
-		SessionID:   strings.TrimSpace(views.Session.AuthoritativeSessionID),
+		SessionID:   strings.TrimSpace(views.AuthoritativeSessionID),
 		PrincipalID: principal,
-		TenantID:    strings.TrimSpace(views.Scope.TenantID.String()),
+		TenantID:    strings.TrimSpace(trustedScope.TenantID.String()),
 		WorkspaceID: workspaceID,
 	}, true
 }
