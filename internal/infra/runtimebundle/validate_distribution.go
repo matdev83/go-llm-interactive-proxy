@@ -93,9 +93,11 @@ func validateDistribution(
 		return fail(err, nil, nil)
 	}
 	var pluginHost *processhost.Host
+	var pluginResourcePool *backendResourcePool
 	var pluginStaging string
 	var pluginArtifacts []*trust.VerifiedArtifact
 	if discInstall != nil {
+		pluginResourcePool = discInstall.ResourcePool
 		pluginHost, pluginStaging = discInstall.Host, discInstall.StagingDir
 		pluginArtifacts = discInstall.Artifacts
 	}
@@ -111,10 +113,11 @@ func validateDistribution(
 
 	ps, err := ops.process(ctx, processBuildInput{
 		Cfg: cfg, Logger: logger, Registry: reg, SecretEnv: secretEnv, Production: in.Production,
-		Tracing:          ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
-		PluginHost:       pluginHost,
-		PluginArtifacts:  pluginArtifacts,
-		PluginStagingDir: pluginStaging,
+		Tracing:            ProcessTracing{Shutdown: traceShutdownRaw, Active: traceRes.Active},
+		PluginResourcePool: pluginResourcePool,
+		PluginHost:         pluginHost,
+		PluginArtifacts:    pluginArtifacts,
+		PluginStagingDir:   pluginStaging,
 	})
 	if err != nil {
 		// NewProcessServices adopts (or releases) host/staging on entry.

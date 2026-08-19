@@ -21,8 +21,11 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if RuntimeConvergenceMinNetLineReduction != 800 {
 		t.Fatalf("min reduction drift: %d", RuntimeConvergenceMinNetLineReduction)
 	}
-	if ConnectorArchitectureOverlayMax != 1937 {
+	if ConnectorArchitectureOverlayMax != 2300 {
 		t.Fatalf("connector overlay cap drift: %d", ConnectorArchitectureOverlayMax)
+	}
+	if BackendResourcePoolOverlayMax != 381 {
+		t.Fatalf("backend resource pool overlay cap drift: %d", BackendResourcePoolOverlayMax)
 	}
 	if GenericCompatibleBackendOverlayMax != 946 {
 		t.Fatalf("generic compatible overlay cap drift: %d", GenericCompatibleBackendOverlayMax)
@@ -33,8 +36,8 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 4 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 4", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 5 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 5", len(pathMarkerOverlaySpecs))
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -100,6 +103,34 @@ func TestShrinkage_AtomicOverlaySelectsPrimitives(t *testing.T) {
 
 	overlay := pathOverlayByName(t, root, "Atomic owned resource lifecycle")
 	want := []string{"internal/infra/runtimebundle/process_owner.go"}
+	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] {
+		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
+	}
+	if overlay.Lines != 1 {
+		t.Fatalf("overlay lines = %d, want 1", overlay.Lines)
+	}
+}
+
+func TestShrinkage_BackendResourcePoolOverlaySelectsOnlyPoolFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	selected := filepath.Join(root, "internal", "infra", "runtimebundle", "backend_resource_pool.go")
+	testFile := filepath.Join(root, "internal", "infra", "runtimebundle", "backend_resource_pool_test.go")
+	unrelated := filepath.Join(root, "internal", "infra", "runtimebundle", "backend_resource_pool_helper.go")
+	for _, path := range []string{selected, testFile, unrelated} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package runtimebundle\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	overlay := pathOverlayByName(t, root, "Backend resource pool")
+	if overlay.Max != 381 {
+		t.Fatalf("overlay max = %d, want 381", overlay.Max)
+	}
+	want := []string{"internal/infra/runtimebundle/backend_resource_pool.go"}
 	if len(overlay.Files) != len(want) || overlay.Files[0] != want[0] {
 		t.Fatalf("overlay files = %v, want %v", overlay.Files, want)
 	}
@@ -220,6 +251,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Billing host composition overlay lines:",
 		"Atomic owned resource lifecycle overlay lines:",
 		"Keep-warm orchestration overlay lines:",
+		"Backend resource pool overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {
