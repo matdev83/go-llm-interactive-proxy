@@ -188,12 +188,7 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 			aLegID:   "a1",
 			traceID:  "t1",
 		}),
-		budget:   &attemptBudget{max: 1},
-		ttft:     &ttft,
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttft, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
 	}
 	testStoreInner(s, stream)
 	ev, err := s.Recv(context.Background())
@@ -247,12 +242,7 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 			aLegID:   "a1",
 			traceID:  "t1",
 		}),
-		budget:   &attemptBudget{max: 1},
-		ttft:     &ttftBudget{start: time.Now()},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttftBudget{start: time.Now()}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "slow:m",
 			Primary: routing.Primary{Backend: "slow", Model: "m", TTFTTimeout: &leaf},
 		}, authorityLifecycle{}),

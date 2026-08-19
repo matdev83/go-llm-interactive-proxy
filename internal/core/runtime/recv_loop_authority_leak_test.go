@@ -86,12 +86,7 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:   &attemptBudget{max: 3, used: 0},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, priorAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, priorAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 		terminal: newTurnTerminalWithALeg(aScope, aLegEndBase),
 	}
 

@@ -72,6 +72,7 @@ func TestTerminalUsageSinkFreezesAllocatedBLegsAtRequestTerminal(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		recovery: &recoveryController{},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:        "a-shared",
 			billingCallID: callID,
@@ -169,6 +170,7 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		recovery: &recoveryController{},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:        "a-1",
 			billingCallID: callID,
@@ -269,6 +271,7 @@ func TestTerminalUsageSinkGateReplacementAppendFailureDoesNotRetryProvider(t *te
 	}
 	stream := &retryRecvStream{
 		executor: executor,
+		recovery: &recoveryController{},
 		facts: testRecvTurnFacts(recvTurnFacts{
 			aLegID:        "a-1",
 			billingCallID: callID,

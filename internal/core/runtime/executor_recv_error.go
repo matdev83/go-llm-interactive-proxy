@@ -60,8 +60,8 @@ func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
 	attempt := s.attempt.require()
 	s.resetToolFinal()
-	if idleDeadline.expired(recvCtx, err) && s.recoverPolicy != nil {
-		dec := s.recoverPolicy.DecideIdle(s.now())
+	if idleDeadline.expired(recvCtx, err) && s.recovery != nil && s.recovery.recoverPolicy != nil {
+		dec := s.recovery.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,
@@ -108,7 +108,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			if c := attempt.takeInner(); c != nil {
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
 			}
-			s.excluded[attempt.cand.Key] = struct{}{}
+			s.recovery.exclude(attempt.cand.Key)
 			return lipapi.Event{}, true, nil
 		}
 	}
@@ -133,7 +133,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 					)
 				}
 			}
-			s.excluded[attempt.cand.Key] = struct{}{}
+			s.recovery.exclude(attempt.cand.Key)
 			return lipapi.Event{}, true, nil
 		}
 		tf := ttftFailure(ttftScope, attempt.cand.Key)
@@ -293,6 +293,6 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			)
 		}
 	}
-	s.excluded[attempt.cand.Key] = struct{}{}
+	s.recovery.exclude(attempt.cand.Key)
 	return lipapi.Event{}, true, nil
 }

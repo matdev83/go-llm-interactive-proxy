@@ -370,13 +370,12 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			}),
 			attempt:    testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-centralized-idle", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(start)),
 			seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hello"}},
-			recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+			recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 				Enabled:     true,
 				IdleTimeout: time.Second,
-			}, start),
-		}
+			}, start)}}
 		rs.visibleText.WriteString("hello")
-		rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+		rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 		return ex, rs
 	}
 

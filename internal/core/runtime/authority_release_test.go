@@ -111,12 +111,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:   &attemptBudget{max: 3, used: 0},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, initialCand, testAuthorityLifecycle(ex, initialAuthority, initialCand)),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, initialCand, testAuthorityLifecycle(ex, initialAuthority, initialCand)),
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11, Currency: "USD"},
 		},
@@ -287,12 +282,7 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:   &attemptBudget{max: 3, used: 0},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 	}
 
 	opened, err := rs.tryReplacementIteration(context.Background())
@@ -370,12 +360,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:   &attemptBudget{max: 3, used: 0},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
 	}
 
 	recvErr := &lipapi.UpstreamFailureError{
@@ -477,12 +462,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 			aLegID:  aLegID,
 			traceID: "trace-1",
 		}),
-		budget:   &attemptBudget{max: 3, used: 0},
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		attempt:  testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 
 	// A pre-canceled context forces tryReplacementIteration to error at its ctx.Err() guard

@@ -109,8 +109,8 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	}
 
 	attempt.accounting.observeClientEvent(s.now(), ev)
-	if s.recoverPolicy != nil {
-		s.recoverPolicy.ObserveClientEvent(ev, s.now())
+	if s.recovery != nil && s.recovery.recoverPolicy != nil {
+		s.recovery.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
 		return s.handleResponseFinishedPath(ctx, ev, pm)
@@ -191,8 +191,8 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 	}
 	out = s.emitGateDrained(ctx, out)
 	attempt.accounting.observeClientEvent(s.now(), out)
-	if s.recoverPolicy != nil {
-		s.recoverPolicy.ObserveClientEvent(out, s.now())
+	if s.recovery != nil && s.recovery.recoverPolicy != nil {
+		s.recovery.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
 	if finishPreflighted {
 		// Evidence already recorded in mandatoryClientFacingPreflight; still
@@ -314,8 +314,8 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
 		s.gateBuf = nil
 	}
-	if s.recoverPolicy != nil {
-		dec := s.recoverPolicy.DecideEOF(io.EOF, s.now())
+	if s.recovery != nil && s.recovery.recoverPolicy != nil {
+		dec := s.recovery.recoverPolicy.DecideEOF(io.EOF, s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:    s.facts.aLegID,

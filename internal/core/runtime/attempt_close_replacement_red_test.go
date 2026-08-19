@@ -74,6 +74,7 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 		admissionInput:  testAuthorityAdmissionInput(8),
 		admissionResult: oldAdmission,
 	}
+	terminal := newTurnTerminal()
 	rs := &retryRecvStream{
 		executor: ex,
 		bus:      hooks.New(hooks.Config{}),
@@ -82,12 +83,17 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 			aLegID:   aLegID,
 			traceID:  "trace-1",
 		}),
-		budget:   budget,
-		terminal: newTurnTerminal(),
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
+		terminal: terminal,
+		recovery: newRecoveryController(recoveryControllerInput{
+			executor: ex,
+			bus:      hooks.New(hooks.Config{}),
+			aScope:   terminal.aLegScope(),
+			budget:   budget,
+			sel:      sel,
+			session:  &routing.SessionRoutingState{},
+			excluded: map[string]struct{}{},
+			rng:      routing.NewSeededRng(1),
+		}),
 		attempt: testAttemptSlot(
 			b2bua.BLegRecord{ALegID: aLegID, BLegID: "old-bleg", Seq: 1},
 			authorityCandidate(),

@@ -194,8 +194,8 @@ func (s *interleavedContinuationStream) recordVisibleOutput(ev lipapi.Event) {
 	}
 	s.thinker.markOutputCommitted(ev)
 	s.thinker.attempt.require().accounting.observeClientEvent(s.thinker.now(), ev)
-	if s.thinker.recoverPolicy != nil {
-		s.thinker.recoverPolicy.ObserveClientEvent(ev, s.thinker.now())
+	if s.thinker.recovery != nil && s.thinker.recovery.recoverPolicy != nil {
+		s.thinker.recovery.recoverPolicy.ObserveClientEvent(ev, s.thinker.now())
 	}
 	s.visibleCommitted = true
 }
@@ -288,8 +288,8 @@ func (s *interleavedContinuationStream) beginExecutorContinuation(ctx context.Co
 	s.closeThinkerInner(ctx)
 	if s.visibleCommitted {
 		execStream.markCommitted()
-		if execStream.ttft != nil {
-			execStream.ttft.markCommitted()
+		if execStream.recovery != nil && execStream.recovery.ttft != nil {
+			execStream.recovery.ttft.markCommitted()
 		}
 	}
 	s.mu.Lock()

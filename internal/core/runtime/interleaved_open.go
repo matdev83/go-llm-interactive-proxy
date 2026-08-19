@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -204,29 +202,11 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	// resulting stream afterward is too late.
 	boundCtx := from.recvExecContext(ctx)
 	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
-	out, err := e.tryPlanOpenOnce(boundCtx, attemptOpenParams{
-		bus:                 from.bus,
-		traceID:             facts.traceID,
-		aLegID:              facts.aLegID,
-		aScope:              from.terminal.aLegScope(),
-		baseline:            facts.baseline,
-		failoverReq:         capabilities.NewFailoverRequirementSet(facts.baseline),
-		sel:                 from.sel,
-		requestSize:         from.requestSize,
-		session:             from.session,
-		excluded:            from.excluded,
-		rng:                 from.rng,
-		budget:              from.budget,
-		ttft:                from.ttft,
-		isRetryPath:         false,
-		affinityKey:         from.affinityKey,
-		affinitySet:         from.affinitySet,
-		interleaved:         state,
-		suppressThinker:     true,
-		suppressVisibleMemo: true,
-		billingCallID:       facts.billingCallID,
-		billingCallState:    facts.billingCallState,
-	})
+	if from.recovery == nil {
+		return nil, fmt.Errorf("executor: interleaved continuation recovery unavailable")
+	}
+	from.recovery.bindOpener(e, from.bus, from.terminal.aLegScope())
+	out, err := from.recovery.openInterleavedAttempt(boundCtx, facts, from.bus, from.terminal.aLegScope(), state)
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
 	}
@@ -254,25 +234,13 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	}
 	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
-		facts:               from.facts.clone(),
-		executor:            e,
-		bus:                 from.bus,
-		budget:              from.budget,
-		ttft:                from.ttft,
-		sel:                 from.sel,
-		requestSize:         from.requestSize,
-		session:             from.session,
-		excluded:            from.excluded,
-		rng:                 from.rng,
-		affinityKey:         from.affinityKey,
-		affinitySet:         from.affinitySet,
-		interleaved:         out.interleaved,
-		suppressThinker:     true,
-		suppressVisibleMemo: true,
-		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		customer:            newCustomerEvidenceAccumulator(),
-		attempt:             attemptSlot{},
-		terminal:            newTurnTerminalWithSharedALeg(from.terminal),
+		facts:    from.facts.clone(),
+		executor: e,
+		bus:      from.bus,
+		recovery: from.recovery,
+		customer: newCustomerEvidenceAccumulator(),
+		attempt:  attemptSlot{},
+		terminal: newTurnTerminalWithSharedALeg(from.terminal),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,

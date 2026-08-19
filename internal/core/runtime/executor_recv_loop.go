@@ -12,13 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -205,8 +203,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		recvCtx := ctx
 		var cancelRecv context.CancelFunc = func() {}
 		ttftDeadline := ttftContextDeadline{}
-		if !s.isCommitted() && s.ttft != nil {
-			recvCtx, cancelRecv, ttftDeadline = s.ttft.scopedContext(ctx, s.now(), attempt.cand.Key, attempt.cand.Primary.TTFTTimeout)
+		if !s.isCommitted() && s.recovery != nil && s.recovery.ttft != nil {
+			recvCtx, cancelRecv, ttftDeadline = s.recovery.ttft.scopedContext(ctx, s.now(), attempt.cand.Key, attempt.cand.Primary.TTFTTimeout)
 		}
 		recvCtx, cancelRecv, idleDeadline := s.scopedIdleContext(recvCtx, cancelRecv, s.now())
 		ev, err := safety.CallValue(safety.BoundaryBackend, "backend_recv", func() (lipapi.Event, error) {
@@ -287,7 +285,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if s.isCommitted() && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+	if s.recovery != nil && s.recovery.turnCommitted(s.terminal) && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 		// Output committed: compete for gate-replacement rejection evidence (D13) without effects.
 		_ = s.terminal.terminalizeSnapshot(ctx, sdkterminal.CommandGateReplacement, attempt, s.accumulatorSnapshot(), nil, func(cctx context.Context, _ coreterm.Outcome) error {
 			s.recordBillingLegForAttempt(cctx, attempt, sdkterminal.CommandGateReplacement)
@@ -333,40 +331,15 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			_ = finalize(ctx)
 		}
 	}
-	out, err := s.executor.tryPlanOpenOnce(ctx, attemptOpenParams{
-		bus:                      s.bus,
-		traceID:                  s.facts.traceID,
-		aLegID:                   s.facts.aLegID,
-		aScope:                   s.terminal.aLegScope(),
-		baseline:                 s.facts.baseline,
-		failoverReq:              capabilities.NewFailoverRequirementSet(s.facts.baseline),
-		sel:                      s.sel,
-		requestSize:              s.requestSize,
-		session:                  s.session,
-		excluded:                 s.excluded,
-		rng:                      s.rng,
-		budget:                   s.budget,
-		ttft:                     s.ttft,
-		isRetryPath:              true,
-		lastReject:               &s.lastHardReject,
-		lastTransportReject:      &s.lastHardTransportReject,
-		lastAdmissionErr:         &s.lastAdmissionErr,
-		affinityKey:              s.affinityKey,
-		affinitySet:              s.affinitySet,
-		isContextLimitExhaustion: &s.isContextLimitExhaustion,
-		transformExcludes:        &s.transformExcludes,
-		interleaved:              s.interleaved,
-		suppressThinker:          s.suppressThinker,
-		suppressVisibleMemo:      s.suppressVisibleMemo,
-		lastParallelFailure:      &s.lastParallelFailure,
-		billingCallID:            s.facts.billingCallID,
-		billingCallState:         s.facts.billingCallState,
-	})
+	if s.recovery == nil {
+		return false, errors.New("runtime: recv recovery controller unavailable")
+	}
+	s.recovery.bindOpener(s.executor, s.bus, s.terminal.aLegScope())
+	out, err := s.recovery.openReplacement(ctx, s.facts, s.terminal, attempt)
 	if err != nil {
 		return false, err
 	}
 	if !out.opened {
-		s.interleaved = out.interleaved
 		return false, nil
 	}
 	if s.terminal != nil && !out.registered {
@@ -420,7 +393,6 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if attempt.finalStreamObs != nil {
 		attempt.finalStreamObs.Finish(ctx, response.OutcomeReplaced)
 	}
-	s.interleaved = out.interleaved
 	s.clearClientAccumulators()
 	if s.customer != nil {
 		s.customer.resetContent()
@@ -431,8 +403,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.lastAuthorityUsage = lipapi.Event{}
 	s.lastCustomerUsage = lipapi.Event{}
 	s.consumeBackendUsageEvidenceForAttempt(ctx, next, out.stream)
-	if s.executor != nil {
-		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
+	if s.recovery != nil {
+		s.recovery.resetPolicy(s.now)
 	}
 	if err := s.openFinalStreamObservation(ctx); err != nil && !s.isCommitted() {
 		return false, err

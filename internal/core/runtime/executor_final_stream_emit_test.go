@@ -770,14 +770,13 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
 			EmitWarning: true,
-		}, start),
-	}
+		}, start)}}
 	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 	if err := rs.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -832,14 +831,13 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
 			EmitWarning: true,
-		}, start),
-	}
+		}, start)}}
 	rs2.visibleText.WriteString("hello")
-	rs2.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs2.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 	if err := rs2.openFinalStreamObservation(context.Background()); err != nil {
 		t.Fatalf("open eof: %v", err)
 	}

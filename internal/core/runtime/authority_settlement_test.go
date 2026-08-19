@@ -54,10 +54,9 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start),
-	}
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)}}
 	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 	rs.markCommitted()
 
 	// handleRecvEOF must defer finalizeTokenAccounting and settle to the downstream drain path
@@ -151,13 +150,12 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
-		}, start),
-	}
+		}, start)}}
 	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 
 	// handleRecvError now defers response_finished authority finalization to the recoverDrain
 	// drain path on the next Recv call (single-owner invariant matches handleRecvEOF, and the
@@ -296,9 +294,8 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
 		}, authorityCandidate())),
-		seenEvents:    []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start),
-	}
+		seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
+		recovery:   &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
 
 	_, err := rs.handleRecvEOF(context.Background())
 	if !errors.Is(err, io.EOF) {

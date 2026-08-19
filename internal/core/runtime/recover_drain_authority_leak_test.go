@@ -190,13 +190,12 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 		seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
-		}, start),
-	}
+		}, start)}}
 	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 
 	// handleRecvError now defers response_finished authority finalization to the recoverDrain
 	// drain path on the next Recv call (single-owner invariant matches handleRecvEOF). It returns a

@@ -182,8 +182,8 @@ func (s *retryRecvStream) emitUsageForAttempt(ctx context.Context, attempt *atte
 
 func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event) (lipapi.Event, error) {
 	s.attempt.require().accounting.observeClientEvent(s.now(), ev)
-	if s.recoverPolicy != nil {
-		s.recoverPolicy.ObserveClientEvent(ev, s.now())
+	if s.recovery != nil && s.recovery.recoverPolicy != nil {
+		s.recovery.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
 	pm, _ := s.recvHookMeta()
 	out, err := s.emitClientFacingObserved(ctx, ev, pm)

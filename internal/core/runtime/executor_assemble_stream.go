@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -17,6 +16,7 @@ func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedReq
 func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
 	e := a.Executor
 	fs, maxArgs := e.resolveToolCallFinalizers()
+	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	rs := &retryRecvStream{
 		facts: newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:               prep.baseline,
@@ -38,21 +38,25 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		}),
 		executor:           e,
 		bus:                prep.bus,
-		budget:             plan.budget,
-		ttft:               &plan.ttft,
 		compactionOpenMeta: prep.compactionOpenMeta,
-		sel:                plan.sel,
-		requestSize:        plan.requestSize,
-		session:            plan.session,
-		excluded:           plan.excluded,
-		rng:                plan.rng,
 		attempt:            attemptSlot{},
-		affinityKey:        plan.affinityKey,
-		affinitySet:        plan.affinitySet,
 		customer:           newCustomerEvidenceAccumulator(),
-		recoverPolicy:      streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		interleaved:        out.interleaved,
-		terminal:           newTurnTerminalWithALeg(prep.aScope, aLegEndBase),
+		terminal:           terminal,
+		recovery: newRecoveryController(recoveryControllerInput{
+			executor:    e,
+			bus:         prep.bus,
+			aScope:      prep.aScope,
+			budget:      plan.budget,
+			ttft:        &plan.ttft,
+			sel:         plan.sel,
+			requestSize: plan.requestSize,
+			session:     plan.session,
+			excluded:    plan.excluded,
+			rng:         plan.rng,
+			affinityKey: plan.affinityKey,
+			affinitySet: plan.affinitySet,
+			interleaved: out.interleaved,
+		}),
 	}
 	rs.attempt.install(newAttemptSession(attemptSessionInput{
 		inner:                 out.stream,

@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -74,11 +75,11 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 		f.routePrefs = []string{"backend-1:vendor/model-1"}
 		return f
 	})
-	from.sel, err = routing.Parse("backend-1:vendor/model-1")
+	from.recovery.sel, err = routing.Parse("backend-1:vendor/model-1")
 	if err != nil {
 		t.Fatalf("parse pinned selector: %v", err)
 	}
-	if err := routing.BindNativeModelIDs(from.sel, boundRegistry); err != nil {
+	if err := routing.BindNativeModelIDs(from.recovery.sel, boundRegistry); err != nil {
 		t.Fatalf("bind pinned native model: %v", err)
 	}
 	from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
@@ -95,6 +96,8 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 		return f
 	})
 	from = stampStreamIdentity(from)
+	from.recovery.recoverPolicy = streamrecovery.NewPolicy(ex.StreamRecovery, ex.now())
+	oldPolicy := from.recovery.recoverPolicy
 
 	// Refresh both live publications after the thinker stream has captured A.
 	catalog.PublishSnapshot(modelcatalog.Snapshot{
@@ -121,6 +124,12 @@ func TestTurnRecvPinningInterleavedContinuationRetainsAllBoundFacts(t *testing.T
 		t.Fatalf("open interleaved continuation: %v", err)
 	}
 	defer func() { _ = continuation.Close() }()
+	if continuation.recovery != from.recovery {
+		t.Fatal("interleaved continuation must share the request recovery controller")
+	}
+	if from.recovery.recoverPolicy == nil || from.recovery.recoverPolicy == oldPolicy {
+		t.Fatal("successful interleaved continuation must reset the shared thinker recovery policy")
+	}
 	if openedCtx == nil {
 		t.Fatal("backend did not receive continuation context")
 	}

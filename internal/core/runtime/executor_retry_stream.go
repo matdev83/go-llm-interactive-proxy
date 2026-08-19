@@ -17,18 +17,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -60,27 +57,12 @@ type retryRecvStream struct {
 	visibleText strings.Builder
 	executor    *Executor
 	bus         *hooks.Bus
-	budget      *attemptBudget
-	ttft        *ttftBudget
 
 	compactionOpenMeta compaction.PreservationMeta
-	sel                *routing.Selector
-	requestSize        routing.RequestSizeEstimate
-	session            *routing.SessionRoutingState
-	excluded           map[string]struct{}
-	rng                routing.Rng
 
-	lastHardReject           lipapi.NegotiationResult
-	lastHardTransportReject  lipapi.TransportNegotiationResult
-	lastAdmissionErr         error
-	isContextLimitExhaustion bool
-	transformExcludes        transformExcludeTracker
-
-	attempt            attemptSlot
-	terminal           *turnTerminal
-	affinityKey        affinity.Key
-	affinitySet        bool
-	affinityCommitOnce sync.Once
+	attempt  attemptSlot
+	terminal *turnTerminal
+	recovery *recoveryController
 
 	cachedCtxMu sync.Mutex
 	lastParent  context.Context
@@ -98,8 +80,7 @@ type retryRecvStream struct {
 	gateDrain []lipapi.Event
 	gateLive  bool
 
-	recoverPolicy *streamrecovery.Policy
-	recoverDrain  []lipapi.Event
+	recoverDrain []lipapi.Event
 	// lastAuthorityUsage is the accounting fact used for authority settlement
 	// and unreserved usage. The synthesized event returned to the client may
 	// intentionally omit provider-billable scopes, so keep the two views
@@ -108,19 +89,6 @@ type retryRecvStream struct {
 	// lastCustomerUsage caches client-visible reconstruction from finalize for
 	// settle/FE egress when StreamUsage is unavailable on a later path.
 	lastCustomerUsage lipapi.Event
-	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
-	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
-	// the latest persisted state.
-	interleaved interleavedstate.State
-	// suppressThinker keeps recv-phase failover inside an interleaved executor continuation
-	// from selecting another thinker branch in the same logical request.
-	suppressThinker bool
-	// suppressVisibleMemo skips visible memo reinjection on recv-phase failover within the
-	// same interleaved executor continuation turn.
-	suppressVisibleMemo bool
-	// lastParallelFailure preserves aggregated parallel-arm failure context across recv-phase
-	// replacement iterations so eventual ErrNoEligibleCandidate surfaces root causes.
-	lastParallelFailure error
 
 	// toolClass correlates per-ToolCallID derived classification within this stream.
 	// Event processing is single-Recv-owned; its state has a small internal mutex
@@ -277,10 +245,10 @@ func (s *retryRecvStream) scopedIdleContext(
 	parentCancel context.CancelFunc,
 	now time.Time,
 ) (context.Context, context.CancelFunc, idleContextDeadline) {
-	if s == nil || s.recoverPolicy == nil || parent == nil {
+	if s == nil || s.recovery == nil || s.recovery.recoverPolicy == nil || parent == nil {
 		return parent, parentCancel, idleContextDeadline{}
 	}
-	deadline, ok := s.recoverPolicy.IdleDeadline()
+	deadline, ok := s.recovery.recoverPolicy.IdleDeadline()
 	if !ok {
 		return parent, parentCancel, idleContextDeadline{}
 	}
@@ -376,39 +344,18 @@ func (s *retryRecvStream) viewsFor(ctx context.Context) (execctx.Views, bool) {
 }
 
 func (s *retryRecvStream) commitAffinityIfOutput(ctx context.Context, ev lipapi.Event) {
-	if lipapi.OutputCommitted(ev) {
-		s.commitAffinity(ctx, "output_committed")
+	if lipapi.OutputCommitted(ev) && s.recovery != nil {
+		s.recovery.commitAffinity(ctx, s.facts, s.attempt.snapshot(), s.now(), "output_committed")
 	}
 }
 
 func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
 	if lipapi.OutputCommitted(ev) {
 		s.markCommitted()
-		if s.ttft != nil {
-			s.ttft.markCommitted()
+		if s.recovery != nil && s.recovery.ttft != nil {
+			s.recovery.ttft.markCommitted()
 		}
 	}
-}
-
-func (s *retryRecvStream) commitAffinity(ctx context.Context, reason string) {
-	if s == nil || s.executor == nil || s.executor.AffinityStore == nil || !s.affinitySet || !s.affinityKey.Valid() {
-		return
-	}
-	s.affinityCommitOnce.Do(func() {
-		attempt := s.attempt.require()
-		binding := affinity.BindingFromCandidate(s.affinityKey, attempt.cand, s.now(), reason)
-		if strings.TrimSpace(binding.BackendID) == "" {
-			return
-		}
-		persistCtx := context.WithoutCancel(ctx)
-		if err := s.executor.AffinityStore.Set(persistCtx, binding); err != nil {
-			if s.executor.Log != nil {
-				s.executor.Log.DebugContext(persistCtx, "affinity binding set failed", "error", err)
-			}
-			return
-		}
-		s.executor.noteRouteDecision(persistCtx, s.facts.traceID, "affinity_bind", binding.BackendID)
-	})
 }
 
 func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
