@@ -59,7 +59,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 11565},
+	{Tree: "internal/infra/runtimebundle", Max: 11668},
 	{Tree: "internal/stdhttp", Max: 5867},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -76,13 +76,12 @@ type LineBudget struct {
 var LineBudgets = []LineBudget{
 	// Routing-override admin, billing host composition, and tool-call
 	// classification. Keep the measured-plus-25 ratchet. The compaction
-	// detector (internal/core/compactiondetect) adds its bounded rule
-	// catalog, heuristic, transaction state, and per-response release-text
-	// window to the core tree.
-	{Dir: "internal/core", Max: 77951},
+	// detector and continuity infrastructure add bounded recognition, branch
+	// coordination, preservation dispatch, and auxiliary worker ownership.
+	{Dir: "internal/core", Max: 80261},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 5867},
-	{Dir: "internal/infra/runtimebundle", Max: 11565},
+	{Dir: "internal/infra/runtimebundle", Max: 11668},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

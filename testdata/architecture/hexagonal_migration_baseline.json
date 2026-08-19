@@ -79,6 +79,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/billing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/compatible",
