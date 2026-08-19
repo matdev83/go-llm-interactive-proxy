@@ -3,7 +3,9 @@ package compactioncompose
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	corecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -12,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
 func TestParentPortUsesTrustedParentForDetachedChild(t *testing.T) {
@@ -87,6 +90,86 @@ func TestParentPortCASAndBoundaryState(t *testing.T) {
 	if _, err := port.SetPendingInjection(ctx, wrong, featurecontinuity.InjectionTarget{BoundaryKey: "wrong", CapsuleRevision: 1}); !errors.Is(err, corecontinuity.ErrBranchMismatch) {
 		t.Fatalf("wrong binding=%v", err)
 	}
+}
+
+func TestParentPortPropagatesCancellationToBlockingStatePersistence(t *testing.T) {
+	t.Parallel()
+
+	store := newBlockingPutStore()
+	coordinator, err := corecontinuity.NewBranchCoordinator(corecontinuity.Config{Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := NewCompactionContinuityParentPort(coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := execctx.WithViews(context.Background(), execctx.Views{
+		Scope:   scope.PrincipalScopeView{PrincipalID: scope.Known("principal-cancel")},
+		Session: session.SessionView{AuthoritativeSessionID: "session-cancel", ALegID: "a-cancel"},
+	})
+	ctx, cancel := context.WithCancel(base)
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() {
+		_, callErr := port.CaptureMeta(ctx, compaction.PreservationMeta{SessionID: "session-cancel", ALegID: "a-cancel"})
+		result <- callErr
+	}()
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("CaptureMeta did not reach state persistence")
+	}
+	cancel()
+
+	select {
+	case callErr := <-result:
+		if !errors.Is(callErr, context.Canceled) {
+			t.Fatalf("CaptureMeta error = %v, want context.Canceled", callErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CaptureMeta did not unblock after request cancellation")
+	}
+	if _, found, err := coordinator.Snapshot(context.Background(), mustBranchKey(t, "session-cancel", "a-cancel")); err != nil || found {
+		t.Fatalf("canceled capture published state: found=%v err=%v", found, err)
+	}
+}
+
+func mustBranchKey(t *testing.T, sessionID, aLegID string) corecontinuity.BranchKey {
+	t.Helper()
+	key, err := corecontinuity.NewBranchKey(sessionID, aLegID, "principal-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+type blockingPutStore struct {
+	started   chan struct{}
+	startOnce sync.Once
+}
+
+func newBlockingPutStore() *blockingPutStore {
+	return &blockingPutStore{started: make(chan struct{})}
+}
+
+func (s *blockingPutStore) Get(context.Context, lipstate.Scope, string, string, any) (bool, error) {
+	return false, nil
+}
+
+func (s *blockingPutStore) Put(ctx context.Context, _ lipstate.Scope, _, _ string, _ any, _ time.Duration) error {
+	s.startOnce.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (s *blockingPutStore) Delete(context.Context, lipstate.Scope, string, string) error {
+	return nil
+}
+
+func (s *blockingPutStore) InspectTTL(context.Context, lipstate.Scope, string, string) (time.Duration, bool, error) {
+	return 0, false, nil
 }
 
 func newTestPort(t *testing.T) *CompactionContinuityParentPort {

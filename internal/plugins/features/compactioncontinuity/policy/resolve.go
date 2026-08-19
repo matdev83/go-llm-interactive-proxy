@@ -114,9 +114,6 @@ func applyOverride(e *Effective, o Override, m HardMaxima) {
 	if o.Enabled != nil && !*o.Enabled {
 		e.Enabled = false
 	}
-	if o.Enabled != nil && *o.Enabled && e.Enabled {
-		e.Enabled = true
-	}
 	if o.Preserve != nil {
 		e.Preserve = intersectCategories(*o.Preserve, m.Preserve)
 	}
@@ -175,14 +172,14 @@ func applyLimitOverride(e *Effective, o LimitOverride, m HardMaxima) {
 }
 
 func tighterInt(current int, proposed *int, hard int) int {
-	if proposed == nil || *proposed <= 0 || *proposed > current {
+	if proposed == nil || *proposed <= 0 || (current > 0 && *proposed > current) {
 		return current
 	}
 	return capInt(*proposed, hard)
 }
 
 func tighterDuration(current time.Duration, proposed *time.Duration, hard time.Duration) time.Duration {
-	if proposed == nil || *proposed <= 0 || *proposed > current {
+	if proposed == nil || *proposed <= 0 || (current > 0 && *proposed > current) {
 		return current
 	}
 	return capDuration(*proposed, hard)

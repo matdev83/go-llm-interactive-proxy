@@ -40,3 +40,14 @@ func TestSecureTurnPolicyContextCarriesOnlyContentFreePolicy(t *testing.T) {
 		t.Fatalf("secure turn policy = %+v ok=%v", got, ok)
 	}
 }
+
+func TestWithoutSecureTurnPolicyMasksInheritedPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := session.WithSecureTurnPolicy(context.Background(), session.SecureTurnPolicyView{TranscriptEnabled: true})
+	ctx = session.WithoutSecureTurnPolicy(ctx)
+	got, ok := session.SecureTurnPolicyFromContext(ctx)
+	if ok || got != (session.SecureTurnPolicyView{}) {
+		t.Fatalf("masked secure-turn policy = %+v ok=%v", got, ok)
+	}
+}

@@ -1,13 +1,14 @@
 package compactioncontinuity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 // CommitCapsule commits an opaque capsule revision using compare-and-swap
 // semantics. expectedRevision zero is valid only for an empty branch.
-func (c *BranchCoordinator) CommitCapsule(key BranchKey, expectedRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
+func (c *BranchCoordinator) CommitCapsule(ctx context.Context, key BranchKey, expectedRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
 	if c == nil {
 		return BranchState{}, ErrBranchNotFound
 	}
@@ -38,7 +39,7 @@ func (c *BranchCoordinator) CommitCapsule(key BranchKey, expectedRevision uint64
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist capsule: %w", err)
 	}
 	c.entries = next
@@ -48,7 +49,7 @@ func (c *BranchCoordinator) CommitCapsule(key BranchKey, expectedRevision uint64
 // CommitSource stores a bounded sanitized source snapshot only after the
 // caller has successfully opened the primary request. It does not advance the
 // capsule revision, but still compare-checks the current revision.
-func (c *BranchCoordinator) CommitSource(key BranchKey, expectedRevision uint64, source []byte, highWatermark string) (BranchState, error) {
+func (c *BranchCoordinator) CommitSource(ctx context.Context, key BranchKey, expectedRevision uint64, source []byte, highWatermark string) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -72,7 +73,7 @@ func (c *BranchCoordinator) CommitSource(key BranchKey, expectedRevision uint64,
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist source: %w", err)
 	}
 	c.entries = next

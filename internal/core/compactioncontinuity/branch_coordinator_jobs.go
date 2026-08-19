@@ -1,6 +1,7 @@
 package compactioncontinuity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,23 +10,23 @@ import (
 
 // CommitCapsuleForJob applies a revision only if the pending job and parent
 // binding still match, preventing late child results from moving branches.
-func (c *BranchCoordinator) CommitCapsuleForJob(key BranchKey, jobID auxiliary.JobID, branchBinding string, expectedRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
-	if _, err := c.ValidatePendingJob(key, jobID); err != nil {
+func (c *BranchCoordinator) CommitCapsuleForJob(ctx context.Context, key BranchKey, jobID auxiliary.JobID, branchBinding string, expectedRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
+	if _, err := c.ValidatePendingJob(ctx, key, jobID); err != nil {
 		return BranchState{}, err
 	}
 	if branchBinding != key.Binding() {
 		return BranchState{}, ErrBranchMismatch
 	}
-	return c.mergeCapsule(key, jobID, branchBinding, expectedRevision, capsule, digest, sourceHighWatermark)
+	return c.mergeCapsule(ctx, key, jobID, branchBinding, expectedRevision, capsule, digest, sourceHighWatermark)
 }
 
 // MergeCapsule validates pending job ownership and commits a late result as a
 // new revision. Raw result ownership is outside this coordinator.
-func (c *BranchCoordinator) MergeCapsule(key BranchKey, jobID auxiliary.JobID, branchBinding string, baseRevision uint64, capsule []byte, digest [32]byte) (BranchState, error) {
-	return c.mergeCapsule(key, jobID, branchBinding, baseRevision, capsule, digest, "")
+func (c *BranchCoordinator) MergeCapsule(ctx context.Context, key BranchKey, jobID auxiliary.JobID, branchBinding string, baseRevision uint64, capsule []byte, digest [32]byte) (BranchState, error) {
+	return c.mergeCapsule(ctx, key, jobID, branchBinding, baseRevision, capsule, digest, "")
 }
 
-func (c *BranchCoordinator) mergeCapsule(key BranchKey, jobID auxiliary.JobID, branchBinding string, baseRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
+func (c *BranchCoordinator) mergeCapsule(ctx context.Context, key BranchKey, jobID auxiliary.JobID, branchBinding string, baseRevision uint64, capsule []byte, digest [32]byte, sourceHighWatermark string) (BranchState, error) {
 	if c == nil {
 		return BranchState{}, ErrBranchNotFound
 	}
@@ -68,7 +69,7 @@ func (c *BranchCoordinator) mergeCapsule(key BranchKey, jobID auxiliary.JobID, b
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist merge: %w", err)
 	}
 	c.entries = next
@@ -76,7 +77,7 @@ func (c *BranchCoordinator) mergeCapsule(key BranchKey, jobID auxiliary.JobID, b
 }
 
 // RecordPendingJob binds a committed background job to the captured parent.
-func (c *BranchCoordinator) RecordPendingJob(key BranchKey, jobID auxiliary.JobID, targetRevision uint64) (BranchState, error) {
+func (c *BranchCoordinator) RecordPendingJob(ctx context.Context, key BranchKey, jobID auxiliary.JobID, targetRevision uint64) (BranchState, error) {
 	if strings.TrimSpace(string(jobID)) == "" {
 		return BranchState{}, ErrPendingJobMismatch
 	}
@@ -107,7 +108,7 @@ func (c *BranchCoordinator) RecordPendingJob(key BranchKey, jobID auxiliary.JobI
 	entry.ExpiresAt = entry.State.UpdatedAt.Add(c.ttl)
 	next := c.cloneEntriesLocked()
 	next[binding] = entry
-	if err := c.persist(next); err != nil {
+	if err := c.persist(ctx, next); err != nil {
 		return BranchState{}, fmt.Errorf("compactioncontinuity: persist pending job: %w", err)
 	}
 	c.entries = next
@@ -116,7 +117,7 @@ func (c *BranchCoordinator) RecordPendingJob(key BranchKey, jobID auxiliary.JobI
 
 // ValidatePendingJob is the common guard for Await, merge, revision, and
 // reinjection paths. It never accepts a child A-leg as a lookup key.
-func (c *BranchCoordinator) ValidatePendingJob(key BranchKey, jobID auxiliary.JobID) (BranchState, error) {
+func (c *BranchCoordinator) ValidatePendingJob(_ context.Context, key BranchKey, jobID auxiliary.JobID) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -139,7 +140,7 @@ func (c *BranchCoordinator) ValidatePendingJob(key BranchKey, jobID auxiliary.Jo
 
 // ValidatePendingJobBinding adds the opaque branch-binding check used around
 // scheduler Await. No external call is made while coordinator state is held.
-func (c *BranchCoordinator) ValidatePendingJobBinding(key BranchKey, jobID auxiliary.JobID, branchBinding string) (BranchState, error) {
+func (c *BranchCoordinator) ValidatePendingJobBinding(ctx context.Context, key BranchKey, jobID auxiliary.JobID, branchBinding string) (BranchState, error) {
 	binding, err := BranchBinding(key)
 	if err != nil {
 		return BranchState{}, err
@@ -147,7 +148,7 @@ func (c *BranchCoordinator) ValidatePendingJobBinding(key BranchKey, jobID auxil
 	if branchBinding != binding {
 		return BranchState{}, ErrBranchMismatch
 	}
-	return c.ValidatePendingJob(key, jobID)
+	return c.ValidatePendingJob(ctx, key, jobID)
 }
 
 // hasSiblingBranchLocked identifies a likely private child A-leg lookup. It is

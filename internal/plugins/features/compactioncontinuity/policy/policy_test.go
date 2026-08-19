@@ -223,6 +223,47 @@ func TestResolve_DurationLimitsApplyAndClamp(t *testing.T) {
 	}
 }
 
+func TestResolve_ZeroDefaultsAcceptTighterPositiveOverrides(t *testing.T) {
+	t.Parallel()
+
+	defaults := baseDefaults()
+	defaults.Extractor.Timeout = 0
+	defaults.Extractor.MaxInputTokens = 0
+	defaults.Extractor.MaxOutputTokens = 0
+	defaults.Limits.Timeout = 0
+	defaults.Limits.MaxInputTokens = 0
+	defaults.Limits.MaxOutputTokens = 0
+	defaults.Limits.BarrierTimeout = 0
+	defaults.Limits.CapsuleMaxTokens = 0
+	defaults.Limits.CapsuleMaxBytes = 0
+	defaults.Limits.SourceMaxBytes = 0
+	defaults.Limits.ResultMaxBytes = 0
+	defaults.Limits.ResultMaxCount = 0
+	max := baseMaxima()
+	max.Limits = policy.Limits{}
+	ctx := policy.WithTrustedOverride(trustedContext(nil), policy.Override{Limits: policy.LimitOverride{
+		Timeout:          new(3 * time.Second),
+		MaxInputTokens:   new(6000),
+		MaxOutputTokens:  new(1000),
+		BarrierTimeout:   new(time.Second),
+		CapsuleMaxTokens: new(1000),
+		CapsuleMaxBytes:  new(1000),
+		SourceMaxBytes:   new(1000),
+		ResultMaxBytes:   new(1000),
+		ResultMaxCount:   new(1),
+	}})
+	got, err := policy.Resolve(ctx, defaults, max)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Extractor.Timeout != 3*time.Second || got.Extractor.MaxInputTokens != 6000 || got.Extractor.MaxOutputTokens != 1000 {
+		t.Fatalf("extractor bounds: %+v", got.Extractor)
+	}
+	if got.Limits.BarrierTimeout != time.Second || got.Limits.CapsuleMaxTokens != 1000 || got.Limits.CapsuleMaxBytes != 1000 || got.Limits.SourceMaxBytes != 1000 || got.Limits.ResultMaxBytes != 1000 || got.Limits.ResultMaxCount != 1 {
+		t.Fatalf("continuity bounds: %+v", got.Limits)
+	}
+}
+
 func TestResolve_LabelOverrideIsTrustedOnlyWithAuthoritativeSession(t *testing.T) {
 	t.Parallel()
 	labels := map[string]string{policy.LabelEnabled: "false", policy.LabelRoute: "route:approved", policy.LabelMaxInputTokens: "6000", policy.LabelPlan: "false"}
@@ -300,6 +341,36 @@ func TestTranscriptAuthorizationPreservesTenantWorkspace(t *testing.T) {
 	}
 }
 
+func TestTranscriptAuthorization_TenantlessWorkspaceScopeIsNarrowlyAllowed(t *testing.T) {
+	t.Parallel()
+
+	ctx := policy.WithSecureTurn(trustedContext(nil), true)
+	ctx = scope.WithScope(ctx, scope.PrincipalScopeView{
+		PrincipalID: scope.Known("principal-1"),
+		WorkspaceID: scope.Known("workspace-1"),
+	})
+	if _, ok := policy.TranscriptAuthorizationFromContext(ctx); !ok {
+		t.Fatal("workspace-scoped transcript authorization was rejected without a tenant")
+	}
+	if !policy.AuthorizeTranscriptWorkspace(ctx, "workspace-1") {
+		t.Fatal("same workspace was rejected without a tenant")
+	}
+	if policy.AuthorizeTranscriptScope(ctx, "tenant-1", "workspace-1") {
+		t.Fatal("tenant was authorized when the trusted scope did not contain one")
+	}
+}
+
+func TestTranscriptAuthorization_RejectsUnscopedTenantlessContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := policy.WithSecureTurn(trustedContext(nil), true)
+	ctx = scope.WithScope(ctx, scope.PrincipalScopeView{PrincipalID: scope.Known("principal-1")})
+	ctx = session.WithSessionView(ctx, session.SessionView{AuthoritativeSessionID: "session-1"})
+	if _, ok := policy.TranscriptAuthorizationFromContext(ctx); ok {
+		t.Fatal("unscoped tenantless transcript authorization was accepted")
+	}
+}
+
 func TestTranscriptAuthorization_DetachedChildWithoutAuthoritativeSession(t *testing.T) {
 	t.Parallel()
 	parent := policy.WithSecureTurn(trustedContext(nil), true)
@@ -320,16 +391,4 @@ func TestTranscriptAuthorization_RejectsSessionScopeWorkspaceMismatch(t *testing
 	if _, ok := policy.TranscriptAuthorizationFromContext(ctx); ok {
 		t.Fatal("mismatched session and scope workspaces authorized transcript access")
 	}
-}
-
-func TestResolve_ExtractorNeverCarriesBranchOrAccountIdentifiers(t *testing.T) {
-	t.Parallel()
-	got, err := policy.Resolve(trustedContext(nil), baseDefaults(), baseMaxima())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = got
-	// The effective extractor policy contains only route and bounded controls;
-	// lineage is deliberately owned by extractor request metadata and omitted
-	// from this value.
 }

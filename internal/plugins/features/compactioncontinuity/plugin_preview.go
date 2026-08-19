@@ -202,6 +202,7 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 }
 
 func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state ParentState, services compaction.Services, cfg Config) (ParentState, error) {
+	pendingJobID := state.PendingJobID
 	previous, window, err := p.previousState(parent, state)
 	if err != nil {
 		return state, err
@@ -209,13 +210,13 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 	decoder := resultmerge.NewExtractorDecoder(resultmerge.ExtractorDecoderConfig{AllowedSourceRefs: sourceRefs(previous, window)})
 	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{ctx: ctx, port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: cfg.Capsule.MaxBytes, MaxCapsuleTokens: cfg.Capsule.MaxTokens})
 	if err != nil {
-		p.observeError(observability.StageBarrier, err, string(state.PendingJobID))
+		p.observeError(observability.StageBarrier, err, string(pendingJobID))
 		return state, err
 	}
 	barrierCtx, cancel := context.WithTimeout(ctx, cfg.Barrier.Timeout)
 	defer cancel()
 	started := time.Now()
-	outcome, consumeErr := service.Consume(barrierCtx, resultmerge.Job{ID: state.PendingJobID, ParentBranchBinding: parent.Binding})
+	outcome, consumeErr := service.Consume(barrierCtx, resultmerge.Job{ID: pendingJobID, ParentBranchBinding: parent.Binding})
 	barrierOutcome := observability.OutcomeCompleted
 	switch outcome.Status {
 	case resultmerge.StatusPending:
@@ -224,9 +225,9 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 		barrierOutcome = observability.OutcomeRejected
 	}
 	if consumeErr != nil {
-		p.observeErrorDuration(observability.StageBarrier, consumeErr, string(state.PendingJobID), time.Since(started))
+		p.observeErrorDuration(observability.StageBarrier, consumeErr, string(pendingJobID), time.Since(started))
 	} else {
-		p.observe(observability.Observation{Stage: observability.StageBarrier, Outcome: barrierOutcome, CorrelationHash: observability.HashID(string(state.PendingJobID)), Duration: time.Since(started)})
+		p.observe(observability.Observation{Stage: observability.StageBarrier, Outcome: barrierOutcome, CorrelationHash: observability.HashID(string(pendingJobID)), Duration: time.Since(started)})
 	}
 	if outcome.State.Revision != 0 {
 		state.Revision = outcome.State.Revision
@@ -238,7 +239,7 @@ func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state 
 		state.PendingJobBranchBinding = outcome.State.PendingJobBranchBinding
 		if len(state.CapsuleJSON) != 0 {
 			if decoded, decodeErr := capsule.Decode(state.CapsuleJSON); decodeErr == nil {
-				p.observeCapsule(barrierOutcome, decoded, len(state.CapsuleJSON), string(state.PendingJobID))
+				p.observeCapsule(barrierOutcome, decoded, len(state.CapsuleJSON), string(pendingJobID))
 			}
 		}
 	}

@@ -267,6 +267,12 @@ plugins:
     # - id: compaction-continuity
     #   enabled: false
     #   config:
+    #     preserve:
+    #       plan: true
+    #       user_decisions: true
+    #       constraints: true
+    #       rationale: true
+    #       rejected_alternatives: true
     #     extractor:
     #       route: "openai-responses:small-model"
     #       timeout: 8s

@@ -34,10 +34,14 @@ func TranscriptAuthorizationFromContext(ctx context.Context) (TranscriptAuthoriz
 	if workspaceID == "" {
 		workspaceID = scopeWorkspace
 	}
+	tenantID := strings.TrimSpace(trustedScope.TenantID.String())
+	if tenantID == "" && workspaceID == "" {
+		return TranscriptAuthorization{}, false
+	}
 	return TranscriptAuthorization{
 		SessionID:   strings.TrimSpace(views.AuthoritativeSessionID),
 		PrincipalID: principal,
-		TenantID:    strings.TrimSpace(trustedScope.TenantID.String()),
+		TenantID:    tenantID,
 		WorkspaceID: workspaceID,
 	}, true
 }
@@ -58,16 +62,12 @@ func AuthorizeTranscriptScope(ctx context.Context, requestedTenant, requestedWor
 		return false
 	}
 	requestedTenant = strings.TrimSpace(requestedTenant)
-	if requestedTenant == "" {
-		if auth.TenantID == "" {
-			return false
-		}
-	} else if requestedTenant != auth.TenantID {
+	if requestedTenant != "" && (auth.TenantID == "" || requestedTenant != auth.TenantID) {
 		return false
 	}
 	requestedWorkspace = strings.TrimSpace(requestedWorkspace)
 	if requestedWorkspace == "" {
-		return auth.WorkspaceID != ""
+		return auth.WorkspaceID != "" || auth.TenantID != ""
 	}
 	return auth.WorkspaceID == requestedWorkspace
 }

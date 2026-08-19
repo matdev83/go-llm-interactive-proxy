@@ -41,7 +41,7 @@ func (s *Service) Consume(ctx context.Context, job Job) (Outcome, error) {
 		return Outcome{Status: StatusRejected}, ErrInvalidJob
 	}
 
-	state, err := s.parent.ValidatePendingJob(job.ParentBranchBinding, job.ID)
+	state, err := s.parent.ValidatePendingJob(ctx, job.ParentBranchBinding, job.ID)
 	if err != nil {
 		// Do not Forget here. No raw output was consumed and a wrong caller-side
 		// branch key must not destroy the job owned by the real parent branch.
@@ -100,7 +100,7 @@ func (s *Service) Consume(ctx context.Context, job Job) (Outcome, error) {
 	if strings.TrimSpace(delta.SourceHighWatermark) != "" {
 		highWatermark = delta.SourceHighWatermark
 	}
-	committed, err := s.parent.CommitCapsuleForJob(job.ParentBranchBinding, job.ID, merged.BranchBinding, state.Revision, serialized, digest, highWatermark)
+	committed, err := s.parent.CommitCapsuleForJob(ctx, job.ParentBranchBinding, job.ID, merged.BranchBinding, state.Revision, serialized, digest, highWatermark)
 	if err != nil {
 		return Outcome{Status: StatusRejected, State: state}, err
 	}
