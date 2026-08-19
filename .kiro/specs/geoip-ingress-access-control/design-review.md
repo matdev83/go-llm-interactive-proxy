@@ -16,7 +16,7 @@ The design was validated as a brownfield HTTP-security/process-lifecycle change 
 - process-owned management listener separation;
 - current metrics composition/registry model;
 - all reconciled requirements and `gap-analysis.md`;
-- MaxMind reader/updater lifecycle constraints documented in `research.md`.
+- DB-IP Lite / GeoIP database lifecycle constraints documented in `research.md`.
 
 The review treats security bypass, fail-open behavior, mutable published policy, import cycles, hidden request-path/network I/O, non-durable LKG activation, publication-after-close, and broken reload/management recovery semantics as NO-GO findings.
 
@@ -95,8 +95,8 @@ GeoIP static validation on this path may parse/configure pure values only. It ca
 - construct/activate `ProcessServices`;
 - compile/publish a request generation;
 - open/acquire a live GeoIP database;
-- instantiate or call the MaxMind updater;
-- depend on MaxMind network availability.
+- instantiate or call the managed updater;
+- depend on provider network availability.
 
 Normal serving startup/reload preparation reuses the same pure helper and adds a separate activation-readiness gate over already process-owned resources.
 
@@ -254,17 +254,17 @@ Tasks 5.4, 7.2, and 10.1 test shutdown during download, write, Verify, pre-manif
 
 **Final decision: PASS.**
 
-## Round 8: MaxMind Download Response Ownership
+## Round 8: DB-IP Lite Download Response Ownership
 
 ### Post-review assessment
 
 **Decision: NO-GO until ownership was explicit**
 
-The updater abstraction did not state who closes a non-nil `DownloadResponse.Reader`, especially for unchanged responses. Repeated update checks could therefore leak bodies/transports/resources.
+The updater abstraction did not state who closes a non-nil HTTP response body, especially for unchanged responses. Repeated update checks could therefore leak bodies/transports/resources.
 
 ### Resolution
 
-The adapter owns every non-nil response reader:
+The adapter owns every non-nil HTTP response body:
 
 - unchanged response: close exactly once;
 - changed response: consume through the bounded writer to EOF and close before verify/publication;
@@ -286,7 +286,7 @@ The requirements already distinguish managed and local sources, but task 5.4 cou
 
 The final design/tasks explicitly branch:
 
-- **local:** open only configured `local_path`; no managed manifest scan, MaxMind credentials, updater construction, or network acquisition;
+- **local:** open only configured `local_path`; no managed manifest scan, credentials, updater construction, or network acquisition;
 - **managed:** validate/recover managed LKG; make one bounded startup acquisition only when enabled country-dependent readiness requires it; schedule updates only when configured.
 
 This prevents an implementation agent from turning a local-file deployment into an unexpected network client.
@@ -352,7 +352,7 @@ Generic 403 is correct at this early protocol-agnostic boundary. Pulling fronten
 - **Open/Closed:** alternate `CountryLookup` adapters/new deliberate client-IP sources can be added without changing policy semantics.
 - **Liskov:** fake/local/MMDB lookup implementations share found/not-found/error semantics.
 - **Interface Segregation:** request gate sees policy/lookup/resolver/observer, not updater/files/credentials.
-- **Dependency Inversion:** core owns ports; MaxMind stays infrastructure-only.
+- **Dependency Inversion:** core owns ports; DB-IP/GeoIP database stays infrastructure-only.
 
 ## Hexagonal Architecture Review
 
@@ -360,7 +360,7 @@ Generic 403 is correct at this early protocol-agnostic boundary. Pulling fronten
 
 - domain: policy/value objects;
 - driving adapter: HTTP request/client-address resolver;
-- driven adapter: MMDB/MaxMind update/files;
+- driven adapter: MMDB/database update/files;
 - composition root: runtimebundle/process services;
 - cycle-neutral `stdhttp/contract` DTO;
 - no global locator;
@@ -387,7 +387,7 @@ Post-review hardening amendments:
 6. crash-durable Unix/Windows publication + deterministic restart recovery — **DONE**;
 7. exact `runtimebundle.ValidateStructural` check-config integration — **DONE**;
 8. updater/Close publication fence — **DONE**;
-9. explicit `DownloadResponse.Reader` ownership — **DONE**;
+9. explicit response-body ownership — **DONE**;
 10. local-vs-managed startup isolation — **DONE**.
 
 ## Final Validation Decision

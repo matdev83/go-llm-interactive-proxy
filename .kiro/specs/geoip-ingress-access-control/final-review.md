@@ -45,7 +45,7 @@ The spec defines one optional **early standard-HTTP data-plane GeoIP ingress gat
 6. aggregate handling of repeated authoritative forwarding-header fields under fixed abuse bounds;
 7. local request-path MMDB lookup with no remote per-request service;
 8. source-specific local/managed database startup behavior;
-9. managed automatic MaxMind updates with explicit response-reader ownership, crash-durable version publication, deterministic restart recovery, and shutdown serialization;
+9. managed automatic DB-IP Lite updates with explicit response-body ownership, crash-durable version publication, deterministic restart recovery, and shutdown serialization;
 10. pure policy hot reload through existing immutable generations;
 11. generic early 403 denial with dedicated bounded observability;
 12. explicit management-plane, `check-config`, and in-flight-generation compatibility.
@@ -125,17 +125,17 @@ Any publication failure preserves the prior manifest/active LKG. Managed restart
 
 The process service now has closed state, updater root cancellation, in-flight update tracking, and a publication fence. `Close` establishes closed/cancelled state first, waits active acquisitions/updates without holding the lifecycle lock, then closes active readers/files. Tests race shutdown against download, write, Verify, manifest boundary, and reader publication.
 
-### 6. MaxMind `DownloadResponse.Reader` ownership — RESOLVED
+### 6. DB-IP Lite response-body ownership — RESOLVED
 
 The updater adapter owns/closes every non-nil response reader, including unchanged responses. Changed readers are consumed through the hard size/time bounds and closed before verification/publication. Failure paths close all resources; hard limit/timeout never triggers unbounded draining.
 
 ### 7. Local vs managed startup — RESOLVED
 
-Local source opens only configured `local_path`, never reads MaxMind credentials, never scans managed LKG versions, and never performs managed acquisition. Managed mode alone owns manifest recovery/acquisition/scheduling.
+Local source opens only configured `local_path`, never reads any credentials (none are required for DB-IP Lite), never scans managed LKG versions, and never performs managed acquisition. Managed mode alone owns manifest recovery/acquisition/scheduling.
 
 ### 8. Exact static `check-config` entry — RESOLVED
 
-The normative path is existing `runCheckConfigCommand -> runtimebundle.ValidateStructural`. GeoIP adds pure static compile/validation there without `BuildHost`, `ProcessServices`, generation publication, MMDB acquisition/open, updater construction, or MaxMind network.
+The normative path is existing `runCheckConfigCommand -> runtimebundle.ValidateStructural`. GeoIP adds pure static compile/validation there without `BuildHost`, `ProcessServices`, generation publication, MMDB acquisition/open, updater construction, or provider network.
 
 ### 9. Normative resource constants — RESOLVED
 
@@ -166,13 +166,13 @@ The final design resolves all original and subsequent NO-GO ambiguities:
 - **OCP:** alternate `CountryLookup` adapters can be added without changing policy; deliberate address-source modes can extend the HTTP adapter.
 - **LSP:** fake/local/MMDB lookups share found/not-found/error semantics.
 - **ISP:** request gate sees only immutable policy/lookup/resolver/observer, not updater/files/credentials.
-- **DIP:** core owns the country lookup port; MaxMind is an infrastructure adapter.
+- **DIP:** core owns the country lookup port; DB-IP/GeoIP database is an infrastructure adapter.
 
 ### Hexagonal architecture — PASS
 
 - core domain owns policy semantics;
 - HTTP is a driving adapter;
-- MMDB/MaxMind/files are driven adapters;
+- MMDB/database/files are driven adapters;
 - runtimebundle is the composition root;
 - process resources and immutable request generations retain existing ownership;
 - no global service locator or parallel reload/control plane.
@@ -194,7 +194,7 @@ The spec explicitly defends against:
 - IPv4-mapped IPv6 matching bypass;
 - mutable published policy state;
 - fail-open country lookup/readiness behavior;
-- unexpected MaxMind network in local mode or `check-config`;
+- unexpected provider network in local mode or `check-config`;
 - response-body/file/goroutine leaks in repeated updater flows;
 - corrupt/truncated/oversized MMDB updates;
 - torn/non-durable manifest publication;
@@ -248,13 +248,13 @@ The task plan requires benchmarks before trie/cache optimization.
 
 **Decision: PASS**
 
-The implementation plan still contains **32 bounded TDD-oriented sub-tasks** across ten phases:
+The implementation plan still contains **33 bounded TDD-oriented sub-tasks** across ten phases:
 
 1. RED policy/config/reload contracts.
 2. Pure immutable policy core.
 3. HTTP client-address trust boundary.
 4. Local MMDB process service.
-5. Managed updater/LKG/durable storage/shutdown.
+5. Managed DB-IP Lite updater/LKG/durable storage/shutdown.
 6. Bounded observability.
 7. Process ownership and cycle-neutral generation projection.
 8. Exact early HTTP middleware integration.

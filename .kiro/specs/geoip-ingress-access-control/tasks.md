@@ -42,7 +42,7 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
   - Add RED YAML/config tests for absent/disabled, valid deny/allow lists, invalid order/country/CIDR, and managed/local source one-of semantics.
   - Require forwarded sources to have non-empty valid trusted-proxy prefixes and local source to reject all managed updater settings.
   - Pin the shared v1 limits: 16 KiB aggregate forwarding input, 32 hops, 128 MiB download, 2m operation timeout, and managed interval default/range/jitter contract.
-  - Prove managed credentials are not accepted as reloadable diagnostic data and local mode does not require them.
+  - Prove managed mode requires no credentials/account and local mode performs no network acquisition.
   - _Boundary: core config tests_
   - _Depends: 1.2_
   - _Validation: `go test ./internal/core/config/...`_
@@ -50,7 +50,7 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
 
 - [ ] 1.4 Freeze reload classification and exact network-free `check-config` path
   - Add RED classifier tests proving `access.mode` stays restart-required, pure GeoIP policy/resolver fields reload, and DB/updater lifecycle fields are restart-required with atomic mixed-change rejection.
-  - Extend the existing `runCheckConfigCommand -> runtimebundle.ValidateStructural` contract tests so GeoIP static compile is exercised there and never calls `BuildHost`, constructs `ProcessServices`, publishes a generation, opens/acquires MMDB data, or contacts MaxMind.
+  - Extend the existing `runCheckConfigCommand -> runtimebundle.ValidateStructural` contract tests so GeoIP static compile is exercised there and never calls `BuildHost`, constructs `ProcessServices`, publishes a generation, opens/acquires MMDB data, or contacts the database provider.
   - Require normal startup/reload preparation to reuse the same pure GeoIP validation/compiler helper while serving readiness remains a separate gate.
   - Preserve existing unrelated reload and `ValidateStructural` behavior.
   - _Boundary: config reload / structural-validation tests_
@@ -64,7 +64,7 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
   - Add `Order`, finite `Reason`, `Decision`, narrow `CountryLookup`, and private rule-class/policy backing state.
   - Compile country codes and `netip.Prefix` rules once; deep-copy/own backing collections and expose no mutable map/slice accessor or mutator after publication.
   - Compute the safe decision plan/`NeedsCountryLookup` from rule semantics.
-  - Keep the package free of HTTP, MaxMind, logger, Prometheus, runtimebundle, and frontend/backend imports.
+  - Keep the package free of HTTP, GeoIP database implementation, logger, Prometheus, runtimebundle, and frontend/backend imports.
   - _Boundary: core domain_
   - _Depends: 1.1, 1.2_
   - _Validation: `go test ./internal/core/geoip/...`; architecture import tests_
@@ -137,20 +137,20 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
 - [ ] 4.3 Implement local-source readiness and status
   - Implement operator-owned local MMDB loading that opens only the configured `local_path` and owns no updater/managed LKG scan.
   - Fail normal serving readiness when an enabled country-dependent policy requires a missing/corrupt/incompatible local file.
-  - Prove local source never reads MaxMind credentials or performs network acquisition, including startup recovery paths.
+  - Prove local source never reads any credentials or performs network acquisition, including startup recovery paths.
   - Expose bounded readiness/version/age status with no client data/secrets while `check-config` remains structural only.
   - _Boundary: process service / status_
   - _Depends: 4.1, 1.4_
   - _Validation: `go test ./internal/infra/geoip/... ./internal/infra/runtimebundle/...`_
   - _Requirements: 8.1, 8.5-8.9, 12.5-12.6, 15.4-15.6_
 
-## 5. Implement Managed MaxMind Updates and Last-Known-Good Storage
+## 5. Implement Managed DB-IP Lite Updates and Last-Known-Good Storage
 
-- [ ] 5.1 Integrate MaxMind's supported Go update client with explicit response ownership
-  - Add `github.com/maxmind/geoipupdate/v8/client` behind a small adapter with injected bounded HTTP client/clock/jitter and process-owned credentials.
-  - Use `Download(ctx, edition,currentChecksum)` semantics and treat the checksum only as upstream change detection.
-  - Own and close **every** non-nil `DownloadResponse.Reader`, including unchanged responses; changed readers must be consumed through the bounded writer and closed before verification/publication.
-  - Add repeated unchanged/changed/auth-failure/timeout tests proving readers and transports/resources are not leaked.
+- [ ] 5.1 Implement the DB-IP Lite download client with explicit response-body ownership
+  - Download the DB-IP Lite MMDB over public HTTPS from the documented static URL pattern (`https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz`) using the standard library `net/http` client with an injected bounded transport/timeout; no `geoipupdate` client, no account/key, no process-owned credentials.
+  - Use the published checksum or `If-Modified-Since`/HTTP 304 as upstream change detection; treat the checksum only as change detection, not cryptographic authenticity.
+  - Own and close **every** non-nil HTTP response body, including unchanged responses (HTTP 304 / matching checksum); changed bodies must be gunzipped and consumed through the bounded writer and closed before verification/publication.
+  - Add repeated unchanged/changed/transport-failure/timeout tests proving response bodies and transports/resources are not leaked.
   - _Boundary: driven update adapter_
   - _Depends: 4.1_
   - _Validation: `go test ./internal/infra/geoip/...`_
@@ -211,7 +211,7 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
 - [ ] 6.2 Add bounded operational logging without denial spam
   - Add only lifecycle/update status logs needed for LKG selected/update failed/recovered/updated with safe bounded fields.
   - Do not add one normal log entry per GeoIP denial and do not route denials through normal access logging.
-  - Add tests/guards that credentials and raw forwarding headers are absent from logs/status/diagnostics.
+  - Add tests/guards that database secrets (none for DB-IP Lite) and raw forwarding headers are absent from logs/status/diagnostics.
   - Keep any optional denial security diagnostic disabled or rate-limited by explicit bounded policy.
   - _Boundary: observability/security_
   - _Depends: 5.4, 6.1_
@@ -244,7 +244,7 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
   - Wire the pure GeoIP static compiler into the existing `runtimebundle.ValidateStructural` path used by `runCheckConfigCommand`; it must not construct `ProcessServices`, `BuildHost`, or publish a generation.
   - Reuse that pure compiler in normal startup/reload preparation, with existing process-service readiness checked only in normal serving activation.
   - Build a defensive `GeoIPSecurityInput` for enabled serving generations and zero/nil projection for disabled generations; reject country-dependent enable when the existing process lookup is not ready.
-  - Add tests proving `check-config` never acquires/open/downloads GeoIP data or requires MaxMind network while serving activation still fails closed on missing required readiness.
+  - Add tests proving `check-config` never acquires/open/downloads GeoIP data or requires provider network while serving activation still fails closed on missing required readiness.
   - _Boundary: composition root / structural + generation compiler_
   - _Depends: 1.4, 7.1, 7.2_
   - _Validation: `go test ./internal/infra/runtimebundle/... ./cmd/lipstd/...`_
@@ -339,17 +339,26 @@ Header/hop/download/operation limits are fixed internal v1 safety constants; onl
 - [ ] 10.3 Add operator/security documentation and examples
   - Document deny-list, allow-list, Russia+office exception, direct peer, trusted XFF/Forwarded, managed update, and local-MMDB examples.
   - Document process-vs-generation reload semantics, warm provisioning while disabled, restart-required DB changes, exact `check-config` structural behavior, and management-plane exclusion.
-  - Document MaxMind credentials, GeoLite licensing/attribution/update obligations, multi-replica quota/distribution considerations, crash-durable LKG recovery, and local-source no-network behavior.
+  - Document DB-IP Lite CC BY 4.0 attribution, licensing/update obligations (no account/key required), multi-replica quota/distribution considerations, crash-durable LKG recovery, and local-source no-network behavior.
   - Warn clearly that GeoIP is approximate defense in depth and not identity/citizenship/sanctions proof.
   - _Boundary: operator/security docs_
   - _Depends: 9.3, 10.2_
   - _Validation: docs examples parsed by config tests where practical_
   - _Requirements: 9.4, 13.12-13.13, 14.1-14.7, 15.7-15.8_
 
-- [ ] 10.4 Run architecture, quality, cross-platform, and release gates
+- [ ] 10.4 Add DB-IP Lite attribution to documentation
+  - Add a clear attribution note (DB-IP Lite, © DB-IP.com / Eris Networks S.A.S., licensed under CC BY 4.0) to the operator/security documentation and to any generated/example configuration or README referenced by the GeoIP feature.
+  - State that the database is fetched over public HTTPS with no account/key and that the binary does not bundle it.
+  - Add a docs test/guard that the attribution text is present wherever GeoIP database usage is documented.
+  - _Boundary: operator/security docs_
+  - _Depends: 10.3_
+  - _Validation: docs examples parsed by config tests where practical; manual doc review_
+  - _Requirements: 13.13_
+
+- [ ] 10.5 Run architecture, quality, cross-platform, and release gates
   - Run affected package tests, `go test -race`, config/reload/management integration suites, architecture guardrails, updater-close tests, and Unix/Windows crash-durability file-lifecycle tests.
   - Run repository standard formatting/lint/vet/security/vulnerability/release gates required by `AGENTS.md` and current CI.
-  - Verify no MaxMind type leaks into core/stdhttp contract, no mutable policy collection crosses generation boundaries, and no backend/frontend compatibility matrix is added.
+  - Verify no GeoIP database client type leaks into core/stdhttp contract, no mutable policy collection crosses generation boundaries, and no backend/frontend compatibility matrix is added.
   - Review final implementation diff for disabled wrapper omission, fail-closed errors, durable LKG retention, bounded telemetry/resources, no secret leakage, no post-close publication, and no management-plane lockout.
   - _Boundary: final certification_
   - _Depends: all prior tasks_

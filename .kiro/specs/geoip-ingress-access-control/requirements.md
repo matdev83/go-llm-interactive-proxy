@@ -17,8 +17,8 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 - IPv4 and IPv6 exact-address/CIDR allow/deny overrides.
 - Direct-peer client-IP resolution by default.
 - Explicit trusted-reverse-proxy resolution for `Forwarded` or `X-Forwarded-For`.
-- Local MaxMind-compatible Country MMDB lookup on the request path.
-- Process-owned last-known-good MMDB lifecycle and optional managed MaxMind updates.
+- Local Country MMDB lookup on the request path.
+- Process-owned last-known-good MMDB lifecycle and optional managed DB-IP Lite updates.
 - Runtime reload of pure enforcement policy through the existing immutable generation mechanism.
 - Fail-closed behavior for unsafe address resolution and lookup failures.
 - Bounded-cardinality observability, hard parser/resource bounds, race/concurrency coverage, and benchmarks.
@@ -40,9 +40,9 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 ### Boundary ownership
 
-- **Pure policy:** focused core package; owns rule normalization and decisions, imports no HTTP or MaxMind implementation.
+- **Pure policy:** focused core package; owns rule normalization and decisions, imports no HTTP or GeoIP database implementation.
 - **HTTP ingress adapter:** `stdhttp`; owns request peer/header parsing, generic 403 response, and middleware placement.
-- **GeoIP database adapter:** infrastructure package; owns MMDB reader/open/verify/swap, on-disk LKG, and MaxMind update transport.
+- **GeoIP database adapter:** infrastructure package; owns MMDB reader/open/verify/swap, on-disk LKG, and managed database update transport.
 - **Lifecycle/composition:** process service owns database/updater; immutable request generation owns compiled policy and HTTP wrapper presence.
 - **Configuration:** core config model with explicit reload classification.
 - **Observability:** existing process metrics infrastructure with bounded labels only.
@@ -55,7 +55,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 - **Country lookup:** local mapping from a normalized IP address to `country.iso_code` from the active MMDB.
 - **LKG:** last-known-good structurally validated MMDB version retained for continued service when an update fails.
 - **Policy generation:** immutable request-plane generation compiled by the existing runtime reload architecture.
-- **Managed database:** MMDB maintained by the proxy using MaxMind's authenticated update protocol.
+- **Managed database:** MMDB maintained by the proxy through the documented DB-IP Lite static download (no account/key/credentials).
 - **Local database:** operator-managed MMDB file read by the proxy without automatic download ownership.
 - **Provisioned database service:** process-owned country lookup constructed at process startup even if request enforcement is currently disabled.
 
@@ -137,7 +137,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 4.6. A no-country result SHALL produce no country-class match and SHALL therefore follow CIDR matches and the selected policy order's ordinary default.
 
-4.7. Country policy SHALL remain independent of MaxMind-specific record structs through a narrow internal country-lookup port.
+4.7. Country policy SHALL remain independent of vendor-specific record structs through a narrow internal country-lookup port.
 
 ## Requirement 5: Direct Client-IP Resolution by Default
 
@@ -183,11 +183,11 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 ### Acceptance Criteria
 
-7.1. Country lookup on the request path SHALL use a long-lived local MaxMind-compatible MMDB reader and SHALL perform no request-triggered network call.
+7.1. Country lookup on the request path SHALL use a long-lived local MMDB reader and SHALL perform no request-triggered network call.
 
-7.2. THE core policy SHALL depend on a narrow interface equivalent to `LookupCountry(netip.Addr) (country string, found bool, err error)` and SHALL NOT import MaxMind implementation types.
+7.2. THE core policy SHALL depend on a narrow interface equivalent to `LookupCountry(netip.Addr) (country string, found bool, err error)` and SHALL NOT import GeoIP database implementation types.
 
-7.3. THE standard infrastructure adapter SHALL support a Country MMDB sufficient to decode `country.iso_code`, including `GeoLite2-Country` and compatible paid Country editions selected by validated configuration.
+7.3. THE standard infrastructure adapter SHALL support a Country MMDB sufficient to decode `country.iso_code`, including `dbip-country-lite` and compatible Country editions selected by validated configuration.
 
 7.4. THE adapter SHALL open and structurally validate a candidate MMDB before it becomes active.
 
@@ -211,7 +211,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 8.3. IF no valid database is available after the bounded startup attempt, THEN startup or candidate publication SHALL fail rather than silently fail open.
 
-8.4. ONCE a valid LKG exists, later update-network failures SHALL retain the existing reader and SHALL NOT make otherwise valid allowed requests depend on MaxMind network availability.
+8.4. ONCE a valid LKG exists, later update-network failures SHALL retain the existing reader and SHALL NOT make otherwise valid allowed requests depend on managed-update network availability.
 
 8.5. A local database source SHALL fail startup/candidate readiness when its configured file is absent, unreadable, corrupt, or semantically incompatible and country lookup is required by an enabled generation.
 
@@ -231,7 +231,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 9.1. Managed mode SHALL support automatic periodic database update checks owned by the proxy process.
 
-9.2. THE standard updater SHALL use MaxMind's supported authenticated update protocol/client rather than scraping release artifacts, hard-coding ad-hoc download URLs, or shelling out to an external updater executable.
+9.2. THE standard updater SHALL download the DB-IP Lite database over public HTTPS from the documented static release URL pattern using the standard library HTTP client with an injected bounded transport, rather than scraping release artifacts, hard-coding ad-hoc download URLs beyond the documented pattern, or shelling out to an external updater executable.
 
 9.3. THE updater SHALL use the current database checksum/update token only for upstream change detection and SHALL NOT treat MD5 as a cryptographic authenticity guarantee.
 
@@ -265,7 +265,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 10.3. Invalid GeoIP policy changes SHALL reject the candidate atomically and SHALL leave the active generation unchanged.
 
-10.4. Database source/provider, storage location, MaxMind edition, managed-update enablement/cadence, and credential-source/lifecycle settings SHALL initially be classified restart-required when they change process-owned resources.
+10.4. Database source/provider, storage location, database edition, and managed-update enablement/cadence settings SHALL initially be classified restart-required when they change process-owned resources.
 
 10.5. THE config-reload classifier SHALL explicitly classify every GeoIP field; no new GeoIP subtree SHALL bypass typed reload/restart policy.
 
@@ -309,7 +309,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 12.5. Database updater failures/recovery SHALL be observable through bounded metrics and bounded operational logs that redact credentials.
 
-12.6. Diagnostic/status surfaces SHALL never expose MaxMind license keys or raw forwarding headers.
+12.6. Diagnostic/status surfaces SHALL never expose database credentials/license keys or raw forwarding headers.
 
 12.7. Recommended decision-reason dimensions SHALL remain finite (for example `cidr_allow`, `cidr_deny`, `country_allow`, `country_deny`, `default_allow`, `default_deny`, `client_ip_error`, `lookup_error`) rather than recording literal rule values.
 
@@ -341,9 +341,9 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 13.11. The implementation SHALL document expected performance bounds and SHALL not introduce a more complex prefix-tree/cache data structure without benchmark evidence.
 
-13.12. MaxMind credentials SHALL come from an existing secure secret/environment convention, SHALL NOT be embedded in diagnostics/config dumps, and SHALL NOT be logged.
+13.12. DB-IP Lite requires no account, API key, or credential; there are no database secrets to manage. If a future managed source requires credentials, they SHALL come from an existing secure secret/environment convention, SHALL NOT be embedded in diagnostics/config dumps, and SHALL NOT be logged.
 
-13.13. The repository/binary SHALL NOT bundle a GeoLite database; operator setup/documentation SHALL cover data-source licensing/attribution/update obligations.
+13.13. The repository/binary SHALL NOT bundle the DB-IP Lite database; operator setup/documentation SHALL give DB-IP Lite attribution under its CC BY 4.0 license (copyright + license reference) and cover its data-source update obligations.
 
 ## Requirement 14: Brownfield Plane and Generation Compatibility
 
@@ -367,7 +367,7 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 ## Requirement 15: Configuration Validation and Operator Contract
 
-**Objective:** As an operator, I want invalid policy rejected deterministically before publication and configuration validation to work without live MaxMind connectivity.
+**Objective:** As an operator, I want invalid policy rejected deterministically before publication and configuration validation to work without live provider connectivity.
 
 ### Acceptance Criteria
 
@@ -375,9 +375,9 @@ Brownfield gap analysis was performed against `main` commit `ca43dde919f4d53716a
 
 15.2. THE implementation SHALL support an explicit v1 database source distinction equivalent to `managed` versus `local`, where managed mode owns updates and local mode treats the file as operator-owned.
 
-15.3. Managed MaxMind credentials SHALL NOT be required in reloadable policy fields; credential acquisition SHALL be process/startup-owned and redacted from diagnostics.
+15.3. Managed mode SHALL require no account, API key, or credential; the DB-IP Lite feed is fetched over public HTTPS without authentication, so no credential appears in reloadable policy fields or diagnostics.
 
-15.4. `check-config` SHALL validate all static GeoIP syntax/semantics and reload classification without contacting MaxMind or performing any database download/update.
+15.4. `check-config` SHALL validate all static GeoIP syntax/semantics and reload classification without contacting the database provider or performing any database download/update.
 
 15.5. `check-config` MAY structurally validate an explicitly available local MMDB path, but absence of external network connectivity SHALL NOT make an otherwise static configuration check fail.
 

@@ -33,9 +33,9 @@ Reviewed:
 - RFC 7239 `Forwarded` trust/security considerations.
 - nginx recursive real-IP trust behavior as a mature reference for reverse-proxy chain evaluation.
 - Go `net/netip` normalization and IPv4-mapped IPv6 behavior.
-- MaxMind GeoIP/GeoLite Country MMDB guidance.
-- `github.com/oschwald/maxminddb-golang/v2` reader behavior/API.
-- current `github.com/maxmind/geoipupdate/v8/client` download/update API.
+- Country MMDB guidance (DB-IP Lite and compatible MMDB sources).
+- `github.com/oschwald/maxminddb-golang/v2` reader behavior/API (reads the DB-IP Lite MMDB and any compatible Country MMDB).
+- DB-IP Lite static HTTPS download acquisition (no `geoipupdate` client, no account/key).
 - HTTP status semantics for 403 and 451.
 
 ## Source Notes
@@ -46,13 +46,13 @@ Primary references:
 - RFC 7239 `Forwarded`: https://www.rfc-editor.org/rfc/rfc7239.html
 - nginx real IP module: https://nginx.org/en/docs/http/ngx_http_realip_module.html
 - Go `net/netip`: https://pkg.go.dev/net/netip
-- MaxMind GeoLite data: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data/
-- MaxMind updating databases: https://dev.maxmind.com/geoip/updating-databases/
-- MaxMind updater source: https://github.com/maxmind/geoipupdate
+- DB-IP Lite download: https://db-ip.com/db/download/ip-to-country-lite
+- DB-IP Lite licensing (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+- DB-IP IP to Country Lite: https://db-ip.com/db/ip-to-country-lite
 - maxminddb Go reader: https://github.com/oschwald/maxminddb-golang
 - HTTP Semantics RFC 9110: https://www.rfc-editor.org/rfc/rfc9110.html
 - HTTP 451 RFC 7725: https://www.rfc-editor.org/rfc/rfc7725.html
-- GeoLite EULA/operator obligations: https://www.maxmind.com/en/geolite/eula
+- DB-IP Lite license/attribution: https://db-ip.com/db/lite.php
 
 ## Decision 1: Use an Early `stdhttp` Ingress Gate
 
@@ -101,7 +101,7 @@ Runtime reload from disabled to enabled simply publishes a newly compiled handle
 
 - active MMDB reader;
 - local/versioned files and LKG metadata;
-- MaxMind update client;
+- managed update client;
 - update loop/timer/jitter;
 - readiness/status;
 - reader publication/retirement.
@@ -180,7 +180,7 @@ GeoIP must not change auth attribution as a side effect. A later auth design may
 
 ## Decision 8: Use Local MMDB Only on the Request Path
 
-Do not call MaxMind web services per request. A local Country MMDB provides:
+Do not call remote GeoIP web services per request. A local Country MMDB provides:
 
 - bounded in-process lookup latency;
 - no per-request network dependency;
@@ -188,7 +188,7 @@ Do not call MaxMind web services per request. A local Country MMDB provides:
 - no fail-open question caused by remote outage;
 - materially lower attack amplification.
 
-Recommended implementation dependency: `github.com/oschwald/maxminddb-golang/v2`.
+Recommended implementation dependency: `github.com/oschwald/maxminddb-golang/v2` (reads the DB-IP Lite MMDB and any compatible Country MMDB).
 
 Expose only a narrow internal port, conceptually:
 
@@ -198,7 +198,7 @@ type CountryLookup interface {
 }
 ```
 
-The HTTP/core policy does not know MaxMind record or reader types.
+The HTTP/core policy does not know GeoIP database record or reader types.
 
 ## Decision 9: No Mandatory Per-IP Cache
 
@@ -206,21 +206,18 @@ The issue asks to cache expensive lookups to avoid backend spam. With local MMDB
 
 An unbounded `map[IP]country` is actively undesirable because hostile clients can drive unique-key growth. V1 therefore has no mandatory per-IP cache. If profiling later proves decoding expensive, any cache must be bounded and invalidated/versioned with the active MMDB generation.
 
-## Decision 10: Reuse MaxMind's Supported Update Client
+## Decision 10: Download DB-IP Lite Over Public HTTPS (No Account/Key)
 
-Current MaxMind `geoipupdate` exposes a public Go client under `github.com/maxmind/geoipupdate/v8/client`.
+DB-IP Lite is published as a static, keyless MMDB download at a documented monthly URL pattern, e.g. `https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz`.
 
-Relevant behavior reviewed from current source:
+Relevant behavior:
 
-- `client.New(accountID, licenseKey, ...)` constructs a concurrent-capable downloader;
-- default endpoint is `https://updates.maxmind.com`;
-- `Download(ctx, editionID, currentMD5)` obtains metadata first;
-- when the local MD5 matches current metadata it returns `UpdateAvailable=false` without downloading a new database;
-- changed downloads are unpacked from the current supported MaxMind flow.
+- the file is served over public HTTPS with no account, API key, or authentication;
+- the download page publishes MD5/SHA1 checksums and the release month, enabling change detection without a proprietary metadata protocol;
+- the archive is gzip-compressed and must be gunzipped before MMDB validation;
+- the checksum is an update/change token, not a cryptographic authenticity primitive.
 
-Use this instead of maintaining copied endpoint/protocol logic or shelling out to a subprocess.
-
-The MD5 value is an update/change token, not a cryptographic authenticity primitive. Trust is based on the authenticated HTTPS update path plus structural/semantic MMDB validation before publication.
+Use the standard library `net/http` client with an injected bounded transport/timeout to fetch the documented URL pattern, rather than maintaining copied endpoint/protocol logic or shelling out to a subprocess. Trust is based on the public HTTPS download path plus structural/semantic MMDB validation before publication. No `geoipupdate` client or credential is required.
 
 ## Decision 11: Transactional, Windows-Safe MMDB Publication
 
@@ -255,7 +252,7 @@ A simple service-level RWMutex is sufficient unless benchmarks show otherwise:
 - Load/validate existing LKG first.
 - If enabled country-dependent policy has no usable DB in managed mode, make one bounded startup acquisition attempt.
 - If still unavailable, fail startup/candidate publication.
-- After a valid LKG is active, periodic update failures retain it and do not make allowed traffic depend on MaxMind connectivity.
+- After a valid LKG is active, periodic update failures retain it and do not make allowed traffic depend on managed-update connectivity.
 - An address with no country record is not an update/readiness failure.
 
 A process may provision/update the MMDB while enforcement is disabled if database configuration exists, enabling a later pure-policy reload without restart. If no database service was configured at startup, enabling a country-dependent policy requires restart/provisioning.
@@ -274,7 +271,7 @@ It should validate:
 - update interval/bounds;
 - reload/restart classification.
 
-It must not download/update a database or require MaxMind connectivity. Runtime activation separately verifies process-resource readiness.
+It must not download/update a database or require provider connectivity. Runtime activation separately verifies process-resource readiness.
 
 ## Decision 14: 403 Is the Correct Denial Status
 
@@ -334,7 +331,7 @@ access:
 
     database:
       source: managed           # managed | local
-      edition: GeoLite2-Country
+      edition: dbip-country-lite
       directory: /var/lib/lip/geoip
       local_path: ""             # used only for source: local
       update:
@@ -342,12 +339,7 @@ access:
         interval: 24h
 ```
 
-Managed credentials should use secret environment/config conventions rather than inline reloadable YAML. Candidate names:
-
-- `LIP_GEOIP_MAXMIND_ACCOUNT_ID`
-- `LIP_GEOIP_MAXMIND_LICENSE_KEY`
-
-Exact names should be checked against existing environment naming conventions during implementation.
+DB-IP Lite requires no account, API key, or credential; the managed download uses the documented public HTTPS static URL pattern and no secret environment variables. Implementation must record the exact static URL pattern and checksums from the operator documentation.
 
 ## Expected Package Boundaries
 
@@ -386,7 +378,7 @@ internal/infra/metrics/
     bounded GeoIP metrics
 ```
 
-Do not force exact filenames if a smaller layout follows current repository conventions better. The hard rule is dependency direction: core policy must not import HTTP/MaxMind; `stdhttp` must not own updater lifecycle; infrastructure must not own policy semantics.
+Do not force exact filenames if a smaller layout follows current repository conventions better. The hard rule is dependency direction: core policy must not import HTTP/GeoIP database implementation; `stdhttp` must not own updater lifecycle; infrastructure must not own policy semantics.
 
 ## Security Threat Checklist
 
@@ -399,7 +391,7 @@ Implementation review should explicitly test:
 - policy default misunderstandings;
 - country unknown vs lookup error confusion;
 - corrupt/truncated/oversized update payloads;
-- updater credential leakage;
+- updater secret leakage;
 - race between lookup and reader replacement;
 - Windows active-file replacement;
 - unique-source cache/memory exhaustion;

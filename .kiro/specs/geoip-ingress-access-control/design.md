@@ -5,13 +5,13 @@
 This design implements issue #387 as an **early HTTP ingress access-control layer** for Go-LIP. It deliberately separates two lifetime domains:
 
 1. an immutable **generation-scoped enforcement policy** used by the standard data-plane handler graph;
-2. a **process-scoped country database service** that owns MMDB readiness, local/versioned files, and optional managed MaxMind updates.
+2. a **process-scoped country database service** that owns MMDB readiness, local/versioned files, and optional managed DB-IP Lite updates.
 
 The central architectural rule is that GeoIP rejects traffic before general request instrumentation/authentication/frontend/runtime work without creating a parallel reload/control-plane architecture.
 
 Brownfield baseline: `ca43dde919f4d53716a98bf53ffb57bd61560607`.
 
-This revision incorporates the original brownfield design amendments plus review hardening for enforceable policy immutability, fixed abuse bounds, repeated forwarding-header handling, crash-durable LKG publication/recovery, exact `check-config` ownership, source-specific startup behavior, MaxMind response-reader ownership, and updater-versus-shutdown serialization.
+This revision incorporates the original brownfield design amendments plus review hardening for enforceable policy immutability, fixed abuse bounds, repeated forwarding-header handling, crash-durable LKG publication/recovery, exact `check-config` ownership, source-specific startup behavior, DB-IP Lite response-body ownership, and updater-versus-shutdown serialization.
 
 ## Goals
 
@@ -175,7 +175,7 @@ type Decision struct {
 
 `Policy` has no mutator and no accessor returns a backing map/slice. The compiler copies input collections before publication. Once returned, every reachable object used by request evaluation is read-only by construction, so sharing a `*Policy` across a generation cannot mutate admission decisions or introduce collection races.
 
-Core imports no `net/http`, MaxMind implementation, logger, Prometheus, runtimebundle, or root stdhttp.
+Core imports no `net/http`, GeoIP database implementation, logger, Prometheus, runtimebundle, or root stdhttp.
 
 ### `internal/stdhttp/contract`
 
@@ -235,7 +235,7 @@ Responsibilities:
 - decode only required `country.iso_code` semantics;
 - own synchronized active reader;
 - maintain versioned files and LKG manifest;
-- managed MaxMind update checks/downloads;
+- managed DB-IP Lite update checks/downloads;
 - transactional crash-durable publication/retirement;
 - updater cancellation and close serialization;
 - readiness/status;
@@ -243,10 +243,10 @@ Responsibilities:
 
 Recommended implementation dependencies:
 
-- `github.com/oschwald/maxminddb-golang/v2`
-- `github.com/maxmind/geoipupdate/v8/client`
+- `github.com/oschwald/maxminddb-golang/v2` (reads the DB-IP Lite MMDB and any compatible Country MMDB)
+- standard library `net/http` for the DB-IP Lite static download (no `geoipupdate` client, no account/key)
 
-MaxMind types never cross into core/stdhttp contracts.
+DB-IP/provider client types never cross into core/stdhttp contracts.
 
 ## Configuration Model
 
@@ -288,7 +288,7 @@ access:
       trusted_proxies: []
     database:
       source: managed           # managed | local
-      edition: GeoLite2-Country
+      edition: dbip-country-lite
       directory: /var/lib/lip/geoip
       local_path: ""             # local source only
       update:
@@ -305,12 +305,12 @@ Validation:
 - prefixes normalize via `Masked()`;
 - forwarded source requires non-empty trusted proxies;
 - `managed`/`local` fields are mutually consistent;
-- local source rejects all managed updater settings and never requires MaxMind credentials;
+- local source rejects all managed updater settings and never requires credentials (DB-IP Lite needs none);
 - managed update interval defaults to 24h and is valid only in `[6h,168h]`;
 - request-header/hop, download-byte, and operation-timeout limits are fixed shared constants, not YAML knobs in v1;
 - credentials are process secrets, not ordinary reloadable YAML.
 
-Candidate environment names are `LIP_GEOIP_MAXMIND_ACCOUNT_ID` and `LIP_GEOIP_MAXMIND_LICENSE_KEY`; implementation must align final names with existing env naming conventions.
+DB-IP Lite requires no account, API key, or credential; the managed download uses the documented public HTTPS release URL pattern and no secret environment variables. Implementation must record the exact static URL pattern and checksums from the operator documentation.
 
 ## Static Compilation vs Runtime Readiness
 
@@ -326,7 +326,7 @@ cmd/lipstd.runCheckConfigCommand
       -> static/effective config validation only
 ```
 
-GeoIP static validation SHALL be invoked from `runtimebundle.ValidateStructural` through a focused pure helper in the config/core layer. It SHALL NOT call `BuildHost`, compile/publish a request generation, construct or activate `ProcessServices`, open/acquire an MMDB, instantiate the MaxMind updater client, or perform external network I/O.
+GeoIP static validation SHALL be invoked from `runtimebundle.ValidateStructural` through a focused pure helper in the config/core layer. It SHALL NOT call `BuildHost`, compile/publish a request generation, construct or activate `ProcessServices`, open/acquire an MMDB, instantiate the managed updater client, or perform external network I/O.
 
 The same pure helper is reused by normal startup/reload candidate preparation to:
 
@@ -337,7 +337,7 @@ The same pure helper is reused by normal startup/reload candidate preparation to
 5. determine `NeedsCountryLookup` from the decision plan;
 6. classify reload/restart paths.
 
-`check-config` validates configured local-path syntax/source consistency but does not require the referenced MMDB to be opened as a live process resource. Existing structural-validation behavior remains non-listening, non-publishing, and independent of provider/MaxMind network availability.
+`check-config` validates configured local-path syntax/source consistency but does not require the referenced MMDB to be opened as a live process resource. Existing structural-validation behavior remains non-listening, non-publishing, and independent of provider network availability.
 
 ### Phase B — serving activation readiness
 
@@ -379,7 +379,7 @@ At normal process startup, branch explicitly by database source.
 1. run static GeoIP compile/validation;
 2. construct the process service only when a local source is configured;
 3. open and verify **only** the configured local MMDB path;
-4. never instantiate the MaxMind updater, read MaxMind credentials, scan managed LKG versions, or make an acquisition/network request;
+4. never instantiate the managed updater, read any credentials, scan managed LKG versions, or make an acquisition/network request;
 5. if startup policy needs country lookup and the local DB is not ready, fail normal serving startup.
 
 ### Managed source
@@ -524,21 +524,21 @@ Therefore no manifest or active-reader publication can begin after closed state 
 
 `Reader.Close` must never race any operation using that reader.
 
-## Managed MaxMind Update Client and Response Ownership
+## Managed DB-IP Lite Update Client and Response Ownership
 
-Use `github.com/maxmind/geoipupdate/v8/client`, not copied URL/protocol logic or a subprocess.
+Download the DB-IP Lite database over public HTTPS from the documented static release URL pattern (`https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz`) using the standard library `net/http` client with an injected bounded transport/timeout. Do not scrape release artifacts, hard-code ad-hoc URLs beyond the documented pattern, copy protocol logic, or shell out to a subprocess.
 
-The adapter owns every non-nil `DownloadResponse.Reader` returned by the client, including the unchanged-response no-op reader. Ownership rules:
+The adapter owns every non-nil HTTP response body, including unchanged-response no-op bodies. Ownership rules:
 
-- always close a non-nil reader exactly once;
-- when `UpdateAvailable=false`, close it without treating it as database data;
-- when `UpdateAvailable=true`, consume it to EOF through the 128 MiB bounded writer and close it before candidate verification/publication;
-- on local write/validation/publication failure, close the response reader and every candidate resource; where safe and still within the operation/size bounds, drain to EOF before close so transport reuse is not accidentally defeated;
+- always close a non-nil body exactly once;
+- when the server signals no change (HTTP 304 or a matching precomputed checksum), close the body without treating it as database data;
+- when a changed database is returned, gunzip and consume it through the 128 MiB bounded writer, then close it before candidate verification/publication;
+- on local write/validation/publication failure, close the response body and every candidate resource; where safe and still within the operation/size bounds, drain to EOF before close so transport reuse is not accidentally defeated;
 - on hard byte-limit or context-timeout breach, cancel/close immediately rather than perform an unbounded drain.
 
-Repeated unchanged checks and repeated successful/failed changed updates must show no reader/file/goroutine leak.
+Repeated unchanged checks and repeated successful/failed changed updates must show no body/file/goroutine leak.
 
-The MD5/checksum token is upstream change detection only, not cryptographic authenticity. Candidate trust comes from the authenticated HTTPS update path plus strict MMDB verification/type validation before durable publication.
+The published MD5/SHA1 checksum is upstream change detection only, not cryptographic authenticity. Candidate trust comes from the public HTTPS download path plus strict MMDB verification/type validation before durable publication.
 
 Every managed check/acquisition uses a 2-minute context timeout and a 128 MiB maximum database body. Periodic scheduling defaults to 24h with ±10% jitter and accepts only configured intervals from 6h through 168h.
 
@@ -550,20 +550,20 @@ Every managed check/acquisition uses a 2-minute context timeout and a 128 MiB ma
 sequenceDiagram
     participant T as Update Timer
     participant U as GeoIP Updater
-    participant M as MaxMind Client
+    participant M as DB-IP Downloader
     participant FS as Versioned Files/Manifest
     participant R as Active Reader
 
     T->>U: begin owned update(ctx)
-    U->>M: Download(edition,currentChecksum)
+    U->>M: GET(static URL, If-Modified-Since/checksum)
     alt unchanged
-        M-->>U: UpdateAvailable=false + Reader
-        U->>U: close Reader
+        M-->>U: HTTP 304 / matching checksum + body
+        U->>U: close body
         U-->>T: unchanged metric
     else changed
-        M-->>U: bounded MMDB Reader + metadata
+        M-->>U: bounded gzipped MMDB body
         U->>FS: bounded write + durable candidate commit
-        U->>U: consume/close response Reader
+        U->>U: gunzip/consume/close response body
         U->>U: open + Verify + expected Country type
         U->>U: enter lifecycle publication fence; reject if closed
         U->>FS: crash-durable atomic LKG manifest commit
@@ -586,8 +586,8 @@ Managed directory concept:
 ```text
 geoip/
   active.json
-  GeoLite2-Country.<hash>.mmdb
-  GeoLite2-Country.<old>.mmdb
+  dbip-country-lite.<hash>.mmdb
+  dbip-country-lite.<old>.mmdb
   .download-<random>.tmp
   .active-<random>.tmp
 ```
@@ -648,7 +648,7 @@ Stale temp files are never candidates for recovery.
 
 ### Local source
 
-Local mode does not use the managed manifest/version scan and never performs MaxMind acquisition. It opens only `local_path`; if an enabled country-dependent startup requires lookup and that file is missing/invalid, startup fails.
+Local mode does not use the managed manifest/version scan and never performs managed acquisition. It opens only `local_path`; if an enabled country-dependent startup requires lookup and that file is missing/invalid, startup fails.
 
 ## Denial Contract
 
@@ -705,7 +705,7 @@ Forwarding metadata has no authority unless the immediate peer is explicitly tru
 
 ### Secrets
 
-MaxMind account/license credentials are process secrets. Never include them in request contexts, manifest, status, metrics, debug summary, or logs. Local mode never requests them.
+DB-IP Lite requires no account, API key, or credential; there are no database secrets to manage and no secret environment variables. Local mode never performs network acquisition. If a future managed source requires credentials, they SHALL be process secrets, never included in request contexts, manifest, status, metrics, debug summary, or logs.
 
 ### GeoIP limitations
 
@@ -785,7 +785,7 @@ Spies must prove denied request never reaches OTel, general HTTP metrics, trace/
 - managed LKG startup and bounded no-LKG acquisition;
 - repeated unchanged update with every response reader closed;
 - repeated changed update with reader consumed/closed on success and failures;
-- timeout/auth failure;
+- timeout/transport failure;
 - oversized/truncated/corrupt candidate;
 - candidate data flush/version publication failure;
 - manifest temp flush/atomic replacement/parent-directory durability failure;

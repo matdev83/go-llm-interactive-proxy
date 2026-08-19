@@ -48,7 +48,7 @@ These findings are incorporated into the reconciled requirements revision after 
 | General OTel/HTTP Prometheus | inside proposed gate location | Denials need dedicated bounded GeoIP metrics if visibility is desired |
 | Access config | `AccessConfig` currently contains deployment `mode`; changes are restart-required as one `access` block | Split classification: preserve `access.mode` restart requirement, make pure `access.geoip` policy reloadable, resource fields restart-required |
 | Feature stages | transport auth is `stdhttp`; `pre_request_admission` is later canonical LLM stage | GeoIP is transport ingress, not FeatureBundle/plugin stage |
-| MaxMind dependencies | none currently | Add implementation dependencies only during feature implementation; spec remains dependency-free |
+| GeoIP database dependencies | none currently | Add implementation dependencies only during feature implementation; spec remains dependency-free |
 
 ## Gap 1: Data-Plane vs Management-Plane Scope
 
@@ -115,7 +115,7 @@ Add explicit acceptance criteria for this distinction and for enable-on-reload r
 
 ### Finding
 
-ADR 0008 deliberately shares generation compilation with `check-config` in dry-run/rollback mode. Static validation should not unexpectedly download GeoIP data or require live MaxMind connectivity.
+ADR 0008 deliberately shares generation compilation with `check-config` in dry-run/rollback mode. Static validation should not unexpectedly download GeoIP data or require live provider connectivity.
 
 ### Risk
 
