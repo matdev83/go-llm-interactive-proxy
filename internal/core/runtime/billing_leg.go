@@ -104,25 +104,20 @@ func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary)
 	return e.BillingIdentity.OperatorRateRef(ctx, backend, model)
 }
 
-func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdkterminal.Command) {
+// recordBillingLegForAttempt records exactly one leg for the explicitly
+// snapshotted B-leg owner. Terminal callbacks may run after the attempt slot
+// has been replaced; never re-read the current slot here.
+func (s *retryRecvStream) recordBillingLegForAttempt(ctx context.Context, attempt *attemptSession, command sdkterminal.Command) {
 	if s == nil || s.executor == nil || !s.executor.billingEnabled() {
 		return
 	}
-	attempt := s.attempt.require()
+	if attempt == nil || !attempt.claimBillingLegRecord() {
+		return
+	}
 	blegID := strings.TrimSpace(attempt.bleg.BLegID)
 	if blegID == "" {
 		blegID = billingSyntheticBLegID(attempt.bleg.Seq)
 	}
-	s.billingLegMu.Lock()
-	if s.billingLegRecorded == nil {
-		s.billingLegRecorded = make(map[string]struct{})
-	}
-	if _, seen := s.billingLegRecorded[blegID]; seen {
-		s.billingLegMu.Unlock()
-		return
-	}
-	s.billingLegRecorded[blegID] = struct{}{}
-	s.billingLegMu.Unlock()
 	if attempt.bleg.Seq > 0 {
 		s.facts.billingCallState.noteAllocatedBLeg(blegID, attempt.bleg.Seq)
 	}
@@ -137,6 +132,10 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		surfaced = billing.SurfacedYes
 	}
 	streamEv := s.billingEvidenceFallback()
+	workloadCtx := ctx
+	if s.executor != nil {
+		workloadCtx = s.facts.projectContext(workloadCtx, s.executor.Log)
+	}
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          s.facts.billingCallID,
 		aLegID:          s.facts.aLegID,
@@ -147,21 +146,23 @@ func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdktermi
 		finishedAt:      now,
 		command:         command,
 		surfaced:        surfaced,
-		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
+		finalize:        s.finalizeBillingEvidence(ctx, attempt, "record_leg"),
 		stream:          streamEv,
-		operatorRateRef: s.executor.operatorRateRef(ctx, attempt.cand.Primary),
-		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.facts.aLegID),
+		operatorRateRef: s.executor.operatorRateRef(workloadCtx, attempt.cand.Primary),
+		workload:        s.executor.billingWorkloadIdentityForALeg(workloadCtx, s.facts.aLegID),
 	})
 	s.executor.observeBillingLeg(ctx, legRecord)
 	s.executor.appendIndependentCallLeg(ctx, s.facts.billingCallID, legRecord)
 }
 
-func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason string) lipapi.Event {
+func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, attempt *attemptSession, reason string) lipapi.Event {
 	fallback := s.billingEvidenceFallback()
 	if s == nil || s.executor == nil {
 		return fallback
 	}
-	attempt := s.attempt.require()
+	if attempt == nil {
+		return fallback
+	}
 	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.facts.traceID),
 		ALegID:  strings.TrimSpace(s.facts.aLegID),
@@ -256,9 +257,10 @@ func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkter
 	if s == nil || s.executor == nil || !isCallClosureTerminalCommand(command) {
 		return
 	}
-	s.billingCallClosureMu.Lock()
-	defer s.billingCallClosureMu.Unlock()
-	s.appendCallClosureLocked(ctx, command)
+	if s.terminal == nil {
+		return
+	}
+	s.terminal.handoffBillingTurn(ctx, s.facts, s.executor, command)
 }
 
 func billingSyntheticBLegID(seq int) string {

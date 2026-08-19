@@ -16,11 +16,13 @@ import (
 // The inner lock protects only the backend stream pointer; callers snapshot it
 // and perform Cancel/Close without holding this lock.
 type attemptSession struct {
-	innerMu sync.Mutex
-	inner   lipapi.ManagedEventStream
-	usageMu sync.Mutex
+	innerMu   sync.Mutex
+	inner     lipapi.ManagedEventStream
+	usageMu   sync.Mutex
+	billingMu sync.Mutex
 
-	internalUsageKeys map[string]struct{}
+	internalUsageKeys  map[string]struct{}
+	billingLegRecorded bool
 
 	bleg      b2bua.BLegRecord
 	cand      routing.AttemptCandidate
@@ -32,6 +34,25 @@ type attemptSession struct {
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
 	finalStreamObs        *extensions.FinalStreamObservationSession
+}
+
+// claimBillingLegRecord is scoped to one attemptSession, which represents one
+// B-leg. It prevents overlapping request/attempt terminal effects from
+// appending more than one leg record while allowing a replacement attempt its
+// own independent record. The claim is retained even if a downstream observer
+// or append fails, matching the former stream-level dedupe mark-before-append
+// behavior; call-closure retry remains independently owned by turnTerminal.
+func (a *attemptSession) claimBillingLegRecord() bool {
+	if a == nil {
+		return false
+	}
+	a.billingMu.Lock()
+	defer a.billingMu.Unlock()
+	if a.billingLegRecorded {
+		return false
+	}
+	a.billingLegRecorded = true
+	return true
 }
 
 // attemptSessionInput keeps attempt construction explicit. It deliberately

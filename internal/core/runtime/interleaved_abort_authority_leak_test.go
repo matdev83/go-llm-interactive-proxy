@@ -140,7 +140,7 @@ func TestInterleavedThinkerEOF_Truncated_NoContinuation(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}, testAttemptSession(from).cand)
 
-	// Truncated thinker EOF: no response_finished, so tokenAccountingFinalized stays false.
+	// Truncated thinker EOF: no response_finished, so the request accounting claim stays false.
 	testStoreInner(from, lipapi.NewFixedEventStream(nil))
 
 	s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})

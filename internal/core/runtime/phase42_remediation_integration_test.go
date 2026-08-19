@@ -53,7 +53,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	closeDone := make(chan struct{})
 	go func() {
 		_ = rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
-			rs.persistCancellationBilling(context.Background(), "client close")
+			rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client close")
 			rs.markFinished()
 			return nil
 		})
@@ -255,7 +255,7 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 	}
 	installTestTurnTerminal(rs)
 	r := rs.runStreamTerminal(context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
-		rs.persistCancellationBilling(cctx, "context canceled")
+		rs.persistCancellationBilling(cctx, rs.attempt.snapshot(), "context canceled")
 		rs.markFinished()
 		return nil
 	})

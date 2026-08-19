@@ -136,7 +136,7 @@ func TestSettleCancellationAuthorityUsesOperatorUsageForFinalize(t *testing.T) {
 		seenEvents:         []lipapi.Event{estimate},
 	}
 
-	rs.settleCancellationAuthority(context.Background())
+	rs.settleCancellationAuthorityForAttempt(context.Background(), rs.attempt.snapshot())
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}

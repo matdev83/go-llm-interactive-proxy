@@ -71,8 +71,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			cmd = sdkterminal.CommandTimeout
 		}
-		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
-			s.persistCancellationBilling(cctx, reason)
+		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, attempt, reason)
 			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 			s.markFinished()
 			return nil
@@ -86,7 +86,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if len(s.recoverDrain) > 0 {
 		ev := s.recoverDrain[0]
 		s.recoverDrain = s.recoverDrain[1:]
-		if ev.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+		if ev.Kind == lipapi.EventResponseFinished && (s.terminal == nil || !s.terminal.accountingFinalized()) {
 			if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
 				return lipapi.Event{}, err
 			}
@@ -130,7 +130,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			// falls through to emitGateDrained + the standard client-event emit. Without this the
 			// gate-drain site leaked its reserved authority (it had no finalization at all before
 			// centralization).
-			if ev.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+			if ev.Kind == lipapi.EventResponseFinished && (s.terminal == nil || !s.terminal.accountingFinalized()) {
 				if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
 					return lipapi.Event{}, err
 				}
@@ -234,8 +234,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					DetailErr: scopeErr,
 				}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 				_ = attempt.takeInner()
-				s.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
-					s.persistCancellationBilling(cctx, "a-leg canceled")
+				s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandCancel, attempt, func(cctx context.Context) error {
+					s.persistCancellationBilling(cctx, attempt, "a-leg canceled")
 					s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 					s.markFinished()
 					return nil
@@ -411,7 +411,6 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	// B-leg; the per-leg evidence guard naturally permits the new leg.
 	s.lastAuthorityUsage = lipapi.Event{}
 	s.lastCustomerUsage = lipapi.Event{}
-	s.tokenAccountingFinalized = false
 	s.consumeBackendUsageEvidenceForAttempt(ctx, next, out.stream)
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())

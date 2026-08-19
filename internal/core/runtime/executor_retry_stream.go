@@ -98,9 +98,8 @@ type retryRecvStream struct {
 	gateDrain []lipapi.Event
 	gateLive  bool
 
-	recoverPolicy            *streamrecovery.Policy
-	recoverDrain             []lipapi.Event
-	tokenAccountingFinalized bool
+	recoverPolicy *streamrecovery.Policy
+	recoverDrain  []lipapi.Event
 	// lastAuthorityUsage is the accounting fact used for authority settlement
 	// and unreserved usage. The synthesized event returned to the client may
 	// intentionally omit provider-billable scopes, so keep the two views
@@ -134,14 +133,8 @@ type retryRecvStream struct {
 	toolClass toolEventClassificationState
 
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
-	eventsMu sync.Mutex
-	// billingLegRecorded guards one LUR per B-leg on this stream. Request and
-	// attempt terminal hooks may both run; mergeBillingEvidence also dedupes.
-	billingLegMu              sync.Mutex
-	billingLegRecorded        map[string]struct{}
-	billingCallClosureMu      sync.Mutex
-	billingCallClosureSuccess bool
-	isInterleavedThinker      bool
+	eventsMu             sync.Mutex
+	isInterleavedThinker bool
 
 	committedTools  []lipapi.ToolEvent
 	keepwarmArmOnce sync.Once
@@ -550,9 +543,9 @@ func (s *retryRecvStream) Close() error {
 	}
 	if c == nil {
 		if !s.isFinished() {
-			s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+			s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandClose, current, func(cctx context.Context) error {
 				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
-				s.persistCancellationBilling(cctx, "client closed")
+				s.persistCancellationBilling(cctx, current, "client closed")
 				s.markFinished()
 				return nil
 			})
@@ -569,9 +562,9 @@ func (s *retryRecvStream) Close() error {
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+		s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandClose, current, func(cctx context.Context) error {
 			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
-			s.persistCancellationBilling(cctx, "client closed")
+			s.persistCancellationBilling(cctx, current, "client closed")
 			s.markFinished()
 			return nil
 		})

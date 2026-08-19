@@ -346,7 +346,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -396,7 +396,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			}, authorityCandidate())),
 			seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
 		}
-		rs.recordPartialTokenAccounting(context.Background(), "partial", errors.New("stream dropped"))
+		rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("partial settle calls = %d, want 1", auth.settleCalls.Load())
 		}
@@ -411,7 +411,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		// reservation is already settled, so a strict reservation is not double-settled as
 		// Cancellation on top of the prior Partial settle. Previously this re-settled, which a
 		// strict authority store would reject or double-count; the leak fix removes that.
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled")
 		if auth.settleCalls.Load() != 0 {
 			t.Fatalf("cancellation settle calls = %d, want 0 (already-settled reservation must not be double-settled)", auth.settleCalls.Load())
 		}
@@ -449,7 +449,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -506,7 +506,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 				admissionResult: auth.admitResult,
 			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}

@@ -173,7 +173,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 	// settle did not mark the reservation settled), matching the no-gates handleResponseFinishedPath.
 	// Without this the reservation stays locked until the accounting window resets.
 	finishPreflighted := false
-	if out.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+	if out.Kind == lipapi.EventResponseFinished && (s.terminal == nil || !s.terminal.accountingFinalized()) {
 		if err := s.mandatoryClientFacingPreflight(ctx, out); err != nil {
 			return lipapi.Event{}, false, err
 		}
@@ -288,9 +288,9 @@ func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev
 // request terminal so settle/release/facts run once under the owner.
 func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdkterminal.Command, reason string, cause error) {
 	attempt := s.attempt.require()
-	_ = s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+	_ = s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
 		if !attempt.authority.Settled() {
-			s.recordPartialTokenAccounting(cctx, reason, cause)
+			s.recordPartialTokenAccounting(cctx, attempt, reason, cause)
 		}
 		s.markFinished()
 		return nil
@@ -352,8 +352,8 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 			DetailErr: io.EOF,
 		}, diag.AttrOpts{CallID: s.facts.traceID, BLegID: attempt.bleg.BLegID})
 	}
-	s.runStreamTerminal(ctx, sdkterminal.CommandEOF, func(cctx context.Context) error {
-		s.recordPartialTokenAccounting(cctx, "stream ended without response_finished", io.EOF)
+	s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandEOF, attempt, func(cctx context.Context) error {
+		s.recordPartialTokenAccounting(cctx, attempt, "stream ended without response_finished", io.EOF)
 		s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 		s.markFinished()
 		return nil

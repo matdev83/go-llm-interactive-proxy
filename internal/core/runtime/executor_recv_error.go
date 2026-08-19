@@ -153,7 +153,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.runStreamTerminal(ctx, sdkterminal.CommandTimeout, func(cctx context.Context) error {
+		s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandTimeout, attempt, func(cctx context.Context) error {
 			attempt.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
 			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
@@ -193,8 +193,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			cmd = sdkterminal.CommandTimeout
 		}
-		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
-			s.persistCancellationBilling(cctx, reason)
+		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, attempt, reason)
 			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 			s.markFinished()
 			return nil
@@ -228,8 +228,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		if errors.As(err, &pe) {
 			cmd = sdkterminal.CommandPanic
 		}
-		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
-			s.recordPartialTokenAccounting(cctx, attemptReasonDetail(surfErr), surfErr)
+		s.runStreamTerminalForAttempt(ctx, cmd, attempt, func(cctx context.Context) error {
+			s.recordPartialTokenAccounting(cctx, attempt, attemptReasonDetail(surfErr), surfErr)
 			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
 			return nil
@@ -260,14 +260,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// Recoverable pre-output failover terminalizes only the attempt plane for
 	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
 	// owns the reservation release via a fresh attempt terminal.
-	s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+	s.runAttemptTerminalForAttempt(ctx, sdkterminal.CommandSwallowedAttempt, attempt, func(cctx context.Context) error {
 		// A swallowed pre-output attempt must release its strict reservation for
 		// failover, but any advisory/unreserved rules still need the observed usage
 		// fact. Apply only the unreserved projection here; do not settle the
 		// reservation before the replacement decision.
 		usageEv := s.operatorUsageForFinalize()
 		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, usageEv)
-		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+		s.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
 		return nil
 	})
 	if c := attempt.takeInner(); c != nil {

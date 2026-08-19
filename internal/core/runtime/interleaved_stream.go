@@ -125,10 +125,11 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 		ev, err := s.thinker.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) && s.thinker.isFinished() {
-				// Only response_finished completion sets tokenAccountingFinalized.
+				// Only response_finished completion sets the request terminal's
+				// accounting-finalized claim.
 				// Truncated EOF / cancel / error terminals must not open an executor
 				// continuation (that would race a second request/call closure).
-				if !s.thinker.tokenAccountingFinalized {
+				if s.thinker.terminal == nil || !s.thinker.terminal.accountingFinalized() {
 					s.finishWithCleanup(ctx)
 					return lipapi.Event{}, io.EOF
 				}

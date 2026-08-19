@@ -33,7 +33,7 @@ import (
 // in recoverDrain and returns a continue signal, so the next Recv iteration's recoverDrain
 // path finalizes via the helper AND emits the synthesized usage_delta (the client-reporting
 // consistency fix). The gated-then-recoverDrain case proves the helper is idempotent
-// (tokenAccountingFinalized guard) so a finish flowing through two sites is not double-settled.
+// (request terminal accounting-finalized claim) so a finish flowing through two sites is not double-settled.
 func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -460,7 +460,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 		ex, rs := setupStream(t, auth, streamUsageWithCounts())
 		attachPassthroughGate(t, ex, rs)
 
-		// handleGatedPath ok branch finalizes via the helper, sets tokenAccountingFinalized=true,
+		// handleGatedPath ok branch finalizes via the helper, sets the request terminal claim,
 		// and re-queues the finish to recoverDrain for the synthesized usage emission.
 		first, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
@@ -473,7 +473,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			t.Fatalf("after gated ok branch: settle=%d release=%d, want 1/1", auth.settleCalls.Load(), auth.releaseCalls.Load())
 		}
 
-		// The re-queued finish is popped on the next Recv; the tokenAccountingFinalized guard must
+		// The re-queued finish is popped on the next Recv; the request terminal claim must
 		// skip re-finalization so there is no second settle/release.
 		finish, err := rs.Recv(context.Background())
 		if err != nil {

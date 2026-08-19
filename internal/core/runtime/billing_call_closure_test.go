@@ -50,7 +50,7 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
-	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if executor.hasTerminalSink() || executor.hasTerminalCallSink() {
 		t.Fatal("runtime without TerminalUsageSink must not report a terminal handoff")
@@ -126,7 +126,7 @@ func TestTerminalUsageSinkNilLeavesRuntimeWithoutFinancialHandoff(t *testing.T) 
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
-	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 }
 
@@ -150,7 +150,7 @@ func TestAuthoritativeBillingWithoutTerminalSinkFailsClosed(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
-	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 }
 
@@ -177,7 +177,7 @@ func TestTerminalUsageSinkIsTheOnlyRuntimeTerminalBillingSink(t *testing.T) {
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-win", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream)
-	stream.recordBillingLeg(context.Background(), sdkterminal.CommandNormalFinish)
+	stream.recordBillingLegForAttempt(context.Background(), stream.attempt.snapshot(), sdkterminal.CommandNormalFinish)
 	stream.handoffBillingTurn(context.Background(), sdkterminal.CommandNormalFinish)
 	if len(calls) != 1 {
 		t.Fatalf("call-closure appends = %d, want 1", len(calls))

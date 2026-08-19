@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -13,9 +14,13 @@ import (
 // on each replaceable attemptSession; Terminalize composes with an explicitly
 // snapshotted attempt instead of retaining one here.
 type turnTerminal struct {
-	request    *streamTerminal
-	commitment atomic.Bool
-	completion atomic.Bool
+	request                  *streamTerminal
+	commitment               atomic.Bool
+	completion               atomic.Bool
+	accountingFinalizedState atomic.Bool
+
+	billingClosureMu      sync.Mutex
+	billingClosureSuccess bool
 }
 
 func newTurnTerminal() *turnTerminal {
@@ -59,6 +64,21 @@ func (t *turnTerminal) finished() bool {
 // this caller performed that publication.
 func (t *turnTerminal) markFinished() bool {
 	return t != nil && t.completion.CompareAndSwap(false, true)
+}
+
+func (t *turnTerminal) accountingFinalized() bool {
+	return t != nil && t.accountingFinalizedState.Load()
+}
+
+func (t *turnTerminal) claimAccountingFinalization() bool {
+	return t != nil && t.accountingFinalizedState.CompareAndSwap(false, true)
+
+}
+
+func (t *turnTerminal) unclaimAccountingFinalization() {
+	if t != nil {
+		t.accountingFinalizedState.Store(false)
+	}
 }
 
 // Terminalize composes request and explicitly snapshotted attempt ownership

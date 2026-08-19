@@ -28,22 +28,31 @@ import (
 // re-opens a prior Partial/Final. One tail then applies advisory usage and
 // request settle/release. Settlement uses a non-canceled context so post-output
 // accounting completes after client cancellation (requirement 11.7).
-func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
+func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, attempt *attemptSession, reason string) {
 	if s == nil {
 		return
 	}
-	if s.attempt.require().accounting.usageObserved || s.finalizeBillingAfterCancel(ctx, reason) {
-		s.reconcileOrSettleCancellationAuthority(ctx)
-	} else {
-		s.settleCancellationAuthority(ctx)
+	if attempt == nil {
+		return
 	}
-	s.finishCancellationAuthority(ctx)
+	if attempt.accounting.usageObserved || s.finalizeBillingAfterCancel(ctx, attempt, reason) {
+		s.reconcileOrSettleCancellationAuthorityForAttempt(ctx, attempt)
+	} else {
+		s.settleCancellationAuthorityForAttempt(ctx, attempt)
+	}
+	s.finishCancellationAuthorityForAttempt(ctx, attempt)
 }
 
 // finishCancellationAuthority is the single cancellation tail: advisory usage
 // apply, then request-authority settle or unused-hold release.
-func (s *retryRecvStream) finishCancellationAuthority(ctx context.Context) {
-	s.attempt.require().authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
+func (s *retryRecvStream) finishCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession) {
+	if s == nil || attempt == nil {
+		return
+	}
+	if s.executor != nil {
+		ctx = s.facts.projectContext(ctx, s.executor.Log)
+	}
+	attempt.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		return
@@ -59,13 +68,15 @@ func (s *retryRecvStream) finishCancellationAuthority(ctx context.Context) {
 // finalizeBilling succeeded), it calls ReconcileAuthoritative to adjust the prior
 // estimated settlement with the authoritative usage event. When not yet settled,
 // it falls back to settleCancellationAuthority which settles as a Cancellation.
-func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Context) {
-	attempt := s.attempt.require()
+func (s *retryRecvStream) reconcileOrSettleCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession) {
+	if s == nil || attempt == nil {
+		return
+	}
 	if attempt.authority.Settled() {
 		attempt.authority.ReconcileAuthoritative(ctx, s.operatorUsageForFinalize())
 		return
 	}
-	s.settleCancellationAuthority(ctx)
+	s.settleCancellationAuthorityForAttempt(ctx, attempt)
 }
 
 // settleCancellationAuthority settles the usage-authority reservation for a canceled
@@ -76,20 +87,22 @@ func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Con
 // owner's Settle, mirroring the finalizeResponseFinishedAuthority path. It passes
 // a non-canceled context to Settle so cancellation of the client request does not
 // abort the post-output settlement (requirement 11.7).
-func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
-	if s == nil || s.attempt.require().authority.Settled() {
+func (s *retryRecvStream) settleCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession) {
+	if s == nil || attempt == nil || attempt.authority.Settled() {
 		return
 	}
 	usageEv := s.operatorUsageForFinalize()
-	s.attempt.require().authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
+	attempt.authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
+	s.emitBackendEgressMeteringFactForAttempt(ctx, attempt, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
 
-func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason string) bool {
+func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, attempt *attemptSession, reason string) bool {
 	if s == nil || s.executor == nil {
 		return false
 	}
-	attempt := s.attempt.require()
+	if attempt == nil {
+		return false
+	}
 	ev, ok := s.facts.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
 		TraceID: strings.TrimSpace(s.facts.traceID),
 		ALegID:  strings.TrimSpace(s.facts.aLegID),
@@ -105,16 +118,23 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingFinalizeTimeout)
 	defer cancel()
-	s.attempt.require().accounting.observeUsage(ev)
+	attempt.accounting.observeUsage(ev)
 	s.rememberClientEvent(ev)
 	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
 		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recErr)
 	}
-	s.emitUsage(persistCtx, ev)
+	s.emitUsageForAttempt(persistCtx, attempt, ev)
 	return true
 }
 
 func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
+	if s == nil {
+		return
+	}
+	s.emitUsageForAttempt(ctx, s.attempt.snapshot(), ev)
+}
+
+func (s *retryRecvStream) emitUsageForAttempt(ctx context.Context, attempt *attemptSession, ev lipapi.Event) {
 	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil || ev.Kind != lipapi.EventUsageDelta {
 		return
 	}
@@ -122,7 +142,9 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 	if obs == nil {
 		return
 	}
-	attempt := s.attempt.require()
+	if attempt == nil {
+		return
+	}
 	principalID := ""
 	scopeView := scopeFromCtx(ctx)
 	if scopeView.PrincipalID.IsKnown() {
@@ -172,11 +194,13 @@ func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Ev
 	return out, nil
 }
 
-func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish lipapi.Event) (lipapi.Event, bool, error) {
+func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, attempt *attemptSession, finish lipapi.Event) (lipapi.Event, bool, error) {
 	if s == nil || s.executor == nil {
 		return lipapi.Event{}, false, nil
 	}
-	attempt := s.attempt.require()
+	if attempt == nil {
+		return lipapi.Event{}, false, nil
+	}
 	if s.executor.StreamUsage == nil {
 		s.lastAuthorityUsage = lipapi.Event{}
 		attempt.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
@@ -219,7 +243,8 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 // response_finished completion paths. It runs token-accounting finalization, which settles
 // the usage-authority reservation via the authorityLifecycle owner (the owner folds the
 // losing-fallback release into Settle, so a failed settle releases ReleaseKindLosing and
-// marks the lifecycle settled). Idempotent via tokenAccountingFinalized (which gates
+// marks the lifecycle settled). Idempotent via the turn terminal's request-level
+// accounting-finalized claim (which gates
 // usage-delta re-queue, not authority idempotency — the owner owns that via settled). It
 // does NOT mark the stream finished and does NOT queue the event — callers own
 // emission/finish timing.
@@ -230,28 +255,33 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 // client cancellation, and is idempotent via the store source key (duplicate finalize calls
 // are no-ops at the runtime guard and at the store).
 func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
-	attempt := s.attempt.require()
-	if s.tokenAccountingFinalized {
+	attempt := s.attempt.snapshot()
+	if attempt == nil || s.terminal == nil {
+		return lipapi.Event{}, false, nil
+	}
+	if s.terminal.accountingFinalized() && s.terminal.requestTerminal().Owner().State().IsTerminal() {
+		// The winning completion path already emitted/requeued the synthesized
+		// usage event. A later drain observation must not emit it again.
 		return lipapi.Event{}, false, nil
 	}
 	var usageEv lipapi.Event
 	var ok bool
 	var err error
 	effects := func(cctx context.Context) error {
-		if s.tokenAccountingFinalized {
+		if !s.terminal.claimAccountingFinalization() {
 			return nil
 		}
-		usageEv, ok, err = s.finalizeTokenAccounting(cctx, ev)
+		usageEv, ok, err = s.finalizeTokenAccounting(cctx, attempt, ev)
 		if err != nil {
+			s.terminal.unclaimAccountingFinalization()
 			return err
 		}
-		s.tokenAccountingFinalized = true
 		authorityEv := s.lastAuthorityUsage
 		if authorityEv.Kind == "" {
 			authorityEv = usageEv
 		}
 		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
-		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
+		s.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 		if s.isInterleavedThinker {
 			return nil
 		}
@@ -259,9 +289,9 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	}
 	var r terminal.Result
 	if s.isInterleavedThinker {
-		r = s.runAttemptTerminal(ctx, sdkterminal.CommandNormalFinish, effects)
+		r = s.runAttemptTerminalForAttempt(ctx, sdkterminal.CommandNormalFinish, attempt, effects)
 	} else {
-		r = s.runStreamTerminal(ctx, sdkterminal.CommandNormalFinish, effects)
+		r = s.runStreamTerminalForAttempt(ctx, sdkterminal.CommandNormalFinish, attempt, effects)
 	}
 	if !r.Won {
 		// Another exit path already terminalized; surface cancel/error consistently.
@@ -282,6 +312,9 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) error {
 	if s == nil {
 		return nil
+	}
+	if s.executor != nil {
+		ctx = s.facts.projectContext(ctx, s.executor.Log)
 	}
 	if s.customer != nil && !s.customer.MarkSettled() {
 		return nil
@@ -587,17 +620,16 @@ func tokenAccountingHasProviderUsage(events []lipapi.Event) bool {
 	return false
 }
 
-func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
-	if s == nil {
+func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, attempt *attemptSession, reason string, err error) {
+	if s == nil || attempt == nil {
 		return
 	}
 	// Keep non-money attempt/request coordination only. Do not write the legacy
 	// token ledger or settle monetary exposure from stream usage.
 	usageEv := s.operatorUsageForFinalize()
-	attempt := s.attempt.require()
 	attempt.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
 	attempt.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
+	s.emitBackendEgressMeteringFactForAttempt(ctx, attempt, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	}

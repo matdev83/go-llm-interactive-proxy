@@ -122,7 +122,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 		},
 	}
 
-	rs.recordPartialTokenAccounting(context.Background(), "partial", errors.New("stream dropped"))
+	rs.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"))
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}

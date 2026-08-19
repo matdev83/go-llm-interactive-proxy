@@ -140,7 +140,7 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
 
-	stream.recordPartialTokenAccounting(context.Background(), "authoritative-cutover", nil)
+	stream.recordPartialTokenAccounting(context.Background(), stream.attempt.snapshot(), "authoritative-cutover", nil)
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("non-money authority settle calls = %d, want 1", got)
 	}

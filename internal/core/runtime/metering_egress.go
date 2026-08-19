@@ -104,10 +104,23 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 }
 
 func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, outcome metering.AttemptOutcome, surfaced metering.SurfacedState, usageEv lipapi.Event) {
-	if s == nil || s.executor == nil {
+	if s == nil {
 		return
 	}
-	s.executor.emitBackendEgressMeteringFact(ctx, s.attempt.require().bleg.BLegID, outcome, surfaced, usageEv)
+	s.emitBackendEgressMeteringFactForAttempt(ctx, s.attempt.snapshot(), outcome, surfaced, usageEv)
+}
+
+func (s *retryRecvStream) emitBackendEgressMeteringFactForAttempt(
+	ctx context.Context,
+	attempt *attemptSession,
+	outcome metering.AttemptOutcome,
+	surfaced metering.SurfacedState,
+	usageEv lipapi.Event,
+) {
+	if s == nil || s.executor == nil || attempt == nil {
+		return
+	}
+	s.executor.emitBackendEgressMeteringFact(ctx, attempt.bleg.BLegID, outcome, surfaced, usageEv)
 }
 
 func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) (metering.Fact, bool) {
