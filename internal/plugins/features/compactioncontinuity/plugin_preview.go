@@ -28,6 +28,10 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	if p == nil || p.parent == nil || ctx == nil || call == nil || preview.Kind != compaction.PreviewCompletionCandidate {
 		return nil
 	}
+	cfg, enabled := p.effectiveConfig(ctx)
+	if !enabled {
+		return nil
+	}
 	parent, err := p.parent.Capture(ctx, *call, meta)
 	if err != nil || !validParentBranch(parent) {
 		return nil
@@ -50,7 +54,7 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	}
 	prepared, err := source.Prepare(ctx, source.Input{
 		Call: *call, Existing: window, Previous: window.HighWatermark,
-		Recognizer: carrierRecognizer{}, Config: source.Config{MaxBytes: stateBound(p.cfg.Source.MaxBytes, source.DefaultConfig().MaxBytes)},
+		Recognizer: carrierRecognizer{}, Config: source.Config{MaxBytes: stateBound(cfg.Source.MaxBytes, source.DefaultConfig().MaxBytes)},
 	})
 	if err != nil {
 		return nil
@@ -60,12 +64,12 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	if err != nil {
 		return nil
 	}
-	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark)
+	previous, state, err = p.applyPreviewDeterministic(ctx, parent, state, previous, prepared, watermark, cfg)
 	if err != nil {
 		return nil
 	}
 	if strings.TrimSpace(string(state.PendingJobID)) != "" && services.BackgroundAux != nil {
-		state, _ = p.consumePending(ctx, parent, state, services)
+		state, _ = p.consumePending(ctx, parent, state, services, cfg)
 		if len(state.CapsuleJSON) != 0 {
 			previous, _, err = p.previousState(parent, state)
 			if err != nil {
@@ -84,7 +88,7 @@ func (p *Plugin) BeforeRequest(ctx context.Context, call *lipapi.Call, preview c
 	}
 	injected, err := injection.Inject(injection.Input{
 		Call: *call, Capsule: previous, ExpectedBranchBinding: parent.Binding,
-		BoundaryKey: boundary, Limits: injection.ProjectionLimits{MaxBytes: p.cfg.Capsule.MaxBytes, MaxTokens: p.cfg.Capsule.MaxTokens},
+		BoundaryKey: boundary, Limits: injection.ProjectionLimits{MaxBytes: cfg.Capsule.MaxBytes, MaxTokens: cfg.Capsule.MaxTokens},
 		Marker: p.preparedMarker(meta, parent.Binding, InjectionTarget{BoundaryKey: boundary, CapsuleRevision: previous.Revision}),
 	})
 	if err != nil {
@@ -115,7 +119,7 @@ func previewIntentKey(binding, boundary string, revision uint64) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBranch, state ParentState, previous capsule.Envelope, prepared source.Prepared, watermark string) (capsule.Envelope, ParentState, error) {
+func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBranch, state ParentState, previous capsule.Envelope, prepared source.Prepared, watermark string, cfg Config) (capsule.Envelope, ParentState, error) {
 	dirty := len(state.CapsuleJSON) == 0
 	if previous.BranchBinding == "" && prepared.Candidate {
 		var err error
@@ -126,7 +130,7 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 		dirty = true
 	}
 	for _, entry := range prepared.NewEntries {
-		if entry.Carrier == nil || !p.cfg.Preserve.Plan {
+		if entry.Carrier == nil || !cfg.Preserve.Plan {
 			continue
 		}
 		update, matched, err := extractCarrierUpdate(*entry.Carrier)
@@ -142,7 +146,7 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 	if !dirty {
 		return previous, state, nil
 	}
-	previous, err := capsule.PruneWithLimits(previous, capsule.Limits{MaxBytes: p.cfg.Capsule.MaxBytes, MaxTokens: p.cfg.Capsule.MaxTokens})
+	previous, err := capsule.PruneWithLimits(previous, capsule.Limits{MaxBytes: cfg.Capsule.MaxBytes, MaxTokens: cfg.Capsule.MaxTokens})
 	if err != nil {
 		return capsule.Envelope{}, ParentState{}, err
 	}
@@ -161,17 +165,17 @@ func (p *Plugin) applyPreviewDeterministic(ctx context.Context, parent ParentBra
 	return previous, state, nil
 }
 
-func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state ParentState, services compaction.Services) (ParentState, error) {
+func (p *Plugin) consumePending(ctx context.Context, parent ParentBranch, state ParentState, services compaction.Services, cfg Config) (ParentState, error) {
 	previous, window, err := p.previousState(parent, state)
 	if err != nil {
 		return state, err
 	}
 	decoder := resultmerge.NewExtractorDecoder(resultmerge.ExtractorDecoderConfig{AllowedSourceRefs: sourceRefs(previous, window)})
-	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{ctx: ctx, port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: p.cfg.Capsule.MaxBytes, MaxCapsuleTokens: p.cfg.Capsule.MaxTokens})
+	service, err := resultmerge.New(services.BackgroundAux, parentCoordinator{ctx: ctx, port: p.parent, parent: parent}, decoder, resultmerge.Config{MaxCapsuleBytes: cfg.Capsule.MaxBytes, MaxCapsuleTokens: cfg.Capsule.MaxTokens})
 	if err != nil {
 		return state, err
 	}
-	barrierCtx, cancel := context.WithTimeout(ctx, p.cfg.Barrier.Timeout)
+	barrierCtx, cancel := context.WithTimeout(ctx, cfg.Barrier.Timeout)
 	defer cancel()
 	outcome, consumeErr := service.Consume(barrierCtx, resultmerge.Job{ID: state.PendingJobID, ParentBranchBinding: parent.Binding})
 	if outcome.State.Revision != 0 {

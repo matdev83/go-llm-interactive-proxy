@@ -20,6 +20,10 @@ func (p *Plugin) BeforeResponseRelease(ctx context.Context, _ *lipapi.Event, pre
 	if p == nil || p.parent == nil || ctx == nil || preview.Kind != compaction.PreviewCompletionCandidate {
 		return nil
 	}
+	cfg, enabled := p.effectiveConfig(ctx)
+	if !enabled {
+		return nil
+	}
 	boundary := strings.TrimSpace(preview.TransactionID)
 	if boundary == "" {
 		return nil
@@ -34,7 +38,7 @@ func (p *Plugin) BeforeResponseRelease(ctx context.Context, _ *lipapi.Event, pre
 	}
 	prepared := state.PendingInjection != nil && state.PendingInjection.BoundaryKey == boundary
 	if strings.TrimSpace(string(state.PendingJobID)) != "" && services.BackgroundAux != nil {
-		state, _ = p.consumePending(ctx, parent, state, services)
+		state, _ = p.consumePending(ctx, parent, state, services, cfg)
 	}
 	if state.Revision == 0 || len(state.CapsuleJSON) == 0 {
 		return nil
