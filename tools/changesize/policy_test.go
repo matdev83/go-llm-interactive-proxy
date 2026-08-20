@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func TestUniquePathCountIgnoresBlanksAndDuplicates(t *testing.T) {
+func TestUniqueGoPathCountIgnoresNonGoBlanksAndDuplicates(t *testing.T) {
 	t.Parallel()
-	names := []string{"a.go", " a.go ", "", "b.go", "a.go"}
-	if got := uniquePathCount(names); got != 2 {
-		t.Fatalf("uniquePathCount=%d, want 2", got)
+	names := []string{"a.go", " a.go ", "", "b.go", "a.go", "notes.md", "README"}
+	if got := uniqueGoPathCount(names); got != 2 {
+		t.Fatalf("uniqueGoPathCount=%d, want 2", got)
 	}
 }
 
@@ -48,7 +48,7 @@ func TestSplitGitNamesNullSeparated(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("splitGitNames=%q, want %q", got, want)
 	}
-	if uniquePathCount(got) != 3 {
-		t.Fatalf("count=%d, want 3", uniquePathCount(got))
+	if uniqueGoPathCount(got) != 2 {
+		t.Fatalf("count=%d, want 2", uniqueGoPathCount(got))
 	}
 }

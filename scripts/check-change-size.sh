@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail when a commit or branch range changes more than 100 files.
+# Fail when a commit or branch range changes more than 100 Go files.
 # Admin override: LIP_ALLOW_LARGE_CHANGE=1 or `git config lip.allowLargeChange true`.
 set -euo pipefail
 

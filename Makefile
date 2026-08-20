@@ -38,7 +38,7 @@ help:
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln + release-gates-static + OpenResponses compliance static gate"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: change-size + secrets + quality gate)"
-	@echo "  make check-change-size - reject staged changes over 100 files (LIP_ALLOW_LARGE_CHANGE=1 to override)"
+	@echo "  make check-change-size - reject staged changes over 100 modified Go files (LIP_ALLOW_LARGE_CHANGE=1 to override)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"

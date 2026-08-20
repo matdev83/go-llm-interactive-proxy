@@ -20,7 +20,7 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 	staged := fs.Bool("staged", false, "count staged index paths (pre-commit)")
 	base := fs.String("base", "", "diff range base revision")
 	head := fs.String("head", "", "diff range head revision")
-	limit := fs.Int("limit", DefaultLimit, "maximum changed files")
+	limit := fs.Int("limit", DefaultLimit, "maximum modified Go files")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -57,7 +57,7 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 		fmt.Fprintf(stderr, "check-change-size: git diff: %v\n", err)
 		return 2
 	}
-	count := uniquePathCount(splitGitNames(out))
+	count := uniqueGoPathCount(splitGitNames(out))
 
 	envOverride := truthy(getenv(OverrideEnv))
 	gitOverride := gitConfigBool(*repo, OverrideGitConfig)
@@ -69,12 +69,12 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 			if envOverride {
 				reason = OverrideEnv
 			}
-			fmt.Fprintf(stderr, "check-change-size: %d files exceed the %d-file limit; proceeding because %s is set.\n", count, *limit, reason)
+			fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit; proceeding because %s is set.\n", count, *limit, reason)
 		}
 		return 0
 	}
 
-	fmt.Fprintf(stderr, "check-change-size: %d files exceed the %d-file limit.\n", count, *limit)
+	fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit.\n", count, *limit)
 	fmt.Fprintf(stderr, "Split the change into smaller reviewable PRs/commits, or set %s=1 or `git config %s true` (admin override).\n", OverrideEnv, OverrideGitConfig)
 	return 1
 }

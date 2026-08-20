@@ -20,11 +20,11 @@ func truthy(v string) bool {
 	}
 }
 
-func uniquePathCount(names []string) int {
+func uniqueGoPathCount(names []string) int {
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)
-		if name == "" {
+		if name == "" || !strings.HasSuffix(name, ".go") {
 			continue
 		}
 		seen[name] = struct{}{}
