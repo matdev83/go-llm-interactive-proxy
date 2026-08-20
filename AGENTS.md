@@ -27,8 +27,11 @@
 
 ## Respect git workflow: No work on main
 
-Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
-Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequately named fix/spec/feat branch and work there, NOT ON MAIN.
+Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor.
+
+- Before changing files, check the current worktree and branch. If already inside a non-`main` worktree dedicated to the user's task, work there; do not create another worktree.
+- Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`.
+- Run `codegraph init` from the root of every newly created worktree before implementation. When reusing a dedicated worktree, run it only if `.codegraph/` is absent.
 
 A single PR must not exceed **100 changed files**. Split large refactors so they stay reviewable and mergeable. Pre-commit rejects a commit that stages more than 100 paths; the recommended pre-push hook and PR CI apply the same limit to the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
 
