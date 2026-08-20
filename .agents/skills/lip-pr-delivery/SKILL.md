@@ -1,13 +1,10 @@
 ---
 name: lip-pr-delivery
 description: "Deliver sequential LIP PRs: preflight, CI repair, merge order, smoke checks, and cleanup."
-user-invocable: true
 license: MIT
-compatibility: Designed for pi, OpenCode, Codex, Cursor, and similar coding agents working in this repository.
 metadata:
   author: go-llm-interactive-proxy
   version: "1.0.0"
-allowed-tools: Read Edit Write Glob Grep Bash(git:*) Bash(gh:*) Bash(go:*) Bash(make:*) Agent AskUserQuestion
 ---
 
 # LIP Sequential PR Delivery

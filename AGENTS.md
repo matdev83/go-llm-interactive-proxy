@@ -43,6 +43,14 @@ A single PR must not exceed **100 changed files**. Split large refactors so they
 - PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
 
+### Canonical Skill Catalog
+
+- `.agents/skills/` is the single tracked catalog for Codex, OpenCode, Pi, Antigravity CLI, Cursor, and Codebuff. Git worktrees receive the complete catalog automatically.
+- `.agents/catalog.json` is the curated inventory. Add or update a skill there in the same change as its directory.
+- Do not create same-name copies under `.codex/skills`, `.cursor/skills`, `.kiro/skills`, `.opencode/skills`, or `.pi/skills`; duplicate discovery has agent-specific precedence and causes drift.
+- Keep portable frontmatter to `name`, `description`, optional `license`, and optional `metadata`. The folder name and frontmatter `name` must match.
+- Run `pwsh -NoProfile -File scripts/check-agent-skill-catalog.ps1` after catalog changes.
+
 ## Architecture Guardrails
 
 - Core owns orchestration, routing (including A-leg routing overrides), failover, and B2BUA continuity.
