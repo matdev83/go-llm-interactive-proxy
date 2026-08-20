@@ -160,6 +160,7 @@ func TestParsePorcelainZ_UsesGitRenameRecordOrdering(t *testing.T) {
 	runGit("init", "-q")
 	runGit("config", "user.email", "changesurface@example.invalid")
 	runGit("config", "user.name", "changesurface test")
+	runGit("config", "commit.gpgsign", "false")
 	if err := os.MkdirAll(filepath.Join(repo, "old"), 0o755); err != nil {
 		t.Fatal(err)
 	}

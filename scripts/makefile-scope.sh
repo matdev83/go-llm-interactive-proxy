@@ -83,6 +83,7 @@ self_test() {
   git -C "$tmp" init -q
   git -C "$tmp" config user.email qa@example.com
   git -C "$tmp" config user.name QA
+  git -C "$tmp" config commit.gpgsign false
 
   # Realistic fixture: .PHONY mega-line is always first, as in the repo.
   printf '.PHONY: help parity-acp-plugin\n\nparity-acp-plugin:\n\t@echo acp\n\nhelp:\n\t@echo usage\n' > "$tmp/Makefile"
