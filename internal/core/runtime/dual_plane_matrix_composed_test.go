@@ -296,8 +296,11 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{executor: ex, traceID: "trace-par", bleg: out.bleg}
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
+		traceID: "trace-par",
+	}), attempt: testAttemptSlot(out.bleg, out.cand, life)}
+	bindTestRuntimeOwners(stream, ex)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
 	if att.settleCalls.Load() != 2 {
 		t.Fatalf("operator SettleAttempt=%d want 2 (winner+loser)", att.settleCalls.Load())
@@ -366,21 +369,17 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
-		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-no-retry",
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		sel:        mustParseSelector(t, "backend-1:model-1|backend-2:model-2"),
-		session:    &routing.SessionRoutingState{},
-		excluded:   map[string]struct{}{},
-		rng:        routing.NewSeededRng(1),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-no-retry",
+		}),
+		recovery:         &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:          testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: newResponsePipeline(),
 	}
-	rs.storeInner(out.stream)
+	bindTestRuntimeOwners(rs, ex)
+	testStoreInner(rs, out.stream)
 
 	var lastErr error
 	for range 8 {
@@ -422,21 +421,16 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
-		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-cancel",
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		sel:        mustParseSelector(t, "backend-1:model-1"),
-		session:    &routing.SessionRoutingState{},
-		excluded:   map[string]struct{}{},
-		rng:        routing.NewSeededRng(1),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-cancel",
+		}),
+		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.storeInner(out.stream)
+	bindTestRuntimeOwners(rs, ex)
+	testStoreInner(rs, out.stream)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -459,7 +453,7 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	if req.releaseCalls.Load() != 1 {
 		t.Fatalf("customer ReleaseRequest=%d want 1 (pre-output cancel terminal)", req.releaseCalls.Load())
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("attempt authority must be terminal after cancel Recv")
 	}
 }
@@ -754,22 +748,18 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	}
 
 	rs := &retryRecvStream{
-		executor:   ex,
-		baseline:   p.baseline,
-		budget:     p.budget,
-		aLegID:     aLegID,
-		traceID:    "trace-comp",
-		bleg:       out.bleg,
-		cand:       out.cand,
-		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		sel:        mustParseSelector(t, "backend-1:model-1"),
-		session:    &routing.SessionRoutingState{},
-		excluded:   map[string]struct{}{},
-		rng:        routing.NewSeededRng(1),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
-		customer:   newCustomerEvidenceAccumulator(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: p.baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-comp",
+		}),
+		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	rs.storeInner(out.stream)
+	bindTestRuntimeOwners(rs, ex)
+	testStoreInner(rs, out.stream)
 	for {
 		_, rerr := rs.Recv(ctx)
 		if rerr != nil {

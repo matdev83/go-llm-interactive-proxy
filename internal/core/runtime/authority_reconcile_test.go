@@ -326,26 +326,25 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	state := attemptAuthorityState{admissionInput: admissionInput, admissionResult: admissionResult}
 
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{
-			ID:         "req-cancel-reconcile",
-			Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-		},
-		bleg:       b2bua.BLegRecord{BLegID: "b-cr", Seq: 1},
-		cand:       authorityCandidate(),
-		authority:  newAuthorityLifecycle(svc, nil, state, authorityCandidate()),
-		seenEvents: []lipapi.Event{},
-		traceID:    "trace-cancel-reconcile",
-		aLegID:     "a-cr",
-		accounting: newAttemptAccountingTracker(at),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:         "req-cancel-reconcile",
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+			},
+			traceID: "trace-cancel-reconcile",
+			aLegID:  "a-cr",
+		}),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cr", Seq: 1}, authorityCandidate(), newAuthorityLifecycle(svc, nil, state, authorityCandidate()), newAttemptAccountingTracker(at)),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{}},
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	// Step 1: settle as Partial with no usage — the estimate fallback applies,
 	// so Consumed = 8 (the reserved estimate), and the lifecycle is marked settled.
-	// Use rs.authority directly so the settled guard is set on the stream's
-	// authority value, not a separate copy.
-	rs.authority.Settle(context.Background(), authorityapp.SettlementKindPartial, lipapi.Event{}, false)
-	if !rs.authority.Settled() {
+	// Use the current attempt authority so the settled guard is set on the
+	// session-owned value, not a separate copy.
+	testAttemptSession(rs).authority.Settle(context.Background(), authorityapp.SettlementKindPartial, lipapi.Event{}, false)
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected lifecycle settled after partial settle")
 	}
 
@@ -380,10 +379,10 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	// adds it to seenEvents. The reservation is already settled, so
 	// reconcileOrSettleCancellationAuthority routes to ReconcileAuthoritative,
 	// which adjusts Consumed from 8 to 5.
-	if rs.accounting.usageObserved {
+	if testAttemptSession(rs).accounting.usageObserved {
 		t.Fatal("test staging: usageObserved must be false before persistCancellationBilling (path 2)")
 	}
-	rs.persistCancellationBilling(context.Background(), "client canceled")
+	rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 	reserved, consumed = limitRow(t)
 	if reserved != 0 {
@@ -392,7 +391,7 @@ func TestCancellationPathReconcileAuthoritativeAdjustsPriorSettle(t *testing.T) 
 	if consumed != 5 {
 		t.Fatalf("after reconcile, consumed = %d, want 5 (authoritative adjustment from 8)", consumed)
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected lifecycle to remain settled after reconcile")
 	}
 }

@@ -181,20 +181,15 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 	}
 	ttft := newTTFTBudget(time.Now(), sel)
 	s := &retryRecvStream{
-		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
-		bus:      hooks.New(hooks.Config{}),
-		baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
-		budget:   &attemptBudget{max: 1},
-		ttft:     &ttft,
-		aLegID:   "a1",
-		traceID:  "t1",
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:     routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttft, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
-	s.storeInner(stream)
+	testStoreInner(s, stream)
 	ev, err := s.Recv(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -239,23 +234,18 @@ func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &retryRecvStream{
-		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
-		bus:      hooks.New(hooks.Config{}),
-		baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
-		budget:   &attemptBudget{max: 1},
-		ttft:     &ttftBudget{start: time.Now()},
-		aLegID:   "a1",
-		traceID:  "t1",
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand: routing.AttemptCandidate{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttftBudget{start: time.Now()}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "slow:m",
 			Primary: routing.Primary{Backend: "slow", Model: "m", TTFTTimeout: &leaf},
-		},
+		}, authorityLifecycle{}),
+		responsePipeline: newResponsePipeline(),
 	}
-	s.storeInner(stream)
+	testStoreInner(s, stream)
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	_, err = s.Recv(ctx)

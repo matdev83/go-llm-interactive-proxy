@@ -103,14 +103,15 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 
 	// 3. Opened winner producer (recordBillingLeg path).
 	stream := &retryRecvStream{
-		executor:         executor,
-		aLegID:           "a-1",
-		billingCallID:    callID,
-		billingCallState: state,
-		bleg:             b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5},
-		cand:             routing.AttemptCandidate{Primary: primary("backend", "model")},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:           "a-1",
+			billingCallID:    callID,
+			billingCallState: state,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_7d6c5b4a", ALegID: "a-1", Seq: 5}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
-	stream.recordBillingLeg(ctx, sdkterminal.CommandNormalFinish)
+	bindTestRuntimeOwners(stream, executor)
+	stream.terminal.recordBillingLegForAttempt(ctx, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.attempt.require().terminalEvidence(), sdkterminal.CommandNormalFinish, lipapi.Event{}, true, stream.facts.billingCallState)
 
 	// 4. Parallel loser producer (also covers the parallel winner path: the
 	// same reporting seam runs for both with distinct allocated sequences).
@@ -125,14 +126,15 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	// 5. Swallowed producer (recordBillingLeg with the swallowed command uses
 	// the attempt's own sequence).
 	swallowed := &retryRecvStream{
-		executor:         executor,
-		aLegID:           "a-1",
-		billingCallID:    callID,
-		billingCallState: state,
-		bleg:             b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7},
-		cand:             routing.AttemptCandidate{Primary: primary("backend", "model")},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:           "a-1",
+			billingCallID:    callID,
+			billingCallState: state,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b_2a1f0e9d", ALegID: "a-1", Seq: 7}, routing.AttemptCandidate{Primary: primary("backend", "model")}, authorityLifecycle{}),
 	}
-	swallowed.recordBillingLeg(ctx, sdkterminal.CommandSwallowedAttempt)
+	bindTestRuntimeOwners(swallowed, executor)
+	swallowed.terminal.recordBillingLegForAttempt(ctx, swallowed.facts.terminalFacts(), swallowed.attempt.snapshot(), swallowed.attempt.require().terminalEvidence(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false, swallowed.facts.billingCallState)
 
 	mu.Lock()
 	got := map[string]int{}

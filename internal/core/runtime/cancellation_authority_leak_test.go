@@ -55,26 +55,24 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{
-				ID:         "request-cancel-usage-leak",
-				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-			},
-			bleg: b2bua.BLegRecord{BLegID: "b-leg-cancel-usage-leak", Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "request-cancel-usage-leak",
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+				},
+				traceID: "trace-cancel-usage-leak",
+				aLegID:  aLegID,
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-cancel-usage-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
-			seenEvents: []lipapi.Event{usageDelta},
-			traceID:    "trace-cancel-usage-leak",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{usageDelta}},
 		}
 		// Simulate handleRecvSuccess having processed the EventUsageDelta: this flips
 		// accounting.usageObserved=true (the leak trigger) without settling the reservation.
-		rs.accounting.observeUsage(usageDelta)
-		if !rs.accounting.usageObserved {
+		testAttemptSession(rs).accounting.observeUsage(usageDelta)
+		if !testAttemptSession(rs).accounting.usageObserved {
 			t.Fatal("test staging: usageObserved must be true after observeUsage")
 		}
 		return rs
@@ -101,7 +99,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		auth := cancelAfterUsageAuth(nil)
 		rs := setupStream(t, auth)
 
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (cancel after usage must settle the reservation, not leak)", auth.settleCalls.Load())
@@ -122,7 +120,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (successful settle must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after successful cancellation settle")
 		}
 	})
@@ -132,7 +130,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		auth := cancelAfterUsageAuth(errors.New("settle boom"))
 		rs := setupStream(t, auth)
 
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (single failed cancellation settle)", auth.settleCalls.Load())
@@ -150,7 +148,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	})
@@ -161,11 +159,11 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		rs := setupStream(t, auth)
 		// Simulate a prior final settle (e.g. response_finished already finalized the
 		// reservation) so authoritySettled is true before the cancellation billing call.
-		rs.authority.control.mu.Lock()
-		rs.authority.control.terminal = authorityTerminalSettled
-		rs.authority.control.mu.Unlock()
+		testAttemptSession(rs).authority.control.mu.Lock()
+		testAttemptSession(rs).authority.control.terminal = authorityTerminalSettled
+		testAttemptSession(rs).authority.control.mu.Unlock()
 
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		// With authoritative usage available (usageObserved=true) and the reservation
 		// already settled, the cancellation path calls ReconcileAuthoritative instead
@@ -194,7 +192,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (reconcile must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled to remain true")
 		}
 	})
@@ -213,7 +211,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 			t.Fatal("test staging: ctx must be canceled")
 		}
 
-		rs.persistCancellationBilling(ctx, "client canceled")
+		rs.terminal.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (canceled ctx must not prevent settlement)", auth.settleCalls.Load())
@@ -231,7 +229,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (successful settle must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after cancellation settle despite canceled ctx")
 		}
 	})
@@ -246,7 +244,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		rs.persistCancellationBilling(ctx, "client canceled")
+		rs.terminal.persistCancellationBilling(ctx, rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (single failed cancellation settle)", auth.settleCalls.Load())
@@ -258,7 +256,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if rel.Kind != authorityapp.ReleaseKindLosing {
 			t.Fatalf("release kind = %q, want %q", rel.Kind, authorityapp.ReleaseKindLosing)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release despite canceled ctx")
 		}
 	})
@@ -282,25 +280,23 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		}
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{
-				ID:         "request-store-unavailable",
-				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
-			},
-			bleg: b2bua.BLegRecord{BLegID: "b-leg-store-unavailable", Seq: 1},
-			cand: authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "request-store-unavailable",
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+				},
+				traceID: "trace-store-unavailable",
+				aLegID:  aLegID,
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-store-unavailable", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
-			seenEvents: []lipapi.Event{usageDelta},
-			traceID:    "trace-store-unavailable",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{usageDelta}},
 		}
-		rs.accounting.observeUsage(usageDelta)
+		testAttemptSession(rs).accounting.observeUsage(usageDelta)
 
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
@@ -308,7 +304,7 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		if auth.releaseCalls.Load() != 1 {
 			t.Fatalf("release calls = %d, want 1 (losing release attempted)", auth.releaseCalls.Load())
 		}
-		if rs.authority.Settled() {
+		if testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=false when both settle and release failed (store unavailable), so a later finalize can retry")
 		}
 	})

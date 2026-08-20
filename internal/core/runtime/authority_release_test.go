@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -95,33 +94,28 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	initialCand := routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}
 
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
-		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      initialCand,
-		authority: testAuthorityLifecycle(ex, initialAuthority, initialCand),
-		seenEvents: []lipapi.Event{
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, initialCand, testAuthorityLifecycle(ex, initialAuthority, initialCand)),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11, Currency: "USD"},
-		},
+		}},
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	rs.recordPartialTokenAccounting(context.Background(), "partial", errors.New("stream dropped"))
+	rs.terminal.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"), rs.facts.terminalFacts(), rs.responsePipeline)
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
@@ -147,26 +141,30 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if release.OutputCommitted {
 		t.Fatal("expected losing release to record outputCommitted=false")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=true after failed partial settle losing-release so later handlers cannot double-release")
 	}
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open after failed settle")
 	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
+	}
 	// The prior reservation was already released (losing) and marked settled, so the
 	// replacement must NOT release it again.
 	if auth.releaseCalls.Load() != 1 {
 		t.Fatalf("release calls = %d, want 1 (prior already released; replacement must not double-release)", auth.releaseCalls.Load())
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=false after replacement reset to a fresh reservation")
 	}
 }
@@ -185,35 +183,29 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
 	}
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	ttft := ttftBudget{start: time.Now().Add(-2 * time.Second), global: time.Second}
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+			traceID:  "trace-ttft",
+			aLegID:   "a-leg-ttft",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		traceID:    "trace-ttft",
-		aLegID:     "a-leg-ttft",
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery:         &recoveryController{ttft: &ttft},
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	_, cont, err := rs.handleRecvError(
-		context.Background(),
-		context.Background(),
-		context.DeadlineExceeded,
-		idleContextDeadline{},
-		ttftContextDeadline{scope: ttftTimeoutGlobal, parent: context.Background()},
-	)
+	_, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err == nil {
 		t.Fatal("expected global TTFT timeout error")
 	}
 	if !errors.Is(err, lipapi.ErrTTFTTimeout) {
 		t.Fatalf("error = %v, want ErrTTFTTimeout", err)
-	}
-	if cont {
-		t.Fatal("expected global TTFT timeout to stop the stream")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred TTFT must settle)", auth.releaseCalls.Load())
@@ -234,7 +226,7 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	if settle.OutputCommitted {
 		t.Fatal("expected global TTFT losing settle to record outputCommitted=false")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=true after global TTFT timeout losing-settle so later handlers cannot double-settle")
 	}
 }
@@ -270,35 +262,39 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
-		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority: testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	prior := rs.attempt.require()
+	if got := prior.authority.stateSnapshot().admissionResult.ReservationID; got != "reservation-1" {
+		t.Fatalf("prior authority reservation ID = %q, want reservation-1", got)
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred prior must settle)", auth.releaseCalls.Load())
@@ -313,10 +309,10 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if settle.Kind != authorityapp.SettlementKindSwallowed {
 		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
 	}
 }
@@ -352,54 +348,46 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
-		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority: testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}})),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	recvErr := &lipapi.UpstreamFailureError{
-		Phase:       lipapi.PhasePreOutput,
-		Recoverable: true,
-		Reason:      "recv dropped",
-	}
-	_, cont, err := rs.handleRecvError(context.Background(), context.Background(), recvErr, idleContextDeadline{}, ttftContextDeadline{})
-	if err != nil {
-		t.Fatalf("handleRecvError: %v", err)
-	}
-	if !cont {
-		t.Fatal("expected recoverable pre-output recv failure to continue")
-	}
+	// Recv normally continues directly into replacement publication. Exercise
+	// the recoverable midpoint through the cohesive terminal owner so this
+	// assertion remains before recovery settles the prior attempt.
+	rs.terminal.terminalizeSwallowedAttempt(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.responsePipeline)
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls after swallowed recv = %d, want 0", auth.settleCalls.Load())
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to remain false after swallowed recv failure")
 	}
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred swallowed prior must settle)", auth.releaseCalls.Load())
@@ -414,10 +402,10 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if settle.Kind != authorityapp.SettlementKindSwallowed {
 		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
 	}
 }
@@ -458,29 +446,24 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	initialAuthority.admissionResult.ReservedAmount = authorityInputAmount(5)
 
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
-		budget:     &attemptBudget{max: 3, used: 0},
-		aLegID:     aLegID,
-		traceID:    "trace-1",
-		sel:        sel,
-		session:    &routing.SessionRoutingState{},
-		excluded:   map[string]struct{}{},
-		rng:        routing.NewSeededRng(1),
-		bleg:       b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:       routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}},
-		authority:  testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}),
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}, testAuthorityLifecycle(ex, initialAuthority, routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
 	// A pre-canceled context forces tryReplacementIteration to error at its ctx.Err() guard
 	// before any new stream/authority is admitted, leaving the swallowed reservation active.
@@ -517,7 +500,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	if settle.OutputCommitted {
 		t.Fatal("expected replacement-error swallowed settle to record outputCommitted=false")
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("expected stream to be marked finished after terminal replacement error")
 	}
 }

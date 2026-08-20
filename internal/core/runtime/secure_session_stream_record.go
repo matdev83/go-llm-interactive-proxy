@@ -4,44 +4,102 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// beforeEmitClientFacing records one post-hook canonical event before it is emitted to the client.
-func (s *retryRecvStream) beforeEmitClientFacing(ctx context.Context, ev lipapi.Event) error {
-	if s == nil || s.executor == nil || s.executor.SecureSessionRecorder == nil || !s.secureTurnOK {
-		return nil
-	}
-	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
-		return nil
-	}
-	in := buildStreamEventRecordInput(s, ev)
-	err := s.executor.SecureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
-	if err != nil {
-		committed := s.isCommitted() || lipapi.OutputCommitted(ev)
-		if s.executor != nil && s.executor.SecureSessionMetrics != nil {
-			s.executor.SecureSessionMetrics.ObserveRecorderStreamEventFailed(committed, s.executor.SecureSessionRecordingMandatory)
-		}
-		if committed && s.executor.SecureSessionRecordingMandatory {
-			s.secureRecvRecordingHardStop = true
-		}
-	}
-	return err
+type responseRecordingOutcome uint8
+
+const (
+	responseRecordingSkipped responseRecordingOutcome = iota
+	responseRecordingRecorded
+	responseRecordingBestEffortFailure
+	responseRecordingMandatoryPreOutputFailure
+	responseRecordingMandatoryPostCommitFailure
+)
+
+// responseRecordingResult is deliberately separate from commitment and
+// terminal state. The caller decides whether a mandatory failure can recover;
+// the response owner only reports the recorder's typed result.
+type responseRecordingResult struct {
+	outcome responseRecordingOutcome
+	err     error
 }
 
-func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.StreamEventRecordInput {
-	st := s.secureTurn
-	now := s.executor.now()
+func (r responseRecordingResult) failed() bool {
+	return r.outcome == responseRecordingBestEffortFailure ||
+		r.outcome == responseRecordingMandatoryPreOutputFailure ||
+		r.outcome == responseRecordingMandatoryPostCommitFailure
+}
+
+func (r responseRecordingResult) mandatory() bool {
+	return r.outcome == responseRecordingMandatoryPreOutputFailure ||
+		r.outcome == responseRecordingMandatoryPostCommitFailure
+}
+
+// recordClientFacing records one post-hook canonical event before it is
+// emitted to the client. Commitment is supplied as a snapshot by the caller;
+// this owner never mutates terminal authority or stores a second commitment
+// flag.
+func (p *responsePipeline) recordClientFacing(
+	ctx context.Context,
+	facts recvTurnFacts,
+	attempt *attemptSession,
+	ev lipapi.Event,
+	committed bool,
+) responseRecordingResult {
+	return p.recordClientFacingEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, secureTurn: facts.secureTurn, secureTurnOK: facts.secureTurnOK}, attempt, ev, committed)
+}
+
+func (p *responsePipeline) recordClientFacingTerminal(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, ev lipapi.Event, committed bool) responseRecordingResult {
+	return p.recordClientFacingEvidence(ctx, request.responseEvidence(), attempt, ev, committed)
+}
+
+func (p *responsePipeline) recordClientFacingEvidence(ctx context.Context, evidence responseRequestEvidence, attempt *attemptSession, ev lipapi.Event, committed bool) responseRecordingResult {
+	if p == nil || p.secureSessionRecorder == nil || !evidence.secureTurnOK {
+		return responseRecordingResult{outcome: responseRecordingSkipped}
+	}
+	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
+		return responseRecordingResult{outcome: responseRecordingSkipped}
+	}
+	in := buildStreamEventRecordInputEvidence(evidence, attempt, p.nowTime(), ev)
+	err := p.secureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
+	if err != nil {
+		committed = committed || lipapi.OutputCommitted(ev)
+		if p.secureSessionMetrics != nil {
+			p.secureSessionMetrics.ObserveRecorderStreamEventFailed(committed, p.secureRecordingMandatory)
+		}
+		if p.secureRecordingMandatory {
+			outcome := responseRecordingMandatoryPreOutputFailure
+			if committed {
+				outcome = responseRecordingMandatoryPostCommitFailure
+			}
+			p.setRecordingOutcome(outcome)
+			return responseRecordingResult{outcome: outcome, err: err}
+		}
+		p.setRecordingOutcome(responseRecordingBestEffortFailure)
+		return responseRecordingResult{outcome: responseRecordingBestEffortFailure, err: err}
+	}
+	p.setRecordingOutcome(responseRecordingRecorded)
+	return responseRecordingResult{outcome: responseRecordingRecorded}
+}
+
+func buildStreamEventRecordInput(facts recvTurnFacts, attempt *attemptSession, now time.Time, ev lipapi.Event) app.StreamEventRecordInput {
+	return buildStreamEventRecordInputEvidence(responseRequestEvidence{traceID: facts.traceID, secureTurn: facts.secureTurn, secureTurnOK: facts.secureTurnOK}, attempt, now, ev)
+}
+
+func buildStreamEventRecordInputEvidence(evidence responseRequestEvidence, attempt *attemptSession, now time.Time, ev lipapi.Event) app.StreamEventRecordInput {
+	st := evidence.secureTurn
 	in := app.StreamEventRecordInput{
 		Now:       now,
-		TraceID:   strings.TrimSpace(s.traceID),
+		TraceID:   strings.TrimSpace(evidence.traceID),
 		SessionID: st.SessionID,
 		TurnID:    st.TurnID,
-		BLegID:    strings.TrimSpace(s.bleg.BLegID),
-		BackendID: strings.TrimSpace(s.cand.Primary.Backend),
+		BLegID:    strings.TrimSpace(attempt.bleg.BLegID),
+		BackendID: strings.TrimSpace(attempt.cand.Primary.Backend),
 		Policy:    st.Policy,
 		EventKind: string(ev.Kind),
 	}
@@ -69,7 +127,7 @@ func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.Stream
 		}
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
-		acct := s.accounting.snapshot()
+		acct := attempt.accounting.snapshot()
 		in.RequestStartedAt = acct.RequestStartedAt
 		in.FirstRemoteEventAt = acct.FirstRemoteEventAt
 		in.FirstMeaningfulTokenAt = acct.FirstMeaningfulTokenAt

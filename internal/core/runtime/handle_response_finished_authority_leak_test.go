@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -54,16 +53,16 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        hooks.New(hooks.Config{}),
-			baseline:   lipapi.Call{ID: "request-finished-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-finished-leak", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-finished-leak",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-finished-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-finished-leak",
+				aLegID:   aLegID,
+			}),
+			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-finished-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -88,7 +87,7 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}
@@ -101,13 +100,11 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
+		bindTestRuntimeOwners(rs, ex)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal completion path")
 		}
 		// The ok branch returns the synthesized usage event, not the finish event.
 		if ev.Kind != lipapi.EventUsageDelta {
@@ -122,12 +119,9 @@ func TestHandleResponseFinishedAuthorityLeakOnSettleFailure(t *testing.T) {
 		ex, rs := setupStream(t, auth)
 		ex.StreamUsage = nil
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal completion path")
 		}
 		// The fall-through returns the original finish event unchanged.
 		if ev.Kind != lipapi.EventResponseFinished {

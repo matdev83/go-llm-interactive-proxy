@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -79,22 +78,19 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	cand := authorityCandidate()
 	entered := make(chan struct{}, 1)
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-recv-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: "b-recv-close", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, state, cand),
-		traceID:    "trace-recv-close",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
-		seenEvents: []lipapi.Event{{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-recv-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-recv-close",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-close", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{
 			Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5,
-		}},
+		}}},
 	}
-	rs.storeInner(&blockUntilCancelStream{entered: entered})
-	rs.markCommitted()
-	rs.ensureTerminals()
+	testStoreInner(rs, &blockUntilCancelStream{entered: entered})
+	rs.terminal.markCommitted(rs.attempt.snapshot())
+	installTestTurnTerminal(rs)
 
 	ctx := t.Context()
 
@@ -113,21 +109,21 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream must be finished after Close/Recv race")
 	}
-	if rs.requestTerm == nil || rs.requestTerm.Owner() == nil {
+	if rs.terminal == nil || rs.terminal.requestTerminal() == nil || rs.terminal.requestTerminal().Owner() == nil {
 		t.Fatal("request terminal owner must be installed")
 	}
-	if !rs.requestTerm.Owner().State().IsTerminal() {
-		t.Fatalf("request terminal state=%q", rs.requestTerm.Owner().State())
+	if !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
+		t.Fatalf("request terminal state=%q", rs.terminal.requestTerminal().Owner().State())
 	}
 	// One settle (cancellation/final) — never two competing terminal settlements.
 	settles := auth.settleCalls.Load()
 	if settles != 1 {
 		t.Fatalf("settleCalls=%d want 1 (recv/close must not double-settle); recvErr=%v", settles, recvErr)
 	}
-	if out, ok := rs.requestTerm.Owner().Outcome(); !ok || out.Snapshot.Bytes() == nil {
+	if out, ok := rs.terminal.requestTerminal().Owner().Outcome(); !ok || out.Snapshot.Bytes() == nil {
 		t.Fatal("winner must publish accumulator snapshot")
 	}
 }

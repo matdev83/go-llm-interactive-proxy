@@ -51,17 +51,15 @@ func TestRecv_earlyCtxCancel_nilExecutorWithInner_noPanic(t *testing.T) {
 	t.Parallel()
 	inner := &ttftBlockingRecvStream{}
 	rs := &retryRecvStream{
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{ID: "nil-exec", Messages: testMinimalUserMessages()},
-		budget:   &attemptBudget{max: 1},
-		aLegID:   "a1",
-		traceID:  "t1",
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:     routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}},
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "nil-exec", Messages: testMinimalUserMessages()},
+			aLegID:   "a1",
+			traceID:  "t1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}),
 	}
-	rs.storeInner(inner)
+	testStoreInner(rs, inner)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	defer func() {
@@ -115,22 +113,15 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 	initial.admissionResult.ReservationID = "reservation-swallowed"
 	cand := routing.AttemptCandidate{Key: "initial", Primary: routing.Primary{Backend: "initial", Model: "initial"}}
 	rs := &retryRecvStream{
-		executor:       ex,
-		bus:            hooks.New(hooks.Config{}),
-		baseline:       lipapi.Call{ID: "early-nil-inner", Messages: testMinimalUserMessages(), Route: lipapi.RouteIntent{Selector: "backend-1:model-1"}},
-		budget:         &attemptBudget{max: 3},
-		aLegID:         aLegID,
-		traceID:        "t-early",
-		sel:            sel,
-		session:        &routing.SessionRoutingState{},
-		excluded:       map[string]struct{}{},
-		rng:            routing.NewSeededRng(1),
-		bleg:           bleg,
-		cand:           cand,
-		authority:      testAuthorityLifecycle(ex, initial, cand),
-		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
-		finalStreamObs: sess,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "early-nil-inner", Messages: testMinimalUserMessages(), Route: lipapi.RouteIntent{Selector: "backend-1:model-1"}},
+			aLegID:   aLegID,
+			traceID:  "t-early",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(bleg, cand, testAuthorityLifecycle(ex, initial, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	testAttemptSession(rs).finalStreamObs = sess
+	bindTestRuntimeOwners(rs, ex)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -192,7 +183,7 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 
 func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 	t.Parallel()
-	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
+	_, _, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
 	obs := &earlyCancelFinishObs{}
 	sess := &extensions.FinalStreamObservationSession{}
 	if err := sess.Open(context.Background(), []response.StreamObserverFactory{earlyCancelFinishFactory{obs: obs}}, response.StreamMeta{
@@ -201,19 +192,15 @@ func TestRecv_earlyCtxCancel_nilInner_deadlineCancelledOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &retryRecvStream{
-		executor:       ex,
-		bus:            hooks.New(hooks.Config{}),
-		baseline:       lipapi.Call{ID: "dl", Messages: testMinimalUserMessages()},
-		budget:         &attemptBudget{max: 1},
-		aLegID:         aLegID,
-		traceID:        "t-dl",
-		session:        &routing.SessionRoutingState{},
-		excluded:       map[string]struct{}{},
-		bleg:           b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand:           routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}},
-		accounting:     newAttemptAccountingTracker(time.Unix(1, 0)),
-		finalStreamObs: sess,
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "dl", Messages: testMinimalUserMessages()},
+			aLegID:   aLegID,
+			traceID:  "t-dl",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "be:m", Primary: routing.Primary{Backend: "be", Model: "m"}}, authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
+	testAttemptSession(rs).finalStreamObs = sess
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	_, err := rs.Recv(ctx)

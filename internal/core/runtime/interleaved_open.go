@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -196,43 +195,27 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if e == nil || from == nil {
 		return nil, fmt.Errorf("executor: invalid interleaved continuation arguments")
 	}
+	facts := from.facts
 	// A continuation may be opened from Recv with a bare caller context after
 	// model/catalog refresh. Reattach the logical request's frozen views before
 	// any planning, capability resolution, or backend open; copying them onto the
 	// resulting stream afterward is too late.
-	boundCtx := from.recvExecContext(ctx)
-	e.logInterleavedThinkerSuppressed(boundCtx, from.traceID)
-	out, err := e.tryPlanOpenOnce(boundCtx, attemptOpenParams{
-		bus:                 from.bus,
-		traceID:             from.traceID,
-		aLegID:              from.aLegID,
-		aScope:              from.aScope,
-		baseline:            from.baseline,
-		failoverReq:         capabilities.NewFailoverRequirementSet(from.baseline),
-		sel:                 from.sel,
-		requestSize:         from.requestSize,
-		session:             from.session,
-		excluded:            from.excluded,
-		rng:                 from.rng,
-		budget:              from.budget,
-		ttft:                from.ttft,
-		isRetryPath:         false,
-		affinityKey:         from.affinityKey,
-		affinitySet:         from.affinitySet,
-		interleaved:         state,
-		suppressThinker:     true,
-		suppressVisibleMemo: true,
-		billingCallID:       from.billingCallID,
-		billingCallState:    from.billingCallState,
-	})
+	boundCtx := from.facts.projectContext(ctx, from.responsePipeline.log)
+	boundCtx = from.responsePipeline.withDecisionEvidence(boundCtx, from.terminal)
+	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
+	if from.recovery == nil {
+		return nil, fmt.Errorf("executor: interleaved continuation recovery unavailable")
+	}
+	from.recovery.bindOpener(e, from.responsePipeline.bus, from.terminal.aLegScope())
+	out, err := from.recovery.openInterleavedAttempt(boundCtx, facts, state)
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
 	}
 	if !out.opened {
 		return nil, fmt.Errorf("executor: interleaved continuation: %w", routing.ErrNoEligibleCandidate)
 	}
-	if from.aScope != nil && !out.registered {
-		if err := from.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+	if from.terminal != nil && !out.registered {
+		if err := from.terminal.registerBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),
 		}); err != nil {
@@ -246,51 +229,36 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
 			}
-			e.appendPostOpenTerminalLeg(ctx, from.billingCallState, from.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+			e.appendPostOpenTerminalLeg(ctx, from.facts.billingCallState, from.facts.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
 			return nil, err
 		}
 	}
+	fs, maxArgs := e.resolveToolCallFinalizers()
+	responsePipeline := newResponsePipelineForExecutor(e)
+	terminal := newTurnTerminalWithSharedALeg(from.terminal)
 	rs := &retryRecvStream{
-		executor:               e,
-		bus:                    from.bus,
-		baseline:               from.baseline,
-		budget:                 from.budget,
-		ttft:                   from.ttft,
-		aLegID:                 from.aLegID,
-		traceID:                from.traceID,
-		sel:                    from.sel,
-		requestSize:            from.requestSize,
-		session:                from.session,
-		excluded:               from.excluded,
-		rng:                    from.rng,
-		affinityKey:            from.affinityKey,
-		affinitySet:            from.affinitySet,
-		recvViews:              from.recvViews,
-		recvViewsOK:            from.recvViewsOK,
-		routePrefs:             from.routePrefs,
-		secureTurn:             from.secureTurn,
-		secureTurnOK:           from.secureTurnOK,
-		aScope:                 from.aScope,
-		interleaved:            out.interleaved,
-		holdALegEnd:            true,
-		suppressThinker:        true,
-		suppressVisibleMemo:    true,
-		accounting:             newAttemptAccountingTracker(e.now()),
-		recoverPolicy:          streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		authority:              e.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		bleg:                   out.bleg,
-		cand:                   out.cand,
-		billingCallID:          from.billingCallID,
-		billingCallState:       from.billingCallState,
-		billingAccountID:       from.billingAccountID,
-		billingCustomerPricing: from.billingCustomerPricing,
-		billingChargePolicy:    from.billingChargePolicy,
-		billingIdentityStamped: from.billingIdentityStamped,
-		customer:               newCustomerEvidenceAccumulator(),
-		metering:               from.metering,
-		requestAuth:            from.requestAuth,
+		facts:            from.facts.clone(),
+		recovery:         from.recovery,
+		responsePipeline: responsePipeline,
+		attempt:          attemptSlot{},
+		terminal:         terminal,
 	}
-	copyBoundModelViews(rs, from)
-	rs.storeInner(out.stream)
+	bindTurnTerminalRuntime(rs.terminal, e)
+	responsePipeline.bindTerminalSnapshot(func() (bool, bool) { return terminal.committed(), terminal.accountingFinalized() })
+	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
+		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
+	})
+	rs.attempt.install(newAttemptSession(attemptSessionInput{
+		inner:                 out.stream,
+		bleg:                  out.bleg,
+		cand:                  out.cand,
+		authority:             e.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		accounting:            newAttemptAccountingTracker(e.now()),
+		toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
+		promptCacheSource:     promptCacheObservationSource(out.stream),
+		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
+		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
+		recordAttemptLoggedFn: e.recordAttemptLogged,
+	}))
 	return rs, nil
 }

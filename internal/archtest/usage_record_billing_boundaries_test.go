@@ -44,12 +44,12 @@ func TestRuntimeStreamHandlersStayOffJournalRatingSettlement(t *testing.T) {
 
 	root := repoRoot(t)
 	streamFiles := []string{
-		"executor_recv_handlers.go",
 		"executor_recv_loop.go",
-		"executor_recv_error.go",
 		"executor_settlement.go",
 		"executor_retry_stream.go",
+		"response_pipeline_observations.go",
 		"stream_terminal.go",
+		"turn_terminal.go",
 		"parallel_race.go",
 	}
 	forbiddenIdents := []string{

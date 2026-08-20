@@ -229,14 +229,17 @@ func phase71SettleCustomerFE(t *testing.T, frontendID string, released bool, wan
 	}})
 
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-" + frontendID,
-		customer: newCustomerEvidenceAccumulator(),
-		baseline: call,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-" + frontendID,
+			baseline: call,
+		}),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
+	bindTestRuntimeOwners(stream, ex)
 	if released {
-		stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
+		stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 

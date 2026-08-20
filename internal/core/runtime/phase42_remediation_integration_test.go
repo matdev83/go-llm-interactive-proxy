@@ -37,25 +37,22 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-close-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, state, cand),
-		traceID:    "trace-close-finish",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-close-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-close-finish",
+			aLegID:   aLegID,
+		}),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-close-finish", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "hi"}}},
 	}
-	rs.markCommitted()
-	rs.ensureTerminals()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
+	installTestTurnTerminal(rs)
 
 	closeDone := make(chan struct{})
 	go func() {
-		_ = rs.runStreamTerminal(context.Background(), sdk.CommandClose, func(context.Context) error {
-			rs.persistCancellationBilling(context.Background(), "client close")
-			rs.markFinished()
+		_ = testTerminalizeRequest(context.Background(), rs, sdk.CommandClose, func(context.Context) error {
+			rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client close", rs.facts.terminalFacts(), rs.responsePipeline)
+			rs.terminal.finishResponse(rs.responsePipeline, rs.attempt.snapshot())
 			return nil
 		})
 		close(closeDone)
@@ -63,7 +60,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	<-closeDone
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
-	_, ok, err := rs.finalizeResponseFinishedAuthority(context.Background(), finish)
+	_, ok, err := rs.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, rs.facts.terminalFacts(), rs.attempt.snapshot(), rs.responsePipeline)
 	if ok {
 		t.Fatal("NormalFinish must not report ok after Close won")
 	}
@@ -71,11 +68,7 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 		t.Fatal("NormalFinish loser must surface cancel/error")
 	}
 
-	pm, _ := rs.recvHookMeta()
-	ev, cont, pathErr := rs.handleResponseFinishedPath(context.Background(), finish, pm)
-	if cont {
-		t.Fatal("must not continue after lost finish")
-	}
+	_, _, pathErr := rs.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, rs.facts.terminalFacts(), rs.attempt.snapshot(), rs.responsePipeline)
 	if pathErr == nil {
 		t.Fatal("handleResponseFinishedPath must error when Close already won")
 	}
@@ -84,9 +77,6 @@ func TestPhase42_CloseWinsWhileRecvFinishes_NoAttemptSuccess(t *testing.T) {
 	}
 	if errors.Is(pathErr, context.Canceled) && !errors.Is(pathErr, leglifecycle.ErrALegCanceled) {
 		t.Fatalf("must not surface bare context.Canceled: %v", pathErr)
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		t.Fatal("must not emit response_finished after Close won")
 	}
 }
 
@@ -105,27 +95,25 @@ func TestPhase42_CloseThenFinishDelivery_NoBareContextCanceled(t *testing.T) {
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg("a-recv-after-close")
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-recv-after-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-recv-after-close",
-		aLegID:     aLegID,
-		aScope:     aScope,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-recv-after-close", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-recv-after-close",
+			aLegID:   aLegID,
+		}),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-recv-after-close", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		terminal:         newTurnTerminalWithALeg(aScope, aLegEndBase),
+		responsePipeline: newResponsePipeline(),
 	}
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	// Ignore Cancel so Close cannot wake Recv via ctx; only releaseTail delivers finish
 	// after Close has already claimed CommandClose (the flaky parallel_race path).
-	rs.storeInner(&finishAfterReleaseStream{
+	testStoreInner(rs, &finishAfterReleaseStream{
 		entered: entered,
 		release: release,
 		finish:  lipapi.Event{Kind: lipapi.EventResponseFinished},
 	})
-	rs.ensureTerminals()
+	installTestTurnTerminal(rs)
 
 	recvDone := make(chan error, 1)
 	go func() {
@@ -200,28 +188,25 @@ func TestPhase42_EncoderFailureCompetesBeforeNormalFinish(t *testing.T) {
 		admissionResult: auth.admitResult,
 	}
 	rs := &retryRecvStream{
-		executor:     ex,
-		bus:          hooks.New(hooks.Config{}),
-		baseline:     lipapi.Call{ID: "req-enc", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:         b2bua.BLegRecord{BLegID: "b-enc", Seq: 1},
-		cand:         cand,
-		authority:    testAuthorityLifecycle(ex, state, cand),
-		traceID:      "trace-enc",
-		aLegID:       aLegID,
-		accounting:   newAttemptAccountingTracker(time.Unix(1, 0)),
-		seenEvents:   []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}},
-		secureTurnOK: true,
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline:     lipapi.Call{ID: "req-enc", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:      "trace-enc",
+			aLegID:       aLegID,
+			secureTurnOK: true,
+		}),
+		attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-enc", Seq: 1}, cand, testAuthorityLifecycle(ex, state, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "x"}}},
 	}
-	rs.markCommitted()
-	rs.ensureTerminals()
+	rs.terminal.markCommitted(rs.attempt.snapshot())
+	installTestTurnTerminal(rs)
+	bindTestRuntimeOwners(rs, ex)
 
 	finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
-	pm, _ := rs.recvHookMeta()
-	_, _, err := rs.handleResponseFinishedPath(context.Background(), finish, pm)
+	_, err := testRecvOne(context.Background(), rs, finish)
 	if !errors.Is(err, encErr) {
 		t.Fatalf("err=%v want encoder", err)
 	}
-	out, ok := rs.requestTerm.Owner().Outcome()
+	out, ok := rs.terminal.requestTerminal().Owner().Outcome()
 	if !ok || out.Command != sdk.CommandFrontendEncoderFailure {
 		t.Fatalf("terminal outcome=%+v ok=%v want frontend_encoder_failure", out, ok)
 	}
@@ -247,38 +232,36 @@ func TestPhase42_CancelTerminalizesRequest(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "req-cancel", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-cancel",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{})},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-cancel", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-cancel",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-cancel", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.ensureTerminals()
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandCancel, func(cctx context.Context) error {
-		rs.persistCancellationBilling(cctx, "context canceled")
-		rs.markFinished()
+	installTestTurnTerminal(rs)
+	r := testTerminalizeRequest(context.Background(), rs, sdk.CommandCancel, func(cctx context.Context) error {
+		rs.terminal.persistCancellationBilling(cctx, rs.attempt.snapshot(), "context canceled", rs.facts.terminalFacts(), rs.responsePipeline)
+		rs.terminal.finishResponse(rs.responsePipeline, rs.attempt.snapshot())
 		return nil
 	})
-	if !r.Won || !rs.requestTerm.Owner().State().IsTerminal() {
-		t.Fatalf("cancel terminalize: %+v state=%q", r, rs.requestTerm.Owner().State())
+	if !r.Won || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
+		t.Fatalf("cancel terminalize: %+v state=%q", r, rs.terminal.requestTerminal().Owner().State())
 	}
 }
 
 func TestPhase42_NoRetryAfterOutput_GateReplacement(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{}
-	rs.ensureTerminals()
-	rs.markCommitted()
-	r := rs.runStreamTerminal(context.Background(), sdk.CommandGateReplacement, nil)
+	installTestTurnTerminal(rs)
+	rs.terminal.markCommitted(rs.attempt.snapshot())
+	r := testTerminalizeRequest(context.Background(), rs, sdk.CommandGateReplacement, nil)
 	if r.Won || !errors.Is(r.Err, sdk.ErrOutputCommitted) {
 		t.Fatalf("got %+v", r)
 	}
-	if rs.requestTerm.Owner().State() != sdk.StateOpen {
-		t.Fatalf("open+committed rejection must leave owner open, state=%q", rs.requestTerm.Owner().State())
+	if rs.terminal.requestTerminal().Owner().State() != sdk.StateOpen {
+		t.Fatalf("open+committed rejection must leave owner open, state=%q", rs.terminal.requestTerminal().Owner().State())
 	}
 }
 
@@ -299,22 +282,20 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	cand := authorityCandidate()
 	rs := &retryRecvStream{
-		executor:   ex,
-		bus:        bus,
-		baseline:   lipapi.Call{ID: "req-part", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: "b-part", Seq: 1},
-		cand:       cand,
-		authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand),
-		traceID:    "trace-part",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		responsePipeline: &responsePipeline{bus: bus},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "req-part", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-part",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-part", Seq: 1}, cand, testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(5), admissionResult: auth.admitResult}, cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.ensureTerminals()
-	_, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
-	if !errors.Is(err, hookErr) || cont {
-		t.Fatalf("err=%v cont=%v", err, cont)
+	installTestTurnTerminal(rs)
+	_, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+	if !errors.Is(err, hookErr) {
+		t.Fatalf("err=%v", err)
 	}
-	if rs.requestTerm == nil || !rs.requestTerm.Owner().State().IsTerminal() {
+	if rs.terminal == nil || !rs.terminal.requestTerminal().Owner().State().IsTerminal() {
 		t.Fatal("response part failure must terminalize request")
 	}
 }
@@ -322,21 +303,21 @@ func TestPhase42_ResponsePartHook_RoutesThroughTerminal(t *testing.T) {
 func TestPhase42_EventsMu_ClearAndSnapshot(t *testing.T) {
 	t.Parallel()
 	rs := &retryRecvStream{
-		seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}},
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}}},
 	}
-	rs.visibleText.WriteString("a")
+	rs.responsePipeline.visibleText.WriteString("a")
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_ = rs.seenEventsCopy()
+		_ = rs.responsePipeline.seenEventsCopy()
 	}()
 	go func() {
 		defer wg.Done()
-		rs.clearClientAccumulators()
+		rs.responsePipeline.clearClientAccumulators()
 	}()
 	wg.Wait()
-	if got := rs.seenEventsCopy(); len(got) != 0 {
+	if got := rs.responsePipeline.seenEventsCopy(); len(got) != 0 {
 		t.Fatalf("cleared accumulators len=%d", len(got))
 	}
 }

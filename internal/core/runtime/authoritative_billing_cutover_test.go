@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -31,22 +30,21 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
-		executor:   executor,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:       authorityCandidate(),
-		aLegID:     aLegID,
-		traceID:    "trace-authoritative-success",
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-authoritative-success", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			aLegID:   aLegID,
+			traceID:  "trace-authoritative-success",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
-	stream.ensureTerminals()
+	installTestTurnTerminal(stream)
+	bindTestRuntimeOwners(stream, executor)
 
-	_, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	_, ok, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +54,7 @@ func TestAuthoritativeBillingSuccessFinishSettlesAttemptAuthority(t *testing.T) 
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("attempt authority settle calls = %d, want 1 on authoritative success finish", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("authoritative success finish left attempt authority unsettled")
 	}
 	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
@@ -83,22 +81,21 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 	}, accountingstream.Config{})
 	stream := &retryRecvStream{
-		executor:   executor,
-		bus:        hooks.New(hooks.Config{}),
-		baseline:   lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:       b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:       authorityCandidate(),
-		aLegID:     aLegID,
-		traceID:    "trace-authoritative-protocol",
-		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-authoritative-protocol", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			aLegID:   aLegID,
+			traceID:  "trace-authoritative-protocol",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), authorityLifecycle{}, newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
-	stream.ensureTerminals()
+	installTestTurnTerminal(stream)
+	bindTestRuntimeOwners(stream, executor)
 
-	usage, ok, err := stream.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+	usage, ok, err := stream.terminal.finalizeResponseFinishedAuthority(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished}, stream.facts.terminalFacts(), stream.attempt.snapshot(), stream.responsePipeline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +108,7 @@ func TestAuthoritativeBillingPreservesProtocolUsageProjection(t *testing.T) {
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("attempt authority settle calls = %d, want 1", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("authoritative protocol-usage finish left attempt authority unsettled")
 	}
 }
@@ -129,20 +126,22 @@ func TestAuthoritativeBillingKeepsNonMoneyAuthorityCoordination(t *testing.T) {
 	}
 	executor, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	stream := &retryRecvStream{
-		executor: executor,
-		aLegID:   aLegID,
-		cand:     authorityCandidate(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID: aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{}, authorityCandidate(), authorityLifecycle{}),
 	}
-	stream.authority = testAuthorityLifecycle(executor, attemptAuthorityState{
+	testAttemptSession(stream).authority = testAuthorityLifecycle(executor, attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(7),
 		admissionResult: auth.admitResult,
 	}, authorityCandidate())
+	bindTestRuntimeOwners(stream, executor)
 
-	stream.recordPartialTokenAccounting(context.Background(), "authoritative-cutover", nil)
+	stream.terminal.recordPartialTokenAccounting(context.Background(), stream.attempt.snapshot(), "authoritative-cutover", nil, stream.facts.terminalFacts(), stream.responsePipeline)
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Fatalf("non-money authority settle calls = %d, want 1", got)
 	}
-	if !stream.authority.Settled() {
+	if !testAttemptSession(stream).authority.Settled() {
 		t.Fatal("non-money authority lifecycle was not finalized")
 	}
 }

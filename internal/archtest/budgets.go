@@ -78,9 +78,12 @@ var LineBudgets = []LineBudget{
 	// classification. Keep the measured-plus-25 ratchet. The compaction
 	// detector and continuity infrastructure add bounded recognition, branch
 	// coordination, preservation dispatch, and auxiliary worker ownership.
-	// Evidence: the GeoIP mapped-prefix normalization adds four non-test
-	// lines over the previously locked 81,494-line ceiling.
-	{Dir: "internal/core", Max: 81498},
+	// Current-main integration measures 83038 non-test lines: the ownership
+	// refactor's 1540-line increase over the 80936 d606 merge-base plus current
+	// main's independently ratcheted 562-line increase. The accepted ownership
+	// cost replaces flattened shared state with five explicit lifetime owners
+	// and typed evidence seams; retain 25 lines of ratchet headroom.
+	{Dir: "internal/core", Max: 83063},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},

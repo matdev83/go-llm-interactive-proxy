@@ -219,10 +219,13 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
-	stream := &retryRecvStream{executor: ex, traceID: "trace-append-retry"}
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
+		traceID: "trace-append-retry",
+	})}
+	bindTestRuntimeOwners(stream, ex)
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
 
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 	if prov.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls=%d want 0 while frontend-egress fact is not durable", prov.settleCalls.Load())
 	}
@@ -232,7 +235,7 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	}
 
 	recorder.err = nil
-	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls=%d want 1 after durable append recovers", prov.settleCalls.Load())
 	}

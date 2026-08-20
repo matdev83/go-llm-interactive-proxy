@@ -103,30 +103,22 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 	return fact, true
 }
 
-func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, outcome metering.AttemptOutcome, surfaced metering.SurfacedState, usageEv lipapi.Event) {
-	if s == nil || s.executor == nil {
+func (t *turnTerminal) emitBackendEgressMeteringFactForAttempt(
+	ctx context.Context,
+	attempt *attemptSession,
+	outcome metering.AttemptOutcome,
+	surfaced metering.SurfacedState,
+	usageEv lipapi.Event,
+) {
+	if t == nil || t.emitBackendEgress == nil || attempt == nil {
 		return
 	}
-	s.executor.emitBackendEgressMeteringFact(ctx, s.bleg.BLegID, outcome, surfaced, usageEv)
+	t.emitBackendEgress(ctx, attempt.bleg.BLegID, outcome, surfaced, usageEv)
 }
 
-func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) (metering.Fact, bool) {
-	if s == nil || s.executor == nil {
+func (t *turnTerminal) emitFrontendEgressMeteringFact(ctx context.Context, traceID string, usageEv lipapi.Event) (metering.Fact, bool) {
+	if t == nil || t.emitFrontendEgress == nil {
 		return metering.Fact{}, false
 	}
-	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, s.resolveCustomerUsage(ctx, usageEv))
-}
-
-func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {
-	if s == nil {
-		return lipapi.Event{}
-	}
-	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEventsCopy()))
-	if ev.Kind != "" {
-		return ev
-	}
-	if s.lastAuthorityUsage.Kind != "" {
-		return s.lastAuthorityUsage
-	}
-	return lipapi.Event{Kind: lipapi.EventUsageDelta}
+	return t.emitFrontendEgress(ctx, traceID, usageEv)
 }

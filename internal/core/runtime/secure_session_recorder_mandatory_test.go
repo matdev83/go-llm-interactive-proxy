@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -14,14 +15,20 @@ func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *
 	ex := TestExecutor()
 	ex.SecureSessionRecordingMandatory = true
 	s := &retryRecvStream{
-		secureRecvRecordingHardStop: true,
-		executor:                    ex,
-		cand:                        routing.AttemptCandidate{Key: "cand-1"},
-		traceID:                     "tr-mand",
-		aLegID:                      "a-mand",
+		terminal:         newTurnTerminal(),
+		recovery:         &recoveryController{},
+		responsePipeline: &responsePipeline{recordingOutcome: responseRecordingMandatoryPostCommitFailure},
+		attempt:          testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{Key: "cand-1"}, authorityLifecycle{}),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID: "tr-mand",
+			aLegID:  "a-mand",
+		}),
 	}
-	s.markCommitted()
-	_, err := s.tryReplacementIteration(context.Background())
+	bindTestRuntimeOwners(s, ex)
+	s.terminal.markCommitted(s.attempt.snapshot())
+	request := s.facts.terminalFacts()
+	request.replacementBlocked = true
+	_, err := s.recovery.tryReplacementIteration(context.Background(), request, s.attempt.require(), s.terminal.committed())
 	if err == nil {
 		t.Fatal("expected error")
 	}

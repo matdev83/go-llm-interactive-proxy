@@ -156,22 +156,18 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	priorState := out.authority
 	priorCand := out.cand
 	rs := &retryRecvStream{
-		executor:  ex,
-		bus:       hooks.New(hooks.Config{}),
-		baseline:  authorityOpenParams(t, aLegID, budget).baseline,
-		budget:    budget,
-		aLegID:    aLegID,
-		traceID:   "trace-1",
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      out.bleg,
-		cand:      priorCand,
-		authority: testAuthorityLifecycle(ex, priorState, priorCand),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: authorityOpenParams(t, aLegID, budget).baseline,
+			aLegID:   aLegID,
+			traceID:  "trace-1",
+		}),
+		recovery: &recoveryController{budget: budget, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(out.bleg, priorCand, testAuthorityLifecycle(ex, priorState, priorCand)),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}

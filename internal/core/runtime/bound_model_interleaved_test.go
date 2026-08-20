@@ -51,8 +51,11 @@ func TestBoundModel_InterleavedContinuationRetainsBoundCatalogOnBareContext(t *t
 		"model-1": {Source: modelcatalog.FactSourceCatalog},
 	})
 	catalog.PublishSnapshot(modelcatalog.Snapshot{Generation: "catalog-A", Index: idxA})
-	from.boundCatalog = catalog.BoundView()
-	from.boundCatalogOK = true
+	from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+		f.boundCatalog = catalog.BoundView()
+		f.boundCatalogOK = true
+		return f
+	})
 	catalog.PublishSnapshot(modelcatalog.Snapshot{Generation: "catalog-B", Index: idxB})
 
 	recorder := &boundInterleavedCatalogRecorder{inner: modelcatalog.NewCatalogResolver(

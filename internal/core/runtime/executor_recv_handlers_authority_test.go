@@ -48,17 +48,18 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 	setupRecvSuccessStream := func(t *testing.T, auth *recordingAuthorityService, bus *hooks.Bus) (*Executor, *retryRecvStream) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+		ex.Bus = bus
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        bus,
-			baseline:   lipapi.Call{ID: "request-recv", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-recv",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-recv", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-recv",
+				aLegID:   aLegID,
+			}),
+			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recv", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -76,7 +77,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (success-event failures settle partial usage)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after authority cleanup")
 		}
 	}
@@ -89,9 +90,10 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			ToolCallPolicies: []toolpolicy.Policy{denyingToolPolicyStub{}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("tool_reactor_failure", func(t *testing.T) {
@@ -105,8 +107,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		_, rs := setupRecvSuccessStream(t, auth, bus)
 		// Nil RuntimeSnapshot => applyToolPolicies returns nil, so the reactor error is reached.
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("response_part_hook_failure", func(t *testing.T) {
@@ -118,8 +120,8 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		_, rs := setupRecvSuccessStream(t, auth, bus)
 		ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hi"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("completion_gate_failure", func(t *testing.T) {
@@ -131,9 +133,10 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			CompletionGates: []completion.Gate{failingCompletionGateStub{err: gateErr}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
-		assertSettledNotLeaked(t, auth, rs, err, cont)
+		_, err := testRecvOne(context.Background(), rs, ev)
+		assertSettledNotLeaked(t, auth, rs, err, false)
 	})
 
 	t.Run("mandatory_recorder_failure_gated", func(t *testing.T) {
@@ -147,17 +150,18 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		})
 		ex.SecureSessionRecorder = failingSecureRecorderStub{err: recErr}
 		ex.SecureSessionRecordingMandatory = true
-		rs.secureTurnOK = true
+		rs = withTestRecvFacts(rs, func(f recvTurnFacts) recvTurnFacts {
+			f.secureTurnOK = true
+			return f
+		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
 		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (gated recorder failure must settle authority, not leak)", auth.settleCalls.Load())
@@ -165,7 +169,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after gated recorder failure")
 		}
 	})
@@ -178,22 +182,23 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.SecureSessionRecorder = failingSecureRecorderStub{err: recErr}
 		ex.SecureSessionRecordingMandatory = true
-		rs.secureTurnOK = true
+		rs = withTestRecvFacts(rs, func(f recvTurnFacts) recvTurnFacts {
+			f.secureTurnOK = true
+			return f
+		})
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hi"}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
 		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
-		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (non-gated recorder failure must settle authority, not leak)", auth.settleCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after non-gated recorder failure")
 		}
 	})
@@ -210,25 +215,26 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.SecureSessionRecorder = failingSecureRecorderStub{err: recErr}
 		ex.SecureSessionRecordingMandatory = true
-		rs.secureTurnOK = true
+		rs = withTestRecvFacts(rs, func(f recvTurnFacts) recvTurnFacts {
+			f.secureTurnOK = true
+			return f
+		})
 		// StreamUsage == nil => finalizeTokenAccounting settles Final and returns ok=false,
 		// so the handler falls through to the client-facing recorder that then fails.
 		ex.StreamUsage = nil
+		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
-		_, cont, err := rs.handleRecvSuccess(context.Background(), ev)
+		_, err := testRecvOne(context.Background(), rs, ev)
 		if err == nil {
 			t.Fatal("expected mandatory recorder failure")
 		}
 		if !errors.Is(err, recErr) {
 			t.Fatalf("error = %v, want recorder error", err)
 		}
-		if cont {
-			t.Fatal("expected cont=false so the recorder error surfaces to the client")
-		}
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("settle calls = %d, want 1 (must not double-settle when finalizeTokenAccounting already settled)", auth.settleCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("authoritySettled should remain true after the recorder failure")
 		}
 	})

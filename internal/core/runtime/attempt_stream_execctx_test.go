@@ -14,15 +14,19 @@ func TestRetryRecvStream_recvExecContext_mergesViewsAndRoutePrefs(t *testing.T) 
 	t.Parallel()
 	want := execctx.Views{Session: session.SessionView{ClientSessionHint: "sid"}}
 	s := &retryRecvStream{
-		traceID:      "tr1",
-		aLegID:       "a1",
-		recvViewsOK:  true,
-		recvViews:    want,
-		routePrefs:   []string{"cand-a", "cand-b"},
-		secureTurnOK: true,
-		secureTurn:   execctx.SecureSessionTurn{SessionID: domain.SessionID("ss"), TurnID: domain.TurnID("tt")},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:      "tr1",
+			aLegID:       "a1",
+			recvViewsOK:  true,
+			recvViews:    want,
+			routePrefs:   []string{"cand-a", "cand-b"},
+			secureTurnOK: true,
+			secureTurn:   execctx.SecureSessionTurn{SessionID: domain.SessionID("ss"), TurnID: domain.TurnID("tt")},
+		}),
+		responsePipeline: newResponsePipeline(),
+		terminal:         newTurnTerminal(),
 	}
-	ctx := s.recvExecContext(context.Background())
+	ctx := s.responsePipeline.withDecisionEvidence(s.facts.projectContext(context.Background(), s.responsePipeline.log), s.terminal)
 	if got := diag.TraceID(ctx); got != "tr1" {
 		t.Fatalf("diag trace: got %q want tr1", got)
 	}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
@@ -57,16 +56,16 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		t.Helper()
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        hooks.New(hooks.Config{}),
-			baseline:   lipapi.Call{ID: "request-recover-drain-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-recover-drain-leak",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-recover-drain-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-recover-drain-leak",
+				aLegID:   aLegID,
+			}),
+			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-recover-drain-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: newResponsePipeline(),
 		}
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -91,7 +90,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}
@@ -104,10 +103,11 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
+		bindTestRuntimeOwners(rs, ex)
 
 		// Queue a response_finished in recoverDrain so Recv takes the drain path
 		// rather than pulling from the backend stream.
-		rs.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		ev, err := rs.Recv(context.Background())
 		if err != nil {
@@ -127,7 +127,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		ex.StreamUsage = nil
 
 		// Queue a response_finished in recoverDrain so Recv takes the drain path.
-		rs.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
+		rs.responsePipeline.recoverDrain = []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 
 		ev, err := rs.Recv(context.Background())
 		if err != nil {
@@ -138,7 +138,7 @@ func TestRecoverDrainAuthorityLeakOnSettleFailure(t *testing.T) {
 		if ev.Kind != lipapi.EventResponseFinished {
 			t.Fatalf("event kind = %q, want response_finished (fall-through branch)", ev.Kind)
 		}
-		if !rs.isFinished() {
+		if !rs.terminal.finished() {
 			t.Fatal("expected stream marked finished after the drain fall-through branch")
 		}
 		assertReleasedAfterFailedSettle(t, auth, rs)
@@ -173,30 +173,29 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 		call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 		output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 	}, accountingstream.Config{})
-
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-idle-finish-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-idle-finish-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-idle-finish-leak",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		seenEvents: []lipapi.Event{
+		}, authorityCandidate()), newAttemptAccountingTracker(start)),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		}},
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
-		}, start),
-		traceID:    "trace-idle-finish-leak",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(start),
+		}, start)},
 	}
-	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	bindTestRuntimeOwners(rs, ex)
+	rs.responsePipeline.visibleText.WriteString("hello")
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 
 	// handleRecvError now defers response_finished authority finalization to the recoverDrain
 	// drain path on the next Recv call (single-owner invariant matches handleRecvEOF). It returns a
@@ -204,12 +203,9 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	// drain check; the drain path finalizes via the centralized helper (settle + losing release
 	// fallback) and emits the synthesized usage_delta, fixing both the leak and the client-reporting
 	// consistency issue.
-	ev, cont, err := rs.handleRecvError(context.Background(), context.Background(), context.DeadlineExceeded, idleContextDeadline{active: true, parent: context.Background()}, ttftContextDeadline{})
+	ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err != nil {
 		t.Fatalf("handleRecvError: %v", err)
-	}
-	if cont {
-		t.Fatal("expected idle recovery to return to the caller so the next Recv drains recoverDrain")
 	}
 	if ev.Kind != "" {
 		t.Fatalf("deferred idle recovery event kind = %q, want empty (finish stays in recoverDrain)", ev.Kind)
@@ -217,7 +213,7 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	if auth.settleCalls.Load() != 0 || auth.releaseCalls.Load() != 0 {
 		t.Fatalf("settle=%d release=%d, want 0/0 (finalization deferred to the drain path)", auth.settleCalls.Load(), auth.releaseCalls.Load())
 	}
-	if len(rs.recoverDrain) == 0 {
+	if len(rs.responsePipeline.recoverDrain) == 0 {
 		t.Fatal("recoverDrain should hold the deferred finish after handleRecvError")
 	}
 
@@ -262,7 +258,7 @@ func TestIdleRecoveryFinishAuthorityLeakOnSettleFailure(t *testing.T) {
 	if rel.ReservationID != reservationID {
 		t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 	}
 }

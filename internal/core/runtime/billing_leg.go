@@ -104,88 +104,80 @@ func (e *Executor) operatorRateRef(ctx context.Context, primary routing.Primary)
 	return e.BillingIdentity.OperatorRateRef(ctx, backend, model)
 }
 
-func (s *retryRecvStream) recordBillingLeg(ctx context.Context, command sdkterminal.Command) {
-	if s == nil || s.executor == nil || !s.executor.billingEnabled() {
+// recordBillingLegForAttempt records exactly one leg for the explicitly
+// snapshotted B-leg owner. Terminal callbacks may run after the attempt slot
+// has been replaced; never re-read the current slot here.
+func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, evidence attemptTerminalEvidence, command sdkterminal.Command, streamEv lipapi.Event, committed bool, billingState *billingCallState) {
+	if t == nil || t.billingEnabled == nil || !t.billingEnabled() || t.operatorRateRef == nil || t.billingWorkload == nil {
 		return
 	}
-	s.ensureBillingCallState()
-	blegID := strings.TrimSpace(s.bleg.BLegID)
+	if attempt == nil || !attempt.claimBillingLegRecord() {
+		return
+	}
+	blegID := strings.TrimSpace(evidence.bleg.BLegID)
 	if blegID == "" {
-		blegID = billingSyntheticBLegID(s.bleg.Seq)
+		blegID = billingSyntheticBLegID(evidence.bleg.Seq)
 	}
-	s.billingLegMu.Lock()
-	if s.billingLegRecorded == nil {
-		s.billingLegRecorded = make(map[string]struct{})
+	if evidence.bleg.Seq > 0 && billingState != nil {
+		billingState.noteAllocatedBLeg(blegID, evidence.bleg.Seq)
 	}
-	if _, seen := s.billingLegRecorded[blegID]; seen {
-		s.billingLegMu.Unlock()
-		return
-	}
-	s.billingLegRecorded[blegID] = struct{}{}
-	s.billingLegMu.Unlock()
-	if s.bleg.Seq > 0 {
-		s.billingCallState.noteAllocatedBLeg(blegID, s.bleg.Seq)
-	}
-	now := s.now()
-	started := s.accounting.requestStartedAt
+	now := t.nowTime()
+	started := evidence.startedAt
 	if started.IsZero() {
 		started = now
 	}
-	s.billingCallState.noteLegTimes(started, now)
+	if billingState != nil {
+		billingState.noteLegTimes(started, now)
+	}
 	surfaced := billing.SurfacedNo
-	if command == sdkterminal.CommandNormalFinish || s.isCommitted() {
+	if command == sdkterminal.CommandNormalFinish || committed {
 		surfaced = billing.SurfacedYes
 	}
-	streamEv := s.billingEvidenceFallback()
+	workloadCtx := ctx
 	legRecord := billingLegRecord(billingLegDraft{
-		callID:          s.billingCallID,
-		aLegID:          s.aLegID,
-		bLegID:          s.bleg.BLegID,
-		seq:             s.bleg.Seq,
-		primary:         s.cand.Primary,
+		callID:          request.billingCallID,
+		aLegID:          request.aLegID,
+		bLegID:          evidence.bleg.BLegID,
+		seq:             evidence.bleg.Seq,
+		primary:         evidence.candidate.Primary,
 		startedAt:       started,
 		finishedAt:      now,
 		command:         command,
 		surfaced:        surfaced,
-		finalize:        s.finalizeBillingEvidence(ctx, "record_leg"),
+		finalize:        t.finalizeBillingEvidence(ctx, request, evidence, billingState, "record_leg", streamEv),
 		stream:          streamEv,
-		operatorRateRef: s.executor.operatorRateRef(ctx, s.cand.Primary),
-		workload:        s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
+		operatorRateRef: t.operatorRateRef(workloadCtx, evidence.candidate.Primary),
+		workload:        t.billingWorkload(workloadCtx, request.aLegID),
 	})
-	s.executor.observeBillingLeg(ctx, legRecord)
-	s.executor.appendIndependentCallLeg(ctx, s.billingCallID, legRecord)
+	if t.observeBillingLeg != nil {
+		t.observeBillingLeg(ctx, legRecord)
+	}
+	if t.appendBillingLeg != nil {
+		t.appendBillingLeg(ctx, request.billingCallID, legRecord)
+	}
 }
 
-func (s *retryRecvStream) finalizeBillingEvidence(ctx context.Context, reason string) lipapi.Event {
-	fallback := s.billingEvidenceFallback()
-	if s == nil || s.executor == nil {
+func (t *turnTerminal) finalizeBillingEvidence(ctx context.Context, request requestTerminalFacts, evidence attemptTerminalEvidence, billingState *billingCallState, reason string, fallback lipapi.Event) lipapi.Event {
+	if t == nil || t.finalizeBilling == nil {
 		return fallback
 	}
-	s.ensureBillingCallState()
-	ev, ok := s.billingCallState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
-		TraceID: strings.TrimSpace(s.traceID),
-		ALegID:  strings.TrimSpace(s.aLegID),
-		BLegID:  strings.TrimSpace(s.bleg.BLegID),
-		Backend: strings.TrimSpace(s.cand.Primary.Backend),
-		Model:   strings.TrimSpace(s.cand.Primary.Model),
+	if billingState == nil {
+		return fallback
+	}
+	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+		TraceID: strings.TrimSpace(request.traceID),
+		ALegID:  strings.TrimSpace(request.aLegID),
+		BLegID:  strings.TrimSpace(evidence.bleg.BLegID),
+		Backend: strings.TrimSpace(evidence.candidate.Primary.Backend),
+		Model:   strings.TrimSpace(evidence.candidate.Primary.Model),
 		Reason:  strings.TrimSpace(reason),
 	}, func(cctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-		return s.executor.callFinalizeBilling(cctx, in)
+		return t.finalizeBilling(cctx, in)
 	})
 	if !ok {
 		return fallback
 	}
 	return ev
-}
-
-func (s *retryRecvStream) billingEvidenceFallback() lipapi.Event {
-	if s == nil {
-		return emptyOperatorUsageShell()
-	}
-	if s.lastAuthorityUsage.Kind != "" {
-		return s.lastAuthorityUsage
-	}
-	return lastUsageDeltaOrShell(s.seenEventsCopy())
 }
 
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
@@ -209,21 +201,6 @@ func mergeStreamCostOntoLeg(finalize, stream billing.FinalBillingEvidence) billi
 		finalize.Authority = stream.Authority
 	}
 	return finalize
-}
-
-func isBillingTurnTerminalCommand(command sdkterminal.Command) bool {
-	switch command {
-	case sdkterminal.CommandNormalFinish, sdkterminal.CommandEOF, sdkterminal.CommandCancel,
-		sdkterminal.CommandClose, sdkterminal.CommandTimeout, sdkterminal.CommandPartialError,
-		sdkterminal.CommandFrontendEncoderFailure:
-		return true
-	default:
-		return false
-	}
-}
-
-func isCallClosureTerminalCommand(command sdkterminal.Command) bool {
-	return command.AllowsScope(sdkterminal.ScopeRequest)
 }
 
 func legOutcomeFromCommand(command sdkterminal.Command) billing.LegOutcome {
@@ -250,15 +227,6 @@ func turnOutcomeFromCommand(command sdkterminal.Command) billing.TurnOutcome {
 	default:
 		return billing.TurnOutcomeFailed
 	}
-}
-
-func (s *retryRecvStream) handoffBillingTurn(ctx context.Context, command sdkterminal.Command) {
-	if s == nil || s.executor == nil || !isCallClosureTerminalCommand(command) {
-		return
-	}
-	s.billingCallClosureMu.Lock()
-	defer s.billingCallClosureMu.Unlock()
-	s.appendCallClosureLocked(ctx, command)
 }
 
 func billingSyntheticBLegID(seq int) string {

@@ -40,39 +40,39 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-eof-recovery", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-eof-recovery",
+			aLegID:   "a-leg-eof-recovery",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		seenEvents: []lipapi.Event{
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start),
-		traceID:       "trace-eof-recovery",
-		aLegID:        "a-leg-eof-recovery",
-		accounting:    newAttemptAccountingTracker(start),
+		}},
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)},
 	}
-	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
-	rs.markCommitted()
+	bindTestRuntimeOwners(rs, ex)
+	rs.responsePipeline.visibleText.WriteString("hello")
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	rs.terminal.markCommitted(rs.attempt.snapshot())
 
 	// handleRecvEOF must defer finalizeTokenAccounting and settle to the downstream drain path
 	// in Recv: settle must not have run, recoverDrain must hold the Finish, and the stream
 	// must not yet be marked finished.
-	if _, err := rs.handleRecvEOF(context.Background()); err != nil {
+	if _, err := testRecvEOF(context.Background(), rs); err != nil {
 		t.Fatalf("handleRecvEOF: %v", err)
 	}
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0 (deferred to drain path)", auth.settleCalls.Load())
 	}
-	if len(rs.recoverDrain) == 0 {
+	if len(rs.responsePipeline.recoverDrain) == 0 {
 		t.Fatal("recoverDrain should hold the deferred Finish after handleRecvEOF")
 	}
-	if rs.isFinished() {
+	if rs.terminal.finished() {
 		t.Fatal("stream should not be marked finished before the drain path runs")
 	}
 
@@ -92,7 +92,7 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	if finishEv.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("event kind = %q, want response_finished", finishEv.Kind)
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream should be marked finished after the drain path runs")
 	}
 	if auth.settleCalls.Load() != 1 {
@@ -137,39 +137,36 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-idle-finish", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			traceID:  "trace-idle-finish",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(7),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		seenEvents: []lipapi.Event{
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
-		},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
+		}},
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
-		}, start),
-		traceID:    "trace-idle-finish",
-		aLegID:     aLegID,
-		accounting: newAttemptAccountingTracker(start),
+		}, start)},
 	}
-	rs.visibleText.WriteString("hello")
-	rs.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
+	bindTestRuntimeOwners(rs, ex)
+	rs.responsePipeline.visibleText.WriteString("hello")
+	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
 
 	// handleRecvError now defers response_finished authority finalization to the recoverDrain
 	// drain path on the next Recv call (single-owner invariant matches handleRecvEOF, and the
 	// centralized helper emits the synthesized usage_delta there). It returns a zero event with
 	// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check,
 	// rather than finalizing inline or driving a replacement iteration.
-	ev, cont, err := rs.handleRecvError(context.Background(), context.Background(), context.DeadlineExceeded, idleContextDeadline{active: true, parent: context.Background()}, ttftContextDeadline{})
+	ev, err := testRecvError(context.Background(), rs, context.DeadlineExceeded)
 	if err != nil {
 		t.Fatalf("handleRecvError: %v", err)
-	}
-	if cont {
-		t.Fatal("expected idle recovery to return to the caller so the next Recv drains recoverDrain")
 	}
 	if ev.Kind != "" {
 		t.Fatalf("deferred idle recovery event kind = %q, want empty (finish stays in recoverDrain)", ev.Kind)
@@ -177,10 +174,10 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0 (finalization deferred to the drain path)", auth.settleCalls.Load())
 	}
-	if len(rs.recoverDrain) == 0 {
+	if len(rs.responsePipeline.recoverDrain) == 0 {
 		t.Fatal("recoverDrain should hold the deferred finish after handleRecvError")
 	}
-	if rs.isFinished() {
+	if rs.terminal.finished() {
 		t.Fatal("stream should not be marked finished before the drain path runs")
 	}
 
@@ -208,13 +205,13 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 	if !sawSynthesizedUsage {
 		t.Fatal("expected the drain path to emit the synthesized usage_delta before the finish")
 	}
-	if !rs.isFinished() {
+	if !rs.terminal.finished() {
 		t.Fatal("stream should be marked finished after the drain path runs")
 	}
 	if auth.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after recovery finish")
 	}
 	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
@@ -237,18 +234,19 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	}
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-close"},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-close"},
+			traceID:  "trace-close",
+			aLegID:   aLegID,
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		traceID: "trace-close",
-		aLegID:  aLegID,
+		}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
-	rs.storeInner(lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
+	bindTestRuntimeOwners(rs, ex)
+	testStoreInner(rs, lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}}))
 
 	if err := rs.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -263,7 +261,7 @@ func TestRetryRecvStreamCloseSettlesAuthorityReservation(t *testing.T) {
 	if !got.ClientCanceled {
 		t.Fatal("expected client canceled settlement")
 	}
-	if !rs.authority.Settled() {
+	if !testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authoritySettled=true after Close")
 	}
 }
@@ -284,22 +282,22 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
-		executor: ex,
-		baseline: lipapi.Call{ID: "request-eof-failure"},
-		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-		cand:     authorityCandidate(),
-		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{ID: "request-eof-failure"},
+			traceID:  "trace-eof-failure",
+			aLegID:   "a-leg-eof-failure",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 			admissionInput:  testAuthorityAdmissionInput(8),
 			admissionResult: auth.admitResult,
-		}, authorityCandidate()),
-		seenEvents:    []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
-		recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start),
-		traceID:       "trace-eof-failure",
-		aLegID:        "a-leg-eof-failure",
-		accounting:    newAttemptAccountingTracker(start),
+		}, authorityCandidate())),
+		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
+		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)},
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	_, err := rs.handleRecvEOF(context.Background())
+	_, err := testRecvEOF(context.Background(), rs)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("handleRecvEOF err = %v, want EOF", err)
 	}
@@ -335,16 +333,17 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-final", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		bindTestRuntimeOwners(rs, ex)
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -383,17 +382,18 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		}
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{ID: "request-partial"},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-partial"},
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(8),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
-			seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}},
+			}, authorityCandidate())),
+			responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
 		}
-		rs.recordPartialTokenAccounting(context.Background(), "partial", errors.New("stream dropped"))
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.recordPartialTokenAccounting(context.Background(), rs.attempt.snapshot(), "partial", errors.New("stream dropped"), rs.facts.terminalFacts(), rs.responsePipeline)
 		if auth.settleCalls.Load() != 1 {
 			t.Fatalf("partial settle calls = %d, want 1", auth.settleCalls.Load())
 		}
@@ -408,14 +408,14 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		// reservation is already settled, so a strict reservation is not double-settled as
 		// Cancellation on top of the prior Partial settle. Previously this re-settled, which a
 		// strict authority store would reject or double-count; the leak fix removes that.
-		rs.persistCancellationBilling(context.Background(), "client canceled")
+		rs.terminal.persistCancellationBilling(context.Background(), rs.attempt.snapshot(), "client canceled", rs.facts.terminalFacts(), rs.responsePipeline)
 		if auth.settleCalls.Load() != 0 {
 			t.Fatalf("cancellation settle calls = %d, want 0 (already-settled reservation must not be double-settled)", auth.settleCalls.Load())
 		}
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (already-settled reservation must not be released)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled to remain true after cancellation billing on an already-settled reservation")
 		}
 	})
@@ -436,16 +436,17 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex.StreamUsage = accountingstream.New(nil, accountingstream.Config{})
 
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-empty-reconstruct", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		bindTestRuntimeOwners(rs, ex)
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -471,7 +472,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		if settle.EstimatedUsage.Value != 7 {
 			t.Fatalf("estimated usage = %d, want 7", settle.EstimatedUsage.Value)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	})
@@ -492,16 +493,17 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		ex.StreamUsage = nil
 
 		rs := &retryRecvStream{
-			executor: ex,
-			baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
-			cand:     authorityCandidate(),
-			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-authority-only", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: aLegID, Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{
 				admissionInput:  testAuthorityAdmissionInput(7),
 				admissionResult: auth.admitResult,
-			}, authorityCandidate()),
+			}, authorityCandidate())),
 		}
-		usageEv, ok, err := rs.finalizeTokenAccounting(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		bindTestRuntimeOwners(rs, ex)
+		usageEv, ok, err := rs.terminal.finalizeTokenAccounting(context.Background(), rs.attempt.snapshot(), lipapi.Event{Kind: lipapi.EventResponseFinished}, rs.facts.terminalFacts(), rs.responsePipeline)
 		if err != nil {
 			t.Fatalf("finalizeTokenAccounting: %v", err)
 		}
@@ -521,7 +523,7 @@ func TestRetryRecvStreamAuthoritySettlementPaths(t *testing.T) {
 		if settle.ReservationID != "reservation-authority-only" {
 			t.Fatalf("settle reservation ID = %q, want reservation-authority-only", settle.ReservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle")
 		}
 	})

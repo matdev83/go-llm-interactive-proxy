@@ -82,19 +82,19 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 		bus := hooks.New(hooks.Config{})
 		rs := &retryRecvStream{
-			executor:   ex,
-			bus:        bus,
-			baseline:   lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
-			bleg:       b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1},
-			cand:       authorityCandidate(),
-			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
-			traceID:    "trace-gated-leak",
-			aLegID:     aLegID,
-			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+				traceID:  "trace-gated-leak",
+				aLegID:   aLegID,
+			}),
+			attempt:          testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1}, authorityCandidate(), testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
+			responsePipeline: newResponsePipeline(),
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
 		})
+		bindTestRuntimeOwners(rs, ex)
 		return ex, rs
 	}
 
@@ -114,7 +114,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		if auth.releaseCalls.Load() != 0 {
 			t.Fatalf("release calls = %d, want 0 (successful final settle must not release)", auth.releaseCalls.Load())
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after final settle on gated completion")
 		}
 	}
@@ -140,7 +140,7 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		if rel.ReservationID != reservationID {
 			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
 		}
-		if !rs.authority.Settled() {
+		if !testAttemptSession(rs).authority.Settled() {
 			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
 		}
 	}
@@ -150,12 +150,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		auth := makeAuth(nil)
 		_, rs := setupGatedStream(t, auth)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		assertSettledNotReleased(t, auth, rs, ev)
 	})
@@ -165,12 +162,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 		auth := makeAuth(errors.New("settle boom"))
 		_, rs := setupGatedStream(t, auth)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		assertReleasedAfterFailedSettle(t, auth, rs)
 		if ev.Kind != lipapi.EventResponseFinished {
@@ -186,13 +180,11 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
 			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
 		}, accountingstream.Config{})
+		bindTestRuntimeOwners(rs, ex)
 
-		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 		if err != nil {
 			t.Fatalf("handleRecvSuccess: %v", err)
-		}
-		if cont {
-			t.Fatal("expected cont=false on the normal gated completion path")
 		}
 		// The ok branch returns the synthesized usage event, not the finish event.
 		if ev.Kind != lipapi.EventUsageDelta {

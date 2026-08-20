@@ -147,12 +147,15 @@ func TestCustomerSettlement_AccumulatorDrivesOutputWhenSettleInputIsProviderAuth
 	}
 
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-acc-auth",
-		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-acc-auth"},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-acc-auth",
+			baseline: lipapi.Call{ID: "req-acc-auth"},
+		}),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "released-body"})
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "released-body"})
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 
@@ -178,12 +181,15 @@ func TestCustomerSettlement_CountOutputUsesTextNotReasoningBuffer(t *testing.T) 
 	counter := &capturingStreamCounter{call: call, output: output}
 	ex := &Executor{}
 	ex.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
-	stream := &retryRecvStream{executor: ex, customer: newCustomerEvidenceAccumulator(), baseline: lipapi.Call{ID: "c"}}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: "REASONING-NOT-IN-TEXT"})
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, Delta: "{\"x\":1}"})
+	stream := &retryRecvStream{responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()}, facts: testRecvTurnFacts(recvTurnFacts{
+		baseline: lipapi.Call{ID: "c"},
+	})}
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: "REASONING-NOT-IN-TEXT"})
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, Delta: "{\"x\":1}"})
 
-	ev := stream.customerUsageFromReleased(context.Background())
+	ev := stream.responsePipeline.resolveCustomerUsage(context.Background(), lipapi.Event{})
 	if counter.lastText != "ab" {
 		t.Fatalf("OutputText must be released text only; got %q", counter.lastText)
 	}
@@ -222,9 +228,13 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 
-	stream := &retryRecvStream{executor: ex, traceID: "trace-acc", customer: newCustomerEvidenceAccumulator(), baseline: lipapi.Call{ID: "req-acc"}}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cd"})
+	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
+		traceID:  "trace-acc",
+		baseline: lipapi.Call{ID: "req-acc"},
+	}), responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()}}
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "ab"})
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cd"})
 
 	authorityEv := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 99, OutputTokens: 99, TotalTokens: 198,
@@ -232,17 +242,17 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatalf("settle replay: %v", err)
 	}
 
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("SettleRequest calls=%d want 1", prov.settleCalls.Load())
 	}
-	text, _, _, events := stream.customer.Snapshot()
+	text, _, _, events := stream.responsePipeline.customer.Snapshot()
 	if text != "abcd" || events != 2 {
 		t.Fatalf("accumulator text=%q events=%d", text, events)
 	}
@@ -264,15 +274,15 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 func TestRememberClientEvent_ObservesGateReplacementPath(t *testing.T) {
 	t.Parallel()
 
-	stream := &retryRecvStream{customer: newCustomerEvidenceAccumulator()}
+	stream := &retryRecvStream{responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()}}
 	// Mirrors handleGatedPath / popGateDrainHead: observe only the event actually returned.
-	stream.rememberClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "gated-out"})
-	stream.rememberClientEvent(lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 1})
-	text, _, _, n := stream.customer.Snapshot()
+	stream.responsePipeline.rememberClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "gated-out"})
+	stream.responsePipeline.rememberClientEvent(lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 1})
+	text, _, _, n := stream.responsePipeline.customer.Snapshot()
 	if text != "gated-out" || n != 1 {
 		t.Fatalf("gated release text=%q n=%d", text, n)
 	}
-	if stream.releasedOutputText() != "gated-out" {
-		t.Fatalf("releasedOutputText=%q", stream.releasedOutputText())
+	if stream.responsePipeline.releasedOutputText() != "gated-out" {
+		t.Fatalf("releasedOutputText=%q", stream.responsePipeline.releasedOutputText())
 	}
 }

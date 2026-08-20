@@ -89,26 +89,31 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	ex.Store = st
 	ex.Bus = bus
 	s := &retryRecvStream{
-		executor: ex,
-		bus:      bus,
-		baseline: lipapi.Call{
-			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
-		},
-		budget:   &attemptBudget{max: 3, used: 0},
-		aLegID:   "a1",
-		traceID:  "t1",
-		sel:      sel,
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
-		cand: routing.AttemptCandidate{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+			},
+			aLegID:  "a1",
+			traceID: "t1",
+		}),
+		recovery: newRecoveryController(recoveryControllerInput{
+			opener:         newReplacementOpener(ex, bus, nil),
+			streamRecovery: ex.StreamRecovery,
+			nowFn:          ex.now,
+			budget:         &attemptBudget{max: 3, used: 0},
+			sel:            sel,
+			session:        &routing.SessionRoutingState{},
+			excluded:       map[string]struct{}{},
+			rng:            routing.NewSeededRng(1),
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
-		},
+		}, authorityLifecycle{}),
+		responsePipeline: &responsePipeline{bus: bus},
 	}
-	s.storeInner(inner)
+	testStoreInner(s, inner)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -136,7 +141,7 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	closes.Wait()
 	wg.Wait()
 
-	req, att := s.snapshotTerminals()
+	req, att := testTerminalOwners(s)
 	if req == nil || att == nil {
 		t.Fatal("terminal owners must be initialized after concurrent Close")
 	}
@@ -150,7 +155,7 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	if !ok || out.Command != sdkterminal.CommandClose {
 		t.Fatalf("request outcome=%+v ok=%v want CommandClose", out, ok)
 	}
-	if !s.isFinished() {
+	if !s.terminal.finished() {
 		t.Fatal("stream must be finished after concurrent Close")
 	}
 }

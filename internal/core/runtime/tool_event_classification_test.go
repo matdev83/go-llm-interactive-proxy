@@ -130,7 +130,10 @@ func (f renameFinalizer) Finalize(_ context.Context, call toolcall.CompletedCall
 
 func dispatchClientFacing(t *testing.T, s *retryRecvStream, ev lipapi.Event) {
 	t.Helper()
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+	if s.attempt.snapshot() == nil {
+		testAttemptSession(s)
+	}
+	if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 		t.Fatalf("dispatch %s %s: %v", ev.Kind, ev.ToolCallID, err)
 	}
 }
@@ -185,7 +188,8 @@ func TestDispatchClientFacingEvent_lifecycleClassification(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})
-	s := &retryRecvStream{bus: bus}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: bus}}
+	testAttemptSession(s)
 
 	events := []lipapi.Event{
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "Read"},
@@ -193,7 +197,7 @@ func TestDispatchClientFacingEvent_lifecycleClassification(t *testing.T) {
 		{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"},
 	}
 	for i, ev := range events {
-		if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+		if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 			t.Fatalf("event %d: %v", i, err)
 		}
 	}
@@ -212,10 +216,11 @@ func TestDispatchClientFacingEvent_orphanNamelessIsConservative(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})
-	s := &retryRecvStream{bus: bus}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: bus}}
+	testAttemptSession(s)
 
 	ev := lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
+	if _, err := testRecvOne(context.Background(), s, ev); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
 	if len(rec.seen) != 1 {
@@ -233,14 +238,15 @@ func TestDispatchClientFacingEvent_responsePartHookRenameRefreshesLifecycle(t *t
 		ToolReactors:      []sdkhooks.ToolReactor{rec},
 		ResponsePartHooks: []sdkhooks.ResponsePartHook{renamingResponseHook{to: "bash"}},
 	})
-	s := &retryRecvStream{bus: bus}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: bus}}
+	testAttemptSession(s)
 
 	start := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), start); err != nil {
+	if _, err := testRecvOne(context.Background(), s, start); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	delta := lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`}
-	if _, _, err := s.dispatchClientFacingEvent(context.Background(), delta); err != nil {
+	if _, err := testRecvOne(context.Background(), s, delta); err != nil {
 		t.Fatalf("delta: %v", err)
 	}
 
@@ -261,13 +267,13 @@ func TestFinalizerRenamedLifecycleClassifiedNormally(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})
-	s := &retryRecvStream{bus: bus}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: bus}}
 
 	a := newToolCallAssembler([]toolcall.Finalizer{renameFinalizer{to: "bash"}}, 1024, []lipapi.ToolDef{{Name: "read"}})
 	if a == nil {
 		t.Fatal("assembler")
 	}
-	s.toolFinal = a
+	testAttemptSession(s).toolFinal = a
 
 	meta := toolcall.Meta{}
 	_, _ = a.ingest(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"}, meta)
@@ -277,12 +283,20 @@ func TestFinalizerRenamedLifecycleClassifiedNormally(t *testing.T) {
 	}
 
 	for {
-		ev, ok := s.popToolFinalDrain()
+		ev, ok := s.attempt.require().toolFinal.popDrain()
 		if !ok {
 			break
 		}
-		if _, _, err := s.dispatchClientFacingEvent(context.Background(), ev); err != nil {
-			t.Fatalf("dispatch: %v", err)
+		prepared := recvEventPreparation{event: ev}
+		transformed := s.responsePipeline.transformClientEvent(context.Background(), s.facts, s.attempt.require(), ev, prepared)
+		if transformed.err != nil {
+			t.Fatalf("dispatch: %v", transformed.err)
+		}
+		if transformed.swallowed {
+			if transformed.sourceFinished {
+				s.responsePipeline.forgetToolClassification(transformed.sourceID)
+			}
+			continue
 		}
 	}
 
@@ -302,7 +316,7 @@ func TestFinalizerRenamedLifecycleClassifiedNormally(t *testing.T) {
 func TestDispatchClientFacingEvent_finishCleanupPreventsStaleReuse(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"})
@@ -322,7 +336,7 @@ func TestDispatchClientFacingEvent_finishCleanupPreventsStaleReuse(t *testing.T)
 func TestDispatchClientFacingEvent_namedFinishCleanupPreventsStaleReuse(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1", ToolName: "read"})
@@ -339,12 +353,15 @@ func TestDispatchClientFacingEvent_namedFinishCleanupPreventsStaleReuse(t *testi
 func TestDispatchClientFacingEvent_swallowedFinishCleanupPreventsStaleReuse(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{
 		ToolReactors: []sdkhooks.ToolReactor{rec, swallowFinished{}},
-	})}
+	})}}
+	testAttemptSession(s)
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
-	_, swallowed, err := s.dispatchClientFacingEvent(context.Background(), lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"})
+	prepared := recvEventPreparation{event: lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"}}
+	transformed := s.responsePipeline.transformClientEvent(context.Background(), s.facts, s.attempt.require(), prepared.event, prepared)
+	swallowed, err := transformed.swallowed, transformed.err
 	if err != nil {
 		t.Fatalf("finish: %v", err)
 	}
@@ -364,7 +381,7 @@ func TestDispatchClientFacingEvent_swallowedFinishCleanupPreventsStaleReuse(t *t
 func TestDispatchClientFacingEvent_interleavedIDsDoNotCross(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "a", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "b", ToolName: "bash"})
@@ -383,10 +400,10 @@ func TestDispatchClientFacingEvent_interleavedIDsDoNotCross(t *testing.T) {
 func TestDispatchClientFacingEvent_resetToolFinalClearsAbandonedState(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
-	s.resetToolFinal()
+	clearAttemptToolState(s.responsePipeline, s.attempt.snapshot())
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
 
 	if len(rec.seen) != 2 {
@@ -399,9 +416,9 @@ func TestDispatchClientFacingEvent_resetToolFinalClearsAbandonedState(t *testing
 func TestDispatchClientFacingEvent_reactorRenameRefreshesLaterNamelessFragment(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{
 		ToolReactors: []sdkhooks.ToolReactor{rec, rewriteStartedName{to: "bash"}},
-	})}
+	})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
@@ -418,7 +435,7 @@ func TestDispatchClientFacingEvent_reactorRenameRefreshesLaterNamelessFragment(t
 func TestDispatchClientFacingEvent_osCommandIgnoresReadOnlyCommandText(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 
 	payloads := []struct {
 		id    string
@@ -452,7 +469,7 @@ func TestDispatchClientFacingEvent_osCommandIgnoresReadOnlyCommandText(t *testin
 func TestDispatchClientFacingEvent_applyPatchIgnoresDeleteHunk(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{rec}})}}
 	deleteHunk := "*** Begin Patch\n*** Delete File: secret.txt\n*** End Patch\n"
 
 	dispatchClientFacing(t, s, lipapi.Event{
@@ -501,9 +518,9 @@ func TestToolEventClassificationState_enrichIgnoresArgsDelta(t *testing.T) {
 func TestDispatchClientFacingEvent_namedFinishAfterReactorRenameUsesFinishName(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{
 		ToolReactors: []sdkhooks.ToolReactor{rec, rewriteStartedName{to: "bash"}},
-	})}
+	})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})
@@ -520,9 +537,9 @@ func TestDispatchClientFacingEvent_namedFinishAfterReactorRenameUsesFinishName(t
 func TestDispatchClientFacingEvent_changedIDNamelessReplacePoisonsSourceLifecycle(t *testing.T) {
 	t.Parallel()
 	rec := &recordingToolReactor{}
-	s := &retryRecvStream{bus: hooks.New(hooks.Config{
+	s := &retryRecvStream{responsePipeline: &responsePipeline{bus: hooks.New(hooks.Config{
 		ToolReactors: []sdkhooks.ToolReactor{rec, replaceStartedIDNameless{to: "c2"}},
-	})}
+	})}}
 
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "read"})
 	dispatchClientFacing(t, s, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{}`})

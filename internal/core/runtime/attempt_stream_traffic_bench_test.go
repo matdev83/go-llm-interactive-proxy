@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -42,11 +43,10 @@ func benchRetryRecvForTrafficEmit() (*retryRecvStream, lipapi.Event, sdk.PartMet
 	ex := TestExecutor()
 	ex.RuntimeSnapshot = snap
 	s := &retryRecvStream{
-		executor: ex,
-		cand: routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{}, routing.AttemptCandidate{
 			Primary: routing.Primary{Backend: "bench-backend", Model: "m"},
 			Key:     "bench-backend:m",
-		},
+		}, authorityLifecycle{}),
 	}
 	ev := lipapi.Event{
 		Kind:  lipapi.EventTextDelta,
@@ -64,7 +64,7 @@ func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		s.emitTrafficBTP(ctx, ev, pm)
+		s.responsePipeline.emitTraffic(ctx, s.attempt.snapshot(), sdktraffic.LegBTP, ev, pm)
 	}
 }
 
@@ -74,7 +74,7 @@ func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		s.emitTrafficPTC(ctx, ev, pm)
+		_ = s.responsePipeline.emitTrafficPTCFinal(ctx, s.facts, s.attempt.snapshot(), &ev, pm)
 	}
 }
 

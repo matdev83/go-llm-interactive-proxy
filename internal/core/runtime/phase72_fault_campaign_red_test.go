@@ -90,12 +90,15 @@ func phase72FaultOutageEgressPersist(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-outage",
-		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-outage"},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-outage",
+			baseline: lipapi.Call{ID: "req-outage"},
+		}),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
-	err = stream.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta})
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+	err = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, lipapi.Event{Kind: lipapi.EventUsageDelta}, stream.facts.terminalFacts(), stream.responsePipeline)
 	if err == nil {
 		t.Fatal("journal outage on FE egress must fail settlement")
 	}
@@ -130,16 +133,19 @@ func phase72FaultAmbiguousSuccessOnceOnly(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 	stream := &retryRecvStream{
-		executor: ex, traceID: "trace-once",
-		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-once"},
+		facts: testRecvTurnFacts(recvTurnFacts{
+			traceID:  "trace-once",
+			baseline: lipapi.Call{ID: "req-once"},
+		}),
+		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
-	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "y"})
+	bindTestRuntimeOwners(stream, ex)
+	stream.responsePipeline.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "y"})
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 9}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, usage); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, usage); err != nil {
+	if err := stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline); err != nil {
 		t.Fatal(err)
 	}
 	if prov.settleCalls.Load() != 1 {

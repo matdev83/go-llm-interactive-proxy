@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -147,35 +146,38 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	auth.prereserve("reservation-prior")
 
 	rs := &retryRecvStream{
-		executor: ex,
-		bus:      hooks.New(hooks.Config{}),
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline: lipapi.Call{
+				ID:    "request-1",
+				Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+				Invocation: lipapi.Invocation{
+					Operation:    lipapi.OperationOpenAIChatCompletions,
+					DeliveryMode: lipapi.DeliveryModeStreaming,
+				},
+				Messages: testMinimalUserMessages(),
 			},
-			Messages: testMinimalUserMessages(),
-		},
-		budget:    &attemptBudget{max: 3, used: 0},
-		aLegID:    aLegID,
-		traceID:   "trace-1",
-		sel:       sel,
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
-		bleg:      b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1},
-		cand:      priorCand,
-		authority: testAuthorityLifecycle(ex, priorAuthority, priorCand),
+			aLegID:  aLegID,
+			traceID: "trace-1",
+		}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 3, used: 0}, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-leg-1", Seq: 1}, priorCand, testAuthorityLifecycle(ex, priorAuthority, priorCand)),
+		responsePipeline: newResponsePipeline(),
 	}
+	bindTestRuntimeOwners(rs, ex)
 
-	opened, err := rs.tryReplacementIteration(context.Background())
+	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
+	opened := plan.opened
 	if err != nil {
 		t.Fatalf("tryReplacementIteration: %v", err)
 	}
 	if !opened {
 		t.Fatal("expected replacement to open")
+	}
+	if err := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err != nil {
+		t.Fatalf("register replacement: %v", err)
+	}
+	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+		t.Fatal("replacement publication unexpectedly closed")
 	}
 
 	// The authoritative admit for the replacement must NOT overlap the prior
@@ -199,10 +201,10 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	if !auth.isActive("reservation-repl") {
 		t.Fatal("replacement reservation must be active after successful open")
 	}
-	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-repl" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-repl", rs.authority.stateSnapshot().admissionResult.ReservationID)
+	if testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID != "reservation-repl" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-repl", testAttemptSession(rs).authority.stateSnapshot().admissionResult.ReservationID)
 	}
-	if rs.authority.Settled() {
+	if testAttemptSession(rs).authority.Settled() {
 		t.Fatal("expected authority settled=false after replacement reset to a fresh reservation")
 	}
 }

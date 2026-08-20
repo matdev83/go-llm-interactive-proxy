@@ -10,55 +10,68 @@ import (
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-func (s *retryRecvStream) appendCallClosureLocked(ctx context.Context, command sdkterminal.Command) {
-	if !s.executor.hasTerminalCallSink() || s.billingCallClosureSuccess {
+// handoffBillingTurn owns the request-level BillingCallID closure claim. The
+// terminal mutex remains held through the sink append so a failed append is
+// retryable while concurrent terminal paths cannot publish duplicate closures.
+func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerminalFacts, command sdkterminal.Command) {
+	if t == nil || t.appendBillingCall == nil || t.billingWorkload == nil {
 		return
 	}
-	s.ensureBillingCallState()
-	if err := s.billingCallID.Validate(); err != nil {
+	t.billingClosureMu.Lock()
+	defer t.billingClosureMu.Unlock()
+	if t.appendBillingCall == nil || t.billingClosureSuccess {
 		return
 	}
-	if !s.billingIdentityStamped {
+	if err := facts.billingCallID.Validate(); err != nil {
 		return
 	}
-	accountID := strings.TrimSpace(s.billingAccountID)
+	if !facts.identityStamped {
+		return
+	}
+	accountID := strings.TrimSpace(facts.accountID)
 	if accountID == "" {
 		return
 	}
-	ids := s.billingCallState.freezeAllocatedBLegs()
-	now := s.now()
-	started, finished := s.billingCallState.timingBounds(now)
+	ids := facts.billingState.freezeAllocatedBLegs()
+	now := t.nowTime()
+	started, finished := facts.billingState.timingBounds(now)
+	workloadCtx := ctx
+	if facts.requestAuth != nil {
+		workloadCtx = withRequestAuthority(workloadCtx, facts.requestAuth)
+	}
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
-		CallID:             s.billingCallID,
+		CallID:             facts.billingCallID,
 		AccountID:          accountID,
-		ALegID:             strings.TrimSpace(s.aLegID),
-		SessionID:          strings.TrimSpace(s.baseline.Session.AuthoritativeSessionID),
+		ALegID:             strings.TrimSpace(facts.aLegID),
+		SessionID:          strings.TrimSpace(facts.sessionID),
 		StartedAt:          started,
 		FinishedAt:         finished,
 		Outcome:            turnOutcomeFromCommand(command),
-		CustomerPricingRef: s.billingCustomerPricing,
-		ChargePolicyRef:    s.billingChargePolicy,
+		CustomerPricingRef: facts.pricing,
+		ChargePolicyRef:    facts.chargePolicy,
 		ExpectedBLegIDs:    ids,
-		Workload:           s.executor.billingWorkloadIdentityForALeg(ctx, s.aLegID),
+		Workload:           t.billingWorkload(workloadCtx, facts.aLegID),
 	}
 	sealed, err := record.Seal()
 	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "billing call-closure seal failed", "error", err)
+		if t.log != nil {
+			t.log.DebugContext(ctx, "billing call-closure seal failed", "error", err)
 		}
 		return
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), billingHandoffTimeout)
 	defer cancel()
 	err = safety.Call(safety.BoundaryStream, "billing_call_closure", func() error {
-		return s.executor.TerminalUsageSink.AppendCall(persistCtx, sealed)
+		return t.appendBillingCall(persistCtx, sealed)
 	})
 	if err != nil {
-		s.executor.logBillingUsageAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
+		if t.logBillingAppendFailure != nil {
+			t.logBillingAppendFailure(persistCtx, "billing_call_closure_append_critical", "billing call-closure append failed", err)
+		}
 		return
 	}
-	s.billingCallClosureSuccess = true
+	t.billingClosureSuccess = true
 }
 
 func callClosureTimes(legs []billing.CallLegUsageRecord, now time.Time) (time.Time, time.Time) {

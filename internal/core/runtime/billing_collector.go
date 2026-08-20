@@ -209,26 +209,6 @@ func (s *billingCallState) finalizeOnce(ctx context.Context, in execbackend.Bill
 	return entry.ev, entry.ok
 }
 
-func (s *retryRecvStream) ensureBillingCallState() {
-	if s == nil {
-		return
-	}
-	if s.billingCallState == nil {
-		id := s.billingCallID
-		if id == "" {
-			newID, err := billing.NewBillingCallID()
-			if err != nil {
-				// Preserve an empty ID so persistence fails closed, not under a placeholder key.
-				s.billingCallState = newBillingCallState("")
-				return
-			}
-			id = newID
-			s.billingCallID = id
-		}
-		s.billingCallState = newBillingCallState(id)
-	}
-}
-
 const billingFinalizeTimeout = 2 * time.Second
 
 var billingHandoffTimeout = 2 * time.Minute
