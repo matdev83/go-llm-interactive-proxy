@@ -29,12 +29,9 @@ func TestTask33TurnTerminalBaseOwnsALegEndExactlyOnceAcrossCompetingFinishPaths(
 	results := make(chan coreterm.Result, 2)
 	var wg sync.WaitGroup
 	for _, cmd := range []sdkterminal.Command{sdkterminal.CommandClose, sdkterminal.CommandEOF} {
-		cmd := cmd
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results <- testTurnTerminalize(turn, context.Background(), cmd, attempt, snap, nil)
-		}()
+		wg.Go(func() {
+			results <- testTurnTerminalize(context.Background(), turn, cmd, attempt, snap, nil)
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -71,7 +68,7 @@ func TestTask33TurnTerminalOuterInterleavedOwnershipSuppressesBaseEnd(t *testing
 		bleg: b2bua.BLegRecord{ALegID: aLegID, BLegID: "b-task33", Seq: 1},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}},
 	})
-	result := testTurnTerminalize(turn, context.Background(), sdkterminal.CommandClose, attempt,
+	result := testTurnTerminalize(context.Background(), turn, sdkterminal.CommandClose, attempt,
 		func() coreterm.AccumulatorSnapshot { return coreterm.NewAccumulatorSnapshot(nil, false) }, nil)
 	if !result.Won || turn.requestTerminal().Owner().State() != sdkterminal.StateReleased {
 		t.Fatalf("outer terminal result=%+v request state=%q, want released winner", result, turn.requestTerminal().Owner().State())

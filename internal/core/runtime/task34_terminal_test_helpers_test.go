@@ -22,7 +22,7 @@ func testTerminalOwners(s *retryRecvStream) (request, attempt *streamTerminal) {
 	return request, attempt
 }
 
-func testTerminalizeRequest(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
+func testTerminalizeRequest(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
 	if s == nil || s.terminal == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
@@ -44,7 +44,7 @@ func testTerminalizeRequest(s *retryRecvStream, ctx context.Context, cmd sdkterm
 	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
 }
 
-func testTerminalizeRequestForAttempt(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
+func testTerminalizeRequestForAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
 	if s == nil || s.terminal == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
@@ -65,15 +65,15 @@ func testTerminalizeRequestForAttempt(s *retryRecvStream, ctx context.Context, c
 	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
 }
 
-func testTerminalizeAttempt(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
+func testTerminalizeAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
 	if s == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
 	attempt := s.attempt.snapshot()
-	return testTerminalizeAttemptForAttempt(s, ctx, cmd, attempt, effects)
+	return testTerminalizeAttemptForAttempt(ctx, s, cmd, attempt, effects)
 }
 
-func testTerminalizeAttemptForAttempt(s *retryRecvStream, ctx context.Context, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
+func testTerminalizeAttemptForAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
 	if s == nil || attempt == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
@@ -87,7 +87,7 @@ func testTerminalizeAttemptForAttempt(s *retryRecvStream, ctx context.Context, c
 	})
 }
 
-func testTurnTerminalize(turn *turnTerminal, ctx context.Context, cmd sdkterminal.Command, attempt *attemptSession, snapshot func() coreterm.AccumulatorSnapshot, effects func(context.Context, coreterm.Outcome) error) coreterm.Result {
+func testTurnTerminalize(ctx context.Context, turn *turnTerminal, cmd sdkterminal.Command, attempt *attemptSession, snapshot func() coreterm.AccumulatorSnapshot, effects func(context.Context, coreterm.Outcome) error) coreterm.Result {
 	var evidence coreterm.AccumulatorSnapshot
 	if snapshot != nil {
 		evidence = snapshot()

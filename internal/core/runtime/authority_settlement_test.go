@@ -53,7 +53,8 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{
 			{Kind: lipapi.EventTextDelta, Delta: "hello"},
 		}},
-		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)}}
+		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, start)},
+	}
 	bindTestRuntimeOwners(rs, ex)
 	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -152,7 +153,8 @@ func TestHandleRecvErrorRecoveryFinishSettlesAuthority(t *testing.T) {
 		recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 			Enabled:     true,
 			IdleTimeout: time.Second,
-		}, start)}}
+		}, start)},
+	}
 	bindTestRuntimeOwners(rs, ex)
 	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -291,7 +293,8 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 			admissionResult: auth.admitResult,
 		}, authorityCandidate())),
 		responsePipeline: &responsePipeline{seenEvents: []lipapi.Event{{Kind: lipapi.EventUsageDelta, TotalTokens: 4, CostNanoUnits: 11}}},
-		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)}}
+		recovery:         &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{Enabled: false}, start)},
+	}
 	bindTestRuntimeOwners(rs, ex)
 
 	_, err := testRecvEOF(context.Background(), rs)

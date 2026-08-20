@@ -798,7 +798,8 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 			EmitWarning: true,
-		}, start)}}
+		}, start)},
+	}
 	bindTestRuntimeOwners(rs, ex)
 	rs.responsePipeline.visibleText.WriteString("hello")
 	rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))
@@ -853,7 +854,8 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 			Enabled:     true,
 			IdleTimeout: time.Second,
 			EmitWarning: true,
-		}, start)}}
+		}, start)},
+	}
 	bindTestRuntimeOwners(rs2, ex2)
 	rs2.responsePipeline.visibleText.WriteString("hello")
 	rs2.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))

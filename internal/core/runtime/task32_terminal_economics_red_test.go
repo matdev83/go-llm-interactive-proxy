@@ -162,7 +162,7 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 	}))
 	old := stream.attempt.snapshot()
 	callback := func(ctx context.Context) error {
-		result := testTerminalizeRequestForAttempt(stream, ctx, sdkterminal.CommandClose, old, func(cctx context.Context) error {
+		result := testTerminalizeRequestForAttempt(ctx, stream, sdkterminal.CommandClose, old, func(cctx context.Context) error {
 			stream.terminal.settleCancellationAuthorityForAttempt(cctx, old, stream.responsePipeline)
 			return nil
 		})

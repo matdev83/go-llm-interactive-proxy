@@ -198,8 +198,11 @@ func TestTurnRecvOwnershipFinalTopology(t *testing.T) {
 }
 
 func TestGenerateTurnRecvOwnershipBaseline(t *testing.T) {
-	if os.Getenv("GENERATE_TURN_RECV_BASELINE") != "1" {
-		t.Parallel()
+	generate := os.Getenv("GENERATE_TURN_RECV_BASELINE")
+	// Setenv marks this process-global fixture mutation as intentionally serial
+	// while preserving the opt-in generation behavior.
+	t.Setenv("GENERATE_TURN_RECV_BASELINE", generate)
+	if generate != "1" {
 		t.Skip("set GENERATE_TURN_RECV_BASELINE=1 to regenerate the deterministic Phase-A artifact")
 	}
 	root := repoRoot(t)
@@ -259,9 +262,9 @@ func scanTurnRecvOwnership(root string) (turnRecvCurrentInventory, error) {
 	var out turnRecvCurrentInventory
 	categoryCounts := make(map[string]int, len(turnRecvOwnershipCategories))
 	responsibilityCounts := make(map[string]int)
-	var fieldNames = make(map[string]bool)
+	fieldNames := make(map[string]bool)
 	var receiverMethods []turnRecvMethod
-	var fanout = make(map[string]map[string]bool)
+	fanout := make(map[string]map[string]bool)
 	var syncs []turnRecvSyncPrimitive
 
 	for _, file := range files {

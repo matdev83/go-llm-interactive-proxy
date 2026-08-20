@@ -357,7 +357,8 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			recovery: &recoveryController{recoverPolicy: streamrecovery.NewPolicy(streamrecovery.Config{
 				Enabled:     true,
 				IdleTimeout: time.Second,
-			}, start)}}
+			}, start)},
+		}
 		bindTestRuntimeOwners(rs, ex)
 		rs.responsePipeline.visibleText.WriteString("hello")
 		rs.recovery.recoverPolicy.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, start.Add(time.Second))

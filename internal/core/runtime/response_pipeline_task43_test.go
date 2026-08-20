@@ -35,17 +35,15 @@ func TestResponsePipelineSnapshotIsCoherentWhileTerminalReads(t *testing.T) {
 
 	var wg sync.WaitGroup
 	started := make(chan struct{})
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		close(started)
-		for i := 0; i < 250; i++ {
+		for range 250 {
 			p.rememberClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 		}
-	}()
+	})
 	<-started
 
-	for i := 0; i < 250; i++ {
+	for range 250 {
 		snap := p.accumulatorSnapshot()
 		var wire struct {
 			Events int    `json:"e"`
@@ -284,7 +282,7 @@ func TestTask43FacadeDoesNotRetainResponsePipelineStateOrForwarders(t *testing.T
 }
 
 func TestTask43ResponseStateMutatesOnlyThroughOwner(t *testing.T) {
-	if _, delegatedTerminalMutation := reflect.TypeOf(responsePipeline{}).FieldByName("gateDrainHook"); delegatedTerminalMutation {
+	if _, delegatedTerminalMutation := reflect.TypeFor[responsePipeline]().FieldByName("gateDrainHook"); delegatedTerminalMutation {
 		t.Fatal("response pipeline retains a callback that can mutate terminal authority")
 	}
 	entries, err := os.ReadDir(".")

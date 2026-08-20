@@ -621,7 +621,6 @@ func (t *turnTerminal) accountingFinalized() bool {
 
 func (t *turnTerminal) claimAccountingFinalization() bool {
 	return t != nil && t.accountingFinalizedState.CompareAndSwap(false, true)
-
 }
 
 func (t *turnTerminal) unclaimAccountingFinalization() {

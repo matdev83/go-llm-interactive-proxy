@@ -82,7 +82,7 @@ func TestStreamTerminal_NestedAttemptSkipped_RequestOnlyCommand(t *testing.T) {
 	testAttemptSession(rs)
 	installTestTurnTerminal(rs)
 	var requestEffects atomic.Int32
-	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandFrontendEncoderFailure, func(context.Context) error {
+	r := testTerminalizeRequest(context.Background(), rs, sdk.CommandFrontendEncoderFailure, func(context.Context) error {
 		requestEffects.Add(1)
 		return nil
 	})
@@ -103,7 +103,7 @@ func TestStreamTerminal_NestedAttemptEffectError_PropagatesToRequest(t *testing.
 	testAttemptSession(rs)
 	installTestTurnTerminal(rs)
 	effectErr := errors.New("attempt settle failed")
-	r := testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
+	r := testTerminalizeRequest(context.Background(), rs, sdk.CommandClose, func(context.Context) error {
 		return effectErr
 	})
 	if !r.Won || !errors.Is(r.Err, effectErr) {
@@ -177,7 +177,7 @@ func TestTerminalOwner_concurrentEffectsOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for range n {
 		wg.Go(func() {
-			r := testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
+			r := testTerminalizeRequest(context.Background(), rs, sdk.CommandClose, func(context.Context) error {
 				effects.Add(1)
 				return nil
 			})
@@ -221,7 +221,7 @@ func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceReques
 	for range 16 {
 		wg.Go(func() {
 			<-start
-			_ = testTerminalizeRequest(rs, context.Background(), sdk.CommandClose, func(context.Context) error {
+			_ = testTerminalizeRequest(context.Background(), rs, sdk.CommandClose, func(context.Context) error {
 				effects.Add(1)
 				return nil
 			})

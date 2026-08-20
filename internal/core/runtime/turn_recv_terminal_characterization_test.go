@@ -389,7 +389,7 @@ func TestRetryRecvStreamCharacterization_LosingTerminalClaimWaitsAndDoesNotRepea
 	var effects atomic.Int32
 	winnerDone := make(chan coreTerminalResult, 1)
 	go func() {
-		result := testTerminalizeRequest(s, parent, sdkterminal.CommandClose, func(ctx context.Context) error {
+		result := testTerminalizeRequest(parent, s, sdkterminal.CommandClose, func(ctx context.Context) error {
 			effects.Add(1)
 			deadline, hasDeadline := ctx.Deadline()
 			cancel()
@@ -407,7 +407,7 @@ func TestRetryRecvStreamCharacterization_LosingTerminalClaimWaitsAndDoesNotRepea
 	}
 	loserDone := make(chan coreTerminalResult, 1)
 	go func() {
-		result := testTerminalizeRequest(s, context.Background(), sdkterminal.CommandEOF, nil)
+		result := testTerminalizeRequest(context.Background(), s, sdkterminal.CommandEOF, nil)
 		loserDone <- coreTerminalResult{result: result}
 	}()
 	select {

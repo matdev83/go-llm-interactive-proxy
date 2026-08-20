@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
-	"sync"
 )
 
 func TestCallClosureTimesUsesTerminalLegSpan(t *testing.T) {
@@ -42,11 +42,12 @@ func TestAuthoritativeRuntimeWithoutTerminalSinkDoesNotHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
-		aLegID:        "a-legacy",
-		billingCallID: callID,
-		baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
-	}),
+	stream := &retryRecvStream{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			aLegID:        "a-legacy",
+			billingCallID: callID,
+			baseline:      lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess-legacy"}},
+		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-legacy", ALegID: "a-legacy", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream, executor)
@@ -215,7 +216,7 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 				attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-1", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend", Model: "model"}}, authorityLifecycle{}),
 			}
 			stream = stampStreamIdentity(stream, executor)
-			result := testTerminalizeRequest(stream, context.Background(), command, nil)
+			result := testTerminalizeRequest(context.Background(), stream, command, nil)
 			if result.Err != nil {
 				t.Fatalf("request-owner %s: %v", command, result.Err)
 			}
@@ -232,7 +233,7 @@ func TestTerminalUsageSinkSealsOnRequestOwnerPanicAndGateReplacementWithoutTUR(t
 				t.Fatalf("expected B-legs for %s = %#v", command, got[0].ExpectedBLegIDs)
 			}
 
-			later := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil)
+			later := testTerminalizeRequest(context.Background(), stream, sdkterminal.CommandNormalFinish, nil)
 			if later.Won {
 				t.Fatalf("later finish must lose after %s already owns the request", command)
 			}
@@ -419,7 +420,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-swallowed", ALegID: "a-1", Seq: 1}, routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-a", Model: "model-a"}}, authorityLifecycle{}),
 	}
 	stream = stampStreamIdentity(stream, executor)
-	if result := testTerminalizeAttempt(stream, context.Background(), sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
+	if result := testTerminalizeAttempt(context.Background(), stream, sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if len(got) != 0 {
@@ -433,7 +434,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		bleg: b2bua.BLegRecord{BLegID: "b-replacement", ALegID: "a-1", Seq: 2},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 	}))
-	if result := testTerminalizeRequest(stream, context.Background(), sdkterminal.CommandNormalFinish, nil); result.Err != nil {
+	if result := testTerminalizeRequest(context.Background(), stream, sdkterminal.CommandNormalFinish, nil); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if len(got) != 1 {

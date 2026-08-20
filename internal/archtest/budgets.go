@@ -78,12 +78,12 @@ var LineBudgets = []LineBudget{
 	// classification. Keep the measured-plus-25 ratchet. The compaction
 	// detector and continuity infrastructure add bounded recognition, branch
 	// coordination, preservation dispatch, and auxiliary worker ownership.
-	// Task 5.2 measured 82477 non-test lines: +1541 from the 80936 d606
-	// merge-base measurement and -3 from the 82480 Task 5.1 HEAD measurement
+	// Task 5.4 measured 82476 non-test lines: +1540 from the 80936 d606
+	// merge-base measurement and -4 from the 82480 Task 5.1 HEAD measurement
 	// in the final deletion/cleanup wave. The accepted increase replaces flattened shared
 	// ownership with five explicit lifetime owners and typed evidence seams;
 	// retain 25 lines of ratchet headroom after that documented boundary cost.
-	{Dir: "internal/core", Max: 82502},
+	{Dir: "internal/core", Max: 82501},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 5867},
 	{Dir: "internal/infra/runtimebundle", Max: 12458},
