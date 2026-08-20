@@ -10,6 +10,7 @@ import (
 )
 
 func TestVerifySchemaChecksProviderMaintenanceIntegrity(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if _, err := store.db.NewRaw(`DROP TRIGGER billing_provider_maintenance_immutable_update`).Exec(ctx); err != nil {
@@ -21,6 +22,7 @@ func TestVerifySchemaChecksProviderMaintenanceIntegrity(t *testing.T) {
 }
 
 func TestAppendProviderMaintenanceIsDurableAndReplaySafe(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	usage := billing.ProviderMaintenanceUsage{

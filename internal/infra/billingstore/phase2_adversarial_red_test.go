@@ -11,6 +11,7 @@ import (
 )
 
 func TestFreshSchemaDoesNotCreateRetiredUsageAppendOutbox(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var count int
@@ -32,6 +33,7 @@ func TestFreshSchemaDoesNotCreateRetiredUsageAppendOutbox(t *testing.T) {
 }
 
 func TestCutoverAPIIsCentralStoreBound(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	var cutover func(context.Context) error = store.CutoverUsageAppendOutbox
 	if cutover == nil {
@@ -40,6 +42,7 @@ func TestCutoverAPIIsCentralStoreBound(t *testing.T) {
 }
 
 func TestCutoverProvesDeliveryInCentralStore(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ensureLegacyUsageAppendOutbox(t, store)
 	ctx := context.Background()
@@ -56,6 +59,7 @@ func TestCutoverProvesDeliveryInCentralStore(t *testing.T) {
 }
 
 func TestRetirementMigrationDrainsUpgradedOutboxBeforeDrop(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ensureLegacyUsageAppendOutbox(t, store)
 	ctx := context.Background()
@@ -75,6 +79,7 @@ func TestRetirementMigrationDrainsUpgradedOutboxBeforeDrop(t *testing.T) {
 }
 
 func TestMigrateRetiresHistoricalUsageAppendOutbox(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
@@ -129,6 +134,7 @@ func TestMigrateRetiresHistoricalUsageAppendOutbox(t *testing.T) {
 }
 
 func TestMigrateDoesNotRecordBlockedRetirement(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if _, err := store.db.NewRaw(`DELETE FROM bun_billing_migrations WHERE name = ?`, UsageAppendOutboxRetirementMigrationName).Exec(ctx); err != nil {
@@ -153,6 +159,7 @@ func TestMigrateDoesNotRecordBlockedRetirement(t *testing.T) {
 }
 
 func TestCutoverUsesDialectPlaceholders(t *testing.T) {
+	t.Parallel()
 	if got := cutoverBeginStatement(dialect.SQLite); got != "BEGIN IMMEDIATE" {
 		t.Fatalf("SQLite cutover begin = %q, want BEGIN IMMEDIATE", got)
 	}

@@ -9,6 +9,7 @@ import (
 )
 
 func TestSQLiteProviderCostWorkIsEnqueuedAndCompleted(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-work", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -54,6 +55,7 @@ func TestSQLiteProviderCostWorkIsEnqueuedAndCompleted(t *testing.T) {
 }
 
 func TestSQLiteApplyProviderCostIsIndependentAndIdempotent(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-cost", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -119,6 +121,7 @@ func TestSQLiteApplyProviderCostIsIndependentAndIdempotent(t *testing.T) {
 }
 
 func TestSQLiteUnreconciledProviderCostStoresIndependentRetryMarker(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-unreconciled", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -153,6 +156,7 @@ func TestSQLiteUnreconciledProviderCostStoresIndependentRetryMarker(t *testing.T
 }
 
 func TestSQLiteApplyProviderCostExactZeroStoresOperationMarker(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-zero", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -191,6 +195,7 @@ func TestSQLiteApplyProviderCostExactZeroStoresOperationMarker(t *testing.T) {
 }
 
 func TestSQLiteApplyProviderCostAllowsReconcileRequiredAccount(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-reconcile", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReconcileRequired, Version: 4}
@@ -227,6 +232,7 @@ func TestSQLiteApplyProviderCostAllowsReconcileRequiredAccount(t *testing.T) {
 }
 
 func TestSQLiteApplyProviderCostClearsUnreconciledMarker(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-clear-unrec", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

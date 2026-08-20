@@ -14,23 +14,33 @@ import (
 	"time"
 )
 
-var helperBuildMu sync.Mutex
+var (
+	helperOnce sync.Once
+	helperPath string
+	helperErr  error
+)
 
 func buildHelper(t *testing.T) string {
 	t.Helper()
-	// The contract tests run in parallel and each build launches a compiler
-	// process. Serializing only this build step avoids Windows process/job
-	// startup contention under the repository-wide test fan-out; child-run
-	// behavior remains parallel and independently exercised.
-	helperBuildMu.Lock()
-	defer helperBuildMu.Unlock()
-	path := filepath.Join(t.TempDir(), "taskrunner-testhelper"+exeSuffix())
-	cmd := exec.Command("go", "build", "-o", path, "./testhelper")
-	cmd.Dir = "."
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build test helper: %v\n%s", err, output)
+	helperOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "taskrunner-helper-")
+		if err != nil {
+			helperErr = err
+			return
+		}
+		path := filepath.Join(dir, "taskrunner-testhelper"+exeSuffix())
+		cmd := exec.Command("go", "build", "-o", path, "./testhelper")
+		cmd.Dir = "."
+		if output, err := cmd.CombinedOutput(); err != nil {
+			helperErr = fmt.Errorf("build test helper: %w\n%s", err, output)
+			return
+		}
+		helperPath = path
+	})
+	if helperErr != nil {
+		t.Fatal(helperErr)
 	}
-	return path
+	return helperPath
 }
 
 func exeSuffix() string {

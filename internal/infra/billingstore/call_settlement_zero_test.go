@@ -9,6 +9,7 @@ import (
 )
 
 func TestSQLiteApplyCallBillingResultExactZeroClosesExposureWithoutJournalEntry(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "call-zero", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

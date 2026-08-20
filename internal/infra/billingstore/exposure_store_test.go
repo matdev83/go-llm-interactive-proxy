@@ -10,6 +10,7 @@ import (
 )
 
 func TestSQLiteAdmitExposureIsAtomicAndDoesNotMutateMoney(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "exposure-acct", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -42,6 +43,7 @@ func TestSQLiteAdmitExposureIsAtomicAndDoesNotMutateMoney(t *testing.T) {
 }
 
 func TestSQLiteAdmitExposureSerializesConcurrentCalls(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "exposure-concurrent", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {

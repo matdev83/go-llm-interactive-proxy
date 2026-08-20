@@ -8,6 +8,7 @@ import (
 )
 
 func TestSQLitePhase7TrialBalanceReportsMaterializedMismatchWithoutRepairing(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	const accountID = "report-integrity"

@@ -24,6 +24,7 @@ func newLegacyOutboxTestStore(t *testing.T) *DurableStore {
 }
 
 func TestSQLiteUsageAppendOutboxCutoverDropsOnlyAfterDrain(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -46,6 +47,7 @@ func TestSQLiteUsageAppendOutboxCutoverDropsOnlyAfterDrain(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxDrainReplaysDeferredRows(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -64,6 +66,7 @@ func TestSQLiteUsageAppendOutboxDrainReplaysDeferredRows(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxDrainPreservesCurrentRecords(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -82,6 +85,7 @@ func TestSQLiteUsageAppendOutboxDrainPreservesCurrentRecords(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxDrainBlocksReplayConflict(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -107,6 +111,7 @@ func TestSQLiteUsageAppendOutboxDrainBlocksReplayConflict(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxDrainBlocksMalformedRows(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	if _, err := store.db.NewRaw(`INSERT INTO usage_append_outbox(append_key,kind,call_id,payload_json,status,attempt_count,next_attempt_at,last_error,created_at,updated_at) VALUES ('malformed','call','bc_00000000000000000000000000000099','{','pending',0,?,?,?,?)`, time.Now().UTC(), "", time.Now().UTC(), time.Now().UTC()).Exec(ctx); err != nil {
@@ -118,6 +123,7 @@ func TestSQLiteUsageAppendOutboxDrainBlocksMalformedRows(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxListsCallAndLegAndDefersDueWork(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -167,6 +173,7 @@ func TestSQLiteUsageAppendOutboxListsCallAndLegAndDefersDueWork(t *testing.T) {
 }
 
 func TestSQLiteUsageAppendOutboxMarksReplayConflictTerminal(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)

@@ -14,6 +14,7 @@ import (
 )
 
 func TestPostgresProviderAndExposureConcurrentAdmission(t *testing.T) {
+	t.Parallel()
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

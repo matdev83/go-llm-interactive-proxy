@@ -78,6 +78,7 @@ func spoolTestCall(t *testing.T, id string) billing.CallUsageRecord {
 }
 
 func TestSpoolAppendRequiresCommitAndSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "state", "billing-spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -103,6 +104,7 @@ func TestSpoolAppendRequiresCommitAndSurvivesRestart(t *testing.T) {
 }
 
 func TestSpoolReplayIsIdempotentAndConflictIsDurable(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -131,6 +133,7 @@ func TestSpoolReplayIsIdempotentAndConflictIsDurable(t *testing.T) {
 }
 
 func TestSpoolCentralFailureBuffersAndHealthIsBounded(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{err: errors.New("central unavailable")}
 	spool, err := Open(context.Background(), Config{Path: path, MaxPendingRecords: 1}, sink)
@@ -154,6 +157,7 @@ func TestSpoolCentralFailureBuffersAndHealthIsBounded(t *testing.T) {
 }
 
 func TestSpoolCommitAcknowledgementFailureDoesNotLoseCommittedRow(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path, CommitAcknowledgedHook: func() error { return errors.New("crash before acknowledgement") }}, sink)
@@ -171,6 +175,7 @@ func TestSpoolCommitAcknowledgementFailureDoesNotLoseCommittedRow(t *testing.T) 
 }
 
 func TestSpoolRetentionAndFreeDiskCapacity(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	now := time.Unix(1000, 0).UTC()
@@ -199,6 +204,7 @@ func TestSpoolRetentionAndFreeDiskCapacity(t *testing.T) {
 }
 
 func TestSpoolStaleDeliveryIsReclaimedAndExactlyOneWorker(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path, ClaimTimeout: time.Nanosecond}, sink)
@@ -234,6 +240,7 @@ func TestSpoolStaleDeliveryIsReclaimedAndExactlyOneWorker(t *testing.T) {
 }
 
 func TestSpoolDatabaseCapacityRecoversAfterProcessedPrune(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -272,6 +279,7 @@ func TestSpoolDatabaseCapacityRecoversAfterProcessedPrune(t *testing.T) {
 }
 
 func TestSpoolProcessOnceSerializesClose(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &blockingSink{entered: make(chan struct{}), release: make(chan struct{})}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -303,6 +311,7 @@ func TestSpoolProcessOnceSerializesClose(t *testing.T) {
 }
 
 func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &blockingSink{entered: make(chan struct{}), release: make(chan struct{})}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -339,6 +348,7 @@ func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
 }
 
 func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)
@@ -373,6 +383,7 @@ func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
 }
 
 func TestSpoolAppendCloseLifecycleDoesNotRace(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	spool, err := Open(context.Background(), Config{Path: path}, &recordingSink{})
 	if err != nil {
@@ -392,6 +403,7 @@ func TestSpoolAppendCloseLifecycleDoesNotRace(t *testing.T) {
 }
 
 func TestSpoolHealthUsesInjectedClockAndReportsProbeErrors(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	now := time.Unix(2000, 0).UTC()
 	spool, err := Open(context.Background(), Config{Path: path, Now: func() time.Time { return now }}, &recordingSink{})
@@ -416,6 +428,7 @@ func TestSpoolHealthUsesInjectedClockAndReportsProbeErrors(t *testing.T) {
 }
 
 func TestSpoolDatabaseBytesIncludesWALSiblings(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
 	spool, err := Open(context.Background(), Config{Path: path}, sink)

@@ -48,34 +48,42 @@ func testIndependentCallLegFor(callID billing.BillingCallID, bLegID string) bill
 }
 
 func TestSQLiteAppendCallLegUsagePersistsIndependentOfTURAndJournal(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageIndependentOfMoneyAndTUR(t, newSQLiteTestStore(t), "call-leg-independent")
 }
 
 func TestSQLiteAppendCallLegUsageReplayAndFingerprintConflict(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageReplayAndFingerprintConflict(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsageRejectedNeverStartedEvidenceUnavailable(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageRejectedNeverStartedEvidenceUnavailable(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsagePreservesQuantityAndCostPresence(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsagePreservesQuantityAndCostPresence(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsageTrimsBLegIDConsistently(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageTrimsBLegIDConsistently(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsagePayloadExcludesPromptsAndSecrets(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsagePayloadExcludesPromptsAndSecrets(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteUsageLegRecordsAreImmutable(t *testing.T) {
+	t.Parallel()
 	runUsageLegRecordsAreImmutable(t, newSQLiteTestStore(t))
 }
 
 func TestAppendCallLegUsageRejectsUnsealableRecord(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	record := testIndependentCallLeg(t, "b-1")
@@ -87,6 +95,7 @@ func TestAppendCallLegUsageRejectsUnsealableRecord(t *testing.T) {
 }
 
 func TestSQLiteAppendCallLegUsageDoesNotRequireAccount(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	record := testIndependentCallLeg(t, "b-orphan")
@@ -384,18 +393,22 @@ func mustCallLegKey(t *testing.T, callID billing.BillingCallID, bLegID string) s
 }
 
 func TestSQLiteAppendCallLegUsagePersistsAttemptSequence(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsagePersistsAttemptSequence(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsageRejectsDuplicateAttemptSequenceWithinCall(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageRejectsDuplicateAttemptSequenceWithinCall(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteAppendCallLegUsageReplayConflictOnChangedSequence(t *testing.T) {
+	t.Parallel()
 	runAppendCallLegUsageReplayConflictOnChangedSequence(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteLegacyNullAttemptSequenceRowsRemainReadable(t *testing.T) {
+	t.Parallel()
 	runLegacyNullAttemptSequenceRowsRemainReadable(t, newSQLiteTestStore(t))
 }
 

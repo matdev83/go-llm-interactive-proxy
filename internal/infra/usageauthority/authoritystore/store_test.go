@@ -27,7 +27,7 @@ import (
 // store expects plus _txlock=immediate so write transactions open as
 // BEGIN IMMEDIATE and serialize concurrent writers (requirement 11.1).
 func sqliteAuthorityDSN(path string) string {
-	return "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_txlock=immediate"
+	return "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 }
 
 func TestSQLiteStore_ConcurrentIdenticalReserveIsIdempotent(t *testing.T) {

@@ -21,7 +21,7 @@ func TestChangeSize_LimitAndOverrideContracts(t *testing.T) {
 
 	agents := readRepositoryFile(t, "AGENTS.md")
 	for _, needle := range []string{
-		"100 changed files",
+		"100 modified `*.go` files",
 		"LIP_ALLOW_LARGE_CHANGE=1",
 		"lip.allowLargeChange true",
 		"allow-large-change",

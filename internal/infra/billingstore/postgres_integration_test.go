@@ -13,6 +13,7 @@ import (
 )
 
 func TestPostgresBillingStoreContract(t *testing.T) {
+	t.Parallel()
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 	defer cancel()

@@ -79,7 +79,7 @@ func newSQLiteStore(t *testing.T, path, storeID string) *leasestore.DurableStore
 	// Apply busy_timeout via DSN so every pooled connection inherits it (a one-shot
 	// PRAGMA only affects the connection that executed it). Cap the pool at 1 to
 	// avoid SQLITE_BUSY under concurrent writers in race tests.
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

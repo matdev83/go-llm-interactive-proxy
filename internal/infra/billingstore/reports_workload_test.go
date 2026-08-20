@@ -9,6 +9,7 @@ import (
 )
 
 func TestSQLiteOperatorCostReportProjectsAuxiliaryWorkload(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "operator-workload", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1000, State: billing.AccountReady, Version: 1}

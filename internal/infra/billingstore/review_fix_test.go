@@ -9,6 +9,7 @@ import (
 )
 
 func TestIsUniqueViolationClassifiesDialectCodesNotConstraintText(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "unique-classify", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 10, State: billing.AccountReady, Version: 1}); err != nil {
@@ -39,6 +40,7 @@ func TestIsUniqueViolationClassifiesDialectCodesNotConstraintText(t *testing.T) 
 }
 
 func TestSQLiteReadIntegrityReportMissingOpeningReturnsIssue(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	now := "2026-01-01T00:00:00Z"

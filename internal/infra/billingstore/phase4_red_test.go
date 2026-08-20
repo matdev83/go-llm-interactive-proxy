@@ -10,6 +10,7 @@ import (
 )
 
 func TestCurrentReadersExcludeHistoricalAuthorizationAndAuditReaderPreservesIt(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase4-audit", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 3}
@@ -62,6 +63,7 @@ func TestCurrentReadersExcludeHistoricalAuthorizationAndAuditReaderPreservesIt(t
 }
 
 func TestCurrentJournalWriterRejectsAuthorizationBook(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	input := billing.JournalTransaction{ID: "auth-write", Book: billing.JournalBook("authorization"), Currency: "USD", SourceKey: "auth-write", AccountID: "missing", Entries: []billing.JournalEntry{
 		{LedgerAccount: "reserved", Side: billing.JournalDebit, Amount: billing.Money{Nano: 1, Currency: "USD"}},
@@ -73,6 +75,7 @@ func TestCurrentJournalWriterRejectsAuthorizationBook(t *testing.T) {
 }
 
 func TestReservedColumnMigrationUsesSQLiteWriterExclusionAndRollback(t *testing.T) {
+	t.Parallel()
 	body, err := os.ReadFile("20260831000000_billing_remove_reserved_nano.go")
 	if err != nil {
 		t.Fatal(err)

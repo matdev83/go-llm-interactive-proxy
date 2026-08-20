@@ -6,6 +6,7 @@ import (
 )
 
 func TestUsageCallRecordsSchemaCreatesCallIDAndJoinIndexes(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for _, index := range []string{usageCallCallIDIndex, usageCallAccountSessionIndex, usageCallClaimStatusIndex} {

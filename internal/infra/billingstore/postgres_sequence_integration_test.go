@@ -18,6 +18,7 @@ import (
 // changed sequence, and legacy NULL-sequence row readability under the old v1
 // fingerprint contract. Skips cleanly when the integration DSN is absent.
 func TestPostgresCallLegSequencePersistence(t *testing.T) {
+	t.Parallel()
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 	defer cancel()

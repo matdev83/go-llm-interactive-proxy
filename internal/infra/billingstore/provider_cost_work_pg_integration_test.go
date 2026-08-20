@@ -14,6 +14,7 @@ import (
 // 20260822000000 upgrade INSERT no longer raises SQLSTATE 42804 when copying
 // from usage_leg_records.sealed_at (TEXT) into TIMESTAMPTZ work columns.
 func TestPostgresProviderCostWorkBackfillAcceptsTextSealedAtLegs(t *testing.T) {
+	t.Parallel()
 	dsn := testkit.SkipUnlessPostgres(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

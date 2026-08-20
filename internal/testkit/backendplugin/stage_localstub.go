@@ -1,11 +1,8 @@
 package backendplugin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -15,29 +12,9 @@ import (
 // closed manifest suitable for BuildBootstrap discover→trust→install.
 func StageLocalStub(tb testing.TB) (pluginRoot string) {
 	tb.Helper()
-	repo := findRepoRoot(tb)
+	cb, binName := getCachedConnectorBinary(tb, "connectors/localstub", "./cmd/lip-backend-localstub", "lip-backend-localstub")
 	root := tb.TempDir()
-	binName := "lip-backend-localstub"
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
-	rel := filepath.ToSlash(filepath.Join("bin", binName))
-	dst := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		tb.Fatal(err)
-	}
-	cmd := exec.Command("go", "build", "-o", dst, "./cmd/lip-backend-localstub")
-	cmd.Dir = filepath.Join(repo, "connectors", "localstub")
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		tb.Fatalf("build localstub: %v\n%s", err, out)
-	}
-	data, err := os.ReadFile(dst)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
+	rel, digest := stageCachedBinary(tb, cb, root, binName)
 	body := fmt.Sprintf(`{
   "schema":"golip.backendplugin.manifest/v1",
   "plugin_id":"io.golip.backend.localstub",

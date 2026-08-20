@@ -71,16 +71,24 @@ func TestHarness_NoGoroutineLeak(t *testing.T) {
 // the quiet count; a real leak stays present in every sample.
 func settleGoroutines(tb testing.TB) int {
 	tb.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(500 * time.Millisecond)
 	best := runtime.NumGoroutine()
+	stableCount := 0
 	for {
-		if n := runtime.NumGoroutine(); n < best {
+		n := runtime.NumGoroutine()
+		if n < best {
 			best = n
+			stableCount = 0
+		} else if n == best {
+			stableCount++
+			if stableCount >= 3 {
+				return best
+			}
 		}
 		if time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	return best
 }

@@ -9,6 +9,7 @@ import (
 )
 
 func TestDurableStore_AccountProvisionerPort(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	var provisioner billing.AccountProvisioner = store
 	ctx := context.Background()
@@ -69,6 +70,7 @@ func TestDurableStore_AccountProvisionerPort(t *testing.T) {
 }
 
 func TestDurableStore_AccountProvisionerPort_WrapsDomainSentinels(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{
