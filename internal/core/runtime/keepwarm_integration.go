@@ -10,9 +10,6 @@ import (
 )
 
 func promptCacheObservationSource(stream lipapi.ManagedEventStream) promptcache.ObservationSource {
-	if stream == nil {
-		return nil
-	}
 	source, _ := stream.(promptcache.ObservationSource)
 	return source
 }
@@ -32,9 +29,6 @@ func promptCacheControllerFor(backend execbackend.Backend) promptcache.Controlle
 }
 
 func (c backendPromptCacheController) Renew(ctx context.Context, req promptcache.RenewRequest) (promptcache.RenewResponse, error) {
-	if c.backend.RenewPromptCache == nil {
-		return promptcache.RenewResponse{}, promptcache.ErrControlUnsupported
-	}
 	return c.backend.RenewPromptCache(ctx, req)
 }
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -74,8 +75,34 @@ func (b *RouteAuthoritySnapshotBarrier) ALegID() string {
 // BuildRoutePlanPrimaryBackendForTest compiles the selector through buildRoutePlan
 // and returns the primary backend id so tests can prove it shares CompileSelector.
 func (e *Executor) BuildRoutePlanPrimaryBackendForTest(ctx context.Context, selector string) (string, error) {
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: selector},
+		Session: lipapi.SessionRef{
+			ALegID: "a-1",
+		},
+	}
+	preSession := session.SessionView{
+		ALegID: "a-1",
+	}
+	ibt, err := newIdentityBoundTurn(
+		"trace-1",
+		call,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: "a-1"},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSession,
+	)
+	if err != nil {
+		return "", err
+	}
 	plan, err := e.buildRoutePlan(ctx, &preparedRequest{
-		baseline: lipapi.Call{Route: lipapi.RouteIntent{Selector: selector}},
+		identity: ibt,
+		call:     ibt.call,
 	})
 	if err != nil {
 		return "", err

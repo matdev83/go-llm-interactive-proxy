@@ -60,49 +60,40 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 	}
 	installTestTurnTerminal(s)
 	deps := newResponsePipelineForExecutor(e)
-	if s.responsePipeline == nil {
-		s.responsePipeline = deps
-	} else {
-		p := s.responsePipeline
-		p.bus = deps.bus
-		p.log = deps.log
-		p.now = deps.now
-		p.runtimeSnapshot = deps.runtimeSnapshot
-		p.extensionMetrics = deps.extensionMetrics
-		p.policyDiagnostics = deps.policyDiagnostics
-		p.policyEvidenceEmitter = deps.policyEvidenceEmitter
-		p.streamUsage = deps.streamUsage
-		p.secureSessionRecorder = deps.secureSessionRecorder
-		p.secureSessionMetrics = deps.secureSessionMetrics
-		p.secureRecordingMandatory = deps.secureRecordingMandatory
-		p.backends = deps.backends
-		p.detector = deps.detector
-		p.compactionObservers = deps.compactionObservers
-		p.compactionPreservers = deps.compactionPreservers
-		p.compactionServices = deps.compactionServices
-		p.keepwarm = deps.keepwarm
-		p.completionBufferLimits = deps.completionBufferLimits
+	if s.responsePipeline != nil {
+		deps.customer = s.responsePipeline.customer
+		deps.seenEvents = s.responsePipeline.seenEvents
+		deps.visibleText = s.responsePipeline.visibleText
+		deps.gateBuf = s.responsePipeline.gateBuf
+		deps.gateDrain = s.responsePipeline.gateDrain
+		deps.gateLive = s.responsePipeline.gateLive
+		deps.recoverDrain = s.responsePipeline.recoverDrain
+		if s.responsePipeline.toolClass.byCallID != nil {
+			deps.toolClass.byCallID = make(map[string]toolEventClassification)
+			s.responsePipeline.toolClass.mu.Lock()
+			for k, v := range s.responsePipeline.toolClass.byCallID {
+				deps.toolClass.byCallID[k] = v
+			}
+			s.responsePipeline.toolClass.mu.Unlock()
+		}
+		deps.committedTools = s.responsePipeline.committedTools
+		deps.recordingOutcome = s.responsePipeline.recordingOutcome
+		deps.lastAuthorityUsage = s.responsePipeline.lastAuthorityUsage
+		deps.lastCustomerUsage = s.responsePipeline.lastCustomerUsage
+		deps.terminalSnapshot = s.responsePipeline.terminalSnapshot
+		deps.customerUsageFn = s.responsePipeline.customerUsageFn
+		if s.responsePipeline.bus != nil {
+			deps.bus = s.responsePipeline.bus
+		}
 	}
+	s.responsePipeline = deps
 	bindTurnTerminalRuntime(s.terminal, e)
 	if attempt := s.attempt.snapshot(); attempt != nil {
 		attempt.recordAttemptLoggedFn = e.recordAttemptLogged
 	}
 	if s.recovery != nil {
 		s.recovery.bindOpener(e, s.responsePipeline.bus, s.terminal.aLegScope())
-		s.recovery.attemptFactory = func(opened replacementOpenResult, facts requestTerminalFacts) *attemptSession {
-			fs, maxArgs := e.resolveToolCallFinalizers()
-			return newAttemptSession(attemptSessionInput{
-				inner: opened.stream, bleg: opened.bleg, cand: opened.cand,
-				authority:             e.newAttemptAuthorityLifecycle(opened.authority, opened.cand),
-				accounting:            newAttemptAccountingTracker(e.now()),
-				toolFinal:             newToolCallAssembler(fs, maxArgs, facts.call.Tools),
-				promptCacheSource:     promptCacheObservationSource(opened.stream),
-				promptCacheController: promptCacheControllerFor(e.Backends[opened.cand.Primary.Backend]),
-				finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
-				recordAttemptLoggedFn: e.recordAttemptLogged,
-			})
-		}
-		s.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
+
 	}
 }
 

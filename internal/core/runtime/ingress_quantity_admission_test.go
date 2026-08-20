@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
@@ -207,33 +208,52 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	params := attemptOpenParams{
-		bus:     bus,
-		traceID: "trace-be-qty",
-		aLegID:  aLegID,
-		baseline: lipapi.Call{
-			ID:    "req-be-qty",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
-			},
-			Messages: []lipapi.Message{{
-				Role:  lipapi.RoleUser,
-				Parts: []lipapi.Part{lipapi.TextPart("be basis")},
-			}},
-		},
-		session:  &routing.SessionRoutingState{},
+	budget := &attemptBudget{max: 3}
+	failures := budget.getFailures()
+	progress := &recoveryController{
+		budget:   budget,
 		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
-		budget:   &attemptBudget{max: 3},
+		failures: failures,
+	}
+	budget.failures = failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID: "trace-be-qty",
+				aLegID:  aLegID,
+				baseline: lipapi.Call{
+					ID:    "req-be-qty",
+					Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+					Invocation: lipapi.Invocation{
+						Operation:    lipapi.OperationOpenAIChatCompletions,
+						DeliveryMode: lipapi.DeliveryModeStreaming,
+					},
+					Messages: []lipapi.Message{{
+						Role:  lipapi.RoleUser,
+						Parts: []lipapi.Part{lipapi.TextPart("be basis")},
+					}},
+				},
+			},
+			bus: bus,
+		},
+		routeFacts: routeFacts{
+			sel: &routing.Selector{},
+			rng: routing.NewSeededRng(1),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
+		interleaved: interleavedstate.State{},
+	}
+	plan := candidatePlan{
+		cand: authorityCandidate(),
 	}
 
-	out, err := ex.openPlannedCandidate(withMeteringHolder(context.Background(), holder), params, authorityCandidate(), nil, "", false)
+	out, err := ex.evaluateAndOpenCandidate(withMeteringHolder(context.Background(), holder), req, plan)
 	if err != nil {
-		t.Fatalf("openPlannedCandidate: %v", err)
+		t.Fatalf("evaluateAndOpenCandidate: %v", err)
 	}
-	if out.stream == nil {
+	if out.session == nil || out.session.inner == nil {
 		t.Fatal("expected opened stream")
 	}
 	if backend.openCalls.Load() < 1 {
@@ -250,7 +270,7 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 	if !ok || in != 777 {
 		t.Fatalf("attempt admit input_token=%d ok=%v want 777 from post-hook BE ingress count (pre-hook would be 1); quantities=%+v", in, ok, got.Exposure.Quantities)
 	}
-	be := holder.BackendIngressFor(out.bleg.BLegID)
+	be := holder.BackendIngressFor(out.session.bleg.BLegID)
 	if be == nil {
 		t.Fatal("BE ingress must be stored for the attempt")
 	}

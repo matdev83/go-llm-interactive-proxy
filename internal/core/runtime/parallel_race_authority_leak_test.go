@@ -217,11 +217,12 @@ func TestParallelRaceAuthorityLeak_L2_RegisterBLegFailureReleasesAuthority(t *te
 		return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
 
 	err := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(context.Background(), req, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		return err
 	})
 	if err == nil {
@@ -260,14 +261,15 @@ func TestParallelRaceAuthorityLeak_L3_FatalLegErrorReleasesOpenedLegs(t *testing
 		return blockingRecvStream{}, nil
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
 	// A short global TTFT deadline makes the parked leg's Recv return DeadlineExceeded,
 	// which the race maps to a fatal ErrTTFTTimeout.
-	p.ttft = &ttftBudget{start: time.Now(), global: 80 * time.Millisecond}
+	req.progress.ttft = &ttftBudget{start: time.Now(), global: 80 * time.Millisecond}
 
 	err := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(context.Background(), req, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		return err
 	})
 	if err == nil {
@@ -314,12 +316,13 @@ func TestParallelRaceAuthorityLeak_L4_CtxDoneReleasesOpenedLegs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := ex.tryOpenParallelGroup(ctx, p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(ctx, req, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		done <- err
 	}()
 
@@ -421,16 +424,17 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 		InterleavedRole: interleavedstate.RoleExecutor,
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
-	p.interleaved = interleavedstate.State{MemoRef: &memoRef}
-	p.baseline.Messages = []lipapi.Message{{
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
+	req.interleaved = interleavedstate.State{MemoRef: &memoRef}
+	req.reqFacts.baseline.Messages = []lipapi.Message{{
 		Role:  lipapi.RoleUser,
 		Parts: []lipapi.Part{lipapi.TextPart("hello")},
 	}}
 
 	raceErr := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(ctx, p, []routing.AttemptCandidate{loserCand, winnerCand}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(ctx, req, []routing.AttemptCandidate{loserCand, winnerCand}, nil, "", false)
 		return err
 	})
 	if raceErr == nil {
@@ -484,14 +488,14 @@ func TestParallelRaceAuthorityLeak_L10_NoWinnerDoesNotRefundBudget(t *testing.T)
 	}
 
 	budget := &attemptBudget{max: 10}
-	p := authorityOpenParams(t, aLegID, budget)
+	req := authorityOpenRequest(t, aLegID, budget)
 
 	cands := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-1"}, Key: "backend-2:model-1"},
 	}
 
-	_, err := ex.tryOpenParallelGroup(context.Background(), p, cands, nil, "", false)
+	_, err := ex.tryOpenParallelGroup(context.Background(), req, cands, nil, "", false)
 	if err != nil {
 		t.Fatalf("no-winner parallel race must not surface an error (it failovers), got: %v", err)
 	}

@@ -55,20 +55,80 @@ func TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities(t *tes
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	openFn := findFunc(f, "openPlannedCandidate")
-	if openFn == nil {
-		t.Fatal("openPlannedCandidate not found")
+	evalFn := findFunc(f, "evaluateCandidate")
+	if evalFn == nil {
+		t.Fatal("evaluateCandidate not found")
 	}
 
-	shapePos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+	shapePos := firstCallPos(evalFn.Body, func(_, name string, _ *ast.CallExpr) bool {
 		return name == "shapeAttemptCall"
 	})
-	transformPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+	transformPos := firstCallPos(evalFn.Body, func(_, name string, _ *ast.CallExpr) bool {
 		return name == runCandidateAttemptTransformStage
 	})
-	admitPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+	admitPos := firstCallPos(evalFn.Body, func(_, name string, _ *ast.CallExpr) bool {
 		return name == evaluateCandidateAdmission
 	})
+
+	if shapePos == 0 {
+		t.Fatal("evaluateCandidate must call shapeAttemptCall")
+	}
+	if transformPos == 0 {
+		t.Fatalf("evaluateCandidate must call %s after shapeAttemptCall and before evaluateCandidateAdmission",
+			runCandidateAttemptTransformStage)
+	}
+	if admitPos == 0 {
+		t.Fatal("evaluateCandidate must call evaluateCandidateAdmission")
+	}
+	if shapePos >= transformPos || transformPos >= admitPos {
+		t.Fatalf("want shapeAttemptCall < %s < evaluateCandidateAdmission; positions shape=%d transform=%d admission=%d",
+			runCandidateAttemptTransformStage, shapePos, transformPos, admitPos)
+	}
+}
+
+func TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	path := filepath.Join(root, "internal", "core", "runtime", "executor_open_attempt.go")
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	evalFn := findFunc(f, "evaluateCandidate")
+	if evalFn == nil {
+		t.Fatal("evaluateCandidate not found")
+	}
+
+	transformPos := firstCallPos(evalFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == runCandidateAttemptTransformStage
+	})
+	var excludedPos token.Pos
+	ast.Inspect(evalFn.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.SelectorExpr:
+			if excludedPos == 0 && x.Sel != nil && x.Sel.Name == "Excluded" {
+				excludedPos = x.Pos()
+			}
+		}
+		return true
+	})
+
+	if transformPos == 0 {
+		t.Fatalf("evaluateCandidate must call %s", runCandidateAttemptTransformStage)
+	}
+	if excludedPos == 0 {
+		t.Fatal("evaluateCandidate must branch on transform Excluded")
+	}
+	if transformPos >= excludedPos {
+		t.Fatalf("want transform before Excluded check; transform=%d excluded=%d", transformPos, excludedPos)
+	}
+
+	// Verify that openAttemptTx calls be.Open
+	openFn := findFunc(f, "openAttemptTx")
+	if openFn == nil {
+		t.Fatal("openAttemptTx not found")
+	}
 	openPos := firstCallPos(openFn.Body, func(pkg, name string, call *ast.CallExpr) bool {
 		if name != "Open" {
 			return false
@@ -85,81 +145,7 @@ func TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities(t *tes
 		}
 		return false
 	})
-
-	if shapePos == 0 {
-		t.Fatal("openPlannedCandidate must call shapeAttemptCall")
-	}
-	if admitPos == 0 {
-		t.Fatal("openPlannedCandidate must call evaluateCandidateAdmission")
-	}
-	if transformPos == 0 {
-		t.Fatalf("RED: openPlannedCandidate must call %s after shapeAttemptCall and before evaluateCandidateAdmission (stage %s)",
-			runCandidateAttemptTransformStage, "candidate_attempt_transform")
-	}
-	if shapePos >= transformPos || transformPos >= admitPos {
-		t.Fatalf("want shapeAttemptCall < %s < evaluateCandidateAdmission; positions shape=%d transform=%d admission=%d",
-			runCandidateAttemptTransformStage, shapePos, transformPos, admitPos)
-	}
-	if openPos != 0 && admitPos >= openPos {
-		t.Fatalf("evaluateCandidateAdmission must precede backend Open; admission=%d open=%d", admitPos, openPos)
-	}
-}
-
-func TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "core", "runtime", "executor_open_attempt.go")
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	openFn := findFunc(f, "openPlannedCandidate")
-	if openFn == nil {
-		t.Fatal("openPlannedCandidate not found")
-	}
-
-	transformPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == runCandidateAttemptTransformStage
-	})
-	var excludedPos, openPos token.Pos
-	ast.Inspect(openFn.Body, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.SelectorExpr:
-			if excludedPos == 0 && x.Sel != nil && x.Sel.Name == "Excluded" {
-				excludedPos = x.Pos()
-			}
-		case *ast.CallExpr:
-			if openPos != 0 {
-				return true
-			}
-			pkg, name := qualifiedCall(x.Fun)
-			if name != "Open" {
-				return true
-			}
-			if pkg == "be" || pkg == "backend" {
-				openPos = x.Pos()
-				return true
-			}
-			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-				if id, ok := sel.X.(*ast.Ident); ok && (id.Name == "be" || id.Name == "backend") {
-					openPos = x.Pos()
-				}
-			}
-		}
-		return true
-	})
-
-	if transformPos == 0 {
-		t.Fatalf("openPlannedCandidate must call %s before backend Open", runCandidateAttemptTransformStage)
-	}
-	if excludedPos == 0 {
-		t.Fatal("openPlannedCandidate must branch on transform Excluded before backend Open so excluded candidates never open")
-	}
 	if openPos == 0 {
-		t.Fatal("openPlannedCandidate must call backend Open")
-	}
-	if transformPos >= openPos || excludedPos >= openPos {
-		t.Fatalf("want transform+Excluded before backend Open; transform=%d excluded=%d open=%d", transformPos, excludedPos, openPos)
+		t.Fatal("openAttemptTx must call backend Open")
 	}
 }

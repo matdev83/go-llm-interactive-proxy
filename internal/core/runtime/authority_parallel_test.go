@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -49,40 +50,63 @@ func TestParallelRaceWinnerPropagatesAuthority(t *testing.T) {
 		},
 	}
 
-	p := attemptOpenParams{
-		bus:     hooks.New(hooks.Config{}),
-		traceID: "trace-parallel",
-		aLegID:  aLegID,
-		baseline: lipapi.Call{
-			ID:    "request-parallel",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1!backend-2:model-2"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
-			},
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}},
-		},
+	progress := &recoveryController{
+		budget:   &attemptBudget{max: 10},
+		ttft:     &ttftBudget{},
 		excluded: map[string]struct{}{},
 	}
+	progress.failures = progress.budget.getFailures()
+	progress.budget.failures = progress.failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID: "trace-parallel",
+				aLegID:  aLegID,
+				baseline: lipapi.Call{
+					ID:    "request-parallel",
+					Route: lipapi.RouteIntent{Selector: "backend-1:model-1!backend-2:model-2"},
+					Invocation: lipapi.Invocation{
+						Operation:    lipapi.OperationOpenAIChatCompletions,
+						DeliveryMode: lipapi.DeliveryModeStreaming,
+					},
+					Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}},
+				},
+			},
+			bus: hooks.New(hooks.Config{}),
+		},
+		routeFacts: routeFacts{
+			sel: &routing.Selector{},
+			rng: routing.NewSeededRng(1),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
+		interleaved: interleavedstate.State{},
+	}
+
 	candidates := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(context.Background(), req, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("expected parallel race to open a backend")
 	}
-	if out.cand.Primary.Backend != "backend-1" {
-		t.Fatalf("winner backend = %q, want backend-1", out.cand.Primary.Backend)
+	if out.session.cand.Primary.Backend != "backend-1" {
+		t.Fatalf("winner backend = %q, want backend-1", out.session.cand.Primary.Backend)
 	}
-	if out.authority.admissionInput.Correlation.TraceID == "" {
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
+	}
+	if authState.admissionInput.Correlation.TraceID == "" {
 		t.Fatal("expected winner authority to have a trace ID")
 	}
-	if out.authority.admissionResult.ReservationID != "reservation-parallel" {
-		t.Fatalf("winner authority reservation ID = %q, want reservation-parallel", out.authority.admissionResult.ReservationID)
+	if authState.admissionResult.ReservationID != "reservation-parallel" {
+		t.Fatalf("winner authority reservation ID = %q, want reservation-parallel", authState.admissionResult.ReservationID)
 	}
 }

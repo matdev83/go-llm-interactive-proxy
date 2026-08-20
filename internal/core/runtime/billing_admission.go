@@ -75,20 +75,7 @@ func billingWorkloadIdentityForALeg(ctx context.Context, aLegID string) (billing
 			return st.Workload, nil
 		}
 	}
-	if !detached && sc.Origin != scope.OriginInternal {
-		return billing.WorkloadIdentity{}, nil
-	}
-	role := ""
-	if detached {
-		role = meta.AuxiliaryRole
-	}
-	if strings.TrimSpace(role) == "" {
-		// Requests without trusted workload metadata remain unclassified; never
-		// infer a role from call, provider, or model content.
-		return billing.WorkloadIdentity{}, nil
-	}
-	fact := metering.Fact{Lifecycle: metering.LifecycleAuxiliaryRequest, Scope: sc}
-	return coremetering.ProjectWorkloadIdentity(fact, role)
+	return billing.WorkloadIdentity{}, nil
 }
 
 // (e *Executor).billingWorkloadIdentity is the terminal-path accessor. The
@@ -119,7 +106,7 @@ func (e *Executor) checkCheapCredit(ctx context.Context, prep *preparedRequest) 
 	if prep == nil || e.BillingIdentity.AccountID == nil {
 		return fmt.Errorf("%w: %w: account identity resolver is required", ErrBillingAdmissionDenied, ErrBillingCreditScreenDenied)
 	}
-	accountID := strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
+	accountID := strings.TrimSpace(e.BillingIdentity.AccountID(ctx, *prep.call))
 	if accountID == "" {
 		return fmt.Errorf("%w: %w: account identity is empty", ErrBillingAdmissionDenied, ErrBillingCreditScreenDenied)
 	}
@@ -159,23 +146,28 @@ func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequ
 	}
 	accountID := strings.TrimSpace(exposure.AccountID)
 	if accountID == "" && e.BillingIdentity.AccountID != nil {
-		accountID = strings.TrimSpace(e.BillingIdentity.AccountID(ctx, prep.baseline))
+		accountID = strings.TrimSpace(e.BillingIdentity.AccountID(ctx, *prep.call))
 	}
 	pricing := exposure.PricingRef
 	policy := exposure.ChargePolicyRef
 	if pricing == (billing.VersionRef{}) && e.BillingIdentity.CustomerPricingRef != nil {
-		pricing = e.BillingIdentity.CustomerPricingRef(ctx, prep.baseline)
+		pricing = e.BillingIdentity.CustomerPricingRef(ctx, *prep.call)
 	}
 	if policy == (billing.VersionRef{}) && e.BillingIdentity.ChargePolicyRef != nil {
-		policy = e.BillingIdentity.ChargePolicyRef(ctx, prep.baseline)
+		policy = e.BillingIdentity.ChargePolicyRef(ctx, *prep.call)
 	}
 	if accountID == "" {
 		return
 	}
-	prep.billingAccountID = accountID
-	prep.billingCustomerPricing = pricing
-	prep.billingChargePolicy = policy
+	prep.billingExposure = billing.CallExposure{
+		AccountID:       accountID,
+		PricingRef:      pricing,
+		ChargePolicyRef: policy,
+	}
 	prep.billingIdentityStamped = true
+	prep.recvTurnFacts.billingAccountID = accountID
+	prep.recvTurnFacts.billingCustomerPricing = pricing
+	prep.recvTurnFacts.billingChargePolicy = policy
 }
 
 func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequest, plan *routePlanState) BillingRoutePlanInput {
@@ -183,7 +175,7 @@ func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequ
 		return BillingRoutePlanInput{}
 	}
 	return BillingRoutePlanInput{
-		Call: lipapi.CloneCall(prep.baseline), TraceID: prep.traceID, ALegID: prep.aLeg.ALegID, BillingCallID: prep.billingCallID.String(),
+		Call: lipapi.CloneCall(*prep.call), TraceID: prep.identity.traceID, ALegID: prep.identity.aLeg.ALegID, BillingCallID: prep.billingCallID.String(),
 		Route: plan.sel, RequestSize: e.billingRequestSize(ctx, prep, plan),
 	}
 }
@@ -195,7 +187,7 @@ func (e *Executor) billingRequestSize(ctx context.Context, prep *preparedRequest
 	if e == nil || prep == nil || e.RequestTokenEstimator == nil {
 		return routing.RequestSizeEstimate{}
 	}
-	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, prep.baseline)
+	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, *prep.call)
 	return routing.RequestSizeEstimate{Available: est.Available, Tokens: est.Input, Basis: est.Basis}
 }
 
@@ -203,7 +195,7 @@ func (e *Executor) appendExposureAbortAfterAdmission(ctx context.Context, prep *
 	if e == nil || prep == nil || e.BillingExposureAdmission == nil {
 		return
 	}
-	e.appendExposureAbortClosure(ctx, prep, strings.TrimSpace(prep.aLeg.ALegID))
+	e.appendExposureAbortClosure(ctx, prep, strings.TrimSpace(prep.identity.aLeg.ALegID))
 }
 
 func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *preparedRequest, aLegID string) {
@@ -213,7 +205,7 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 	if err := prep.billingCallID.Validate(); err != nil {
 		return
 	}
-	accountID := strings.TrimSpace(prep.billingAccountID)
+	accountID := strings.TrimSpace(prep.billingExposure.AccountID)
 	if accountID == "" {
 		return
 	}
@@ -223,12 +215,12 @@ func (e *Executor) appendExposureAbortClosure(ctx context.Context, prep *prepare
 		CallID:             prep.billingCallID,
 		AccountID:          accountID,
 		ALegID:             aLegID,
-		SessionID:          strings.TrimSpace(prep.baseline.Session.AuthoritativeSessionID),
+		SessionID:          strings.TrimSpace(prep.call.Session.AuthoritativeSessionID),
 		StartedAt:          now,
 		FinishedAt:         now,
 		Outcome:            billing.TurnOutcomeFailed,
-		CustomerPricingRef: prep.billingCustomerPricing,
-		ChargePolicyRef:    prep.billingChargePolicy,
+		CustomerPricingRef: prep.billingExposure.PricingRef,
+		ChargePolicyRef:    prep.billingExposure.ChargePolicyRef,
 		ExpectedBLegIDs:    prep.billingCallState.freezeAllocatedBLegs(),
 		Workload:           e.billingWorkloadIdentityForALeg(ctx, aLegID),
 	}

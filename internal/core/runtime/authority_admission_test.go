@@ -19,9 +19,9 @@ func TestExecutorAuthorityDisabledAllowsOpenWithoutAdmission(t *testing.T) {
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
 	out, err := openAuthorityCandidate(t, ex, aLegID)
 	if err != nil {
-		t.Fatalf("openPlannedCandidate: %v", err)
+		t.Fatalf("openAuthorityCandidate: %v", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("expected backend to open when authority is disabled")
 	}
 	if backend.openCalls.Load() != 1 {
@@ -123,8 +123,8 @@ func TestExecutorAuthorityAdmitPopulatesRequestCount(t *testing.T) {
 	if in.Correlation.BLegID == "" || in.ReservationKey.BLegID == "" {
 		t.Fatal("real admission must carry the allocated B-leg")
 	}
-	if in.Correlation.BLegID != out.bleg.BLegID {
-		t.Fatalf("real admission BLegID = %q, want %q", in.Correlation.BLegID, out.bleg.BLegID)
+	if in.Correlation.BLegID != out.session.bleg.BLegID {
+		t.Fatalf("real admission BLegID = %q, want %q", in.Correlation.BLegID, out.session.bleg.BLegID)
 	}
 	if in.Correlation.BLegID != in.ReservationKey.BLegID {
 		t.Fatalf("real admission BLegID = %q, want reservation key BLegID %q", in.Correlation.BLegID, in.ReservationKey.BLegID)
@@ -153,7 +153,11 @@ func TestExecutorAuthorityRealAdmitFailureReleasesBudget(t *testing.T) {
 	ex, store, backend, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
 
 	budget := &attemptBudget{max: 1}
-	_, err := ex.openPlannedCandidate(context.Background(), authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+	req := authorityOpenRequest(t, aLegID, budget)
+	plan := candidatePlan{
+		cand: authorityCandidate(),
+	}
+	_, err := ex.evaluateAndOpenCandidate(context.Background(), req, plan)
 	if err == nil {
 		t.Fatal("expected authority denial error from real admit")
 	}

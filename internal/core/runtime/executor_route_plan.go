@@ -4,42 +4,65 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// routePlanState holds routing setup computed once per Execute after request
-// preparation and before the initial attempt-open loop.
-type routePlanState struct {
-	sel                    *routing.Selector
-	budget                 *attemptBudget
-	ttft                   ttftBudget
-	session                *routing.SessionRoutingState
-	excluded               map[string]struct{}
-	requestSize            routing.RequestSizeEstimate
-	affinityKey            affinity.Key
-	affinitySet            bool
-	interleaved            interleavedstate.State
-	rng                    routing.Rng
-	failoverReq            capabilities.FailoverRequirementSet
-	lastReject             lipapi.NegotiationResult
-	lastTransportReject    lipapi.TransportNegotiationResult
-	lastAdmissionErr       error
-	contextLimitExhaustion bool
-	lastParallelFailure    error
-	transformExcludes      transformExcludeTracker
+type candidateFailureHistory struct {
+	CapabilityReject  lipapi.NegotiationResult
+	TransportReject   lipapi.TransportNegotiationResult
+	AdmissionErr      error
+	ContextLimit      bool
+	TransformExcludes *transformExcludeTracker
+	ParallelFailure   error
+	progress          *recoveryController
 }
 
-// buildRoutePlan parses the route selector, applies model-only defaulting, and
-// initializes attempt budgets, session routing state, affinity identity, and
-// interleaved preload for the initial open loop.
+func (h *candidateFailureHistory) FinalError(base error) error {
+	if h == nil {
+		return base
+	}
+	if h.TransportReject.Kind == lipapi.NegotiationReject {
+		return h.TransportReject.Err()
+	}
+	if h.AdmissionErr != nil {
+		return h.AdmissionErr
+	}
+	if h.CapabilityReject.Kind == lipapi.NegotiationReject {
+		return h.CapabilityReject.Err()
+	}
+	if h.ContextLimit {
+		return lipapi.ErrAllCandidatesContextLimitExceeded
+	}
+	if h.TransformExcludes != nil {
+		if aggErr := h.TransformExcludes.allExcludedError(); aggErr != nil {
+			return aggErr
+		}
+	}
+	if h.ParallelFailure != nil {
+		return h.ParallelFailure
+	}
+	return base
+}
+
+type routeFacts struct {
+	sel         *routing.Selector
+	requestSize routing.RequestSizeEstimate
+	affinityKey affinity.Key
+	affinitySet bool
+	rng         routing.Rng
+	failoverReq capabilities.FailoverRequirementSet
+}
+type routePlanState struct {
+	routeFacts
+	progress *recoveryController
+}
+
 func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*routePlanState, error) {
-	e.noteSelectorAuthority(ctx, prep.traceID, prep.routeAuth)
-	sel, err := routing.CompileSelector(prep.baseline.Route.Selector, e.SelectorAliases, e.DefaultBackend)
+	e.noteSelectorAuthority(ctx, prep.identity.traceID, prep.identity.routeAuth)
+	sel, err := routing.CompileSelector(prep.call.Route.Selector, e.SelectorAliases, e.DefaultBackend)
 	if err != nil {
 		if errors.Is(err, lipapi.ErrUnresolvedModelOnlySelector) {
 			return nil, fmt.Errorf("executor: %w", err)
@@ -49,9 +72,6 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 	if err := routing.ValidateExecutionComposition(sel, e.BackendExecutionResolver, e.ExecutionCompositionPolicy); err != nil {
 		return nil, fmt.Errorf("executor: %w", err)
 	}
-	// Bind-time registry view: set NativeModel on every leaf without rewriting
-	// Primary.Model so catalog/affinity/traces keep logical identity (req 9.4, 9.10).
-	// Wrong-backend canonical leaves fail closed with a typed error.
 	if resolver, ok := routing.NativeModelResolverFromContext(ctx); ok {
 		if err := routing.BindNativeModelIDs(sel, resolver); err != nil {
 			return nil, fmt.Errorf("executor: bind native model ids: %w", err)
@@ -61,21 +81,55 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
 	}
-	interleaved, err := e.loadInterleavedState(ctx, prep.aLeg.ALegID)
+	interleaved, err := e.loadInterleavedState(ctx, prep.identity.aLeg.ALegID)
 	if err != nil {
 		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
 	}
-	return &routePlanState{
+	failures := &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
+	budget := &attemptBudget{
+		max:      e.effectiveMaxAttempts(),
+		used:     0,
+		failures: failures,
+	}
+	ttft := newTTFTBudget(e.now(), sel)
+	sessionState := &routing.SessionRoutingState{FirstRequestConsumed: prep.identity.aLeg.WeightedFirstConsumed}
+	excluded := map[string]struct{}{}
+	requestSize := e.requestSizeEstimateForRouting(ctx, sel, *prep.call)
+	rng := e.rng()
+	failoverReq := capabilities.NewFailoverRequirementSet(*prep.call)
+	progress := newRecoveryController(recoveryControllerInput{
+		e:              e,
+		affinityStore:  e.AffinityStore,
+		log:            e.Log,
+		streamRecovery: e.StreamRecovery,
+		opener:         newReplacementOpener(e, prep.bus, prep.aScope),
+		budget:         budget,
+		ttft:           ttft,
+		sel:            sel,
+		requestSize:    requestSize,
+		session:        sessionState,
+		excluded:       excluded,
+		rng:            rng,
+		affinityKey:    affinityKey,
+		affinitySet:    affinityKeyOK,
+		interleaved:    interleaved,
+	})
+	rf := routeFacts{
 		sel:         sel,
-		budget:      &attemptBudget{max: e.effectiveMaxAttempts(), used: 0},
-		ttft:        newTTFTBudget(e.now(), sel),
-		session:     &routing.SessionRoutingState{FirstRequestConsumed: prep.aLeg.WeightedFirstConsumed},
-		excluded:    map[string]struct{}{},
-		requestSize: e.requestSizeEstimateForRouting(ctx, sel, prep.baseline),
+		requestSize: requestSize,
 		affinityKey: affinityKey,
 		affinitySet: affinityKeyOK,
-		interleaved: interleaved,
-		rng:         e.rng(),
-		failoverReq: capabilities.NewFailoverRequirementSet(prep.baseline),
+		rng:         rng,
+		failoverReq: failoverReq,
+	}
+	return &routePlanState{
+		routeFacts: rf,
+		progress:   progress,
 	}, nil
+}
+func (p *routePlanState) facts() routeFacts {
+	if p == nil {
+		return routeFacts{}
+	}
+	return p.routeFacts
 }

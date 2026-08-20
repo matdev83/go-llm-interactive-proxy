@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -73,32 +74,51 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				p := attemptOpenParams{
-					bus:     hooks.New(hooks.Config{}),
-					traceID: fmt.Sprintf("trace-%d", i),
-					aLegID:  leg.ALegID,
-					baseline: lipapi.Call{
-						ID:    fmt.Sprintf("request-%d", i),
-						Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-						Invocation: lipapi.Invocation{
-							Operation:    lipapi.OperationOpenAIChatCompletions,
-							DeliveryMode: lipapi.DeliveryModeStreaming,
-						},
-						Messages: []lipapi.Message{{
-							Role:  lipapi.RoleUser,
-							Parts: []lipapi.Part{lipapi.TextPart("benchmark")},
-						}},
-					},
+				progress := &recoveryController{
+					budget:   &attemptBudget{max: 10},
+					ttft:     &ttftBudget{},
+					excluded: map[string]struct{}{},
 				}
-				out, err := ex.tryOpenParallelGroup(context.Background(), p, candidates, nil, "", false)
+				progress.failures = progress.budget.getFailures()
+				progress.budget.failures = progress.failures
+
+				req := openNextRequest{
+					reqFacts: requestFacts{
+						recvTurnFacts: recvTurnFacts{
+							traceID: fmt.Sprintf("trace-%d", i),
+							aLegID:  leg.ALegID,
+							baseline: lipapi.Call{
+								ID:    fmt.Sprintf("request-%d", i),
+								Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+								Invocation: lipapi.Invocation{
+									Operation:    lipapi.OperationOpenAIChatCompletions,
+									DeliveryMode: lipapi.DeliveryModeStreaming,
+								},
+								Messages: []lipapi.Message{{
+									Role:  lipapi.RoleUser,
+									Parts: []lipapi.Part{lipapi.TextPart("benchmark")},
+								}},
+							},
+						},
+						bus: hooks.New(hooks.Config{}),
+					},
+					routeFacts: routeFacts{
+						sel: &routing.Selector{},
+						rng: routing.NewSeededRng(1),
+					},
+					progress:    progress,
+					mode:        openModeInitial,
+					interleaved: interleavedstate.State{},
+				}
+				out, err := ex.tryOpenParallelGroup(context.Background(), req, candidates, nil, "", false)
 				if err != nil {
 					b.Fatal(err)
 				}
-				if !out.opened {
+				if out.session == nil {
 					b.Fatal("expected parallel race to open")
 				}
-				if out.stream != nil {
-					_ = out.stream.Close()
+				if out.session.inner != nil {
+					_ = out.session.inner.Close()
 				}
 			}
 		})

@@ -100,7 +100,15 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	}
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	budget := &attemptBudget{max: 3}
-	params := authorityOpenParams(t, aLegID, budget)
+	baseline := lipapi.Call{
+		ID:    "request-1",
+		Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode: lipapi.DeliveryModeStreaming,
+		},
+		Messages: testMinimalUserMessages(),
+	}
 	sel, err := routing.Parse("backend-1:model-1")
 	if err != nil {
 		t.Fatalf("parse selector: %v", err)
@@ -125,15 +133,17 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	terminal := newTurnTerminal()
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: params.baseline,
+			baseline: baseline,
 			aLegID:   aLegID,
 			traceID:  "trace-1",
 		}),
 		terminal: terminal,
 		recovery: newRecoveryController(recoveryControllerInput{
-			opener:         newReplacementOpener(ex, hooks.New(hooks.Config{}), terminal.aLegScope()),
+			e:              ex,
+			affinityStore:  ex.AffinityStore,
+			log:            ex.Log,
 			streamRecovery: ex.StreamRecovery,
-			nowFn:          ex.now,
+			opener:         newReplacementOpener(ex, hooks.New(hooks.Config{}), terminal.aLegScope()),
 			budget:         budget,
 			sel:            sel,
 			session:        &routing.SessionRoutingState{},
@@ -147,18 +157,7 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 		),
 		responsePipeline: newResponsePipeline(),
 	}
-	rs.recovery.attemptFactory = func(opened replacementOpenResult, _ requestTerminalFacts) *attemptSession {
-		return newAttemptSession(attemptSessionInput{
-			inner: opened.stream,
-			bleg:  opened.bleg,
-			cand:  opened.cand,
-			authority: ex.newAttemptAuthorityLifecycle(
-				opened.authority,
-				opened.cand,
-			),
-			accounting: newAttemptAccountingTracker(ex.now()),
-		})
-	}
+
 	testStoreInner(rs, oldStream)
 	oldAttempt := rs.attempt.snapshot()
 

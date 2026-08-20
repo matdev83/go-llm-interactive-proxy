@@ -109,6 +109,27 @@ type recvTurnFacts struct {
 	billingCallState       *billingCallState
 }
 
+func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
+	return newRecvTurnFacts(ctx, recvTurnFactsInput{
+		baseline:               f.call,
+		traceID:                f.traceID,
+		aLegID:                 f.aLegID,
+		secureTurn:             f.secureTurn,
+		secureTurnOK:           f.secureTurnOK,
+		billingCallID:          f.billingCallID,
+		billingCallState:       f.billingState,
+		billingAccountID:       f.accountID,
+		billingCustomerPricing: f.pricing,
+		billingChargePolicy:    f.chargePolicy,
+		billingIdentityStamped: f.identityStamped,
+		requestAuth:            f.requestAuth,
+		routePrefs:             slices.Clone(f.routePrefs),
+		recvViews:              f.recvViews,
+		recvViewsOK:            true,
+		metering:               f.metering,
+	})
+}
+
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {
 	f := recvTurnFacts{
 		baseline:               lipapi.CloneCall(in.baseline),

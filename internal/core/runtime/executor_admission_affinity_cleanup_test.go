@@ -26,13 +26,9 @@ func TestNoteCandidateAdmissionReject_ClearsStickyAffinityBinding(t *testing.T) 
 	ex := TestExecutor()
 	ex.AffinityStore = affinityStore
 	ex.Bus = hooks.New(hooks.Config{})
-	p := attemptOpenParams{
-		bus:         ex.Bus,
-		traceID:     "trace-affinity-reject",
-		affinityKey: key,
-		affinitySet: true,
-		excluded:    map[string]struct{}{},
-	}
+	traceID := "trace-affinity-reject"
+	affinityKey := key
+	affinitySet := true
 	candidate := routing.AttemptCandidate{
 		Key:     "rejected-backend:model",
 		Primary: routing.Primary{Backend: "rejected-backend", Model: "model"},
@@ -44,7 +40,7 @@ func TestNoteCandidateAdmissionReject_ClearsStickyAffinityBinding(t *testing.T) 
 
 	// This is the production rejection handler used by openPlannedCandidate after
 	// real capability/transport admission, not the core TCK's synthetic callback.
-	ex.noteCandidateAdmissionReject(ctx, p, candidate, "rejected-backend", true, out, "pre_open")
+	ex.noteCandidateAdmissionReject(ctx, traceID, affinityKey, affinitySet, candidate, "rejected-backend", true, out, "pre_open", nil)
 
 	if _, ok, err := affinityStore.Get(ctx, key); err != nil {
 		t.Fatal(err)

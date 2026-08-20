@@ -12,17 +12,46 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 func TestStampBillingCallIDOncePerIncomingInvocation(t *testing.T) {
 	t.Parallel()
+	call1 := &lipapi.Call{
+		Session: lipapi.SessionRef{
+			ALegID: "a_shared",
+		},
+	}
+	preSess1 := session.SessionView{
+		ALegID: "a_shared",
+	}
+	ibt, err := newIdentityBoundTurn(
+		"trace-1",
+		call1,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: "a_shared"},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSess1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prep := &preparedRequest{
-		aLeg:     b2bua.ALegRecord{ALegID: "a_shared"},
-		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess_shared"}},
+		identity: ibt,
+		call:     ibt.call,
 	}
 	if err := stampBillingCallID(prep); err != nil {
 		t.Fatal(err)
@@ -38,9 +67,33 @@ func TestStampBillingCallIDOncePerIncomingInvocation(t *testing.T) {
 		t.Fatal("retries and later stamps on the same incoming invocation must keep the original BillingCallID")
 	}
 
+	call2 := &lipapi.Call{
+		Session: lipapi.SessionRef{
+			ALegID: "a_shared",
+		},
+	}
+	preSess2 := session.SessionView{
+		ALegID: "a_shared",
+	}
+	ibt2, err := newIdentityBoundTurn(
+		"trace-2",
+		call2,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: "a_shared"},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSess2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	again := &preparedRequest{
-		aLeg:     b2bua.ALegRecord{ALegID: "a_shared"},
-		baseline: lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "sess_shared"}},
+		identity: ibt2,
+		call:     ibt2.call,
 	}
 	if err := stampBillingCallID(again); err != nil {
 		t.Fatal(err)
@@ -65,7 +118,32 @@ func TestStampBillingCallIDRemainsIndependentOfExposureIdentity(t *testing.T) {
 	t.Parallel()
 	ex := TestExecutor()
 	ex.BillingIdentity = testBillingIdentity()
-	prep := &preparedRequest{aLeg: b2bua.ALegRecord{ALegID: "a-1"}, baseline: lipapi.Call{ID: "call-1"}}
+	call3 := &lipapi.Call{
+		ID: "call-1",
+		Session: lipapi.SessionRef{
+			ALegID: "a-1",
+		},
+	}
+	preSess3 := session.SessionView{
+		ALegID: "a-1",
+	}
+	ibt, err := newIdentityBoundTurn(
+		"trace-1",
+		call3,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: "a-1"},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSess3,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prep := &preparedRequest{identity: ibt, call: ibt.call}
 	if err := stampBillingCallID(prep); err != nil {
 		t.Fatal(err)
 	}
@@ -74,20 +152,42 @@ func TestStampBillingCallIDRemainsIndependentOfExposureIdentity(t *testing.T) {
 		PricingRef:      billing.VersionRef{ID: "pricing:test", Version: "1"},
 		ChargePolicyRef: billing.VersionRef{ID: "policy:test", Version: "1"},
 	})
-	if !prep.billingIdentityStamped || prep.billingAccountID != "acct" {
+	if !prep.billingIdentityStamped || prep.billingExposure.AccountID != "acct" {
 		t.Fatalf("exposure identity was not stamped: %+v", prep)
 	}
-	if string(prep.billingCallID) == prep.billingAccountID || string(prep.billingCallID) == "a-1" {
+	if string(prep.billingCallID) == prep.billingExposure.AccountID || string(prep.billingCallID) == "a-1" {
 		t.Fatal("BillingCallID must not reuse A-leg or account identity")
 	}
 }
 
 func TestFailoverAndParallelBLegsSharePreparedBillingCallID(t *testing.T) {
 	t.Parallel()
-	prep := &preparedRequest{
-		aLeg:     b2bua.ALegRecord{ALegID: "a_shared"},
-		baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+	call4 := &lipapi.Call{
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+		Session: lipapi.SessionRef{
+			ALegID: "a_shared",
+		},
 	}
+	preSess4 := session.SessionView{
+		ALegID: "a_shared",
+	}
+	ibt, err := newIdentityBoundTurn(
+		"trace-1",
+		call4,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: "a_shared"},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSess4,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prep := &preparedRequest{identity: ibt, call: ibt.call}
 	if err := stampBillingCallID(prep); err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +195,16 @@ func TestFailoverAndParallelBLegsSharePreparedBillingCallID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := &routePlanState{sel: sel, budget: &attemptBudget{max: 3}}
-	out := attemptOpenResult{
-		opened: true,
-		stream: lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}),
-		cand:   routing.AttemptCandidate{Primary: routing.Primary{Backend: "exec", Model: "m"}},
+	progress := newRecoveryController(recoveryControllerInput{
+		budget: &attemptBudget{max: 3},
+		sel:    sel,
+	})
+	plan := &routePlanState{routeFacts: routeFacts{sel: sel}, progress: progress}
+	out := openedAttempt{
+		session: &attemptSession{
+			inner: lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}),
+			cand:  routing.AttemptCandidate{Primary: routing.Primary{Backend: "exec", Model: "m"}},
+		},
 	}
 	got, err := TestExecutor().assembleExecutorStream(context.Background(), prep, plan, out)
 	if err != nil {

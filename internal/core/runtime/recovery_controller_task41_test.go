@@ -84,10 +84,9 @@ func TestTask41RecoveryOwnershipShape(t *testing.T) {
 	recoveryFields := structFields(t, filepath.Join(dir, "recovery_controller.go"), "recoveryController")
 	for _, field := range []string{
 		"budget", "ttft", "sel", "requestSize", "session", "excluded", "rng",
-		"lastHardReject", "lastHardTransportReject", "lastAdmissionErr",
-		"isContextLimitExhaustion", "transformExcludes", "affinityKey", "affinitySet",
+		"affinityKey", "affinitySet",
 		"affinityCommitOnce", "recoverPolicy", "interleaved", "suppressThinker",
-		"suppressVisibleMemo", "lastParallelFailure",
+		"suppressVisibleMemo",
 	} {
 		if !recoveryFields[field] {
 			t.Errorf("recoveryController does not own recovery field %q", field)
@@ -102,15 +101,7 @@ func TestTask41RecoveryOwnershipShape(t *testing.T) {
 	if !containsIdent(t, adapterPath, "replacementOpenRequest") || !containsIdent(t, adapterPath, "replacementOpenResult") {
 		t.Fatal("recovery adapter must define the D10 replacement request/result seam")
 	}
-	if !containsIdent(t, adapterPath, "attemptOpenParams") {
-		t.Fatal("recovery adapter must localize the temporary attemptOpenParams translation")
-	}
 	_ = adapterSource
-	for _, façadeFile := range []string{"executor_recv_loop.go", "interleaved_open.go"} {
-		if containsIdent(t, filepath.Join(dir, façadeFile), "attemptOpenParams") {
-			t.Fatalf("recv/continuation façade %s must not construct or reference attemptOpenParams", façadeFile)
-		}
-	}
 }
 
 func structFields(t *testing.T, path, typeName string) map[string]bool {

@@ -92,7 +92,7 @@ func (e *Executor) hasTerminalSink() bool {
 // hasTerminalCallSink reports whether the terminal sink can persist call closure.
 // The leg and call records share one authoritative sink.
 func (e *Executor) hasTerminalCallSink() bool {
-	return e != nil && e.TerminalUsageSink != nil
+	return e.hasTerminalSink()
 }
 
 // RoutingRuntime carries selector parsing, planning, negotiation, and affinity policy.

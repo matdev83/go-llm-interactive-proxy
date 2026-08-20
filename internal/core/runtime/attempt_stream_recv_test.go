@@ -98,9 +98,11 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 			traceID: "t1",
 		}),
 		recovery: newRecoveryController(recoveryControllerInput{
-			opener:         newReplacementOpener(ex, bus, nil),
+			e:              ex,
+			affinityStore:  ex.AffinityStore,
+			log:            ex.Log,
 			streamRecovery: ex.StreamRecovery,
-			nowFn:          ex.now,
+			opener:         newReplacementOpener(ex, bus, nil),
 			budget:         &attemptBudget{max: 3, used: 0},
 			sel:            sel,
 			session:        &routing.SessionRoutingState{},
