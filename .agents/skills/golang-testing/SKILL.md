@@ -1,36 +1,217 @@
 ---
 name: golang-testing
-description: "Write and review reliable Go unit, integration, benchmark, fuzz, HTTP, and concurrent tests. Use when choosing test scope, fixtures, cleanup, race coverage, deterministic time, mocks, or diagnosing flaky tests."
+description: Write, structure, review, and optimize Go tests and benchmarks: table-driven unit tests, testify assertions and mocks, integration testing, concurrency testing, fuzzing, and benchmark profiling with b.Loop and benchstat.
 ---
 
-# Go testing
+# Go Testing & Benchmarking Guide
 
-Test observable behavior and contracts. Keep tests deterministic, isolated, and proportional to risk; coverage percentage is a signal, not a correctness target.
+Testing in Go follows a Test-Driven Development (TDD) philosophy: write test interfaces and assertions first, implement the smallest correct diff second, and verify with race and quality gates.
 
-## Unit tests
+---
 
-- Table-driven tests are useful when cases share setup and assertions; ordinary named tests are fine when scenarios differ.
-- Use `t.Helper()` in helpers and `t.Cleanup()` for resources owned by a test. Prefer `t.Context()` (Go 1.24+) when the code under test should stop with the test.
-- Make subtest names stable and descriptive. Use `t.Parallel()` only when the test and all shared fixtures are actually isolated; parallelism is not mandatory.
-- Assert public behavior, error classification, and important side effects—not private layout or incidental call order.
-- Run focused tests first (`go test -run 'TestName(?:/case)?$' ./path`), then the package and relevant integration tests.
+## 1. Table-Driven Unit Testing
 
-## Integration and HTTP tests
+Table-driven tests are the standard idiom for testing multiple inputs and edge cases cleanly.
 
-Use `httptest` for in-process HTTP. For external services, make dependencies explicit, gate tests with the repository’s chosen mechanism, and fail clearly when prerequisites are absent. Do not use arbitrary sleeps for readiness: poll a health endpoint with a deadline or use `DB.PingContext` for databases. Read fixtures with checked errors, and report teardown failures without masking the primary failure.
+~~~go
+func TestParseEndpoint(t *testing.T) {
+    t.Parallel()
 
-Integration tests may be tagged or separately configured, but tags and sub-millisecond timing targets are repository choices, not universal rules. Use real services when protocol behavior is the subject; use fakes for deterministic domain tests.
+    tests := []struct {
+        name        string
+        input       string
+        wantHost    string
+        wantPort    int
+        wantErrCls  error
+    }{
+        {
+            name:       "valid host and port",
+            input:      "localhost:8080",
+            wantHost:   "localhost",
+            wantPort:   8080,
+            wantErrCls: nil,
+        },
+        {
+            name:       "missing port",
+            input:      "localhost",
+            wantErrCls: ErrInvalidFormat,
+        },
+    }
 
-## Concurrency and time
+    for _, tc := range tests {
+        tc := tc // pin variable for parallel subtests
+        t.Run(tc.name, func(t *testing.T) {
+            t.Parallel()
 
-Test cancellation, shutdown, channel closure, queue limits, and first-error behavior. Run `go test -race` on supported platforms; it detects races in exercised paths but cannot prove absence. Prefer injected clocks or `testing/synctest` (Go 1.25+) for timer/deadline ordering; avoid `time.Sleep` as synchronization. A timeout bounds a test; it does not make a racy test reliable.
+            host, port, err := ParseEndpoint(tc.input)
+            if tc.wantErrCls != nil {
+                require.ErrorIs(t, err, tc.wantErrCls)
+                return
+            }
+            require.NoError(t, err)
+            assert.Equal(t, tc.wantHost, host)
+            assert.Equal(t, tc.wantPort, port)
+        })
+    }
+}
+~~~
 
-## Mocks, fuzzing, benchmarks
+### Test Lifecycle & Helpers
+- **`t.Helper()`**: Always mark helper functions with `t.Helper()` so failure line numbers point to the test call site rather than the helper.
+- **`t.Cleanup()`**: Register teardown logic (closing listeners, stopping test servers, releasing resources) immediately after initialization.
+- **`t.TempDir()` & `t.Setenv()`**: Use built-in test runners for isolated filesystem and environment manipulation; they auto-cleanup upon test completion.
 
-Define small interfaces at the consumer and use a hand-written fake when it makes behavior clearer. Use a mock framework only when interaction assertions are the behavior under test. Fuzz parsers and invariants with bounded inputs and a minimal corpus. Benchmarks should isolate setup, use `b.Loop()` when the module supports it, call `ReportAllocs` when allocations matter, and compare distributions with `benchstat`.
+---
 
-## Cleanup and diagnostics
+## 2. Assertions with `stretchr/testify`
 
-Every opened resource and started goroutine needs a test-owned shutdown path. Use `t.Cleanup`, context cancellation, and bounded waits. `goleak` can catch leaks in a controlled package but requires filtering unavoidable runtime goroutines. Use `-count` and deterministic seeds to reproduce flakes; do not weaken assertions to make CI green.
+Use `testify` to write concise, diagnostic assertions:
 
-See [helpers](references/helpers.md), [HTTP tests](references/http-testing.md), [integration tests](references/integration-testing.md), and [mocking](references/mocking.md).
+### `require` vs `assert`
+- Use **`require.*`** for preconditions where proceeding further would panic or produce confusing cascading errors (e.g., `require.NoError(t, err)`, `require.NotNil(t, result)`).
+- Use **`assert.*`** for domain output validations where seeing multiple failing assertions across a test execution is valuable.
+
+~~~go
+import (
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestUserCreation(t *testing.T) {
+    user, err := CreateUser(ctx, "alice@example.com")
+    require.NoError(t, err, "user creation must succeed")
+    require.NotNil(t, user)
+
+    assert.Equal(t, "alice@example.com", user.Email)
+    assert.True(t, user.CreatedAt.Before(time.Now()))
+}
+~~~
+
+### Asynchronous & Eventual Assertions
+Avoid flaky `time.Sleep()` in async tests. Use `assert.Eventually` or `require.EventuallyWithT`:
+~~~go
+require.EventuallyWithT(t, func(c *assert.CollectT) {
+    status := service.GetStatus()
+    assert.Equal(c, StatusReady, status)
+}, 5*time.Second, 50*time.Millisecond, "service did not become ready in time")
+~~~
+
+---
+
+## 3. Mocks & Test Doubles
+
+### Hand-Rolled Function Stubs vs Testify Mocks
+- Prefer **small interface stubs or function types** for simple dependencies:
+~~~go
+type stubStore struct {
+    saveFunc func(ctx context.Context, item Item) error
+}
+func (s stubStore) Save(ctx context.Context, item Item) error {
+    return s.saveFunc(ctx, item)
+}
+~~~
+- Use `testify/mock` when call counts, argument matching, or strict interaction sequences must be asserted:
+~~~go
+type MockNotifier struct {
+    mock.Mock
+}
+
+func (m *MockNotifier) Notify(ctx context.Context, msg string) error {
+    args := m.Called(ctx, msg)
+    return args.Error(0)
+}
+
+func TestWorkflow(t *testing.T) {
+    notifier := new(MockNotifier)
+    notifier.On("Notify", mock.Anything, "welcome").Return(nil).Once()
+
+    RunWorkflow(ctx, notifier)
+    notifier.AssertExpectations(t)
+}
+~~~
+
+---
+
+## 4. Benchmarking & Profiling
+
+### Modern Go Benchmark Loop (`b.Loop`)
+In Go >= 1.24, prefer `b.Loop()` which automatically handles warmup, timer resets, and iteration bounds:
+~~~go
+func BenchmarkProcessPayload(b *testing.B) {
+    payload := generateTestPayload(1024)
+    b.ReportAllocs()
+
+    for b.Loop() {
+        _ = ProcessPayload(payload)
+    }
+}
+~~~
+
+### Classic Benchmark Loop (Go < 1.24)
+~~~go
+func BenchmarkProcessPayloadLegacy(b *testing.B) {
+    payload := generateTestPayload(1024)
+    b.ReportAllocs()
+    b.ResetTimer()
+
+    for i := 0; i < b.N; i++ {
+        _ = ProcessPayload(payload)
+    }
+}
+~~~
+
+### Benchmark Comparison with `benchstat`
+To measure performance impact objectively without noise:
+```bash
+# Capture baseline
+git checkout main
+go test -bench=BenchmarkProcessPayload -count=10 ./pkg/... > old.txt
+
+# Capture candidate
+git checkout feat/optimization
+go test -bench=BenchmarkProcessPayload -count=10 ./pkg/... > new.txt
+
+# Statistical comparison
+benchstat old.txt new.txt
+```
+
+### Capturing Profiles from Tests
+```bash
+go test -bench=BenchmarkProcessPayload -cpuprofile=cpu.pprof -memprofile=mem.pprof ./pkg/...
+go tool pprof -http=:8080 cpu.pprof
+```
+
+---
+
+## 5. Fuzz Testing
+
+Use native Go fuzzing to uncover edge-case panics, boundary violations, and parser vulnerabilities:
+~~~go
+func FuzzDecodeMessage(f *testing.F) {
+    // Seed corpus
+    f.Add([]byte(`{"type":"ping"}`))
+    f.Add([]byte(`{"type":"data","payload":"hello"}`))
+
+    f.Fuzz(func(t *testing.T, data []byte) {
+        msg, err := DecodeMessage(data)
+        if err != nil {
+            return // Rejecting invalid input is expected
+        }
+        // Validate invariants on decoded message
+        require.NotEmpty(t, msg.Type)
+    })
+}
+~~~
+Run fuzzing with:
+```bash
+go test -fuzz=FuzzDecodeMessage -fuzztime=30s ./pkg/...
+```
+
+---
+
+## 6. Testing Verification Checklist
+
+- [ ] Every new feature or bug fix has an accompanying regression test.
+- [ ] Tests run cleanly under `go test -race ./...`.
+- [ ] No race-prone `time.Sleep` calls; synchronization uses channels, wait groups, or `assert.Eventually`.
+- [ ] Test fixtures and mock servers always clean up via `t.Cleanup`.

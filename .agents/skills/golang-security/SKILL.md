@@ -1,64 +1,136 @@
 ---
 name: golang-security
-description: "Go security review and implementation: trust boundaries, injection, crypto, filesystem, network, auth, secrets, privacy, and supply chain."
+description: Review and implement Go application security: input validation, injection prevention (SQL, command, path traversal), SSRF mitigation, secure cryptography, constant-time comparison, secret redaction, and TLS configuration.
 ---
 
-# Go security
+# Go Application Security & Defense Guide
 
-Use this skill for a security review, threat model, or security-sensitive implementation. Trace data from its source through the complete call path and deployment boundary. A scanner finding is evidence to investigate, not a severity by itself; a validation step upstream can reduce exploitability but should not justify unsafe code in a reusable boundary.
+Writing secure Go software requires defense-in-depth: validating inputs at trust boundaries, preventing injection attacks, using modern cryptographic primitives, and protecting sensitive data from accidental disclosure.
 
-## Triage workflow
+---
 
-1. Identify assets, attacker capabilities, trust boundaries, and required security properties (confidentiality, integrity, availability, authenticity, authorization, auditability).
-2. Trace untrusted input into interpreters, filesystem, network, crypto, logs, templates, and resource-consuming operations.
-3. Check authentication, authorization, validation, limits, timeout/cancellation, error handling, and observability around each boundary.
-4. Reproduce a finding with a focused test or minimal input; state preconditions, impact, and existing mitigations.
-5. Fix the narrowest root cause, rerun tests/scans, and verify that errors fail closed without leaking sensitive detail.
+## 1. Injection Prevention
 
-Use a threat model such as STRIDE and a severity rubric appropriate to the product. DREAD can help compare findings, but do not treat its score as a universal risk standard. See [threat modeling](references/threat-modeling.md) and the [review checklist](references/checklist.md).
+### SQL Injection
+Always use parameterized queries with `?` or `$1` placeholders. Never concatenate or format user input directly into SQL strings:
 
-## High-value defaults
+~~~go
+// VULNERABLE: Direct string concatenation
+query := fmt.Sprintf("SELECT id, name FROM users WHERE email = '%s'", email)
 
-| Boundary | Safer approach |
-| --- | --- |
-| SQL | Parameterized queries and typed arguments; never concatenate untrusted SQL fragments. |
-| Commands | `exec.CommandContext` with separate fixed executable and arguments; avoid a shell. |
-| HTML | `html/template` for HTML contexts; contextual escaping does not make unsafe URLs or JavaScript safe. |
-| Files | `os.OpenRoot`/`os.Root` for a scoped tree where available; otherwise resolve and validate with symlink-aware, platform-correct logic. |
-| URLs | Parse and allow-list scheme, host, port, and destination; defend SSRF against loopback, link-local, private, and redirected targets. |
-| Secrets | Load from a secret manager or controlled configuration; never commit or log them. |
-| Tokens | Use `crypto/rand`; authenticate and authorize server-side; compare secret bytes with constant-time functions where timing matters. |
-| Passwords | Use a current password-hashing design such as Argon2id or bcrypt with a reviewed cost, salt, and upgrade plan. |
-| Encryption | Use an authenticated construction such as AES-GCM with nonce discipline and key management; do not invent crypto. |
-| HTTP | Set request/body limits, deadlines, TLS policy, cookie flags, and security headers appropriate to the deployment. |
-| Shared state | Bound queues/maps/goroutines and protect mutable state; validate with focused tests and the race detector. |
+// SECURE: Parameterized query
+row := db.QueryRowContext(ctx, "SELECT id, name FROM users WHERE email = $1", email)
+~~~
 
-## Correctness traps
+### Command Injection
+Never invoke a shell interpreter (`sh -c`, `bash -c`, `cmd.exe`) with unsanitized arguments. Use `exec.CommandContext` with discrete, non-shell arguments:
 
-- `encoding/xml` does not fetch external entities by default; still constrain input size and reject formats/features your application does not need. String scanning is not an XXE defense.
-- Go's `encoding/gob` decodes typed data and is not a Java-style object-execution mechanism. Treat untrusted gob as a parser/resource-exhaustion risk and prefer a deliberately specified wire format at an external boundary.
-- JWT validation must pin the exact expected signing method (for example, an explicit RS256 method), validate issuer/audience/expiry and key identity, then perform authorization. Accepting any RSA method type is insufficient.
-- Rate limiting keyed by attacker-controlled client IDs needs bounded storage/eviction and a trusted identity strategy; an unbounded map is a memory-exhaustion bug.
-- Integer checks must use the actual operand type (`strconv.IntSize`, `math.MaxInt`/`MinInt` where available, or checked arithmetic) and reject negative values when the domain requires non-negative input. Do not use `math.MaxInt64` as an `int` bound on every target.
-- Use `url.UserPassword` or driver-provided DSN construction rather than interpolating raw credentials into a connection string.
-- A stable internal ID or unsalted/truncated hash remains linkable data. Minimize it, access-control it, and use a keyed construction only when correlation is justified and documented.
+~~~go
+// SECURE: Arguments passed as discrete slice elements, not shell commands
+cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", commitSHA)
+out, err := cmd.Output()
+~~~
 
-## Web and filesystem review
+### Path Traversal
+Prevent attackers from escaping the intended root directory using `../` sequences:
 
-Limit request bodies before decoding, enforce timeouts on servers and outbound clients, validate redirects, and protect debug/pprof endpoints. Cookies carrying session state generally need `Secure`, `HttpOnly`, and an intentional `SameSite`; use `__Host-` only with `Secure`, `Path=/`, and no `Domain`.
+~~~go
+func SafeReadFile(baseDir, userInput string) ([]byte, error) {
+    cleanPath := filepath.Clean(filepath.Join(baseDir, userInput))
+    
+    // Ensure resolved path is strictly within baseDir
+    rel, err := filepath.Rel(baseDir, cleanPath)
+    if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+        return nil, errors.New("invalid path: path traversal detected")
+    }
 
-For uploads and archive extraction, reject absolute paths and traversal, bound decompressed size/count, preserve restrictive permissions, and use a directory-scoped API or verified path resolution that handles symlinks and platform semantics. A lexical `HasPrefix` check is not confinement: `/safe2` matches `/safe`, separators matter, and symlinks can escape.
+    return os.ReadFile(cleanPath)
+}
+~~~
 
-## Verification
+---
 
-```sh
-go test ./...
-go test -race ./...             # where the target/platform supports it
-go vet ./...
-govulncheck ./...
-gosec ./...                    # if adopted by the repository
-```
+## 2. Server-Side Request Forgery (SSRF) Prevention
 
-Add fuzz or property tests for parsers and boundary validators. Keep dependencies, action/tool versions, and generated code under review. Do not log passwords, tokens, private keys, full authorization headers, raw personal data, or attacker-controlled strings without a safe encoding/redaction policy. See [cryptography](references/cryptography.md), [injection](references/injection.md), [filesystem](references/filesystem.md), [network](references/network.md), [cookies](references/cookies.md), [secrets](references/secrets.md), [logging](references/logging.md), [memory safety](references/memory-safety.md), [architecture](references/architecture.md), and [third-party data](references/third-party.md).
+When fetching user-supplied URLs, validate protocols and block private/internal IP ranges (RFC 1918, loopback, link-local, cloud metadata services):
 
-Related local skills: `golang-dependency-management`, `golang-continuous-integration`, `golang-observability`, `golang-error-handling`, and `golang-testing`.
+~~~go
+func ValidateTargetURL(rawURL string) error {
+    parsed, err := url.Parse(rawURL)
+    if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+        return errors.New("invalid URL scheme")
+    }
+
+    ips, err := net.LookupIP(parsed.Hostname())
+    if err != nil {
+        return fmt.Errorf("DNS lookup failed: %w", err)
+    }
+
+    for _, ip := range ips {
+        if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+            return errors.New("access to private IP ranges is forbidden")
+        }
+    }
+    return nil
+}
+~~~
+
+---
+
+## 3. Cryptography & Secrets Handling
+
+### Cryptographically Secure Randomness
+Always use `crypto/rand` rather than `math/rand`:
+~~~go
+import "crypto/rand"
+
+func GenerateSecureToken(n int) (string, error) {
+    bytes := make([]byte, n)
+    if _, err := rand.Read(bytes); err != nil {
+        return "", fmt.Errorf("read random bytes: %w", err)
+    }
+    return hex.EncodeToString(bytes), nil
+}
+~~~
+
+### Constant-Time Comparisons
+Prevent timing side-channel attacks when comparing secrets, HMACs, or tokens:
+~~~go
+import "crypto/subtle"
+
+func ValidateHMAC(expected, actual []byte) bool {
+    return subtle.ConstantTimeCompare(expected, actual) == 1
+}
+~~~
+
+### Secret Redaction in Logs & Error Messages
+Never emit API keys, bearer tokens, passwords, or credit card numbers in logs, metrics, or error strings:
+
+~~~go
+func RedactHeaders(h http.Header) http.Header {
+    cloned := h.Clone()
+    sensitive := []string{"Authorization", "Proxy-Authorization", "X-Api-Key", "Cookie"}
+    for _, k := range sensitive {
+        if cloned.Get(k) != "" {
+            cloned.Set(k, "[REDACTED]")
+        }
+    }
+    return cloned
+}
+~~~
+
+---
+
+## 4. Modern TLS Configuration
+
+Configure servers with secure cipher suites and TLS 1.3 minimums:
+
+~~~go
+import "crypto/tls"
+
+tlsConfig := &tls.Config{
+    MinVersion:               tls.VersionTLS13,
+    CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
+    PreferServerCipherSuites: true,
+}
+~~~

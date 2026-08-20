@@ -33,16 +33,22 @@ Keep `main` branch clean. It should be only a PR merge receiver, never a merge d
 - Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`.
 - Run `codegraph init` from the root of every newly created worktree before implementation. When reusing a dedicated worktree, run it only if `.codegraph/` is absent.
 
-The source-change gate limits a commit or PR to **100 modified `*.go` files**. Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
+The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
 
 ## Skill Loading
 
-- Architecture/package boundary/feature design: `golang-hexagonal-architecture`, `golang-design-patterns`.
-- Constructors/lifecycle/interfaces/facades: add `golang-dependency-injection` or `golang-structs-interfaces`.
-- Tests/conformance/regressions: `golang-testing`; add `golang-stretchr-testify` for testify code.
-- Streaming/concurrency/cancellation: `golang-concurrency`, `golang-context`.
-- Error/security/observability/database/CLI/performance/lint/deps/docs/troubleshooting: load the matching `golang-*` skill.
-- Simplification/refactor-only: `golang-simplify`.
+- Architecture/package boundary/feature design/constructors/DI: `golang-architecture`.
+- Tests/conformance/regressions/benchmarks/testify: `golang-testing`.
+- Streaming/concurrency/cancellation/goroutines: `golang-concurrency`.
+- Code quality/formatting/naming/safety/lint/simplification: `golang-code-quality`.
+- Performance/profiling/diagnostics/observability/troubleshooting: `golang-performance-diagnostics`.
+- Error classification/wrapping/mapping/panic recovery: `golang-error-handling`.
+- Modern Go/generics/iterators/data structures/Swiss Tables: `golang-data-modernize`.
+- CLI/gRPC/database adapters/pools: `golang-services-adapters`.
+- Ecosystem libraries/samber toolkit/Go modules: `golang-ecosystem-libraries`.
+- CI workflows/matrices/godoc/ADRs: `golang-ci-docs`.
+- Strict maintainability & SOLID audit: `golang-code-audit`.
+- Security/injection/cryptography/secret redaction: `golang-security`.
 - Architecture, call paths, implementations, dependency direction, or blast radius: `codegraph`.
 - PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
