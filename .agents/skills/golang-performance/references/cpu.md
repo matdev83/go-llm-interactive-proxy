@@ -34,21 +34,21 @@ go build -gcflags="-m" ./... 2>&1 | grep "inlining call"
 
 Move side effects (logging, metrics) outside hot-path functions or guard them with conditional checks.
 
-### Value receivers enable inlining
+### Receiver choice and inlining
 
-Value receivers allow the compiler to fully inline fluent method chains. Pointer receivers add indirection that blocks inlining:
+Receiver choice does not guarantee inlining. Value receivers may copy state; pointer receivers may avoid copies but can affect escape/interface behavior. Inspect compiler diagnostics and benchmark the actual API:
 
 ```go
-// Pointer receiver — indirection prevents inlining, constant overhead per call
+// Pointer receiver — may avoid copying, but inspect escape/inlining output
 func (c *config) WithTimeout(d time.Duration) *config { c.timeout = d; return c }
 
-// Value receiver — fully inlined, -80% time in fluent chains
+// Value receiver — may be cheaper for a small immutable value; verify with a benchmark
 func (c config) WithTimeout(d time.Duration) config { c.timeout = d; return c }
 ```
 
 ## Cache Locality
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for loops over slices/matrices consuming disproportionate CPU; cache-miss-heavy code shows high `runtime.memmove` or flat time in simple index operations 2- `go test -bench` — benchmark row-first vs column-first traversal; expect 10-50x difference on large matrices purely from cache effects
+**Diagnose:** profile loops over large slices/matrices, then benchmark representative traversal orders; layout and hardware determine the difference.
 
 Modern CPUs fetch data in 64-byte cache lines. Sequential memory access is dramatically faster than random access because the prefetcher can load the next cache line before you need it.
 
@@ -72,7 +72,7 @@ for row := 0; row < 1024; row++ {
 }
 ```
 
-Performance difference: 10-50x purely from cache effects.
+The difference can be material for large working sets; measure on target hardware.
 
 ### Contiguous 2D allocation
 
@@ -141,7 +141,7 @@ Only apply cache-line padding when profiling confirms contention on concurrent c
 
 ## Instruction-Level Parallelism
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for tight arithmetic loops (sum, dot product) where the loop body itself dominates CPU; these are candidates for multi-accumulator optimization 2- `go test -bench` — benchmark single vs multi-accumulator versions; expect 2-4x improvement when the loop is truly CPU-bound with a dependency chain
+**Diagnose:** 1- `go tool pprof` (CPU profile) — look for tight arithmetic loops (sum, dot product) where the loop body itself dominates CPU; these are candidates for multi-accumulator optimization. 2- `go test -bench` — benchmark single vs multi-accumulator versions; gains depend on the dependency chain and hardware.
 
 Modern CPUs execute multiple independent instructions simultaneously. A single accumulator creates a dependency chain — each addition waits for the previous one:
 
@@ -160,7 +160,7 @@ for i := limit; i < len(data); i++ { s0 += data[i] }
 total := s0 + s1 + s2 + s3
 ```
 
-Expect 2-4x improvement for tight arithmetic loops. Only use when profiling shows the loop is a bottleneck.
+The gain depends on dependency chains, instruction mix, and hardware. Use this only when profiling shows a bottleneck and retain the version that improves the measured workload.
 
 ## SIMD (Single Instruction, Multiple Data)
 
@@ -340,10 +340,10 @@ Only use `//go:noinline` if profiling shows that scheduler preemption starvation
 
 ## Reflection and Type Assertions
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for `reflect.Value.*`, `reflect.DeepEqual`, or `fmt.Sprintf` (which uses reflect internally) appearing in hot paths 2- `go test -bench` — compare reflection-based vs typed versions; expect 10-200x difference depending on the reflection operation
+**Diagnose:** profile for reflection-heavy calls, then benchmark a typed alternative using representative values.
 
-- **`reflect` in hot paths** — 10-100x slower due to type introspection and boxing. Replace with generics or typed code
-- **`reflect.DeepEqual`** — 50-200x slower than typed comparisons. Use `slices.Equal`, `maps.Equal`, `bytes.Equal` (Go 1.21+)
+- **`reflect` in measured hot paths** — typed code may reduce introspection and boxing; change only with benchmark evidence
+- **`reflect.DeepEqual`** — use `slices.Equal`, `maps.Equal`, or `bytes.Equal` when their semantics match; benchmark if performance motivates the change
 - **Type switch vs repeated assertions** — type switch dispatches in one evaluation:
 
 ```go

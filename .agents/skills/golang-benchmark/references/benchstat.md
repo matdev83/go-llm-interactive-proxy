@@ -5,7 +5,7 @@
 ## Installation
 
 ```bash
-go install golang.org/x/perf/cmd/benchstat@latest
+go install golang.org/x/perf/cmd/benchstat@vX.Y.Z # replace with a reviewed release
 ```
 
 ## Usage
@@ -327,7 +327,7 @@ Standard behavior — uses non-parametric statistics (median + Mann-Whitney U-te
 Sequential runs (all old, then all new) are vulnerable to **systematic bias** — thermal throttling builds up over time, background processes come and go, CPU frequency scaling adapts. Interleaving reduces this:
 
 ```bash
-# Pre-compile both versions to avoid measuring compilation time
+# Pre-compile both versions when command/startup latency is part of the experiment
 go test -c -o old.test ./pkg/parser
 # ... make your change ...
 go test -c -o new.test ./pkg/parser
@@ -341,7 +341,7 @@ done
 benchstat old.txt new.txt
 ```
 
-Pre-compiling with `go test -c` is critical — without it, each `go test -bench` invocation includes compilation time, which varies and contaminates results.
+The benchmark's reported `ns/op` excludes compilation. Precompilation is useful when measuring total command latency or when you want to keep build work out of an interleaved harness; it is not required for valid benchmark timings.
 
 ## How Many Runs?
 
@@ -380,7 +380,7 @@ Shows median and confidence interval for each benchmark. Use to:
 | Rerunning until `~` disappears | Selection bias (p-hacking) — you're cherry-picking runs that showed improvement | Run once with high `-count`, accept the result |
 | Comparing across machines | Different CPUs, memory, OS = incomparable baselines | Same machine, same conditions, both runs |
 | Not interleaving | Systematic bias from thermal throttling, background load drift | Pre-compile both versions with `go test -c`, alternate runs |
-| Measuring compilation time | `go test -bench` compiles first; startup overhead varies | Pre-compile with `go test -c`, run the binary directly |
+| Confusing build latency with benchmark timing | The `ns/op` result excludes compilation, although command wall time includes it | Measure reported benchmark results for code performance; pre-compile and run binaries only when build/startup latency is the subject |
 | Ignoring wide CI (± >5%) | Results look significant but variance is too high to be trustworthy | Fix the noise first, then compare; or increase `-count` |
 | Comparing different `-count` values | Unequal sample sizes bias the comparison | Use the same `-count` for all inputs |
 

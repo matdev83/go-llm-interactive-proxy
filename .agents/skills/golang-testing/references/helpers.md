@@ -1,42 +1,17 @@
-# Test Helpers
+# Test helpers
 
-## Test Timeout
-
-For tests that may hang, use a timeout helper that panics with caller location:
+Mark helpers with `t.Helper()` so failures point at the call site. Use `t.Cleanup()` for owned resources; cleanup runs in last-in, first-out order.
 
 ```go
-// https://github.com/stretchr/testify/issues/1101
-func testWithTimeout(t *testing.T, timeout time.Duration) {
+func eventually(t *testing.T, timeout time.Duration, check func() bool) {
     t.Helper()
-
-    testFinished := make(chan struct{})
-    t.Cleanup(func() {
-        close(testFinished)
-    })
-
-    var pc [1]uintptr
-    n := runtime.Callers(2, pc[:])
-    line, funcName := "", ""
-    if n > 0 {
-        frames := runtime.CallersFrames(pc[:])
-        frame, _ := frames.Next()
-        line = frame.File + ":" + strconv.Itoa(frame.Line)
-        funcName = frame.Function
+    deadline := time.Now().Add(timeout)
+    for time.Now().Before(deadline) {
+        if check() { return }
+        time.Sleep(10 * time.Millisecond)
     }
-
-    go func() {
-        select {
-        case <-testFinished:
-        case <-time.After(timeout):
-            panic(fmt.Sprintf("%s: Test timed out after: %v\n%s", funcName, timeout, line))
-        }
-    }()
-}
-
-// Usage
-func TestLongRunningOperation(t *testing.T) {
-    testWithTimeout(t, 2*time.Second)
-    result := LongRunningOperation()
-    // If this takes longer than 2 seconds, the test panics with location info
+    t.Fatal("condition was not met before deadline")
 }
 ```
+
+Prefer synchronization, injected clocks, or `testing/synctest` for deterministic code over polling. When polling is unavoidable, use a bounded deadline and include useful state in the failure.

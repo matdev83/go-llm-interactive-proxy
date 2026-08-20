@@ -280,16 +280,16 @@ if strings.Contains(u.Hostname(), "metadata.") {
 
 ---
 
-## Unsafe Deserialization — Critical
+## Unsafe Deserialization and Resource Exhaustion
 
-Deserializing untrusted input can lead to RCE.
+Deserializing untrusted input can consume excessive CPU or memory and can expose implementation details. Go's `encoding/gob` is not a Java-style object-execution mechanism, but an external boundary should still use a deliberately specified format and validate size, shape, and permitted types.
 
 **Bad:**
 
 ```go
-dec := gob.NewDecoder(r.Body) // DON'T: gob can execute code
+dec := gob.NewDecoder(io.LimitReader(r.Body, maxBodyBytes)) // Prefer JSON/protobuf at external boundaries
 var user interface{}
-dec.Decode(&user)
+if err := dec.Decode(&user); err != nil { return err }
 ```
 
 **Good:**

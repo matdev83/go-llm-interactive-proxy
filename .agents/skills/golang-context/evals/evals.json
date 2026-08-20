@@ -58,21 +58,21 @@
   {
     "id": 5,
     "name": "without-cancel-background-work",
-    "description": "Tests whether the model uses context.WithoutCancel for background work that must outlive the request",
+    "description": "Tests whether the model gives request-independent audit work an explicit bounded owner while preserving required metadata",
     "prompt": "Write a Go HTTP handler that processes a payment. After successfully charging the customer, it must send an audit log event to an external audit service asynchronously. The audit log MUST complete even if the client disconnects immediately after receiving the 200 response. The audit log needs the trace_id from the request context for correlation. Target Go 1.21+.",
-    "trap": "Model might use context.Background() (losing trace_id) or pass r.Context() directly to the goroutine (cancelled when handler returns)",
+    "trap": "Model might pass r.Context() directly to an untracked goroutine or use an unbounded context.WithoutCancel without a queue, deadline, or shutdown policy",
     "assertions": [
-      {"id": "5.1", "text": "Uses context.WithoutCancel to create a context for the audit goroutine"},
+      {"id": "5.1", "text": "Does not launch unbounded detached work; submits the audit event to an explicitly owned queue or worker service"},
       {"id": "5.2", "text": "Does NOT pass r.Context() directly to the background audit goroutine (it gets cancelled when the handler returns)"},
       {"id": "5.3", "text": "Does NOT use context.Background() for the audit goroutine (that would lose trace_id and other values)"},
-      {"id": "5.4", "text": "The audit goroutine preserves request-scoped values (trace_id) from the original context"},
-      {"id": "5.5", "text": "Launches the audit as a separate goroutine (go keyword) so the handler can return immediately"}
+      {"id": "5.4", "text": "Copies only the required trace metadata into the queued job and gives execution its own bounded cancellation/deadline"},
+      {"id": "5.5", "text": "Defines a shutdown/flush or rejection policy for the owned audit worker"}
     ]
   },
   {
     "id": 6,
     "name": "nested-timeout-shorter-wins",
-    "description": "Tests understanding that nested timeouts always use the shorter deadline",
+    "description": "Tests that a child's effective deadline cannot outlive its parent's earlier deadline",
     "prompt": "Write a Go service method that calls two downstream services sequentially. The overall operation has a 10-second timeout. The first call (to a fast cache) should have a 2-second timeout. The second call (to a slow database) should have an 8-second timeout. If the cache is slow, the database should still get its full 8 seconds. Implement this timeout hierarchy.",
     "trap": "Model might naively nest WithTimeout(parentCtx, 8s) under a parent that already has 10s-minus-elapsed, not realizing that if the first call takes 2 seconds the parent only has 8s left — or worse, create child with longer timeout than parent remaining",
     "assertions": [
@@ -93,7 +93,7 @@
       {"id": "7.1", "text": "Uses context.TODO() (not context.Background()) as the temporary placeholder in functions not yet fully migrated"},
       {"id": "7.2", "text": "Uses context.Background() only at the true top level (main function or test setup)"},
       {"id": "7.3", "text": "Shows a migration path where context.TODO() is gradually replaced as callers are updated"},
-      {"id": "7.4", "text": "Context is always the first parameter, named ctx context.Context"},
+      {"id": "7.4", "text": "Follows the Go convention of placing context.Context first and naming it ctx for newly migrated APIs"},
       {"id": "7.5", "text": "Does NOT pass nil as a context value at any point in the migration"}
     ]
   },

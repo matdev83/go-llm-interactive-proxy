@@ -312,7 +312,7 @@ Logs appear as markers on the timeline — useful for correlating trace events w
 
 ### When to use annotations
 
-- **Always** in server request handlers — wrap each request in a task
+- In request handlers when a request-level timeline is useful and the added event volume is acceptable
 - **Performance-critical paths** — add regions to phases you want to measure wall-clock time for
 - **Debugging intermittent latency** — add logs at key decision points to see what happened in the slow trace
 
@@ -417,7 +417,7 @@ The snapshot contains the same data as a regular trace — use all the same anal
 | Investigating a known slow operation | `go test -trace` or `trace.Start`/`Stop` | You know when to start and stop |
 | Intermittent latency spikes in production | Flight recorder | You don't know when the spike will happen — the buffer captures it retroactively |
 | Post-mortem after a timeout or crash | Flight recorder | The problem already happened; regular tracing would miss it |
-| Continuous performance monitoring | `samber/cc-skills-golang@golang-observability` (Pyroscope) | Flight recorder is for one-shot diagnosis, not continuous collection |
+| Continuous performance monitoring | `golang-observability` (selected profiler/collector) | Flight recorder is for one-shot diagnosis, not continuous collection |
 
 ## Overhead and Practical Limits
 

@@ -35,12 +35,14 @@ func RateLimitMiddleware(rps float64, burst int) func(http.Handler) http.Handler
 }
 ```
 
-**Per-client rate limiting** prevents a single abuser from exhausting the global limit:
+**Per-client rate limiting** prevents one identity from exhausting the global limit, but the identity-keyed state must be bounded. Use an authenticated identity where available, and use a bounded cache with expiry/eviction for network-derived keys. An unbounded map is a memory-exhaustion vulnerability.
 
 ```go
 type ClientRateLimiter struct {
     mu      sync.Mutex
     clients map[string]*rate.Limiter
+    expires map[string]time.Time
+    maxClients int
     rps     rate.Limit
     burst   int
 }
@@ -48,14 +50,20 @@ type ClientRateLimiter struct {
 func (crl *ClientRateLimiter) GetLimiter(clientIP string) *rate.Limiter {
     crl.mu.Lock()
     defer crl.mu.Unlock()
-    if limiter, exists := crl.clients[clientIP]; exists {
+    if limiter, exists := crl.clients[clientIP]; exists && time.Now().Before(crl.expires[clientIP]) {
         return limiter
+    }
+    if len(crl.clients) >= crl.maxClients {
+        crl.evictExpiredOrLeastRecentlyUsed()
     }
     limiter := rate.NewLimiter(crl.rps, crl.burst)
     crl.clients[clientIP] = limiter
+    crl.expires[clientIP] = time.Now().Add(10 * time.Minute)
     return limiter
 }
 ```
+
+The eviction operation must be bounded and concurrency-safe; select its policy and limits from traffic and memory budgets. Do not trust arbitrary forwarded headers as the client identity without a trusted proxy boundary.
 
 **Layer 2 — mTLS for Service-to-Service:**
 
@@ -155,8 +163,8 @@ func validateJWT(authHeader string) (*jwt.RegisteredClaims, error) {
     tokenString := strings.TrimPrefix(authHeader, "Bearer ")
     token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{},
         func(token *jwt.Token) (interface{}, error) {
-            // Pin signing algorithm — prevents algorithm confusion
-            if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+            // Pin the exact algorithm, not merely the RSA method family.
+            if token.Method.Alg() != jwt.SigningMethodRS256.Alg() {
                 return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
             }
             return publicKey, nil

@@ -10,12 +10,12 @@
     {
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["minor", "patch"],
-      "automerge": true,
+      "automerge": false,
       "groupName": "go minor/patch dependencies"
     },
     {
       "matchManagers": ["github-actions"],
-      "automerge": true,
+      "automerge": false,
       "groupName": "github actions"
     }
   ]

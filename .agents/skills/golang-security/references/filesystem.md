@@ -32,16 +32,11 @@ defer root.Close()
 f, err := root.Open(filename) // cannot escape root directory
 ```
 
-`os.Root` prevents path traversal at the OS level — no manual path validation needed. All operations (`Open`, `Create`, `Stat`, `OpenFile`, etc.) are confined to the root directory. Symlinks that resolve outside the root are rejected.
+`os.Root` provides directory-scoped operations and rejects paths that escape the root, including relevant symlink escapes. Still bound file sizes/counts, validate the requested operation, and check every error.
 
-**Good (pre-Go 1.24 fallback):**
+**When `os.Root` is unavailable:**
 
-```go
-fullPath := filepath.Join(baseDir, filename)
-if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(baseDir)) {
-    return errors.New("access denied")
-}
-```
+Use a reviewed directory-confinement implementation that resolves symlinks and checks `filepath.Rel` with platform-aware separators, then open the file without a check/use race where possible. A lexical `Clean` plus string-prefix check is not a security boundary.
 
 ---
 
@@ -72,19 +67,7 @@ for _, file := range reader.File {
 }
 ```
 
-**Good (pre-Go 1.24 fallback):**
-
-```go
-for _, file := range reader.File {
-    if strings.Contains(file.Name, "..") || strings.HasPrefix(file.Name, "/") {
-        return errors.New("invalid path")
-    }
-    targetPath := filepath.Join(dest, file.Name)
-    if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(dest)) {
-        return errors.New("path traversal attempt")
-    }
-}
-```
+If `os.Root` is unavailable, use a reviewed archive-extraction library or a symlink-aware confinement implementation. Reject absolute and traversal names, bound entry count and decompressed bytes, and avoid a lexical prefix check as the only defense.
 
 ---
 
@@ -228,22 +211,7 @@ func readFile(filename string) ([]byte, error) {
 }
 ```
 
-**Good (pre-Go 1.24 fallback):**
-
-```go
-const allowedDir = "/var/www/public/"
-
-func readFile(filename string) ([]byte, error) {
-    if strings.Contains(filename, "..") {
-        return nil, errors.New("invalid filename")
-    }
-    fullPath := filepath.Join(allowedDir, filename)
-    if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(allowedDir)) {
-        return nil, errors.New("access denied")
-    }
-    return os.ReadFile(fullPath)
-}
-```
+If `os.Root` is unavailable, use the same reviewed, symlink-aware confinement approach described above; rejecting a substring or checking a string prefix alone is insufficient.
 
 ---
 

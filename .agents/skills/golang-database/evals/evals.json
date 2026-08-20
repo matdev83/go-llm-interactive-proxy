@@ -2,15 +2,15 @@
   {
     "id": 1,
     "name": "orm-vs-sqlx-pgx-recommendation",
-    "description": "Tests whether the model recommends sqlx/pgx over ORMs and explains why ORMs are harmful",
+    "description": "Tests whether the model compares database/sql, sqlx, pgx, and ORM options against the PostgreSQL project's actual needs",
     "prompt": "I'm starting a new Go web application with PostgreSQL. I need to set up database access. What library should I use? I've heard GORM is popular and has good docs. Can you set up the database layer for me?",
-    "trap": "Without the skill, the model may recommend GORM since it's popular and widely known. The skill explicitly says to avoid ORMs and use sqlx or pgx.",
+    "trap": "Without the skill, the model may select a library from popularity alone and make unsupported claims about ORM performance or behavior.",
     "assertions": [
-      {"id": "1.1", "text": "Recommends sqlx or pgx instead of GORM"},
-      {"id": "1.2", "text": "Explains why ORMs are problematic (N+1 queries, unpredictable SQL generation, magic hooks, or debugging difficulty)"},
-      {"id": "1.3", "text": "Recommends pgx specifically for PostgreSQL-only projects due to performance advantage (30-50% faster)"},
-      {"id": "1.4", "text": "Does NOT set up GORM or ent as the primary database library"},
-      {"id": "1.5", "text": "Mentions that learning the ORM API is harder than learning SQL or that ORMs hide SQL"}
+      {"id": "1.1", "text": "Compares database/sql, sqlx, pgx, and ORM options against the stated PostgreSQL requirements"},
+      {"id": "1.2", "text": "Explains concrete trade-offs such as SQL visibility, generated code, driver features, migrations, and operational cost"},
+      {"id": "1.3", "text": "May select pgx for PostgreSQL-specific features when those features justify the coupling, without claiming a fixed speed advantage"},
+      {"id": "1.4", "text": "Does not present any library as universally superior or categorically reject ORMs"},
+      {"id": "1.5", "text": "Identifies the existing SQL, transaction, and scanning contract before proposing a migration"}
     ]
   },
   {
@@ -44,15 +44,15 @@
   {
     "id": 4,
     "name": "connection-pool-configuration",
-    "description": "Tests that connection pool settings are configured with all four parameters and reasonable values",
+    "description": "Tests that connection pool settings are chosen from workload, server limits, and observed behavior",
     "prompt": "Write a Go function that creates a new sqlx database connection to PostgreSQL and returns *sqlx.DB. Just the basic setup, nothing fancy.",
-    "trap": "Without the skill, the model often returns the *sqlx.DB without configuring the connection pool. The skill requires all four pool settings.",
+    "trap": "Without the skill, the model may copy arbitrary pool numbers or claim every setting must be configured identically for every workload.",
     "assertions": [
-      {"id": "4.1", "text": "Calls SetMaxOpenConns on the database connection"},
-      {"id": "4.2", "text": "Calls SetMaxIdleConns on the database connection"},
-      {"id": "4.3", "text": "Calls SetConnMaxLifetime on the database connection"},
-      {"id": "4.4", "text": "Calls SetConnMaxIdleTime on the database connection"},
-      {"id": "4.5", "text": "MaxIdleConns is less than or equal to MaxOpenConns"}
+      {"id": "4.1", "text": "Explains which pool limits are needed for the workload and server connection budget"},
+      {"id": "4.2", "text": "Avoids presenting copied numeric settings as universal defaults"},
+      {"id": "4.3", "text": "Includes PingContext when startup connectivity must be checked"},
+      {"id": "4.4", "text": "Mentions measuring wait time, utilization, and server limits before tuning"},
+      {"id": "4.5", "text": "Ensures any chosen idle/open settings are internally consistent"}
     ]
   },
   {
@@ -88,12 +88,12 @@
     "name": "transaction-with-defer-rollback",
     "description": "Tests the correct transaction pattern: BeginTxx, defer Rollback, Commit",
     "prompt": "Write a Go function TransferFunds(ctx, db, fromAccountID, toAccountID string, amount int) that transfers money between two accounts atomically. Use sqlx.",
-    "trap": "Without the skill, the model may forget defer tx.Rollback(), use wrong isolation level for financial operations, or miss SELECT FOR UPDATE.",
+    "trap": "Without the skill, the model may forget defer tx.Rollback(), ignore a demonstrated race, or choose an isolation level without checking the invariant and driver.",
     "assertions": [
       {"id": "7.1", "text": "Uses BeginTxx (or BeginTx) to start a transaction"},
       {"id": "7.2", "text": "Calls defer tx.Rollback() immediately after BeginTxx"},
-      {"id": "7.3", "text": "Uses SELECT ... FOR UPDATE when reading balances to prevent race conditions"},
-      {"id": "7.4", "text": "Sets serializable or repeatable-read isolation level (financial operation)"},
+      {"id": "7.3", "text": "Uses row locking or another concurrency control only when it protects a demonstrated race"},
+      {"id": "7.4", "text": "Chooses an isolation level from the invariant and driver behavior, rather than treating Serializable as universal"},
       {"id": "7.5", "text": "Calls tx.Commit() at the end of the successful path"}
     ]
   },
@@ -128,24 +128,24 @@
   {
     "id": 10,
     "name": "schema-creation-refusal",
-    "description": "Tests that the model refuses to generate database schemas",
+    "description": "Tests that the model treats schema design as a reviewed, context-dependent change",
     "prompt": "Create a PostgreSQL schema for an e-commerce application with users, products, orders, and order_items tables. Include proper indexes, foreign keys, and constraints.",
-    "trap": "Without the skill, the model will happily generate the full schema. The skill explicitly states AI must NOT generate database schemas.",
+    "trap": "Without the skill, the model may present a generic schema as production-ready without asking about access patterns, volumes, migrations, or rollout constraints.",
     "assertions": [
-      {"id": "10.1", "text": "Does NOT generate a complete CREATE TABLE schema"},
-      {"id": "10.2", "text": "Explains why AI-generated schemas are problematic (missing indexes, incorrect types, bad normalization, or need for production context)"},
-      {"id": "10.3", "text": "Recommends human review or dedicated database tooling for schema design"},
-      {"id": "10.4", "text": "Mentions that schema design requires understanding data volumes, access patterns, or production constraints"}
+      {"id": "10.1", "text": "Labels any example schema as illustrative rather than production-ready"},
+      {"id": "10.2", "text": "Calls out indexes, constraints, normalization, access patterns, and rollout as decisions requiring context"},
+      {"id": "10.3", "text": "Recommends review, migration tooling, and an explicit deployment/rollback plan"},
+      {"id": "10.4", "text": "Asks for missing data-volume and query-pattern requirements before making strong schema claims"}
     ]
   },
   {
     "id": 11,
     "name": "batch-processing-sweet-spot",
-    "description": "Tests that batch operations use reasonable batch sizes, not row-by-row or one giant batch",
+    "description": "Tests that bulk operations choose a bounded, measured batching or COPY strategy",
     "prompt": "Write a Go function that inserts 50,000 user records into PostgreSQL. Use sqlx. Optimize for speed.",
-    "trap": "Without the skill, the model may insert all 50k in one statement or insert one-by-one. The skill recommends 100-1000 rows per batch.",
+    "trap": "Without the skill, the model may insert row-by-row, build an unbounded statement, or choose an arbitrary batch size without measuring driver and server limits.",
     "assertions": [
-      {"id": "11.1", "text": "Uses batching with a batch size between 100 and 1000 rows"},
+      {"id": "11.1", "text": "Uses a bounded batch size justified by parameter, memory, driver, or server limits"},
       {"id": "11.2", "text": "Does NOT insert all 50,000 rows in a single statement"},
       {"id": "11.3", "text": "Does NOT insert one row at a time in a loop"},
       {"id": "11.4", "text": "Uses NamedExecContext or a multi-row INSERT pattern"},
@@ -183,27 +183,27 @@
   {
     "id": 14,
     "name": "avoid-hidden-sql-features",
-    "description": "Tests that the model avoids triggers, views, stored procedures in application code",
+    "description": "Tests that the model evaluates triggers and views as explicit database design choices",
     "prompt": "I want to automatically update an 'updated_at' column every time a row is modified in my users table. Should I create a PostgreSQL trigger for this? Also, I have a complex query that joins 5 tables — should I create a database view?",
-    "trap": "Without the skill, the model will likely recommend triggers and views as standard PostgreSQL features. The skill says to avoid hidden SQL features.",
+    "trap": "Without the skill, the model may recommend or reject triggers and views categorically instead of weighing ownership, observability, and deployment policy.",
     "assertions": [
-      {"id": "14.1", "text": "Advises against using triggers for updated_at in application code"},
-      {"id": "14.2", "text": "Recommends setting updated_at explicitly in Go code instead"},
-      {"id": "14.3", "text": "Advises against using views for the complex query"},
-      {"id": "14.4", "text": "Explains that hidden SQL features create invisible side effects or make debugging harder"},
-      {"id": "14.5", "text": "Recommends keeping SQL explicit and visible in Go code"}
+      {"id": "14.1", "text": "Explains the ownership and side-effect trade-off for a trigger versus application-managed updated_at"},
+      {"id": "14.2", "text": "Checks whether all writers use the same policy before recommending where updated_at is set"},
+      {"id": "14.3", "text": "Evaluates a view by reuse, permissions, query planning, and migration cost rather than rejecting it categorically"},
+      {"id": "14.4", "text": "Calls out observability and debugging consequences of hidden database behavior"},
+      {"id": "14.5", "text": "Keeps the SQL contract and migration ownership explicit regardless of where the behavior lives"}
     ]
   },
   {
     "id": 15,
     "name": "pgx-copy-for-bulk-postgres",
-    "description": "Tests knowledge of pgx COPY protocol for maximum PostgreSQL bulk insert throughput",
+    "description": "Tests knowledge of pgx COPY as a candidate for high-volume PostgreSQL bulk insertion",
     "prompt": "I need to insert 100,000 rows into PostgreSQL as fast as possible. I'm already using pgx. What's the fastest approach?",
-    "trap": "Without the skill, the model may suggest multi-row INSERT statements. The skill teaches pgx.CopyFrom using the binary COPY protocol for maximum throughput.",
+    "trap": "Without the skill, the model may ignore pgx.CopyFrom; a strong answer compares COPY with multi-row INSERT and measures the real workload.",
     "assertions": [
       {"id": "15.1", "text": "Recommends pgx.CopyFrom using the COPY protocol"},
       {"id": "15.2", "text": "Shows pgx.CopyFromRows or pgx.CopyFromSlice usage"},
-      {"id": "15.3", "text": "Mentions that COPY is significantly faster than multi-row INSERT"},
+      {"id": "15.3", "text": "Explains why COPY may outperform multi-row INSERT and recommends benchmarking the target workload"},
       {"id": "15.4", "text": "Uses pgx.Identifier for the table name"},
       {"id": "15.5", "text": "Still recommends batching if the dataset is extremely large (to avoid memory issues)"}
     ]

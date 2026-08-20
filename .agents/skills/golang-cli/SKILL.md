@@ -1,202 +1,92 @@
 ---
 name: golang-cli
-description: "Golang CLI application development. Use when building, modifying, or reviewing a Go CLI tool — especially for command structure, flag handling, configuration layering, version embedding, exit codes, I/O patterns, signal handling, shell completion, argument validation, and CLI unit testing. Also triggers when code uses cobra, viper, or urfave/cli. For cobra-specific APIs → See `samber/cc-skills-golang@golang-spf13-cobra` skill; for viper configuration layering → See `samber/cc-skills-golang@golang-spf13-viper` skill."
-license: MIT
-metadata:
-  author: samber
-  version: "1.2.0"
-  openclaw:
-    emoji: "💻"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-    install: []
+description: Go command-line applications: choose a framework, build commands and flags, layer configuration, handle output and exit status, support signals and completion, and test behavior.
 ---
 
-**Persona:** You are a Go CLI engineer. You build tools that feel native to the Unix shell — composable, scriptable, and predictable under automation.
+# Go CLI
 
-**Modes:**
+Use the smallest command framework that satisfies the product. The standard library flag package is a good fit for a single command with a small flag set. Cobra/pflag is useful for a command tree, generated completion, and rich argument validation. Viper can layer configuration, but it is optional; a typed configuration struct and explicit loaders are often easier to reason about. urfave/cli is another valid framework when the project already uses it. Check the module's current documentation before relying on a version-specific API.
 
-- **Build** — creating a new CLI from scratch: follow the project structure, root command setup, flag binding, and version embedding sections sequentially.
-- **Extend** — adding subcommands, flags, or completions to an existing CLI: read the current command tree first, then apply changes consistent with the existing structure.
-- **Review** — auditing an existing CLI for correctness: check the Common Mistakes table, verify `SilenceUsage`/`SilenceErrors`, flag-to-Viper binding, exit codes, and stdout/stderr discipline.
+## Construction
 
-# Go CLI Best Practices
+Keep process startup explicit:
 
-Use Cobra + Viper as the default stack for Go CLI applications. Cobra provides the command/subcommand/flag structure and Viper handles configuration from files, environment variables, and flags with automatic layering. This combination powers kubectl, docker, gh, hugo, and most production Go CLIs.
+1. main parses the root command result and maps it to a process exit status.
+2. Command constructors receive dependencies and return a command; avoid hidden global state.
+3. RunE performs validation and work, and returns errors instead of calling os.Exit.
+4. The composition root owns logging, configuration loading, signal cancellation, and cleanup.
+5. Keep stdout machine-readable and reserve stderr for diagnostics, progress, and logs.
 
-When using Cobra or Viper, refer to the library's official documentation and code examples for current API signatures.
+A common layout is cmd/app/main.go plus a package containing command constructors. This is a convention, not a Go requirement. An application with one small command may stay in one package.
 
-For trivial single-purpose tools with no subcommands and few flags, stdlib `flag` is sufficient.
+Cobra's SilenceUsage and SilenceErrors are policy choices. A common arrangement is SilenceUsage=true and SilenceErrors=true when main prints one controlled diagnostic, but a library or nested command may choose otherwise. Do not enable both and then forget to print the returned error.
 
-## Quick Reference
+## Commands, flags, and arguments
 
-| Concern             | Package / Tool                       |
-| ------------------- | ------------------------------------ |
-| Commands & flags    | `github.com/spf13/cobra`             |
-| Configuration       | `github.com/spf13/viper`             |
-| Flag parsing        | `github.com/spf13/pflag` (via Cobra) |
-| Colored output      | `github.com/fatih/color`             |
-| Table output        | `github.com/olekukonko/tablewriter`  |
-| Interactive prompts | `github.com/charmbracelet/bubbletea` |
-| Version injection   | `go build -ldflags`                  |
-| Distribution        | `goreleaser`                         |
+Prefer one constructor per command and register commands explicitly. Persistent flags are inherited; local flags belong to one command. Validate relationships (mutual exclusion, required groups, ranges) before opening resources.
 
-## Project Structure
+Use framework validators such as NoArgs, ExactArgs, MinimumNArgs, and MaximumNArgs where their contract matches the command. Custom validation should return an actionable error and avoid leaking secrets.
 
-Organize CLI commands in `cmd/myapp/` with one file per command. Keep `main.go` minimal — it only calls `Execute()`.
+Use the command's configured writers:
 
-```
-myapp/
-├── cmd/
-│   └── myapp/
-│       ├── main.go              # package main, only calls Execute()
-│       ├── root.go              # Root command + Viper init
-│       ├── serve.go             # "serve" subcommand
-│       ├── migrate.go           # "migrate" subcommand
-│       └── version.go           # "version" subcommand
-├── go.mod
-└── go.sum
-```
+~~~go
+func newVersionCmd(version string) *cobra.Command {
+    cmd := &cobra.Command{
+        Use:          "version",
+        Args:         cobra.NoArgs,
+        SilenceUsage: true,
+        RunE: func(cmd *cobra.Command, _ []string) error {
+            _, err := fmt.Fprintln(cmd.OutOrStdout(), version)
+            return err
+        },
+    }
+    return cmd
+}
+~~~
 
-`main.go` should be minimal — see [assets/examples/main.go](assets/examples/main.go).
+Do not write command output directly to os.Stdout or os.Stderr; tests and callers may replace the command writers.
 
-## Root Command Setup
+## Configuration
 
-The root command initializes Viper configuration and sets up global behavior via `PersistentPreRunE`. See [assets/examples/root.go](assets/examples/root.go).
+Define a typed config value and validate it after loading. With Viper, the documented precedence from highest to lowest is: explicit Set overrides, bound flags, environment variables, config file, key/value store, and defaults. Treat that order as an integration contract and test the combinations you support.
 
-Key points:
+For Viper:
 
-- `SilenceUsage: true` MUST be set — prevents printing the full usage text on every error
-- `SilenceErrors: true` MUST be set — lets you control error output format yourself
-- `PersistentPreRunE` runs before every subcommand, so config is always initialized
-- Logs go to stderr, output goes to stdout
+- set an application-specific env prefix and, if needed, an explicit key replacer;
+- bind each flag deliberately; automatic flag discovery is not a substitute for binding;
+- configure an optional config file and ignore only ConfigFileNotFoundError;
+- decode into a typed struct with mapstructure tags and validate after decode;
+- be aware that environment variables are read when requested and an empty value is treated according to Viper's empty-environment setting;
+- do not silently merge arbitrary untrusted config into security-sensitive settings.
 
-## Subcommands
+If the application needs live reload, define ownership, synchronization, validation, and rollback explicitly. A file watcher alone is not a safe reload design.
 
-Add subcommands by creating separate files in `cmd/myapp/` and registering them in `init()`. See [assets/examples/serve.go](assets/examples/serve.go) for a complete subcommand example including command groups.
+## Exit status and I/O
 
-## Flags
+Return errors from command handlers. Map categories in main or a small exit-status function. Use 0 for success, 1 for an operational failure, and 2 for usage/validation failures unless the product documents a different contract. BSD sysexits values can be useful when scripts depend on them; they are not a universal requirement. Exit status 128+signal is a shell convention, not something a handler should manufacture.
 
-See [assets/examples/flags.go](assets/examples/flags.go) for all flag patterns:
+For output formats, make JSON and other machine-readable modes deterministic and send them to the configured output writer. Never mix progress text with a data stream. Color and terminal detection are optional presentation features and must degrade cleanly when output is redirected.
 
-### Persistent vs Local
+## Cancellation and shutdown
 
-- **Persistent** flags are inherited by all subcommands (e.g., `--config`)
-- **Local** flags only apply to the command they're defined on (e.g., `--port`)
+Use signal.NotifyContext at the process boundary and pass the derived context to operations that can block. A command should stop starting new work after cancellation and should give owned servers, workers, and clients a bounded shutdown period. A long-lived stream may intentionally have no deadline; cancellation and an explicit shutdown policy still apply.
 
-### Required Flags
+~~~go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
 
-Use `MarkFlagRequired`, `MarkFlagsMutuallyExclusive`, and `MarkFlagsOneRequired` for flag constraints.
+if err := run(ctx); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(exitCode(err))
+}
+~~~
 
-### Flag Validation with RegisterFlagCompletionFunc
+Do not call os.Exit before deferred cleanup that must run. If a framework needs to call os.Exit, do so only after the command and cleanup have returned.
 
-Provide completion suggestions for flag values.
+## Completion and testing
 
-### Always Bind Flags to Viper
+Use the framework's completion generators, but test custom completion functions against the command's configured context and writers. Completion should be fast, side-effect free, and conservative about network calls.
 
-This ensures `viper.GetInt("port")` returns the flag value, env var `MYAPP_PORT`, or config file value — whichever has highest precedence.
+Test commands through their public execution path with bytes.Buffer writers. Cover invalid args, config precedence, output format, cancellation, and exit classification. Keep integration tests separate when they need a real filesystem, network, or subprocess; do not make a sub-millisecond timing target a correctness rule.
 
-## Argument Validation
-
-Cobra provides built-in validators for positional arguments. See [assets/examples/args.go](assets/examples/args.go) for both built-in and custom validation examples.
-
-| Validator                   | Description                          |
-| --------------------------- | ------------------------------------ |
-| `cobra.NoArgs`              | Fails if any args provided           |
-| `cobra.ExactArgs(n)`        | Requires exactly n args              |
-| `cobra.MinimumNArgs(n)`     | Requires at least n args             |
-| `cobra.MaximumNArgs(n)`     | Allows at most n args                |
-| `cobra.RangeArgs(min, max)` | Requires between min and max         |
-| `cobra.ExactValidArgs(n)`   | Exactly n args, must be in ValidArgs |
-
-## Configuration with Viper
-
-Viper resolves configuration values in this order (highest to lowest precedence):
-
-1. **CLI flags** (explicit user input)
-2. **Environment variables** (deployment config)
-3. **Config file** (persistent settings)
-4. **Defaults** (set in code)
-
-See [assets/examples/config.go](assets/examples/config.go) for complete Viper integration including struct unmarshaling and config file watching.
-
-### Example Config File (.myapp.yaml)
-
-```yaml
-port: 8080
-host: localhost
-log-level: info
-database:
-  dsn: postgres://localhost:5432/myapp
-  max-conn: 25
-```
-
-With the setup above, these are all equivalent:
-
-- Flag: `--port 9090`
-- Env var: `MYAPP_PORT=9090`
-- Config file: `port: 9090`
-
-## Version and Build Info
-
-Version SHOULD be embedded at compile time using `ldflags`. See [assets/examples/version.go](assets/examples/version.go) for the version command and build instructions.
-
-## Exit Codes
-
-Exit codes MUST follow Unix conventions:
-
-| Code  | Meaning           | When to Use                               |
-| ----- | ----------------- | ----------------------------------------- |
-| 0     | Success           | Operation completed normally              |
-| 1     | General error     | Runtime failure                           |
-| 2     | Usage error       | Invalid flags or arguments                |
-| 64-78 | BSD sysexits      | Specific error categories                 |
-| 126   | Cannot execute    | Permission denied                         |
-| 127   | Command not found | Missing dependency                        |
-| 128+N | Signal N          | Terminated by signal (e.g., 130 = SIGINT) |
-
-See [assets/examples/exit_codes.go](assets/examples/exit_codes.go) for a pattern mapping errors to exit codes.
-
-## I/O Patterns
-
-See [assets/examples/output.go](assets/examples/output.go) for all I/O patterns:
-
-- **stdout vs stderr**: NEVER write diagnostic output to stdout — stdout is for program output (pipeable), stderr for logs/errors/diagnostics
-- **Detecting pipe vs terminal**: check `os.ModeCharDevice` on stdout
-- **Machine-readable output**: support `--output` flag for table/json/plain formats
-- **Colors**: use `fatih/color` which auto-disables when output is not a terminal
-
-## Signal Handling
-
-Signal handling MUST use `signal.NotifyContext` to propagate cancellation through context. See [assets/examples/signal.go](assets/examples/signal.go) for graceful HTTP server shutdown.
-
-## Shell Completions
-
-Cobra generates completions for bash, zsh, fish, and PowerShell automatically. See [assets/examples/completion.go](assets/examples/completion.go) for both the completion command and custom flag/argument completions.
-
-## Testing CLI Commands
-
-Test commands by executing them programmatically and capturing output. See [assets/examples/cli_test.go](assets/examples/cli_test.go).
-
-Use `cmd.OutOrStdout()` and `cmd.ErrOrStderr()` in commands (instead of `os.Stdout` / `os.Stderr`) so output can be captured in tests.
-
-## Common Mistakes
-
-| Mistake | Fix |
-| --- | --- |
-| Writing to `os.Stdout` directly | Tests can't capture output. Use `cmd.OutOrStdout()` which tests can redirect to a buffer |
-| Calling `os.Exit()` inside `RunE` | Cobra's error handling, deferred functions, and cleanup code never run. Return an error, let `main()` decide |
-| Not binding flags to Viper | Flags won't be configurable via env/config. Call `viper.BindPFlag` for every configurable flag |
-| Missing `viper.SetEnvPrefix` | `PORT` collides with other tools. Use a prefix (`MYAPP_PORT`) to namespace env vars |
-| Logging to stdout | Unix pipes chain stdout — logs corrupt the data stream for the next program. Logs go to stderr |
-| Printing usage on every error | Full help text on every error is noise. Set `SilenceUsage: true`, save full usage for `--help` |
-| Config file required | Users without a config file get a crash. Ignore `viper.ConfigFileNotFoundError` — config should be optional |
-| Not using `PersistentPreRunE` | Config initialization must happen before any subcommand. Use root's `PersistentPreRunE` |
-| Hardcoded version string | Version gets out of sync with tags. Inject via `ldflags` at build time from git tags |
-| Not supporting `--output` format | Scripts can't parse human-readable output. Add JSON/table/plain for machine consumption |
-
-## Related Skills
-
-See `samber/cc-skills-golang@golang-project-layout`, `samber/cc-skills-golang@golang-dependency-injection`, `samber/cc-skills-golang@golang-testing`, `samber/cc-skills-golang@golang-design-patterns` skills.
+Before changing an existing CLI, inspect its command tree, configuration contract, output conventions, and process lifecycle. Verify with gofmt and focused go test. The examples under assets/examples are deliberately small snippets; adapt their imports and framework versions to the target module.

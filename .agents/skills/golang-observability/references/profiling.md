@@ -1,6 +1,6 @@
 # Profiling and Continuous Profiling
 
-→ See `samber/cc-skills-golang@golang-troubleshooting` skill (pprof.md) for on-demand debugging.
+See the local `golang-troubleshooting` skill for on-demand debugging.
 
 ## What Profiling Is
 
@@ -8,13 +8,13 @@ Profiling analyzes the runtime behavior of your program — where CPU time is sp
 
 ## On-Demand Profiling with `pprof`
 
-pprof endpoints MUST be protected with basic auth — NEVER expose them publicly. They leak sensitive runtime information and can be abused for DoS.
+Protect pprof endpoints with authentication/authorization or network isolation; basic auth is one option, not a universal requirement. They expose runtime details and can be abused for DoS.
 
-→ See `samber/cc-skills-golang@golang-troubleshooting` pprof.md for the full pprof CLI reference (profile types, capturing, analyzing, commands).
+See the local `golang-benchmark` skill's pprof reference for profile types, capture, and analysis commands.
 
 ## Continuous Profiling with Pyroscope
 
-On-demand profiling requires you to be there when the problem happens. Continuous profiling runs always-on in the background with low overhead (~2-5% CPU), so you can look at profiles after the fact. Toggle it with an environment variable.
+On-demand profiling requires a capture during the problem. Continuous profiling retains samples for later analysis, with overhead that varies by collector, profile types, and workload. Startup environment variables can select whether a process starts profiling; changing the environment of an already-running process has no effect unless the application implements reload/control.
 
 ```go
 import "github.com/grafana/pyroscope-go"
@@ -50,7 +50,7 @@ func setupContinuousProfiling() {
 
 ## Cost of Continuous Profiling
 
-Continuous profiling adds overhead to every running instance — CPU for collecting stack samples, memory for buffering, and network for transmitting profiles to the backend. While typically low (~2-5% CPU), this cost is **per-instance and always-on**.
+Continuous profiling adds CPU, memory, and network overhead to each participating instance. Measure the selected collector and profile types in the target workload; do not assume a fixed percentage.
 
 **Cost factors:**
 
@@ -60,7 +60,7 @@ Continuous profiling adds overhead to every running instance — CPU for collect
 
 **Mitigation:**
 
-- Toggle via environment variable (`PROFILING_ENABLED`) — enable only when needed or on a subset of instances
+- Select participating instances through startup configuration or an authenticated application control path; an environment variable alone does not toggle a running process
 - Start with CPU + heap profiles only; add mutex/block/goroutine profiles when investigating specific issues
 - In large deployments, enable continuous profiling on a fraction of replicas (e.g., 1 in 10) rather than all of them
 

@@ -1,10 +1,6 @@
 package main
 
-import (
-	"os"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 // === Shell Completion Command ===
 // Cobra generates completions for bash, zsh, fish, and PowerShell automatically.
@@ -16,15 +12,16 @@ func init() {
 		Args:      cobra.ExactValidArgs(1),
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
 			switch args[0] {
 			case "bash":
-				return rootCmd.GenBashCompletionV2(os.Stdout, true)
+				return rootCmd.GenBashCompletionV2(out, true)
 			case "zsh":
-				return rootCmd.GenZshCompletion(os.Stdout)
+				return rootCmd.GenZshCompletion(out)
 			case "fish":
-				return rootCmd.GenFishCompletion(os.Stdout, true)
+				return rootCmd.GenFishCompletion(out, true)
 			case "powershell":
-				return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+				return rootCmd.GenPowerShellCompletionWithDesc(out)
 			}
 			return nil
 		},

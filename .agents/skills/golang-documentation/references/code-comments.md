@@ -1,6 +1,6 @@
 # Code Comments
 
-→ See `samber/cc-skills-golang@golang-naming` skill for naming conventions that reduce the need for comments.
+See the local `golang-naming` skill for naming conventions that reduce the need for comments.
 
 ## Function & Method Doc Comments
 
@@ -189,7 +189,7 @@ func Transform[T any, U any](slice []T, fn func(T) U) []U {
 
 ### Playground Links
 
-Add a `Play:` line linking to a runnable Go Playground example of a public library. Use the samber/go-playground-mcp tool to create and share playground URLs when available:
+Add a `Play:` line only when a deliberately public, self-contained Playground example has passed disclosure and dependency review:
 
 ```go
 // Map applies a function to each element of a slice.

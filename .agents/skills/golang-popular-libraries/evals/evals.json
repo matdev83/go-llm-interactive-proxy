@@ -16,15 +16,15 @@
   {
     "id": 2,
     "name": "pgx-over-lib-pq",
-    "description": "Tests whether the model recommends pgx over lib/pq for PostgreSQL when advanced features or performance matter",
+    "description": "Tests whether the model compares PostgreSQL drivers by feature fit, compatibility, and measured workload needs",
     "prompt": "I'm starting a new Go project that needs to connect to PostgreSQL. Which driver should I use?",
-    "trap": "Without the skill, the model recommends lib/pq because it's more commonly seen in tutorials, missing that pgx is faster and has more features",
+    "trap": "Without the skill, the model recommends a driver by tutorial popularity or an unsupported fixed performance claim instead of checking project requirements and release status.",
     "assertions": [
-      {"id": "2.1", "text": "Recommends pgx (github.com/jackc/pgx) as the primary recommendation"},
-      {"id": "2.2", "text": "Mentions that pgx is faster than lib/pq"},
-      {"id": "2.3", "text": "Notes that pgx supports all PostgreSQL types and advanced features"},
-      {"id": "2.4", "text": "May mention lib/pq as an alternative but positions pgx as the preferred choice"},
-      {"id": "2.5", "text": "Does NOT recommend lib/pq as the primary choice without mentioning pgx"}
+      {"id": "2.1", "text": "Compares pgx and lib/pq against the project's PostgreSQL, compatibility, and feature requirements"},
+      {"id": "2.2", "text": "Does not claim a fixed speed advantage without a benchmark for the target workload"},
+      {"id": "2.3", "text": "Notes pgx-native features such as COPY or LISTEN when those features matter"},
+      {"id": "2.4", "text": "Checks release status and module compatibility before choosing a driver"},
+      {"id": "2.5", "text": "Makes a conditional recommendation rather than treating one driver as universally best"}
     ]
   },
   {
@@ -101,12 +101,12 @@
     "name": "check-maintenance-before-recommending",
     "description": "Tests whether the model checks maintenance status before recommending a library",
     "prompt": "I need a logging library for my Go project. Someone suggested Logrus. Should I use it?",
-    "trap": "Without the skill, the model recommends Logrus without noting its maintenance status (deprecated in favor of structured logging)",
+    "trap": "Without the skill, the model recommends Logrus without checking current maintenance, release, security, and structured-logging fit.",
     "assertions": [
-      {"id": "8.1", "text": "Mentions that Logrus is deprecated or in maintenance mode"},
-      {"id": "8.2", "text": "Suggests alternatives: log/slog (stdlib), zap, or zerolog"},
-      {"id": "8.3", "text": "Explains that for new projects, a maintained alternative is preferred"},
-      {"id": "8.4", "text": "Does NOT unconditionally recommend Logrus without mentioning its deprecation status"},
+      {"id": "8.1", "text": "Checks Logrus's current maintenance and release status rather than relying on a stale label"},
+      {"id": "8.2", "text": "Compares alternatives such as log/slog, zap, or zerolog by concrete requirements"},
+      {"id": "8.3", "text": "Explains why a maintained alternative may be preferable for a new project"},
+      {"id": "8.4", "text": "Does NOT unconditionally recommend Logrus without a current maintenance/security check"},
       {"id": "8.5", "text": "Prioritizes maturity and maintenance status in the recommendation"}
     ]
   },

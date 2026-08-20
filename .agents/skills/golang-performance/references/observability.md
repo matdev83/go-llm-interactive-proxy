@@ -6,7 +6,7 @@ Third-party monitoring tools complement local profiling (pprof, benchmarks) by p
 
 **Setup:** `github.com/prometheus/client_golang` — expose `/metrics` endpoint with `promhttp.Handler()`. Default collectors automatically export Go runtime metrics (`go_goroutines`, `go_memstats_*`, `go_gc_duration_seconds`, `process_cpu_seconds_total`, etc.).
 
-→ See `samber/cc-skills-golang@golang-benchmark` skill (investigation-session.md) for the full runtime metrics table, investigation session setup (scrape interval tuning, env-var toggling), and cost warnings for profiling tools.
+See the local `golang-benchmark` skill's investigation session for runtime metrics, capture design, and profiling cost controls. Environment variables affect a running process only when the application implements reload.
 
 ### PromQL Queries for Performance Diagnosis
 
@@ -14,24 +14,24 @@ Third-party monitoring tools complement local profiling (pprof, benchmarks) by p
 
 | PromQL | What to look for |
 | --- | --- |
-| `rate(go_gc_duration_seconds_count[5m])` | GC cycles/s — >2/s sustained suggests excessive allocation rate |
+| `rate(go_gc_duration_seconds_count[5m])` | GC cycles/s; compare with a workload-specific baseline and allocation rate |
 | `rate(go_gc_duration_seconds_sum[5m]) / rate(go_gc_duration_seconds_count[5m])` | Average GC pause — increasing trend means heap is growing or has too many pointers |
 | `go_gc_duration_seconds{quantile="1"}` | Worst-case GC pause — spikes here cause tail latency |
 
-#### Memory leaks
+#### Memory growth investigation
 
 | PromQL | What to look for |
 | --- | --- |
-| `go_memstats_alloc_bytes` | Should be roughly stable under constant load; continuous increase = memory leak |
+| `go_memstats_alloc_bytes` | Cumulative allocation; growth is expected and is not a live-memory/leak proof |
 | `rate(go_memstats_alloc_bytes_total[5m])` | Allocation rate (bytes/s) — drives GC frequency; compare before/after deploy for regressions |
-| `process_resident_memory_bytes - go_memstats_sys_bytes` | Gap = non-Go memory (cgo, mmap); growing gap = non-Go leak |
+| `process_resident_memory_bytes - go_memstats_sys_bytes` | Rough non-Go/resident-memory gap; growth is an investigation signal |
 
-#### Goroutine leaks
+#### Goroutine growth investigation
 
 | PromQL | What to look for |
 | --- | --- |
-| `go_goroutines` | Should correlate with load; growing independently of traffic = leak |
-| `delta(go_goroutines[1h])` | Net goroutine change over 1h; positive without load increase = leak |
+| `go_goroutines` | Compare with load and lifecycle; sustained independent growth is a leak suspect |
+| `delta(go_goroutines[1h])` | Net change over 1h; combine with stack snapshots and controlled load before concluding |
 
 #### CPU saturation
 
@@ -51,11 +51,11 @@ Third-party monitoring tools complement local profiling (pprof, benchmarks) by p
 
 [Example alerting rules](../assets/prometheus-alerts.yml) — adjust thresholds to your application; a high-throughput data pipeline will have different baselines than a lightweight API server.
 
-→ See `samber/cc-skills@promql-cli` skill for interactively testing these PromQL expressions against your Prometheus instance from the CLI.
+Run these PromQL expressions in the Prometheus UI or a repository-approved PromQL client.
 
 ### Grafana Dashboards
 
-→ See `samber/cc-skills-golang@golang-observability` skill for recommended community Grafana dashboards that visualize Go runtime metrics out of the box.
+See the local `golang-observability` skill for dashboard and alert design; validate dashboard labels against the metrics actually exported by the service.
 
 ## Continuous Profiling
 
@@ -63,10 +63,10 @@ Continuous profiling collects low-overhead samples in production and stores them
 
 | Tool | Model | Overhead | Best for |
 | --- | --- | --- | --- |
-| **Grafana Pyroscope** | push SDK or pull (via Alloy) | ~2-5% | Grafana ecosystem, historical flamegraph comparison |
-| **Parca** (Polar Signals) | eBPF-based pull | <1% | Infrastructure-wide profiling, no code changes |
-| **Datadog Continuous Profiler** | push (agent) | ~1-2% | Existing Datadog users |
-| **Google Cloud Profiler** | push (agent) | ~1-2% | GCP-hosted Go services |
+| **Grafana Pyroscope** | push SDK or pull (via Alloy) | Measure in the target workload | Grafana ecosystem, historical flamegraph comparison |
+| **Parca** (Polar Signals) | eBPF-based pull | Measure in the target workload | Infrastructure-wide profiling, no code changes |
+| **Datadog Continuous Profiler** | push client | Measure in the target workload | Existing Datadog users |
+| **Google Cloud Profiler** | push client | Measure in the target workload | GCP-hosted Go services |
 
 ### Pyroscope push mode
 

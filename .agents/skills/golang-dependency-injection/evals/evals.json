@@ -38,7 +38,7 @@
       {"id": "3.2", "text": "Identifies this as the service locator anti-pattern"},
       {"id": "3.3", "text": "Shows that the Injector should only exist at the composition root (main or app startup)"},
       {"id": "3.4", "text": "Shows UserService receiving Database and Mailer directly as constructor parameters"},
-      {"id": "3.5", "text": "Shows the provider function using do.MustInvoke inside the provider, not inside UserService methods"}
+      {"id": "3.5", "text": "Shows the provider resolving dependencies with do.Invoke and propagating resolution errors, not resolving inside UserService methods"}
     ]
   },
   {
@@ -60,9 +60,9 @@
     "name": "di-library-selection-judgment",
     "description": "Tests correct DI library recommendation based on project characteristics",
     "prompt": "I'm building a large Go microservice with 40+ services, complex lifecycle management (health checks, graceful shutdown), and I want compile-time type safety. My team is comfortable with Go generics. Which DI library should I use?",
-    "trap": "Without the skill, the model may recommend uber-go/fx (most popular) or google/wire. The skill's decision table shows samber/do matches all these criteria: any size, compile-time generics, built-in lifecycle, health checks, shutdown.",
+    "trap": "Generic provider APIs do not make a runtime DI graph compile-time safe. The recommendation must distinguish type-parameter convenience from graph validation and lifecycle behavior.",
     "assertions": [
-      {"id": "5.1", "text": "Recommends samber/do as a strong fit given the criteria (generics, lifecycle, compile-time safety)"},
+      {"id": "5.1", "text": "Explains that samber/do offers generic APIs and lifecycle features but resolves graph failures at runtime"},
       {"id": "5.2", "text": "Explains why uber-go/fx is a valid alternative but uses reflection (runtime errors, not compile-time)"},
       {"id": "5.3", "text": "Explains why google/wire lacks built-in lifecycle management (no health checks, no shutdown)"},
       {"id": "5.4", "text": "Mentions that samber/do requires Go 1.18+ for generics"},
@@ -72,15 +72,15 @@
   {
     "id": 6,
     "name": "wire-build-constraint-and-codegen",
-    "description": "Tests proper google/wire setup with wireinject build constraint",
+    "description": "Tests that existing google/wire code uses the wireinject build constraint while noting Wire's archived status",
     "prompt": "Set up google/wire for a Go application with Config, Database, UserStore, and UserService. Show the wire.go file and explain what happens when I run wire.",
-    "trap": "Without the skill, the model may forget the //go:build wireinject build constraint or not explain that wire.Build generates plain Go constructors.",
+    "trap": "Without the skill, the model may omit the build constraint or present archived Wire as a current default without explaining generated-code trade-offs.",
     "assertions": [
       {"id": "6.1", "text": "Includes //go:build wireinject build constraint in the wire.go file"},
       {"id": "6.2", "text": "Uses wire.Build with all provider functions listed"},
       {"id": "6.3", "text": "Shows wire.Bind for binding interface to implementation"},
       {"id": "6.4", "text": "Explains that wire generates wire_gen.go with plain constructor calls"},
-      {"id": "6.5", "text": "Mentions that wire_gen.go must not be edited manually"}
+      {"id": "6.5", "text": "Mentions that wire_gen.go must not be edited manually and that the upstream Wire repository is archived/read-only"}
     ]
   },
   {

@@ -1,6 +1,6 @@
 # pprof Reference
 
-`go tool pprof` is the primary tool for understanding where CPU time, memory, and contention go in Go programs. This file covers how to **use** the CLI and **interpret** the output. For enabling pprof endpoints on running services (net/http/pprof import, authentication, security), → See `samber/cc-skills-golang@golang-troubleshooting` skill.
+`go tool pprof` is the primary tool for understanding where CPU time, memory, and contention go in Go programs. This file covers how to **use** the CLI and **interpret** the output. For enabling pprof endpoints on running services, use an authenticated, isolated debug listener and review `golang-security`.
 
 ## Profile Types
 
@@ -11,8 +11,8 @@ Each profile type answers a different performance question. Choosing the wrong p
 | **CPU** | `-cpuprofile` or `/debug/pprof/profile?seconds=30` | High CPU usage, slow functions | Samples which functions are on-CPU at 100Hz; misses off-CPU time (I/O, sleep) |
 | **Heap (alloc_objects)** | `-memprofile` then `pprof -alloc_objects` | GC pressure, too many allocations | Counts allocation events regardless of size — a 1-byte alloc counts the same as 1MB; reveals GC churn sources |
 | **Heap (alloc_space)** | `pprof -alloc_space` | Finding largest allocation sites by volume | Measures total bytes allocated; use when you need to reduce peak memory, not just GC frequency |
-| **Heap (inuse_space)** | `pprof -inuse_space` | Memory growing over time, suspected leaks | Shows currently live heap objects; compare two snapshots to isolate leak sources |
-| **Heap (inuse_objects)** | `pprof -inuse_objects` | Object count growth, suspected leak of small objects | Counts live objects regardless of size; useful when leak is many small objects not visible in inuse_space |
+| **Heap (inuse_space)** | `pprof -inuse_space` | Live memory and leak suspects | Shows currently live heap objects; comparable snapshots under a controlled workload can identify retention, but do not prove a leak alone |
+| **Heap (inuse_objects)** | `pprof -inuse_objects` | Live object-count growth | Counts live objects regardless of size; use comparable snapshots and retention tests before calling it a leak |
 | **Goroutine** | `/debug/pprof/goroutine` | Blocked I/O, goroutine leaks, pool exhaustion | Snapshots all goroutine stacks; look for goroutines piling up on the same call site |
 | **Mutex** | `/debug/pprof/mutex` | Lock contention between goroutines | Measures cumulative time goroutines waited to acquire mutexes. Must enable first: `runtime.SetMutexProfileFraction(5)` |
 | **Block** | `/debug/pprof/block` | Goroutines blocked on channels, mutexes, timers, select | Measures cumulative time goroutines spent blocked on synchronization primitives. Must enable first: `runtime.SetBlockProfileRate(1)` |
@@ -28,7 +28,7 @@ Each profile type answers a different performance question. Choosing the wrong p
 
 - **alloc_space** is cumulative since program start — it includes objects already freed by GC
 - **inuse_space** is a point-in-time snapshot — only currently live objects
-- Use `alloc_space` to find allocation hot spots for optimization. Use `inuse_space` to debug memory leaks.
+- Use `alloc_space` to find allocation hot spots for optimization. Use `inuse_space` to investigate live-memory growth and retention, then confirm with controlled repeated snapshots and ownership analysis.
 
 ### Enabling mutex and block profiles
 
@@ -71,7 +71,7 @@ go test -bench=BenchmarkParse -cpuprofile=cpu.prof -memprofile=mem.prof ./pkg/pa
 
 ### From running service
 
-Requires `import _ "net/http/pprof"` (see `samber/cc-skills-golang@golang-troubleshooting` skill for secure setup):
+Requires `import _ "net/http/pprof"` when using the default registration (secure the listener and routes before exposing it):
 
 ```bash
 # CPU profile — captures 30 seconds of CPU samples
@@ -586,10 +586,10 @@ go tool pprof -top -alloc_objects mem.prof
 # Top allocation sites by bytes — diagnose peak memory
 go tool pprof -top -alloc_space mem.prof
 
-# Currently live objects — diagnose memory leaks
+# Currently live objects — investigate live-memory growth
 go tool pprof -top -inuse_space mem.prof
 
-# Currently live object count — diagnose leak of many small objects
+# Currently live object count — investigate growth of many small objects
 go tool pprof -top -inuse_objects mem.prof
 
 # Annotated source showing allocation sites by object count
@@ -598,7 +598,7 @@ go tool pprof -alloc_objects -list=Parse mem.prof
 # SVG call graph colored by allocation objects
 go tool pprof -alloc_objects -svg mem.prof > allocs.svg
 
-# Compare two heap snapshots — show only growth (memory leak detection)
+# Compare two heap snapshots — show growth that may indicate retention
 go tool pprof -top -base heap-baseline.prof heap-after.prof
 
 # Diff with normalization — makes ratios comparable when capture durations differ
@@ -755,7 +755,7 @@ Default to CLI commands for quick diagnosis — use the web UI when exploring un
 
 ## Comparing Profiles
 
-### Memory leak detection with `-base`
+### Comparing heap snapshots with `-base`
 
 Compare two heap profiles to isolate what grew between them:
 
@@ -763,7 +763,7 @@ Compare two heap profiles to isolate what grew between them:
 # Step 1: take a baseline snapshot
 curl http://localhost:6060/debug/pprof/heap > heap-baseline.prof
 
-# Step 2: wait for the suspected leak to accumulate (minutes to hours)
+# Step 2: run a comparable workload long enough for suspected retention to appear
 
 # Step 3: take a second snapshot
 curl http://localhost:6060/debug/pprof/heap > heap-after.prof
@@ -803,15 +803,15 @@ The function calls slow things but does little work itself. It's a coordinator o
 
 ### `alloc_objects` high, `inuse_space` low
 
-Short-lived allocations creating GC churn. Objects are allocated and freed rapidly — each one is cheap individually but the aggregate volume triggers frequent GC cycles. Common sources: `fmt.Errorf` in hot paths (allocates every call), interface boxing (`any` arguments), string-to-byte conversions, slice growth without preallocation. → See `samber/cc-skills-golang@golang-performance` skill for allocation reduction patterns.
+Short-lived allocations creating GC churn. Objects are allocated and freed rapidly — each one is cheap individually but the aggregate volume triggers frequent GC cycles. Common sources include formatting in hot paths, interface boxing, string-to-byte conversions, or slice growth. Confirm with `alloc_objects` and apply measured changes using `golang-performance`.
 
 ### `inuse_space` growing over time
 
-Memory leak. Take two heap snapshots minutes apart and compare with `-base` (see Comparing Profiles above). Growing types reveal the leak source. Common causes: unbounded caches, maps that never shrink (Go maps don't release bucket memory on delete), goroutine leaks holding references.
+Suspected retention. Take comparable heap snapshots and compare with `-base` (see Comparing Profiles above). Growing types identify investigation targets; confirm ownership and a repeatable retention pattern. Common causes include unbounded caches, map churn, and goroutines holding references.
 
 ### Mutex/block profile hot
 
-Contention, not CPU. The CPU is waiting, not working. The goroutines are all trying to acquire the same lock or read from the same channel. Reduce critical section scope, shard locks across multiple mutexes, or use lock-free structures (`sync/atomic`, `sync.Map` for read-heavy workloads). → See `samber/cc-skills-golang@golang-concurrency` skill.
+Contention, not CPU. The CPU is waiting, not working. Goroutines are trying to acquire the same lock or communicate through one channel. Inspect the invariant before reducing critical sections, sharding locks, or changing synchronization primitives; review `golang-concurrency`.
 
 ### Many goroutines blocked on same channel/mutex
 
@@ -819,7 +819,7 @@ Serialization bottleneck. All work funnels through a single point. The throughpu
 
 ### `runtime.mallocgc` dominates CPU profile
 
-Allocation rate is the bottleneck, not computation. The Go runtime is spending more time allocating and collecting garbage than running your code. Switch to the `alloc_objects` heap profile to find which functions allocate the most, then → See `samber/cc-skills-golang@golang-performance` skill for reduction patterns.
+Allocation rate is the bottleneck, not computation. The runtime is spending substantial time allocating and collecting garbage. Switch to the `alloc_objects` heap profile to find allocation sites, then validate a change with `golang-performance`.
 
 ### `runtime.memmove` high in CPU profile
 

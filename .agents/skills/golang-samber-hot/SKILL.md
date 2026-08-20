@@ -1,132 +1,49 @@
 ---
 name: golang-samber-hot
-description: "Go samber/hot: eviction, TTL, loaders, sharding, stale refresh, missing-key cache, metrics."
-license: MIT
-metadata:
-  author: samber
-  version: "1.0.3"
-  openclaw:
-    emoji: "🔥"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-    install: []
-    skill-library-version: "0.13.0"
+description: Use samber/hot for bounded in-memory caches with eviction, TTL, stale revalidation, loaders, sharding, missing-key caching, copying, and metrics.
 ---
 
-**Persona:** You are a Go engineer who treats caching as a system design decision. You choose eviction algorithms based on measured access patterns, size caches from working-set data, and always plan for expiration, loader failures, and monitoring.
+# samber/hot
 
-# Using samber/hot for In-Memory Caching in Go
+This guidance targets github.com/samber/hot v0.13 APIs; verify the pinned module before copying examples. hot is an in-memory cache, not a durable store or distributed-coherence mechanism.
 
-Generic, type-safe in-memory caching library for Go 1.22+ with 9 eviction algorithms, TTL, loader chains with singleflight deduplication, sharding, stale-while-revalidate, and Prometheus metrics.
+## Build a cache
 
-**Official Resources:**
+NewHotCache returns a HotCacheConfig, not a cache and not a second return value:
 
-- [pkg.go.dev/github.com/samber/hot](https://pkg.go.dev/github.com/samber/hot)
-- [github.com/samber/hot](https://github.com/samber/hot)
-
-This skill is not exhaustive. Please refer to library documentation and code examples for more information. Context7 can help as a discoverability platform.
-
-```bash
-go get -u github.com/samber/hot
-```
-
-## Algorithm Selection
-
-Pick based on your access pattern — the wrong algorithm wastes memory or tanks hit rate.
-
-| Algorithm | Constant | Best for | Avoid when |
-| --- | --- | --- | --- |
-| **W-TinyLFU** | `hot.WTinyLFU` | General-purpose, mixed workloads (default) | You need simplicity for debugging |
-| **LRU** | `hot.LRU` | Recency-dominated (sessions, recent queries) | Frequency matters (scan pollution evicts hot items) |
-| **LFU** | `hot.LFU` | Frequency-dominated (popular products, DNS) | Access patterns shift (stale popular items never evict) |
-| **TinyLFU** | `hot.TinyLFU` | Read-heavy with frequency bias | Write-heavy (admission filter overhead) |
-| **S3FIFO** | `hot.S3FIFO` | High throughput, scan-resistant | Small caches (<1000 items) |
-| **ARC** | `hot.ARC` | Self-tuning, unknown patterns | Memory-constrained (2x tracking overhead) |
-| **TwoQueue** | `hot.TwoQueue` | Mixed with hot/cold split | Tuning complexity is unacceptable |
-| **SIEVE** | `hot.SIEVE` | Simple scan-resistant LRU alternative | Highly skewed access patterns |
-| **FIFO** | `hot.FIFO` | Simple, predictable eviction order | Hit rate matters (no frequency/recency awareness) |
-
-**Decision shortcut:** Start with `hot.WTinyLFU`. Switch only when profiling shows the miss rate is too high for your SLO.
-
-For detailed algorithm comparison, benchmarks, and a decision tree, see [Algorithm Guide](./references/algorithm-guide.md).
-
-## Core Usage
-
-### Basic Cache with TTL
-
-```go
-import "github.com/samber/hot"
-
-cache := hot.NewHotCache[string, *User](hot.WTinyLFU, 10_000).
+~~~go
+cache := hot.NewHotCache[string, User](hot.LRU, 10_000).
     WithTTL(5 * time.Minute).
-    WithJanitor().
-    Build()
-defer cache.StopJanitor()
-
-cache.Set("user:123", user)
-cache.SetWithTTL("session:abc", session, 30*time.Minute)
-
-value, found, err := cache.Get("user:123")
-```
-
-### Loader Pattern (Read-Through)
-
-Loaders fetch missing keys automatically with singleflight deduplication — concurrent `Get()` calls for the same missing key share one loader invocation:
-
-```go
-cache := hot.NewHotCache[int, *User](hot.WTinyLFU, 10_000).
-    WithTTL(5 * time.Minute).
-    WithLoaders(func(ids []int) (map[int]*User, error) {
-        return db.GetUsersByIDs(ctx, ids) // batch query
+    WithLoaders(func(keys []string) (map[string]User, error) {
+        return loadUsers(keys)
     }).
-    WithJanitor().
     Build()
-defer cache.StopJanitor()
 
-user, found, err := cache.Get(123) // triggers loader on miss
-```
+user, found, err := cache.Get("user-42")
+~~~
 
-## Capacity Sizing
+The loader type is func(keys []K) (found map[K]V, err error). Missing keys are distinct from a found zero value. Use WithMissingSharedCache or WithMissingCache when negative caching is intended, and choose a shorter TTL when absence can change.
 
-Before setting the cache capacity, estimate how many items fit in the memory budget:
+Build validates combinations such as janitor with locking. WithoutLocking is only for a cache that is never accessed concurrently and cannot be combined with WithJanitor. Use a positive TTL when expiry is required; do not assume zero means the same thing across versions without checking.
 
-1. **Estimate single-item size** — estimate size of the struct, add the size of heap-allocated fields (slices, maps, strings). Include the key size. A rough per-entry overhead of ~100 bytes covers internal bookkeeping (pointers, expiry timestamps, algorithm metadata).
-2. **Ask the developer** how much memory is dedicated to this cache in production (e.g., 256 MB, 1 GB). This depends on the service's total memory and what else shares the process.
-3. **Compute capacity** — `capacity = memoryBudget / estimatedItemSize`. Round down to leave headroom.
+## Expiry and loaders
 
-```
-Example: *User struct ~500 bytes + string key ~50 bytes + overhead ~100 bytes = ~650 bytes/entry
-         256 MB budget → 256_000_000 / 650 ≈ 393,000 items
-```
+WithTTL establishes the normal expiry. WithRevalidation(stale, loaders...) serves stale entries during the stale window and refreshes them in the background. Decide whether revalidation failure drops or keeps an old value according to the package's policy and your data freshness requirements.
 
-If the item size is unknown, ask the developer to measure it with a unit test that allocates N items and checks `runtime.ReadMemStats`. Guessing capacity without measuring leads to OOM or wasted memory.
+Get and GetMany return errors from loaders. A loader chain may fill only some requested keys; handle the found/missing result deliberately. The cache deduplicates concurrent loads for a key, but that does not make the loader idempotent or safe to run without a context/deadline of its own.
 
-## Common Mistakes
+WithJitter(lambda, upperBound) applies an exponential random variation bounded to [0, upperBound); it is not uniform jitter and the resulting TTL is not simply TTL plus a fixed random amount. Measure stampede behavior rather than promising a fixed improvement.
 
-1. **Forgetting `WithJanitor()`** — without it, expired entries stay in memory until the algorithm evicts them. Always chain `.WithJanitor()` in the builder and `defer cache.StopJanitor()`.
-2. **Calling `SetMissing()` without missing cache config** — panics at runtime. Enable `WithMissingCache(algorithm, capacity)` or `WithMissingSharedCache()` in the builder first.
-3. **`WithoutLocking()` + `WithJanitor()`** — mutually exclusive, panics. `WithoutLocking()` is only safe for single-goroutine access without background cleanup.
-4. **Oversized cache** — a cache holding everything is a map with overhead. Size to your working set (typically 10-20% of total data). Monitor hit rate to validate.
-5. **Ignoring loader errors** — `Get()` returns `(zero, false, err)` on loader failure. Always check `err`, not just `found`.
+## Eviction and concurrency
 
-## Best Practices
+Select LRU, LFU, TinyLFU, W-TinyLFU, 2Q, ARC, FIFO, SIEVE, or another algorithm based on measured access patterns. Capacity is an item count, not a memory budget. Estimate value size and enforce a separate memory policy if values are large.
 
-1. Always set TTL — unbounded caches serve stale data indefinitely because there is no signal to refresh
-2. Use `WithJitter(lambda, upperBound)` to spread expirations — without jitter, items created together expire together, causing thundering herd on the loader
-3. Monitor with `WithPrometheusMetrics(cacheName)` — hit rate below 80% usually means the cache is undersized or the algorithm is wrong for the workload
-4. Use `WithCopyOnRead(fn)` / `WithCopyOnWrite(fn)` for mutable values — without copies, callers mutate cached objects and corrupt shared state
+The cache's safe/default locking protects cache operations, but it does not make a mutable V safe after return. WithCopyOnRead and WithCopyOnWrite receive and return V; use a real deep copy for maps, slices, pointers, or nested objects. A shallow struct copy only copies references and does not isolate nested mutable state.
 
-For advanced patterns (revalidation, sharding, missing cache, monitoring setup), see [Production Patterns](./references/production-patterns.md).
+Janitor starts background cleanup and must be stopped with StopJanitor when the cache lifetime ends. Eviction callbacks run synchronously in the current implementation; keep them short and non-blocking or treat them as part of cache latency.
 
-For the complete API surface, see [API Reference](./references/api-reference.md).
+## Metrics and review
 
-If you encounter a bug or unexpected behavior in samber/hot, open an issue at <https://github.com/samber/hot/issues>.
+WithPrometheusMetrics(name) enables collectors. Current names include hot_hit_total, hot_miss_total, hot_insertion_total, hot_eviction_total{reason=...}, hot_size_bytes, hot_length, and hot_settings_* gauges. Register collectors with the application's registry according to the package API; do not invent names from an old dashboard.
 
-## Cross-References
-
-- → See `samber/cc-skills-golang@golang-performance` skill for general caching strategy and when to use in-memory cache vs Redis vs CDN
-- → See `samber/cc-skills-golang@golang-observability` skill for Prometheus metrics integration and monitoring
-- → See `samber/cc-skills-golang@golang-database` skill for database query patterns that pair with cache loaders
-- → See `samber/cc-skills@promql-cli` skill for querying Prometheus cache metrics via CLI
+Review capacity, TTL, negative-cache semantics, stale serving, copy functions, loader timeout/retry, janitor shutdown, and metrics cardinality. Cache only data that can be recomputed or invalidated safely. Never use cached authorization decisions without an explicit freshness and revocation design.

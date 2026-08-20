@@ -30,12 +30,12 @@
   {
     "id": 3,
     "name": "enum-start-at-one",
-    "description": "Tests whether the model starts Go enums at 1 or uses an Unknown/Invalid sentinel at 0",
+    "description": "Tests whether the model makes the enum zero value an intentional, recognizable state",
     "prompt": "I need to define a Go enum for order status with values: pending, processing, shipped, delivered, cancelled. Write the type and constants using iota.",
-    "trap": "Without the skill, the model often starts the first meaningful enum value at 0 (iota), making the zero value silently pass as a valid status. The skill says enums SHOULD start at 1 or use an Unknown sentinel at 0.",
+    "trap": "Without the skill, the model may make a meaningful business state indistinguishable from an uninitialized zero value.",
     "assertions": [
       {"id": "3.1", "text": "Zero value (iota = 0) is either skipped, named Unknown, Invalid, or Unspecified -- not a meaningful business value"},
-      {"id": "3.2", "text": "First meaningful enum value starts at 1 or higher"},
+      {"id": "3.2", "text": "Either starts meaningful values at 1 or documents why a meaningful zero value is safe"},
       {"id": "3.3", "text": "Explains WHY: Go's zero value would silently pass as the first enum member if it were meaningful"},
       {"id": "3.4", "text": "Uses a custom type (not raw int or string)"}
     ]
@@ -64,7 +64,7 @@
       {"id": "5.1", "text": "Recommends runtime.AddCleanup as the preferred approach"},
       {"id": "5.2", "text": "Mentions that AddCleanup supports multiple cleanups on the same object"},
       {"id": "5.3", "text": "Mentions that AddCleanup avoids object resurrection risk (cleanup receives a copy of the value, not the object)"},
-      {"id": "5.4", "text": "Mentions that AddCleanup works even with cyclic references"},
+      {"id": "5.4", "text": "Does not claim AddCleanup is a deterministic cycle-handling or prompt-cleanup guarantee; notes runtime cleanup limitations"},
       {"id": "5.5", "text": "Either warns against SetFinalizer or explains why AddCleanup is better"}
     ]
   },

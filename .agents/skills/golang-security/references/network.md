@@ -7,7 +7,7 @@ Network and web security vulnerabilities can lead to data leakage and unauthoriz
 1. Redirects MUST be validated against an allowlist of domains.
 2. HTTP servers MUST configure `ReadTimeout`, `WriteTimeout`, and `IdleTimeout`.
 3. Pprof endpoints MUST NEVER be exposed publicly.
-4. XML parsers MUST disable XXE — reject `<!DOCTYPE` and `<!ENTITY` declarations.
+4. Treat XML as untrusted: Go's `encoding/xml` does not resolve external entities by default; still bound input, decode into a typed schema, and reject unsupported constructs if the application requires it.
 
 ---
 
@@ -193,15 +193,15 @@ func startDebugServer() {
 
 ---
 
-## XXE Vulnerability — High
+## XML external entities and resource limits
 
-XML parsers that process external entity references.
+Some XML implementations process external entity references. Go's standard `encoding/xml` decoder does not fetch external entities by default, but untrusted XML can still consume resources or carry data your schema does not expect.
 
 **Bad:**
 
 ```go
 decoder := xml.NewDecoder(bytes.NewReader(xmlData))
-decoder.Decode(&person) // DON'T: May process external entities
+if err := decoder.Decode(&person); err != nil { return err }
 ```
 
 **Good:**
@@ -209,14 +209,10 @@ decoder.Decode(&person) // DON'T: May process external entities
 ```go
 decoder := xml.NewDecoder(bytes.NewReader(xmlData))
 decoder.Strict = true
-
-// Block DTD declarations
-xmlStr := string(xmlData)
-if strings.Contains(xmlStr, "<!DOCTYPE") || strings.Contains(xmlStr, "<!ENTITY") {
-    return errors.New("XML contains DTD - potential XXE")
-}
-decoder.Decode(&person)
+if err := decoder.Decode(&person); err != nil { return err }
 ```
+
+Use a bounded reader, reject unknown fields or unsupported tokens at the schema boundary, and choose an XML library with explicit external-entity controls when the application needs features beyond the standard decoder. String scanning is not a general XXE defense.
 
 ---
 

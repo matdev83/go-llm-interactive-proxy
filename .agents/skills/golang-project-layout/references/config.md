@@ -1,6 +1,6 @@
 # Application Configuration with Cobra + Viper
 
-→ See `samber/cc-skills-golang@golang-cli` skill for complete Cobra+Viper setup, flag binding, precedence rules, and configuration layering.
+See the local `golang-cli` skill for Cobra/Viper setup, flag binding, precedence rules, and configuration layering.
 
 ## Where Config Lives
 
@@ -48,4 +48,4 @@ func loadConfig() (Config, error) {
 }
 ```
 
-Configuration MUST be loaded from env vars, files, or flags — NEVER hardcoded. Sensitive values MUST come from env vars or secret managers, NEVER config files.
+Configuration may come from defaults, files, environment, flags, or an application-specific source. Make precedence explicit and validate values at startup or the documented reload boundary. Keep secrets out of source control and logs; use the project's controlled secret mechanism rather than assuming any one source is safe.

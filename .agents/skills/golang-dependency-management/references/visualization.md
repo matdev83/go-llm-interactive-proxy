@@ -27,7 +27,7 @@ Shows the shortest import path from your code to the module — useful for under
 Pin `modgraphviz` as a module tool, then pipe `go mod graph` into it.
 
 ```bash
-go get -tool golang.org/x/exp/cmd/modgraphviz@latest
+go get -tool golang.org/x/exp/cmd/modgraphviz@vX.Y.Z
 go mod graph | go tool modgraphviz | dot -Tpng -o deps.png
 ```
 
@@ -35,14 +35,14 @@ Green nodes represent versions selected by MVS (in the final build list). Grey n
 
 ## Interactive Visualization with go-mod-graph
 
-`go-mod-graph` (samber/go-mod-graph) is a web-based interactive dependency explorer with zoomable graph, module weight indicators, searchable module list, and MVS algorithm visualization.
+An interactive dependency explorer can add zooming, search, and MVS visualization; vet the tool's maintenance and data-disclosure behavior before sending a module graph to a hosted service.
 
 ## Complementary Analysis
 
 Pin `digraph` as a module tool for graph queries.
 
 ```bash
-go get -tool golang.org/x/tools/cmd/digraph@latest
+go get -tool golang.org/x/tools/cmd/digraph@vX.Y.Z
 # General graph queries on go mod graph output
 go mod graph | go tool digraph reverse example.com/some/module
 ```

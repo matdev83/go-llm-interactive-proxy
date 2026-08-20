@@ -1,232 +1,48 @@
 ---
 name: golang-code-style
-description: "Go style: formatting, conventions, comments, linters, standards."
-license: MIT
-metadata:
-  author: samber
-  version: "1.1.1"
-  openclaw:
-    emoji: "🎨"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-    install: []
+description: "Practical Go style for readable, idiomatic code: formatting, control flow, declarations, API boundaries, comments, zero values, and reviewable organization. Use when writing or reviewing Go code where clarity matters beyond gofmt."
 ---
 
-> **Community default.** A company skill that explicitly supersedes `samber/cc-skills-golang@golang-code-style` skill takes precedence.
+# Go code style
 
-# Go Code Style
+Run `gofmt` (and the repository’s formatter, if it has one) before review. Style is a means of making behavior and ownership easy to see, not a collection of universal thresholds.
 
-Style rules that require human judgment — linters handle formatting, this skill handles clarity. For naming see `samber/cc-skills-golang@golang-naming` skill; for design patterns see `samber/cc-skills-golang@golang-design-patterns` skill; for struct/interface design see `samber/cc-skills-golang@golang-structs-interfaces` skill.
+## Clarity defaults
 
-> "Clear is better than clever." — Go Proverbs
+- Prefer early returns for invalid input and errors; keep the successful path easy to scan.
+- Use `switch` when one value is compared against several cases. Keep `if` when conditions have different meanings or short-circuiting is important.
+- Use `:=` for ordinary local initialization and `var` when the zero value is intentional or a declaration must be separated from assignment.
+- Use keyed composite literals for non-trivial structs, especially across package boundaries.
+- Keep names and comments precise. Explain invariants, ownership, compatibility, or a surprising choice; do not narrate syntax.
+- Keep a `context.Context` first in functions that accept one. Do not store contexts in long-lived structs.
+- Prefer `range` when the index is not part of the operation. Use an index when mutating elements, pairing with another slice, or needing exact positions.
 
-When ignoring a rule, add a comment to the code.
+## Zero values and collections
 
-## Line Length & Breaking
-
-No rigid line limit, but lines beyond ~120 characters MUST be broken. Break at **semantic boundaries**, not arbitrary column counts. Function calls with 4+ arguments MUST use one argument per line — even when the prompt asks for single-line code:
-
-```go
-// Good — each argument on its own line, closing paren separate
-mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-    handleUsers(
-        w,
-        r,
-        serviceName,
-        cfg,
-        logger,
-        authMiddleware,
-    )
-})
-```
-
-When a function signature is too long, the real fix is often **fewer parameters** (use an options struct) rather than better line wrapping. For multi-line signatures, put each parameter on its own line.
-
-## Variable Declarations
-
-SHOULD use `:=` for non-zero values, `var` for zero-value initialization. The form signals intent: `var` means "this starts at zero."
+Nil slices are valid: `len`, `range`, and `append` work. Nil maps support reads and iteration but panic on assignment. Initialize a collection when it will be mutated, when a non-nil value is part of a wire contract, or when the API requires an allocated value. Do not initialize merely to satisfy a style rule.
 
 ```go
-var count int              // zero value, set later
-name := "default"          // non-zero, := is appropriate
-var buf bytes.Buffer       // zero value is ready to use
+var pending []Item                 // nil means “not supplied”
+pending = append(pending, item)    // valid
+labels := make(map[string]string)  // assignment follows
 ```
 
-### Slice & Map Initialization
+Capacity hints are useful when a measured or known upper bound avoids growth; speculative large capacities waste memory.
 
-Slices and maps MUST be initialized explicitly, never nil. Nil maps panic on write; nil slices serialize to `null` in JSON (vs `[]` for empty slices), surprising API consumers.
+## Functions and expressions
 
-```go
-users := []User{}                       // always initialized
-m := map[string]int{}                   // always initialized
-users := make([]User, 0, len(ids))      // preallocate when capacity is known
-m := make(map[string]int, len(items))   // preallocate when size is known
-```
+Keep functions focused, but do not split code solely to meet a line or parameter count. Group related values in a domain type only when that improves the contract; an options struct is not automatically clearer. Avoid naked returns in functions long enough to require scrolling.
 
-Do not preallocate speculatively — `make([]T, 0, 1000)` wastes memory when the common case is 10 items.
+Name complex boolean terms when the names express domain meaning. Preserve short-circuit order for checks with side effects, cost, or panic behavior. Use `strconv` for simple conversions, `strings.Builder` for repeated concatenation, and `fmt` when formatting is the actual operation.
 
-### Composite Literals
+Choose pointer or value parameters/receivers based on mutability, identity, copy cost, method-set needs, and measured behavior. There is no portable byte-size cutoff: compiler escape analysis, architecture, and workload matter.
 
-Composite literals MUST use field names — positional fields break when the type adds or reorders fields:
+## Package organization
 
-```go
-srv := &http.Server{
-    Addr:         ":8080",
-    ReadTimeout:  5 * time.Second,
-    WriteTimeout: 10 * time.Second,
-}
-```
+Keep imports grouped and let tooling format them. A blank import is appropriate when a package documents an intentional registration side effect; place it where that side effect is visible and explain it when non-obvious. Avoid dot imports except in tightly controlled tests. Keep exported surface small because exported names become compatibility commitments.
 
-## Control Flow
+Use standard-library `slices`, `maps`, and `cmp` when they make intent clearer. Add a dependency only when its behavior, maintenance, and license fit the repository; do not introduce a helper library for a one-line operation.
 
-### Reduce Nesting
+## Review checklist
 
-Errors and edge cases MUST be handled first (early return). Keep the happy path at minimal indentation:
-
-```go
-func process(data []byte) (*Result, error) {
-    if len(data) == 0 {
-        return nil, errors.New("empty data")
-    }
-
-    parsed, err := parse(data)
-    if err != nil {
-        return nil, fmt.Errorf("parsing: %w", err)
-    }
-
-    return transform(parsed), nil
-}
-```
-
-### Eliminate Unnecessary `else`
-
-When the `if` body ends with `return`/`break`/`continue`, the `else` MUST be dropped. Use default-then-override for simple assignments — assign a default, then override with independent conditions or a `switch`:
-
-```go
-// Good — default-then-override with switch (cleanest for mutually exclusive overrides)
-level := slog.LevelInfo
-switch {
-case debug:
-    level = slog.LevelDebug
-case verbose:
-    level = slog.LevelWarn
-}
-
-// Bad — else-if chain hides that there's a default
-if debug {
-    level = slog.LevelDebug
-} else if verbose {
-    level = slog.LevelWarn
-} else {
-    level = slog.LevelInfo
-}
-```
-
-### Complex Conditions & Init Scope
-
-When an `if` condition has 3+ operands, MUST extract into named booleans — a wall of `||` is unreadable and hides business logic. Keep expensive checks inline for short-circuit benefit. [Details](./references/details.md)
-
-```go
-// Good — named booleans make intent clear
-isAdmin := user.Role == RoleAdmin
-isOwner := resource.OwnerID == user.ID
-isPublicVerified := resource.IsPublic && user.IsVerified
-if isAdmin || isOwner || isPublicVerified || permissions.Contains(PermOverride) {
-    allow()
-}
-```
-
-Scope variables to `if` blocks when only needed for the check:
-
-```go
-if err := validate(input); err != nil {
-    return err
-}
-```
-
-### Switch Over If-Else Chains
-
-When comparing the same variable multiple times, prefer `switch`:
-
-```go
-switch status {
-case StatusActive:
-    activate()
-case StatusInactive:
-    deactivate()
-default:
-    panic(fmt.Sprintf("unexpected status: %d", status))
-}
-```
-
-## Function Design
-
-- Functions SHOULD be **short and focused** — one function, one job.
-- Functions SHOULD have **≤4 parameters**. Beyond that, use an options struct (see `samber/cc-skills-golang@golang-design-patterns` skill).
-- **Parameter order**: `context.Context` first, then inputs, then output destinations.
-- Naked returns help in very short functions (1-3 lines) where return values are obvious, but become confusing when readers must scroll to find what's returned — name returns explicitly in longer functions.
-
-```go
-func FetchUser(ctx context.Context, id string) (*User, error)
-func SendEmail(ctx context.Context, msg EmailMessage) error  // grouped into struct
-```
-
-### Prefer `range` for Iteration
-
-SHOULD use `range` over index-based loops. Use `range n` (Go 1.22+) for simple counting.
-
-```go
-for _, user := range users {
-    process(user)
-}
-```
-
-## Value vs Pointer Arguments
-
-Pass small types (`string`, `int`, `bool`, `time.Time`) by value. Use pointers when mutating, for large structs (~128+ bytes), or when nil is meaningful. [Details](./references/details.md)
-
-## Code Organization Within Files
-
-- **Group related declarations**: type, constructor, methods together
-- **Order**: package doc, imports, constants, types, constructors, methods, helpers
-- **One primary type per file** when it has significant methods
-- **Blank imports** (`_ "pkg"`) register side effects (init functions). Restricting them to `main` and test packages makes side effects visible at the application root, not hidden in library code
-- **Dot imports** pollute the namespace and make it impossible to tell where a name comes from — never use in library code
-- **Unexport aggressively** — you can always export later; unexporting is a breaking change
-
-## String Handling
-
-Use `strconv` for simple conversions (faster), `fmt.Sprintf` for complex formatting. Use `%q` in error messages to make string boundaries visible. Use `strings.Builder` for loops, `+` for simple concatenation.
-
-## Type Conversions
-
-Prefer explicit, narrow conversions. Use generics over `any` when a concrete type will do:
-
-```go
-func Contains[T comparable](slice []T, target T) bool  // not []any
-```
-
-## Philosophy
-
-- **"A little copying is better than a little dependency"**
-- **Use `slices` and `maps` standard packages**; for filter/group-by/chunk, use `github.com/samber/lo`
-- **"Reflection is never clear"** — avoid `reflect` unless necessary
-- **Don't abstract prematurely** — extract when the pattern is stable
-- **Minimize public surface** — every exported name is a commitment
-
-## Parallelizing Code Style Reviews
-
-When reviewing code style across a large codebase, use up to 5 parallel sub-agents (via the Agent tool), each targeting an independent style concern (e.g. control flow, function design, variable declarations, string handling, code organization).
-
-## Enforce with Linters
-
-Many rules are enforced automatically: `gofmt`, `gofumpt`, `goimports`, `gocritic`, `revive`, `wsl_v5`. → See the `samber/cc-skills-golang@golang-linter` skill.
-
-## Cross-References
-
-- → See the `samber/cc-skills-golang@golang-naming` skill for identifier naming conventions
-- → See the `samber/cc-skills-golang@golang-structs-interfaces` skill for pointer vs value receivers, interface design
-- → See the `samber/cc-skills-golang@golang-design-patterns` skill for functional options, builders, constructors
-- → See the `samber/cc-skills-golang@golang-linter` skill for automated formatting enforcement
+Check formatting, names, error paths, nil/empty semantics, side-effect order, context propagation, and public contracts. Treat linter output as input for review, not an instruction to apply every suggestion. See [style details](references/details.md) for decisions that need a closer look.

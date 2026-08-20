@@ -2,15 +2,15 @@
   {
     "id": 1,
     "name": "test-workflow-flags",
-    "description": "Tests whether CI test workflows include all required flags (-race, -shuffle, -coverprofile) and use fail-fast: false",
+    "description": "Tests whether CI test workflows choose test flags based on the repository contract and runner support",
     "prompt": "Create a GitHub Actions workflow file for running Go tests on a library that supports Go 1.25+. The project uses codecov for coverage. Just give me the YAML.",
-    "trap": "Model may omit -shuffle=on, forget fail-fast: false, or skip the go mod tidy check",
+    "trap": "A generic workflow should not claim that race, shuffle, coverage, or fail-fast settings are mandatory for every project.",
     "assertions": [
-      {"id": "1.1", "text": "Workflow includes -race flag in the go test command"},
-      {"id": "1.2", "text": "Workflow includes -shuffle=on flag in the go test command"},
-      {"id": "1.3", "text": "Workflow includes -coverprofile flag in the go test command"},
-      {"id": "1.4", "text": "Strategy uses fail-fast: false"},
-      {"id": "1.5", "text": "Go version matrix includes at least 'stable' and one explicit version like '1.25' or '1.26'"}
+      {"id": "1.1", "text": "Runs the repository's normal go test and vet gates"},
+      {"id": "1.2", "text": "Adds -race only on a supported runner when concurrency coverage is in scope"},
+      {"id": "1.3", "text": "Uses -shuffle, -count=1, or coverage only when their test semantics require them"},
+      {"id": "1.4", "text": "Selects a Go-version matrix from the project's supported versions"},
+      {"id": "1.5", "text": "Keeps failures visible and does not hide a failed command behind later success"}
     ]
   },
   {
@@ -29,12 +29,12 @@
   {
     "id": 3,
     "name": "integration-test-caching",
-    "description": "Tests knowledge that integration tests must use -count=1 to disable caching",
+    "description": "Tests explicit handling of integration-test caching and service readiness",
     "prompt": "I have integration tests that interact with PostgreSQL and Redis via GitHub Actions service containers. Sometimes tests pass even when the services are broken because Go seems to cache test results. How do I set up the workflow?",
-    "trap": "Model may not know about -count=1 to disable test caching, or may suggest other workarounds",
+    "trap": "External-service and time-dependent tests need explicit cache, readiness, timeout, and cleanup decisions; no one flag solves every suite.",
     "assertions": [
-      {"id": "3.1", "text": "Uses -count=1 flag to disable test result caching"},
-      {"id": "3.2", "text": "Includes -race flag for integration tests"},
+      {"id": "3.1", "text": "Uses -count=1 when the test depends on external state or time, and explains why"},
+      {"id": "3.2", "text": "Treats -race as a supported-platform/resource-dependent gate rather than a universal integration-test requirement"},
       {"id": "3.3", "text": "Uses build tags (e.g., -tags=integration) to separate integration tests"},
       {"id": "3.4", "text": "Uses GitHub Actions 'services' block for PostgreSQL and/or Redis"},
       {"id": "3.5", "text": "Includes health check options for service containers"}
@@ -47,7 +47,7 @@
     "prompt": "I want to add security scanning to my Go project's CI pipeline. What tools should I use and how do I set them up in GitHub Actions?",
     "trap": "Model may only suggest one or two tools (e.g., just gosec) and miss govulncheck (call-path-aware), CodeQL (Security tab integration), or Bearer (sensitive data flow)",
     "assertions": [
-      {"id": "4.1", "text": "Recommends govulncheck and explains it only reports vulnerabilities in actually-called code paths"},
+      {"id": "4.1", "text": "Recommends govulncheck and explains that reachability and package/build context affect its findings"},
       {"id": "4.2", "text": "Recommends gosec for Go security scanning"},
       {"id": "4.3", "text": "Recommends CodeQL and mentions the security-extended or security-and-quality query suite"},
       {"id": "4.4", "text": "Recommends Bearer for sensitive data flow issues"},
@@ -121,7 +121,7 @@
     "assertions": [
       {"id": "9.1", "text": "Sets push to false on pull requests to prevent untrusted code from publishing images"},
       {"id": "9.2", "text": "Uses per-job permissions scoping (not just top-level)"},
-      {"id": "9.3", "text": "Includes QEMU and Buildx setup for multi-platform builds"},
+      {"id": "9.3", "text": "Chooses native builders, cross-compilation, or QEMU according to the target image and runner"},
       {"id": "9.4", "text": "Includes provenance and/or SBOM attestation configuration"},
       {"id": "9.5", "text": "Includes packages: write permission for GHCR push"},
       {"id": "9.6", "text": "Login step is conditional on non-PR events"}
@@ -159,13 +159,13 @@
   {
     "id": 12,
     "name": "action-version-pinning",
-    "description": "Tests whether actions are pinned to major versions not branches",
+    "description": "Tests whether third-party actions are pinned to immutable revisions",
     "prompt": "Review this GitHub Actions step and tell me if there are any issues:\n\n```yaml\nsteps:\n  - uses: actions/checkout@master\n  - uses: actions/setup-go@main\n    with:\n      go-version: stable\n```",
-    "trap": "Model may not notice the branch references (@master, @main) instead of pinned major versions",
+    "trap": "Major tags are more readable than branches but remain mutable; a supply-chain-sensitive workflow should record a full commit SHA.",
     "assertions": [
       {"id": "12.1", "text": "Identifies that using @master and @main is wrong and insecure"},
-      {"id": "12.2", "text": "Recommends pinning to major versions like @v4, @v6"},
-      {"id": "12.3", "text": "Explains the risk: branch references can change unexpectedly or be compromised"}
+      {"id": "12.2", "text": "Recommends pinning each action to a reviewed full commit SHA with a release comment"},
+      {"id": "12.3", "text": "Explains that branches and tags can move unexpectedly and updates need review"}
     ]
   },
   {

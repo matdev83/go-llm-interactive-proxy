@@ -81,18 +81,20 @@ analytics.Track("user_signed_up", analytics.Properties{
 
 ```go
 analytics.Track("user_signed_up", analytics.Properties{
-    "user_id":        user.ID,          // OK: Internal identifier
-    "plan":           user.Plan,        // OK: Business data
-    "country":        user.CountryCode, // OK: Non-identifying
+    "user_id":        user.ID,          // only after purpose/access/retention review
+    "plan":           user.Plan,
+    "country":        user.CountryCode,
 })
 
-// Hash PII for correlation
-func hashEmail(email string) string {
-    h := sha256.New()
-    h.Write([]byte(email))
-    return hex.EncodeToString(h.Sum(nil))[:8]
+// Use a protected, rotated key when correlation is necessary; this remains linkable data.
+func correlationID(key []byte, value string) string {
+    mac := hmac.New(sha256.New, key)
+    _, _ = mac.Write([]byte(value))
+    return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 ```
+
+An internal ID, salted hash, or keyed hash is pseudonymous when it links events. Minimize it, restrict access, set retention/deletion rules, and document why correlation is needed. Prefer no identifier when aggregate metrics answer the question.
 
 ---
 

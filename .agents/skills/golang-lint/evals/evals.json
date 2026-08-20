@@ -144,7 +144,7 @@
       },
       {
         "id": "5.5",
-        "text": "Mentions using parallel sub-agents or batching fixes by linter category (security, error handling, style) to tackle cleanup efficiently"
+        "text": "Recommends batching fixes by linter category only when edits are coordinated and reviewed, never concurrent mutations"
       }
     ]
   },

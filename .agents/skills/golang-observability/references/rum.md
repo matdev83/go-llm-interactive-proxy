@@ -14,7 +14,7 @@ Backend observability (logs, metrics, traces, profiles) tells you how your **sys
 
 ## Identity Key: Use `user_id`, Never Email
 
-The distinct_id (identity key) used across all RUM tracking MUST be your internal, immutable `user_id`. NEVER use email addresses.
+Use a minimized, stable correlation key only when the purpose, access, retention, and user choices have been reviewed. An internal immutable `user_id` can still be personal data; email is usually more directly identifying and should not be used by default.
 
 ```go
 // ✗ Bad — email is mutable, PII, and breaks analytics when users change it
@@ -23,7 +23,7 @@ posthogClient.Enqueue(posthog.Capture{
     Event:      "order_completed",
 })
 
-// ✓ Good — user_id is immutable, stable, and not PII
+// ✓ Better — a reviewed, minimized key; it remains linkable data
 posthogClient.Enqueue(posthog.Capture{
     DistinctId: user.ID, // "usr_a1b2c3" — never changes, always the same user
     Event:      "order_completed",
@@ -33,7 +33,7 @@ posthogClient.Enqueue(posthog.Capture{
 **Why email is a bad identity key:**
 
 - **Mutable** — users change their email. Events before and after the change appear as two different users, breaking funnels, retention analysis, and cohort tracking.
-- **PII** — using email as the identity key means every event, session recording, and analytics query contains personally identifiable information. This complicates GDPR/CCPA compliance — you can't anonymize analytics without losing user identity.
+- **Personal data** — using email as the identity key puts a direct identifier into every event, session recording, and analytics query. A user ID or pseudonym can still be personal data when it links events.
 - **Non-unique across systems** — the same email might belong to different accounts in different services or environments.
 - **Leaks into third-party systems** — the distinct_id is sent to your analytics platform (PostHog, Segment, etc.). If it's an email, you've shared PII with every vendor in your analytics pipeline.
 
@@ -229,20 +229,20 @@ func (h *PrivacyHandler) HandleDataExport(w http.ResponseWriter, r *http.Request
 - [ ] **Data subject rights** — endpoints for data export (right of access) and deletion (right to erasure)
 - [ ] **Data processing agreements** — signed DPAs with all third-party analytics/CDP vendors
 - [ ] **Privacy policy** — lists all RUM tools, what data they collect, and how long it's retained
-- [ ] **Identity key is not PII** — use `user_id`, not email, as the distinct_id across all platforms
-- [ ] **Self-hosted option** — consider self-hosting (PostHog, Matomo) to keep data in your infrastructure and simplify compliance
+- [ ] **Identity key review** — minimize and document any stable correlation key; an internal ID or pseudonym can still be personal data
+- [ ] **Hosting review** — compare self-hosting and SaaS for residency, processor contracts, access, retention, deletion, and operational controls; hosting location alone does not determine compliance
 
 ## Self-Hosted vs SaaS
 
 | Factor | Self-hosted (PostHog, Matomo) | SaaS (Amplitude, Mixpanel) |
 | --- | --- | --- |
 | **Data residency** | Full control — data stays in your infra | Data on vendor's servers |
-| **GDPR compliance** | Simpler — no cross-border data transfer | Requires DPA, SCCs, or adequacy decision |
+| **Privacy obligations** | May simplify residency/control, but still needs lawful basis, minimization, retention, access, and deletion controls | Requires processor/vendor, transfer, minimization, retention, access, and deletion review |
 | **Cost** | Infrastructure cost, scales with volume | Per-event or per-seat pricing |
 | **Maintenance** | You manage upgrades, scaling, backups | Vendor handles everything |
 | **Features** | Catching up but improving fast | Often more polished and feature-rich |
 
-For EU-focused products or strict data residency requirements, self-hosting PostHog is the pragmatic choice — it eliminates most GDPR concerns around cross-border data transfer.
+For residency-sensitive products, self-hosting may reduce some transfer and processor exposure, but it does not eliminate GDPR or other privacy obligations. Confirm the actual deployment, vendors, access, retention, and deletion paths.
 
 ## Cost of RUM
 

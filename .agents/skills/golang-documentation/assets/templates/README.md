@@ -55,7 +55,7 @@ Download from [GitHub Releases](https://github.com/{owner}/{repo}/releases/lates
 ### From source
 
 ```bash
-go install github.com/{owner}/{repo}@latest
+go install github.com/{owner}/{repo}@vX.Y.Z
 ```
 
 ### Docker

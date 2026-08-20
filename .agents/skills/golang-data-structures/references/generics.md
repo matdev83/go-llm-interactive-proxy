@@ -1,90 +1,17 @@
-# Writing Generic Data Structures (Go 1.18+)
+# Generics
 
-## Type Constraints
-
-Use the tightest constraint that satisfies your needs:
-
-| Constraint | What It Allows | Use For |
-| --- | --- | --- |
-| `any` | All types | Containers that only store/retrieve |
-| `comparable` | Types supporting `==` and `!=` | Map keys, set membership, dedup |
-| `cmp.Ordered` | Numeric types + `string` | Sorting, min/max, binary search |
-| Custom interface | Domain-specific operations | Specialized containers |
-
-### Custom Constraints
+Use a type parameter when one algorithm should operate on several types and the constraint expresses the operations it needs:
 
 ```go
-// Union constraint — restrict to specific types
-type Number interface {
-    ~int | ~int64 | ~float64
-}
-
-// Method constraint — require specific behavior
-type Stringer interface {
-    comparable
-    String() string
+func Keys[K comparable, V any](m map[K]V) []K {
+    keys := make([]K, 0, len(m))
+    for key := range m { keys = append(keys, key) }
+    return keys
 }
 ```
 
-The `~` prefix includes all types whose underlying type matches (e.g., `~int` matches `type UserID int`).
+This function does not promise ordering; callers that need stable output must sort with a suitable comparator. A `comparable` constraint permits map keys and `==`, but does not make values immutable or concurrency-safe.
 
-## Generic Set Example
+Use an interface when the abstraction is behavior supplied at runtime (`io.Reader`, a service port) or when implementations are expected to vary independently. Do not replace every interface with `any`, and do not add a type parameter when it only saves one conversion or makes inference obscure.
 
-```go
-type Set[T comparable] map[T]struct{}
-
-func NewSet[T comparable](vals ...T) Set[T] {
-    s := make(Set[T], len(vals))
-    for _, v := range vals {
-        s[v] = struct{}{}
-    }
-    return s
-}
-
-func (s Set[T]) Add(v T)             { s[v] = struct{}{} }
-func (s Set[T]) Remove(v T)          { delete(s, v) }
-func (s Set[T]) Contains(v T) bool   { _, ok := s[v]; return ok }
-func (s Set[T]) Len() int            { return len(s) }
-
-func (s Set[T]) Union(other Set[T]) Set[T] {
-    result := NewSet[T]()
-    for v := range s {
-        result.Add(v)
-    }
-    for v := range other {
-        result.Add(v)
-    }
-    return result
-}
-```
-
-## Generic Sorted Slice
-
-```go
-func InsertSorted[T cmp.Ordered](s []T, v T) []T {
-    i, _ := slices.BinarySearch(s, v)
-    return slices.Insert(s, i, v)
-}
-```
-
-## Constraint Composition
-
-Combine multiple constraints with embedded interfaces:
-
-```go
-type OrderedStringer interface {
-    cmp.Ordered
-    fmt.Stringer
-}
-```
-
-## When NOT to Use Generics
-
-- **Single concrete type** — generics add complexity for no benefit
-- **`any` constraint with type switches** — you're just reimplementing `interface{}` with extra syntax
-- **Two or fewer instantiations** — the abstraction overhead isn't justified
-- **Complex type relationships** — Go's type system doesn't support higher-kinded types; if the constraints become convoluted, use interfaces instead
-
-Generics shine for data structures (containers, sets, trees), algorithms (sort, search, transform), and utility functions (min, max, clamp) where the logic is identical across types.
-
-→ See `samber/cc-skills-golang@golang-structs-interfaces` skill for generics vs `any` guidance and interface design.
+Keep constraints minimal. A union of concrete types is appropriate for algorithms with representation-specific operations, not for modeling runtime polymorphism.

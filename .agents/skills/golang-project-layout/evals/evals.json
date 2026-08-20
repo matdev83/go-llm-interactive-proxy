@@ -16,30 +16,30 @@
   {
     "id": 2,
     "name": "cmd-directory-minimal-logic",
-    "description": "Tests whether the model keeps cmd/ main.go minimal with no business logic",
+    "description": "Tests separation of process wiring from reusable behavior",
     "prompt": "I'm organizing a Go project with an HTTP server. Here's my cmd/server/main.go that has 200 lines including request parsing, database queries, and response formatting. Is this OK?",
-    "trap": "Without the skill, the model may accept the large main.go or only suggest minor improvements. The skill says cmd/ MUST contain only main.go with minimal logic -- parse flags, wire dependencies, call Run().",
+    "trap": "The skill recommends thin entry points without claiming that every main package must live under cmd/ or contain only one file.",
     "assertions": [
       {"id": "2.1", "text": "Says business logic does NOT belong in cmd/server/main.go"},
       {"id": "2.2", "text": "Says cmd/ should contain minimal logic: parse flags, wire dependencies, call Run()"},
       {"id": "2.3", "text": "Recommends moving business logic to internal/ or pkg/"},
       {"id": "2.4", "text": "main.go should primarily do dependency wiring and startup"},
-      {"id": "2.5", "text": "NEVER put request parsing, database queries, or response formatting in cmd/"}
+      {"id": "2.5", "text": "Avoids reusable request, database, and response behavior in the entry point while allowing process-specific wiring there"}
     ]
   },
   {
     "id": 3,
     "name": "no-src-utils-helpers-common",
-    "description": "Tests whether the model avoids Java-style src/ directory and generic package names",
+    "description": "Tests whether the model chooses domain-specific packages without treating a layout as mandatory",
     "prompt": "I'm organizing my Go project. I created these directories: src/ for source code, utils/ for utility functions, helpers/ for helper functions, and common/ for shared code. Here's my structure:\n\n```\nmyproject/\n  src/\n    main.go\n  utils/\n    string_utils.go\n  helpers/\n    http_helper.go\n  common/\n    types.go\n```\n\nDoes this look good?",
-    "trap": "Without the skill, the model may accept some of these (especially utils/) as reasonable. The skill explicitly calls out src/, utils/, helpers/, common/ as anti-patterns.",
+    "trap": "Generic names can hide ownership, but an existing repository may have a justified convention; recommend a focused rename only when it improves a real boundary.",
     "assertions": [
-      {"id": "3.1", "text": "Rejects src/ directory (Go doesn't use /src, it's a Java pattern)"},
+      {"id": "3.1", "text": "Explains that src/ is optional in Go and checks repository conventions before moving code"},
       {"id": "3.2", "text": "Rejects utils/ as a generic package name"},
       {"id": "3.3", "text": "Rejects helpers/ as a generic package name"},
       {"id": "3.4", "text": "Rejects common/ as a generic package name"},
       {"id": "3.5", "text": "Suggests domain-specific package names instead (e.g. format/, stringconv/)"},
-      {"id": "3.6", "text": "Recommends putting main.go inside cmd/{name}/ not at root or in src/"}
+      {"id": "3.6", "text": "Suggests cmd/{name}/ for multiple binaries while acknowledging a root main.go can be valid"}
     ]
   },
   {
@@ -47,11 +47,11 @@
     "name": "module-naming-conventions",
     "description": "Tests whether the model follows Go module naming conventions",
     "prompt": "I'm initializing a new Go module. Which of these module names is correct?\n\n1. `module myproject`\n2. `module github.com/jdoe/MyProject`\n3. `module github.com/jdoe/my-project`\n4. `module github.com/jdoe/my_project`\n5. `module utils`",
-    "trap": "Without the skill, the model may accept multiple options or not know the specific conventions. The skill has clear rules: must match repo URL, lowercase only, hyphens for multi-word.",
+    "trap": "A published module path should be fetchable and stable; private module paths follow repository policy, and naming conventions are not all language requirements.",
     "assertions": [
       {"id": "4.1", "text": "Identifies option 3 (github.com/jdoe/my-project) as correct"},
-      {"id": "4.2", "text": "Rejects option 1 (myproject) -- must match repository URL"},
-      {"id": "4.3", "text": "Rejects option 2 (MyProject) -- must be lowercase only"},
+      {"id": "4.2", "text": "Explains why a published module path should match its fetch/import path"},
+      {"id": "4.3", "text": "Notes lowercase import paths are conventional and checks the actual repository policy"},
       {"id": "4.4", "text": "Rejects option 4 (my_project) -- use hyphens not underscores"},
       {"id": "4.5", "text": "Rejects option 5 (utils) -- not semantic, doesn't match a repo URL"}
     ]
@@ -86,13 +86,13 @@
   {
     "id": 7,
     "name": "twelve-factor-app-conventions",
-    "description": "Tests whether the model applies 12-Factor App principles for Go services",
+    "description": "Tests configuration and logging choices without imposing a universal deployment model",
     "prompt": "I'm building a Go microservice that reads its database URL from a config.yaml file checked into the repository. It writes logs to a file at /var/log/myapp.log. Is this a good approach?",
-    "trap": "Without the skill, the model may accept file-based config and log files as reasonable. The skill says to follow 12-Factor: config via environment variables, logs to stdout.",
+    "trap": "Configuration sources and log routing depend on deployment; secrets and retention still require an explicit safe policy.",
     "assertions": [
       {"id": "7.1", "text": "Recommends reading database URL from environment variables, not a checked-in config file"},
       {"id": "7.2", "text": "Recommends writing logs to stdout, not to a file"},
-      {"id": "7.3", "text": "References or describes 12-Factor App principles"},
+      {"id": "7.3", "text": "Describes explicit configuration precedence and deployment-appropriate log routing"},
       {"id": "7.4", "text": "Mentions that sensitive values (like DB URLs) should never be in config files committed to source control"},
       {"id": "7.5", "text": "Explains WHY: environment-based config allows different values per deployment without code changes"}
     ]
@@ -128,12 +128,12 @@
   {
     "id": 10,
     "name": "config-sensitive-values-env-only",
-    "description": "Tests whether the model requires sensitive configuration values from env vars or secret managers, never config files",
+    "description": "Tests secret handling independently of the chosen non-secret configuration source",
     "prompt": "I'm setting up configuration for my Go service using Viper. I want to put the database password, API keys, and JWT secret in my config.yaml for convenience. Then I'll use mapstructure tags to load them. Good idea?",
-    "trap": "Without the skill, the model may accept putting secrets in config files as long as the file is gitignored. The skill says sensitive values MUST come from env vars or secret managers, NEVER config files.",
+    "trap": "A gitignored file or environment variable is not an automatic secret boundary; protect access, logs, backups, and examples.",
     "assertions": [
       {"id": "10.1", "text": "Rejects putting database password, API keys, and JWT secret in config.yaml"},
-      {"id": "10.2", "text": "Recommends environment variables for sensitive values"},
+      {"id": "10.2", "text": "Recommends the project's controlled secret store or injected credentials with redaction"},
       {"id": "10.3", "text": "May suggest a secret manager as an alternative"},
       {"id": "10.4", "text": "Config files are acceptable for non-sensitive values (port, log level, etc.)"},
       {"id": "10.5", "text": "Explains WHY: config files can be accidentally committed, leaked in backups, or visible to other processes"}

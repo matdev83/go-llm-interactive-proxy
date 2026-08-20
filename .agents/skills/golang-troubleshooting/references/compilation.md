@@ -1,27 +1,7 @@
-# Compilation Issues
+# Compilation failures
 
-## Module Problems
+Start with the exact package and command. Capture `go version`, `go env GOMOD GOOS GOARCH CGO_ENABLED`, and the module/toolchain lines.
 
-```bash
-go clean -modcache      # clean module cache
-go mod download         # re-download dependencies
-go mod verify           # verify dependencies
-go mod tidy             # tidy dependencies
-go mod why <package>    # why is this dependency here?
-```
+For undefined names, inspect imports, build tags, generated files, and the selected module version. For interface errors, compare exact method signatures and pointer/value method sets. For module errors, inspect `go list -m all`, `go mod graph`, and the `go`/toolchain lines before editing dependencies.
 
-## CGO Issues
-
-```bash
-go env CGO_ENABLED                         # check CGO is enabled
-export CGO_CFLAGS="-I/usr/local/include"   # set CGO CFLAGS
-# macOS: brew install pkg-config
-# Ubuntu: apt install pkg-config
-```
-
-## Version Mismatch
-
-```bash
-go version              # check Go version
-go mod edit -go=1.21    # set minimum required version
-```
+CGO and cross-platform failures require the matching compiler, SDK, environment, and build tags. Reproduce with the same `GOOS`, `GOARCH`, `CGO_ENABLED`, and toolchain as CI. Do not hide a compile error with a build-tag change unless the supported-platform policy explicitly calls for it.

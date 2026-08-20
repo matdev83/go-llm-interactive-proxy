@@ -7,7 +7,7 @@
 Runs Go benchmarks on two git refs and uses `benchstat` to display deltas. Caches results for non-worktree refs so re-runs are fast. Prevents macOS sleep during benchmarks.
 
 ```bash
-go install filippo.io/mostly-harmless/benchdiff@latest
+go install filippo.io/mostly-harmless/benchdiff@vX.Y.Z # replace with a reviewed release
 ```
 
 ```bash
@@ -40,17 +40,17 @@ Best for: quick PR-to-base comparisons in git-based workflows. Leverages `benchs
 
 ## cob
 
-Compares benchmarks between HEAD and HEAD~1, failing the CI job if performance degrades beyond a configurable threshold (default 20%).
+Compares benchmarks between HEAD and HEAD~1, failing the CI job if performance degrades beyond a configured threshold. Calibrate that threshold from repeated baseline variance and the user-visible budget; the tool's default is not a policy.
 
 ```bash
-go install github.com/knqyf263/cob@latest
+go install github.com/knqyf263/cob@vX.Y.Z # replace with a reviewed release
 ```
 
 ```bash
-# Run with default 20% threshold — compares HEAD vs HEAD~1
+# Run with the tool's default only after reviewing it against measured variance
 cob
 
-# Stricter threshold for critical paths (10% regression = failure)
+# Configure a threshold only after measuring this benchmark and runner
 cob -threshold 10
 
 # Compare against a specific base commit
@@ -71,7 +71,7 @@ cob -bench-args "test -run '^$' -bench . -benchmem -benchtime=3s ./..."
 # Skip cob for a specific commit: include [skip cob] in commit message
 ```
 
-**Caution:** `cob` uses `git reset` internally, which can cause data loss if uncommitted changes exist. Always commit your work before running. Additionally, `cob` requires all benchmarks to pass; it skips CI gating if any benchmark fails. For safety, run only in CI pipelines, not locally. Note that `cob` compares single runs without `benchstat`-style statistics, making it more susceptible to noise than `benchdiff`.
+**Caution:** `cob` may manipulate the checkout internally; run it in a disposable CI checkout and never point it at a worktree with uncommitted changes. It requires benchmarks to pass and its single-run comparison is more noise-sensitive than `benchstat`.
 
 Best for: simple post-commit regression gating in CI where statistical rigor is less critical than fast feedback.
 
@@ -80,7 +80,7 @@ Best for: simple post-commit regression gating in CI where statistical rigor is 
 GitHub Action + CLI that collects benchmark results, publishes to gh-pages as JSON, and visualizes with an interactive web dashboard. Shows performance trends over time.
 
 ```bash
-go install go.bobheadxi.dev/gobenchdata@latest
+go install go.bobheadxi.dev/gobenchdata@vX.Y.Z # replace with a reviewed release
 ```
 
 ### CLI commands
@@ -121,22 +121,15 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: stable
       - name: Run benchmarks
         run: go test -bench=. -benchmem -count=5 ./... | tee bench.txt
-      - uses: bobheadxi/gobenchdata@v1
-        with:
-          PRUNE_COUNT: 30
-          GO_TEST_PKGS: ./...
-          BENCHMARKS_OUT: bench.txt
-          PUBLISH: true
-          PUBLISH_BRANCH: gh-pages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+Add a history publisher only after pinning it to a reviewed full commit SHA and scoping its write permissions to that job.
 
 ### Regression gating on PRs
 
@@ -210,13 +203,13 @@ Cloud CI environments share hardware with other jobs. Expect 5-10% variance even
 
 ### Strategies
 
-**Statistical rigor** — run with `-count=10` or more and compare with `benchstat`. A single run is meaningless. benchstat's p-value test filters out noise-induced false positives.
+**Statistical rigor** — run enough repetitions to estimate this workload's variance and compare with `benchstat`. A single run cannot estimate noise; a p-value does not remove all false positives or replace workload review.
 
 **Relative comparison in same job** — run both base and head benchmarks in the same CI job on the same machine, rather than comparing against historical absolute values. This cancels out machine-to-machine variation. Tools like `benchdiff` do this automatically by checking out both git refs.
 
 **Dedicated benchmark runners** — for critical path benchmarks, use self-hosted CI runners with no other workloads. This eliminates noisy neighbors entirely but costs more infrastructure.
 
-**Conservative thresholds** — set regression thresholds higher on shared CI (20%+) than on dedicated runners (10%). Tight thresholds on noisy environments produce false positives that erode trust. GitHub-hosted runners show ~2-3% coefficient of variation in the best case; to guarantee <1% false positive rate, you need a 7%+ performance gate.
+**Calibrated thresholds** — shared runners usually need a wider gate than dedicated runners, but the value depends on the benchmark, runner fleet, and user-visible budget. Measure baseline variance, choose an explicit false-positive/false-negative trade-off, and review the gate when hardware or toolchains change.
 
 **Never "retry until pass"** — rerunning benchmarks until they pass introduces selection bias. If a benchmark is flaky, fix the noise source (more iterations, dedicated runner, wider threshold) rather than retrying.
 

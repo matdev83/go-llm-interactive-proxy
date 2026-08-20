@@ -1,6 +1,6 @@
 # Library Documentation
 
-→ See `samber/cc-skills-golang@golang-testing` skill for writing effective Example test functions.
+See the local `golang-testing` skill for executable Example functions.
 
 ## Public vs Private Libraries
 
@@ -13,21 +13,21 @@ Not all documentation applies equally. Adapt to your audience:
 | README.md | Required | Required |
 | Code examples in comments | Generous | Generous |
 | `ExampleXxx()` test functions | Recommended | Recommended |
-| Go Playground demos | Recommended | N/A (code not public) |
+| Go Playground demos | Optional, only after disclosure review | Do not publish private code |
 | pkg.go.dev / godoc | Primary docs surface | Use `go doc` locally or internal tooling |
 | Documentation website | Large projects | Only if many teams consume the library |
-| Register in Context7/DeepWiki/etc. | Recommended | N/A |
+| Publish public documentation | Only with authorization and disclosure review | Keep private API docs private |
 | llms.txt | Recommended | Optional |
 | CHANGELOG.md | Recommended | Recommended |
 | CONTRIBUTING.md | Recommended | Recommended (internal wiki may suffice) |
 
-**Private libraries** should still have excellent doc comments and examples — teams rotate, people forget, and AI agents need context to help effectively. The main difference is you skip public-facing artifacts (playground, pkg.go.dev, registries).
+**Private libraries** should still have excellent doc comments and examples. Keep public-facing artifacts (Playground, pkg.go.dev, registries) out of private publication paths.
 
 ---
 
 ## Go Playground Demos
 
-Create runnable demos on the Go Playground and link them in doc comments. This lets users try your library without installing anything. Only applicable to public libraries.
+An executable `Example` test is the portable default. A Playground link is optional for deliberately public, self-contained code; review licenses, dependencies, embedded data, and disclosure before publishing it.
 
 Add a `Play:` line in the doc comment:
 
@@ -43,7 +43,7 @@ Add a `Play:` line in the doc comment:
 func Map[T any, U any](s []T, fn func(T) U) []U {
 ```
 
-When the samber/go-playground-mcp tool is available, use it to create and share playground URLs. Otherwise, create them manually at <https://go.dev/play/>.
+For deliberately public, self-contained examples, create a Playground link at <https://go.dev/play/> only after disclosure and dependency review. An executable Example test remains the default.
 
 Guidelines for playground demos:
 
@@ -57,7 +57,7 @@ Guidelines for playground demos:
 
 ## Example Test Functions
 
-Libraries MUST have Example test functions for exported APIs. Example functions are executable documentation. They appear in godoc and are verified by `go test`:
+Examples are useful executable documentation for important exported APIs. They appear in generated docs and are verified by `go test`:
 
 ```go
 // In map_example_test.go
@@ -94,7 +94,7 @@ Naming conventions:
 - `ExampleFuncName_suffix()` — multiple examples for the same function (suffix is lowercase)
 - `Example()` — example for the whole package
 
-The `// Output:` comment MUST be included for `go test` to verify the example. Without it, the example compiles but doesn't verify output.
+Use a `// Output:` comment when output is stable and should be verified; examples without it still compile and can demonstrate setup or APIs whose output is nondeterministic.
 
 ---
 
@@ -151,7 +151,7 @@ go doc github.com/{owner}/{repo}.FuncName
 go doc -all github.com/{owner}/{repo}
 
 # Start a local godoc server
-go get -tool golang.org/x/pkgsite/cmd/pkgsite@latest
+go get -tool golang.org/x/pkgsite/cmd/pkgsite@vX.Y.Z
 go tool pkgsite -http=:6060
 # Then open http://localhost:6060
 ```
@@ -183,15 +183,10 @@ Follow the [Diataxis framework](https://diataxis.fr/) for organizing documentati
 
 ### llms.txt
 
-Add a `llms.txt` file at the repository root to help AI agents understand your project. Copy the template from [templates/llms.txt](./templates/llms.txt).
+Add an `llms.txt` file only when the project has a use for a concise machine-readable summary. Copy the template from [assets/templates/llms.txt](../assets/templates/llms.txt).
 
 This is an emerging convention for making projects AI-friendly. Place it alongside your README.
 
-### Register for Discoverability
+### Publication review
 
-Make your library findable by AI agents and documentation aggregators:
-
-- **Context7** — <https://context7.com> — submit your library for inclusion in AI-accessible documentation
-- **DeepWiki** — <https://deepwiki.com> — auto-generates wiki-style docs from GitHub repos
-- **OpenDeep** — <https://opendeep.wiki> — open documentation platform for AI consumption
-- **zRead** — <https://zread.ai> — developer documentation reader
+Before submitting a public library to an external documentation index or aggregator, verify that the repository, dependencies, examples, license, and embedded data are intended for disclosure. Private libraries should use local `go doc` or an internal documentation service.

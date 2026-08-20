@@ -55,7 +55,7 @@ This adds an explicit requirement in your `go.mod`, overriding whatever the tran
 
 1. Run `go mod graph` and `go mod why -m <module>` to understand the dependency chain
 2. Identify which of your direct dependencies pulls in the conflicting version
-3. Try upgrading the direct dependency first: `go get github.com/direct/dep@latest`
+3. Try upgrading the direct dependency first with a reviewed version: `go get github.com/direct/dep@vX.Y.Z`
 4. If that doesn't resolve it, use `replace` or `exclude` as a temporary fix
 5. Run `go mod tidy` to clean up
 6. Verify with `go build ./...` and `go test ./...`

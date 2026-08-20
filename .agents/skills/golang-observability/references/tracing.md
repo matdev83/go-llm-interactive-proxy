@@ -1,6 +1,6 @@
 # Distributed Tracing with OpenTelemetry
 
-→ See `samber/cc-skills-golang@golang-context` skill for propagating context across service boundaries. → See `samber/cc-skills-golang@golang-samber-oops` skill for structured errors with stack traces in spans.
+See the local `golang-context` skill for propagating context across service boundaries. Keep error attributes bounded and use the local error-handling guidance for stack/context policy.
 
 When using the OpenTelemetry Go SDK, refer to the library's official documentation for up-to-date API signatures and examples.
 
@@ -72,7 +72,7 @@ func (s *OrderService) Create(ctx context.Context, req CreateOrderRequest) (*Ord
     order, err := s.repo.Insert(ctx, req.ToOrder())
     if err != nil {
         span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
+        span.SetStatus(codes.Error, "dependency failure")
         return nil, fmt.Errorf("inserting order: %w", err)
     }
 
@@ -86,20 +86,19 @@ func (r *OrderRepo) Insert(ctx context.Context, order Order) (*Order, error) {
     _, err := r.db.ExecContext(ctx, "INSERT INTO orders ...", order.ID)
     if err != nil {
         span.RecordError(err)
-        span.SetStatus(codes.Error, err.Error())
+        span.SetStatus(codes.Error, "dependency failure")
         return nil, fmt.Errorf("exec insert: %w", err)
     }
     return &order, nil
 }
 ```
 
-**Where to add spans** — spans MUST be created for:
+**Where to add spans** — add spans at boundaries that explain latency, failure, or dependency behavior:
 
-- Every service method (business logic layer)
-- Every database query
-- Every external API call
-- Every message queue publish/consume
-- Any operation that takes measurable time or could fail
+- service operations with meaningful work or policy decisions;
+- database queries and external calls whose latency/errors need attribution;
+- message queue publish/consume boundaries;
+- operations that are measurable and sampled within the trace-volume budget.
 
 ## HTTP Middleware with `otelhttp`
 
@@ -111,7 +110,7 @@ import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 // Incoming requests — wrap your handler
 mux.Handle("/orders", otelhttp.NewHandler(orderHandler, "CreateOrder"))
 
-// Outgoing requests — HTTP clients MUST use otelhttp for automatic span propagation
+// Outgoing requests — use an instrumentation transport when automatic propagation is desired
 client := &http.Client{
     Transport: otelhttp.NewTransport(http.DefaultTransport),
 }
@@ -126,45 +125,39 @@ import (
 
 // On success — no need to set status (Unset is fine)
 
-// On error — MUST call both RecordError() and SetStatus(Error)
+// On an operation failure, record the error and set a bounded status description
 if err != nil {
     span.RecordError(err)
-    span.SetStatus(codes.Error, "operation failed")
+    span.SetStatus(codes.Error, "dependency failure")
     return err
 }
 ```
 
-## Structured Errors with `samber/oops`
+## Structured errors in spans
 
-Standard Go errors lose critical debugging information: there's no stack trace, no structured context, and no way to attach request-scoped metadata. When an error surfaces in a trace, you see `"connection refused"` but not where it originated or which user/tenant was affected.
-
-[`samber/oops`](https://github.com/samber/oops) is a drop-in error library that fills these gaps. Every `oops` error carries a stack trace, structured attributes, and integrates naturally with both OpenTelemetry spans and `slog`:
+Keep the original error chain and add bounded domain context at the operation boundary. A stack trace is useful only when its collection cost, data exposure, and exporter behavior are understood; do not put user IDs or raw requests into error attributes by default:
 
 ```go
-import "github.com/samber/oops"
-
 func (s *OrderService) Create(ctx context.Context, req CreateOrderRequest) (*Order, error) {
     ctx, span := tracer.Start(ctx, "OrderService.Create")
     defer span.End()
 
     order, err := s.repo.Insert(ctx, req.ToOrder())
     if err != nil {
-        // oops wraps the error with stack trace, structured context, and error code
-        return nil, oops.
-            In("order-service").
-            Code("order_insert_failed").
-            With("order_id", req.OrderID).
-            With("user_id", req.UserID).
-            Wrapf(err, "inserting order")
+        wrapped := fmt.Errorf("insert order %s: %w", req.OrderID, err)
+        span.SetAttributes(attribute.String("error.code", "order_insert_failed"))
+        span.RecordError(wrapped)
+        span.SetStatus(codes.Error, "order insert failed")
+        return nil, wrapped
     }
 
     return order, nil
 }
 ```
 
-When this error is logged or recorded on a span, you get the full stack trace, the domain (`order-service`), an error code (`order_insert_failed`), and structured attributes (`order_id`, `user_id`) — all machine-parseable and searchable in your observability platform.
+Keep the error code from a bounded allow-list and record only attributes needed to diagnose the failure. `errors.Is` and `errors.As` continue to work through `%w`; map the internal error to a public contract separately.
 
-`oops` errors work with `span.RecordError()`, `errors.Is`/`errors.As`, and `slog` — see the `samber/cc-skills-golang@golang-error-handling` and `samber/cc-skills-golang@golang-samber-oops` skills for full usage patterns.
+Errors can be recorded with `span.RecordError()` while preserving `errors.Is`/`errors.As` behavior; see the local `golang-error-handling` skill for wrapping and public error contracts.
 
 ## Trace Sampling
 

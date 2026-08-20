@@ -6,9 +6,7 @@ Go uses suffix-based naming for test-related files:
 
 | Suffix | Purpose | Build Tag |
 | --- | --- | --- |
-| `_test.go` | Tests | Not included in normal builds |
-| `_bench_test.go` | Benchmarks | Not included in normal builds |
-| `_example_test.go` | Examples that verify output | Not included in normal builds |
+| `_test.go` | Tests, benchmarks, and examples | Not included in normal builds |
 | No suffix | Regular code | Included in all builds |
 
 ## Where to Place Tests
@@ -77,13 +75,13 @@ func TestHandler(t *testing.T) {
 
 ## Benchmarks
 
-Benchmarks use the `_bench_test.go` suffix and contain functions with the `Benchmark` prefix.
+Benchmarks can use any `_test.go` filename and contain functions with the `Benchmark` prefix. A `_bench_test.go` suffix is only an optional organizational convention.
 
 ## Examples
 
 Examples serve two purposes: documentation and verification.
 
-**In libraries** - use `*_example_test.go` files:
+Examples can live in any `_test.go` file; a `*_example_test.go` suffix is only an optional organizational convention:
 
 ```
 pkg/
@@ -116,7 +114,7 @@ func ExampleLogger_Info() {
 - The `// Output:` comment verifies the output
 - Examples are runnable tests: `go test` will fail if output doesn't match
 - `godoc` displays examples as documentation
-- File name format: `{package}_example_test.go` (e.g., `logger_example_test.go`)
+- The file name does not control discovery; `Example...` function names do.
 
 **For executable examples** (standalone demo programs):
 
@@ -209,7 +207,7 @@ go test -short ./...             # Skip long-running tests
 | File Type | Suffix | Package | Purpose |
 | --- | --- | --- | --- |
 | Test | `*_test.go` | `package X` or `package X_test` | Unit/integration tests |
-| Benchmark | `*_bench_test.go` | Same as code | Performance tests |
-| Example (godoc) | `*_example_test.go` | Same as code | Documentation + verification |
+| Benchmark | `*_test.go` | Same as code | Performance tests; specialized suffix optional |
+| Example (godoc) | `*_test.go` | Same as code | Documentation + verification; specialized suffix optional |
 | Executable example | No suffix | `package main` | Standalone demo programs |
 | Test utilities | `*_test.go` | `package testutil` | Shared test helpers |

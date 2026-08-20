@@ -118,7 +118,7 @@ func extractID(msg string) string { return strings.Clone(msg[:8]) }
 
 ### Map never shrinks
 
-Go maps grow but never release bucket memory when entries are deleted. A map that once held millions of entries retains its allocation forever:
+Map storage can remain larger than the current entry count after churn; exact growth/shrink behavior is an implementation detail. A map that once held millions of entries may retain memory:
 
 ```go
 // Recreate periodically to reclaim memory
@@ -168,10 +168,10 @@ func handleRequest(data []byte) []byte {
 
 - Reset state before `Put()` — clear references to avoid retaining large object graphs across GC cycles
 - Return copies, not pooled buffers — callers must not hold references to pooled memory
-- Don't pool objects >32KB — large allocations bypass the pool's size classes and GC already handles them efficiently
+- Pool only when allocation profiles and benchmarks show a benefit; size, reuse frequency, retained references, and GC cost determine the result
 - Don't pool infrequently used objects — pool overhead exceeds benefit when allocations are rare
 
-→ See `samber/cc-skills-golang@golang-concurrency` skill for `sync.Pool` API reference and basic usage patterns.
+See the local `golang-concurrency` skill for `sync.Pool` ownership and lifecycle patterns.
 
 ## Memory Layout
 
@@ -219,7 +219,7 @@ Having a `struct{}` field in a struct is rare and almost useless.
 
 ### Pointer receivers for large structs
 
-Value receivers copy the entire struct on every method call. Use pointer receivers for structs larger than ~128 bytes. If any method uses a pointer receiver, all methods should for consistency.
+Value receivers copy their value when required by the call, while pointer receivers add aliasing and may change escape/interface behavior. Consider mutation, ownership, method sets, and measured copying/escape cost; there is no universal byte threshold and mixed receivers can be correct.
 
 ### Map of pointers for large, frequently updated structs
 

@@ -71,13 +71,13 @@
   {
     "id": 6,
     "name": "send-copies-not-pointers",
-    "description": "Tests whether the model sends copies (not pointers) through channels to avoid shared memory",
+    "description": "Tests whether the model documents channel ownership and chooses values or pointers according to mutability and transfer semantics",
     "prompt": "I have a producer goroutine that creates Task structs and sends them to a channel for worker goroutines to process. The Task struct has fields like ID, Payload, and Status. Write the producer and consumer code.",
-    "trap": "Without the skill, the model sends *Task pointers through the channel, creating invisible shared memory that defeats the purpose of channels",
+    "trap": "Model treats pointers as universally unsafe or ignores that a pointer sent through a channel can transfer immutable or exclusively owned state",
     "assertions": [
       {"id": "6.1", "text": "Sends Task values (not *Task pointers) through the channel, OR explicitly documents why pointers are safe in this case"},
-      {"id": "6.2", "text": "The channel type is chan Task (value type) rather than chan *Task"},
-      {"id": "6.3", "text": "Does not mutate the Task struct after sending it on the channel (or sends a copy)"},
+      {"id": "6.2", "text": "The channel element type and ownership policy match the design; either Task values or *Task pointers may be valid"},
+      {"id": "6.3", "text": "Does not mutate shared state after transfer unless synchronization or exclusive ownership makes it safe"},
       {"id": "6.4", "text": "If pointers are used, explicitly acknowledges the shared-memory risk and explains the mitigation"}
     ]
   },
@@ -98,12 +98,12 @@
   {
     "id": 8,
     "name": "ctx-done-in-select",
-    "description": "Tests whether every select statement includes a ctx.Done() case to prevent goroutine leaks",
+     "description": "Tests whether a cancellable pipeline gives each potentially blocking stage an appropriate shutdown path",
     "prompt": "Write a Go function that reads from an input channel, transforms each item, and writes to an output channel. It should run as a goroutine.",
-    "trap": "Without the skill, the model writes a select with only channel operations but no ctx.Done() case, causing goroutine leaks on cancellation",
+     "trap": "The model may add cancellation mechanically even when ownership does not permit abandonment, or may omit cancellation where a stage can outlive its owner",
     "assertions": [
       {"id": "8.1", "text": "The function accepts a context.Context parameter"},
-      {"id": "8.2", "text": "Every select statement includes a case <-ctx.Done(): return branch"},
+      {"id": "8.2", "text": "Blocking sends/receives have a cancellation path when the stage may outlive its owner, and required work is not silently abandoned"},
       {"id": "8.3", "text": "Both the read from input channel AND the write to output channel are wrapped in select with ctx.Done()"},
       {"id": "8.4", "text": "The goroutine exits cleanly when context is cancelled"},
       {"id": "8.5", "text": "The output channel is closed when the goroutine exits (defer close)"}
@@ -114,13 +114,13 @@
     "name": "sync-map-vs-rwmutex-decision",
     "description": "Tests whether the model correctly chooses between sync.Map and RWMutex+map based on access patterns",
     "prompt": "I need a concurrent cache in Go. Keys are strings, values are structs. The cache will have frequent writes from many goroutines updating the same keys, and reads happen about as often as writes. Which synchronization approach should I use?",
-    "trap": "Without the skill, the model recommends sync.Map because it sounds like 'concurrent map', but sync.Map is slower for write-heavy overlapping-key patterns",
+    "trap": "Without the skill, the model may recommend sync.Map solely because it sounds like a general concurrent map, without checking the documented workload cases or benchmarking contention",
     "assertions": [
       {"id": "9.1", "text": "Recommends sync.RWMutex + plain map over sync.Map for this write-heavy, overlapping-key pattern"},
       {"id": "9.2", "text": "Explains that sync.Map is optimized for write-once/read-many or disjoint key sets"},
-      {"id": "9.3", "text": "Explains that for frequent writes with overlapping keys, RWMutex+map is faster"},
+      {"id": "9.3", "text": "Explains why RWMutex plus a typed map is the better starting point for this workload and recommends measuring realistic contention"},
       {"id": "9.4", "text": "Does NOT unconditionally recommend sync.Map for any concurrent map scenario"},
-      {"id": "9.5", "text": "Mentions that concurrent map read/write without synchronization causes a hard crash (not just a data race)"}
+      {"id": "9.5", "text": "Treats unsynchronized concurrent map read/write as invalid and notes that the runtime may terminate with a concurrent-map failure"}
     ]
   },
   {

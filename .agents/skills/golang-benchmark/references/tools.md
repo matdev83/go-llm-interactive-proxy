@@ -1,6 +1,6 @@
 # Diagnostic Tools Quick Reference
 
-Use these tools to validate the root cause of a slowdown BEFORE applying any optimization. Do NOT use auto-fix flags (e.g. `--fix`) — let the coding agent interpret results and apply changes manually with explanatory comments.
+Use these tools to validate the root cause of a slowdown before applying an optimization. Avoid auto-fix flags when the change needs review; inspect and explain any generated diff.
 
 For detailed usage of each tool, see the dedicated reference files:
 
@@ -19,12 +19,12 @@ Configure via environment variables — no recompile needed.
 | `GODEBUG=gcpacertrace=1 ./app` | Why GC triggers when it does — pacer decisions (trigger ratio, heap goal) |
 | `GODEBUG=schedtrace=1000 ./app` | Load balancing, goroutine distribution across Ps — prints every 1000ms |
 | `GODEBUG=schedtrace=1000,scheddetail=1 ./app` | Per-goroutine state detail on top of schedtrace |
-| `GODEBUG=allocfreetrace=1 ./app` | Individual allocation sites (very verbose — testing only) |
+| `runtime/pprof` heap profiles with `alloc_objects` | Allocation sites and GC churn; capture a representative workload and compare samples |
 | `GODEBUG=madvdontneed=1 ./app` | Force memory return to OS — useful for container RSS monitoring (default in Go 1.16+) |
 | `GODEBUG=gccheckmark=1 ./app` | GC correctness debugging (rare — only when suspecting GC bugs) |
 | `GOTRACEBACK=all ./app` | Full goroutine dumps on panic — all goroutines, not just the crashing one |
 
-→ See `samber/cc-skills-golang@golang-troubleshooting` skill for detailed GODEBUG usage and interpretation.
+See the local `golang-troubleshooting` skill for detailed diagnostic interpretation.
 
 ### Programmatic APIs
 
@@ -49,5 +49,5 @@ Configure via environment variables — no recompile needed.
 | Tool | What it adds | When to use |
 | --- | --- | --- |
 | **fgprof** (`github.com/felixge/fgprof`) | Full goroutine profiler — captures both on-CPU and off-CPU (I/O wait) time in a single profile. Standard pprof CPU profiles only show on-CPU time. | pprof CPU profile shows low CPU% but latency is high. |
-| **Pyroscope / Parca** | Continuous profiling platforms — aggregate pprof profiles over time, compare across deployments, detect regressions. | Production performance monitoring, historical trend analysis. → See `samber/cc-skills-golang@golang-observability` skill for setup. |
+| **Continuous profiling collector** | Aggregate pprof profiles over time, compare deployments, and detect regressions. | Production monitoring and historical analysis; review `golang-observability` for privacy and endpoint controls. |
 | **Linux perf** (`perf record -g ./app && perf report`) | Hardware performance counters: cache misses, branch mispredictions, TLB misses. Requires `perf_data_converter` for pprof format. | CPU microarchitecture-level analysis when pprof isn't granular enough. |

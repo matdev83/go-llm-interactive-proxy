@@ -45,7 +45,7 @@ try {
 {
   "version": 1,
   "groups": {
-    "test": [
+    "golang": [
       "example-skill"
     ]
   }
@@ -90,6 +90,55 @@ allowed-tools: Read
     $unsupported = Invoke-CatalogCheck -Root $fixtureRoot
     if ($unsupported.ExitCode -eq 0 -or $unsupported.Output -notmatch 'unsupported frontmatter') {
         throw "Unsupported frontmatter was not rejected:`n$($unsupported.Output)"
+    }
+
+    Write-Utf8NoBom -Path (Join-Path $skillDirectory 'SKILL.md') -Content @'
+---
+name: example-skill
+description: Example skill used by the catalog validator test.
+---
+
+# Example
+
+Load `samber/cc-skills-golang@example`.
+'@
+
+    $upstreamReference = Invoke-CatalogCheck -Root $fixtureRoot
+    if ($upstreamReference.ExitCode -eq 0 -or $upstreamReference.Output -notmatch 'upstream skill package reference') {
+        throw "Upstream package reference was not rejected:`n$($upstreamReference.Output)"
+    }
+
+    Write-Utf8NoBom -Path (Join-Path $skillDirectory 'SKILL.md') -Content @'
+---
+name: example-skill
+description: Example skill used by the catalog validator test.
+---
+
+# Example
+
+Read [missing](references/missing.md).
+'@
+
+    $brokenLink = Invoke-CatalogCheck -Root $fixtureRoot
+    if ($brokenLink.ExitCode -eq 0 -or $brokenLink.Output -notmatch 'broken relative link') {
+        throw "Broken relative link was not rejected:`n$($brokenLink.Output)"
+    }
+
+    Write-Utf8NoBom -Path (Join-Path $skillDirectory 'SKILL.md') -Content @'
+---
+name: example-skill
+description: Example skill used by the catalog validator test.
+---
+
+# Example
+'@
+    $evalDirectory = Join-Path $skillDirectory 'evals'
+    New-Item -ItemType Directory -Path $evalDirectory -Force | Out-Null
+    Write-Utf8NoBom -Path (Join-Path $evalDirectory 'evals.json') -Content '{invalid'
+
+    $invalidJson = Invoke-CatalogCheck -Root $fixtureRoot
+    if ($invalidJson.ExitCode -eq 0 -or $invalidJson.Output -notmatch 'invalid JSON') {
+        throw "Invalid skill JSON was not rejected:`n$($invalidJson.Output)"
     }
 
     "PASS: agent skill catalog validator"

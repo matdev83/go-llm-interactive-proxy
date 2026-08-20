@@ -15,15 +15,15 @@
   },
   {
     "id": 2,
-    "name": "return-structs-not-interfaces",
-    "description": "Tests whether the model returns concrete types from constructors, not interfaces",
+    "name": "constructor-return-contract",
+    "description": "Tests whether the model chooses a concrete or interface constructor return based on API and representation goals",
     "prompt": "I'm designing a Go package with a UserService that depends on a UserStore interface. Should my NewUserService constructor return *UserService or UserServiceInterface? Show me the constructor signature.",
-    "trap": "Without the skill, the model may suggest returning an interface for 'flexibility' or 'abstraction'. The skill says functions SHOULD return concrete types -- NEVER return interfaces from constructors.",
+    "trap": "Model applies a universal return-concrete rule without considering representation hiding, stable behavioral contracts, or caller discoverability",
     "assertions": [
-      {"id": "2.1", "text": "Constructor returns *UserService (concrete type), NOT an interface"},
+      {"id": "2.1", "text": "Recommends a concrete return for this service when callers need its full API, while acknowledging an interface return can be intentional"},
       {"id": "2.2", "text": "Constructor accepts UserStore as an interface parameter (accept interfaces)"},
-      {"id": "2.3", "text": "Explains WHY: callers get full access to the concrete type's fields/methods; consumers can assign to interface if needed"},
-      {"id": "2.4", "text": "Explicitly states that returning interfaces from constructors is bad practice"},
+      {"id": "2.3", "text": "Explains the tradeoff: concrete returns improve discoverability, while interface returns can hide representation and stabilize a behavioral contract"},
+      {"id": "2.4", "text": "Does not call interface returns universally bad practice"},
       {"id": "2.5", "text": "The accept-interfaces-return-structs principle is stated or demonstrated"}
     ]
   },
@@ -32,7 +32,7 @@
     "name": "premature-interface-trap",
     "description": "Tests whether the model avoids creating interfaces prematurely when there is only one implementation",
     "prompt": "I'm writing a Go application with a UserRepository that talks to PostgreSQL. It's the only database we'll ever use. Should I create a UserRepository interface and a concrete postgresUserRepository struct, or just use a concrete struct directly?",
-    "trap": "Without the skill, the model almost always suggests creating an interface 'for testability' even with a single implementation. The skill says NEVER create interfaces prematurely -- wait for 2+ implementations or a testability requirement.",
+    "trap": "Model adds an interface for a speculative second implementation, or rejects a consumer-owned test seam without considering the package boundary and testability need.",
     "assertions": [
       {"id": "3.1", "text": "Recommends starting with a concrete struct (not an interface) when there is only one implementation"},
       {"id": "3.2", "text": "Mentions the principle: don't design with interfaces, discover them"},
@@ -142,11 +142,11 @@
     "name": "receiver-consistency-rule",
     "description": "Tests whether the model enforces consistent receiver types across all methods of a type",
     "prompt": "I have a Go struct with 5 methods. Four use value receivers and one uses a pointer receiver because it modifies the struct. Is this fine?",
-    "trap": "Without the skill, the model may accept the mixed receiver approach as valid for each method. The skill says receiver type MUST be consistent -- if one method uses pointer, all should.",
+    "trap": "Model applies a universal receiver-consistency rule instead of checking mutation, identity, copy cost, method sets, and interface contracts",
     "assertions": [
-      {"id": "11.1", "text": "Says mixing pointer and value receivers on the same type is wrong or not recommended"},
-      {"id": "11.2", "text": "Recommends making ALL methods use pointer receivers since one needs to mutate"},
-      {"id": "11.3", "text": "Explains WHY: consistency rule -- if any method uses a pointer receiver, all should"},
+      {"id": "11.1", "text": "Explains that mixed receivers can be valid when each method’s mutation, identity, and copy semantics are intentional"},
+      {"id": "11.2", "text": "Does not force all methods to pointer receivers solely because one method mutates"},
+      {"id": "11.3", "text": "Recommends consistency when it makes method sets and ownership clearer, without treating it as a language requirement"},
       {"id": "11.4", "text": "Mentions that method sets differ for T and *T which affects interface satisfaction"}
     ]
   }

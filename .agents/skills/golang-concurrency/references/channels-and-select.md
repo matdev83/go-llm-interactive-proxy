@@ -1,160 +1,47 @@
-# Channels and Select Patterns
+# Channels and `select`
 
-## Goroutine Lifecycle
+## Ownership
 
-NEVER start a goroutine without knowing how it stops. Every goroutine MUST answer: **how will it stop?**
+The component that knows no more values can be sent normally closes the channel. Pass direction in signatures and keep ownership in the type that created the channel. A channel value can be copied; that copies a handle, not the queue or the ownership decision.
 
 ```go
-// ✗ Bad — fire-and-forget, no way to stop or wait
-func startWorker() {
+func producer(ctx context.Context) <-chan Item {
+    out := make(chan Item)
     go func() {
-        for {
-            doWork() // runs forever, leaks on shutdown
-        }
-    }()
-}
-
-// ✓ Good — goroutine respects context cancellation, caller can wait
-func startWorker(ctx context.Context) *sync.WaitGroup {
-    var wg sync.WaitGroup
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        for {
+        defer close(out)
+        for _, item := range loadItems() {
             select {
-            case <-ctx.Done():
-                return
-            default:
-                doWork(ctx)
-            }
-        }
-    }()
-    return &wg
-}
-```
-
-### Panic Recovery at Goroutine Boundaries
-
-A panic in a goroutine crashes the entire process. Always recover at goroutine boundaries in production code:
-
-```go
-go func() {
-    defer func() {
-        if r := recover(); r != nil {
-            // ...
-        }
-    }()
-    doWork(ctx)
-}()
-```
-
-## Channel Direction
-
-Specify direction in function signatures to prevent misuse at compile time:
-
-```go
-// ✗ Bad — caller could accidentally close or send on a receive-only channel
-func consume(ch chan int) { ... }
-
-// ✓ Good — compiler enforces correct usage
-func produce(ch chan<- int) { ... } // send-only
-func consume(ch <-chan int) { ... } // receive-only
-```
-
-## Channel Closing
-
-Channels MUST be closed by the sender (producer), NEVER by the receiver — it causes a panic if the sender writes after close.
-
-```go
-// ✓ Good — producer closes when done
-func generate(ctx context.Context) <-chan int {
-    ch := make(chan int)
-    go func() {
-        defer close(ch) // sender closes
-        for i := 0; ; i++ {
-            select {
-            case ch <- i:
+            case out <- item:
             case <-ctx.Done():
                 return
             }
         }
     }()
-    return ch
+    return out
 }
 ```
 
-## Buffer Size
+Never assume a send is consumed. A receiver that exits early must cancel the producer or drain the channel. A buffered channel is a bounded queue only when its capacity and full-queue policy are explicit.
 
-| Size | When to use |
-| --- | --- |
-| 0 (unbuffered) | Default. Synchronizes sender and receiver — use when you need handoff guarantees |
-| 1 | Signal channels (`done := make(chan struct{}, 1)`), or when sender must not block on a single pending item |
-| N > 1 | Only with measured justification — document why N was chosen and what happens when the buffer fills |
+## Select patterns
+
+Use a cancellation case when the operation may be abandoned:
 
 ```go
-// ✓ Good — unbuffered for synchronous handoff
-ch := make(chan Result)
-
-// ✓ Good — buffered 1 for signal
-done := make(chan struct{}, 1)
-
-// ✗ Suspicious — arbitrary large buffer hides backpressure problems
-// Give explanation in comments.
-ch := make(chan Task, 1000) // why 1000? what if it fills?
-```
-
-## Select for Non-Blocking Communication
-
-Use `select` to multiplex channel operations and always include `ctx.Done()` to prevent goroutine leaks:
-
-```go
-func process(ctx context.Context, in <-chan Task, out chan<- Result) {
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case task, ok := <-in:
-            if !ok {
-                return // channel closed
-            }
-            result := handle(ctx, task)
-            select {
-            case out <- result:
-            case <-ctx.Done():
-                return
-            }
-        }
-    }
+select {
+case item, ok := <-in:
+    if !ok { return nil }
+    return process(item)
+case <-ctx.Done():
+    return ctx.Err()
 }
 ```
 
-## Avoid Repeated `time.After` in Hot Loops
+Do not use `default` in a loop as a substitute for a blocking policy; it can spin. If a timeout is needed once, `time.After` is straightforward. In a hot or long-lived loop, reuse a timer and handle `Stop`/drain before `Reset` to reduce churn.
 
-```go
-// ✗ Bad — creates a new timer on every iteration
-for {
-    select {
-    case msg := <-ch:
-        handle(msg)
-    case <-time.After(5 * time.Second): // repeated allocation/churn
-        handleTimeout()
-    }
-}
+## Common failure modes
 
-// ✓ Good (Go 1.23+) — reuse the timer
-timer := time.NewTimer(5 * time.Second)
-defer timer.Stop()
-for {
-    select {
-    case msg := <-ch:
-        timer.Stop()
-        timer.Reset(5 * time.Second)
-        handle(msg)
-    case <-timer.C:
-        handleTimeout()
-        timer.Reset(5 * time.Second)
-    }
-}
-```
-
-For Go <1.23, if `timer.Stop()` returns false, drain a possible stale value before `Reset`. In Go 1.23+, receiving from `timer.C` after `Stop` returns is guaranteed to block rather than receive a stale value.
+- Sending on a channel after a receiver has closed it panics.
+- A `for range` over a channel ends only after close; cancellation must be part of the protocol when close is not guaranteed.
+- A nil channel blocks forever on send and receive and disables a select case; use it deliberately to enable/disable a case.
+- A send of a mutable pointer is safe only with documented immutability or ownership transfer.

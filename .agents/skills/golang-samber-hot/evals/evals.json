@@ -103,7 +103,7 @@
     "assertions": [
       {"id": "8.1", "text": "Identifies that callers are mutating shared cached pointers"},
       {"id": "8.2", "text": "Uses .WithCopyOnRead(fn) to return cloned copies on Get()"},
-      {"id": "8.3", "text": "The copy function creates a shallow or deep copy of the struct"},
+      {"id": "8.3", "text": "The copy function deep-copies any nested mutable slices, maps, or pointers that callers may modify"},
       {"id": "8.4", "text": "Does NOT suggest only adding external mutexes as the primary solution"}
     ]
   },
@@ -169,7 +169,7 @@
     "assertions": [
       {"id": "13.1", "text": "Uses .WithPrometheusMetrics(cacheName) in the builder"},
       {"id": "13.2", "text": "Registers the cache with prometheus.MustRegister(cache) or prometheus.Register(cache)"},
-      {"id": "13.3", "text": "Mentions hit rate as a key metric to monitor (target >80%)"},
+      {"id": "13.3", "text": "Mentions hit rate as a key metric to monitor and recommends setting an SLO from workload evidence rather than a universal target"},
       {"id": "13.4", "text": "Does NOT create custom Prometheus counters/gauges manually for basic cache metrics"}
     ]
   },

@@ -54,7 +54,7 @@
         "Recommends BehaviorSubject (not PublishSubject or ReplaySubject)",
         "Explains that BehaviorSubject replays the last value to new subscribers",
         "Shows NewBehaviorSubject[Config](initialConfig) constructor with initial value",
-        "Shows .Send() for pushing updates and .Subscribe() for consuming",
+        "Shows .Next() for pushing updates and .Subscribe() for consuming",
         "Does NOT recommend PublishSubject (late subscribers would miss the current value)"
       ]
     },
@@ -100,9 +100,9 @@
       "prompt": "I'm calling an unreliable external API via samber/ro. I want to retry up to 3 times with exponential backoff starting at 500ms, with a max delay of 10 seconds. If all retries fail, return a cached default value. Write the code.",
       "assertions": [
         "Uses ro.RetryWithConfig (not ro.Retry which retries infinitely)",
-        "Sets Max: 3 in RetryConfig",
-        "Sets Delay: 500ms and BackoffMultiplier: 2.0 in RetryConfig",
-        "Sets MaxDelay: 10*time.Second in RetryConfig",
+        "Sets MaxRetries: 3 in RetryConfig",
+        "Sets Delay: 500ms and uses only fields exposed by the pinned RetryConfig API",
+        "Uses an external context-aware retry policy if capped exponential backoff is required",
         "Chains OnErrorReturn or Catch after RetryWithConfig for the fallback",
         "Orders operators correctly: source → RetryWithConfig → fallback (retry BEFORE fallback)"
       ]
@@ -143,11 +143,11 @@
     },
     {
       "id": 13,
-      "name": "plugin-fsnotify",
+      "name": "external-file-watch-adapter",
       "prompt": "I want to watch a directory for file changes using samber/ro and reload my app's configuration when a file is modified. I need debouncing to avoid reloading on every rapid save. Write the code.",
       "assertions": [
-        "Knows about the fsnotify plugin (plugins/fsnotify)",
-        "Uses the fsnotify plugin to create an observable of file events",
+        "States that file watching requires an external adapter such as fsnotify; it is not a built-in ro plugin",
+        "Shows how to adapt file events into ro.FromChannel or a custom observable",
         "Uses ThrottleTime or a similar debounce operator to avoid rapid reloads",
         "Filters for Write events specifically",
         "Shows a Map operator to reload configuration from the changed file"
@@ -155,13 +155,13 @@
     },
     {
       "id": 14,
-      "name": "plugin-cron-scheduling",
+      "name": "external-scheduler-adapter",
       "prompt": "I need a samber/ro observable that emits an event every day at midnight for a daily report generation job. What plugin should I use and how?",
       "assertions": [
-        "Knows about the cron plugin (plugins/cron)",
-        "Uses cron.Schedule or similar with a cron expression like `0 0 * * *`",
-        "Shows the correct import path for the cron plugin",
-        "Chains the cron observable with Map or FlatMap to trigger report generation"
+        "States that scheduling requires an external scheduler or time.Ticker; no built-in ro cron plugin is assumed",
+        "Shows how to adapt scheduler events into an observable with an owned teardown",
+        "Does not fabricate a ro plugin import path",
+        "Chains the adapted scheduler observable with Map or FlatMap to trigger report generation"
       ]
     },
     {
@@ -173,7 +173,7 @@
         "Shows MapErr with a func(string) (MyStruct, error) signature",
         "Explains that MapErr propagates the error through the pipeline's error channel",
         "Does NOT suggest using Map with a recover/panic pattern",
-        "Alternatively mentions the JSON encoding plugin (plugins/encoding/json) as an option"
+        "Uses encoding/json in the MapErr callback or an explicitly provided parser; does not invent a ro encoding plugin"
       ]
     },
     {
@@ -252,7 +252,7 @@
       "assertions": [
         "Recommends Connectable (not Share or ShareReplay)",
         "Shows ro.Connectable[T](source) to create a ConnectableObservable",
-        "Shows setting up all 5 subscribers before calling .Connect(ctx)",
+        "Shows setting up all 5 subscribers before calling .ConnectWithContext(ctx)",
         "Explains that Connect() explicitly starts the shared execution",
         "Explains why Share() is wrong: it starts on first subscribe, so sub2-5 might miss early events"
       ]

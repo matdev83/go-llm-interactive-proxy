@@ -110,13 +110,13 @@
   {
     "id": 9,
     "name": "pointer-comparison-trap",
-    "description": "Tests awareness that is.Equal(ptr1, ptr2) compares addresses, not values",
+    "description": "Tests awareness that assert.Equal on pointers compares pointed-to values, while assert.Same checks identity",
     "prompt": "I have two *User pointers pointing to different structs with the same field values. My test `assert.Equal(t, user1, user2)` is failing. Both users have Name='Alice' and Age=30. What's wrong?",
-    "trap": "Model may suggest various debugging approaches without identifying the core issue: Equal on pointers compares addresses",
+    "trap": "Model may suggest pointer identity as the cause without checking that testify's Equal uses deep equality for pointed-to values.",
     "assertions": [
-      {"id": "9.1", "text": "Identifies that assert.Equal on pointers compares memory addresses, not struct values"},
-      {"id": "9.2", "text": "Recommends dereferencing the pointers (e.g., assert.Equal(t, *user1, *user2)) or using EqualExportedValues"},
-      {"id": "9.3", "text": "Mentions EqualExportedValues as an alternative for comparing only exported fields"}
+      {"id": "9.1", "text": "Identifies that assert.Equal on pointers compares pointed-to values using deep equality"},
+      {"id": "9.2", "text": "Explains that different addresses do not make Equal fail when pointed-to fields are equal"},
+      {"id": "9.3", "text": "Suggests assert.Same only when pointer identity is the contract; otherwise compare values or fields"}
     ]
   },
   {

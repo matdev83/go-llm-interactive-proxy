@@ -34,17 +34,17 @@
     "prompt": "Set up slog to send logs to Datadog using samber/slog-datadog in a Go HTTP server with graceful shutdown. Show the complete main() function.",
     "trap": "Without the skill, the model forgets to close the handler on shutdown, causing buffered logs to be lost",
     "assertions": [
-      {"id": "3.1", "text": "Calls handler.Stop(ctx) or defer handler.Stop(ctx) for the Datadog handler (not Close)"},
-      {"id": "3.2", "text": "Uses Option{}.NewDatadogHandler() constructor pattern"},
-      {"id": "3.3", "text": "Close happens during graceful shutdown (signal handling or defer in main)"},
-      {"id": "3.4", "text": "Mentions or demonstrates that Datadog handler batches logs (data loss risk without Close)"},
-      {"id": "3.5", "text": "Import path is github.com/samber/slog-datadog/v2 or later"}
+      {"id": "3.1", "text": "Uses the pinned Datadog handler/client's documented stop, close, or flush operation"},
+      {"id": "3.2", "text": "Checks the pinned package's actual constructor and option types instead of assuming an Option{}.NewDatadogHandler API"},
+      {"id": "3.3", "text": "Cleanup happens during graceful shutdown (signal handling or defer in main)"},
+      {"id": "3.4", "text": "Explains the backend's buffering/batching and the data-loss policy if shutdown is abrupt"},
+      {"id": "3.5", "text": "Pins and verifies the exact module path and release rather than assuming a v2 path"}
     ]
   },
   {
     "id": 4,
     "name": "sampling-strategy-selection",
-    "description": "Tests whether the model picks the right sampling strategy and exempts errors",
+    "description": "Tests whether the model chooses an explicit sampling predicate and separately protects required error/audit records",
     "prompt": "My Go service processes 50k requests/sec. Logging costs are $2k/month. I need to reduce log volume by 90% but keep all error and warning logs intact. Which samber/slog-sampling strategy should I use? Show the setup.",
     "trap": "Without the skill, the model uses UniformSamplingOption which drops errors too, or implements custom sampling logic instead of using the library",
     "assertions": [
@@ -78,7 +78,7 @@
     "assertions": [
       {"id": "6.1", "text": "Uses sloggin.NewWithConfig() (not just sloggin.New()) to pass configuration"},
       {"id": "6.2", "text": "Configures Filters with IgnorePath for /health and /metrics"},
-      {"id": "6.3", "text": "Sets WithRequestBody: true in the Config"},
+      {"id": "6.3", "text": "Leaves request-body logging disabled unless it is explicitly justified, bounded, and redacted"},
       {"id": "6.4", "text": "Config includes DefaultLevel, ClientErrorLevel, and/or ServerErrorLevel fields"},
       {"id": "6.5", "text": "Uses sloggin.IgnorePath or sloggin.IgnorePathPrefix (not a custom filter function)"}
     ]
@@ -114,15 +114,15 @@
   {
     "id": 9,
     "name": "pool-vs-fanout-latency",
-    "description": "Tests whether the model recommends Pool over Fanout for latency-sensitive pipelines",
+    "description": "Tests whether the model distinguishes Pool failover/load balancing from Fanout broadcast",
     "prompt": "My slog Fanout to 5 remote handlers is slowing down my HTTP responses. Each handler takes 5-50ms to write. The total latency added per request is 25-250ms because Fanout processes them sequentially. How do I fix this latency problem while keeping all 5 destinations? Show the code change.",
-    "trap": "Without the skill, the model suggests spawning goroutines per log record or using buffered channels instead of slog-multi's Pool handler",
+    "trap": "Without the skill, the model may mistake Pool for concurrent broadcast or add unbounded goroutines when the requirement is to retain all destinations.",
     "assertions": [
       {"id": "9.1", "text": "Identifies sequential processing in Fanout as the root cause"},
-      {"id": "9.2", "text": "Recommends replacing Fanout with slogmulti.Pool() for concurrent broadcast"},
-      {"id": "9.3", "text": "Explains that Pool dispatches to all handlers concurrently, reducing latency from sum-of-all to max-of-all handler duration"},
+      {"id": "9.2", "text": "Explains that Pool is load balancing/failover and therefore is not a replacement when every destination must receive each record"},
+      {"id": "9.3", "text": "Chooses an explicit trade-off: retain Fanout with an asynchronous/queued design, or accept fewer destinations via Pool according to the delivery contract"},
       {"id": "9.4", "text": "Does NOT suggest spawning raw goroutines per log record as the primary solution"},
-      {"id": "9.5", "text": "Shows the code change from slogmulti.Fanout(handlers...) to slogmulti.Pool()(handlers...)"}
+      {"id": "9.5", "text": "Does not claim Pool broadcasts to every handler or runs handlers concurrently"}
     ]
   },
   {

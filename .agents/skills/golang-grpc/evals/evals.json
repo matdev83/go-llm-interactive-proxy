@@ -72,15 +72,15 @@
   {
     "id": 6,
     "name": "client-connection-reuse-and-deadlines",
-    "description": "Tests that gRPC clients reuse connections and set deadlines on every call",
+    "description": "Tests that gRPC clients reuse connections and apply deadlines appropriate to the RPC",
     "prompt": "Write a Go gRPC client that calls a UserService. Create the client and make a GetUser call.",
-    "trap": "Without the skill, the model may create a new connection per request or not set a deadline. The skill requires connection reuse and context.WithTimeout on every call.",
+    "trap": "Without the skill, the model may create a new connection per request or omit a deadline policy. The right deadline depends on the RPC; long-lived streams need a different lifetime and cancellation policy.",
     "assertions": [
       {"id": "6.1", "text": "Creates the connection once and reuses it (not creating a new connection per call)"},
-      {"id": "6.2", "text": "Uses context.WithTimeout (or context.WithDeadline) for the RPC call"},
+      {"id": "6.2", "text": "Uses context.WithTimeout/WithDeadline for bounded RPCs, or explains the cancellation/lifetime policy for a long-lived stream"},
       {"id": "6.3", "text": "Uses grpc.NewClient (not the deprecated grpc.Dial)"},
       {"id": "6.4", "text": "Includes transport credentials (TLS or explicitly insecure for dev)"},
-      {"id": "6.5", "text": "Properly defers cancel() from context.WithTimeout"}
+      {"id": "6.5", "text": "Releases any derived context cancellation function and closes the shared connection at its ownership boundary"}
     ]
   },
   {

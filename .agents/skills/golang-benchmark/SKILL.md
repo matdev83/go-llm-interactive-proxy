@@ -1,143 +1,103 @@
 ---
 name: golang-benchmark
-description: "Go benchmarking/profiling: benchmarks, pprof, traces, benchstat, CI regressions."
-license: MIT
-metadata:
-  author: samber
-  version: "1.1.3"
-  openclaw:
-    emoji: "📊"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-        - benchstat
-    install:
-      - kind: go
-        package: golang.org/x/perf/cmd/benchstat@latest
-        bins: [benchstat]
+description: "Go benchmark and profile workflow: b.Loop, benchstat, pprof, trace, compiler diagnostics, and regression gates."
 ---
 
-**Persona:** You are a Go performance measurement engineer. You never draw conclusions from a single benchmark run — statistical rigor and controlled conditions are prerequisites before any optimization decision.
+# Go benchmarking and profiling
 
-**Thinking mode:** Use `ultrathink` for benchmark analysis, profile interpretation, and performance comparison tasks. Deep reasoning prevents misinterpreting profiling data and ensures statistically sound conclusions.
+Use this skill when a performance claim needs evidence. Establish a representative workload, measure a baseline and a candidate under comparable conditions, and record enough repetitions to quantify noise. A profile identifies where time or memory goes; it does not by itself prove a fix. Apply `golang-performance` after a bottleneck is established.
 
-# Go Benchmarking & Performance Measurement
+## A small, valid benchmark
 
-Performance improvement does not exist without measures — if you can measure it, you can improve it.
-
-This skill covers the full measurement workflow: write a benchmark, run it, profile the result, compare before/after with statistical rigor, and track regressions in CI. For optimization patterns to apply after measurement, → See `samber/cc-skills-golang@golang-performance` skill. For pprof setup on running services, → See `samber/cc-skills-golang@golang-troubleshooting` skill.
-
-## Writing Benchmarks
-
-### `b.Loop()` (Go 1.24+) — preferred
-
-`b.Loop()` prevents the compiler from optimizing away the code under test — without it, the compiler can detect dead results and eliminate them, producing misleadingly fast numbers. It also excludes setup code before the loop from timing automatically.
+For Go 1.24 and newer, prefer `b.Loop()`:
 
 ```go
 func BenchmarkParse(b *testing.B) {
-    data := loadFixture("large.json") // setup — excluded from timing
-    for b.Loop() {
-        Parse(data)  // compiler cannot eliminate this call
-    }
+	data := loadFixture("large.json")
+	for b.Loop() {
+		result := Parse(data)
+		benchmarkSink = result // only needed when the result could be eliminated
+	}
 }
 ```
 
-Existing `for range b.N` benchmarks still work but should migrate to `b.Loop()` — the old pattern requires manual `b.ResetTimer()` and a package-level sink variable to prevent dead code elimination.
+`b.Loop` manages the benchmark loop and excludes setup before the first iteration. Existing `b.N` loops remain valid; use a package-level sink or another observable result when the compiler could remove the work, and use `b.ResetTimer` only when setup must be excluded from a legacy loop. Keep fixtures, parsing options, and allocation behavior identical between variants.
 
-### Memory tracking
-
-```go
-func BenchmarkAlloc(b *testing.B) {
-    b.ReportAllocs() // or run with -benchmem flag
-    for b.Loop() {
-        _ = make([]byte, 1024)
-    }
-}
-```
-
-`b.ReportMetric()` adds custom metrics (e.g., throughput):
-
-```go
-b.ReportMetric(float64(totalBytes)/b.Elapsed().Seconds(), "bytes/s")
-```
-
-### Sub-benchmarks and table-driven
+Report allocations when they matter:
 
 ```go
 func BenchmarkEncode(b *testing.B) {
-    for _, size := range []int{64, 256, 4096} {
-        b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-            data := make([]byte, size)
-            for b.Loop() {
-                Encode(data)
-            }
-        })
-    }
+	value := fixture()
+	b.ReportAllocs()
+	for b.Loop() { _ = Encode(value) }
 }
 ```
 
-## Running Benchmarks
+Use sub-benchmarks for meaningful dimensions (`size=64`, `size=4096`), not for arbitrary cases. `ReportMetric` is useful for domain units such as bytes/sec; explain how the metric is calculated.
 
-```bash
-go test -bench=BenchmarkEncode -benchmem -count=10 ./pkg/... | tee bench.txt
+## Run and compare
+
+```sh
+go test -run='^$' -bench='BenchmarkEncode$' -benchmem -count=10 ./path/to/pkg > new.txt
+benchstat old.txt new.txt
 ```
 
-| Flag                   | Purpose                                   |
-| ---------------------- | ----------------------------------------- |
-| `-bench=.`             | Run all benchmarks (regexp filter)        |
-| `-benchmem`            | Report allocations (B/op, allocs/op)      |
-| `-count=10`            | Run 10 times for statistical significance |
-| `-benchtime=3s`        | Minimum time per benchmark (default 1s)   |
-| `-cpu=1,2,4`           | Run with different GOMAXPROCS values      |
-| `-cpuprofile=cpu.prof` | Write CPU profile                         |
-| `-memprofile=mem.prof` | Write memory profile                      |
-| `-trace=trace.out`     | Write execution trace                     |
+Useful controls:
 
-**Output format:** `BenchmarkEncode/size=64-8  5000000  230.5 ns/op  128 B/op  2 allocs/op` — the `-8` suffix is GOMAXPROCS, `ns/op` is time per operation, `B/op` is bytes allocated per op, `allocs/op` is heap allocation count per op.
+| Option | Why |
+| --- | --- |
+| `-run='^$'` | Skip ordinary tests while collecting benchmarks. |
+| `-benchmem` | Include bytes and allocations per operation. |
+| `-count=N` | Repeats the benchmark; choose N from observed noise, commonly 5–20. |
+| `-benchtime=3s` | Gives a noisy benchmark more samples per repetition. |
+| `-cpu=1,2,4` | Tests scaling, but compare the same CPU list in both versions. |
+| `-timeout` | Bounds a hung benchmark or fixture. |
 
-## Profiling from Benchmarks
+Compile each version once when comparing command-level wall time or when build latency is part of the experiment. `go test`'s reported `ns/op` excludes compilation; precompilation is not needed to make benchmark timing valid. Run precompiled binaries with matching `-test.bench` and `-test.benchmem` flags if the experiment measures invocation latency.
 
-Generate profiles directly from benchmark runs — no HTTP server needed:
+Treat `benchstat` output as an estimate, not a verdict from a lower point estimate. `~` means no statistically significant difference was detected under the test; check p-values and intervals, then repeat with a larger deliberate sample or reduce noise. Do not rerun until a favorable result appears. Interleave old/new runs when thermal state, CPU frequency, background work, or scheduling can drift, and keep the machine and compiler constant. A statistically significant change may still be irrelevant to the production workload.
 
-```bash
-# CPU profile
-go test -bench=BenchmarkParse -cpuprofile=cpu.prof ./pkg/parser
-go tool pprof cpu.prof
+## Profiles
 
-# Memory profile (alloc_objects shows GC churn, inuse_space shows leaks)
-go test -bench=BenchmarkParse -memprofile=mem.prof ./pkg/parser
-go tool pprof -alloc_objects mem.prof
+Capture only the profile needed to answer a question:
 
-# Execution trace
-go test -bench=BenchmarkParse -trace=trace.out ./pkg/parser
+```sh
+go test -run='^$' -bench='BenchmarkParse$' -cpuprofile=cpu.pprof ./parser
+go tool pprof -top -cum cpu.pprof
+go test -run='^$' -bench='BenchmarkParse$' -memprofile=heap.pprof ./parser
+go tool pprof -alloc_objects heap.pprof
+go test -run='^$' -bench='BenchmarkParse$' -trace=trace.out ./parser
 go tool trace trace.out
 ```
 
-For full pprof CLI reference (all commands, non-interactive mode, profile interpretation), see [pprof Reference](./references/pprof.md). For execution trace interpretation, see [Trace Reference](./references/trace.md). For statistical comparison, see [benchstat Reference](./references/benchstat.md).
+`alloc_objects` helps find allocation rate and GC churn; `alloc_space` measures cumulative bytes allocated. `inuse_space` and `inuse_objects` describe live data at the snapshot and are useful for leak suspects, not proof of a leak. Establish comparable snapshots over time and verify retention with a controlled workload before calling something a leak. Use `top -cum`, `list`, and `peek` to move from runtime symptoms to application callers.
 
-## Reference Files
+For a service, protect and authenticate pprof/trace endpoints, capture briefly, and avoid putting secrets or customer data in profile labels. See [pprof](references/pprof.md), [trace](references/trace.md), and [benchstat](references/benchstat.md).
 
-- **[pprof Reference](./references/pprof.md)** — Interactive and non-interactive analysis of CPU, memory, and goroutine profiles. Full CLI commands, profile types (CPU vs alloc*objects vs inuse_space), web UI navigation, and interpretation patterns. Use this to dive deep into \_where* time and memory are being spent in your code.
+## Compiler and runtime diagnostics
 
-- **[benchstat Reference](./references/benchstat.md)** — Statistical comparison of benchmark runs with rigorous confidence intervals and p-value tests. Covers output reading, filtering old benchmarks, interleaving results for visual clarity, and regression detection. Use this when you need to prove a change made a meaningful performance difference, not just a lucky run.
+Use diagnostics to test a profile-backed hypothesis:
 
-- **[Trace Reference](./references/trace.md)** — Execution tracer for understanding *when* and *why* code runs. Visualizes goroutine scheduling, garbage collection phases, network blocking, and custom span annotations. Use this when pprof (which shows *where* CPU goes) isn't enough — you need to see the timeline of what happened.
+```sh
+go test -run='^$' -bench='BenchmarkParse$' -gcflags='-m=2' ./parser
+go tool compile -S file.go
+```
 
-- **[Diagnostic Tools](./references/tools.md)** — Quick reference for ancillary tools: fieldalignment (struct padding waste), GODEBUG (runtime logging flags), fgprof (frame graph profiles), race detector (concurrency bugs), and others. Use this when you have a specific symptom and need a focused diagnostic — don't reach for pprof if a simpler tool already answers your question.
+Escape output is a compile-time explanation, not a promise that every escape is worth removing. Receiver choice, inlining, and layout are compiler/workload dependent; validate changes with the benchmark. Use `runtime/trace`, `runtime/metrics`, pprof, and the race detector for their respective questions. Check the installed Go release's documented `GODEBUG` settings before using a flag; undocumented or removed settings are not a diagnostic plan.
 
-- **[Compiler Analysis](./references/compiler-analysis.md)** — Low-level compiler optimization insights: escape analysis (when values move to the heap), inlining decisions (which function calls are eliminated), SSA dump (intermediate representation), and assembly output. Use this when benchmarks show allocations you didn't expect, or when you want to verify the compiler did what you intended.
+## Regression gates
 
-- **[CI Regression Detection](./references/ci-regression.md)** — Automated performance regression gating in CI pipelines. Covers three tools (benchdiff for quick PR comparisons, cob for strict threshold-based gating, gobenchdata for long-term trend dashboards), noisy neighbor mitigation strategies (why cloud CI benchmarks vary 5-10% even on quiet machines), and self-hosted runner tuning to make benchmarks reproducible. Use this when you want to ensure pull requests don't silently slow down your codebase — detecting regressions early prevents shipping performance debt.
+For CI, keep benchmark jobs separate from correctness tests when their timing noise would make PRs unreliable. Pin the tool version, use a stable runner where possible, save raw results, and compare a fixed baseline. Set a threshold only after measuring normal variance, and report a suspected regression for review rather than silently accepting or rejecting based on one run. See [ci-regression](references/ci-regression.md) and [investigation-session](references/investigation-session.md).
 
-- **[Investigation Session](./references/investigation-session.md)** — Production performance troubleshooting workflow combining Prometheus runtime metrics (heap size, GC frequency, goroutine counts), PromQL queries to correlate metrics with code changes, runtime configuration flags (GODEBUG env vars to enable GC logging), and cost warnings (when you're hitting performance tax). Use this when production benchmarks look good but real traffic behaves differently.
+## Navigation
 
-- **[Prometheus Go Metrics Reference](./references/prometheus-go-metrics.md)** — Complete listing of Go runtime metrics actually exposed as Prometheus metrics by `prometheus/client_golang`. Covers 30 default metrics, 40+ optional metrics (Go 1.17+), process metrics, and common PromQL queries. Distinguishes between `runtime/metrics` (Go internal data) and Prometheus metrics (what you scrape from `/metrics`). Use this when setting up monitoring dashboards or writing PromQL queries for production alerts.
+- [benchstat](references/benchstat.md): comparison output, significance, and experiment design.
+- [pprof](references/pprof.md): CPU, heap, goroutine, block, and mutex analysis.
+- [trace](references/trace.md): scheduler, blocking, GC, and flight-recorder timelines.
+- [compiler analysis](references/compiler-analysis.md): escape, inlining, SSA, and assembly.
+- [diagnostic tools](references/tools.md): runtime and profiling utilities.
+- [CI regressions](references/ci-regression.md): reproducible benchmark gates.
+- [investigation sessions](references/investigation-session.md): production evidence and cost controls.
+- [Prometheus Go metrics](references/prometheus-go-metrics.md): runtime metrics and query examples.
 
-## Cross-References
-
-- → See `samber/cc-skills-golang@golang-performance` skill for optimization patterns to apply after measuring ("if X bottleneck, apply Y")
-- → See `samber/cc-skills-golang@golang-troubleshooting` skill for pprof setup on running services (enable, secure, capture), Delve debugger, GODEBUG flags, root cause methodology
-- → See `samber/cc-skills-golang@golang-observability` skill for everyday always-on monitoring, continuous profiling (Pyroscope), distributed tracing (OpenTelemetry)
-- → See `samber/cc-skills-golang@golang-testing` skill for general testing practices
-- → See `samber/cc-skills@promql-cli` skill for querying Prometheus runtime metrics in production to validate benchmark findings
+Related local skills: `golang-performance`, `golang-observability`, `golang-troubleshooting`, and `golang-testing`.

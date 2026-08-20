@@ -1,151 +1,55 @@
-# Directory Layouts
+# Directory layout choices
 
-## Universal Layout (Most Projects)
+Go does not require a universal repository tree. Start with the module boundary,
+the number of binaries, and which packages are public. Preserve an existing layout
+when it communicates those boundaries clearly.
 
-```
+## Common shapes
+
+For multiple binaries, separate entry points under `cmd/<name>/` and put reusable
+orchestration below them:
+
+```text
 project/
-├── cmd/                    # Entry points - ONE subdirectory per main package
-│   ├── server/            # Main application #1
-│   │   └── main.go
-│   ├── client/            # Main application #2
-│   │   └── main.go
-│   └── migrate/           # Main application #3
-│       └── main.go
-│   └── cli/               # Main application #4
-│       └── main.go
-│   └── worker/            # Main application #5
-│       └── main.go
-├── internal/              # Private application code (`internal/` MUST be used for non-exported packages)
-│   ├── app/              # Application initialization
-│   ├── config/           # Configuration loading
-│   ├── handler/          # HTTP/request handlers
-│   ├── model/            # Data models/domain
-│   └── service/          # Business logic
-├── pkg/                   # Public libraries (optional - only if useful to others)
-│   └── logger/
-│       └── logger.go
-├── api/                   # API definitions (optional)
-│   └── openapi.yaml
-├── configs/               # Configuration files (optional)
-│   └── config.yaml
-├── scripts/               # Build/deployment scripts (optional)
-├── go.mod
-├── go.sum
-├── Makefile               # Build automation
-├── .gitignore             # Git ignore patterns
-├── .golangci.yml          # Linter configuration
-├── LICENSE                # License file
-└── README.md
+  cmd/server/main.go
+  cmd/worker/main.go
+  internal/                 # importable only within the parent module tree
+  pkg/                      # public only when external consumers are intended
+  testdata/                 # repository-level fixtures, when useful
+  go.mod
 ```
 
-## Small Projects (Single Binary)
+A small binary can keep `main.go` at the module root if that is the established
+layout; moving it to `cmd/` is an organization choice, not a correctness fix.
+Libraries commonly keep public packages at the root or under a deliberate package
+directory and use `internal/` for implementation details. `pkg/` is optional and
+should not be used as a dumping ground.
 
-For simple tools, keep it minimal:
+## Boundary rules
 
-```
-my-tool/
-├── cmd/
-│   └── my-tool/
-│       └── main.go        # Single main package
-├── internal/
-│   └── core.go            # Application logic
-├── go.mod
-├── Makefile               # Build automation (optional but recommended)
-├── .gitignore             # Git ignore patterns
-├── .golangci.yml          # Linter configuration (optional)
-├── LICENSE                # License file (recommended)
-└── README.md
-```
+- `cmd` packages should wire dependencies, parse process-level options, and start
+  the application. Move reusable business behavior into a package that can be
+  tested without a process.
+- `internal` visibility is enforced by the Go toolchain: code may import an
+  `internal` package only from within the parent directory tree.
+- Use domain-specific package names; avoid catch-all `util`, `common`, and
+  `helpers` packages unless their API has a precise boundary.
+- Add `api/`, `configs/`, `scripts/`, `examples/`, or generated directories only
+  when the project has a consumer and a documented owner for them.
 
-## Libraries (Reusable Code)
+## Check before reorganizing
 
-```
-my-library/
-├── example/               # Example
-├── logger/                # Public package
-│   ├── logger.go
-│   └── logger_test.go
-├── internal/
-│   └── impl/              # Private implementation details
-│       └── core.go
-├── go.mod
-├── go.sum
-├── Makefile               # Build automation
-├── .gitignore             # Git ignore patterns
-├── .golangci.yml          # Linter configuration
-├── LICENSE                # License file
-└── README.md
+Inspect `go.mod`, import paths, build tags, generated code, deployment manifests,
+and scripts before moving a package. A directory move can change import paths and
+`internal` visibility even when code behavior is unchanged. Prefer an incremental
+move with compatibility shims only when consumers require one.
+
+Build the actual commands after layout changes:
+
+```sh
+go list ./...
+go test ./...
+go build ./cmd/...
 ```
 
-**Key points for libraries:**
-
-- Put public API in root-level directories (e.g., `logger/`)
-- Use `internal/` for private implementation
-- Don't use `cmd/` (unless you have example binaries)
-
-## The cmd/ Directory Convention
-
-**CRITICAL**: All `main` packages must reside in `cmd/`. `cmd/` MUST contain only `main.go` with minimal logic — parse flags, wire dependencies, call `Run()`. NEVER put business logic in `cmd/` — it belongs in `internal/` or `pkg/`.
-
-### Single Application
-
-```
-cmd/
-└── myapp/
-    └── main.go    // package main
-```
-
-### Multiple Applications
-
-When you need multiple binaries (e.g., server, CLI tool, migration utility):
-
-```
-cmd/
-├── server/
-│   └── main.go        // Runs the API server
-├── client/
-│   └── main.go        // CLI client tool
-├── worker/
-│   └── main.go        // Background worker
-└── migrate/
-    └── main.go        // Database migration utility
-```
-
-Each `main.go`:
-
-- Declares `package main`
-- Has its own `func main()`
-- Can be built independently: `go build ./cmd/...`
-
-**Building all binaries:**
-
-```bash
-go build ./cmd/...        # Build all main packages
-go build ./cmd/server     # Build specific binary
-```
-
-## Common Mistakes to Avoid
-
-### Don't Do This
-
-```
-myproject/
-├── src/              # Go doesn't use /src (Java pattern)
-├── main.go           # Don't put main at root
-├── utils/            # Generic package name
-├── helpers/          # Generic package name
-└── common/           # Generic package name
-```
-
-### Do This Instead
-
-```
-myproject/
-├── cmd/
-│   └── myapp/
-│       └── main.go   # Main in cmd/
-├── internal/
-│   ├── util/         # Specific utility names
-│   └── format/       # Or domain-specific names
-└── pkg/              # Only if useful to others
-```
+Use `go build ./...` when binaries may live outside `cmd/`.

@@ -80,12 +80,13 @@ func connectMySQL() (*sql.DB, error) {
     if password == "" {
         return nil, errors.New("DB_PASSWORD required")
     }
-    dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s",
-        user, password,
-        getEnvWithDefault("DB_HOST", "localhost"),
-        getEnvWithDefault("DB_PORT", "3306"),
-        getEnvWithDefault("DB_NAME", "mydb"))
-    return sql.Open("mysql", dsn)
+    cfg := mysql.NewConfig()
+    cfg.User = user
+    cfg.Passwd = password
+    cfg.Net = "tcp"
+    cfg.Addr = net.JoinHostPort(getEnvWithDefault("DB_HOST", "localhost"), getEnvWithDefault("DB_PORT", "3306"))
+    cfg.DBName = getEnvWithDefault("DB_NAME", "mydb")
+    return sql.Open("mysql", cfg.FormatDSN())
 }
 
 // PostgreSQL

@@ -66,7 +66,7 @@
       {"id": "5.2", "text": "Explains that the outer err remains nil because the inner := never assigned to it"},
       {"id": "5.3", "text": "Recommends using = (assignment) instead of := to assign to the outer err variable"},
       {"id": "5.4", "text": "Shows the fix: declare result separately (var result ResultType) and use result, err = someFunc()"},
-      {"id": "5.5", "text": "Mentions go vet -shadow or shadow analyzer as a detection tool"}
+      {"id": "5.5", "text": "Distinguishes the separately installed shadow analyzer from the standard go vet command and does not recommend go vet -shadow"}
     ]
   },
   {
@@ -300,7 +300,7 @@
     "prompt": "My Go service is experiencing periodic latency spikes. I enabled GC tracing with GODEBUG=gctrace=1 and see this output:\n```\ngc 456 @120.5s 18%: 2.1+45+1.2 ms clock, 16+12/45/8 ms cpu, 1024->900->500 MB\n```\nWhat does this tell me and is there a problem?",
     "trap": "Model focuses only on the heap sizes and misses the 18% GC CPU overhead as the key signal",
     "assertions": [
-      {"id": "22.1", "text": "Identifies that 18% GC CPU overhead is significantly high (threshold is >10%)"},
+      {"id": "22.1", "text": "Identifies 18% GC CPU overhead as potentially material for latency, while avoiding a universal threshold and asking for workload/SLO context"},
       {"id": "22.2", "text": "Explains the heap size breakdown: 1024MB before mark, 900MB after mark, 500MB after sweep"},
       {"id": "22.3", "text": "Identifies the large pause times (45ms) as a likely cause of the latency spikes"},
       {"id": "22.4", "text": "Suggests the application is over-allocating and recommends investigating allocation patterns"},
@@ -499,20 +499,20 @@
     "assertions": [
       {"id": "36.1", "text": "Identifies that filepath.Join does NOT prevent path traversal"},
       {"id": "36.2", "text": "Shows that input like '../../etc/passwd' resolves to '/etc/passwd' after Join"},
-      {"id": "36.3", "text": "Recommends verifying the result has the base directory as a prefix after Join"},
-      {"id": "36.4", "text": "Shows a safe pattern: filepath.Clean + strings.HasPrefix check"},
-      {"id": "36.5", "text": "Notes the path separator must be appended to the base to prevent partial prefix matches"}
+      {"id": "36.3", "text": "Recommends a directory-scoped API such as os.Root, or an equivalent symlink/traversal-aware confinement mechanism"},
+      {"id": "36.4", "text": "Explains why filepath.Clean plus strings.HasPrefix is insufficient against symlinks and platform path behavior"},
+      {"id": "36.5", "text": "Validates traversal, symlink, separator, and platform cases rather than relying on a lexical prefix"}
     ]
   },
   {
     "id": 37,
-    "name": "time-after-in-loop-memory-leak",
-    "description": "Tests the time.After in loop memory leak from code-review-flags and concurrency-debug",
+    "name": "time-after-in-loop-timer-churn",
+    "description": "Tests whether the model distinguishes timer churn from a proven memory leak and recommends reuse when profiling justifies it",
     "prompt": "My Go worker processes messages from a channel with a timeout. Memory usage grows over time even though messages are processed correctly. Here's the code:\n\n```go\nfor {\n    select {\n    case msg := <-incoming:\n        process(msg)\n    case <-time.After(30 * time.Second):\n        log.Println(\"idle timeout\")\n        return\n    }\n}\n```",
-    "trap": "Model suggests the message processing is leaking memory or suggests a heap profile, without identifying time.After as the leak source",
+    "trap": "Model calls every time.After in a loop an unavoidable leak instead of checking workload, Go version, and timer allocation behavior",
     "assertions": [
-      {"id": "37.1", "text": "Identifies that time.After creates a new timer on every loop iteration that isn't garbage collected until it fires"},
-      {"id": "37.2", "text": "Explains this causes a memory leak proportional to the message rate"},
+      {"id": "37.1", "text": "Identifies a new timer allocation/churn risk on each loop iteration and distinguishes it from a proven leak"},
+      {"id": "37.2", "text": "Notes that modern Go can collect unreachable timers and recommends a reusable timer only when the hot-loop workload warrants it"},
       {"id": "37.3", "text": "Recommends using time.NewTimer with Reset() or time.NewTicker instead"},
       {"id": "37.4", "text": "Shows the correct pattern with a reusable timer and defer timer.Stop()"},
       {"id": "37.5", "text": "Does NOT suggest heap profiling as the first diagnostic step for this known pattern"}

@@ -4,11 +4,11 @@ The fastest code is code that doesn't run. Caching pre-computed results, dedupli
 
 ## Compiled Pattern Caching
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for `regexp.Compile`, `regexp.MustCompile`, or `template.Parse` appearing in hot paths; their presence means patterns are being recompiled per call instead of once 2- `go test -bench -benchmem` — benchmark per-call compilation vs cached version; expect 10-12x improvement and allocs/op dropping to zero for the compilation step
+**Diagnose:** 1- `go tool pprof` (CPU profile) — look for `regexp.Compile`, `regexp.MustCompile`, or `template.Parse` appearing in hot paths; their presence may mean patterns are being recompiled per call. 2- `go test -bench -benchmem` — compare per-call compilation with a cached version and measure the actual change in time and allocations.
 
 ### Regexp at package level
 
-`regexp.Compile` parses a pattern into a state machine — ~5,700ns per compilation. Match operations on a compiled regexp cost ~450ns. Compiling per-call wastes 10-12x:
+`regexp.Compile` parses a pattern into a state machine and can dominate a hot path when repeated. Exact costs and speedups depend on the pattern, Go release, and workload; measure before and after:
 
 ```go
 // Bad — compiled on every call
@@ -78,14 +78,14 @@ func GetWeather(city string) (string, error) {
 }
 ```
 
-→ See `samber/cc-skills-golang@golang-concurrency` skill for `singleflight` API details and `sync.Map` vs `RWMutex` decision guidance. → **Generics alternative:** Use `github.com/samber/go-singleflightx` to avoid interface{} boxing overhead; expect 2-4x faster result retrieval compared to the standard library's `singleflight.Group`.
+See the local `golang-concurrency` skill for `singleflight` and synchronization trade-offs. Prefer the standard library unless a measured, reviewed alternative justifies another dependency; do not assume a fixed speedup from a generic wrapper.
 
 ### LRU caches
 
 For bounded caches with eviction, the standard library's `container/list` works but has poor cache locality (each node is a separate heap allocation). For high-performance LRU:
 
 - **`github.com/hashicorp/golang-lru`** — thread-safe, simple API
-- **`github.com/elastic/go-freelru`** — merges hashmap and ringbuffer into contiguous memory, ~37x faster than sharded implementations
+- **`github.com/elastic/go-freelru`** — alternative layout with different memory/locality trade-offs; benchmark the pinned version against the actual workload
 
 When using third-party cache libraries, refer to the library's official documentation for current API signatures.
 
@@ -101,7 +101,7 @@ Before micro-optimizing, check that the algorithm itself isn't the bottleneck. A
 | --- | --- | --- | --- |
 | `slices.Contains` in a loop | O(n·m) | Build `map[T]struct{}` first, then lookup | O(n+m) |
 | Nested loops for matching | O(n²) | Index with a map, sort+binary search, or `slices.BinarySearch` | O(n log n) or O(n) |
-| Repeated `append` without prealloc | O(n²) amortized copies | `make([]T, 0, n)` | O(n) |
+| Repeated `append` without prealloc | Usually O(n) amortized with geometric growth, but may incur extra copying and memory | `make([]T, 0, n)` when a useful estimate exists | Typically O(n), with lower growth overhead |
 | String concatenation with `+=` | O(n²) total copies | `strings.Builder` | O(n) |
 | Linear scan for min/max/dedup | O(n) per query | Sort once, query many times | O(n log n) + O(log n) per query |
 
@@ -174,7 +174,7 @@ func FromSlicePtr(items []*T) []T {
     return Map(items, func(p *T) T { return *p })
 }
 
-// Good — direct loop, inlineable, -13% to -17% time
+// Good — direct loop; measure before and after
 func FromSlicePtr(items []*T) []T {
     result := make([]T, len(items))
     for i := range items { result[i] = *items[i] }

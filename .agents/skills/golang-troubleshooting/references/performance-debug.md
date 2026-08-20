@@ -1,46 +1,7 @@
-# Performance Troubleshooting
+# Performance debugging
 
-## CPU Profiling
+Define the slow operation and workload first: throughput, p50/p95/p99 latency, CPU, allocations, memory, lock wait, or I/O. Establish a baseline under the same input size, concurrency, warm-up, and runtime settings.
 
-Use pprof CPU profile to capture a 30s sample (see [pprof.md](./pprof.md) for commands), then inspect with `top`, `web`, or `list funcName`.
+Capture CPU and heap profiles with `runtime/pprof` or a protected HTTP endpoint. Use mutex/block profiles for contention, goroutine profiles for blocked work, and trace for scheduler/timer/network sequencing. `inuse_space` or rising RSS is a leak suspect, not proof; compare retained objects after a stable workload.
 
-**Common CPU hogs:**
-
-1. JSON marshal/unmarshal in hot path — preallocate buffers, use faster libraries
-2. Reflection in critical path
-3. Unnecessary allocations — use sync.Pool
-4. O(n^2) hidden in nested loops
-5. Too many syscalls — batch operations
-
-## Memory Profiling
-
-Use pprof heap profile (see [pprof.md](./pprof.md)). Compare heap snapshots over time with `go tool pprof -base heap1.prof heap2.prof` to find growth. Use escape analysis (see [diagnostic-tools.md](./diagnostic-tools.md)) to find unexpected heap allocations in hot paths.
-
-**Common memory leaks:**
-
-1. Unbounded cache without eviction
-2. Growing slices in loops (forgetting to reset)
-3. Global maps never cleared
-4. String concatenation in loops (use `strings.Builder`)
-5. Large structs passed by value
-
-## Lock Contention
-
-**Symptoms:** CPU high but throughput low, latency increases with load, multiple cores don't help.
-
-**Enable profiling in code:**
-
-```go
-runtime.SetMutexProfileFraction(1)
-runtime.SetBlockProfileRate(1)
-```
-
-Then use pprof mutex and block profiles (see [pprof.md](./pprof.md)).
-
-**Solutions:**
-
-1. Reduce critical section — hold lock for minimal time
-2. Sharding — multiple locks for different data
-3. `sync.Map` — for read-heavy workloads
-4. `atomic` — for simple counters
-5. `RWMutex` — when reads >> writes
+Change one bottleneck at a time and verify with benchmarks (`ReportAllocs`) and `benchstat`. Avoid fixed allocation or receiver-size rules; compiler escape analysis, architecture, and workload decide whether a change helps.

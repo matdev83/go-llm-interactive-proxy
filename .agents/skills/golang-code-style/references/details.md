@@ -1,75 +1,21 @@
-# Code Style Details
+# Style decisions that need context
 
-## Extract Complex Conditions
+## Conditions
 
-When `if` conditions span multiple operands, extract into named booleans:
+Name a boolean when it captures domain meaning or prevents a condition from becoming a wall of operators. Preserve short-circuit order when a check is expensive, has side effects, or protects a later dereference.
 
 ```go
-// Good — self-documenting
-isAdmin := user.Role == RoleAdmin
 isOwner := resource.OwnerID == user.ID
-hasOverride := permissions.Contains(PermOverride)
-if isAdmin || isOwner || hasOverride {
-    allow()
-}
-
-// Bad — wall of logic
-if user.Role == RoleAdmin || resource.OwnerID == user.ID || permissions.Contains(PermOverride) {
-    allow()
-}
+canOverride := user.IsAdmin && permissions.Contains("override")
+if isOwner || canOverride { ... }
 ```
 
-**Exception:** When the last condition involves expensive processing, keep it inline to benefit from short-circuit evaluation:
+Do not create names that merely restate syntax. A small two-clause condition is often clearer inline.
 
-```go
-// Good — avoid expensive operation when possible
-if isAdmin || isOwner || expensivePermissionCheck(user, resource) {
-    allow()
-}
+## Parameters and receivers
 
-// Wasteful — always runs expensive check
-canOverride := expensivePermissionCheck(user, resource)
-if isAdmin || isOwner || canOverride {
-    allow()
-}
-```
+There is no universal parameter-count or struct-size cutoff. Group values into a domain type when they form a coherent concept or are passed together repeatedly; do not hide an awkward API behind an options struct. Choose pointer/value based on mutation, identity, method sets, copying, escape behavior, and measurements on the supported architecture.
 
-## Value vs Pointer Arguments
+## Imports and literals
 
-This covers **function parameters**, not method receivers (see `samber/cc-skills-golang@golang-structs-interfaces` skill for receiver rules).
-
-Pass small, fixed-size types by value — strings are already a (pointer, length) pair internally:
-
-```go
-// Good — value types by value
-func FormatUser(name string, age int, createdAt time.Time) string
-
-// Good — pointer for mutation
-func PopulateDefaults(cfg *Config)
-
-// Good — pointer when nil is meaningful (optional field update)
-func UpdateUser(ctx context.Context, id string, name *string) error
-
-// Bad — pointer for no reason
-func Greet(name *string) string
-```
-
-**When to use pointers**:
-
-- The function **mutates** the value
-- The struct is **large** (~128+ bytes) — avoids copying overhead
-- **Nil is meaningful** (optional/nullable parameter)
-
-**When NOT to use pointers**:
-
-- `string`, `int`, `bool`, `float64`, `time.Time` — pass by value
-- Read-only access to small structs — pass by value (better cache locality)
-- "Just to save memory" — value copy is negligible; stack allocation is fast
-
-**Memory access trade-offs when strong performance is required**:
-
-- **Values (no pointer)**: Stack allocation, excellent CPU cache locality for small types, zero indirection cost. Slower only when copying large structs.
-- **Pointers**: One extra dereference (negligible on modern CPUs), but risk cache misses if pointed-to data isn't in cache. Essential for large structs (>~128 bytes) where copy cost dominates.
-- **Rule of thumb**: For structs <~128 bytes with read-only access, values are typically faster due to cache locality. For mutation or large structs, pointers win. When in doubt, benchmark.
-
--> See the `samber/cc-skills-golang@golang-structs-interfaces` skill for pointer vs value **receiver** rules.
+Key fields in exported or cross-package struct literals. A blank import is valid when package initialization intentionally registers a driver, codec, or implementation; make the side effect visible and document it. Avoid dot imports outside narrowly controlled tests.

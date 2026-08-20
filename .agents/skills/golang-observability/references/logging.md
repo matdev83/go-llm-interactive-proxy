@@ -1,6 +1,6 @@
 # Structured Logging with `slog`
 
-→ See `samber/cc-skills-golang@golang-error-handling` skill for the single handling rule.
+See the local `golang-error-handling` skill for wrapping and public error contracts.
 
 ## Why Structured Logging
 
@@ -21,7 +21,7 @@ slog.Error("user creation failed",
 ## Handler Setup
 
 ```go
-// Production MUST use JSON — because plain-text multiline logs (eg. stack traces) would be split into separate records by log collectors
+// JSON is useful for machine ingestion; text or a custom handler can be correct when the collector preserves record boundaries.
 logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
     Level: slog.LevelInfo,
 }))
@@ -52,7 +52,7 @@ Logging is not free. Each log line costs CPU (serialization), I/O (disk/network)
 - **Debug level in production** can generate millions of log lines per minute in a busy service, overwhelming your log pipeline and inflating costs by 10-100x
 - **Info level** is the typical production default — it provides enough visibility without excessive volume
 - Debug level SHOULD be disabled in production — use `slog.LevelInfo` in production and `slog.LevelDebug` only in development or when actively debugging a specific issue
-- For high-throughput services, consider [samber/slog-sampling](https://github.com/samber/slog-sampling) to sample verbose logs (e.g., emit 1 in 100 Debug logs) rather than dropping them entirely
+- For high-throughput services, configure a reviewed sampling handler or collector policy for verbose logs; document which events may be dropped and preserve errors/security events according to the handler's actual behavior.
 
 ## Logging with Context
 
@@ -94,33 +94,15 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 - `slog.JSONHandler` — JSON to stdout/stderr
 - `slog.TextHandler` — human-readable key=value
 
-**Log record handling:**
+**Composition and middleware:**
 
-- [samber/slog-multi](https://github.com/samber/slog-multi) — fan-out to multiple handlers, routing, failover
-- [samber/slog-sampling](https://github.com/samber/slog-sampling) — sample high-volume logs to reduce cost
-- [samber/slog-formatter](https://github.com/samber/slog-formatter) — format/transform log attributes
-
-**HTTP middleware:**
-
-- [samber/slog-http](https://github.com/samber/slog-http) — HTTP server middleware (net/http, chi, fiber, echo, gin)
-- [samber/slog-gin](https://github.com/samber/slog-gin) — Gin framework middleware
-- [samber/slog-echo](https://github.com/samber/slog-echo) — Echo framework middleware
-- [samber/slog-fiber](https://github.com/samber/slog-fiber) — Fiber framework middleware
-- [samber/slog-chi](https://github.com/samber/slog-chi) — Chi router middleware
+- Compose handlers only with an API that exists in the selected Go release or a reviewed dependency; verify whether fan-out is broadcast or sequential fallback.
+- Keep HTTP middleware close to the router/application boundary so request fields can be redacted and bounded before they enter a logger.
 
 **Third-party log sinks** (see [go.dev/wiki/Resources-for-slog](https://go.dev/wiki/Resources-for-slog)):
 
 - [lmittmann/tint](https://github.com/lmittmann/tint) — colorized terminal output
-- [samber/slog-datadog](https://github.com/samber/slog-datadog) — send logs to Datadog
-- [samber/slog-sentry](https://github.com/samber/slog-sentry) — send errors to Sentry
-- [samber/slog-loki](https://github.com/samber/slog-loki) — send logs to Grafana Loki
-- [samber/slog-nats](https://github.com/samber/slog-nats) — send logs to NATS
-- [samber/slog-syslog](https://github.com/samber/slog-syslog) — send logs to syslog
-- [samber/slog-fluentd](https://github.com/samber/slog-fluentd) — send logs to Fluentd
-- [samber/slog-logrus](https://github.com/samber/slog-logrus) — bridge to Logrus
-- [samber/slog-zap](https://github.com/samber/slog-zap) — bridge to Zap
-- [samber/slog-zerolog](https://github.com/samber/slog-zerolog) — bridge to Zerolog
-- [samber/slog-slack](https://github.com/samber/slog-slack) — send critical logs to Slack
+- Choose a maintained exporter or handler for the target sink and verify its client initialization, batching defaults, retry/flush semantics, credentials, and failure behavior before adding it.
 
 ## Migrating from zap / logrus / zerolog
 
@@ -129,16 +111,12 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 **Step 1: Bridge** — route `slog` output through the existing logger so you can migrate call sites incrementally without changing log output:
 
 ```go
-// Example: bridge slog → zap (same pattern for logrus/zerolog)
-import slogzap "github.com/samber/slog-zap/v2"
-
-zapLogger, _ := zap.NewProduction()
-slog.SetDefault(slog.New(
-    slogzap.Option{Level: slog.LevelInfo, Logger: zapLogger}.NewZapHandler(),
-))
+// Pseudocode: use the selected bridge's documented constructor.
+legacyLogger := newLegacyLogger()
+slog.SetDefault(slog.New(newBridgeHandler(legacyLogger)))
 ```
 
-Available bridges: [samber/slog-zap](https://github.com/samber/slog-zap), [samber/slog-logrus](https://github.com/samber/slog-logrus), [samber/slog-zerolog](https://github.com/samber/slog-zerolog)
+Verify the selected bridge's current import path and API against its documentation; do not assume all bridges have the same options or concurrency behavior.
 
 **Step 2: Replace call sites** — change all logger calls to `slog`:
 

@@ -41,6 +41,13 @@ foreach ($group in $manifest.groups.PSObject.Properties) {
     }
 }
 
+$goSkillNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+if ($null -ne $manifest.groups.golang) {
+    foreach ($name in $manifest.groups.golang) {
+        [void]$goSkillNames.Add([string]$name)
+    }
+}
+
 $duplicateDeclarations = $declaredNames | Group-Object | Where-Object Count -gt 1
 foreach ($duplicate in $duplicateDeclarations) {
     $errors.Add("duplicate catalog declaration: $($duplicate.Name)")
@@ -106,6 +113,82 @@ foreach ($name in $actualNames) {
             $fields[$field] = [pscustomobject]@{ Index = $index; Value = $value }
             if (-not $allowedFrontmatter.Contains($field)) {
                 $errors.Add("unsupported frontmatter field '$field' in $name")
+            }
+        }
+    }
+
+
+    if ($goSkillNames.Contains($name)) {
+        foreach ($field in $fields.Keys) {
+            if ($field -notin @('name', 'description')) {
+                $errors.Add("Go skill '$name' has non-portable frontmatter field '$field'")
+            }
+        }
+
+        if ($lines.Count -gt 500) {
+            $errors.Add("Go skill entrypoint exceeds 500 lines: $name ($($lines.Count))")
+        }
+
+        $skillRoot = Split-Path -Parent $skillPath
+        $forbiddenPatterns = [ordered]@{
+            'upstream skill package reference' = 'samber/cc-skills'
+            'upstream override policy'         = 'Community default|company skill|company-specific|company default'
+            'agent-specific orchestration'     = 'ultracode|sub-?agents?|Agent tool|EnterWorktree'
+            'unrelated documentation service'  = 'Context7|DeepWiki|OpenDeep|zRead'
+        }
+
+        foreach ($file in Get-ChildItem -LiteralPath $skillRoot -Recurse -File) {
+            if ($file.Extension -notin @('.md', '.json', '.yml', '.yaml', '.go')) {
+                continue
+            }
+
+            $content = Get-Content -Raw -LiteralPath $file.FullName
+
+            if ($file.Extension -eq '.json') {
+                try {
+                    $null = $content | ConvertFrom-Json
+                }
+                catch {
+                    $relativePath = [System.IO.Path]::GetRelativePath($repositoryRootPath, $file.FullName)
+                    $errors.Add("invalid JSON in Go skill file '$relativePath': $($_.Exception.Message)")
+                }
+            }
+
+            if ($file.Extension -eq '.md' -and $file.FullName -notmatch '[\\/]assets[\\/]') {
+                $proseContent = [regex]::Replace($content, '(?s)(?:```|~~~).*?(?:```|~~~)', '')
+                $proseContent = [regex]::Replace($proseContent, '`[^`]*`', '')
+                foreach ($match in [regex]::Matches($proseContent, '\[[^\]]+\]\(([^)]+)\)')) {
+                    $target = $match.Groups[1].Value.Trim().Trim('<', '>')
+                    if ($target -match '^(?:[a-z][a-z0-9+.-]*:|#)' -or $target -match '^/') {
+                        continue
+                    }
+
+                    # Generic Go calls such as Invoke[T](value) are valid prose/code but
+                    # resemble Markdown links. Real relative targets should not contain
+                    # unescaped whitespace or argument separators.
+                    if ($target -match '[\s,]') {
+                        continue
+                    }
+
+                    $targetPath = ($target -split '#', 2)[0]
+                    if ([string]::IsNullOrWhiteSpace($targetPath)) {
+                        continue
+                    }
+
+                    $decodedPath = [System.Uri]::UnescapeDataString($targetPath)
+                    $resolvedTarget = Join-Path $file.DirectoryName $decodedPath
+                    if (-not (Test-Path -LiteralPath $resolvedTarget)) {
+                        $relativePath = [System.IO.Path]::GetRelativePath($repositoryRootPath, $file.FullName)
+                        $errors.Add("broken relative link in '$relativePath': $target")
+                    }
+                }
+            }
+
+            foreach ($entry in $forbiddenPatterns.GetEnumerator()) {
+                if ($content -match $entry.Value) {
+                    $relativePath = [System.IO.Path]::GetRelativePath($repositoryRootPath, $file.FullName)
+                    $errors.Add("$($entry.Key) in Go skill file: $relativePath")
+                }
             }
         }
     }

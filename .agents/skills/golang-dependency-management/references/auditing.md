@@ -17,8 +17,8 @@ With `go 1.17` or higher in `go.mod`, Go prunes the module graph: transitive dep
 ### Upgrading With or Without Test Dependencies
 
 ```bash
-go get -u ./...       # Upgrade deps, EXCLUDING test-only deps
-go get -u -t ./...    # Upgrade deps, INCLUDING test-only deps
+go get -u ./...       # Broad upgrade; review all graph changes and test carefully
+go get -u -t ./...    # Broad upgrade including test dependencies; review all graph changes
 ```
 
 ### Impact on Binary Size
@@ -47,7 +47,7 @@ govulncheck -test ./...
 
 Output shows the vulnerability ID, affected module, fixed version, and the call trace from your code to the vulnerable function. If a vulnerability exists in a dependency but your code never calls the affected function, `govulncheck` does not flag it.
 
-For CI pipeline integration, see the `samber/cc-skills-golang@golang-continuous-integration` skill.
+For CI pipeline integration, see the local `golang-continuous-integration` skill.
 
 ## Tracking Outdated Dependencies with go-mod-outdated
 
@@ -78,7 +78,7 @@ goweight --json   # JSON output for CI tracking
 **Modern alternative**: [go-size-analyzer](https://github.com/Zxilly/go-size-analyzer) (`gsa`) supports ELF, Mach-O, PE, and WebAssembly formats with interactive HTML/SVG visualization:
 
 ```bash
-go get -tool github.com/Zxilly/go-size-analyzer/cmd/gsa@latest
+go get -tool github.com/Zxilly/go-size-analyzer/cmd/gsa@vX.Y.Z # replace with a reviewed release
 go build -o ./myapp ./cmd/myapp
 go tool gsa -f html -o size-report.html ./myapp
 ```

@@ -99,7 +99,7 @@ for dec.More() {
 
 ## JSON Performance
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for `encoding/json.(*Decoder).Decode`, `reflect.Value.*`, or `encoding/json.Marshal` consuming significant CPU; these indicate reflection-based JSON is the bottleneck 2- `go test -bench -benchmem` — measure ns/op and allocs/op for marshal/unmarshal; expect high alloc counts from reflection; code-gen alternatives should show 2-5x fewer allocs
+**Diagnose:** profile JSON encode/decode calls, then benchmark candidate encoders with representative payloads and compatibility tests.
 
 The standard `encoding/json` package uses reflection to inspect struct fields at runtime. For high-throughput services, this creates significant CPU and allocation overhead.
 
@@ -107,7 +107,7 @@ The standard `encoding/json` package uses reflection to inspect struct fields at
 
 - **Custom `MarshalJSON`/`UnmarshalJSON`** — hand-written methods for hot-path types eliminate reflection
 - **Code-generation libraries** — `easyjson`, `ffjson` generate marshal/unmarshal methods at build time, no reflection at runtime
-- **Drop-in replacements** — `github.com/goccy/go-json`, `github.com/json-iterator/go`, `github.com/bytedance/sonic` offer 2-5x better performance
+- **Alternative encoders** — evaluate compatibility, maintenance, architecture support, and measured performance before adopting one
 - **`encoding/json/v2`** (experimental, behind `GOEXPERIMENT=jsonv2`) — evaluate deliberately; most production code should keep `encoding/json` unless the project explicitly opts into the experiment
 
 When using third-party JSON libraries, refer to the library's official documentation for up-to-date API signatures.
@@ -135,9 +135,9 @@ Additional cgo costs: goroutine is pinned to an OS thread, C code cannot be pree
 
 ## Buffered I/O
 
-**Diagnose:** 1- `go test -bench` — benchmark buffered vs unbuffered I/O; expect 3-10x improvement from reducing syscall count 2- `go tool trace` — look for frequent short syscalls (`pread`, `pwrite`) in rapid succession; many tiny I/O operations indicate unbuffered access
+**Diagnose:** benchmark buffered versus unbuffered I/O for the real operation and inspect traces for frequent small syscalls.
 
-Unbuffered file reads/writes issue a syscall per operation. `bufio.Reader` and `bufio.Writer` batch small operations, reducing syscalls by 10x or more:
+Small unbuffered operations may issue many syscalls. `bufio.Reader` and `bufio.Writer` batch them; measure the latency and memory trade-off:
 
 ```go
 // Bad — syscall per line
@@ -226,7 +226,7 @@ With batching per stage, total throughput = min(A_throughput, B_throughput, C_th
 - **Latency matters more than throughput** — A single record now travels through 3 stages in parallel, increasing per-record latency.
 - **Memory is tight** — Each stage's channel buffer is a memory budget; deeply buffered channels can exhaust available RAM.
 
-→ See `samber/cc-skills-golang@golang-concurrency` skill for detailed channel patterns and when to use worker pools instead.
+See the local `golang-concurrency` skill for channel patterns and bounded worker lifetimes.
 
 ## Batch Operations
 
@@ -258,7 +258,7 @@ for i := 0; i < len(users); i += batchSize {
 }
 ```
 
-→ See `samber/cc-skills-golang@golang-database` skill for detailed batch patterns and connection pool configuration.
+See the local `golang-database` skill for batch patterns and connection pool configuration.
 
 ### HTTP: batch API calls
 

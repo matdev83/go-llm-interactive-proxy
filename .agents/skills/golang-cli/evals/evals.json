@@ -31,7 +31,7 @@
   {
     "id": 2,
     "name": "viper-config-layering",
-    "description": "Tests proper Viper configuration precedence: flags > env > config file > defaults, with env prefix and config-file-not-required",
+    "description": "Tests Viper configuration precedence, including explicit overrides, flags, env, config file, and defaults, with env prefix and config-file-not-required",
     "prompt": "I'm building a Go CLI server tool with Cobra. It needs a --port flag (default 3000) that can also be set via the MYSERVER_PORT env var or a config file at ~/.myserver.yaml. Write the configuration setup code.",
     "trap": "Model doesn't bind flags to Viper (so flags and env/config are disconnected), forgets SetEnvPrefix (causing env var collisions), or crashes when no config file exists instead of ignoring ConfigFileNotFoundError.",
     "assertions": [
@@ -53,7 +53,7 @@
       },
       {
         "id": "2.5",
-        "text": "The precedence order is correct: CLI flags > environment variables > config file > defaults"
+        "text": "Documents/tests the order: explicit Set > bound CLI flags > environment variables > config file > key/value store > defaults"
       }
     ]
   },

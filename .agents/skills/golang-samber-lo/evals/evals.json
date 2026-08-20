@@ -111,10 +111,10 @@
       "id": 9,
       "name": "simd-production-stability",
       "prompt": "I want to use lo/exp/simd for optimizing numeric array operations in my production Go service. It processes millions of float64 values. Is this a good idea?",
-      "expected_output": "Should warn that simd is experimental, API may break between versions, not covered by semver stability. Recommend benchmarking first.",
+      "expected_output": "Should verify whether the pinned release actually contains lo/exp/simd. If it does not, say the path is unavailable instead of inventing an import; recommend a supported implementation and benchmarking first.",
       "assertions": [
-        {"text": "Warns that lo/exp/simd is experimental and API may break between versions", "type": "semantic"},
-        {"text": "States it is NOT covered by semver stability guarantees", "type": "semantic"},
+        {"text": "Checks the pinned module and warns that lo/exp/simd is not an available stable package in the target release", "type": "semantic"},
+        {"text": "Does not fabricate an import path or stability guarantee for an absent package", "type": "semantic"},
         {"text": "Recommends benchmarking to verify actual performance gains before adopting", "type": "semantic"},
         {"text": "Suggests version pinning if used despite experimental status", "type": "semantic"},
         {"text": "Does NOT unconditionally recommend simd for production use", "type": "semantic"}
@@ -141,7 +141,7 @@
       "assertions": [
         {"text": "Recommends lo.Map instead of lop.Map for 10 items", "type": "semantic"},
         {"text": "Explains that goroutine creation overhead exceeds any performance benefit for small datasets", "type": "semantic"},
-        {"text": "Mentions a rough threshold (e.g., lop benefits start around 1000+ items for CPU-bound work)", "type": "semantic"},
+        {"text": "Avoids a universal item-count threshold and recommends benchmarking the actual CPU-bound workload", "type": "semantic"},
         {"text": "Notes that field access (extracting email) is trivial and doesn't benefit from parallelism", "type": "semantic"},
         {"text": "Does NOT recommend lop.Map for this use case", "type": "semantic"}
       ]
@@ -202,12 +202,12 @@
       "id": 16,
       "name": "lo-zero-dependencies",
       "prompt": "My team is concerned about adding samber/lo as a dependency. They worry about transitive dependencies and supply chain risk. What dependencies does samber/lo pull in?",
-      "expected_output": "Should state that samber/lo has zero external runtime dependencies — it relies only on Go's standard library.",
+      "expected_output": "Should inspect the pinned go.mod and state its actual dependency footprint, including golang.org/x/text for the current release, then discuss supply-chain risk proportionately.",
       "assertions": [
-        {"text": "States that samber/lo has zero external/runtime dependencies", "type": "semantic"},
-        {"text": "Mentions it relies only on Go's standard library", "type": "semantic"},
-        {"text": "Addresses the supply chain concern by noting minimal transitive dependency risk", "type": "semantic"},
-        {"text": "Does NOT claim lo has external dependencies", "type": "semantic"}
+        {"text": "Identifies the current module's actual dependency list rather than claiming zero dependencies", "type": "semantic"},
+        {"text": "Mentions golang.org/x/text when discussing the pinned v1.53 release", "type": "semantic"},
+        {"text": "Addresses supply-chain risk in proportion to the dependency graph and project policy", "type": "semantic"},
+        {"text": "Does NOT hide or minimize a known transitive dependency", "type": "semantic"}
       ]
     },
     {

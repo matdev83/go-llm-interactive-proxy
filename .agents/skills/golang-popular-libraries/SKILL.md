@@ -1,66 +1,37 @@
 ---
 name: golang-popular-libraries
-description: "Go libraries: suggestions, alternatives, dependency choice, dependency vetting."
-license: MIT
-metadata:
-  author: samber
-  version: "1.1.4"
-  openclaw:
-    emoji: "📚"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-    install: []
+description: Select and evaluate Go libraries by fit, maintenance, API stability, security, licensing, and integration cost, with the standard library as the baseline.
 ---
 
-**Persona:** You are a Go ecosystem expert. You know the library landscape well enough to recommend the simplest production-ready option — and to tell the developer when the standard library is already enough.
+# Go library selection
 
-# Go Libraries and Frameworks Recommendations
+Library popularity is not a correctness signal. Start with the standard library and the module's existing dependencies. Add a dependency when it removes meaningful risk or complexity and its maintenance, license, transitive graph, and operational behavior are acceptable.
 
-## Core Philosophy
+Before recommending a package, verify its current module path, latest compatible release, supported Go versions, license, repository activity, security advisories, and the API in the exact version the project will pin. Do not infer a maintainer or lifecycle guarantee from a README badge.
 
-When recommending libraries, prioritize:
+## Practical evaluation
 
-1. **Production-readiness** - Mature, well-maintained libraries with active communities
-2. **Simplicity** - Go's philosophy favors simple, idiomatic solutions
-3. **Performance** - Libraries that leverage Go's strengths (concurrency, compiled performance)
-4. **Standard Library First** - SHOULD prefer stdlib when it covers the use case; only recommend external libs when they provide clear value
+Compare candidates against the actual constraint:
 
-## Reference Catalogs
+- standard-library capability and missing behavior;
+- API fit and whether context/cancellation are supported;
+- failure, retry, timeout, and resource-ownership semantics;
+- compatibility with the project's Go version and build targets;
+- transitive dependencies, generated code, CGO, and binary size;
+- release cadence, issue responsiveness, license, and known vulnerabilities;
+- migration and exit cost.
 
-- [Standard Library - New & Experimental](./references/stdlib.md) — v2 packages, promoted x/exp packages, golang.org/x extensions
-- [Libraries by Category](./references/libraries.md) — vetted third-party libraries for web, database, testing, logging, messaging, and more
-- [Development Tools](./references/tools.md) — debugging, linting, testing, and dependency management tools
+Prefer a small, direct dependency to an abstraction stack. Keep third-party calls behind a narrow adapter when the library is volatile or external. Pin versions through normal Go module review; run go mod tidy and tests after changes. Never use go get -u as an unreviewed bulk upgrade.
 
-Find more libraries here: <https://github.com/avelino/awesome-go>
+## Useful baselines
 
-This skill is not exhaustive. Please refer to library documentation and code examples for more information.
+- HTTP: net/http, httptest, and standard URL/encoding packages cover many clients and servers.
+- JSON: encoding/json is the stable baseline. Do not use old golang.org/x/exp/json guidance as if it were a released encoding/json/v2 API; verify the target Go release and module path.
+- Logging: log/slog with a handler selected for the deployment.
+- SQL: database/sql plus a driver; sqlx or pgx when their explicit features justify them.
+- RPC: google.golang.org/grpc or net/http according to the wire contract.
+- Tests: testing, fuzzing, and benchmark support; testify is optional.
+- CLI: flag for small tools, then a command framework when command-tree features justify it.
+- Schema/migrations: use the project's reviewed migration tool and driver conventions.
 
-## General Guidelines
-
-When recommending libraries:
-
-1. **Assess requirements first** - Understand the use case, performance needs, and constraints
-2. **Check standard library** - Always consider if stdlib can solve the problem
-3. **Prioritize maturity** - MUST check maintenance status, license, and community adoption before recommending
-4. **Consider complexity** - Simpler solutions are usually better in Go
-5. **Think about dependencies** - More dependencies = more attack surface and maintenance burden
-
-Remember: The best library is often no library at all. Go's standard library is excellent and sufficient for many use cases.
-
-## Anti-Patterns to Avoid
-
-- Over-engineering simple problems with complex libraries
-- Using libraries that wrap standard library functionality without adding value
-- Abandoned or unmaintained libraries: ask the developer before recommending these
-- Suggesting libraries with large dependency footprints for simple needs
-- Ignoring standard library alternatives
-
-## Cross-References
-
-- → See `samber/cc-skills-golang@golang-dependency-management` skill for adding, auditing, and managing dependencies
-- → See `samber/cc-skills-golang@golang-samber-do` skill for samber/do dependency injection details
-- → See `samber/cc-skills-golang@golang-samber-oops` skill for samber/oops error handling details
-- → See `samber/cc-skills-golang@golang-stretchr-testify` skill for testify testing details
-- → See `samber/cc-skills-golang@golang-grpc` skill for gRPC implementation details
+Examples in this skill are categories, not a mandated stack. Check pkg.go.dev and the upstream repository for exact symbols, versions, and security notices before writing code.

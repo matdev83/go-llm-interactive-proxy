@@ -94,11 +94,11 @@ go build -gcflags="-m" ./pkg/handler 2>&1 | grep -E "(inline|escape|moved to hea
 
 ```
 ./pkg/handler/handler.go:20:6: can inline validateInput
-./pkg/handler/handler.go:35:6: cannot inline HandleRequest: function too complex: cost 120 exceeds budget 80
+./pkg/handler/handler.go:35:6: cannot inline HandleRequest: function too complex (the compiler reports its current cost/budget)
 ./pkg/handler/handler.go:42:19: inlining call to validateInput
 ```
 
-The inline cost budget is 80 (as of Go 1.22+). Functions with higher cost (more AST nodes, complex control flow) are not inlined.
+Inlining cost budgets and heuristics are compiler implementation details and can change between Go releases. Use the diagnostics from the toolchain being built and benchmark any simplification.
 
 ### Common inlining blockers
 
@@ -112,7 +112,7 @@ The inline cost budget is 80 (as of Go 1.22+). Functions with higher cost (more 
 | **`select` statement** | Complex runtime interaction | Simplify channel patterns in hot functions |
 | **Large function body** | Many statements add up in cost | Break into smaller functions — the hot inner function may inline |
 
-**Value receivers vs pointer receivers:** Value receivers enable full inlining of method chains. Pointer receivers add indirection that can block inlining for fluent APIs. Check with `-gcflags="-m"`.
+**Value receivers vs pointer receivers:** Neither receiver kind guarantees or prevents inlining. Check `-gcflags="-m=2"` and benchmark copying, escape behavior, and method-set effects.
 
 ## SSA Dump
 

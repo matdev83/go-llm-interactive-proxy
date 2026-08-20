@@ -1,6 +1,6 @@
 # Application Documentation
 
-→ See `samber/cc-skills-golang@golang-cli` skill for CLI application patterns and frameworks.
+See the local `golang-cli` skill for CLI application patterns and framework trade-offs.
 
 ## CLI Help Text
 
@@ -132,7 +132,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 Generate the spec:
 
 ```bash
-go get -tool github.com/swaggo/swag/cmd/swag@latest
+go get -tool github.com/swaggo/swag/cmd/swag@vX.Y.Z # replace with a reviewed release
 go tool swag init -g cmd/server/main.go -o docs/swagger
 ```
 

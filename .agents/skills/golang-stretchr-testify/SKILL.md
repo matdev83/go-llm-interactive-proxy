@@ -1,192 +1,50 @@
 ---
 name: golang-stretchr-testify
-description: "Comprehensive guide to stretchr/testify for Golang testing. Covers assert, require, mock, and suite packages in depth. Use when writing tests with testify, creating mocks, setting up test suites, or choosing between assert and require. Covers testify assertions, mock expectations, argument matchers, call verification, suite lifecycle, and advanced patterns like Eventually, JSONEq, and custom matchers. Apply when the codebase imports github.com/stretchr/testify."
-license: MIT
-metadata:
-  author: samber
-  version: "1.2.3"
-  openclaw:
-    emoji: "✅"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-        - gotests
-    install:
-      - kind: go
-        package: github.com/cweill/gotests/...@latest
-        bins: [gotests]
-    skill-library-version: "1.11.1"
+description: Use stretchr/testify with Go testing for assertions, fatal preconditions, mocks, suites, polling, and clear failure diagnostics.
 ---
-
-**Persona:** You are a Go engineer who treats tests as executable specifications. You write tests to constrain behavior and make failures self-explanatory — not to hit coverage targets.
-
-**Modes:**
-
-- **Write mode** — adding new tests or mocks to a codebase.
-- **Review mode** — auditing existing test code for testify misuse.
 
 # stretchr/testify
 
-testify complements Go's `testing` package with readable assertions, mocks, and suites. It does not replace `testing` — always use `*testing.T` as the entry point.
+Testify complements testing.T; it does not replace the standard test runner. Pin the module version and confirm assertion or mock signatures in that version.
 
-This skill is not exhaustive. Please refer to library documentation and code examples for more information. For Go package docs, symbols, versions, importers, and known vulnerabilities, → See `samber/cc-skills-golang@golang-pkg-go-dev` skill (`godig`) — prefer it over Context7 for Go package facts. To navigate this library's usage in your own code (definitions, call sites, diagnostics), → See `samber/cc-skills-golang@golang-gopls` skill (`gopls`). Context7 remains a fallback for docs not indexed on pkg.go.dev.
+## assert and require
 
-## assert vs require
+Use require for setup/preconditions where continuing would panic or produce misleading failures. Use assert for independent checks whose failures should accumulate. Both use expected, actual argument order.
 
-Both offer identical assertions. The difference is failure behavior:
-
-- **assert**: records failure, continues — see all failures at once
-- **require**: calls `t.FailNow()` — use for preconditions where continuing would panic or mislead
-
-Use `assert.New(t)` / `require.New(t)` for readability. Name them `is` and `must`:
-
-```go
-func TestParseConfig(t *testing.T) {
-    is := assert.New(t)
+~~~go
+func TestParse(t *testing.T) {
     must := require.New(t)
+    is := assert.New(t)
 
-    cfg, err := ParseConfig("testdata/valid.yaml")
-    must.NoError(err)    // stop if parsing fails — cfg would be nil
-    must.NotNil(cfg)
-
-    is.Equal("production", cfg.Environment)
-    is.Equal(8080, cfg.Port)
-    is.True(cfg.TLS.Enabled)
+    got, err := Parse("valid")
+    must.NoError(err)
+    must.NotNil(got)
+    is.Equal("valid", got.Name)
 }
-```
+~~~
 
-**Rule**: `require` for preconditions (setup, error checks), `assert` for verifications. Never mix randomly.
+Equal uses deep equality, including the values pointed to by pointers; it does not assert pointer identity. Use assert.Same when the same object address is the contract, and compare fields or values when identity is irrelevant. Use ErrorIs/ErrorAs for wrapped errors, InDelta/WithinDuration for measured values, ElementsMatch for unordered collections, and JSONEq only when JSON semantic equality is intended.
 
-## Core Assertions
+Eventually and EventuallyWithT are bounded polling helpers. Keep the timeout realistic, make the poll function safe, and include a final diagnostic. They do not make an eventually-consistent system deterministic; choose a readiness/observation contract.
 
-```go
-is := assert.New(t)
+## Mocks
 
-// Equality
-is.Equal(expected, actual)              // DeepEqual + exact type
-is.NotEqual(unexpected, actual)
-is.EqualValues(expected, actual)        // converts to common type first
-is.EqualExportedValues(expected, actual)
+A mock embeds mock.Mock and delegates methods through Called. Match only behavior relevant to the test. Prefer mock.AnythingOfType or MatchedBy when exact values are not the contract, but avoid broad matchers that hide wrong arguments. Use Once/Times/Maybe/Run deliberately and call AssertExpectations in teardown or at the end of the test.
 
-// Nil / Bool / Emptiness
-is.Nil(obj)                  is.NotNil(obj)
-is.True(cond)                is.False(cond)
-is.Empty(collection)         is.NotEmpty(collection)
-is.Len(collection, n)
+Do not make a mock more permissive than the production interface. Preserve return arity, typed nil behavior, context arguments, and error identity. A fake may be clearer than a mock for stateful repositories.
 
-// Contains (strings, slices, map keys)
-is.Contains("hello world", "world")
-is.Contains([]int{1, 2, 3}, 2)
-is.Contains(map[string]int{"a": 1}, "a")
+## Suites
 
-// Comparison
-is.Greater(actual, threshold)     is.Less(actual, ceiling)
-is.Positive(val)                  is.Negative(val)
-is.Zero(val)
+A suite is optional organization around testing.T. SetupSuite and TearDownSuite run once; SetupTest and TearDownTest run around each test. The launcher is required:
 
-// Errors
-is.Error(err)                     is.NoError(err)
-is.ErrorIs(err, ErrNotFound)      // walks error chain
-is.ErrorAs(err, &target)
-is.ErrorContains(err, "not found")
-
-// Type
-is.IsType(&User{}, obj)
-is.Implements((*io.Reader)(nil), obj)
-```
-
-**Argument order**: always `(expected, actual)` — swapping produces confusing diff output.
-
-## Advanced Assertions
-
-```go
-is.ElementsMatch([]string{"b", "a", "c"}, result)             // unordered comparison
-is.InDelta(3.14, computedPi, 0.01)                            // float tolerance
-is.JSONEq(`{"name":"alice"}`, `{"name": "alice"}`)             // ignores whitespace/key order
-is.WithinDuration(expected, actual, 5*time.Second)
-is.Regexp(`^user-[a-f0-9]+$`, userID)
-
-// Async polling
-is.Eventually(func() bool {
-    status, _ := client.GetJobStatus(jobID)
-    return status == "completed"
-}, 5*time.Second, 100*time.Millisecond)
-
-// Async polling with rich assertions
-is.EventuallyWithT(func(c *assert.CollectT) {
-    resp, err := client.GetOrder(orderID)
-    assert.NoError(c, err)
-    assert.Equal(c, "shipped", resp.Status)
-}, 10*time.Second, 500*time.Millisecond)
-```
-
-## testify/mock
-
-Mock interfaces to isolate the unit under test. Embed `mock.Mock`, implement methods with `m.Called()`, always verify with `AssertExpectations(t)`.
-
-Key matchers: `mock.Anything`, `mock.AnythingOfType("T")`, `mock.MatchedBy(func)`. Call modifiers: `.Once()`, `.Times(n)`, `.Maybe()`, `.Run(func)`.
-
-For defining mocks, argument matchers, call modifiers, return sequences, and verification, see [Mock reference](./references/mock.md).
-
-## testify/suite
-
-Suites group related tests with shared setup/teardown.
-
-### Lifecycle
-
-```
-SetupSuite()    → once before all tests
-  SetupTest()   → before each test
-    TestXxx()
-  TearDownTest() → after each test
-TearDownSuite() → once after all tests
-```
-
-### Example
-
-```go
-type TokenServiceSuite struct {
-    suite.Suite
-    store   *MockTokenStore
-    service *TokenService
+~~~go
+func TestAccountSuite(t *testing.T) {
+    suite.Run(t, new(AccountSuite))
 }
+~~~
 
-func (s *TokenServiceSuite) SetupTest() {
-    s.store = new(MockTokenStore)
-    s.service = NewTokenService(s.store)
-}
+Keep suite state isolated and avoid parallel tests that share mutable fields. Plain table-driven tests are often simpler.
 
-func (s *TokenServiceSuite) TestGenerate_ReturnsValidToken() {
-    s.store.On("Save", mock.Anything, mock.Anything).Return(nil)
-    token, err := s.service.Generate("user-42")
-    s.NoError(err)
-    s.NotEmpty(token)
-    s.store.AssertExpectations(s.T())
-}
+## Review checklist
 
-// Required launcher
-func TestTokenServiceSuite(t *testing.T) {
-    suite.Run(t, new(TokenServiceSuite))
-}
-```
-
-Suite methods like `s.Equal()` behave like `assert`. For require: `s.Require().NotNil(obj)`.
-
-## Common Mistakes
-
-- **Forgetting `AssertExpectations(t)`** — mock expectations silently pass without verification
-- **`is.Equal(ErrNotFound, err)`** — fails on wrapped errors. Use `is.ErrorIs` to walk the chain
-- **Swapped argument order** — testify assumes `(expected, actual)`. Swapping produces backwards diffs
-- **`assert` for guards** — test continues after failure and panics on nil dereference. Use `require`
-- **Missing `suite.Run()`** — without the launcher function, zero tests execute silently
-- **Comparing pointers** — `is.Equal(ptr1, ptr2)` compares addresses. Dereference or use `EqualExportedValues`
-
-## Linters
-
-Use `testifylint` to catch wrong argument order, assert/require misuse, and more. See `samber/cc-skills-golang@golang-lint` skill.
-
-## Cross-References
-
-- → See `samber/cc-skills-golang@golang-testing` skill for general test patterns, table-driven tests, and CI
-- → See `samber/cc-skills-golang@golang-lint` skill for testifylint configuration
+Check assertion order, fatal versus non-fatal guards, pointer identity versus equality, wrapped errors, matcher specificity, expectation verification, cleanup, goroutine leaks, and bounded polling. Run gofmt and focused go test. Use testifylint or another linter only as an aid; it does not replace reviewing the behavior contract.

@@ -1,107 +1,23 @@
-# Context in HTTP Servers & Service Calls
+# Context in HTTP services
 
-## Context in HTTP Servers
+`http.Request.Context()` is canceled when the client disconnects, the request is canceled, or the handler returns. Pass it to downstream calls that should stop with the request. `http.NewRequestWithContext` attaches the signal to an outbound request; do not mutate a request’s context in place.
 
-`http.Request` carries a context that is cancelled when the client disconnects or the request handler returns. MUST use `r.Context()` — NEVER create a new `context.Background()` inside a handler.
+Set server-level timeouts (`ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`) according to the service contract. A handler can derive a shorter operation deadline when needed and must call its cancel function.
 
 ```go
-func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context() // this context is cancelled if the client disconnects
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 800*time.Millisecond)
+    defer cancel()
 
-    order, err := h.orderService.Get(ctx, r.PathValue("id"))
+    result, err := service.Lookup(ctx, r.URL.Query().Get("id"))
     if err != nil {
-        if ctx.Err() != nil {
-            // Client disconnected, no point writing a response
-            return
-        }
-        http.Error(w, "internal error", http.StatusInternalServerError)
+        writePublicError(w, err)
         return
     }
-
-    json.NewEncoder(w).Encode(order)
+    render(w, result)
 }
 ```
 
-## Middleware enriching context
+Do not use a request context for work that must outlive the response. Submit a bounded job to an owned queue and copy only required metadata. On shutdown, stop accepting work, cancel workers, drain or reject queued jobs according to policy, and wait for completion.
 
-Middleware injects request-scoped values before handlers run. Use unexported key types to prevent collisions:
-
-```go
-// Helpers for trace propagation
-type contextKey string
-const (
-    traceIDKey contextKey = "trace_id"
-    spanIDKey  contextKey = "span_id"
-)
-
-func TracingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        traceID := r.Header.Get("X-Trace-ID")
-        if traceID == "" {
-            traceID = generateTraceID()
-        }
-        spanID := r.Header.Get("X-Span-ID")
-        if spanID == "" {
-            spanID = generateSpanID()
-        }
-
-        ctx := context.WithValue(r.Context(), traceIDKey, traceID)
-        ctx = context.WithValue(ctx, spanIDKey, spanID)
-
-        w.Header().Set("X-Trace-ID", traceID)
-        w.Header().Set("X-Span-ID", spanID)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
-}
-
-// Propagate trace context to downstream services
-func (c *HTTPClient) Do(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
-    req, err := http.NewRequestWithContext(ctx, method, url, body)
-    if err != nil {
-        return nil, fmt.Errorf("creating request: %w", err)
-    }
-
-    if traceID, ok := ctx.Value(traceIDKey).(string); ok {
-        req.Header.Set("X-Trace-ID", traceID)
-    }
-    if spanID, ok := ctx.Value(spanIDKey).(string); ok {
-        req.Header.Set("X-Span-ID", spanID)
-    }
-    return c.client.Do(req)
-}
-```
-
-## Context in Calls to Other Services
-
-Context MUST be propagated to all HTTP clients and databases using context-aware APIs: `http.NewRequestWithContext`, `QueryContext`, `ExecContext`, and `QueryRowContext`. This ensures that client disconnections cancel all downstream operations.
-
-```go
-// ✗ Bad — downstream calls ignore the request context
-func (c *PaymentClient) Charge(ctx context.Context, amount int) error {
-    req, _ := http.NewRequest("POST", c.url+"/charge", body)
-    return c.client.Do(req) // not context-aware
-}
-
-// ✓ Good — all downstream operations respect the context
-func (c *PaymentClient) Charge(ctx context.Context, amount int) error {
-    req, err := http.NewRequestWithContext(ctx, "POST", c.url+"/charge", body)
-    if err != nil {
-        return fmt.Errorf("creating request: %w", err)
-    }
-    return c.client.Do(req)
-}
-```
-
-```go
-// ✗ Bad — downstream calls ignore the request context
-func (r *UserRepo) FindByID(ctx context.Context, id string) (*User, error) {
-    row := r.db.QueryRow("SELECT * FROM users WHERE id = $1", id)
-    // ...
-}
-
-// ✓ Good — all downstream operations respect the context
-func (r *UserRepo) FindByID(ctx context.Context, id string) (*User, error) {
-    row := r.db.QueryRowContext(ctx, "SELECT * FROM users WHERE id = $1", id)
-    // ...
-}
-```
+Do not log raw context values or request headers indiscriminately; redact credentials and personal data. Context cancellation is not authorization—validate authentication and request state separately.

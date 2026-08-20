@@ -79,11 +79,11 @@
   {
     "id": 8,
     "name": "map-memory-diag",
-    "description": "Diagnose 2GB RSS after bulk delete from map — maps never shrink",
+    "description": "Diagnose retained RSS after bulk map deletion and choose an explicit compaction strategy",
     "task": "A Go service processes events. During traffic spikes, `var eventIndex map[string]*Event` grows to 10M entries. After the spike, events expire and are deleted, leaving ~1000 entries. But RSS memory stays at 2GB. The team added `delete(eventIndex, key)` for every expired event — why doesn't memory decrease? Write a `Diagnose()` comment explaining the root cause, then write a `Compact()` method on an `EventStore` struct that fixes it. Package `events`.",
     "assertions": [
-      { "id": "8.1", "text": "Diagnoses 'maps never shrink buckets'", "trap": "none — model may or may not know this" },
-      { "id": "8.2", "text": "Compact creates fresh map with `make`", "trap": "none — both approaches implement rebuild" },
+      { "id": "8.1", "text": "Explains that deleting entries need not return the map’s peak allocation to the runtime and avoids relying on undocumented layout", "trap": "none" },
+      { "id": "8.2", "text": "Compact creates a fresh map with `make` when measured retention justifies rebuilding", "trap": "none — rebuilding is an explicit policy, not a language guarantee" },
       { "id": "8.3", "text": "Copies surviving entries to new map", "trap": "none — baseline correctness" }
     ]
   },
@@ -116,19 +116,19 @@
     "task": "Write a `CoordTracker` in package `geo`. It tracks millions of active GPS positions. Coord has Lat, Lon float64 (16 bytes total). Implement Update(id string, lat, lon float64), Position(id string) (Coord, bool), Remove(id string). Optimize the internal map for maximum read throughput given the tiny struct size.",
     "assertions": [
       { "id": "11.1", "text": "Uses value map `map[string]Coord` (not pointer)", "trap": "Model might over-optimize with pointer map for 'millions' of entries" },
-      { "id": "11.2", "text": "Explains < 128-byte threshold for value vs pointer choice", "trap": "Without skill, model doesn't articulate the size-based tradeoff" },
+      { "id": "11.2", "text": "Explains that a small immutable value avoids per-entry allocation and indirection, while final layout/performance should be measured", "trap": "A fixed byte threshold is not a Go or compiler guarantee" },
       { "id": "11.3", "text": "Proportional complexity for struct size", "trap": "Without skill, model may over-engineer with sharding for a simple case" }
     ]
   },
   {
     "id": 12,
     "name": "clip-after-delete",
-    "description": "PurgeInactive with slices.DeleteFunc + Clip to release dead references",
+    "description": "PurgeInactive with slices.DeleteFunc + Clip to clear dead references and cap the result",
     "task": "Write a function `PurgeInactive(users []User) []User` in package `cleanup`. User has ID string, Active bool, and Profile []byte (can be several MB). Remove all inactive users. The returned slice must not hold references to any inactive User's Profile data in its excess capacity. Users are typically 90% inactive after a bulk import.",
     "assertions": [
       { "id": "12.1", "text": "No dead references in result slice", "trap": "none — both approaches achieve this" },
-      { "id": "12.2", "text": "Uses `slices.DeleteFunc` + `slices.Clip`", "trap": "Without skill, model uses manual loop + make instead of modern slices package" },
-      { "id": "12.3", "text": "Excess capacity released", "trap": "none — both approaches release excess" }
+      { "id": "12.2", "text": "Uses `slices.DeleteFunc` + `slices.Clip`, or an equivalent implementation that clears removed references and caps the result", "trap": "Without skill, model may leave removed pointers in the visible or excess portion of the slice" },
+      { "id": "12.3", "text": "Explains that Clip trims capacity but does not free the backing array; uses Clone when the entire old array must become collectible", "trap": "none" }
     ]
   },
   {

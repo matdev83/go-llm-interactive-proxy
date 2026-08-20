@@ -26,13 +26,15 @@ func allocateBuffer(rows, cols int) []byte {
 **Good:**
 
 ```go
-import "math"
-
 func safeMultiply(a, b int) (int, error) {
+    if a < 0 || b < 0 {
+        return 0, errors.New("negative dimensions")
+    }
     if a == 0 || b == 0 {
         return 0, nil
     }
-    if a > math.MaxInt64/b {
+    maxInt := int(^uint(0) >> 1)
+    if a > maxInt/b {
         return 0, errors.New("integer overflow")
     }
     result := a * b

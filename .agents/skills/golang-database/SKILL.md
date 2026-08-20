@@ -1,240 +1,90 @@
 ---
 name: golang-database
-description: "Comprehensive guide for Go database access — parameterized queries, struct scanning, NULLable columns, transactions, isolation levels, SELECT FOR UPDATE, connection pool, batch processing, context propagation, and migration tooling. Use when writing, reviewing, or debugging Golang code that interacts with PostgreSQL, MariaDB, MySQL, or SQLite; for database testing; or for questions about database/sql, sqlx, or pgx. Does NOT generate database schemas or migration SQL."
-license: MIT
-metadata:
-  author: samber
-  version: "1.2.1"
-  openclaw:
-    emoji: "🗄"
-    homepage: https://github.com/samber/cc-skills-golang
-    requires:
-      bins:
-        - go
-    install: []
+description: Safe Go database access with database/sql, sqlx, and pgx: queries, scanning, transactions, isolation, pooling, migrations, and reliable tests.
 ---
 
-**Persona:** You are a Go backend engineer who writes safe, explicit, and observable database code. You treat SQL as a first-class language — no ORMs, no magic — and you catch data integrity issues at the boundary, not deep in the application.
+# Go database access
 
-**Modes:**
+Choose database/sql for portability and a small dependency surface. sqlx can reduce repetitive scanning while retaining SQL. pgx is a PostgreSQL-native client with context-aware operations and features such as COPY and LISTEN. An ORM is a valid product choice in some codebases, but do not hide an existing SQL contract behind one or claim that any library is universally superior.
 
-- **Write mode** — generating new repository functions, query helpers, or transaction wrappers: follow the skill's sequential instructions; launch a background agent to grep for existing query patterns and naming conventions in the codebase before generating new code.
-- **Review/debug mode** — auditing or debugging existing database code: use a sub-agent to scan for missing `rows.Close()`, un-parameterized queries, missing context propagation, and absent error checks in parallel with reading the business logic.
+Before editing, identify the driver, placeholder syntax, transaction boundaries, null semantics, migration tool, and pool ownership.
 
-> **Community default.** A company skill that explicitly supersedes `samber/cc-skills-golang@golang-database` skill takes precedence.
+## Query boundary
 
-# Go Database Best Practices
+- Every value supplied by a caller is a query argument. Use placeholders; never concatenate values into SQL.
+- SQL identifiers cannot be bound as arguments. For dynamic table, column, or sort names, map an enum or allowlist to fixed SQL fragments.
+- Use QueryContext, ExecContext, and the corresponding library context methods. The context carries cancellation and deadlines; it is not a substitute for a database timeout policy.
+- Use ExecContext for statements that do not return rows. If QueryContext is used, close and inspect the rows.
+- Treat sql.ErrNoRows as a domain outcome when appropriate, using errors.Is after wrapping.
+- Log operation and safe identifiers, never passwords, tokens, raw query arguments, or untrusted error text as a public response.
 
-Go's `database/sql` provides a solid foundation for database access. Use `sqlx` or `pgx` on top of it for ergonomics — never an ORM.
-
-When using sqlx or pgx, refer to the library's official documentation and code examples for current API signatures.
-
-## Best Practices Summary
-
-1. **Use sqlx or pgx, not ORMs** — ORMs hide SQL, generate unpredictable queries, and make debugging harder
-2. Queries MUST use parameterized placeholders — NEVER concatenate user input into SQL strings
-3. Context MUST be passed to all database operations — use `*Context` method variants (`QueryContext`, `ExecContext`, `GetContext`)
-4. `sql.ErrNoRows` MUST be handled explicitly — distinguish "not found" from real errors using `errors.Is`
-5. Rows MUST be closed after iteration — `defer rows.Close()` immediately after `QueryContext` calls
-6. NEVER use `db.Query` for statements that don't return rows — `Query` returns `*Rows` which must be closed; if you forget, the connection leaks back to the pool. Use `db.Exec` instead
-7. **Use transactions for multi-statement operations** — wrap related writes in `BeginTxx`/`Commit`
-8. **Use `SELECT ... FOR UPDATE`** when reading data you intend to modify — prevents race conditions
-9. **Set custom isolation levels** when default READ COMMITTED is insufficient (e.g., serializable for financial operations)
-10. **Handle NULLable columns** with pointer fields (`*string`, `*int`) or `sql.NullXxx` types
-11. Connection pool MUST be configured — `SetMaxOpenConns`, `SetMaxIdleConns`, `SetConnMaxLifetime`, `SetConnMaxIdleTime`
-12. **Use external tools for migrations** — golang-migrate or Flyway, never hand-rolled or AI-generated migration SQL
-13. **Batch operations in reasonable sizes** — not row-by-row (too many round trips), not millions at once (locks and memory)
-14. **Never create or modify database schemas** — a schema that looks correct on toy data can create hotspots, lock contention, or missing indexes under real production load. Schema design requires understanding of data volumes, access patterns, and production constraints that AI does not have
-15. **Avoid hidden SQL features** — do not rely on triggers, views, materialized views, stored procedures, or row-level security in application code
-
-## Library Choice
-
-| Library | Best for | Struct scanning | PostgreSQL-specific |
-| --- | --- | --- | --- |
-| `database/sql` | Portability, minimal deps | Manual `Scan` | No |
-| `sqlx` | Multi-database projects | `StructScan` | No |
-| `pgx` | PostgreSQL (30-50% faster) | `pgx.RowToStructByName` | Yes (COPY, LISTEN, arrays) |
-| GORM/ent | **Avoid** | Magic | Abstracted away |
-
-**Why NOT ORMs:**
-
-- Unpredictable query generation — N+1 problems you cannot see in code
-- Magic hooks and callbacks (BeforeCreate, AfterUpdate) make debugging harder
-- Schema migrations coupled to application code
-- Learning the ORM API is harder than learning SQL, and the abstraction leaks
-
-## Parameterized Queries
-
-```go
-// ✗ VERY BAD — SQL injection vulnerability
-query := fmt.Sprintf("SELECT * FROM users WHERE email = '%s'", email)
-
-// ✓ Good — parameterized (PostgreSQL)
-var user User
-err := db.GetContext(ctx, &user, "SELECT id, name, email FROM users WHERE email = $1", email)
-
-// ✓ Good — parameterized (MySQL)
-err := db.GetContext(ctx, &user, "SELECT id, name, email FROM users WHERE email = ?", email)
-```
-
-### Dynamic IN clauses
-
-```go
-query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", ids)
+~~~go
+rows, err := db.QueryContext(ctx,
+    "SELECT id, name FROM users WHERE tenant_id = $1 ORDER BY id", tenantID)
 if err != nil {
-    return fmt.Errorf("building IN clause: %w", err)
+    return fmt.Errorf("list users: %w", err)
 }
-query = db.Rebind(query) // adjust placeholders for your driver
-err = db.SelectContext(ctx, &users, query, args...)
-```
-
-### Dynamic column names
-
-Never interpolate column names from user input. Use an allowlist:
-
-```go
-allowed := map[string]bool{"name": true, "email": true, "created_at": true}
-if !allowed[sortCol] {
-    return fmt.Errorf("invalid sort column: %s", sortCol)
-}
-query := fmt.Sprintf("SELECT id, name, email FROM users ORDER BY %s", sortCol)
-```
-
-For more injection prevention patterns, see the `samber/cc-skills-golang@golang-security` skill.
-
-## Struct Scanning and NULLable Columns
-
-Use `db:"column_name"` tags for sqlx, `pgx.CollectRows` with `pgx.RowToStructByName` for pgx. Handle NULLable columns with pointer fields (`*string`, `*time.Time`) — they work cleanly with both scanning and JSON marshaling. See [Scanning Reference](./references/scanning.md) for examples of all approaches.
-
-## Error Handling
-
-```go
-func GetUser(id string) (*User, error) {
-    var user User
-
-    err := db.GetContext(ctx, &user, "SELECT id, name FROM users WHERE id = $1", id)
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return nil, ErrUserNotFound // translate to domain error
-        }
-        return nil, fmt.Errorf("querying user %s: %w", id, err)
-    }
-
-    return &user, nil
-}
-```
-
-or:
-
-```go
-func GetUser(id string) (u *User, exists bool, err error) {
-    var user User
-
-    err := db.GetContext(ctx, &user, "SELECT id, name FROM users WHERE id = $1", id)
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return nil, false, nil // "no user" is not a technical error, but a domain error
-        }
-        return nil, false, fmt.Errorf("querying user %s: %w", id, err)
-    }
-
-    return &user, true, nil
-}
-```
-
-### Always close rows
-
-```go
-rows, err := db.QueryContext(ctx, "SELECT id, name FROM users")
-if err != nil {
-    return fmt.Errorf("querying users: %w", err)
-}
-defer rows.Close() // prevents connection leaks
+defer rows.Close()
 
 for rows.Next() {
-    // ...
+    var u User
+    if scanErr := rows.Scan(&u.ID, &u.Name); scanErr != nil {
+        return fmt.Errorf("scan user: %w", scanErr)
+    }
+    users = append(users, u)
 }
-if err := rows.Err(); err != nil { // always check after iteration
-    return fmt.Errorf("iterating users: %w", err)
+if err := rows.Err(); err != nil {
+    return fmt.Errorf("iterate users: %w", err)
 }
-```
+~~~
 
-### Common database error patterns
+For code that must surface a close error, use a named result and a deliberate deferred Close assignment; otherwise a simple defer rows.Close is adequate for read-only code where close failure has no useful recovery.
 
-| Error | How to detect | Action |
-| --- | --- | --- |
-| Row not found | `errors.Is(err, sql.ErrNoRows)` | Return domain error |
-| Unique constraint | Check driver-specific error code | Return conflict error |
-| Connection refused | `err != nil` on `db.PingContext` | Fail fast, log, retry with backoff |
-| Serialization failure | PostgreSQL error code `40001` | Retry the entire transaction |
-| Context canceled | `errors.Is(err, context.Canceled)` | Stop processing, propagate |
+For sqlx.In, build the statement from a fixed template, expand only the argument list, and call Rebind for the selected driver. For pgx, use the driver's placeholder syntax and current row-collection helpers as documented by the installed version.
 
-## Context Propagation
+## Scanning and nullability
 
-Always use the `*Context` method variants to propagate deadlines and cancellation:
+Scan into the smallest stable domain shape. Use sql.NullString and its siblings, pointers, or driver-specific nullable types when NULL is meaningful; do not conflate NULL with an empty value without a domain decision. Keep database tags separate from JSON tags when the wire name differs.
 
-```go
-// ✗ Bad — no context, query runs until completion even if client disconnects
-db.Query("SELECT ...")
+Check every Scan error. If a query returns a nullable column, test both NULL and a real value. For bulk reads, bound memory or stream rows and preserve ordering only when the query specifies it.
 
-// ✓ Good — respects context cancellation and timeouts
-db.QueryContext(ctx, "SELECT ...")
-```
+## Transactions and locking
 
-For context patterns in depth, see the `samber/cc-skills-golang@golang-context` skill.
+Use a transaction when several reads and writes must share one atomic invariant. Begin with the requested isolation level only when the data invariant requires it and the driver supports it. Serializable isolation is not a universal performance or correctness switch; it may require retrying the whole transaction on serialization failure.
 
-## Transactions, Isolation Levels, and Locking
+Lock rows only when the lock protects a demonstrated race. SELECT ... FOR UPDATE locks the rows selected under the database's rules; it does not protect arbitrary predicates or external resources. Keep lock order consistent to reduce deadlocks and keep the transaction short.
 
-For transaction patterns, isolation levels, `SELECT FOR UPDATE`, and locking variants, see [Transactions](./references/transactions.md).
+A robust transaction shape is:
 
-## Connection Pool
+~~~go
+tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+if err != nil {
+    return fmt.Errorf("begin: %w", err)
+}
+defer func() { _ = tx.Rollback() }()
 
-```go
-db.SetMaxOpenConns(25)              // limit total connections
-db.SetMaxIdleConns(10)              // keep warm connections ready
-db.SetConnMaxLifetime(5 * time.Minute)  // recycle stale connections
-db.SetConnMaxIdleTime(1 * time.Minute)  // close idle connections faster
-```
+if _, err := tx.ExecContext(ctx, "UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, from); err != nil {
+    return fmt.Errorf("debit: %w", err)
+}
+if _, err := tx.ExecContext(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, to); err != nil {
+    return fmt.Errorf("credit: %w", err)
+}
+if err := tx.Commit(); err != nil {
+    return fmt.Errorf("commit: %w", err)
+}
+return nil
+~~~
 
-For sizing guidance and formulas, see [Database Performance](./references/performance.md).
+Retry only errors documented as safe to retry, and rerun the complete transaction with a fresh context-aware attempt. Do not retry after a commit result is ambiguous without an idempotency/reconciliation design.
 
-## Migrations
+## Pools and operations
 
-Use an external migration tool. Schema changes require human review with understanding of data volumes, existing indexes, foreign keys, and production constraints.
+sql.Open creates a pool handle; it may not establish a connection. Call PingContext when startup connectivity must be checked. Configure SetMaxOpenConns, SetMaxIdleConns, SetConnMaxLifetime, and SetConnMaxIdleTime from workload, server limits, and observed wait time. There is no portable best setting or fixed speedup claim.
 
-Recommended tools:
+The component that opens a pool owns its shutdown and calls Close. Expose health and pool metrics without assuming a metric name from another driver. Migrations belong to a reviewed, versioned migration tool and deployment process. Application code may need schema changes, but migration safety requires rollout, locking, backfill, and rollback analysis rather than an automatic blanket rule.
 
-- [golang-migrate](https://github.com/golang-migrate/migrate) — CLI + Go library, supports all major databases
-- [Flyway](https://flywaydb.org/) — JVM-based, widely used in enterprise environments
-- [Atlas](https://atlasgo.io/) — modern, declarative schema management
+## Tests
 
-Migration SQL should be written and reviewed by humans, versioned in source control, and applied through CI/CD pipelines.
+Use a narrow unit seam for query construction and domain mapping, then integration tests against the actual driver/database behavior when SQL semantics matter. A mock must implement the same return arity and error behavior as the real interface. For integration setup, use PingContext with a bounded deadline, fail on fixture-read errors, and report teardown errors. Do not use fixed sleeps for readiness.
 
-## Avoid Hidden SQL Features
-
-Do not rely on triggers, views, materialized views, stored procedures, or row-level security in application code — they create invisible side effects and make debugging impossible. Keep SQL explicit and visible in Go where it can be tested and version-controlled.
-
-## Schema Creation
-
-**This skill does NOT cover schema creation.** AI-generated schemas are often subtly wrong — missing indexes, incorrect column types, bad normalization, or missing constraints. Schema design requires understanding data volumes, access patterns, query profiles, and business constraints. Use dedicated database tooling and human review.
-
-## Deep Dives
-
-- **[Transactions](./references/transactions.md)** — Transaction boundaries, isolation levels, deadlock prevention, `SELECT FOR UPDATE`
-- **[Testing Database Code](./references/testing.md)** — Mock connections, integration tests with containers, fixtures, schema setup/teardown
-- **[Database Performance](./references/performance.md)** — Connection pool sizing, batch processing, indexing strategy, query optimization
-- **[Struct Scanning](./references/scanning.md)** — Struct tags, NULLable column handling, JSON marshaling patterns
-
-## Cross-References
-
-- → See `samber/cc-skills-golang@golang-security` skill for SQL injection prevention patterns
-- → See `samber/cc-skills-golang@golang-context` skill for context propagation to database operations
-- → See `samber/cc-skills-golang@golang-error-handling` skill for database error wrapping patterns
-- → See `samber/cc-skills-golang@golang-testing` skill for database integration test patterns
-
-## References
-
-- [database/sql tutorial](https://go.dev/doc/database/)
-- [sqlx](https://github.com/jmoiron/sqlx)
-- [pgx](https://github.com/jackc/pgx)
-- [golang-migrate](https://github.com/golang-migrate/migrate)
+When reviewing database code, verify context propagation, placeholders, rows.Close and rows.Err, Scan errors, transaction rollback/commit, pool ownership, and sensitive-data handling. Run gofmt and focused tests; use the selected driver's current documentation for API details.

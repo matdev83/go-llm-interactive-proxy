@@ -234,16 +234,16 @@ Exposed by Prometheus `process` collector (not Go-specific):
 
 ## Common PromQL Queries
 
-### Memory Leak Detection
+### Memory growth investigation
 
 ```promql
-# Current heap allocation (should be stable under constant load)
+# Cumulative heap allocation; not a live-memory/leak indicator by itself
 go_memstats_alloc_bytes
 
 # Live heap bytes (optional metric)
 go_gc_heap_live_bytes
 
-# Heap growth rate
+# Allocation rate; correlate with live heap and workload
 rate(go_memstats_alloc_bytes_total[5m])
 ```
 
@@ -260,7 +260,7 @@ rate(go_gc_duration_seconds_sum[5m]) / rate(go_gc_duration_seconds_count[5m])
 rate(go_gc_duration_seconds_count[5m])
 ```
 
-### Goroutine Leaks
+### Goroutine growth investigation
 
 ```promql
 # Current goroutine count
@@ -290,7 +290,7 @@ delta(process_open_fds[1h])
 process_open_fds / process_max_fds
 ```
 
-→ See `samber/cc-skills@promql-cli` skill for executing these queries directly against your Prometheus instance from the CLI.
+Run these queries in the Prometheus UI or your repository-approved PromQL client.
 
 ## References
 

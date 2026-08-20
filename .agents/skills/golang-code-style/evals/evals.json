@@ -22,18 +22,18 @@
   },
   {
     "id": 2,
-    "name": "empty-slice-map-not-nil",
-    "description": "Empty collections initialized as []T{} or make(), never nil",
+    "name": "empty-collection-semantics",
+    "description": "Empty collection initialization follows mutation and wire-format semantics rather than a universal nil rule",
     "prompt": "Write a Go file `handler.go` in package `api`. Create a Handler struct. Add a method ListUsers that returns a slice of User structs (define User with Name and Email fields). Add a method GetTags that returns a map[string]string. Both methods should return empty collections when there's no data. Add a method BuildResponse that takes a slice of results and a map of metadata and processes them.",
-    "trap": "Model returns nil slices/maps or uses uninitialized var declarations for empty collections, causing nil != empty issues in JSON serialization and caller code",
+    "trap": "Model treats nil slices or maps as universally invalid, ignoring that nil slices are append/range safe and nil maps are readable/rangeable but not writable",
     "assertions": [
       {
         "id": "2.1",
-        "text": "Empty slice return uses []User{} or make([]User, 0) — never returns nil or an uninitialized var declaration without assignment"
+        "text": "Chooses nil versus empty slices from the API’s absence/wire semantics and initializes a slice before mutation"
       },
       {
         "id": "2.2",
-        "text": "Empty map return uses map[string]string{} or make(map[string]string) — never returns nil or an uninitialized var declaration without assignment"
+        "text": "Chooses nil versus empty maps from the API contract and initializes a map before assignment"
       },
       {
         "id": "2.3",
@@ -249,22 +249,22 @@
   },
   {
     "id": 13,
-    "name": "never-nil-return-for-collection",
-    "description": "Returns initialized empty collections, never nil, despite prompt saying nil is safe",
+    "name": "honor-explicit-nil-collection-contract",
+    "description": "Preserves an explicit nil-versus-empty collection contract when callers already define the semantics",
     "prompt": "Write a Go function GetUsers in package `api` that returns all users from a database. When there are no users, return nil. Also write GetMetadata that returns a map[string]string — return nil when empty. The caller will check for nil before using the result, so returning nil is safe and avoids an unnecessary allocation.",
-    "trap": "Model follows the prompt's explicit instruction to return nil for empty collections, causing nil-slice JSON serialization (null instead of []) and nil map write panics",
+    "trap": "Model overrides the explicit nil contract with a universal non-nil rule, or writes to a nil map without initializing it",
     "assertions": [
       {
         "id": "13.1",
-        "text": "GetUsers returns []User{} or make([]User, 0) for the empty case — NOT nil — because nil slices serialize to null in JSON"
+        "text": "GetUsers may return nil for the explicitly requested absence semantics, while noting that JSON consumers may distinguish nil from empty"
       },
       {
         "id": "13.2",
-        "text": "GetMetadata returns map[string]string{} or make(map[string]string) for the empty case — NOT nil — because nil maps panic on write"
+        "text": "GetMetadata may return nil when empty under the stated contract, but initializes a map before any writes"
       },
       {
         "id": "13.3",
-        "text": "Neither function contains 'return nil' as a success path (nil is only acceptable paired with an error)"
+        "text": "Explains that nil can be a successful collection result when the contract assigns it meaning, while nil maps cannot be assigned to"
       }
     ]
   },

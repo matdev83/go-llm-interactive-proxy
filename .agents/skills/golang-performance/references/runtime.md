@@ -112,7 +112,7 @@ Reducing allocations helps more than tuning GOGC — it addresses the root cause
 
 - **Value types over pointer types** where possible — values stay on the stack (no GC), pointers escape to the heap
 - **Pool frequently allocated objects** with `sync.Pool` (see [memory.md](./memory.md))
-- **Preallocate slices and maps** — → See `samber/cc-skills-golang@golang-data-structures` skill
+- **Preallocate slices and maps** — use a measured size estimate; see the local `golang-data-structures` skill.
 - **Avoid interface boxing** in hot paths — use typed parameters or generics
 
 ## GOMAXPROCS in Containers
@@ -150,9 +150,9 @@ GODEBUG=updatemaxprocs=0 ./myapp  # disable dynamic updates (Go 1.25+)
 
 ## Profile-Guided Optimization (PGO)
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — collect a representative production profile (30+ seconds); look for hot interface method calls and deep call chains that PGO can optimize via devirtualization and inlining 2- `go test -bench` — benchmark before and after placing `default.pgo`; expect 2-7% improvement on interface-heavy code, less on already-optimized paths
+**Diagnose:** collect a representative profile, inspect hot interface calls/call chains, then benchmark before and after placing `default.pgo`; gains are workload- and release-dependent.
 
-Go 1.21+ supports PGO — the compiler uses a production CPU profile to make better inlining and devirtualization decisions. Expected improvement: 2-7% for minimal effort.
+Go 1.21+ supports PGO. The compiler uses a representative CPU profile to guide optimization; improvement is not guaranteed.
 
 **Workflow:**
 
@@ -205,7 +205,7 @@ In hot paths, even `slog.Any` can allocate. Prefer typed attributes: `slog.Int`,
 
 ## Panic/Recover Cost
 
-**Diagnose:** 1- `go tool pprof` (CPU profile) — look for `runtime.gopanic` or `runtime.gorecover` in the profile; their presence in hot paths means panic/recover is being used for control flow 2- `go test -bench` — benchmark panic/recover vs error-return versions; expect 10-100x overhead from stack unwinding and defer execution
+**Diagnose:** inspect CPU profiles for `runtime.gopanic`/`runtime.gorecover` in hot paths, then benchmark panic/recover against explicit error flow for the actual call path.
 
 `panic` triggers stack unwinding, running all deferred functions up the call stack. `recover` catches the panic but the unwinding itself is expensive. Never use panic/recover for control flow:
 
