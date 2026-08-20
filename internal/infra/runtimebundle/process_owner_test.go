@@ -69,7 +69,7 @@ func TestProcessResourceOwner_OwnAppendsToAuthoritativeCloserSet(t *testing.T) {
 		t.Fatalf("closers len=%d, want 1", len(ps.closers))
 	}
 	// The owned release must be the same authoritative set consumed by Close.
-	ps.closers[0]()
+	_ = ps.closers[0]()
 	if !released.Load() {
 		t.Fatal("owned release was not the registered closure")
 	}
@@ -314,7 +314,6 @@ func TestMigratedOwnershipTakingBuilders_RejectNilOwner(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.call()

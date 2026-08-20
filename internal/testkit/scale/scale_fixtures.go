@@ -40,7 +40,7 @@ func CreateDeterministicGitChange(repoRoot, relativePath, before, after string) 
 	if out, err := git("init", "--quiet"); err != nil {
 		return "", fmt.Errorf("git init: %w: %s", err, out)
 	}
-	for _, args := range [][]string{{"config", "user.email", "scale@example.invalid"}, {"config", "user.name", "scale-fixture"}} {
+	for _, args := range [][]string{{"config", "user.email", "scale@example.invalid"}, {"config", "user.name", "scale-fixture"}, {"config", "commit.gpgsign", "false"}} {
 		if out, err := git(args...); err != nil {
 			return "", fmt.Errorf("git config: %w: %s", err, out)
 		}

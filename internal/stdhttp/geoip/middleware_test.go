@@ -113,6 +113,7 @@ func TestMiddlewareClientIPAndLookupFailuresDeny(t *testing.T) {
 		{name: "lookup", remote: "198.51.100.10:443", lookup: middlewareLookup{err: errors.New("decode")}, want: coregeoip.ReasonLookupError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			observer := new(middlewareObserver)
 			h := Middleware(Input{Policy: policy, Lookup: tc.lookup, Resolver: ResolverConfig{Source: SourceDirect}, Observer: observer}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				t.Fatal("downstream was called")

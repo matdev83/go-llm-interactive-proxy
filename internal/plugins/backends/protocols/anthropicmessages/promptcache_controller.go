@@ -224,7 +224,7 @@ func (c *CacheController) Renew(ctx context.Context, req promptcache.RenewReques
 	if err != nil {
 		return promptcache.RenewResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return promptcache.RenewResponse{}, fmt.Errorf("anthropic: cache renewal status %d", resp.StatusCode)
 	}
@@ -250,7 +250,7 @@ func (c *CacheController) Renew(ctx context.Context, req promptcache.RenewReques
 	}}
 	if status == promptcache.Renewed || status == promptcache.ColdRecreated {
 		now := time.Now().UTC()
-		result.Observation = pointer(c.observation(req.Handle, target, now))
+		result.Observation = new(c.observation(req.Handle, target, now))
 	}
 	return promptcache.RenewResponse{Result: result, Accounting: accounting}, nil
 }
@@ -319,7 +319,7 @@ func totalAnthropic(input, output, cacheRead, cacheWrite *int64) *int64 {
 	return &total
 }
 
-func pointer[T any](v T) *T { return &v }
+func pointer[T any](v T) *T { return new(v) }
 
 func renewalBody(snapshot RenewalSnapshot) ([]byte, error) {
 	if len(snapshot.RawRequest) > 0 {

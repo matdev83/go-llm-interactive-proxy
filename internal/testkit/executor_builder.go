@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -60,10 +61,7 @@ func WithSelectorAliases(ar *routing.AliasResolver) ExecutorOption {
 // WithExecutionClasses sets explicit backend execution classes for test backends.
 func WithExecutionClasses(classes map[string]lipsdk.BackendExecutionClass) ExecutorOption {
 	return func(cfg *runtime.ExecutorConfig) {
-		copied := make(map[string]lipsdk.BackendExecutionClass, len(classes))
-		for k, v := range classes {
-			copied[k] = v
-		}
+		copied := maps.Clone(classes)
 		cfg.Routing.BackendExecutionResolver = routing.BackendExecutionResolverFunc(func(id string) (lipsdk.BackendExecutionClass, bool) {
 			c, ok := copied[id]
 			return c, ok

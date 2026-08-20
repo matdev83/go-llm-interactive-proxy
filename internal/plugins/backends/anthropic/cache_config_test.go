@@ -3,6 +3,7 @@ package anthropic
 import "testing"
 
 func TestValidateCacheConfig(t *testing.T) {
+	t.Parallel()
 	if err := ValidateCacheConfig(CacheEnrollmentDisabled, ""); err != nil {
 		t.Fatal(err)
 	}

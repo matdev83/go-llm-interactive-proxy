@@ -498,7 +498,7 @@ func TestCompileGeneration_ExecutionCompositionSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Register an agent_runtime factory for testing
-	reg.RegisterBackendWithProfiles("stub-agent", func(raw yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+	if err := reg.RegisterBackendWithProfiles("stub-agent", func(raw yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		be, err := localstub.NewFromYAML(raw)
 		if err != nil {
 			return execbackend.Backend{}, err
@@ -508,7 +508,9 @@ func TestCompileGeneration_ExecutionCompositionSafety(t *testing.T) {
 	}, pluginreg.BackendSecurityProfile{
 		CredentialMode: pluginreg.CredentialNone,
 		AccessScope:    pluginreg.BackendAccessAny,
-	}, pluginreg.BackendExecutionProfile{Class: lipsdk.BackendExecutionAgentRuntime})
+	}, pluginreg.BackendExecutionProfile{Class: lipsdk.BackendExecutionAgentRuntime}); err != nil {
+		t.Fatal(err)
+	}
 
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg:  processBaseConfig(),

@@ -146,9 +146,8 @@ func encodeToolChoice(tc lipapi.ToolChoice) (json.RawMessage, error) {
 					return nil, fmt.Errorf("%w: failed to marshal tool_choice: %v", ErrEncodeFailed, err)
 				}
 				return tcBytes, nil
-			} else {
-				return json.RawMessage(`"required"`), nil
 			}
+			return json.RawMessage(`"required"`), nil
 		}
 	}
 	return nil, nil

@@ -28,6 +28,7 @@ func storeFromRules(t *testing.T, rules []domain.Rule, at time.Time) *authoritys
 func quotaRule(id string) domain.Rule {
 	return domain.Rule{ID: id, Kind: domain.RuleKindQuota, Mode: domain.RuleModeStrict, Unit: domain.AmountUnitRequests, Limit: domain.Amount{Unit: domain.AmountUnitRequests, Value: 100}, Match: domain.DimensionsMatcher{Backend: domain.DimensionMatcher{Value: scope.Known("backend-quota")}, Model: domain.DimensionMatcher{Value: scope.Known("model-quota")}}}
 }
+
 func quotaDimensions() domain.Dimensions {
 	return domain.Dimensions{Principal: scope.Known("principal-quota"), Tenant: scope.Known("tenant-quota"), Backend: scope.Known("backend-quota"), Model: scope.Known("model-quota")}
 }

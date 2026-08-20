@@ -185,8 +185,14 @@ func TestBackendResourceGeneration_LocalProjectionsRemainDistinct(t *testing.T) 
 	if oldBundle.ledger == newBundle.ledger {
 		t.Fatal("generations must own distinct ResourceLedgers")
 	}
-	oldHandler := old.Handler().(*backendResourceGenerationProjectionHandler)
-	newHandler := newGen.Handler().(*backendResourceGenerationProjectionHandler)
+	oldHandler, okOld := old.Handler().(*backendResourceGenerationProjectionHandler)
+	if !okOld {
+		t.Fatal("expected old handler to be *backendResourceGenerationProjectionHandler")
+	}
+	newHandler, okNew := newGen.Handler().(*backendResourceGenerationProjectionHandler)
+	if !okNew {
+		t.Fatal("expected new handler to be *backendResourceGenerationProjectionHandler")
+	}
 	if oldHandler == newHandler {
 		t.Fatal("generations must own distinct handlers")
 	}
@@ -286,9 +292,9 @@ func backendResourceGenerationBundle(t *testing.T, generation GenerationRuntime)
 	return bundle
 }
 
-func registerBackendResourceGenerationCleanup(t testing.TB, generation GenerationRuntime) {
-	t.Helper()
-	t.Cleanup(func() { _ = generation.Close() })
+func registerBackendResourceGenerationCleanup(tb testing.TB, generation GenerationRuntime) {
+	tb.Helper()
+	tb.Cleanup(func() { _ = generation.Close() })
 }
 
 func generationResourceBackend(t *testing.T, bundle *GenerationBundle, id string) execBackendForGeneration {

@@ -10,6 +10,7 @@ import (
 )
 
 func TestBindFeatureSurface_zeroObserversComposesOfficialPreserver(t *testing.T) {
+	t.Parallel()
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte("extractor:\n  enabled: true\n  route: inherit\n"), &node); err != nil {
 		t.Fatal(err)

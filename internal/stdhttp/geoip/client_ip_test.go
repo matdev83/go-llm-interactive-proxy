@@ -104,7 +104,7 @@ func TestResolveClientIPRepeatedXFFFieldsShareBounds(t *testing.T) {
 
 	req.Header = make(http.Header)
 	req.RemoteAddr = "192.0.2.2:443"
-	for i := 0; i < MaxForwardedHops+1; i++ {
+	for range MaxForwardedHops + 1 {
 		req.Header.Add("X-Forwarded-For", "198.51.100.10")
 	}
 	if _, err := ResolveClientIP(req, ResolverConfig{

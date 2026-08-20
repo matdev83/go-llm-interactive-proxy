@@ -215,6 +215,7 @@ func TestTokenEquivalentUsesConservativeOneByteConvention(t *testing.T) {
 }
 
 func TestProjectionCapacityRejectsOverflow(t *testing.T) {
+	t.Parallel()
 	maxPayload := math.MaxInt - projectionOverhead
 	got, err := projectionCapacity(maxPayload)
 	if err != nil || got != math.MaxInt {

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
 
+//nolint:revive // owner is the resource owner parameter
 func buildTerminalWorkWithSetReconcile(owner *processResourceOwner, ctx context.Context, prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle, conc *concurrencyapp.Service, snapshotPub *snapshotgen.Publisher) (*terminalWorkRuntime, error) {
 	twRT, err := buildTerminalWorkFromProduction(owner, prod, clock, bundle, snapshotPub)
 	if err != nil {

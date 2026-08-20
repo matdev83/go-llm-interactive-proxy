@@ -116,13 +116,8 @@ func retryBackoffDelay(base, max time.Duration, attempts int) time.Duration {
 	}
 	delay := base
 	if shift := attempts - 1; shift > 0 {
-		if shift > 16 {
-			shift = 16
-		}
-		delay = time.Duration(float64(delay) * math.Pow(2, float64(shift)))
-		if delay > max {
-			delay = max
-		}
+		shift = min(shift, 16)
+		delay = min(time.Duration(float64(delay)*math.Pow(2, float64(shift))), max)
 	}
 	return delay
 }

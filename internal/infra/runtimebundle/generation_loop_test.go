@@ -12,7 +12,7 @@ func TestStartOwnedLoop_RunsWorkAfterOwnership(t *testing.T) {
 	t.Parallel()
 	ledger := NewResourceLedger()
 	ran := make(chan struct{})
-	startOwnedLoop(ledger, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 		close(ran)
 	})
 	select {
@@ -31,7 +31,7 @@ func TestStartOwnedLoop_NilLedgerNoop(t *testing.T) {
 	// The nil-ledger guard is the first line of startOwnedLoop and returns
 	// synchronously, so the loop body is never scheduled; asserting immediately
 	// after the call is deterministic and needs no sleep.
-	startOwnedLoop(nil, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), nil, "loop", PhaseQuiesce, func(ctx context.Context) {
 		worked.Store(true)
 	})
 	if worked.Load() {
@@ -48,7 +48,7 @@ func TestStartOwnedLoop_SealedLedgerCancelsBeforeWork(t *testing.T) {
 	var worked atomic.Bool
 	// The sealed ledger triggers synchronous immediate cleanup: the gated loop
 	// must observe cancellation and never enter application work.
-	startOwnedLoop(ledger, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 		worked.Store(true)
 	})
 	if worked.Load() {
@@ -62,7 +62,7 @@ func TestStartOwnedLoop_PreCancelledParentSkipsWork(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	cancel()
 	var worked atomic.Bool
-	startOwnedLoop(ledger, "loop", PhaseQuiesce, parent, func(ctx context.Context) {
+	startOwnedLoop(parent, ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 		worked.Store(true)
 	})
 	if err := ledger.Quiesce(context.Background()); err != nil {
@@ -78,7 +78,7 @@ func TestStartOwnedLoop_QuiesceCancelsAndJoins(t *testing.T) {
 	ledger := NewResourceLedger()
 	entered := make(chan struct{})
 	exited := make(chan struct{})
-	startOwnedLoop(ledger, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 		close(entered)
 		<-ctx.Done()
 		close(exited)
@@ -103,7 +103,7 @@ func TestStartOwnedLoop_RollbackCancelsAndJoins(t *testing.T) {
 	ledger := NewResourceLedger()
 	entered := make(chan struct{})
 	exited := make(chan struct{})
-	startOwnedLoop(ledger, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 		close(entered)
 		<-ctx.Done()
 		close(exited)
@@ -137,10 +137,10 @@ func TestStartOwnedLoop_QuiesceCompletesBeforeClosePhase(t *testing.T) {
 		}
 	}
 	loopEntered := make(chan struct{})
-	startOwnedLoop(ledger, "refresh", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	startOwnedLoop(context.Background(), ledger, "refresh", PhaseQuiesce, func(ctx context.Context) {
 		close(loopEntered)
 		<-ctx.Done()
-		track("refresh-exit")()
+		_ = track("refresh-exit")()
 	})
 	select {
 	case <-loopEntered:
@@ -169,14 +169,14 @@ func TestStartOwnedLoop_ConcurrentRetirementNoLeak(t *testing.T) {
 	ledger := NewResourceLedger()
 	entered := make(chan struct{}, loops)
 	exited := make(chan struct{}, loops)
-	for i := 0; i < loops; i++ {
-		startOwnedLoop(ledger, "loop", PhaseQuiesce, context.Background(), func(ctx context.Context) {
+	for range loops {
+		startOwnedLoop(context.Background(), ledger, "loop", PhaseQuiesce, func(ctx context.Context) {
 			entered <- struct{}{}
 			<-ctx.Done()
 			exited <- struct{}{}
 		})
 	}
-	for i := 0; i < loops; i++ {
+	for i := range loops {
 		select {
 		case <-entered:
 		case <-time.After(10 * time.Second):
@@ -186,7 +186,7 @@ func TestStartOwnedLoop_ConcurrentRetirementNoLeak(t *testing.T) {
 	if err := ledger.Quiesce(context.Background()); err != nil {
 		t.Fatalf("quiesce: %v", err)
 	}
-	for i := 0; i < loops; i++ {
+	for i := range loops {
 		select {
 		case <-exited:
 		case <-time.After(10 * time.Second):

@@ -8,7 +8,7 @@ import (
 // startOwnedLoop starts a generation-owned loop and registers its cancel+join
 // release with the ledger before application work begins (req 4.2). A nil
 // ledger means there is no ownership context, so no loop is started.
-func startOwnedLoop(ledger *ResourceLedger, name string, phase ClosePhase, parent context.Context, loop func(ctx context.Context)) {
+func startOwnedLoop(parent context.Context, ledger *ResourceLedger, name string, phase ClosePhase, loop func(ctx context.Context)) {
 	if ledger == nil {
 		return
 	}

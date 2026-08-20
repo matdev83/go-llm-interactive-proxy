@@ -23,6 +23,7 @@ import (
 
 type usageAuthorityRuntime struct{ Service *authorityapp.Service }
 
+//nolint:revive // owner is the resource owner parameter
 func buildUsageAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, opts *BuildOptions, cp *controlPlaneRuntime, policyObs policydecision.Observer, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*usageAuthorityRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Authority.Enabled {
 		return nil, nil
@@ -90,6 +91,7 @@ func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecisio
 	return evidencesink.New(recorder, policyObs)
 }
 
+//nolint:revive // owner is the resource owner parameter
 func buildUsageAuthorityStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (authorityapp.StateStore, error) {
 	if override := testing.AuthorityStoreOverride; override != nil {
 		return override, nil

@@ -70,7 +70,7 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 		Lifecycle:         promptcache.LifecycleSlidingExpiry,
 		Timing: promptcache.Timing{
 			ObservedAt: now,
-			ExpiresAt:  timePtrForGenerationTest(now.Add(time.Hour)),
+			ExpiresAt:  new(now.Add(time.Hour)),
 		},
 		Renewable: true,
 		Handle:    promptcache.Handle("renewed-handle"),
@@ -121,7 +121,7 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 			Lifecycle:         promptcache.LifecycleSlidingExpiry,
 			Timing: promptcache.Timing{
 				ObservedAt: now,
-				ExpiresAt:  timePtrForGenerationTest(now.Add(time.Minute)),
+				ExpiresAt:  new(now.Add(time.Minute)),
 			},
 			Renewable: true,
 			Handle:    promptcache.Handle("foreground-handle"),
@@ -169,5 +169,5 @@ func TestBuildKeepwarmGenerationDeliversMaintenanceAccounting(t *testing.T) {
 }
 
 func timePtrForGenerationTest(value time.Time) *time.Time {
-	return &value
+	return new(value)
 }

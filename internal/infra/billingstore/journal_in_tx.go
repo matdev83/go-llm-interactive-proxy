@@ -3,6 +3,7 @@ package billingstore
 import (
 	"context"
 	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/uptrace/bun"
 )

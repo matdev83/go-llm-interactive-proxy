@@ -12,6 +12,7 @@ import (
 )
 
 func TestProductionSchedulerClosesAtProcessBoundary(t *testing.T) {
+	t.Parallel()
 	scheduler := NewProductionBackgroundScheduler(context.Background(), nil)
 	if scheduler == nil {
 		t.Fatal("nil scheduler")
@@ -26,6 +27,7 @@ func TestProductionSchedulerClosesAtProcessBoundary(t *testing.T) {
 }
 
 func TestSchedulerBindsExactGenerationRunner(t *testing.T) {
+	t.Parallel()
 	scheduler, err := auxreq.NewBackgroundScheduler(context.Background(), nil, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2})
 	if err != nil {
 		t.Fatal(err)

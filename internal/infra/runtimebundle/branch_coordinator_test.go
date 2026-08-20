@@ -38,7 +38,7 @@ func TestProcessServices_OwnsBranchCoordinatorAcrossGenerationCandidates(t *test
 		t.Fatal(err)
 	}
 	first := ps.BranchCoordinator
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		candidate, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
 			Process: ps,
 			Bus:     hooks.New(hooks.Config{}),

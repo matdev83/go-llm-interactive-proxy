@@ -23,9 +23,11 @@ func atomicSetRules() []domain.Rule {
 func atomicSetDimensions() domain.Dimensions {
 	return domain.Dimensions{Principal: scope.Known("principal-atomic"), Backend: scope.Known("backend-atomic"), Model: scope.Known("model-atomic")}
 }
+
 func atomicReservationKey(ruleID string) domain.ReservationKey {
 	return domain.ReservationKey{LogicalRequestID: "request-atomic", ALegID: "a-atomic", BLegID: "b-atomic", AttemptID: "attempt-atomic", RuleID: ruleID, Sequence: 1}
 }
+
 func atomicReservationSet() app.ReservationSet {
 	dims := atomicSetDimensions()
 	return app.ReservationSet{

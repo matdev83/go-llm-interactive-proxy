@@ -2,6 +2,7 @@ package compactioncompose
 
 import (
 	"fmt"
+
 	featurecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )

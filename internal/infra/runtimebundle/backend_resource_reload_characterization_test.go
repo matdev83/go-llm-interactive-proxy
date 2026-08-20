@@ -78,6 +78,7 @@ type backendResourceFixture struct {
 }
 
 func newBackendResourceFixture(tb testing.TB) *backendResourceFixture {
+	tb.Helper()
 	return newBackendResourceFixtureWithMode(tb, bpkit.ModeValid)
 }
 
@@ -208,7 +209,7 @@ func (f *backendResourceFixture) compile(tb testing.TB, candidate *config.Config
 func backendResourceCandidate(tb testing.TB, materialVersion int, changed map[int]struct{}) *config.Config {
 	tb.Helper()
 	backends := make([]config.PluginConfig, 0, backendResourceHighCardinalityN)
-	for i := 0; i < backendResourceHighCardinalityN; i++ {
+	for i := range backendResourceHighCardinalityN {
 		value := fmt.Sprintf("stable-%03d", i)
 		if _, ok := changed[i]; ok {
 			value = fmt.Sprintf("changed-v%d-%03d", materialVersion, i)

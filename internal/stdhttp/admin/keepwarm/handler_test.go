@@ -33,6 +33,7 @@ func (p *policyStub) Get(string) (core.SessionPolicy, bool) {
 }
 
 func TestHandlerUsesAuthenticatedResolverNotBodyIdentity(t *testing.T) {
+	t.Parallel()
 	stub := &policyStub{}
 	var audited string
 	h := NewHandler(Options{Enabled: true, Service: stub, ResolveALegID: func(_ context.Context, _ *http.Request) (string, error) { return "authority-a", nil }, Audit: func(_ context.Context, action, id string) { audited = action + ":" + id }})
@@ -45,6 +46,7 @@ func TestHandlerUsesAuthenticatedResolverNotBodyIdentity(t *testing.T) {
 }
 
 func TestHandlerMethodsAndBodyLimit(t *testing.T) {
+	t.Parallel()
 	stub := &policyStub{}
 	h := NewHandler(Options{Enabled: true, MaxBodyBytes: 8, Service: stub, ResolveALegID: func(context.Context, *http.Request) (string, error) { return "a", nil }})
 	w := httptest.NewRecorder()
@@ -60,6 +62,7 @@ func TestHandlerMethodsAndBodyLimit(t *testing.T) {
 }
 
 func TestDecodeBoundedAcceptsWrappedEOF(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest(http.MethodPost, "/disable", nil)
 	r.Body = io.NopCloser(wrappedEOFReader{})
 	w := httptest.NewRecorder()

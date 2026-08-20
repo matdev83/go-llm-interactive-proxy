@@ -23,6 +23,7 @@ func (s *promptCacheManagedStream) Cancel(context.Context, lipapi.CancelCause) l
 }
 
 func TestManagedPrependForwardsPromptCacheObservations(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(100, 0).UTC()
 	observation := promptcache.Observation{
 		ALegID: "a", BLegID: "b", BackendInstanceID: "backend",

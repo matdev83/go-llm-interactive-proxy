@@ -259,24 +259,18 @@ func TestMemoryExposureSerializedInterleavingsKeepBalanceAtOrAboveFloor(t *testi
 			ledger := newMemoryExposureLedger(tt.acct)
 			const workers = 12
 			var wg sync.WaitGroup
-			wg.Add(workers)
-			for i := 0; i < workers; i++ {
-				i := i
-				go func() {
-					defer wg.Done()
+			for i := range workers {
+				wg.Go(func() {
 					callID := fmt.Sprintf("call-%d", i)
 					max := int64(15)
-					actual := int64(i % 16)
-					if actual > max {
-						actual = max
-					}
+					actual := min(int64(i%16), max)
 					if _, err := ledger.Admit(ledgerAdmit(callID, max)); err != nil {
 						return
 					}
 					_, _ = ledger.Settle(billing.SettleExposureInput{
 						CallID: callID, Actual: billing.Money{Nano: actual, Currency: "USD"},
 					})
-				}()
+				})
 			}
 			wg.Wait()
 			after, exposures, journals := ledger.snapshot()

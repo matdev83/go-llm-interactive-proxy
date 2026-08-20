@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -375,11 +376,7 @@ func loadOwnerReachablePackagesForContext(bc callbackBuildContext, overlay map[s
 		if entry.err != nil {
 			return nil, nil, entry.err
 		}
-		analyzedCopy := make(map[string]bool, len(entry.analyzed))
-		for k, v := range entry.analyzed {
-			analyzedCopy[k] = v
-		}
-		return entry.typed, analyzedCopy, nil
+		return entry.typed, maps.Clone(entry.analyzed), nil
 	}
 	return loadOwnerReachablePackagesForContextUncached(bc, overlay)
 }

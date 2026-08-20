@@ -133,16 +133,16 @@ func (p *backendResourcePool) Acquire(
 	if startBuild {
 		go func() {
 			defer p.buildWG.Done()
-			p.build(entry, builder, p.buildCtx)
+			p.build(p.buildCtx, entry, builder)
 		}()
 	}
 	return p.await(ctx, entry)
 }
 
 func (p *backendResourcePool) build(
+	buildCtx context.Context,
 	entry *backendResourceEntry,
 	builder func(context.Context, uint64) (execbackend.Backend, func() error, error),
-	buildCtx context.Context,
 ) {
 	backend, cleanup, err := builder(buildCtx, entry.incarnation)
 	p.mu.Lock()

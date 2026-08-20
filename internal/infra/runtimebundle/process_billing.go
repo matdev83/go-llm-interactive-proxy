@@ -26,6 +26,7 @@ func configureProcessBilling(owner *processResourceOwner, cfg *config.Config, op
 	}
 	return err
 }
+
 func buildProcessBillingRuntime(owner *processResourceOwner, cfgReportsPath string, prod ProductionOptions) (ProductionOptions, error) {
 	if path := strings.TrimSpace(cfgReportsPath); path != "" && strings.TrimSpace(prod.BillingReportsPath) == "" {
 		prod.BillingReportsPath = path

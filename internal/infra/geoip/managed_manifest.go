@@ -56,7 +56,7 @@ func isHexChecksum(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			return false
 		}
 	}
@@ -68,7 +68,7 @@ func hashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	written, err := io.Copy(hash, io.LimitReader(file, coregeoip.MaxDatabaseDownloadBytes+1))
 	if err != nil {
@@ -104,7 +104,7 @@ func writeManifest(directory string, m manifest) error {
 		return fmt.Errorf("geoip: create manifest: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("geoip: write manifest: %w", err)

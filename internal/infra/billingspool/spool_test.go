@@ -31,6 +31,7 @@ func (s *blockingSink) AppendCall(_ context.Context, _ billing.CallUsageRecord) 
 	<-s.release
 	return nil
 }
+
 func (s *blockingSink) AppendLeg(_ context.Context, _ billing.CallLegUsageRecord) error {
 	close(s.entered)
 	<-s.release
@@ -47,6 +48,7 @@ func (s *recordingSink) AppendCall(_ context.Context, r billing.CallUsageRecord)
 	s.calls = append(s.calls, r)
 	return nil
 }
+
 func (s *recordingSink) AppendLeg(_ context.Context, r billing.CallLegUsageRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,7 +99,7 @@ func TestSpoolAppendRequiresCommitAndSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if got := spool.PendingCount(); got != 1 {
 		t.Fatalf("pending after restart = %d, want 1", got)
 	}
@@ -111,7 +113,7 @@ func TestSpoolReplayIsIdempotentAndConflictIsDurable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	call := spoolTestCall(t, "bc_00000000000000000000000000000002")
 	if err := spool.AppendCall(context.Background(), call); err != nil {
 		t.Fatal(err)
@@ -140,7 +142,7 @@ func TestSpoolCentralFailureBuffersAndHealthIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000003")); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +185,7 @@ func TestSpoolRetentionAndFreeDiskCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000007")); !errors.Is(err, ErrFreeDiskCapacity) {
 		t.Fatalf("free disk = %v", err)
 	}
@@ -211,7 +213,7 @@ func TestSpoolStaleDeliveryIsReclaimedAndExactlyOneWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000005")); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +249,7 @@ func TestSpoolDatabaseCapacityRecoversAfterProcessedPrune(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	base := time.Unix(100, 0).UTC()
 	spool.cfg.Now = func() time.Time { return base }
 	for i := 15; i < 115; i++ {
@@ -318,7 +320,7 @@ func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(sink.release) }) }
 	defer release()
@@ -355,7 +357,7 @@ func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if err := spool.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +437,7 @@ func TestSpoolDatabaseBytesIncludesWALSiblings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	// With WAL mode active, the main database file plus -wal/-shm siblings must
 	// all be counted; a WAL-only delta must therefore be reflected.
 	base := spool.databaseBytes()

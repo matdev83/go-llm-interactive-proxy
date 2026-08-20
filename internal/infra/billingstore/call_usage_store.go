@@ -146,10 +146,7 @@ func (s *DurableStore) ClaimCompleteCalls(ctx context.Context, limit int) ([]bil
 	if limit <= 0 {
 		limit = 32
 	}
-	maxCandidates := limit * 8
-	if maxCandidates < 256 {
-		maxCandidates = 256
-	}
+	maxCandidates := max(limit*8, 256)
 	out := make([]billing.CompleteCall, 0, limit)
 	var afterSealed time.Time
 	var afterCallID string

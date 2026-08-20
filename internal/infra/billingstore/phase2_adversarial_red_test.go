@@ -35,10 +35,7 @@ func TestFreshSchemaDoesNotCreateRetiredUsageAppendOutbox(t *testing.T) {
 func TestCutoverAPIIsCentralStoreBound(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
-	var cutover func(context.Context) error = store.CutoverUsageAppendOutbox
-	if cutover == nil {
-		t.Fatal("central cutover method is nil")
-	}
+	_ = (func(context.Context) error)(store.CutoverUsageAppendOutbox)
 }
 
 func TestCutoverProvesDeliveryInCentralStore(t *testing.T) {

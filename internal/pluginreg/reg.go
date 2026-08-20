@@ -5,6 +5,7 @@ package pluginreg
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -315,11 +316,7 @@ func (r *Registry) BackendExecutionProfiles() map[string]BackendExecutionProfile
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make(map[string]BackendExecutionProfile, len(r.backendExecutionProfiles))
-	for k, v := range r.backendExecutionProfiles {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(r.backendExecutionProfiles)
 }
 
 // HasBackend reports whether factoryID is registered on r without exposing the factory.

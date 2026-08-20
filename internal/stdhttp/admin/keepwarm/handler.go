@@ -150,9 +150,11 @@ func writePolicyError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "policy_unavailable")
 	}
 }
+
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
 }
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(status)

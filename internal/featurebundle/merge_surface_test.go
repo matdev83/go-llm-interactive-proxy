@@ -168,12 +168,15 @@ func (testCompactionObs) OnCompaction(_ context.Context, _ compaction.Event) err
 type testCompactionPreserver struct{ tag string }
 
 func (p testCompactionPreserver) ID() string { return p.tag }
+
 func (testCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (testCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (testCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
@@ -187,6 +190,7 @@ func (testRawSink) WriteRaw(_ context.Context, _ traffic.Leg, _ traffic.CaptureM
 type testRedactor struct{ tag string }
 
 func (r testRedactor) ID() string { return r.tag }
+
 func (testRedactor) Redact(_ context.Context, _ traffic.Leg, _ traffic.CaptureMeta, body []byte) ([]byte, error) {
 	return body, nil
 }

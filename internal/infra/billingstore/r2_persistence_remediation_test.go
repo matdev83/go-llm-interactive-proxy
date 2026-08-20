@@ -81,12 +81,10 @@ func TestSQLiteDeferProviderCostWorkAtomicUnderConcurrency(t *testing.T) {
 	const goroutines = 16
 	var wg sync.WaitGroup
 	errs := make(chan error, goroutines)
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			errs <- store.DeferProviderCostWork(ctx, work, "concurrent")
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -120,12 +118,10 @@ func TestSQLiteDeferUsageAppendAtomicUnderConcurrency(t *testing.T) {
 	const goroutines = 16
 	var wg sync.WaitGroup
 	errs := make(chan error, goroutines)
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			errs <- store.DeferUsageAppend(ctx, key, "busy")
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
