@@ -7,6 +7,7 @@ import (
 )
 
 func TestRetirementObserverBindingIsConcurrentSafe(t *testing.T) {
+	t.Parallel()
 	store, cleanup := newTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -16,7 +17,7 @@ func TestRetirementObserverBindingIsConcurrentSafe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	createErrors := make(chan error, 20)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -36,14 +37,7 @@ type recordingStore struct {
 
 func (s *recordingStore) Create(ctx context.Context, rec domain.CreateRecord) (domain.Record, error) {
 	s.mu.Lock()
-	hasBegin := false
-	for _, ev := range *s.events {
-		if ev == "SecureSession.BeginTurn" {
-			hasBegin = true
-			break
-		}
-	}
-	if !hasBegin {
+	if !slices.Contains(*s.events, "SecureSession.BeginTurn") {
 		*s.events = append(*s.events, "SecureSession.BeginTurn")
 	}
 	s.mu.Unlock()
@@ -52,14 +46,7 @@ func (s *recordingStore) Create(ctx context.Context, rec domain.CreateRecord) (d
 
 func (s *recordingStore) TouchActivity(ctx context.Context, id domain.SessionID, at time.Time, src domain.ActivitySource) error {
 	s.mu.Lock()
-	hasBegin := false
-	for _, ev := range *s.events {
-		if ev == "SecureSession.BeginTurn" {
-			hasBegin = true
-			break
-		}
-	}
-	if !hasBegin {
+	if !slices.Contains(*s.events, "SecureSession.BeginTurn") {
 		*s.events = append(*s.events, "SecureSession.BeginTurn")
 	}
 	s.mu.Unlock()
@@ -241,14 +228,7 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 		select {
 		case <-barrier.arrived:
 			mu.Lock()
-			found := false
-			for _, ev := range events {
-				if ev == "MeteringCapture" {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(events, "MeteringCapture") {
 				events = append(events, "MeteringCapture")
 			}
 			mu.Unlock()

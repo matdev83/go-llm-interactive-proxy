@@ -25,11 +25,11 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintf(stderr, "usage: changesize [--staged | --base <rev> --head <rev>] [--limit %d] [--repo <dir>]\n", DefaultLimit)
+		_, _ = fmt.Fprintf(stderr, "usage: changesize [--staged | --base <rev> --head <rev>] [--limit %d] [--repo <dir>]\n", DefaultLimit)
 		return 2
 	}
 	if *limit < 1 {
-		fmt.Fprintln(stderr, "check-change-size: --limit must be >= 1")
+		_, _ = fmt.Fprintln(stderr, "check-change-size: --limit must be >= 1")
 		return 2
 	}
 
@@ -38,11 +38,11 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 		useStaged = true
 	}
 	if useStaged && (*base != "" || *head != "") {
-		fmt.Fprintln(stderr, "check-change-size: use --staged or --base/--head, not both")
+		_, _ = fmt.Fprintln(stderr, "check-change-size: use --staged or --base/--head, not both")
 		return 2
 	}
 	if !useStaged && (*base == "" || *head == "") {
-		fmt.Fprintln(stderr, "check-change-size: --base and --head are required together")
+		_, _ = fmt.Fprintln(stderr, "check-change-size: --base and --head are required together")
 		return 2
 	}
 
@@ -54,7 +54,7 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 	}
 	out, err := gitOutput(*repo, gitArgs...)
 	if err != nil {
-		fmt.Fprintf(stderr, "check-change-size: git diff: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "check-change-size: git diff: %v\n", err)
 		return 2
 	}
 	count := uniqueGoPathCount(splitGitNames(out))
@@ -69,13 +69,13 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 			if envOverride {
 				reason = OverrideEnv
 			}
-			fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit; proceeding because %s is set.\n", count, *limit, reason)
+			_, _ = fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit; proceeding because %s is set.\n", count, *limit, reason)
 		}
 		return 0
 	}
 
-	fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit.\n", count, *limit)
-	fmt.Fprintf(stderr, "Split the change into smaller reviewable PRs/commits, or set %s=1 or `git config %s true` (admin override).\n", OverrideEnv, OverrideGitConfig)
+	_, _ = fmt.Fprintf(stderr, "check-change-size: %d modified Go files exceed the %d-file limit.\n", count, *limit)
+	_, _ = fmt.Fprintf(stderr, "Split the change into smaller reviewable PRs/commits, or set %s=1 or `git config %s true` (admin override).\n", OverrideEnv, OverrideGitConfig)
 	return 1
 }
 

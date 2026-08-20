@@ -36,7 +36,7 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var opens int32
+	var opens atomic.Int32
 	ex := TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
@@ -74,7 +74,7 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 		"openai": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				atomic.AddInt32(&opens, 1)
+				opens.Add(1)
 				return lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventMessageStarted},
@@ -108,7 +108,7 @@ func TestBillingAppendRetryOutputPersistenceFailureAfterSuccess(t *testing.T) {
 	}
 
 	// Verify that only 1 backend open happened (no retry/failover triggered by database failure)
-	if got := atomic.LoadInt32(&opens); got != 1 {
+	if got := opens.Load(); got != 1 {
 		t.Fatalf("backend opens = %d, want 1 (no retry/failover occurred)", got)
 	}
 	if got := appender.callAppends.Load(); got == 0 {

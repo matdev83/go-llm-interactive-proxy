@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -24,27 +25,22 @@ func (h *candidateFailureHistory) FinalError(base error) error {
 	if h == nil {
 		return base
 	}
-	if h.TransportReject.Kind == lipapi.NegotiationReject {
+	switch {
+	case h.TransportReject.Kind == lipapi.NegotiationReject:
 		return h.TransportReject.Err()
-	}
-	if h.AdmissionErr != nil {
+	case h.AdmissionErr != nil:
 		return h.AdmissionErr
-	}
-	if h.CapabilityReject.Kind == lipapi.NegotiationReject {
+	case h.CapabilityReject.Kind == lipapi.NegotiationReject:
 		return h.CapabilityReject.Err()
-	}
-	if h.ContextLimit {
+	case h.ContextLimit:
 		return lipapi.ErrAllCandidatesContextLimitExceeded
-	}
-	if h.TransformExcludes != nil {
-		if aggErr := h.TransformExcludes.allExcludedError(); aggErr != nil {
-			return aggErr
-		}
-	}
-	if h.ParallelFailure != nil {
+	case h.TransformExcludes != nil && h.TransformExcludes.allExcludedError() != nil:
+		return h.TransformExcludes.allExcludedError()
+	case h.ParallelFailure != nil:
 		return h.ParallelFailure
+	default:
+		return base
 	}
-	return base
 }
 
 type routeFacts struct {
@@ -127,6 +123,7 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 		progress:   progress,
 	}, nil
 }
+
 func (p *routePlanState) facts() routeFacts {
 	if p == nil {
 		return routeFacts{}

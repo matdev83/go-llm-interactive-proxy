@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
+	"slices"
+	"strings"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -17,10 +22,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
-	"log/slog"
-	"maps"
-	"slices"
-	"strings"
 )
 
 func (e *Executor) candidateAttemptMeta(ctx context.Context, rf requestFacts, attempt lipapi.Call, c routing.AttemptCandidate, be execbackend.Backend) request.AttemptMeta {
@@ -50,17 +51,18 @@ func (e *Executor) candidateAttemptMeta(ctx context.Context, rf requestFacts, at
 	}
 	return meta
 }
-func cloneSessionView(in session.SessionView) session.SessionView {
-	out := in
-	out.Labels = maps.Clone(in.Labels)
-	return out
+
+func cloneSessionView(src session.SessionView) session.SessionView {
+	src.Labels = maps.Clone(src.Labels)
+	return src
 }
-func cloneWorkspaceView(in lipworkspace.WorkspaceView) lipworkspace.WorkspaceView {
-	out := in
-	out.Markers = slices.Clone(in.Markers)
-	out.Labels = maps.Clone(in.Labels)
-	return out
+
+func cloneWorkspaceView(src lipworkspace.WorkspaceView) lipworkspace.WorkspaceView {
+	src.Markers = slices.Clone(src.Markers)
+	src.Labels = maps.Clone(src.Labels)
+	return src
 }
+
 func (e *Executor) noteAttemptTransformExclude(ctx context.Context, traceID string, c routing.AttemptCandidate, res extensions.AttemptTransformStageResult, failures *candidateFailureHistory) {
 	diag.LogDecision(ctx, e.Log, "attempt_transform_exclude", diag.AttrOpts{CallID: traceID},
 		slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
@@ -71,6 +73,7 @@ func (e *Executor) noteAttemptTransformExclude(ctx context.Context, traceID stri
 		failures.TransformExcludes.noteTransform(res.ReasonCode)
 	}
 }
+
 func pinCandidateRouteIdentity(attempt *lipapi.Call, baseline lipapi.Call) {
 	if attempt != nil {
 		attempt.Route = baseline.Route

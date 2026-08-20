@@ -74,7 +74,7 @@ func TestCallUsageRecordSealAssignsBillingCallKeyWithoutEmbeddingLegs(t *testing
 	if record.ExpectedBLegIDs == nil || len(record.ExpectedBLegIDs) != 2 {
 		t.Fatalf("expected B-leg IDs = %#v", record.ExpectedBLegIDs)
 	}
-	typ := reflect.TypeOf(CallUsageRecord{})
+	typ := reflect.TypeFor[CallUsageRecord]()
 	if _, ok := typ.FieldByName("Legs"); ok {
 		t.Fatal("CallUsageRecord must not embed leg payloads")
 	}
@@ -113,7 +113,7 @@ func TestCallLegUsageRecordIsIndependentOfTURAndKeyedByCallPlusBLeg(t *testing.T
 	if fail.Key != wantFail {
 		t.Fatalf("leg key = %q, want %q", fail.Key, wantFail)
 	}
-	if _, ok := reflect.TypeOf(CallLegUsageRecord{}).FieldByName("CallID"); !ok {
+	if _, ok := reflect.TypeFor[CallLegUsageRecord]().FieldByName("CallID"); !ok {
 		t.Fatal("current CallLegUsageRecord must carry BillingCallID for authoritative usage identity")
 	}
 }
@@ -463,8 +463,7 @@ func assertBillingSafeUsageType(t *testing.T, typ reflect.Type, seen map[string]
 	}
 	seen[id] = struct{}{}
 	assertBillingSafeUsagePkg(t, typ)
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		name := strings.ToLower(field.Name)
 		for _, banned := range []string{
 			"prompt", "completion", "secret", "authorizationheader",

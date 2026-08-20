@@ -59,20 +59,14 @@ func fingerprint(call lipapi.Call, at time.Time) (requestFingerprint, [][32]byte
 		ItemCount:       len(items),
 		SeenAt:          at,
 	}
-	nTail := len(hashes)
-	if nTail > heuristicTailItems {
-		nTail = heuristicTailItems
-	}
-	for i := 0; i < nTail; i++ {
+	nTail := min(len(hashes), heuristicTailItems)
+	for i := range nTail {
 		fp.TailHashes[i] = hashes[len(hashes)-nTail+i]
 	}
 	fp.TailLen = nTail
-	nPrefix := len(hashes)
-	if nPrefix > heuristicPrefixItems {
-		nPrefix = heuristicPrefixItems
-	}
+	nPrefix := min(len(hashes), heuristicPrefixItems)
 	var prefix []byte
-	for i := 0; i < nPrefix; i++ {
+	for i := range nPrefix {
 		prefix = append(prefix, hashes[i][:]...)
 	}
 	fp.PrefixHash = sha256.Sum256(prefix)

@@ -27,7 +27,7 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 		prep.recvTurnFacts.billingCallID = prep.billingCallID
 		prep.recvTurnFacts.billingCallState = prep.billingCallState
 	}
-	if prep.recvTurnFacts.aLegID == "" && prep.identity != nil {
+	if prep.aLegID == "" && prep.identity != nil {
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:         *prep.call,
 			traceID:          prep.identity.traceID,

@@ -144,6 +144,7 @@ func TestValidateIndependentLegRequiresEvidenceIdentity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			leg := base
 			tc.edit(&leg)
 			sealed, sealErr := leg.Seal()

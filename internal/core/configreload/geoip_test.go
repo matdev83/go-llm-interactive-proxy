@@ -1,6 +1,7 @@
 package configreload
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -63,17 +64,8 @@ func TestClassifyGeoIPDatabaseFieldsRestartRequired(t *testing.T) {
 		"access.geoip.database.directory",
 		"access.geoip.database.update.interval",
 	} {
-		if !contains(restart.RestartRequiredFields, path) {
+		if !slices.Contains(restart.RestartRequiredFields, path) {
 			t.Errorf("restart fields %v missing %q", restart.RestartRequiredFields, path)
 		}
 	}
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

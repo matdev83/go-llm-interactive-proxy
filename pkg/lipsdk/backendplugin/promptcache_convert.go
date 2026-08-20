@@ -7,43 +7,47 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
-var promptCacheLifecycleToProto = map[promptcache.LifecycleKind]backendpluginv1.PromptCacheLifecycle{
-	promptcache.LifecycleUnknown:          backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_UNKNOWN,
-	promptcache.LifecycleSlidingExpiry:    backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_SLIDING_EXPIRY,
-	promptcache.LifecycleFixedExpiry:      backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_FIXED_EXPIRY,
-	promptcache.LifecycleMinimumResidency: backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_MINIMUM_RESIDENCY,
-	promptcache.LifecycleBestEffort:       backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_BEST_EFFORT,
-}
-var promptCacheLifecycleFromProto = map[backendpluginv1.PromptCacheLifecycle]promptcache.LifecycleKind{
-	backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_UNKNOWN:           promptcache.LifecycleUnknown,
-	backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_SLIDING_EXPIRY:    promptcache.LifecycleSlidingExpiry,
-	backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_FIXED_EXPIRY:      promptcache.LifecycleFixedExpiry,
-	backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_MINIMUM_RESIDENCY: promptcache.LifecycleMinimumResidency,
-	backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_BEST_EFFORT:       promptcache.LifecycleBestEffort,
-}
-var promptCacheStatusToProto = map[promptcache.RenewStatus]backendpluginv1.PromptCacheRenewStatus{
-	promptcache.Renewed:       backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_RENEWED,
-	promptcache.StillResident: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STILL_RESIDENT,
-	promptcache.ColdRecreated: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_COLD_RECREATED,
-	promptcache.Stale:         backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STALE,
-	promptcache.Unsupported:   backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_UNSUPPORTED,
-	promptcache.ControlFailed: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_CONTROL_FAILED,
-}
-var promptCacheStatusFromProto = map[backendpluginv1.PromptCacheRenewStatus]promptcache.RenewStatus{
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_RENEWED:        promptcache.Renewed,
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STILL_RESIDENT: promptcache.StillResident,
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_COLD_RECREATED: promptcache.ColdRecreated,
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STALE:          promptcache.Stale,
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_UNSUPPORTED:    promptcache.Unsupported,
-	backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_CONTROL_FAILED: promptcache.ControlFailed,
-}
+var (
+	promptCacheLifecycleToProto = map[promptcache.LifecycleKind]backendpluginv1.PromptCacheLifecycle{
+		promptcache.LifecycleUnknown:          backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_UNKNOWN,
+		promptcache.LifecycleSlidingExpiry:    backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_SLIDING_EXPIRY,
+		promptcache.LifecycleFixedExpiry:      backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_FIXED_EXPIRY,
+		promptcache.LifecycleMinimumResidency: backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_MINIMUM_RESIDENCY,
+		promptcache.LifecycleBestEffort:       backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_BEST_EFFORT,
+	}
+	promptCacheLifecycleFromProto = map[backendpluginv1.PromptCacheLifecycle]promptcache.LifecycleKind{
+		backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_UNKNOWN:           promptcache.LifecycleUnknown,
+		backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_SLIDING_EXPIRY:    promptcache.LifecycleSlidingExpiry,
+		backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_FIXED_EXPIRY:      promptcache.LifecycleFixedExpiry,
+		backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_MINIMUM_RESIDENCY: promptcache.LifecycleMinimumResidency,
+		backendpluginv1.PromptCacheLifecycle_PROMPT_CACHE_LIFECYCLE_BEST_EFFORT:       promptcache.LifecycleBestEffort,
+	}
+	promptCacheStatusToProto = map[promptcache.RenewStatus]backendpluginv1.PromptCacheRenewStatus{
+		promptcache.Renewed:       backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_RENEWED,
+		promptcache.StillResident: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STILL_RESIDENT,
+		promptcache.ColdRecreated: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_COLD_RECREATED,
+		promptcache.Stale:         backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STALE,
+		promptcache.Unsupported:   backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_UNSUPPORTED,
+		promptcache.ControlFailed: backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_CONTROL_FAILED,
+	}
+	promptCacheStatusFromProto = map[backendpluginv1.PromptCacheRenewStatus]promptcache.RenewStatus{
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_RENEWED:        promptcache.Renewed,
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STILL_RESIDENT: promptcache.StillResident,
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_COLD_RECREATED: promptcache.ColdRecreated,
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_STALE:          promptcache.Stale,
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_UNSUPPORTED:    promptcache.Unsupported,
+		backendpluginv1.PromptCacheRenewStatus_PROMPT_CACHE_RENEW_STATUS_CONTROL_FAILED: promptcache.ControlFailed,
+	}
+)
 
 func PromptCacheProfileFromProto(p *backendpluginv1.PromptCacheProfile) (promptcache.Profile, error) {
 	return promptCacheProfileFromProto(p)
 }
+
 func PromptCacheProfileToProto(p promptcache.Profile) (*backendpluginv1.PromptCacheProfile, error) {
 	return promptCacheProfileToProto(p)
 }
+
 func promptCacheProfileFromProto(p *backendpluginv1.PromptCacheProfile) (promptcache.Profile, error) {
 	if p == nil {
 		return promptcache.Profile{}, nil
@@ -58,6 +62,7 @@ func promptCacheProfileFromProto(p *backendpluginv1.PromptCacheProfile) (promptc
 	}
 	return out.Normalize()
 }
+
 func promptCacheProfileToProto(p promptcache.Profile) (*backendpluginv1.PromptCacheProfile, error) {
 	normalized, err := p.Normalize()
 	if err != nil {
@@ -72,6 +77,7 @@ func promptCacheProfileToProto(p promptcache.Profile) (*backendpluginv1.PromptCa
 	}
 	return out, nil
 }
+
 func promptCacheTimingFromProto(t *backendpluginv1.PromptCacheTiming) (promptcache.Timing, error) {
 	if t == nil || t.ObservedAtUnixMs == nil {
 		return promptcache.Timing{}, promptcache.ErrInvalid
@@ -90,6 +96,7 @@ func promptCacheTimingFromProto(t *backendpluginv1.PromptCacheTiming) (promptcac
 	}
 	return out, nil
 }
+
 func promptCacheTimingToProto(t promptcache.Timing) (*backendpluginv1.PromptCacheTiming, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
@@ -106,12 +113,15 @@ func promptCacheTimingToProto(t promptcache.Timing) (*backendpluginv1.PromptCach
 	}
 	return out, nil
 }
+
 func PromptCacheEvidenceFromProto(e *backendpluginv1.PromptCacheEvidence) (promptcache.CacheEvidence, error) {
 	return promptCacheEvidenceFromProto(e)
 }
+
 func PromptCacheEvidenceToProto(e promptcache.CacheEvidence) (*backendpluginv1.PromptCacheEvidence, error) {
 	return promptCacheEvidenceToProto(e)
 }
+
 func promptCacheEvidenceFromProto(e *backendpluginv1.PromptCacheEvidence) (promptcache.CacheEvidence, error) {
 	if e == nil {
 		return promptcache.CacheEvidence{}, nil
@@ -119,18 +129,22 @@ func promptCacheEvidenceFromProto(e *backendpluginv1.PromptCacheEvidence) (promp
 	out := promptcache.CacheEvidence{InputTokens: optInt64(e.InputTokens), OutputTokens: optInt64(e.OutputTokens), CacheReadTokens: optInt64(e.CacheReadTokens), CacheWriteTokens: optInt64(e.CacheWriteTokens), TotalTokens: optInt64(e.TotalTokens)}
 	return out, out.Validate()
 }
+
 func promptCacheEvidenceToProto(e promptcache.CacheEvidence) (*backendpluginv1.PromptCacheEvidence, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
 	return &backendpluginv1.PromptCacheEvidence{InputTokens: optInt64(e.InputTokens), OutputTokens: optInt64(e.OutputTokens), CacheReadTokens: optInt64(e.CacheReadTokens), CacheWriteTokens: optInt64(e.CacheWriteTokens), TotalTokens: optInt64(e.TotalTokens)}, nil
 }
+
 func PromptCacheObservationFromProto(o *backendpluginv1.PromptCacheObservation) (*promptcache.Observation, error) {
 	return promptCacheObservationFromProto(o)
 }
+
 func PromptCacheObservationToProto(o *promptcache.Observation) (*backendpluginv1.PromptCacheObservation, error) {
 	return promptCacheObservationToProto(o)
 }
+
 func promptCacheObservationFromProto(o *backendpluginv1.PromptCacheObservation) (*promptcache.Observation, error) {
 	if o == nil {
 		return nil, nil
@@ -153,6 +167,7 @@ func promptCacheObservationFromProto(o *backendpluginv1.PromptCacheObservation) 
 	}
 	return out, nil
 }
+
 func promptCacheObservationToProto(o *promptcache.Observation) (*backendpluginv1.PromptCacheObservation, error) {
 	if o == nil {
 		return nil, nil
@@ -174,6 +189,7 @@ func promptCacheObservationToProto(o *promptcache.Observation) (*backendpluginv1
 	}
 	return &backendpluginv1.PromptCacheObservation{ALegId: o.ALegID, BLegId: o.BLegID, BackendInstanceId: o.BackendInstanceID, TargetId: string(o.TargetID), GenerationId: string(o.GenerationID), Lifecycle: lifecycle, Timing: timing, Renewable: o.Renewable, Handle: append([]byte(nil), o.Handle...), Evidence: evidence}, nil
 }
+
 func promptCacheRenewStatusFromProto(s backendpluginv1.PromptCacheRenewStatus) (promptcache.RenewStatus, error) {
 	v, ok := promptCacheStatusFromProto[s]
 	if !ok {
@@ -181,6 +197,7 @@ func promptCacheRenewStatusFromProto(s backendpluginv1.PromptCacheRenewStatus) (
 	}
 	return v, nil
 }
+
 func promptCacheRenewStatusToProto(s promptcache.RenewStatus) (backendpluginv1.PromptCacheRenewStatus, error) {
 	v, ok := promptCacheStatusToProto[s]
 	if !ok {
@@ -188,6 +205,7 @@ func promptCacheRenewStatusToProto(s promptcache.RenewStatus) (backendpluginv1.P
 	}
 	return v, nil
 }
+
 func promptCacheRenewResultFromProto(p *backendpluginv1.RenewPromptCacheResponse) (promptcache.RenewResult, *AccountingEvidence, error) {
 	if p == nil {
 		return promptcache.RenewResult{}, nil, ErrInvalidInvocation
@@ -214,9 +232,11 @@ func promptCacheRenewResultFromProto(p *backendpluginv1.RenewPromptCacheResponse
 	}
 	return out, accounting, nil
 }
+
 func PromptCacheRenewResultFromProto(p *backendpluginv1.RenewPromptCacheResponse) (promptcache.RenewResult, *AccountingEvidence, error) {
 	return promptCacheRenewResultFromProto(p)
 }
+
 func PromptCacheRenewResponseFromProto(p *backendpluginv1.RenewPromptCacheResponse) (promptcache.RenewResponse, error) {
 	result, accounting, err := promptCacheRenewResultFromProto(p)
 	if err != nil {
@@ -228,12 +248,14 @@ func PromptCacheRenewResponseFromProto(p *backendpluginv1.RenewPromptCacheRespon
 	}
 	return response, nil
 }
+
 func promptCacheAccountingFromABI(e *AccountingEvidence) *promptcache.AccountingEvidence {
 	if e == nil {
 		return nil
 	}
 	return &promptcache.AccountingEvidence{InputTokens: e.InputTokens, OutputTokens: e.OutputTokens, CacheReadTokens: e.CacheReadTokens, CacheWriteTokens: e.CacheWriteTokens, ReasoningTokens: e.ReasoningTokens, TotalTokens: e.TotalTokens, Presence: e.Presence, Source: promptcache.AccountingSource(e.Source), Authority: promptcache.AccountingAuthority(e.Authority), Plane: promptcache.AccountingPlane(e.Plane), DedupeKey: e.DedupeKey}
 }
+
 func promptCacheAccountingToABI(e *promptcache.AccountingEvidence) (*AccountingEvidence, error) {
 	if e == nil {
 		return nil, nil
@@ -244,6 +266,7 @@ func promptCacheAccountingToABI(e *promptcache.AccountingEvidence) (*AccountingE
 	}
 	return out, nil
 }
+
 func PromptCacheRenewResponseToProto(response promptcache.RenewResponse) (*backendpluginv1.RenewPromptCacheResponse, error) {
 	accounting, err := promptCacheAccountingToABI(response.Accounting)
 	if err != nil {
@@ -251,9 +274,11 @@ func PromptCacheRenewResponseToProto(response promptcache.RenewResponse) (*backe
 	}
 	return promptCacheRenewResultToProto(response.Result, accounting)
 }
+
 func PromptCacheRenewResultToProto(r promptcache.RenewResult, accounting *AccountingEvidence) (*backendpluginv1.RenewPromptCacheResponse, error) {
 	return promptCacheRenewResultToProto(r, accounting)
 }
+
 func promptCacheRenewResultToProto(r promptcache.RenewResult, accounting *AccountingEvidence) (*backendpluginv1.RenewPromptCacheResponse, error) {
 	if err := r.Validate(); err != nil {
 		return nil, err

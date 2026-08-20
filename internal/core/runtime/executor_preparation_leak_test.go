@@ -60,7 +60,7 @@ func TestExecutor_PrepareRequest_LeakOnBillingIDFailure(t *testing.T) {
 }
 
 func TestPreStreamGuard_ConcurrentHandoffVsClose(t *testing.T) {
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		auth := &recordingAuthorityService{
 			admitResult: authorityapp.AdmissionResult{
 				Allowed:        true,

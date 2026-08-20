@@ -11,6 +11,7 @@ import (
 // ratchet. Historical migration sources and audit-only decode DTOs are not
 // current domain/writer code and are intentionally outside this scan.
 func TestPhase4CurrentBillingDomainForbidsRetiredNames(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	for _, dir := range []string{"internal/core/billing", "internal/infra/billingstore", "internal/infra/billingcompose", "internal/infra/billingadmission"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {

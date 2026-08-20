@@ -263,10 +263,13 @@ func TestParallelRegisterBLegFailureAppendsTerminalLegForJoin(t *testing.T) {
 type boomRequestPartHook struct{}
 
 func (boomRequestPartHook) ID() string { return "boom-request-part" }
+
 func (boomRequestPartHook) Order() int { return 0 }
+
 func (boomRequestPartHook) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailClosed
 }
+
 func (boomRequestPartHook) HandleRequestParts(context.Context, *lipapi.Call, sdkhooks.PartMeta) error {
 	return errors.New("request part hook boom after NextBLeg")
 }
@@ -274,10 +277,13 @@ func (boomRequestPartHook) HandleRequestParts(context.Context, *lipapi.Call, sdk
 type toolsExcludeRequestPartHook struct{}
 
 func (toolsExcludeRequestPartHook) ID() string { return "tools-exclude-part" }
+
 func (toolsExcludeRequestPartHook) Order() int { return 0 }
+
 func (toolsExcludeRequestPartHook) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailClosed
 }
+
 func (toolsExcludeRequestPartHook) HandleRequestParts(_ context.Context, call *lipapi.Call, _ sdkhooks.PartMeta) error {
 	if call == nil {
 		return nil

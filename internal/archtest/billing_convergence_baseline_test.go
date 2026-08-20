@@ -421,6 +421,7 @@ func TestBillingFinalConvergenceNoGenericCauses(t *testing.T) {
 }
 
 func TestGenerateBillingFinalConvergenceBaseline(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("GENERATE_BASELINE") != "1" {
 		t.Skip("skipping baseline generation; set GENERATE_BASELINE=1 to run")
 	}
@@ -462,7 +463,7 @@ func TestGenerateBillingFinalConvergenceBaseline(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	raw = append(raw, '\n')
-	if err := os.WriteFile(path, raw, 0644); err != nil {
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	t.Logf("Successfully wrote updated baseline to %s with denominator %d and %d declarations", path, doc.DenominatorLOC, len(doc.IncludedDeclarations))

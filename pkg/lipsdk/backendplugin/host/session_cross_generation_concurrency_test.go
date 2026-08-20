@@ -19,6 +19,7 @@ const sessionConcurrencyGuard = time.Second
 // existing Session lifecycle lock that a pooled Session would share across
 // retained old-generation and new-generation execution.
 func TestSession_CrossGenerationExecuteSerializesOnOneSession(t *testing.T) {
+	t.Parallel()
 	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
 
 	session, plugin := newCrossGenerationSession(t)
@@ -69,6 +70,7 @@ func TestSession_CrossGenerationExecuteSerializesOnOneSession(t *testing.T) {
 // existing standard-host contract: server-side instance leases permit the
 // metadata and auxiliary RPCs to overlap an active Execute on one Session.
 func TestSession_CrossGenerationMetadataOverlapsHeldExecute(t *testing.T) {
+	t.Parallel()
 	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
 
 	session, plugin := newCrossGenerationSession(t)
@@ -136,6 +138,7 @@ func TestSession_CrossGenerationMetadataOverlapsHeldExecute(t *testing.T) {
 // lifecycle guarantee that Close cannot tear down the transport below an
 // active Execute.
 func TestSession_CrossGenerationCloseSerializesWithExecute(t *testing.T) {
+	t.Parallel()
 	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
 
 	session, plugin := newCrossGenerationSession(t)
@@ -232,7 +235,7 @@ type contextProbeStream struct {
 
 func (s *contextProbeStream) Context() context.Context {
 	s.contextOnce.Do(func() { close(s.contextCalled) })
-	return s.publicStream.ctx
+	return s.ctx
 }
 
 type crossGenerationFake struct {
@@ -352,9 +355,11 @@ func (f *crossGenerationInstance) FinalizeBilling(context.Context, backendplugin
 	return backendplugin.FinalizeBillingResponse{Usage: backendplugin.UsageEvidence{TotalTokens: &value, Presence: backendplugin.UsagePresence{TotalTokens: true}}, EvidenceQuality: "cross-generation-fake"}, nil
 }
 
-var _ backendplugin.Service = (*crossGenerationFake)(nil)
-var _ backendplugin.ConfiguredInstance = (*crossGenerationInstance)(nil)
-var _ backendplugin.TokenCounter = (*crossGenerationInstance)(nil)
-var _ backendplugin.BillingFinalizer = (*crossGenerationInstance)(nil)
+var (
+	_ backendplugin.Service            = (*crossGenerationFake)(nil)
+	_ backendplugin.ConfiguredInstance = (*crossGenerationInstance)(nil)
+	_ backendplugin.TokenCounter       = (*crossGenerationInstance)(nil)
+	_ backendplugin.BillingFinalizer   = (*crossGenerationInstance)(nil)
+)
 
 var _ backendplugin.ExecuteStream = (*contextProbeStream)(nil)

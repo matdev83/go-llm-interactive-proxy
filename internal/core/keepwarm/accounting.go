@@ -14,7 +14,7 @@ func (m *Manager) deliverAccounting(parent context.Context, timeout time.Duratio
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	var err error
-	for attempt := 0; attempt < maxAccountingAttempts; attempt++ {
+	for range maxAccountingAttempts {
 		err = m.hooks.Accounting(ctx, record)
 		if err == nil {
 			return nil

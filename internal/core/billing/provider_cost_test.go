@@ -3,6 +3,7 @@ package billing
 import "testing"
 
 func TestRateProviderCostIsIndependentPerLeg(t *testing.T) {
+	t.Parallel()
 	callID := mustBillingCallID(t)
 	leg := testCallLegUsageRecord(callID, "b-cost")
 	got, err := RateProviderCost(leg, nil, "USD")

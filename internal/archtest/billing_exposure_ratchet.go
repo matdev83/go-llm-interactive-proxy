@@ -279,7 +279,7 @@ func billingExposureTaskChecked(root, task string) bool {
 	// marker counts. Substring matching would let "7.2" match "17.2" or a
 	// bullet body, silently flipping the gate.
 	prefix := "- [x] " + task
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, prefix) {
 			continue

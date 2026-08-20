@@ -21,9 +21,11 @@ type errorAffinityStore struct {
 func (s *errorAffinityStore) Get(ctx context.Context, key affinity.Key) (affinity.Binding, bool, error) {
 	return affinity.Binding{}, false, s.err
 }
+
 func (s *errorAffinityStore) Set(ctx context.Context, binding affinity.Binding) error {
 	return nil
 }
+
 func (s *errorAffinityStore) Delete(ctx context.Context, key affinity.Key) error {
 	return nil
 }

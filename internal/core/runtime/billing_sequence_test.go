@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -137,10 +138,7 @@ func TestExecutorBillingLegProducersCarryExactB2BUASequence(t *testing.T) {
 	swallowed.terminal.recordBillingLegForAttempt(ctx, swallowed.facts.terminalFacts(), swallowed.attempt.snapshot(), swallowed.attempt.require().terminalEvidence(), sdkterminal.CommandSwallowedAttempt, lipapi.Event{}, false, swallowed.facts.billingCallState)
 
 	mu.Lock()
-	got := map[string]int{}
-	for k, v := range seqByBLeg {
-		got[k] = v
-	}
+	got := maps.Clone(seqByBLeg)
 	mu.Unlock()
 
 	want := map[string]int{

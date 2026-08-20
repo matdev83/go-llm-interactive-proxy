@@ -72,8 +72,8 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 			LastUpdatedAt: now,
 		}
 	}
-	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentMeteringJournal, src.MeteringJournal, cp.ReadinessComponentStatus{})
-	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentBillingSpool, src.BillingSpool, cp.ReadinessComponentStatus{
+	components = appendReadinessProbe(ctx, components, now, cp.ReadinessComponentMeteringJournal, src.MeteringJournal, cp.ReadinessComponentStatus{})
+	components = appendReadinessProbe(ctx, components, now, cp.ReadinessComponentBillingSpool, src.BillingSpool, cp.ReadinessComponentStatus{
 		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable,
 		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess, StoreBacking: "injected",
 	})
@@ -138,10 +138,10 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
 	}
 	components = append(components, executableGenerationComponent(execStatus, now))
-	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentSecretGuardQuarantine, src.SecretGuardQuarantine, cp.ReadinessComponentStatus{
+	components = appendReadinessProbe(ctx, components, now, cp.ReadinessComponentSecretGuardQuarantine, src.SecretGuardQuarantine, cp.ReadinessComponentStatus{
 		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable, EnforcementScope: cp.EnforcementScopeDisabled,
 	})
-	components = appendReadinessProbe(components, ctx, now, cp.ReadinessComponentTerminalRecovery, src.TerminalRecovery, cp.ReadinessComponentStatus{
+	components = appendReadinessProbe(ctx, components, now, cp.ReadinessComponentTerminalRecovery, src.TerminalRecovery, cp.ReadinessComponentStatus{
 		State: cp.CapabilityUnavailable, Reason: cp.ReasonBackingUnavailable, EnforcementScope: cp.EnforcementScopeDisabled,
 	})
 	return cp.ReadinessReport{
@@ -193,7 +193,7 @@ func unavailableComponent(id cp.ReadinessComponentID, backing string, at time.Ti
 	}
 }
 
-func appendReadinessProbe(components []cp.ReadinessComponentStatus, ctx context.Context, now time.Time, id cp.ReadinessComponentID, probe func(context.Context) (cp.ReadinessComponentStatus, error), fallback cp.ReadinessComponentStatus) []cp.ReadinessComponentStatus {
+func appendReadinessProbe(ctx context.Context, components []cp.ReadinessComponentStatus, now time.Time, id cp.ReadinessComponentID, probe func(context.Context) (cp.ReadinessComponentStatus, error), fallback cp.ReadinessComponentStatus) []cp.ReadinessComponentStatus {
 	if probe == nil {
 		return append(components, disabledComponent(id, now))
 	}

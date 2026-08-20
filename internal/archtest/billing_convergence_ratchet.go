@@ -310,7 +310,7 @@ func isBillingFinalConvergenceMigrationName(name string) bool {
 	if len(name) < 15 || name[14] != '_' {
 		return false
 	}
-	for i := 0; i < 14; i++ {
+	for i := range 14 {
 		if name[i] < '0' || name[i] > '9' {
 			return false
 		}

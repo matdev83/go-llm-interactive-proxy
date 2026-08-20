@@ -24,9 +24,11 @@ type contextAuthoritySpyStream struct{}
 func (contextAuthoritySpyStream) Recv(context.Context) (lipapi.Event, error) {
 	return lipapi.Event{}, io.EOF
 }
+
 func (contextAuthoritySpyStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
 }
+
 func (contextAuthoritySpyStream) Close() error {
 	return nil
 }
@@ -38,6 +40,7 @@ type testContextAuthorityHook struct {
 func (h testContextAuthorityHook) ID() string                   { return "test-context-authority-hook" }
 func (h testContextAuthorityHook) Order() int                   { return 1 }
 func (h testContextAuthorityHook) FailureMode() sdk.FailureMode { return sdk.FailClosed }
+
 func (h testContextAuthorityHook) HandleRequestParts(ctx context.Context, call *lipapi.Call, meta sdk.PartMeta) error {
 	return h.fn(ctx, call, meta)
 }
@@ -139,7 +142,7 @@ func TestTDD_ContextAuthorityPinning(t *testing.T) {
 	_ = prepCtx // prepCtx has the correct pinned values
 
 	// Set pinned preferences manually because detached mode strips them from the context
-	prep.recvTurnFacts.routePrefs = pinnedPrefs
+	prep.routePrefs = pinnedPrefs
 
 	// 2. Setup a poisoned/omitted context for the attempt open loop
 	poisonedMetering := &checkpoint.RequestHolder{}
@@ -321,7 +324,7 @@ func TestTDD_ContextAuthorityPinningReplacement(t *testing.T) {
 	defer cleanup()
 
 	// Set pinned preferences manually because detached mode strips them from the context
-	prep.recvTurnFacts.routePrefs = pinnedPrefs
+	prep.routePrefs = pinnedPrefs
 
 	// Run route planning
 	sel, err := routing.Parse("backend-A:model-A|backend-B:model-B")
@@ -380,7 +383,7 @@ func TestTDD_ContextAuthorityPinningReplacement(t *testing.T) {
 	out.session.authority.finalizeIncurredOrRelease(context.Background(), authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 
 	// Call openReplacement (or tryReplacementIteration) with the poisoned context
-	res, err := progress.tryReplacementIteration(poisonedCtx, prep.recvTurnFacts.terminalFacts(), out.session, false)
+	res, err := progress.tryReplacementIteration(poisonedCtx, prep.terminalFacts(), out.session, false)
 	if err != nil {
 		t.Fatalf("tryReplacementIteration failed: %v", err)
 	}

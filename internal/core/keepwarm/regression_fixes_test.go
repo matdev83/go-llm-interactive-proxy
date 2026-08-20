@@ -25,14 +25,16 @@ func (c *clockRenewController) Renew(ctx context.Context, req promptcache.RenewR
 	o := promptcache.Observation{
 		ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen",
 		Lifecycle: promptcache.LifecycleSlidingExpiry, Renewable: true,
-		Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: timePtr(now.Add(30 * time.Minute))},
+		Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: new(now.Add(30 * time.Minute))},
 		Handle: promptcache.Handle("new"), Evidence: promptcache.CacheEvidence{TotalTokens: &input},
 	}
 	return promptcache.RenewResponse{
 		Result: promptcache.RenewResult{Status: promptcache.Renewed, Observation: &o},
-		Accounting: &promptcache.AccountingEvidence{TotalTokens: &input, Presence: lipapi.UsagePresence{TotalTokens: true},
+		Accounting: &promptcache.AccountingEvidence{
+			TotalTokens: &input, Presence: lipapi.UsagePresence{TotalTokens: true},
 			Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative,
-			Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: req.OperationID},
+			Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: req.OperationID,
+		},
 	}, nil
 }
 
@@ -49,6 +51,7 @@ func regressionObservation(now time.Time, targetID string, expires time.Duration
 // #1: an administrative Clear must restore inheritance for the live generation
 // manager, not merely remove the process-store entry.
 func TestPolicyServiceClearRestoresLiveManagerInheritance(t *testing.T) {
+	t.Parallel()
 	store, err := NewPolicyStore(16)
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +101,7 @@ func TestPolicyServiceClearRestoresLiveManagerInheritance(t *testing.T) {
 // result-apply from invalidating the epoch mid-burst so dispatch counts are
 // deterministic.
 func TestManagerDispatchRespectsRefreshCapInsideBurst(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	unblock := make(chan struct{})
@@ -137,6 +141,7 @@ func TestManagerDispatchRespectsRefreshCapInsideBurst(t *testing.T) {
 // #4: the provider-token budget must be rechecked immediately before each
 // dispatch; an epoch that has spent the budget must not fire another call.
 func TestManagerDispatchRespectsProviderTokenBudget(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	budget := int64(1)
@@ -171,6 +176,7 @@ func TestManagerDispatchRespectsProviderTokenBudget(t *testing.T) {
 
 // #7: arm skip reasons must be recorded in the bounded metrics map.
 func TestManagerRecordsArmSkipReasons(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -189,6 +195,7 @@ func TestManagerRecordsArmSkipReasons(t *testing.T) {
 		{"uncommitted", osTool(), "uncommitted", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r := m.ArmFromCommittedTurn(ArmInput{ALegID: "a", BLegID: "b", CommittedSuccessful: tc.committed, ToolEvents: tc.events, Observations: []promptcache.Observation{o}, BackendInstanceID: "backend", Controller: ctl})
 			if r.Armed {
 				t.Fatalf("unexpected arm %+v", r)
@@ -204,6 +211,7 @@ func TestManagerRecordsArmSkipReasons(t *testing.T) {
 // #9: a foreground-turn invalidation must be attributed to the foreground
 // cause; session-end invalidation must not be reported as a foreground cancel.
 func TestManagerCancelMetricScopedToForeground(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -237,6 +245,7 @@ func TestManagerCancelMetricScopedToForeground(t *testing.T) {
 // #9: observations whose backend instance differs from the committed controller
 // must not be released through that controller.
 func TestManagerDoesNotReleaseForeignBackendObservationThroughCommittedController(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -260,6 +269,7 @@ func TestManagerDoesNotReleaseForeignBackendObservationThroughCommittedControlle
 }
 
 func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &releaseTrackingController{releaseStarted: make(chan struct{}), unblockFirst: make(chan struct{})}
@@ -299,6 +309,7 @@ func TestManagerMaxActiveTargetsIsGenerationWide(t *testing.T) {
 }
 
 func TestManagerCapacityDoesNotEvictInFlightTarget(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	started := make(chan struct{}, 1)
@@ -356,6 +367,7 @@ func TestManagerCapacityDoesNotEvictInFlightTarget(t *testing.T) {
 }
 
 func TestManagerProviderBudgetDoesNotRefundCommittedSpend(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	budget := int64(1)
@@ -384,6 +396,7 @@ func TestManagerProviderBudgetDoesNotRefundCommittedSpend(t *testing.T) {
 }
 
 func TestManagerQuiesceTimeoutDoesNotHideInProgressShutdown(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
 	started := make(chan struct{}, 1)

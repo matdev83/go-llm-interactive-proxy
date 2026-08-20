@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,60 +40,64 @@ func TestTDD_TypeAndPointerAbsence(t *testing.T) {
 
 	// TDD Assert that attemptOpenParams and attemptOpenResult are completely deleted from the runtime package.
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			if strings.HasSuffix(filename, "executor_open_attempt_state_tdd_test.go") {
+	var parsedFiles []*ast.File
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "executor_open_attempt_state_tdd_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, entry.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsedFiles = append(parsedFiles, file)
+	}
+	for _, file := range parsedFiles {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
 				continue
 			}
-			for _, decl := range file.Decls {
-				gen, ok := decl.(*ast.GenDecl)
-				if !ok || gen.Tok != token.TYPE {
+			for _, spec := range gen.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
 					continue
 				}
-				for _, spec := range gen.Specs {
-					ts, ok := spec.(*ast.TypeSpec)
-					if !ok {
-						continue
-					}
-					if ts.Name.Name == "attemptOpenParams" || ts.Name.Name == "attemptOpenResult" {
-						t.Errorf("forbidden type %q is defined in file %s", ts.Name.Name, filename)
-					}
+				if ts.Name.Name == "attemptOpenParams" || ts.Name.Name == "attemptOpenResult" {
+					t.Errorf("forbidden type %q is defined in file %s", ts.Name.Name, file.Name.Name)
 				}
 			}
 		}
 	}
 
 	// Assert no pointer-out fields in openNextRequest or its nested structures (excluding legitimate services).
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			ast.Inspect(file, func(n ast.Node) bool {
-				ts, ok := n.(*ast.TypeSpec)
-				if !ok || ts.Name.Name != "openNextRequest" {
-					return true
-				}
-				st, ok := ts.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, f := range st.Fields.List {
-					star, isStar := f.Type.(*ast.StarExpr)
-					if isStar {
-						ident, isIdent := star.X.(*ast.Ident)
-						if isIdent {
-							switch ident.Name {
-							case "bool", "error", "string", "int", "int64":
-								t.Errorf("forbidden pointer-out field in openNextRequest in file %s", filename)
-							}
+	for _, file := range parsedFiles {
+		ast.Inspect(file, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "openNextRequest" {
+				return true
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok {
+				return true
+			}
+			for _, f := range st.Fields.List {
+				star, isStar := f.Type.(*ast.StarExpr)
+				if isStar {
+					ident, isIdent := star.X.(*ast.Ident)
+					if isIdent {
+						switch ident.Name {
+						case "bool", "error", "string", "int", "int64":
+							t.Errorf("forbidden pointer-out field in openNextRequest in file %s", file.Name.Name)
 						}
 					}
 				}
-				return false
-			})
-		}
+			}
+			return false
+		})
 	}
 }
 

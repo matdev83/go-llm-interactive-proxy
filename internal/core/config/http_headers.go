@@ -8,8 +8,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-const maxHTTPHeaderAliases = 16
-const maxHTTPHeaderNameBytes = 64
+const (
+	maxHTTPHeaderAliases   = 16
+	maxHTTPHeaderNameBytes = 64
+)
 
 // HTTPHeadersConfig lists extra inbound header names operators may send in
 // addition to the standard LIP/vendor defaults. Empty lists keep the defaults.

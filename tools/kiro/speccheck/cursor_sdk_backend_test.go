@@ -131,7 +131,7 @@ func checkTasks(t *testing.T, root, name string, allowedUnchecked []string) {
 	for _, line := range allowedUnchecked {
 		allowed[line] = struct{}{}
 	}
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "- [ ]") {
 			continue

@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
+	"time"
+
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -27,9 +31,6 @@ import (
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
-	"maps"
-	"strings"
-	"time"
 )
 
 const (
@@ -447,9 +448,11 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	}
 	return ibt, workingCall, outCtx, nil
 }
+
 func secureSessionWireFromLipAPI(s lipapi.SessionRef) app.SessionWire {
 	return app.SessionWire{ClientSessionID: s.ClientSessionID, ContinuityKey: s.ContinuityKey, ALegID: s.ALegID, SessionID: s.AuthoritativeSessionID, ResumeToken: s.ResumeToken}
 }
+
 func policyLabelsFromMetadata(p domain.PolicyMetadata) map[string]string {
 	out := make(map[string]string)
 	if s := strings.TrimSpace(p.PolicyVersion); s != "" {
@@ -470,6 +473,7 @@ func policyLabelsFromMetadata(p domain.PolicyMetadata) map[string]string {
 	}
 	return out
 }
+
 func principalSnapshotForSessionAudit(p execview.PrincipalView) coreauth.PrincipalSnapshot {
 	return coreauth.NewPrincipalSnapshot(p.ID, p.DisplayName)
 }

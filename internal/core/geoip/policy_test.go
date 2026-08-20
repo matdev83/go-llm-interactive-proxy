@@ -40,6 +40,7 @@ func TestCompileEvaluateOrderTruthTable(t *testing.T) {
 	addr := netip.MustParseAddr("192.0.2.10")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			input := CompileInput{Order: tc.order}
 			if tc.allow {
 				input.Allow.CIDRs = []string{"192.0.2.0/24"}

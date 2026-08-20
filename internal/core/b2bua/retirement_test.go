@@ -7,6 +7,7 @@ import (
 )
 
 func TestMemoryStoreLoadAttemptsNotifiesStaleRetirement(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1_700_000_000, 0).UTC()
 	store, err := NewMemoryStore(MemoryStoreOptions{TTL: time.Minute, Now: func() time.Time { return now }})
 	if err != nil {
@@ -33,6 +34,7 @@ func TestMemoryStoreLoadAttemptsNotifiesStaleRetirement(t *testing.T) {
 }
 
 func TestMemoryStoreRetirementObserverRunsAfterEvictionUnlock(t *testing.T) {
+	t.Parallel()
 	tick := time.Unix(1_700_000_000, 0).UTC()
 	store, err := NewMemoryStore(MemoryStoreOptions{MaxLegs: 1, Now: func() time.Time { return tick }})
 	if err != nil {

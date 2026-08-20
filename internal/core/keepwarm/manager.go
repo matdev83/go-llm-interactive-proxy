@@ -29,8 +29,10 @@ func (f ClockFunc) Now() time.Time {
 	return f()
 }
 
-type EpochRevision uint64
-type TargetRevision uint64
+type (
+	EpochRevision  uint64
+	TargetRevision uint64
+)
 
 type ArmInput struct {
 	ALegID              string
@@ -116,14 +118,22 @@ type scheduleEntry struct {
 type scheduleHeap []scheduleEntry
 
 func (h scheduleHeap) Len() int { return len(h) }
+
 func (h scheduleHeap) Less(i, j int) bool {
 	if h[i].due.Equal(h[j].due) {
 		return h[i].sequence < h[j].sequence
 	}
 	return h[i].due.Before(h[j].due)
 }
-func (h scheduleHeap) Swap(i, j int)   { h[i], h[j] = h[j], h[i] }
-func (h *scheduleHeap) Push(value any) { *h = append(*h, value.(scheduleEntry)) }
+
+func (h scheduleHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+func (h *scheduleHeap) Push(value any) {
+	if entry, ok := value.(scheduleEntry); ok {
+		*h = append(*h, entry)
+	}
+}
+
 func (h *scheduleHeap) Pop() any {
 	old := *h
 	last := old[len(old)-1]
@@ -366,17 +376,8 @@ func (m *Manager) scheduleLocked(o promptcache.Observation, backend, model strin
 		if window <= 0 {
 			return time.Time{}, false, "unsafe_window"
 		}
-		lead := window / 10
-		if lead < 15*time.Second {
-			lead = 15 * time.Second
-		}
-		if lead > 5*time.Minute {
-			lead = 5 * time.Minute
-		}
-		spread := lead / 4
-		if spread > 30*time.Second {
-			spread = 30 * time.Second
-		}
+		lead := min(max(window/10, 15*time.Second), 5*time.Minute)
+		spread := min(lead/4, 30*time.Second)
 		return expires.Add(-lead).Add(-deterministicSpread(spread, rev, m.nextSeq+1)), true, ""
 	}
 	if override, ok := m.cfg.heuristic(backend, model); ok {

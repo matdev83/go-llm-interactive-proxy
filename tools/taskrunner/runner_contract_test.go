@@ -148,6 +148,7 @@ func TestRunner_RelativeWorkingDirectory(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // mutates process-wide current working directory
 func TestRunner_WorkingDirectoryAbsError(t *testing.T) {
 	// This test changes the process-wide cwd to exercise filepath.Abs failure;
 	// it must not run concurrently with tests that build or launch helpers.

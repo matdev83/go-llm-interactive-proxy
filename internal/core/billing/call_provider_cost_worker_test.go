@@ -51,6 +51,7 @@ func (providerCostResolverStub) ResolveProviderCost(_ context.Context, leg CallL
 }
 
 func TestCallProviderCostWorkerUsesBoundedPendingWorkQueue(t *testing.T) {
+	t.Parallel()
 	firstID := mustBillingCallID(t)
 	secondID := mustBillingCallID(t)
 	reader := &providerCostWorkReaderStub{work: []ProviderCostWork{

@@ -69,6 +69,7 @@ func (e AccountingEvidence) Validate() error {
 	}
 	return nil
 }
+
 func (r RenewResponse) Validate() error {
 	if err := r.Result.Validate(); err != nil {
 		return err

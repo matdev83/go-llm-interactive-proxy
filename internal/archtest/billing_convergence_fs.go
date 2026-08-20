@@ -136,7 +136,7 @@ func (g *gitCommitFS) WalkProductionGoFiles(fn func(rel string, src []byte) erro
 		}
 
 		skip := false
-		for _, seg := range strings.Split(rel, "/") {
+		for seg := range strings.SplitSeq(rel, "/") {
 			if seg == "vendor" || seg == "testdata" || seg == "node_modules" {
 				skip = true
 				break

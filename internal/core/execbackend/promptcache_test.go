@@ -10,6 +10,7 @@ import (
 )
 
 func TestEffectivePromptCacheProfile_IsModelAwareAndFailClosed(t *testing.T) {
+	t.Parallel()
 	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "model-b"}}
 	be := Backend{ResolvePromptCacheProfile: func(_ context.Context, _ lipapi.Call, c routing.AttemptCandidate) promptcache.Profile {
 		if c.Primary.Model == "model-b" {
