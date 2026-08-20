@@ -3,28 +3,47 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
+var (
+	cliHelperOnce sync.Once
+	cliHelperPath string
+	cliHelperErr  error
+)
+
 func buildCLIHelper(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "taskrunner-testhelper")
-	if runtime.GOOS == "windows" {
-		path += ".exe"
+	cliHelperOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "taskrunner-cli-helper-")
+		if err != nil {
+			cliHelperErr = err
+			return
+		}
+		path := filepath.Join(dir, "taskrunner-testhelper")
+		if runtime.GOOS == "windows" {
+			path += ".exe"
+		}
+		cmd := exec.Command("go", "build", "-o", path, "../../testhelper")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			cliHelperErr = fmt.Errorf("build test helper: %w\n%s", err, output)
+			return
+		}
+		cliHelperPath = path
+	})
+	if cliHelperErr != nil {
+		t.Fatal(cliHelperErr)
 	}
-	// Prebuild outside any child timeout. Full-suite load makes `go run` compile
-	// time exceed a 100ms deadline budget and flip this CLI contract to exit 1/3.
-	cmd := exec.Command("go", "build", "-o", path, "../../testhelper")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build test helper: %v\n%s", err, output)
-	}
-	return path
+	return cliHelperPath
 }
 
 func TestResultExitCodeMapping(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSQLiteApplyCallBillingResultClosesExposureAndPostsCustomerCharge(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "call-settle", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -93,6 +94,7 @@ func TestSQLiteApplyCallBillingResultClosesExposureAndPostsCustomerCharge(t *tes
 }
 
 func TestSQLiteApplyCallBillingResultActualExceedsMaxMarksReconcileRequired(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "call-over-max", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -165,6 +167,7 @@ func TestSQLiteApplyCallBillingResultActualExceedsMaxMarksReconcileRequired(t *t
 }
 
 func TestSQLiteApplyCallBillingResultFloorViolationMarksReconcileRequired(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "call-floor", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

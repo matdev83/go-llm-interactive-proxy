@@ -1,10 +1,13 @@
 package qa
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
@@ -35,11 +38,45 @@ func TestPhase74_MigrationRolloutDocPresent(t *testing.T) {
 	}
 }
 
+var (
+	lipstdBinOnce sync.Once
+	lipstdBinPath string
+	lipstdBinErr  error
+)
+
+func getLipstdBinary(tb testing.TB, root string) string {
+	tb.Helper()
+	lipstdBinOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "lipstd-qa-bin-")
+		if err != nil {
+			lipstdBinErr = err
+			return
+		}
+		name := "lipstd"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		dst := filepath.Join(dir, name)
+		cmd := exec.Command("go", "build", "-o", dst, "./cmd/lipstd")
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			lipstdBinErr = fmt.Errorf("build lipstd: %w\n%s", err, out)
+			return
+		}
+		lipstdBinPath = dst
+	})
+	if lipstdBinErr != nil {
+		tb.Fatal(lipstdBinErr)
+	}
+	return lipstdBinPath
+}
+
 func TestPhase74_CheckConfigDogfoodStub(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	cfg := bpkit.WriteDogfoodLocalStubConfig(t)
-	cmd := exec.Command("go", "run", "./cmd/lipstd", "check-config", "--config", cfg)
+	bin := getLipstdBinary(t, root)
+	cmd := exec.Command(bin, "check-config", "--config", cfg)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {

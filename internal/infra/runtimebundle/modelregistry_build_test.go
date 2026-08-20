@@ -358,15 +358,15 @@ func TestBuild_modelRegistryFetchTimeoutAppliesPerBackend(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("test-inventory-a", "vendor/a", 75*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("test-inventory-a", "vendor/a", 25*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("test-inventory-b", "vendor/b", 75*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("test-inventory-b", "vendor/b", 25*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := modelRegistryTestConfig("test-inventory-a")
-	cfg.ModelInventory.FetchTimeout = "100ms"
+	cfg.ModelInventory.FetchTimeout = "250ms"
 	cfg.Plugins.Backends = append(cfg.Plugins.Backends, config.PluginConfig{
 		Kind:    "test-inventory-b",
 		ID:      "test-backend-b",

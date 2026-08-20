@@ -13,6 +13,7 @@ import (
 )
 
 func TestPhase6LegacyRetirementFreshSchemaConverges(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	assertLegacyTablesAbsent(t, store.db)
 	if err := VerifySchema(context.Background(), store.db); err != nil {
@@ -21,6 +22,7 @@ func TestPhase6LegacyRetirementFreshSchemaConverges(t *testing.T) {
 }
 
 func TestPhase6LegacyRetirementAllowsOnlyProvenProcessedRows(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	createLegacyRetirementTables(t, store.db)
 	ctx := context.Background()
@@ -41,6 +43,7 @@ func TestPhase6LegacyRetirementAllowsOnlyProvenProcessedRows(t *testing.T) {
 }
 
 func TestPhase6LegacyRetirementBlocksEveryUnresolvedProcessingState(t *testing.T) {
+	t.Parallel()
 	for _, status := range []string{"pending", "processing", "retryable", "error", "unreconciled_cost", "terminal_error"} {
 		t.Run(status, func(t *testing.T) {
 			store := newSQLiteTestStore(t)
@@ -61,6 +64,7 @@ func TestPhase6LegacyRetirementBlocksEveryUnresolvedProcessingState(t *testing.T
 }
 
 func TestPhase6LegacyRetirementBlocksMalformedOrUnprovableRows(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		insert string
@@ -91,6 +95,7 @@ func TestPhase6LegacyRetirementBlocksMalformedOrUnprovableRows(t *testing.T) {
 }
 
 func TestPhase6LegacyRetirementSQLiteWriterRaceIsClosedByCriticalSection(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	createLegacyRetirementTables(t, store.db)
 	ctx := context.Background()

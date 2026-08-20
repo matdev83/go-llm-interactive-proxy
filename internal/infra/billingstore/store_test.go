@@ -13,6 +13,7 @@ import (
 )
 
 func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for _, table := range []string{
@@ -61,6 +62,7 @@ func TestSQLiteBillingSchemaCreatesRequiredTablesAndIndexes(t *testing.T) {
 }
 
 func TestSQLiteBillingSchemaMigrationIsIdempotent(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	if err := Migrate(context.Background(), store.db); err != nil {
 		t.Fatalf("second Migrate: %v", err)

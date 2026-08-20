@@ -44,18 +44,22 @@ func testIndependentCallUsageFor(callID billing.BillingCallID, expected []string
 }
 
 func TestSQLiteAppendCallUsagePersistsIndependentOfTURAndJournal(t *testing.T) {
+	t.Parallel()
 	runAppendCallUsageIndependentOfMoneyAndTUR(t, newSQLiteTestStore(t), "call-usage-independent")
 }
 
 func TestSQLiteAppendCallUsageReplayAndFingerprintConflict(t *testing.T) {
+	t.Parallel()
 	runAppendCallUsageReplayAndFingerprintConflict(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteClaimCompleteCallIndependentOfAppendOrder(t *testing.T) {
+	t.Parallel()
 	runClaimCompleteCallIndependentOfAppendOrder(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteClaimCompleteCallsSkipsIncompleteOldestAndClaimsNewerComplete(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
@@ -88,6 +92,7 @@ func TestSQLiteClaimCompleteCallsSkipsIncompleteOldestAndClaimsNewerComplete(t *
 }
 
 func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for i := 0; i < 300; i++ {
@@ -128,6 +133,7 @@ func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
 }
 
 func TestSQLiteClaimCompleteCallsContinuesPastClaimConflict(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
@@ -170,14 +176,17 @@ func TestSQLiteClaimCompleteCallsContinuesPastClaimConflict(t *testing.T) {
 }
 
 func TestSQLiteCallUsageALegSessionAreCorrelationNotKey(t *testing.T) {
+	t.Parallel()
 	runCallUsageALegSessionAreCorrelationNotKey(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteUsageCallRecordsPayloadImmutableClaimMutable(t *testing.T) {
+	t.Parallel()
 	runUsageCallRecordsPayloadImmutableClaimMutable(t, newSQLiteTestStore(t))
 }
 
 func TestAppendCallUsageRejectsUnsealableRecord(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	record := testIndependentCallUsage(t, []string{"b-1"})

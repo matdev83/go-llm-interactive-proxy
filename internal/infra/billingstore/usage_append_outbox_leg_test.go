@@ -8,6 +8,7 @@ import (
 )
 
 func TestSQLiteUsageAppendOutboxDrainReplaysLeg(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)

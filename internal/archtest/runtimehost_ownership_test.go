@@ -366,9 +366,15 @@ func lookupNamedMethod(pkg *packages.Package, typeName, methodName string) *type
 	return fn
 }
 
+type runtimehostCacheEntry struct {
+	done chan struct{}
+	pkg  *packages.Package
+	err  error
+}
+
 var (
 	runtimehostCacheMu   sync.Mutex
-	runtimehostCache     = make(map[archBuildContext]*packages.Package)
+	runtimehostCache     = make(map[archBuildContext]*runtimehostCacheEntry)
 	runtimehostDirOnce   sync.Once
 	runtimehostDirCached string
 )
@@ -377,11 +383,35 @@ func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[st
 	t.Helper()
 	if len(overlay) == 0 {
 		runtimehostCacheMu.Lock()
-		if pkg, ok := runtimehostCache[bc]; ok {
+		entry, ok := runtimehostCache[bc]
+		if !ok {
+			entry = &runtimehostCacheEntry{done: make(chan struct{})}
+			runtimehostCache[bc] = entry
 			runtimehostCacheMu.Unlock()
-			return pkg
+
+			cfg := &packages.Config{
+				Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+					packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
+				Tests: false,
+				Env:   packagesLoadEnv(bc.GOOS, bc.GOARCH),
+			}
+			pkgs, err := packages.Load(cfg, runtimehostPackagePath)
+			if err == nil && (packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil) {
+				err = fmt.Errorf("packages=%d (fail closed)", len(pkgs))
+			}
+			if err == nil {
+				entry.pkg = pkgs[0]
+			}
+			entry.err = err
+			close(entry.done)
+		} else {
+			runtimehostCacheMu.Unlock()
+			<-entry.done
 		}
-		runtimehostCacheMu.Unlock()
+		if entry.err != nil {
+			t.Fatalf("load runtimehost (%s/%s): %v", bc.GOOS, bc.GOARCH, entry.err)
+		}
+		return entry.pkg
 	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
@@ -396,11 +426,6 @@ func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[st
 	}
 	if packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil {
 		t.Fatalf("load runtimehost (%s/%s): packages=%d (fail closed)", bc.GOOS, bc.GOARCH, len(pkgs))
-	}
-	if len(overlay) == 0 {
-		runtimehostCacheMu.Lock()
-		runtimehostCache[bc] = pkgs[0]
-		runtimehostCacheMu.Unlock()
 	}
 	return pkgs[0]
 }

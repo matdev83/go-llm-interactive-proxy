@@ -9,6 +9,7 @@ import (
 )
 
 func TestSQLiteListPendingProviderCostWorkUsesJoinLimitAndOrder(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	firstID, err := billing.NewBillingCallID()
@@ -52,6 +53,7 @@ func TestSQLiteListPendingProviderCostWorkUsesJoinLimitAndOrder(t *testing.T) {
 }
 
 func TestSQLiteListPendingProviderCostWorkKeepsOrphanLegRetryable(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -72,6 +74,7 @@ func TestSQLiteListPendingProviderCostWorkKeepsOrphanLegRetryable(t *testing.T) 
 }
 
 func TestSQLiteProviderCostWorkPrunesOldProcessedMetadata(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "provider-prune", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -110,6 +113,7 @@ func TestSQLiteProviderCostWorkPrunesOldProcessedMetadata(t *testing.T) {
 }
 
 func TestSQLiteProviderCostWorkBackoffHidesDeferredWorkUntilDue(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -160,6 +164,7 @@ func TestSQLiteProviderCostWorkBackoffHidesDeferredWorkUntilDue(t *testing.T) {
 }
 
 func TestSQLiteProviderCostWorkSchemaBackfillsMissingQueueRows(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -190,6 +195,7 @@ func TestSQLiteProviderCostWorkSchemaBackfillsMissingQueueRows(t *testing.T) {
 }
 
 func TestSQLiteProviderCostWorkRetryMigrationIsIdempotent(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	if err := providerCostWorkRetrySchemaUp(context.Background(), store.db); err != nil {
 		t.Fatal(err)

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSQLiteReconcileBillingAccountSeparatesFinancialAndExposureProofs(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "combined-reconcile", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -43,6 +44,7 @@ func TestSQLiteReconcileBillingAccountSeparatesFinancialAndExposureProofs(t *tes
 }
 
 func TestSQLiteReconcileOpenExposureIsIndependentFromFinancialJournal(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "exposure-reconcile", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -73,6 +75,7 @@ func TestSQLiteReconcileOpenExposureIsIndependentFromFinancialJournal(t *testing
 }
 
 func TestSQLiteRepairExposureNoChargeRequiresCompleteEvidence(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "exposure-repair", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -118,6 +121,7 @@ func TestSQLiteRepairExposureNoChargeRequiresCompleteEvidence(t *testing.T) {
 }
 
 func TestSQLiteRepairIncompleteCallNoChargeSynthesizesMissingLegs(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "incomplete-repair", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

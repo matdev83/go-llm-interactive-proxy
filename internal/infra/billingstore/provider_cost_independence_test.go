@@ -9,6 +9,7 @@ import (
 )
 
 func TestSQLiteCustomerSettlementIndependentOfProviderCostOrdering(t *testing.T) {
+	t.Parallel()
 	t.Run("settle then provider cost", func(t *testing.T) {
 		store := newSQLiteTestStore(t)
 		ctx := context.Background()

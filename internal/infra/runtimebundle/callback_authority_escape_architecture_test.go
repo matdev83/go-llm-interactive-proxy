@@ -342,7 +342,49 @@ func loadOwnerReachablePackagesAcrossContexts(t *testing.T, overlay map[string][
 	return all, analyzed
 }
 
+type ownerReachableCacheEntry struct {
+	done     chan struct{}
+	typed    []*packages.Package
+	analyzed map[string]bool
+	err      error
+}
+
+var (
+	ownerReachableCacheMu sync.Mutex
+	ownerReachableCache   = make(map[callbackBuildContext]*ownerReachableCacheEntry)
+)
+
 func loadOwnerReachablePackagesForContext(bc callbackBuildContext, overlay map[string][]byte) ([]*packages.Package, map[string]bool, error) {
+	if len(overlay) == 0 {
+		ownerReachableCacheMu.Lock()
+		entry, ok := ownerReachableCache[bc]
+		if !ok {
+			entry = &ownerReachableCacheEntry{done: make(chan struct{})}
+			ownerReachableCache[bc] = entry
+			ownerReachableCacheMu.Unlock()
+
+			typed, analyzed, err := loadOwnerReachablePackagesForContextUncached(bc, nil)
+			entry.typed = typed
+			entry.analyzed = analyzed
+			entry.err = err
+			close(entry.done)
+		} else {
+			ownerReachableCacheMu.Unlock()
+			<-entry.done
+		}
+		if entry.err != nil {
+			return nil, nil, entry.err
+		}
+		analyzedCopy := make(map[string]bool, len(entry.analyzed))
+		for k, v := range entry.analyzed {
+			analyzedCopy[k] = v
+		}
+		return entry.typed, analyzedCopy, nil
+	}
+	return loadOwnerReachablePackagesForContextUncached(bc, overlay)
+}
+
+func loadOwnerReachablePackagesForContextUncached(bc callbackBuildContext, overlay map[string][]byte) ([]*packages.Package, map[string]bool, error) {
 	analyzed := map[string]bool{}
 	graph, err := packages.Load(&packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |

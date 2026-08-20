@@ -6,6 +6,7 @@ import (
 )
 
 func TestUsageLegRecordsSchemaCreatesCallBLegUniqueIndex(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var name string

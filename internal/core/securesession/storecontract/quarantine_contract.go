@@ -16,18 +16,22 @@ func RunQuarantineContracts(t *testing.T, newStore func(*testing.T) app.Store) {
 	t.Helper()
 
 	t.Run("Quarantine_idempotent_setsStatusAndResumeIneligible", func(t *testing.T) {
+		t.Parallel()
 		testQuarantineIdempotent(t, newStore(t))
 	})
 
 	t.Run("Quarantine_firstWins_keepsExistingProvenance", func(t *testing.T) {
+		t.Parallel()
 		testQuarantineFirstWins(t, newStore(t))
 	})
 
 	t.Run("Quarantine_invalidInput_rejected", func(t *testing.T) {
+		t.Parallel()
 		testQuarantineInvalidInput(t, newStore(t))
 	})
 
 	t.Run("Quarantine_missingSession_notFound", func(t *testing.T) {
+		t.Parallel()
 		testQuarantineMissing(t, newStore(t))
 	})
 }

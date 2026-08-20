@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -111,9 +112,15 @@ func bindHostCallersAcrossContexts(t *testing.T, overlay map[string][]byte) (cal
 	return callers, analyzed
 }
 
+type runtimebundleCacheEntry struct {
+	done chan struct{}
+	pkg  *packages.Package
+	err  error
+}
+
 var (
 	runtimebundleCacheMu   sync.Mutex
-	runtimebundleCache     = make(map[archBuildContext]*packages.Package)
+	runtimebundleCache     = make(map[archBuildContext]*runtimebundleCacheEntry)
 	runtimebundleDirOnce   sync.Once
 	runtimebundleDirCached string
 )
@@ -122,11 +129,35 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 	t.Helper()
 	if len(overlay) == 0 {
 		runtimebundleCacheMu.Lock()
-		if pkg, ok := runtimebundleCache[bc]; ok {
+		entry, ok := runtimebundleCache[bc]
+		if !ok {
+			entry = &runtimebundleCacheEntry{done: make(chan struct{})}
+			runtimebundleCache[bc] = entry
 			runtimebundleCacheMu.Unlock()
-			return pkg
+
+			cfg := &packages.Config{
+				Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+					packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
+				Tests: false,
+				Env:   packagesLoadEnv(bc.GOOS, bc.GOARCH),
+			}
+			pkgs, err := packages.Load(cfg, runtimebundlePackagePath)
+			if err == nil && (packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil) {
+				err = fmt.Errorf("packages=%d (fail closed)", len(pkgs))
+			}
+			if err == nil {
+				entry.pkg = pkgs[0]
+			}
+			entry.err = err
+			close(entry.done)
+		} else {
+			runtimebundleCacheMu.Unlock()
+			<-entry.done
 		}
-		runtimebundleCacheMu.Unlock()
+		if entry.err != nil {
+			t.Fatalf("load runtimebundle (%s/%s) for bindHost caller graph: %v", bc.GOOS, bc.GOARCH, entry.err)
+		}
+		return entry.pkg
 	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
@@ -141,11 +172,6 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 	}
 	if packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil {
 		t.Fatalf("load runtimebundle (%s/%s) for bindHost caller graph: packages=%d (fail closed)", bc.GOOS, bc.GOARCH, len(pkgs))
-	}
-	if len(overlay) == 0 {
-		runtimebundleCacheMu.Lock()
-		runtimebundleCache[bc] = pkgs[0]
-		runtimebundleCacheMu.Unlock()
 	}
 	return pkgs[0]
 }

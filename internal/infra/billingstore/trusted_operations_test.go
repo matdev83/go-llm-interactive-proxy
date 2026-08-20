@@ -10,10 +10,12 @@ import (
 )
 
 func TestSQLiteTrustedFundingPaymentAdjustmentAndPolicyAreAtomicAndReplaySafe(t *testing.T) {
+	t.Parallel()
 	runTrustedFundingPaymentAdjustment(t, newSQLiteTestStore(t), "trusted-account")
 }
 
 func TestSQLiteTrustedOperationsAreAccountScoped(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for _, accountID := range []string{"acct-a", "acct-b"} {
@@ -46,6 +48,7 @@ func TestSQLiteTrustedOperationsAreAccountScoped(t *testing.T) {
 }
 
 func TestSQLiteTrustedOperationsDistinguishColonAmbiguousAccountSourcePairs(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	for _, accountID := range []string{"a:b", "a"} {
@@ -70,6 +73,7 @@ func TestSQLiteTrustedOperationsDistinguishColonAmbiguousAccountSourcePairs(t *t
 }
 
 func TestSQLiteTrustedDebitCannotCrossPostpaidFloor(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "floor-account", Currency: "USD", Mode: billing.AccountPostpaid, CreditLimit: 10, BalanceNano: -9, State: billing.AccountReady, Version: 1}); err != nil {
@@ -85,6 +89,7 @@ func TestSQLiteTrustedDebitCannotCrossPostpaidFloor(t *testing.T) {
 }
 
 func TestSQLiteCreditPolicyRejectsUnsafeReductionAndReplaysByFingerprint(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "policy-account", Currency: "USD", Mode: billing.AccountPostpaid, CreditLimit: 100, BalanceNano: -50, State: billing.AccountReady, Version: 1}); err != nil {
@@ -108,6 +113,7 @@ func TestSQLiteCreditPolicyRejectsUnsafeReductionAndReplaysByFingerprint(t *test
 }
 
 func TestSQLiteCreditPolicyIgnoresLegacyReservedForSpendable(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{
@@ -130,6 +136,7 @@ func TestSQLiteCreditPolicyIgnoresLegacyReservedForSpendable(t *testing.T) {
 }
 
 func TestSQLiteTrustedDebitRejectsReadyAccountWithLegacyReserved(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "reserved-debit", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}); err != nil {
@@ -153,6 +160,7 @@ func TestSQLiteTrustedDebitRejectsReadyAccountWithLegacyReserved(t *testing.T) {
 }
 
 func TestSQLiteFundingReplayFailsClosedWhenJournalMissing(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "evidence-account", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 10, State: billing.AccountReady, Version: 1}); err != nil {
@@ -186,6 +194,7 @@ func TestSQLiteFundingReplayFailsClosedWhenJournalMissing(t *testing.T) {
 }
 
 func TestSQLiteConcurrentCreditPolicyChangesAreSerialized(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "policy-race", Currency: "USD", Mode: billing.AccountPostpaid, CreditLimit: 100, BalanceNano: 0, State: billing.AccountReady, Version: 1}); err != nil {
@@ -222,6 +231,7 @@ func TestSQLiteConcurrentCreditPolicyChangesAreSerialized(t *testing.T) {
 }
 
 func TestSQLiteTrustedOpsRejectReconcileRequired(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := store.CreateAccount(ctx, billing.Account{ID: "blocked-ops", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 50, State: billing.AccountReconcileRequired, Version: 1}); err != nil {

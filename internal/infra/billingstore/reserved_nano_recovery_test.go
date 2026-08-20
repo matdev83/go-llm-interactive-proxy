@@ -8,6 +8,7 @@ import (
 )
 
 func TestReservedNanoRemovalPreservesCurrentAccountFacts(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	accountID := "reserved-retired"
@@ -32,6 +33,7 @@ func TestReservedNanoRemovalPreservesCurrentAccountFacts(t *testing.T) {
 }
 
 func TestReservedNanoRemovalPreservesReconciliationEventFactsAndProtection(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	accountID := "reserved-event-retired"
@@ -80,6 +82,7 @@ func TestReservedNanoRemovalPreservesReconciliationEventFactsAndProtection(t *te
 }
 
 func TestCurrentReconciliationWriterOmitsRetiredColumn(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	accountID := "current-reconcile-writer"
@@ -108,6 +111,7 @@ func TestCurrentReconciliationWriterOmitsRetiredColumn(t *testing.T) {
 }
 
 func TestSQLiteNewStoresRecordReservedNanoRemovalMigration(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var count int
@@ -123,6 +127,7 @@ func TestSQLiteNewStoresRecordReservedNanoRemovalMigration(t *testing.T) {
 }
 
 func TestGetAccountForReconcileTxRejectsCorruptCurrency(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	accountID := "reserved-corrupt-currency"

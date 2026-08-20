@@ -18,66 +18,82 @@ func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 	t.Helper()
 
 	t.Run("Create_uniqueness_sessionID", func(t *testing.T) {
+		t.Parallel()
 		testCreateUniquenessSessionid(t, newStore(t))
 	})
 
 	t.Run("Create_uniqueness_fingerprint", func(t *testing.T) {
+		t.Parallel()
 		testCreateUniquenessFingerprint(t, newStore(t))
 	})
 
 	t.Run("LoadByID_owner_workspace", func(t *testing.T) {
+		t.Parallel()
 		testLoadByIDOwnerWorkspace(t, newStore(t))
 	})
 
 	t.Run("LoadByALegID_roundTrip", func(t *testing.T) {
+		t.Parallel()
 		testLoadByALegIDRoundTrip(t, newStore(t))
 	})
 
 	t.Run("AttemptTrace_outcome_by_BLeg", func(t *testing.T) {
+		t.Parallel()
 		testAttemptTraceOutcomeByBLeg(t, newStore(t))
 	})
 
 	t.Run("Transcript_disabled_explicit", func(t *testing.T) {
+		t.Parallel()
 		testTranscriptDisabledExplicit(t, newStore(t))
 	})
 
 	t.Run("AddUsage_summary_rollups", func(t *testing.T) {
+		t.Parallel()
 		testAddUsageSummaryRollups(t, newStore(t))
 	})
 
 	t.Run("ListAttemptEvidence_trace_usage_outcome", func(t *testing.T) {
+		t.Parallel()
 		testListAttemptEvidenceTraceUsageOutcome(t, newStore(t))
 	})
 
 	t.Run("AddUsage_finish_timing_preserves_latest_usage", func(t *testing.T) {
+		t.Parallel()
 		testAddUsageFinishTimingPreservesLatestUsage(t, newStore(t))
 	})
 
 	t.Run("AddUsage_total_tokens_uses_latest_provider_total", func(t *testing.T) {
+		t.Parallel()
 		testAddUsageTotalTokensUsesLatestProviderTotal(t, newStore(t))
 	})
 
 	t.Run("missing_lookups_non_enumerating", func(t *testing.T) {
+		t.Parallel()
 		testMissingLookupsNonEnumerating(t, newStore(t))
 	})
 
 	t.Run("TouchActivity_updates_record", func(t *testing.T) {
+		t.Parallel()
 		testTouchActivityUpdatesRecord(t, newStore(t))
 	})
 
 	t.Run("TouchActivity_olderTimestampIgnored", func(t *testing.T) {
+		t.Parallel()
 		testTouchActivityOlderTimestampIgnored(t, newStore(t))
 	})
 
 	t.Run("AppendTranscript_Audit_ordering", func(t *testing.T) {
+		t.Parallel()
 		testAppendTranscriptAuditOrdering(t, newStore(t))
 	})
 
 	t.Run("NextAuditSeq", func(t *testing.T) {
+		t.Parallel()
 		testNextAuditSeq(t, newStore(t))
 	})
 
 	t.Run("NextTranscriptSeq", func(t *testing.T) {
+		t.Parallel()
 		testNextTranscriptSeq(t, newStore(t))
 	})
 }

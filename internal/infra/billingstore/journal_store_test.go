@@ -19,6 +19,7 @@ func journalAccount(t *testing.T, store *DurableStore, id string) {
 }
 
 func TestSQLiteCreateAccountMapsUniqueConflict(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "dup-account", Currency: "USD", Mode: billing.AccountPrepaid, State: billing.AccountReady, BalanceNano: 1, Version: 1}
@@ -35,6 +36,7 @@ func TestSQLiteCreateAccountMapsUniqueConflict(t *testing.T) {
 }
 
 func TestSQLiteCreateAccountRejectsOpeningReservation(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	err := store.CreateAccount(context.Background(), billing.Account{
 		ID: "reserved-open", Currency: "USD", Mode: billing.AccountPrepaid,
@@ -59,6 +61,7 @@ func journalInput(id, source string, amount int64) billing.JournalTransaction {
 }
 
 func TestPostJournalTransactionReplayComparesSemanticFingerprint(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	first, err := store.postJournalTransaction(context.Background(), journalInput("tx-1", "usage-1", 10))
@@ -86,6 +89,7 @@ func TestPostJournalTransactionReplayComparesSemanticFingerprint(t *testing.T) {
 }
 
 func TestPostJournalTransactionCorrectionLinksAreAuditable(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	original, err := store.postJournalTransaction(context.Background(), journalInput("tx-original", "usage-original", 10))
@@ -136,6 +140,7 @@ func TestPostJournalTransactionCorrectionLinksAreAuditable(t *testing.T) {
 }
 
 func TestPostJournalTransactionAllocatesAccountSequenceConcurrently(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	const count = 20
@@ -177,6 +182,7 @@ func TestPostJournalTransactionAllocatesAccountSequenceConcurrently(t *testing.T
 }
 
 func TestPostJournalTransactionConcurrentSameSourceKeyIsIdempotent(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	const workers = 16
@@ -238,6 +244,7 @@ func TestPostJournalTransactionConcurrentSameSourceKeyIsIdempotent(t *testing.T)
 }
 
 func TestPostJournalTransactionRejectsSecondReversalOfSameOriginal(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	original, err := store.postJournalTransaction(context.Background(), journalInput("tx-original", "usage-original", 10))
@@ -269,6 +276,7 @@ func TestPostJournalTransactionRejectsSecondReversalOfSameOriginal(t *testing.T)
 }
 
 func TestPostJournalTransactionConcurrentDistinctReversalsRejectAllButOne(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	original, err := store.postJournalTransaction(context.Background(), journalInput("tx-original-race", "usage-original-race", 10))
@@ -323,6 +331,7 @@ func TestPostJournalTransactionConcurrentDistinctReversalsRejectAllButOne(t *tes
 }
 
 func TestPostJournalTransactionRollbackLeavesNoPartialRows(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	journalAccount(t, store, "acct-journal")
 	// Occupy the transaction primary key so the journal header insert fails after

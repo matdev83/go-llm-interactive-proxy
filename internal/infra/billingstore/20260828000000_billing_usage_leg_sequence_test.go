@@ -12,6 +12,7 @@ import (
 )
 
 func TestUsageLegSequenceSchemaCreatesCallAttemptSeqUniqueIndex(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var name string
@@ -42,6 +43,7 @@ func TestUsageLegSequenceSchemaCreatesCallAttemptSeqUniqueIndex(t *testing.T) {
 // values) after the migration adds the nullable column and the
 // (call_id, attempt_seq) unique index on top.
 func TestSQLiteMigrateFromPreSequenceSchemaPreservesLegacyRows(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 

@@ -13,6 +13,7 @@ import (
 )
 
 func TestSQLiteBillingStoreContract(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	runBillingStoreContract(t, store, "contract-sqlite")
 }

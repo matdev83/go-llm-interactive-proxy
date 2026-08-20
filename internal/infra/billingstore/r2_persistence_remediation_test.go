@@ -41,6 +41,7 @@ func TestSQLiteProviderCostWorkBackfillUsesCurrentTimestamp(t *testing.T) {
 }
 
 func TestSQLiteProviderCostWorkInsertWritesNextAttemptAt(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -65,6 +66,7 @@ func TestSQLiteProviderCostWorkInsertWritesNextAttemptAt(t *testing.T) {
 }
 
 func TestSQLiteDeferProviderCostWorkAtomicUnderConcurrency(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -107,6 +109,7 @@ func TestSQLiteDeferProviderCostWorkAtomicUnderConcurrency(t *testing.T) {
 }
 
 func TestSQLiteDeferUsageAppendAtomicUnderConcurrency(t *testing.T) {
+	t.Parallel()
 	store := newLegacyOutboxTestStore(t)
 	ctx := context.Background()
 	call := testOutboxCall(t)
@@ -141,6 +144,7 @@ func TestSQLiteDeferUsageAppendAtomicUnderConcurrency(t *testing.T) {
 }
 
 func TestSQLiteCompleteCallStaleClaimLeaseRecoversWithoutStealingFresh(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	staleID, err := billing.NewBillingCallID()
@@ -183,6 +187,7 @@ func TestSQLiteCompleteCallStaleClaimLeaseRecoversWithoutStealingFresh(t *testin
 }
 
 func TestSQLiteCompleteCallRetryBackoffHidesUntilDueAndReconcileTerminal(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	callID, err := billing.NewBillingCallID()
@@ -243,6 +248,7 @@ func TestSQLiteCompleteCallRetryBackoffHidesUntilDueAndReconcileTerminal(t *test
 }
 
 func TestSQLiteCompleteCallCrashReplayWorkerSettlesAfterStaleLease(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "crash-replay", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -296,6 +302,7 @@ func TestSQLiteCompleteCallCrashReplayWorkerSettlesAfterStaleLease(t *testing.T)
 }
 
 func TestSQLiteAdmitExposureClosedSameFingerprintIsIdempotent(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "closed-replay", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -340,6 +347,7 @@ func TestSQLiteAdmitExposureClosedSameFingerprintIsIdempotent(t *testing.T) {
 }
 
 func TestSQLiteRepairExposureNoChargeRecoversAfterStaleClaim(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "repair-stale", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

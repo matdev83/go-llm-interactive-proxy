@@ -10,6 +10,7 @@ import (
 )
 
 func TestAuthorizationSchemaMigrationUpgradesLegacySQLiteTable(t *testing.T) {
+	t.Parallel()
 	dsn := fmt.Sprintf("file:billing-authorization-migration-%d?mode=memory&cache=shared", testSequence.Add(1))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {

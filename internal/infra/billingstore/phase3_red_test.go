@@ -11,6 +11,7 @@ import (
 )
 
 func TestPhase3ProviderJournalUsesNullAccountSequence(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase3-null-seq", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -43,6 +44,7 @@ func TestPhase3ProviderJournalUsesNullAccountSequence(t *testing.T) {
 }
 
 func TestPhase3ProviderOrderUsesRecordedAtAndTransactionID(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase3-provider-order", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -117,6 +119,7 @@ func TestPhase3ProviderOrderUsesRecordedAtAndTransactionID(t *testing.T) {
 }
 
 func TestPhase3ReplayAccountRejectsZeroSequenceCustomerJournal(t *testing.T) {
+	t.Parallel()
 	account := billing.Account{ID: "phase3-replay-zero", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 90, State: billing.AccountReady, Version: 2}
 	customer := billing.JournalTransaction{
 		ID: "customer-zero-seq", Book: billing.JournalBookFinancial, Currency: "USD", SourceKey: "customer-zero-seq", AccountID: account.ID,
@@ -140,6 +143,7 @@ func TestPhase3ReplayAccountRejectsZeroSequenceCustomerJournal(t *testing.T) {
 }
 
 func TestPhase3ReplayAccountIgnoresProviderSequence(t *testing.T) {
+	t.Parallel()
 	account := billing.Account{ID: "phase3-replay", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 90, State: billing.AccountReady, Version: 2}
 	customer := billing.JournalTransaction{
 		ID: "customer-seq-1", Book: billing.JournalBookFinancial, Currency: "USD", SourceKey: "customer-seq-1", AccountID: account.ID,
@@ -170,6 +174,7 @@ func TestPhase3ReplayAccountIgnoresProviderSequence(t *testing.T) {
 }
 
 func TestPhase3JournalSchemaAllowsNullProviderSequence(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	var notNull int
@@ -182,6 +187,7 @@ func TestPhase3JournalSchemaAllowsNullProviderSequence(t *testing.T) {
 }
 
 func TestPhase3GenericJournalWriterRejectsProviderCOGS(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase3-generic-provider", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -206,6 +212,7 @@ func TestPhase3GenericJournalWriterRejectsProviderCOGS(t *testing.T) {
 }
 
 func TestPhase3ProviderRangeOrdersHistoricalAndNewByRecordedAt(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase3-provider-range", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}
@@ -230,6 +237,7 @@ func TestPhase3ProviderRangeOrdersHistoricalAndNewByRecordedAt(t *testing.T) {
 }
 
 func TestPhase3JournalMigrationRunsThroughRunner(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "phase3-history", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 100, State: billing.AccountReady, Version: 1}

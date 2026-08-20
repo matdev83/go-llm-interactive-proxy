@@ -6,6 +6,7 @@ import (
 )
 
 func TestPhase6OpeningAndSnapshotImmutability(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	if err := phase6SchemaUp(ctx, store.db); err != nil {

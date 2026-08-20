@@ -10,6 +10,7 @@ import (
 )
 
 func TestSQLiteQueryOpenExposuresPagesOpenRowsWithCallCorrelation(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "open-exposure-page", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1000, State: billing.AccountReady, Version: 1}
@@ -71,6 +72,7 @@ func TestSQLiteQueryOpenExposuresPagesOpenRowsWithCallCorrelation(t *testing.T) 
 }
 
 func TestSQLiteCallExplanationCorrelatesExposureUsageSettlementAndProviderCost(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 	account := billing.Account{ID: "call-explain", Currency: "USD", Mode: billing.AccountPrepaid, BalanceNano: 1000, State: billing.AccountReady, Version: 1}
@@ -105,6 +107,7 @@ func TestSQLiteCallExplanationCorrelatesExposureUsageSettlementAndProviderCost(t
 }
 
 func TestSQLiteCallExplanationMissingCallIsNotFound(t *testing.T) {
+	t.Parallel()
 	store := newSQLiteTestStore(t)
 	callID, err := billing.NewBillingCallID()
 	if err != nil {
