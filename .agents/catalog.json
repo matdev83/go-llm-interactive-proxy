@@ -38,6 +38,7 @@
       "golang-stretchr-testify",
       "golang-structs-interfaces",
       "golang-testing",
+      "golang-thermonuclear-code-review",
       "golang-troubleshooting"
     ],
     "kiro-sdd": [
