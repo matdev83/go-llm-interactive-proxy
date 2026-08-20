@@ -38,20 +38,26 @@ echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged
 
-if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" ]]; then
+if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 	echo ""
-	echo "Running full linter..."
+	echo "Running linter..."
 	if command -v golangci-lint >/dev/null 2>&1; then
 		golangci-lint run
+	elif command -v staticcheck >/dev/null 2>&1; then
+		staticcheck ./...
 	else
-		echo "Warning: golangci-lint not found, skipping (run: make lint or install golangci-lint)"
+		echo "Warning: golangci-lint/staticcheck not found, skipping (run: make lint or install golangci-lint)"
 	fi
+fi
 
+if [[ "${LIP_SKIP_VULN:-}" != "1" ]]; then
 	echo ""
-	echo "Running full govulncheck..."
-	go tool govulncheck ./...
-else
-	echo "Skipping full lint and govulncheck (set LIP_PRECOMMIT_FULL=1 or run make qa)."
+	echo "Running govulncheck..."
+	if command -v govulncheck >/dev/null 2>&1; then
+		govulncheck ./...
+	else
+		go tool govulncheck ./...
+	fi
 fi
 
 echo ""

@@ -91,7 +91,7 @@ func TestRun_RangeCountsCommits(t *testing.T) {
 	t.Parallel()
 	repo := initTempRepo(t)
 	stageFiles(t, repo, 1)
-	git(t, repo, "-c", "user.email=qa@example.com", "-c", "user.name=QA", "commit", "-qm", "base")
+	git(t, repo, "-c", "user.email=qa@example.com", "-c", "user.name=QA", "-c", "commit.gpgsign=false", "commit", "-qm", "base")
 	base := strings.TrimSpace(string(git(t, repo, "rev-parse", "HEAD")))
 	for i := range 3 {
 		path := filepath.Join(repo, fmt.Sprintf("extra-%d.go", i))
@@ -100,7 +100,7 @@ func TestRun_RangeCountsCommits(t *testing.T) {
 		}
 	}
 	git(t, repo, "add", ".")
-	git(t, repo, "-c", "user.email=qa@example.com", "-c", "user.name=QA", "commit", "-qm", "more")
+	git(t, repo, "-c", "user.email=qa@example.com", "-c", "user.name=QA", "-c", "commit.gpgsign=false", "commit", "-qm", "more")
 	var stderr bytes.Buffer
 	code := run([]string{"--repo", repo, "--base", base, "--head", "HEAD", "--limit", "2"}, &stderr, func(string) string { return "" })
 	if code != 1 {
