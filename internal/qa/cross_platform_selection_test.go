@@ -28,6 +28,7 @@ func TestCrossPlatformSelection(t *testing.T) {
 	runGit("init", "-q")
 	runGit("config", "user.email", "qa@example.com")
 	runGit("config", "user.name", "QA")
+	runGit("config", "commit.gpgsign", "false")
 	for _, path := range []string{"connectors/foo/release.yaml", "connectors/bar/release.yaml", "base.txt"} {
 		writeSelectionFixture(t, root, path)
 	}
