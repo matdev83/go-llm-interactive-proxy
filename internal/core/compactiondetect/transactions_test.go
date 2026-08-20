@@ -244,23 +244,21 @@ func TestTransactions_maxEntryEviction(t *testing.T) {
 // TestTransactions_concurrentALegs proves concurrent turns on many A-legs are
 // race-safe (requirement 7.5). Run under -race.
 func TestTransactions_concurrentALegs(t *testing.T) {
+	t.Parallel()
 	d := testDetector(t)
 	const legs = 16
 	const rounds = 40
 	var wg sync.WaitGroup
-	for i := 0; i < legs; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range legs {
+		wg.Go(func() {
 			leg := "concurrent-leg-" + string(rune('a'+i%26)) + string(rune('0'+i))
-			for r := 0; r < rounds; r++ {
+			for r := range rounds {
 				trace := leg + "-" + string(rune('0'+r/10)) + string(rune('0'+r%10))
 				meta := RequestMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
 				_ = d.RequestOpened(meta, textCall("CONTEXT CHECKPOINT COMPACTION\nround", 0))
 				_ = d.ResponseReleased(ResponseMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}, assistantItem("CONTEXT CHECKPOINT COMPACTION\n<handoff>"))
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

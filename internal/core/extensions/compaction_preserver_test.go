@@ -20,12 +20,15 @@ type preservingCallback struct {
 }
 
 func (p preservingCallback) ID() string { return p.id }
+
 func (p preservingCallback) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (p preservingCallback) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (p preservingCallback) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
@@ -63,12 +66,15 @@ func (p *idCountingPreserver) ID() string {
 	p.idCalls++
 	return "counting"
 }
+
 func (*idCountingPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (*idCountingPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (*idCountingPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }

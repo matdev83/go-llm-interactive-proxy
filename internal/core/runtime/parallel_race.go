@@ -5,6 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -17,13 +25,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	metering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
-	"io"
-	"log/slog"
-	"slices"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 const cancelLosersTimeout = 5 * time.Second
@@ -62,6 +63,7 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 		scope.ReleaseBLeg(leg.bleg.BLegID)
 	}
 }
+
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
@@ -83,6 +85,7 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 	releaseBLegs(aScope, legs)
 	return err
 }
+
 func (e *Executor) tryOpenParallelGroup(
 	ctx context.Context,
 	req openNextRequest,
@@ -106,10 +109,7 @@ func (e *Executor) tryOpenParallelGroup(
 	}
 	entries := make([]legEntry, len(candidates))
 	for i, c := range candidates {
-		entries[i] = legEntry{
-			cand:       c,
-			startDelay: maxHandicap - c.Handicap,
-		}
+		entries[i] = legEntry{cand: c, startDelay: maxHandicap - c.Handicap}
 	}
 	slices.SortStableFunc(entries, func(a, b legEntry) int {
 		return cmp.Compare(a.startDelay, b.startDelay)
@@ -550,10 +550,12 @@ func (e *Executor) tryOpenParallelGroup(
 		memoUpdate:  nil,
 	}, nil
 }
+
 func isParallelFatalErr(err error) bool {
 	return errors.Is(err, lipapi.ErrMaxRouteAttempts) ||
 		errors.Is(err, lipapi.ErrTTFTTimeout)
 }
+
 func isWinningEvent(ev lipapi.Event) bool {
 	switch ev.Kind {
 	case lipapi.EventTextDelta:
@@ -564,6 +566,7 @@ func isWinningEvent(ev lipapi.Event) bool {
 		return false
 	}
 }
+
 func detachedCleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	base := parent
 	if base == nil {
@@ -576,6 +579,7 @@ func detachedCleanupContext(parent context.Context, timeout time.Duration) (cont
 	}
 	return context.WithTimeout(base, timeout)
 }
+
 func cancelLosers(ctx context.Context, losers []*parallelLeg) error {
 	var cleanupErr error
 	for _, l := range losers {
@@ -634,6 +638,7 @@ func (s *parallelBridgeStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	return ev, nil
 }
+
 func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if s.winner != nil && s.winner.stream != nil {
 		s.finished.Store(true)
@@ -641,13 +646,11 @@ func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCa
 	}
 	return lipapi.CancelResult{}
 }
+
 func (s *parallelBridgeStream) Close() error {
 	var closeErr error
 	if s.losersDone != nil {
-		wait := s.loserCleanupWait
-		if wait <= 0 {
-			wait = cancelLosersTimeout
-		}
+		wait := cmp.Or(s.loserCleanupWait, cancelLosersTimeout)
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {

@@ -3,6 +3,7 @@ package billing
 import "testing"
 
 func TestUsageAppendWorkIsMigrationOnly(t *testing.T) {
+	t.Parallel()
 	if UsageAppendCall == UsageAppendLeg {
 		t.Fatal("call and leg migration kinds must remain distinct")
 	}

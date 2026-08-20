@@ -36,6 +36,7 @@ func (c *fixedResultController) Renew(context.Context, promptcache.RenewRequest)
 	c.calls.Add(1)
 	return c.response, c.err
 }
+
 func (c *fixedResultController) Release(context.Context, promptcache.ReleaseRequest) error {
 	c.releases.Add(1)
 	return nil
@@ -51,6 +52,7 @@ func armTestTarget(t *testing.T, m *Manager, ctl promptcache.Controller, observa
 }
 
 func TestManagerMinimumResidencyNeedsExplicitHeuristic(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &fixedResultController{}
@@ -78,6 +80,7 @@ func TestManagerMinimumResidencyNeedsExplicitHeuristic(t *testing.T) {
 }
 
 func TestManagerCapacityKeepsEarliestDueTarget(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &fixedResultController{}
@@ -108,6 +111,7 @@ func TestManagerCapacityKeepsEarliestDueTarget(t *testing.T) {
 }
 
 func TestManagerBudgetExpiryStopsWithoutProviderCall(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &fixedResultController{}
@@ -129,9 +133,11 @@ func TestManagerBudgetExpiryStopsWithoutProviderCall(t *testing.T) {
 }
 
 func TestManagerStopsOnStatusesAndDoesNotRetry(t *testing.T) {
+	t.Parallel()
 	statuses := []promptcache.RenewStatus{promptcache.Stale, promptcache.Unsupported, promptcache.ColdRecreated, promptcache.StillResident}
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
 			now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 			clock := &testClock{now: now}
 			ctl := &fixedResultController{response: promptcache.RenewResponse{Result: promptcache.RenewResult{Status: status}}}
@@ -156,6 +162,7 @@ func TestManagerStopsOnStatusesAndDoesNotRetry(t *testing.T) {
 }
 
 func TestManagerQuiesceRejectsLateArmAndWaitsForRelease(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &fixedResultController{}
@@ -185,6 +192,7 @@ func TestManagerQuiesceRejectsLateArmAndWaitsForRelease(t *testing.T) {
 }
 
 func TestManagerQuiesceDoesNotDropReleasesAcrossEpochs(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &releaseTrackingController{
@@ -231,6 +239,7 @@ func TestManagerQuiesceDoesNotDropReleasesAcrossEpochs(t *testing.T) {
 }
 
 func TestManagerQuiesceRejectsConcurrentArmWhileShutdownIsInProgress(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	started := make(chan struct{}, 1)
@@ -276,6 +285,7 @@ func TestManagerQuiesceRejectsConcurrentArmWhileShutdownIsInProgress(t *testing.
 }
 
 func TestManagerControlErrorIsRetiredWithoutRetry(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &fixedResultController{err: errors.New("provider unavailable")}

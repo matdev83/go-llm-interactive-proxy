@@ -172,9 +172,10 @@ func countPreHandoffCleanupSites(files []turnRecvASTFile) (count int) {
 			ast.Inspect(file.AST, func(n ast.Node) bool {
 				if call, ok := n.(*ast.CallExpr); ok {
 					_, name := qualifiedCall(call.Fun)
-					if name == "releaseRequestAuthority" || name == "finalizeIncurredOrRelease" || name == "Release" {
+					switch name {
+					case "releaseRequestAuthority", "finalizeIncurredOrRelease", "Release":
 						count++
-					} else if name == "Cancel" {
+					case "Cancel":
 						if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 							if id, ok := sel.X.(*ast.Ident); ok && strings.Contains(strings.ToLower(id.Name), "scope") {
 								count++
@@ -281,14 +282,16 @@ func findHandoffSeamFromAST(files []turnRecvASTFile) (RequestAttemptHandoffSeam,
 				seam.ReceiverType = receiverType
 				for _, elt := range n.Elts {
 					if kv, ok := elt.(*ast.KeyValueExpr); ok {
-						fieldName := kv.Key.(*ast.Ident).Name
-						switch fieldName {
-						case "facts":
-							seam.FactsType = resolveExprType(kv.Value, varValTypes, files)
-						case "attempt":
-							seam.AttemptType = resolveExprType(kv.Value, varValTypes, files)
-						case "recovery":
-							seam.RecoveryType = resolveExprType(kv.Value, varValTypes, files)
+						if keyIdent, ok := kv.Key.(*ast.Ident); ok {
+							fieldName := keyIdent.Name
+							switch fieldName {
+							case "facts":
+								seam.FactsType = resolveExprType(kv.Value, varValTypes, files)
+							case "attempt":
+								seam.AttemptType = resolveExprType(kv.Value, varValTypes, files)
+							case "recovery":
+								seam.RecoveryType = resolveExprType(kv.Value, varValTypes, files)
+							}
 						}
 					}
 				}

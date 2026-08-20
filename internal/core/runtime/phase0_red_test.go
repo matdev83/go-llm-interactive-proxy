@@ -16,8 +16,7 @@ func TestExecutor_BillingCollectorStateGrowth(t *testing.T) {
 	val := reflect.ValueOf(executor).Elem()
 	typ := val.Type()
 
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		// Check for any map fields directly on Executor
 		if field.Type.Kind() == reflect.Map {
 			t.Errorf("Forbidden map field found on Executor: %s", field.Name)

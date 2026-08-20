@@ -56,14 +56,17 @@ func (c *testController) Renew(ctx context.Context, req promptcache.RenewRequest
 	}
 	now := time.Now().UTC()
 	input := int64(1)
-	o := promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen", Lifecycle: promptcache.LifecycleSlidingExpiry, Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: timePtr(now.Add(time.Hour))}, Renewable: true, Handle: promptcache.Handle("new"), Evidence: promptcache.CacheEvidence{TotalTokens: &input}}
+	o := promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen", Lifecycle: promptcache.LifecycleSlidingExpiry, Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: new(now.Add(time.Hour))}, Renewable: true, Handle: promptcache.Handle("new"), Evidence: promptcache.CacheEvidence{TotalTokens: &input}}
 	return promptcache.RenewResponse{Result: promptcache.RenewResult{Status: promptcache.Renewed, Observation: &o}, Accounting: &promptcache.AccountingEvidence{TotalTokens: &input, Presence: lipapi.UsagePresence{TotalTokens: true}, Source: promptcache.AccountingSourceProviderReported, Authority: promptcache.AccountingAuthorityAuthoritative, Plane: promptcache.AccountingPlaneProviderBillable, DedupeKey: req.OperationID}}, nil
 }
+
 func (c *testController) Release(context.Context, promptcache.ReleaseRequest) error {
 	c.releases.Add(1)
 	return nil
 }
-func timePtr(t time.Time) *time.Time { return &t }
+
+func timePtr(t time.Time) *time.Time { return new(t) }
+
 func testObservation(now time.Time, life promptcache.LifecycleKind, expires time.Duration) promptcache.Observation {
 	var exp *time.Time
 	if expires > 0 {
@@ -72,19 +75,26 @@ func testObservation(now time.Time, life promptcache.LifecycleKind, expires time
 	}
 	return promptcache.Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "gen", Lifecycle: life, Timing: promptcache.Timing{ObservedAt: now, ExpiresAt: exp}, Renewable: true, Handle: promptcache.Handle("opaque")}
 }
+
 func osTool() []lipapi.ToolEvent {
 	return []lipapi.ToolEvent{{Kind: lipapi.ToolEventFinished, ToolCallID: "t", ToolName: "bash", Category: lipapi.ToolCategoryOSCommand, MayMutateLocalFS: true}}
 }
+
 func newTestManager(t *testing.T, cfg Config, clock Clock, controller *testController) (*Manager, *testClock) {
 	t.Helper()
 	m, err := NewManager(cfg, clock, Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return m, clock.(*testClock)
+	tc, ok := clock.(*testClock)
+	if !ok {
+		t.Fatalf("expected *testClock, got %T", clock)
+	}
+	return m, tc
 }
 
 func TestManagerArmsOnlyCommittedOSCommandWithDeterministicExpiry(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -107,6 +117,7 @@ func TestManagerArmsOnlyCommittedOSCommandWithDeterministicExpiry(t *testing.T) 
 }
 
 func TestManagerDoesNotReleaseDuplicateHandleStillRetainedByEpoch(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -128,6 +139,7 @@ func TestManagerDoesNotReleaseDuplicateHandleStillRetainedByEpoch(t *testing.T) 
 }
 
 func TestManagerDoesNotArmUnsafeOrUncommittedTurns(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	for _, tc := range []struct {
 		name      string
@@ -136,6 +148,7 @@ func TestManagerDoesNotArmUnsafeOrUncommittedTurns(t *testing.T) {
 		life      promptcache.LifecycleKind
 	}{{"uncommitted", false, osTool(), promptcache.LifecycleSlidingExpiry}, {"ordinary", true, nil, promptcache.LifecycleSlidingExpiry}, {"unknown lifetime", true, osTool(), promptcache.LifecycleUnknown}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			clock := &testClock{now: now}
 			ctl := &testController{}
 			m, _ := newTestManager(t, DefaultConfig(), clock, ctl)
@@ -152,6 +165,7 @@ func TestManagerDoesNotArmUnsafeOrUncommittedTurns(t *testing.T) {
 }
 
 func TestManagerProviderTokenBudgetFailsClosedWithoutEstimate(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -173,6 +187,7 @@ func TestManagerProviderTokenBudgetFailsClosedWithoutEstimate(t *testing.T) {
 }
 
 func TestManagerOperationIDsAreUniqueAcrossGenerations(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	cfg := DefaultConfig()
 	cfg.MaxRefreshesPerIdleEpoch = 1
@@ -218,6 +233,7 @@ func TestManagerOperationIDsAreUniqueAcrossGenerations(t *testing.T) {
 }
 
 func TestManagerRetriesAccountingDeliveryWithinBoundedContext(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -248,6 +264,7 @@ func TestManagerRetriesAccountingDeliveryWithinBoundedContext(t *testing.T) {
 }
 
 func TestManagerAccountingDeliveryHonorsCancellation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -279,6 +296,7 @@ func TestManagerAccountingDeliveryHonorsCancellation(t *testing.T) {
 }
 
 func TestManagerConsumesRefreshSlotAndDoesNotRetryControlFailure(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -296,6 +314,7 @@ func TestManagerConsumesRefreshSlotAndDoesNotRetryControlFailure(t *testing.T) {
 }
 
 func TestManagerForegroundCancellationAndStaleAccounting(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
 	started := make(chan struct{}, 1)
@@ -327,6 +346,7 @@ func TestManagerForegroundCancellationAndStaleAccounting(t *testing.T) {
 }
 
 func TestManagerRunDuePropagatesCallerCancellation(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	clock := &testClock{now: now}
 	started := make(chan struct{}, 1)
@@ -365,6 +385,7 @@ func TestManagerRunDuePropagatesCallerCancellation(t *testing.T) {
 }
 
 func TestManagerRunDueDiscardsStaleHeapAfterForeground(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -386,6 +407,7 @@ func TestManagerRunDueDiscardsStaleHeapAfterForeground(t *testing.T) {
 }
 
 func TestManagerRejectsObservationFromAnotherBackendInstance(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -402,6 +424,7 @@ func TestManagerRejectsObservationFromAnotherBackendInstance(t *testing.T) {
 }
 
 func TestManagerRegistryDisablePreventsLaterArm(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	ctl := &testController{}
@@ -423,6 +446,7 @@ func TestManagerRegistryDisablePreventsLaterArm(t *testing.T) {
 }
 
 func TestPolicyStoreRejectsCapacityWithoutEviction(t *testing.T) {
+	t.Parallel()
 	s, err := NewPolicyStore(1)
 	if err != nil {
 		t.Fatal(err)

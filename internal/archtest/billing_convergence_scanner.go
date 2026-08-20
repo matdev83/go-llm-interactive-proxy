@@ -29,7 +29,7 @@ func isBillingFinalConvergenceExcluded(rel string, src []byte, excludedGlobs []s
 	if strings.HasSuffix(rel, "_test.go") || strings.HasSuffix(rel, "_test_helpers.go") {
 		return true
 	}
-	for _, seg := range strings.Split(rel, "/") {
+	for seg := range strings.SplitSeq(rel, "/") {
 		switch seg {
 		case "testdata", "vendor", ".worktrees", "node_modules", "archtest":
 			return true
@@ -47,7 +47,7 @@ func isBillingFinalConvergenceExcluded(rel string, src []byte, excludedGlobs []s
 }
 
 func isBillingFinalConvergenceGenerated(src []byte) bool {
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "Code generated") && strings.Contains(t, "DO NOT EDIT") {
 			return true
@@ -161,7 +161,7 @@ func resolvePackageName(fs archtestFS, importPath string) string {
 		if err != nil {
 			continue
 		}
-		for _, line := range strings.Split(string(content), "\n") {
+		for line := range strings.SplitSeq(string(content), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "package ") {
 				parts := strings.Fields(line)
@@ -183,8 +183,8 @@ func billingFinalConvergenceFileDecls(fs archtestFS, fset *token.FileSet, f *ast
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
 		var relDir string
-		if strings.HasPrefix(path, "github.com/matdev83/go-llm-interactive-proxy/") {
-			relDir = strings.TrimPrefix(path, "github.com/matdev83/go-llm-interactive-proxy/")
+		if suffix, ok := strings.CutPrefix(path, "github.com/matdev83/go-llm-interactive-proxy/"); ok {
+			relDir = suffix
 		} else {
 			parts := strings.Split(path, "/")
 			relDir = parts[len(parts)-1]

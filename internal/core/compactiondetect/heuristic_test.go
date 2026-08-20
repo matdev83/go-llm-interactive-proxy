@@ -114,7 +114,6 @@ func TestHeuristic_negativeCases(t *testing.T) {
 		{"near-threshold reduction", big, itemCall(bigText(32000), "tail-one", "tail-two")},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := testDetector(t)

@@ -3,6 +3,12 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -15,11 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"io"
-	"log/slog"
-	"strings"
-	"sync"
-	"time"
 )
 
 var (
@@ -130,6 +131,7 @@ func newRecoveryController(in recoveryControllerInput) *recoveryController {
 	failures.progress = r
 	return r
 }
+
 func (r *recoveryController) getFailures() *candidateFailureHistory {
 	if r == nil {
 		return &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
@@ -143,6 +145,7 @@ func (r *recoveryController) getFailures() *candidateFailureHistory {
 	}
 	return r.failures
 }
+
 func (r *recoveryController) scopedIdleContext(parent context.Context, parentCancel context.CancelFunc, now time.Time) (context.Context, context.CancelFunc, idleContextDeadline) {
 	if r == nil || r.recoverPolicy == nil || parent == nil {
 		return parent, parentCancel, idleContextDeadline{}
@@ -184,6 +187,7 @@ func (r *recoveryController) idleRecvDecision(now time.Time) recvRecoveryDecisio
 		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
+
 func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision {
 	if r == nil || r.recoverPolicy == nil {
 		return recvRecoveryDecision{}
@@ -195,6 +199,7 @@ func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision
 		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
+
 func (r *recoveryController) bindOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg) {
 	if r == nil {
 		return
@@ -298,6 +303,7 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 		return res, nil
 	}
 }
+
 func (r *recoveryController) openReplacement(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementOpenResult, error) {
 	if r == nil || r.opener == nil {
 		return replacementOpenResult{}, errors.New("runtime: replacement opener unavailable")
@@ -327,6 +333,7 @@ func (r *recoveryController) openReplacement(ctx context.Context, request reques
 	}
 	return out, err
 }
+
 func (r *recoveryController) openInterleavedAttempt(
 	ctx context.Context,
 	facts recvTurnFacts,
@@ -379,43 +386,51 @@ func (r *recoveryController) resetPolicy(now func() time.Time) {
 	}
 	r.recoverPolicy = streamrecovery.NewPolicy(cfg, t)
 }
+
 func (r *recoveryController) logMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool) {
 	if r != nil && r.e != nil {
 		r.e.logInterleavedMemoStoreSkipped(ctx, traceID, reason, interrupted)
 	}
 }
+
 func (r *recoveryController) logMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState) {
 	if r != nil && r.e != nil {
 		r.e.logInterleavedMemoCaptured(ctx, traceID, memo)
 	}
 }
+
 func (r *recoveryController) logPhaseTransition(ctx context.Context, traceID string) {
 	if r != nil && r.e != nil {
 		r.e.logInterleavedPhaseTransition(ctx, traceID)
 	}
 }
+
 func (r *recoveryController) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error) {
 	if r == nil || r.e == nil {
 		return state, errors.New("runtime: interleaved memo persistence unavailable")
 	}
 	return r.e.persistCapturedMemo(ctx, aLegID, state, memo)
 }
+
 func (r *recoveryController) openInterleavedContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error) {
 	if r == nil || r.e == nil {
 		return nil, errors.New("runtime: interleaved continuation opener unavailable")
 	}
 	return r.e.openInterleavedExecutorContinuation(ctx, from, state)
 }
+
 func (r *recoveryController) logMemoPersistFailed(ctx context.Context, traceID string, err error) {
 	if r != nil && r.e != nil {
 		r.e.logInterleavedMemoPersistFailed(ctx, traceID, err)
 	}
 }
+
 func (r *recoveryController) appendTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
 	if r != nil && r.e != nil {
 		r.e.appendIndependentTerminalLeg(ctx, state, aLegID, bleg, primary, started, finished, outcome)
 	}
 }
+
 func (r *recoveryController) exclude(key string) {
 	if r == nil {
 		return
@@ -425,6 +440,7 @@ func (r *recoveryController) exclude(key string) {
 	}
 	r.excluded[key] = struct{}{}
 }
+
 func (r *recoveryController) commitAffinity(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, now time.Time, reason string) {
 	if r == nil || r.e == nil || !r.affinitySet || !r.affinityKey.Valid() || attempt == nil || r.affinityStore == nil {
 		return
@@ -447,6 +463,7 @@ func (r *recoveryController) commitAffinity(ctx context.Context, request request
 		r.e.noteRouteDecision(persistCtx, request.traceID, "affinity_bind", binding.BackendID)
 	})
 }
+
 func (r *recoveryController) tryReplacementIteration(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementIterationResult, error) {
 	if r == nil || prior == nil {
 		return replacementIterationResult{}, errors.New("runtime: recovery controller or replacement attempt unavailable")

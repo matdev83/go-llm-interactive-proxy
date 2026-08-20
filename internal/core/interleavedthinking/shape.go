@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -290,9 +291,7 @@ func injectMemoAtTail(messages []lipapi.Message, memo string) []lipapi.Message {
 // source/kind markers set. The input map is never mutated.
 func mergeMemoTailMetadata(existing map[string]string) map[string]string {
 	merged := make(map[string]string, len(existing)+2)
-	for k, v := range existing {
-		merged[k] = v
-	}
+	maps.Copy(merged, existing)
 	merged["source"] = MetadataSourceInterleavedThinking
 	merged["kind"] = MetadataKindThinkerMemoTail
 	return merged

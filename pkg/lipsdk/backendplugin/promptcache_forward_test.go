@@ -50,10 +50,13 @@ type observationManaged struct {
 func (m *observationManaged) Recv(context.Context) (lipapi.Event, error) {
 	return lipapi.Event{}, io.EOF
 }
+
 func (m *observationManaged) Close() error { return nil }
+
 func (m *observationManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
+
 func (m *observationManaged) DrainPromptCacheObservations() []promptcache.Observation {
 	return m.source.DrainPromptCacheObservations()
 }

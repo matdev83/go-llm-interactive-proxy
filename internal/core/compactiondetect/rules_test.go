@@ -23,7 +23,7 @@ func textCall(text string, tools int) lipapi.Call {
 		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart(text)}}},
 	}
-	for i := 0; i < tools; i++ {
+	for i := range tools {
 		call.Tools = append(call.Tools, lipapi.ToolDef{Name: fmt.Sprintf("tool-%d", i)})
 	}
 	return call
@@ -111,7 +111,6 @@ func TestRuleMatrix_positives(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := testDetector(t)
@@ -197,7 +196,6 @@ func TestRuleMatrix_nearMissNegatives(t *testing.T) {
 		"Session summary: nothing preserved",
 	}
 	for i, text := range negatives {
-		text := text
 		t.Run(fmt.Sprintf("case_%02d", i), func(t *testing.T) {
 			t.Parallel()
 			d := testDetector(t)
@@ -308,7 +306,6 @@ func TestRuleMatrix_completionMarkers(t *testing.T) {
 		},
 	}
 	for _, tc := range completions {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := testDetector(t)
@@ -598,7 +595,7 @@ func TestRuleMatrix_markerAtStartOfLargeDelta(t *testing.T) {
 func TestRuleMatrix_releaseWindowBounded(t *testing.T) {
 	t.Parallel()
 	d := testDetector(t)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		got := d.ResponseReleased(resMeta("tr-w"), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: strings.Repeat(fmt.Sprintf("delta-%d-", i), 100)})
 		if len(got) != 0 {
 			t.Fatalf("release %d emitted: %+v", i, got)

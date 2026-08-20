@@ -28,6 +28,7 @@ type isoStream struct {
 	once   sync.Once
 	n      int
 }
+
 type isoSink struct {
 	c *compactionContinuityBillingCapture
 }
@@ -35,6 +36,7 @@ type isoSink struct {
 func (s isoSink) AppendCall(ctx context.Context, r billing.CallUsageRecord) error {
 	return s.c.appendCall(ctx, r)
 }
+
 func (s isoSink) AppendLeg(ctx context.Context, r billing.CallLegUsageRecord) error {
 	return s.c.appendLeg(ctx, r)
 }
@@ -59,11 +61,14 @@ func (s *isoStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	s.n++
 	return ev, nil
 }
+
 func (s *isoStream) Close() error { s.once.Do(func() { close(s.done) }); return nil }
+
 func (s *isoStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	_ = s.Close()
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
+
 func isoEvents(in, out int) []lipapi.Event {
 	return []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}, {Kind: lipapi.EventTextDelta, Delta: "x"}, {Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out, TotalTokens: in + out, UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative, DedupeKey: "iso"}}, {Kind: lipapi.EventResponseFinished}}
 }
@@ -87,6 +92,7 @@ func isoExecutor(t *testing.T, cap *compactionContinuityBillingCapture, st *b2bu
 	ex.TerminalUsageSink = isoSink{cap}
 	return ex
 }
+
 func mustRecorder(t *testing.T, ss *memory.Store) *app.Recorder {
 	t.Helper()
 	r, e := app.NewRecorder(ss)
@@ -95,12 +101,15 @@ func mustRecorder(t *testing.T, ss *memory.Store) *app.Recorder {
 	}
 	return r
 }
+
 func isoCtx() context.Context {
 	return scope.WithScope(context.Background(), scope.PrincipalScopeView{SubjectKind: scope.SubjectHuman, PrincipalID: scope.Known(syntheticLocalPrincipalID), Origin: scope.OriginClient})
 }
+
 func isoParent() *lipapi.Call {
 	return &lipapi.Call{Session: lipapi.SessionRef{ClientSessionID: "client", ContinuityKey: "parent"}, Route: lipapi.RouteIntent{Selector: "primary:m"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}}}
 }
+
 func isoChild(p *lipapi.Call, sel string) auxiliary.Request {
 	return auxiliary.Request{Call: &lipapi.Call{Session: p.Session, Route: lipapi.RouteIntent{Selector: sel}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("extract")}}}}, Role: "compaction_continuity_extractor", Visibility: "private", ParentTraceID: "trace", ParentALegID: p.Session.ALegID, ParentBranchBinding: "branch", SessionMode: auxiliary.SessionModeDetached}
 }

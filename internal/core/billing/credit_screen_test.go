@@ -18,6 +18,7 @@ func (s *creditScreenAccountStore) GetAccount(context.Context, string) (Account,
 }
 
 func TestCheapCreditScreenAllowsConfiguredHeadroom(t *testing.T) {
+	t.Parallel()
 	store := &creditScreenAccountStore{account: Account{
 		ID: "acct", Currency: "USD", Mode: AccountPrepaid, BalanceNano: 100,
 		State: AccountReady,
@@ -32,6 +33,7 @@ func TestCheapCreditScreenAllowsConfiguredHeadroom(t *testing.T) {
 }
 
 func TestCheapCreditScreenDeniesBelowMinimumBeforeRouting(t *testing.T) {
+	t.Parallel()
 	store := &creditScreenAccountStore{account: Account{
 		ID: "acct", Currency: "USD", Mode: AccountPostpaid, CreditLimit: 100,
 		BalanceNano: -60, State: AccountReady,
@@ -43,6 +45,7 @@ func TestCheapCreditScreenDeniesBelowMinimumBeforeRouting(t *testing.T) {
 }
 
 func TestCheapCreditScreenZeroMinimumAllowsZeroHeadroom(t *testing.T) {
+	t.Parallel()
 	store := &creditScreenAccountStore{account: Account{
 		ID: "acct", Currency: "USD", Mode: AccountPrepaid, BalanceNano: 0,
 		State: AccountReady,
@@ -54,6 +57,7 @@ func TestCheapCreditScreenZeroMinimumAllowsZeroHeadroom(t *testing.T) {
 }
 
 func TestCheapCreditScreenFailsClosedForUnavailableInvalidOrWrongCurrency(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		store *creditScreenAccountStore
@@ -65,6 +69,7 @@ func TestCheapCreditScreenFailsClosedForUnavailableInvalidOrWrongCurrency(t *tes
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			gate := CheapCreditScreen{Store: tt.store, Currency: "USD"}
 			if err := gate.Check(context.Background(), "acct"); !errors.Is(err, tt.want) {
 				t.Fatalf("Check = %v, want %v", err, tt.want)

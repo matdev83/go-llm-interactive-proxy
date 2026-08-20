@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
+	"strings"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -29,17 +34,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"log/slog"
-	"slices"
-	"strings"
-	"time"
 )
 
 type requestFacts struct {
@@ -159,6 +159,7 @@ func (tx *attemptTx) Rollback(ctx context.Context, cmd sdkterminal.Command, rele
 		tx.e.appendIndependentTerminalLeg(ctx, tx.reqFacts.billingCallState, tx.reqFacts.aLegID, tx.bleg, tx.cand.Primary, started, finished, outcome)
 	}
 }
+
 func (tx *attemptTx) Handoff() *attemptSession {
 	if tx == nil {
 		panic("nil attemptTx handoff")
@@ -184,6 +185,7 @@ func (tx *attemptTx) Handoff() *attemptSession {
 		recordAttemptLoggedFn: tx.e.recordAttemptLogged,
 	})
 }
+
 func (tx *attemptTx) recordFailure(ctx context.Context, outcome lipapi.AttemptOutcome, reason string, err error) {
 	tx.e.recordAttemptLogged(ctx, recordAttemptParams{
 		ALegID:    tx.reqFacts.aLegID,
@@ -194,6 +196,7 @@ func (tx *attemptTx) recordFailure(ctx context.Context, outcome lipapi.AttemptOu
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: tx.reqFacts.traceID, BLegID: tx.bleg.BLegID})
 }
+
 func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route routeFacts, cand routing.AttemptCandidate, budget *attemptBudget, failures *candidateFailureHistory) (*attemptTx, error) {
 	bleg, err := e.Store.NextBLeg(ctx, rf.aLegID)
 	if err != nil {
@@ -215,6 +218,7 @@ func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route ro
 		failures:   failures,
 	}, nil
 }
+
 func (e *Executor) evaluateCandidate(
 	ctx context.Context,
 	rf requestFacts,
@@ -368,6 +372,7 @@ func (e *Executor) evaluateCandidate(
 		admitOut:          admitOut,
 	}, nil
 }
+
 func (e *Executor) applyRejection(failures *candidateFailureHistory, c routing.AttemptCandidate, rejection candidateRejection) {
 	if failures == nil {
 		return
@@ -401,6 +406,7 @@ func (e *Executor) applyRejection(failures *candidateFailureHistory, c routing.A
 		}
 	}
 }
+
 func (e *Executor) openAttemptTx(
 	ctx context.Context,
 	tx *attemptTx,
@@ -453,7 +459,7 @@ func (e *Executor) openAttemptTx(
 	authorizedFreeze := lipapi.CloneCall(openCall)
 	admitDecision := preflightDecision
 	holder := tx.reqFacts.metering
-	var scopeVal scope.PrincipalScopeView = tx.reqFacts.recvViews.Scope
+	scopeVal := tx.reqFacts.recvViews.Scope
 	if !tx.reqFacts.recvViewsOK {
 		holder, scopeVal = meteringHolderFrom(ctx), scopeFromCtx(ctx)
 	}
@@ -661,6 +667,7 @@ func (e *Executor) openAttemptTx(
 	}
 	return nil
 }
+
 func (e *Executor) openNext(ctx context.Context, req openNextRequest) (openedAttempt, error) {
 	ctx = req.reqFacts.projectContext(ctx, nil)
 	p := req.progress
@@ -738,6 +745,7 @@ func (e *Executor) openNext(ctx context.Context, req openNextRequest) (openedAtt
 	}
 	return lastNoOpen, nil
 }
+
 func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextRequest, plan candidatePlan) (openedAttempt, error) {
 	evalOutcome, err := e.evaluateCandidate(ctx, req.reqFacts, req.routeFacts, plan, req.interleaved)
 	if err != nil {
@@ -833,6 +841,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		memoUpdate:  memoUpdate,
 	}, nil
 }
+
 func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, sel *routing.Selector, key affinity.Key, keyOK bool) (string, bool, error) {
 	if e == nil || e.AffinityStore == nil || sel == nil || sel.Affinity == routing.AffinityNone || !keyOK {
 		return "", false, nil
@@ -848,6 +857,7 @@ func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, se
 	e.noteRouteDecision(ctx, traceID, "affinity_hit", backend)
 	return backend, true, nil
 }
+
 func (e *Executor) clearAffinityBinding(ctx context.Context, traceID string, key affinity.Key, keyOK bool, reason string) {
 	if e == nil || e.AffinityStore == nil || !keyOK {
 		return
@@ -860,6 +870,7 @@ func (e *Executor) clearAffinityBinding(ctx context.Context, traceID string, key
 	}
 	e.noteRouteDecision(ctx, traceID, "affinity_reset", strings.TrimSpace(reason))
 }
+
 func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routing.Selector, call lipapi.Call) routing.RequestSizeEstimate {
 	if e.Preflight != nil && routing.SelectorHasRequestSizeConstraints(sel) {
 		var model, backend string
@@ -876,6 +887,7 @@ func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routi
 	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, call)
 	return routing.RequestSizeEstimate{Available: est.Available, Tokens: est.Input, Basis: est.Basis}
 }
+
 func (e *Executor) runPreflight(ctx context.Context, traceID string, call lipapi.Call, c routing.AttemptCandidate, facts modelcatalog.ModelFacts) (accountingpreflight.Decision, bool) {
 	if e.Preflight == nil {
 		return accountingpreflight.Decision{}, false
@@ -889,6 +901,7 @@ func (e *Executor) runPreflight(ctx context.Context, traceID string, call lipapi
 		Facts:                    facts,
 	}), true
 }
+
 func firstSelectorPrimary(sel *routing.Selector) *routing.Primary {
 	if sel == nil || len(sel.Alternatives) == 0 {
 		return nil

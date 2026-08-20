@@ -95,12 +95,15 @@ type stubSecretGuard struct {
 type stubPreserver struct{ id string }
 
 func (p stubPreserver) ID() string { return p.id }
+
 func (stubPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (stubPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (stubPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }

@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -20,8 +22,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"maps"
-	"slices"
 )
 
 type preparedRequest struct {
@@ -133,6 +133,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	})
 	return pr, prepCtx, guard.Close, nil
 }
+
 func (p *preparedRequest) finalize(err error) {
 	if err != nil {
 		p.execSpan.RecordError(err)
@@ -180,6 +181,7 @@ func newIdentityBoundTurn(traceID string, call *lipapi.Call, principal execview.
 	cloned := lipapi.CloneCall(*call)
 	return &identityBoundTurn{traceID, &cloned, principal, scope, hasPrincipal, workspace, aLeg, routeAuth, secureTurn, secureTurnOK, preSession}, nil
 }
+
 func (t *identityBoundTurn) projectContext(ctx context.Context) context.Context {
 	if t == nil {
 		return ctx

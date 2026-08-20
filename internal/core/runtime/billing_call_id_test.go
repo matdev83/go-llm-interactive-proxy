@@ -510,8 +510,7 @@ func assertNoBillingCallIDWireField(t *testing.T, sample any) {
 	if typ.Kind() != reflect.Struct {
 		t.Fatalf("%s is not a struct", typ)
 	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		name := strings.ToLower(field.Name)
 		if name == "billingcallid" || strings.Contains(name, "billingcall") {
 			t.Fatalf("%s.%s must not carry request-local BillingCallID on the provider wire", typ.Name(), field.Name)

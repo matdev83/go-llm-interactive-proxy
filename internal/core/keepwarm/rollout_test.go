@@ -9,9 +9,11 @@ import (
 )
 
 func TestUnprovenProviderRolloutRequiresIndependentEvidence(t *testing.T) {
+	t.Parallel()
 	providers := []string{"codex-subscription", "openai-minimum-residency", "gemini-implicit", "deepseek", "xai", "mistral", "openrouter", "zai", "aggregator"}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
 			gate := EvidenceGate{SafeControl: true, AffinityPreserved: true, ForegroundIsolationProven: true}
 			if gate.ActiveRenewalSupported() {
 				t.Fatal("cache-effect evidence was omitted from active-renewal gate")
@@ -21,6 +23,7 @@ func TestUnprovenProviderRolloutRequiresIndependentEvidence(t *testing.T) {
 }
 
 func TestProviderNeutralSchedulerDoesNotInventExpiryForUnprovenLifetimes(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: now}
 	cfg := DefaultConfig()
@@ -41,6 +44,7 @@ func TestProviderNeutralSchedulerDoesNotInventExpiryForUnprovenLifetimes(t *test
 }
 
 func TestOnlyExplicitHeuristicCanScheduleWithoutExpiry(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	cfg := DefaultConfig()
 	cfg.HeuristicOverrides = []HeuristicOverride{{BackendInstance: "backend", CanonicalModel: "model", Interval: time.Minute}}

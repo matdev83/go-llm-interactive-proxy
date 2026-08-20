@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"io"
+	"maps"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -71,9 +72,7 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 		if s.responsePipeline.toolClass.byCallID != nil {
 			deps.toolClass.byCallID = make(map[string]toolEventClassification)
 			s.responsePipeline.toolClass.mu.Lock()
-			for k, v := range s.responsePipeline.toolClass.byCallID {
-				deps.toolClass.byCallID[k] = v
-			}
+			maps.Copy(deps.toolClass.byCallID, s.responsePipeline.toolClass.byCallID)
 			s.responsePipeline.toolClass.mu.Unlock()
 		}
 		deps.committedTools = s.responsePipeline.committedTools
@@ -93,7 +92,6 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 	}
 	if s.recovery != nil {
 		s.recovery.bindOpener(e, s.responsePipeline.bus, s.terminal.aLegScope())
-
 	}
 }
 

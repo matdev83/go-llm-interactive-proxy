@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ func parseBackendResource(t *testing.T, filename, source string) *ast.File {
 	}
 	return f
 }
+
 func walkBackendResourceProduction(root string, fn func(string, *ast.File) error) error {
 	for _, dir := range []string{"cmd", "internal", "pkg", "connectors", "connector-support"} {
 		base := filepath.Join(root, dir)
@@ -40,14 +42,11 @@ func walkBackendResourceProduction(root string, fn func(string, *ast.File) error
 			continue
 		}
 		if err := filepath.Walk(base, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				if info.Name() == "vendor" || info.Name() == "testdata" || info.Name() == "node_modules" {
+			if walkErr != nil || info.IsDir() {
+				if info != nil && info.IsDir() && (info.Name() == "vendor" || info.Name() == "testdata" || info.Name() == "node_modules") {
 					return filepath.SkipDir
 				}
-				return nil
+				return walkErr
 			}
 			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
@@ -75,6 +74,7 @@ func walkBackendResourceProduction(root string, fn func(string, *ast.File) error
 	}
 	return nil
 }
+
 func backendResourceIdentifier(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.Contains(lower, "backendresource") || lower == "physicalidentity" ||
@@ -82,6 +82,7 @@ func backendResourceIdentifier(name string) bool {
 		lower == "fingerprintbackendresourcesecrets" || lower == "strippooledbackendlifecycle" ||
 		lower == "pluginresourcepool" || lower == "resourcepool"
 }
+
 func topLevelNames(f *ast.File) []string {
 	var names []string
 	for _, decl := range f.Decls {
@@ -90,10 +91,9 @@ func topLevelNames(f *ast.File) []string {
 			names = append(names, d.Name.Name)
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
-				switch s := spec.(type) {
-				case *ast.TypeSpec:
+				if s, ok := spec.(*ast.TypeSpec); ok {
 					names = append(names, s.Name.Name)
-				case *ast.ValueSpec:
+				} else if s, ok := spec.(*ast.ValueSpec); ok {
 					for _, n := range s.Names {
 						names = append(names, n.Name)
 					}
@@ -103,6 +103,7 @@ func topLevelNames(f *ast.File) []string {
 	}
 	return names
 }
+
 func scanBackendResourcePrivateScope(rel string, f *ast.File) []string {
 	var out []string
 	if !backendResourcePrivateFiles[rel] {
@@ -121,6 +122,7 @@ func scanBackendResourcePrivateScope(rel string, f *ast.File) []string {
 	}
 	return out
 }
+
 func scanForbiddenRuntimebundleImport(rel string, f *ast.File) []string {
 	if !strings.HasPrefix(rel, "internal/core/") && !strings.HasPrefix(rel, "pkg/lipapi/") &&
 		!strings.HasPrefix(rel, "pkg/lipsdk/") &&
@@ -135,6 +137,7 @@ func scanForbiddenRuntimebundleImport(rel string, f *ast.File) []string {
 	}
 	return nil
 }
+
 func genericResourceRegistryName(name string) bool {
 	lower := strings.ToLower(name)
 	if lower == "backendresourcepool" {
@@ -143,18 +146,14 @@ func genericResourceRegistryName(name string) bool {
 	if strings.HasPrefix(lower, "backendresource") && (strings.HasSuffix(lower, "registry") || strings.HasSuffix(lower, "container") || strings.HasSuffix(lower, "locator")) {
 		return true
 	}
-	for _, exact := range []string{
+	return slices.Contains([]string{
 		"resourcepool", "resourceregistry", "resourcecontainer", "resourcelocator", "resourceframework",
 		"serviceregistry", "servicecontainer", "servicelocator", "dependencyregistry", "dependencycontainer",
 		"componentregistry", "componentcontainer", "componentgraph", "getresource", "resolveresource",
 		"registerresource", "acquireresource", "releaseresource",
-	} {
-		if lower == exact {
-			return true
-		}
-	}
-	return false
+	}, lower)
 }
+
 func scanGenericResourceRegistryAPI(f *ast.File) []string {
 	var out []string
 	for _, name := range topLevelNames(f) {
@@ -164,6 +163,7 @@ func scanGenericResourceRegistryAPI(f *ast.File) []string {
 	}
 	return out
 }
+
 func scanPoolSupervisorViolations(f *ast.File) []string {
 	var out []string
 	for _, imp := range f.Imports {
@@ -193,19 +193,21 @@ func scanPoolSupervisorViolations(f *ast.File) []string {
 	})
 	return out
 }
+
 func backendResourceIdentName(expr ast.Expr) string {
 	if id, ok := expr.(*ast.Ident); ok {
 		return id.Name
 	}
 	return ""
 }
+
 func backendResourceSelector(expr ast.Expr) (string, string) {
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok {
-		return "", ""
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		return backendResourceIdentName(sel.X), sel.Sel.Name
 	}
-	return backendResourceIdentName(sel.X), sel.Sel.Name
+	return "", ""
 }
+
 func backendResourceFunc(f *ast.File, name string) *ast.FuncDecl {
 	for _, decl := range f.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name != nil && fn.Name.Name == name {
@@ -214,6 +216,7 @@ func backendResourceFunc(f *ast.File, name string) *ast.FuncDecl {
 	}
 	return nil
 }
+
 func scanPooledLifecycleContract(f *ast.File) []string {
 	var out []string
 	strip := backendResourceFunc(f, "stripPooledBackendLifecycle")
@@ -240,11 +243,9 @@ func scanPooledLifecycleContract(f *ast.File) []string {
 			receiver, method := backendResourceSelector(x.Fun)
 			if receiver == "lease" && method == "release" {
 				leaseCleanup = true
-			}
-			if receiver == "entry" && method == "cleanup" {
+			} else if receiver == "entry" && method == "cleanup" {
 				physicalCleanup = true
-			}
-			if method == "Close" || method == "Start" || method == "Stop" || method == "CleanupIdleTransports" {
+			} else if method == "Close" || method == "Start" || method == "Stop" || method == "CleanupIdleTransports" {
 				out = append(out, "physical lifecycle bypass "+method)
 			}
 		case *ast.SelectorExpr:
@@ -267,6 +268,7 @@ func scanPooledLifecycleContract(f *ast.File) []string {
 	}
 	return out
 }
+
 func buildBackendCalls(node ast.Node) []*ast.CallExpr {
 	var out []*ast.CallExpr
 	ast.Inspect(node, func(n ast.Node) bool {
@@ -277,12 +279,14 @@ func buildBackendCalls(node ast.Node) []*ast.CallExpr {
 	})
 	return out
 }
+
 func backendResourceLastArg(call *ast.CallExpr) string {
 	if len(call.Args) == 0 {
 		return ""
 	}
 	return backendResourceIdentName(call.Args[len(call.Args)-1])
 }
+
 func isPerInstanceCondition(expr ast.Expr) bool {
 	bin, ok := expr.(*ast.BinaryExpr)
 	if !ok || bin.Op.String() != "==" {
@@ -295,6 +299,7 @@ func isPerInstanceCondition(expr ast.Expr) bool {
 	}
 	return (isModel(bin.X) && isPerInstance(bin.Y)) || (isModel(bin.Y) && isPerInstance(bin.X))
 }
+
 func scanFactoryPoolEligibility(f *ast.File) []string {
 	var out []string
 	install, private, build := backendResourceFunc(f, "InstallDiscoveredExports"), backendResourceFunc(f, "installDiscoveredExportsWithPool"), backendResourceFunc(f, "buildDiscoveredBackend")
@@ -352,12 +357,14 @@ func scanFactoryPoolEligibility(f *ast.File) []string {
 	}
 	return out
 }
+
 func publicReconciliationKnob(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.Contains(lower, "backendresource") || strings.Contains(lower, "pluginresourcepool") ||
 		strings.Contains(lower, "resourcepool") || strings.Contains(lower, "resourcereconcil") ||
 		(strings.Contains(lower, "incarnation") && (strings.Contains(lower, "backend") || strings.Contains(lower, "resource") || strings.Contains(lower, "pool")))
 }
+
 func scanPublicReconciliationSurface(rel string, f *ast.File) []string {
 	if !strings.HasPrefix(rel, "pkg/") && !strings.HasPrefix(rel, "internal/plugins/") &&
 		!strings.HasPrefix(rel, "connectors/") && !strings.HasPrefix(rel, "connector-support/") {
@@ -383,19 +390,19 @@ func scanPublicReconciliationSurface(rel string, f *ast.File) []string {
 	})
 	return out
 }
+
 func scanSessionConcurrencySurface(f *ast.File) []string {
 	var out []string
 	var session *ast.StructType
 	for _, decl := range f.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if ok && ts.Name.Name == "Session" {
-				session, _ = ts.Type.(*ast.StructType)
+		if gd, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name.Name == "Session" {
+					session, _ = ts.Type.(*ast.StructType)
+				}
 			}
+		} else if d, ok := decl.(*ast.FuncDecl); ok && d.Recv != nil && strings.Contains(strings.ToLower(d.Name.Name), "concurr") {
+			out = append(out, "Session concurrency method "+d.Name.Name)
 		}
 	}
 	if session != nil {
@@ -407,16 +414,12 @@ func scanSessionConcurrencySurface(f *ast.File) []string {
 			}
 		}
 	}
-	for _, decl := range f.Decls {
-		if d, ok := decl.(*ast.FuncDecl); ok && d.Recv != nil && strings.Contains(strings.ToLower(d.Name.Name), "concurr") {
-			out = append(out, "Session concurrency method "+d.Name.Name)
-		}
-	}
 	return out
 }
+
 func scanProtoReconciliationFields(src string) []string {
 	var out []string
-	for _, line := range strings.Split(src, "\n") {
+	for line := range strings.SplitSeq(src, "\n") {
 		line = strings.TrimSpace(strings.SplitN(line, "//", 2)[0])
 		if !strings.Contains(line, "=") {
 			continue
@@ -432,6 +435,7 @@ func scanProtoReconciliationFields(src string) []string {
 	}
 	return out
 }
+
 func requireBackendResourceRejected(t *testing.T, label, source string, scan func(*ast.File) []string) {
 	t.Helper()
 	if len(scan(parseBackendResource(t, "fixture.go", source))) == 0 {
@@ -455,26 +459,21 @@ func TestBackendResourceReconciliation_ArchitectureFences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	poolPath := filepath.Join(root, filepath.FromSlash(backendResourceRuntimeBundle), "backend_resource_pool.go")
-	poolSrc, err := os.ReadFile(poolPath)
-	if err != nil {
-		t.Fatal(err)
+	readAST := func(path string) *ast.File {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parseBackendResource(t, path, string(src))
 	}
-	poolFile := parseBackendResource(t, poolPath, string(poolSrc))
+	poolPath := filepath.Join(root, filepath.FromSlash(backendResourceRuntimeBundle), "backend_resource_pool.go")
+	poolFile := readAST(poolPath)
 	violations = append(violations, scanPoolSupervisorViolations(poolFile)...)
 	violations = append(violations, scanPooledLifecycleContract(poolFile)...)
 	factoryPath := filepath.Join(root, filepath.FromSlash(backendResourceRuntimeBundle), "discovered_factories.go")
-	factorySrc, err := os.ReadFile(factoryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	violations = append(violations, scanFactoryPoolEligibility(parseBackendResource(t, factoryPath, string(factorySrc)))...)
+	violations = append(violations, scanFactoryPoolEligibility(readAST(factoryPath))...)
 	sessionPath := filepath.Join(root, "pkg", "lipsdk", "backendplugin", "host", "session.go")
-	sessionSrc, err := os.ReadFile(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	violations = append(violations, scanSessionConcurrencySurface(parseBackendResource(t, sessionPath, string(sessionSrc)))...)
+	violations = append(violations, scanSessionConcurrencySurface(readAST(sessionPath))...)
 	protoSrc, err := os.ReadFile(filepath.Join(root, "api", "backendplugin", "v1", "backend.proto"))
 	if err != nil {
 		t.Fatal(err)

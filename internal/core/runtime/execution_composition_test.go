@@ -75,7 +75,7 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected direct ACP to succeed, got %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 	})
 
 	t.Run("safe_composite_acp_and_inference_rejected", func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 				}
 				stream, err := ex.Execute(context.Background(), call)
 				if stream != nil {
-					stream.Close()
+					_ = stream.Close()
 				}
 				if err == nil {
 					t.Fatalf("expected error for selector %q, got nil", tc.selector)
@@ -124,7 +124,7 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected pure inference failover to succeed, got %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 	})
 
 	t.Run("safe_composite_unconfigured_backend_defers_to_missing_backend", func(t *testing.T) {
@@ -136,7 +136,7 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 		}
 		stream, err := ex.Execute(context.Background(), call)
 		if stream != nil {
-			stream.Close()
+			_ = stream.Close()
 		}
 		// A5: Must NOT return ErrUnsafeExecutionComposition
 		if errors.Is(err, routing.ErrUnsafeExecutionComposition) {
@@ -146,14 +146,16 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 
 	t.Run("unrestricted_composite_acp_allowed", func(t *testing.T) {
 		ex := newExec(config.ExecutionCompositionUnrestricted)
-		call := &lipapi.Call{
+		call := &lipapi.RouteIntent{Selector: "openai:gpt-4o|acp:claude-3-7-sonnet"}
+		_ = call
+		callMsg := &lipapi.Call{
 			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4o|acp:claude-3-7-sonnet"},
 			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 		}
-		stream, err := ex.Execute(context.Background(), call)
+		stream, err := ex.Execute(context.Background(), callMsg)
 		if err != nil {
 			t.Fatalf("expected unrestricted composition to succeed, got %v", err)
 		}
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 	})
 }

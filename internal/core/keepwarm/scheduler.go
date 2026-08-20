@@ -89,10 +89,7 @@ func (m *Manager) schedulerLoop() {
 		var timer *time.Timer
 		var timerC <-chan time.Time
 		if ok {
-			d := due.Sub(m.clock.Now())
-			if d < 0 {
-				d = 0
-			}
+			d := max(due.Sub(m.clock.Now()), 0)
 			timer = time.NewTimer(d)
 			timerC = timer.C
 		}
@@ -230,7 +227,10 @@ func (m *Manager) claimDue(ctx context.Context, trackRenewWait bool) *renewJob {
 		if len(m.dueHeap) == 0 || now.Before(m.dueHeap[0].due) {
 			return nil
 		}
-		entry := heap.Pop(&m.dueHeap).(scheduleEntry)
+		entry, ok := heap.Pop(&m.dueHeap).(scheduleEntry)
+		if !ok {
+			continue
+		}
 		epoch := m.epochs[entry.aLegID]
 		if epoch == nil || epoch.revision != entry.epoch {
 			continue

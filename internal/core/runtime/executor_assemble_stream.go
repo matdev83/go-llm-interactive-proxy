@@ -18,7 +18,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		prep.recvTurnFacts.billingCallID = prep.billingCallID
 		prep.recvTurnFacts.billingCallState = prep.billingCallState
 	}
-	if prep.recvTurnFacts.aLegID == "" && prep.identity != nil {
+	if prep.aLegID == "" && prep.identity != nil {
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:         *prep.call,
 			traceID:          prep.identity.traceID,

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,25 +50,29 @@ func TestStandardPluginsClassifyAllBuiltins(t *testing.T) {
 func TestLipAPIHasNoExecutionClass(t *testing.T) {
 	t.Parallel()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, filepath.Join("..", "..", "pkg", "lipapi"), nil, parser.AllErrors)
+	pkgDir := filepath.Join("..", "..", "pkg", "lipapi")
+	entries, err := os.ReadDir(pkgDir)
 	if err != nil {
-		t.Fatalf("ParseDir(pkg/lipapi): %v", err)
+		t.Fatalf("ReadDir(pkg/lipapi): %v", err)
 	}
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			if strings.HasSuffix(filename, "_test.go") {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(pkgDir, entry.Name())
+		file, err := parser.ParseFile(fset, path, nil, parser.AllErrors)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok {
 				continue
 			}
-			for _, decl := range file.Decls {
-				gen, ok := decl.(*ast.GenDecl)
-				if !ok {
-					continue
-				}
-				for _, spec := range gen.Specs {
-					if ts, ok := spec.(*ast.TypeSpec); ok {
-						if strings.Contains(ts.Name.Name, "ExecutionClass") || strings.Contains(ts.Name.Name, "ExecutionProfile") {
-							t.Errorf("pkg/lipapi must not declare execution class types: found %s in %s", ts.Name.Name, filename)
-						}
+			for _, spec := range gen.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok {
+					if strings.Contains(ts.Name.Name, "ExecutionClass") || strings.Contains(ts.Name.Name, "ExecutionProfile") {
+						t.Errorf("pkg/lipapi must not declare execution class types: found %s in %s", ts.Name.Name, path)
 					}
 				}
 			}

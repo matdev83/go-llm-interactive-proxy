@@ -8,6 +8,7 @@ import (
 )
 
 func TestKeepwarmCoreRemainsProviderNeutral(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(repoRoot(t), "internal", "core", "keepwarm")
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -31,6 +32,7 @@ func TestKeepwarmCoreRemainsProviderNeutral(t *testing.T) {
 }
 
 func TestKeepwarmRuntimeDoesNotReenterNormalExecution(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(repoRoot(t), "internal", "core", "runtime", "keepwarm_integration.go")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,6 +47,7 @@ func TestKeepwarmRuntimeDoesNotReenterNormalExecution(t *testing.T) {
 }
 
 func TestKeepwarmManagerHasNoPerTargetTicker(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(repoRoot(t), "internal", "core", "keepwarm", "manager.go")
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 )
 
 func TestRateCallUsesCallAndLegEvidenceWithoutAuthorizationHold(t *testing.T) {
+	t.Parallel()
 	callID := mustBillingCallID(t)
 	call := testCallUsageRecord(callID)
 	pricing := PricingSnapshot{
@@ -32,6 +33,7 @@ func TestRateCallUsesCallAndLegEvidenceWithoutAuthorizationHold(t *testing.T) {
 }
 
 func TestRateCallReturnsActualEvenWhenExceedsAdmittedMax(t *testing.T) {
+	t.Parallel()
 	callID := mustBillingCallID(t)
 	call := testCallUsageRecord(callID)
 	pricing := PricingSnapshot{
@@ -53,6 +55,7 @@ func TestRateCallReturnsActualEvenWhenExceedsAdmittedMax(t *testing.T) {
 }
 
 func TestRateCallFingerprintChangesWhenPolicyOrLegsDifferAtSameAmount(t *testing.T) {
+	t.Parallel()
 	callID := mustBillingCallID(t)
 	call := testCallUsageRecord(callID)
 	pricing := PricingSnapshot{

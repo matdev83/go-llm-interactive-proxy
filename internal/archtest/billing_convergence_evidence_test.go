@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,11 +63,9 @@ func TestBillingFinalConvergenceInventoryIncludesMoneyUsageAuthority(t *testing.
 		if decl.File != "internal/core/usageauthority/domain/amount.go" {
 			continue
 		}
-		for _, name := range decl.DeclaredNames {
-			if name == "AmountUnitMoneyNano" {
-				found = true
-				break
-			}
+		if slices.Contains(decl.DeclaredNames, "AmountUnitMoneyNano") {
+			found = true
+			break
 		}
 		if found {
 			break
@@ -78,6 +77,7 @@ func TestBillingFinalConvergenceInventoryIncludesMoneyUsageAuthority(t *testing.
 }
 
 func TestBillingFinalConvergenceCurrentTreeModificationRegression(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	doc, err := LoadBillingFinalConvergenceBaseline(root)
 	if err != nil {

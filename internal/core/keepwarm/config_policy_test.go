@@ -7,6 +7,7 @@ import (
 )
 
 func TestConfigDefaultsAndValidation(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -34,6 +35,7 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 }
 
 func TestConfigFromYAMLParsesBoundedKeepwarmOnly(t *testing.T) {
+	t.Parallel()
 	cfg, err := ConfigFromYAML([]byte("prompt_cache:\n  keepwarm:\n    enabled: false\n    max_refreshes_per_idle_epoch: 2\n    max_idle_duration: 1h\n    renew_timeout: 2s\n    heuristic_overrides:\n      - backend_instance: local\n        canonical_model: model\n        interval: 30m\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +52,7 @@ func TestConfigFromYAMLParsesBoundedKeepwarmOnly(t *testing.T) {
 }
 
 func TestHeuristicOverrideExactMatchAndExpiryPrecedence(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	cfg.HeuristicOverrides = []HeuristicOverride{{BackendInstance: "backend", CanonicalModel: "model", Interval: time.Hour}}
 	if err := cfg.Validate(); err != nil {
@@ -68,6 +71,7 @@ type fakeInvalidator struct{ calls chan string }
 func (f *fakeInvalidator) BeginForegroundTurn(id string) { f.calls <- id }
 
 func TestEvidenceGateRequiresIndependentProviderProof(t *testing.T) {
+	t.Parallel()
 	gate := EvidenceGate{SafeControl: true, AffinityPreserved: true, CacheEffectProven: true, ForegroundIsolationProven: true}
 	if !gate.ActiveRenewalSupported() {
 		t.Fatal("complete evidence gate rejected")
@@ -95,6 +99,7 @@ func (s *sessionDisablerStub) SetSessionDisabled(aLegID string, disabled bool) {
 }
 
 func TestPolicyStoreClearAndBroadcastRestoresLiveManagerDisabled(t *testing.T) {
+	t.Parallel()
 	store, err := NewPolicyStore(16)
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +127,7 @@ func TestPolicyStoreClearAndBroadcastRestoresLiveManagerDisabled(t *testing.T) {
 }
 
 func TestRegistryUnregistersAndBroadcastsWithoutRetainingGenerations(t *testing.T) {
+	t.Parallel()
 	r := NewManagerRegistry()
 	f := &fakeInvalidator{calls: make(chan string, 1)}
 	id, err := r.Register(f)

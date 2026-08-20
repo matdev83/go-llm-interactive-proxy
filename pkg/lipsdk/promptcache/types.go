@@ -76,6 +76,7 @@ func (p Profile) Validate() error {
 	}
 	return nil
 }
+
 func (p Profile) Normalize() (Profile, error) {
 	if err := p.Validate(); err != nil {
 		return Profile{}, err
@@ -85,9 +86,11 @@ func (p Profile) Normalize() (Profile, error) {
 	return p, nil
 }
 
-type TargetID string
-type GenerationID string
-type Handle []byte
+type (
+	TargetID     string
+	GenerationID string
+	Handle       []byte
+)
 
 // ObservationLineage carries only bounded routing/session attribution needed
 // by a provider adapter to associate a foreground observation with its B-leg.
@@ -125,12 +128,15 @@ func validateBoundedString(value string, max int, required bool) error {
 	}
 	return nil
 }
+
 func (id TargetID) Validate(required bool) error {
 	return validateBoundedString(string(id), MaxTargetIDBytes, required)
 }
+
 func (id GenerationID) Validate(required bool) error {
 	return validateBoundedString(string(id), MaxGenerationIDBytes, required)
 }
+
 func (h Handle) Validate(required bool) error {
 	if required && len(h) == 0 {
 		return ErrHandleRequired
@@ -279,11 +285,14 @@ type RenewResponse struct {
 	Result     RenewResult
 	Accounting *AccountingEvidence
 }
+
 type Controller interface {
 	Renew(context.Context, RenewRequest) (RenewResponse, error)
 	Release(context.Context, ReleaseRequest) error
 }
+
 type ObservationSource interface{ DrainPromptCacheObservations() []Observation }
+
 type ObservationBuffer struct {
 	mu           sync.Mutex
 	observations []Observation
@@ -309,6 +318,7 @@ func (b *ObservationBuffer) Add(o Observation) error {
 	b.observations = append(b.observations, o)
 	return nil
 }
+
 func (b *ObservationBuffer) Commit() {
 	if b == nil {
 		return
@@ -319,6 +329,7 @@ func (b *ObservationBuffer) Commit() {
 		b.committed = true
 	}
 }
+
 func (b *ObservationBuffer) Discard() {
 	if b == nil {
 		return
@@ -329,6 +340,7 @@ func (b *ObservationBuffer) Discard() {
 	b.committed = false
 	b.drained = true
 }
+
 func (b *ObservationBuffer) DrainPromptCacheObservations() []Observation {
 	if b == nil {
 		return nil

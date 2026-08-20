@@ -7,6 +7,7 @@ import (
 )
 
 func TestProfile_NormalizeAndRejectsUnsafeRenewal(t *testing.T) {
+	t.Parallel()
 	p, err := (Profile{ObservationSupported: true, RenewalSupported: true, LifecycleKinds: []LifecycleKind{LifecycleUnknown, LifecycleSlidingExpiry}}).Normalize()
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +22,7 @@ func TestProfile_NormalizeAndRejectsUnsafeRenewal(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
 func validObservation(renewable bool) Observation {
 	now := time.Unix(100, 0).UTC()
 	o := Observation{ALegID: "a", BLegID: "b", BackendInstanceID: "instance", TargetID: "target", GenerationID: "generation", Lifecycle: LifecycleBestEffort, Timing: Timing{ObservedAt: now}, Renewable: renewable}
@@ -29,7 +31,9 @@ func validObservation(renewable bool) Observation {
 	}
 	return o
 }
+
 func TestObservation_RequiresBoundedOpaqueHandleAndPreservesUnknownTiming(t *testing.T) {
+	t.Parallel()
 	if err := validObservation(false).Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +46,7 @@ func TestObservation_RequiresBoundedOpaqueHandleAndPreservesUnknownTiming(t *tes
 		t.Fatalf("err=%v", bad.Validate())
 	}
 	bad = validObservation(false)
-	bad.Timing.ExpiresAt = timePtr(time.Unix(99, 0))
+	bad.Timing.ExpiresAt = new(time.Unix(99, 0))
 	if !errors.Is(bad.Validate(), ErrInvalid) {
 		t.Fatalf("err=%v", bad.Validate())
 	}
@@ -52,7 +56,9 @@ func TestObservation_RequiresBoundedOpaqueHandleAndPreservesUnknownTiming(t *tes
 		t.Fatalf("err=%v", bad.Validate())
 	}
 }
+
 func TestCacheEvidence_RejectsNegativeAndAllowsExplicitZero(t *testing.T) {
+	t.Parallel()
 	zero := int64(0)
 	if err := (CacheEvidence{TotalTokens: &zero}).Validate(); err != nil {
 		t.Fatal(err)
@@ -62,7 +68,9 @@ func TestCacheEvidence_RejectsNegativeAndAllowsExplicitZero(t *testing.T) {
 		t.Fatal("negative evidence accepted")
 	}
 }
+
 func TestObservationBuffer_CommitsOnceAndDiscardsFailedAttempt(t *testing.T) {
+	t.Parallel()
 	var b ObservationBuffer
 	if err := b.Add(validObservation(true)); err != nil {
 		t.Fatal(err)
@@ -87,4 +95,5 @@ func TestObservationBuffer_CommitsOnceAndDiscardsFailedAttempt(t *testing.T) {
 		t.Fatalf("discarded=%#v", got)
 	}
 }
-func timePtr(t time.Time) *time.Time { return &t }
+
+func timePtr(t time.Time) *time.Time { return new(t) }

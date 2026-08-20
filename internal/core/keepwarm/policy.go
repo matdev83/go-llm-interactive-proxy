@@ -62,6 +62,7 @@ func (s *PolicyStore) Clear(aLegID string) error {
 	delete(s.states, aLegID)
 	return nil
 }
+
 func (s *PolicyStore) Get(aLegID string) (SessionPolicy, bool) {
 	aLegID = strings.TrimSpace(aLegID)
 	if aLegID == "" || len(aLegID) > promptcache.MaxLegIDBytes {
@@ -72,6 +73,7 @@ func (s *PolicyStore) Get(aLegID string) (SessionPolicy, bool) {
 	state, ok := s.states[aLegID]
 	return state, ok
 }
+
 func (s *PolicyStore) Forget(aLegID string) {
 	aLegID = strings.TrimSpace(aLegID)
 	if aLegID == "" || len(aLegID) > promptcache.MaxLegIDBytes {
@@ -81,6 +83,7 @@ func (s *PolicyStore) Forget(aLegID string) {
 	delete(s.states, aLegID)
 	s.mu.Unlock()
 }
+
 func (s *PolicyStore) Len() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.states) }
 
 // DisabledALegIDs returns a bounded snapshot used when a new generation
@@ -119,6 +122,7 @@ type ManagerRegistry struct {
 func NewManagerRegistry() *ManagerRegistry {
 	return &ManagerRegistry{managers: make(map[uint64]Invalidator)}
 }
+
 func (r *ManagerRegistry) Register(manager Invalidator) (uint64, error) {
 	if manager == nil {
 		return 0, ErrManagerNotRegistered
@@ -129,6 +133,7 @@ func (r *ManagerRegistry) Register(manager Invalidator) (uint64, error) {
 	r.managers[r.next] = manager
 	return r.next, nil
 }
+
 func (r *ManagerRegistry) Unregister(id uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -138,6 +143,7 @@ func (r *ManagerRegistry) Unregister(id uint64) error {
 	delete(r.managers, id)
 	return nil
 }
+
 func (r *ManagerRegistry) Disable(aLegID string) {
 	r.mu.Lock()
 	managers := make([]Invalidator, 0, len(r.managers))
@@ -170,6 +176,7 @@ func (r *ManagerRegistry) Clear(aLegID string) {
 		}
 	}
 }
+
 func (r *ManagerRegistry) Len() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.managers) }
 
 func (s *PolicyStore) DisableAndBroadcast(registry *ManagerRegistry, aLegID string, now time.Time) (SessionPolicy, error) {

@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -220,12 +221,7 @@ func scanStructFieldNamesForbidden(root, rel, typeName, forbidden string, rule, 
 }
 
 func containsString(slice []string, want string) bool {
-	for _, s := range slice {
-		if s == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, want)
 }
 
 func isBillingCallIDKeyExpr(expr ast.Expr, aliases map[string]struct{}) bool {

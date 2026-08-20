@@ -14,8 +14,10 @@ import (
 	"testing"
 )
 
-const RequestAttemptStateBaselineRelPath = "internal/archtest/testdata/request_attempt_state_baseline.json"
-const RequestAttemptStateSchemaVersion = 1
+const (
+	RequestAttemptStateBaselineRelPath = "internal/archtest/testdata/request_attempt_state_baseline.json"
+	RequestAttemptStateSchemaVersion   = 1
+)
 
 type RequestAttemptStateBaseline struct {
 	SchemaVersion int                          `json:"schema_version"`
@@ -197,6 +199,7 @@ func TestRequestAttemptStateRatchetsFailIfTypeReappears(t *testing.T) {
 		{"non-struct", "package runtime\ntype attemptOpenParams int"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fset := token.NewFileSet()
 			file, err := parser.ParseFile(fset, "mock.go", tc.src, 0)
 			if err != nil {
@@ -243,6 +246,7 @@ func TestRequestAttemptStateTargetRatchetFailsIfTypeReappearsOnCurrentAST(t *tes
 }
 
 func TestGenerateRequestAttemptStateBaseline(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("GENERATE_REQUEST_ATTEMPT_BASELINE") != "1" {
 		t.Skip("set GENERATE_REQUEST_ATTEMPT_BASELINE=1 to regenerate the request-attempt state baseline JSON")
 	}

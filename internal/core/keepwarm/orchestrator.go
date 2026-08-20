@@ -24,6 +24,7 @@ func NewOrchestrator(manager *Manager, policy ...*PolicyStore) *Orchestrator {
 	}
 	return &Orchestrator{manager: manager, policy: store}
 }
+
 func (o *Orchestrator) BeginRealTurn(aLegID string) {
 	if o != nil && o.manager != nil {
 		o.manager.BeginForegroundTurn(aLegID)
@@ -50,11 +51,13 @@ func (o *Orchestrator) ArmCommittedTurn(input ArmInput) ArmResult {
 	}
 	return o.manager.ArmFromCommittedTurn(input)
 }
+
 func (o *Orchestrator) RunDue(ctx context.Context) {
 	if o != nil && o.manager != nil {
 		o.manager.RunDue(ctx)
 	}
 }
+
 func (o *Orchestrator) Quiesce(ctx context.Context) error {
 	if o == nil || o.manager == nil {
 		return nil

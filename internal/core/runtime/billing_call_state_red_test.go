@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,12 +90,11 @@ func TestBillingCallState_ParallelAndInterleavedSharing(t *testing.T) {
 	// 1. Parallel leg allocation sharing
 	var wg sync.WaitGroup
 	const numParallel = 5
-	for i := 0; i < numParallel; i++ {
-		wg.Add(1)
-		go func(seq int) {
-			defer wg.Done()
+	for i := range numParallel {
+		seq := i + 1
+		wg.Go(func() {
 			state.noteAllocatedBLeg(billingSyntheticBLegID(seq), seq)
-		}(i + 1)
+		})
 	}
 	wg.Wait()
 
@@ -112,7 +112,7 @@ func TestBillingCallState_FinalizationSingleFlight(t *testing.T) {
 		callID: "test-call-id",
 	}
 
-	var callCount int64
+	var callCount atomic.Int64
 	finalizeFn := func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
 		time.Sleep(10 * time.Millisecond)
 		return lipapi.Event{
@@ -126,29 +126,28 @@ func TestBillingCallState_FinalizationSingleFlight(t *testing.T) {
 	results := make([]lipapi.Event, numRacers)
 	oks := make([]bool, numRacers)
 
-	for i := 0; i < numRacers; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+	for i := range numRacers {
+		idx := i
+		wg.Go(func() {
 			ev, ok := state.finalizeOnce(context.Background(), execbackend.BillingFinalizationInput{
 				BLegID:  "b-leg-1",
 				Backend: "backend-1",
 				Model:   "model-1",
 			}, func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-				callCount++
+				callCount.Add(1)
 				return finalizeFn(ctx, in)
 			})
 			results[idx] = ev
 			oks[idx] = ok
-		}(i)
+		})
 	}
 	wg.Wait()
 
-	if callCount != 1 {
-		t.Errorf("expected backend FinalizeBilling to be called exactly once, got %d", callCount)
+	if callCount.Load() != 1 {
+		t.Errorf("expected backend FinalizeBilling to be called exactly once, got %d", callCount.Load())
 	}
 
-	for i := 0; i < numRacers; i++ {
+	for i := range numRacers {
 		if !oks[i] {
 			t.Errorf("racer %d failed", i)
 		}

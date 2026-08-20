@@ -14,6 +14,7 @@ import (
 )
 
 func TestSession_PromptCacheControllerUsesNegotiatedInstancePlane(t *testing.T) {
+	t.Parallel()
 	lis := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
 	service := &fakebp.FakeService{Mode: fakebp.ModeValid, PromptCache: true}

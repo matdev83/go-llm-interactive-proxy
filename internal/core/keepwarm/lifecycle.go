@@ -2,6 +2,7 @@ package keepwarm
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
@@ -109,10 +110,7 @@ type MetricsSnapshot struct {
 func (m *Manager) Metrics() MetricsSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	events := make(map[string]uint64, len(m.metrics))
-	for name, count := range m.metrics {
-		events[name] = count
-	}
+	events := maps.Clone(m.metrics)
 	targets := 0
 	for _, epoch := range m.epochs {
 		targets += len(epoch.targets)

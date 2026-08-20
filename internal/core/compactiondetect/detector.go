@@ -83,8 +83,10 @@ const (
 	PreviewCompletionCandidate = compaction.PreviewCompletionCandidate
 )
 
-type RequestPreview = compaction.RequestPreview
-type ResponsePreview = compaction.ResponsePreview
+type (
+	RequestPreview  = compaction.RequestPreview
+	ResponsePreview = compaction.ResponsePreview
+)
 
 // transactionState is the bounded per-rule transaction for one logical
 // compaction on one A-leg (requirement 6).

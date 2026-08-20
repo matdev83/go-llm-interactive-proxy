@@ -165,9 +165,9 @@ func (e *Executor) stampExposureIdentity(ctx context.Context, prep *preparedRequ
 		ChargePolicyRef: policy,
 	}
 	prep.billingIdentityStamped = true
-	prep.recvTurnFacts.billingAccountID = accountID
-	prep.recvTurnFacts.billingCustomerPricing = pricing
-	prep.recvTurnFacts.billingChargePolicy = policy
+	prep.billingAccountID = accountID
+	prep.billingCustomerPricing = pricing
+	prep.billingChargePolicy = policy
 }
 
 func (e *Executor) billingRoutePlanInput(ctx context.Context, prep *preparedRequest, plan *routePlanState) BillingRoutePlanInput {

@@ -8,6 +8,7 @@ import (
 )
 
 func TestPhase2RuntimeDoesNotWireRetiredCentralAppendLayer(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	for _, rel := range []string{
 		"internal/core/runtime",
