@@ -211,6 +211,7 @@ func billingSpoolHealth(sink billing.TerminalUsageSink) func(context.Context) (c
 		}, nil
 	}
 }
+
 func mapSnapshotState(s economics.SnapshotState) controlplane.CapabilityState {
 	switch s {
 	case economics.SnapshotReady, economics.SnapshotStale:

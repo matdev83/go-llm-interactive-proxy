@@ -9,8 +9,10 @@ import (
 	"github.com/uptrace/bun/dialect"
 )
 
-const ProviderJournalOrderMigrationName = "20260830000000"
-const ProviderJournalSequenceContractMigrationName = "20260830010000"
+const (
+	ProviderJournalOrderMigrationName            = "20260830000000"
+	ProviderJournalSequenceContractMigrationName = "20260830010000"
+)
 
 const (
 	providerJournalOrderIndex     = "idx_billing_journal_provider_order"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -425,11 +426,8 @@ func (s *DurableStore) loadJournalPage(ctx context.Context, accountID, currency 
 func journalsForTurnID(transactions []billing.JournalTransaction, ids ...string) []billing.JournalTransaction {
 	out := make([]billing.JournalTransaction, 0)
 	for _, tx := range transactions {
-		for _, id := range ids {
-			if tx.TurnID == id {
-				out = append(out, tx)
-				break
-			}
+		if slices.Contains(ids, tx.TurnID) {
+			out = append(out, tx)
 		}
 	}
 	return out

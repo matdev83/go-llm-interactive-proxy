@@ -524,6 +524,7 @@ func TestSnapshotCatalog_RoutePricingFailsClosedWithoutDefault(t *testing.T) {
 }
 
 func TestSnapshotCatalog_ConcurrentReadsDuringPublish(t *testing.T) {
+	t.Parallel()
 	c, pricing, policy, _ := seedCatalog(t)
 
 	const (

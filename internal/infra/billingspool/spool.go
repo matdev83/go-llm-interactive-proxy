@@ -164,7 +164,7 @@ func Open(ctx context.Context, cfg Config, sink billing.TerminalUsageSink) (*Spo
 		// connection-local. The production file store therefore has one stable
 		// pooled connection; every production connection receives configure's
 		// durability settings rather than only whichever connection first opens.
-		sp.db.DB.SetMaxOpenConns(1)
+		sp.db.SetMaxOpenConns(1)
 	}
 	if err := sp.configure(ctx); err != nil {
 		_ = sp.closeDB()
@@ -255,6 +255,7 @@ func (s *Spool) reclaim(ctx context.Context) error {
 }
 
 func (s *Spool) now() time.Time { return s.cfg.Now().UTC() }
+
 func (s *Spool) AppendCall(ctx context.Context, r billing.CallUsageRecord) error {
 	return s.append(ctx, kindCall, func() (string, string, string, error) {
 		sealed, err := r.Seal()
@@ -265,6 +266,7 @@ func (s *Spool) AppendCall(ctx context.Context, r billing.CallUsageRecord) error
 		return sealed.Key, sealed.Fingerprint, string(b), err
 	})
 }
+
 func (s *Spool) AppendLeg(ctx context.Context, r billing.CallLegUsageRecord) error {
 	return s.append(ctx, kindLeg, func() (string, string, string, error) {
 		sealed, err := r.Seal()
@@ -424,7 +426,7 @@ func (s *Spool) processOnce(ctx context.Context) (bool, error) {
 		} else if err := billing.CheckCallUsageReplay(sealed, r); err != nil {
 			deliveryErr = err
 		} else {
-			deliveryErr = sinkCall(s.sink, ctx, r)
+			deliveryErr = sinkCall(ctx, s.sink, r)
 		}
 	case kindLeg:
 		var r billing.CallLegUsageRecord
@@ -435,7 +437,7 @@ func (s *Spool) processOnce(ctx context.Context) (bool, error) {
 		} else if err := billing.CheckCallLegUsageReplay(sealed, r); err != nil {
 			deliveryErr = err
 		} else {
-			deliveryErr = sinkLeg(s.sink, ctx, r)
+			deliveryErr = sinkLeg(ctx, s.sink, r)
 		}
 	default:
 		deliveryErr = fmt.Errorf("billingspool: unknown row kind %q", row.Kind)
@@ -452,10 +454,12 @@ func (s *Spool) processOnce(ctx context.Context) (bool, error) {
 	}
 	return true, deliveryErr
 }
-func sinkCall(s billing.TerminalUsageSink, ctx context.Context, r billing.CallUsageRecord) error {
+
+func sinkCall(ctx context.Context, s billing.TerminalUsageSink, r billing.CallUsageRecord) error {
 	return s.AppendCall(ctx, r)
 }
-func sinkLeg(s billing.TerminalUsageSink, ctx context.Context, r billing.CallLegUsageRecord) error {
+
+func sinkLeg(ctx context.Context, s billing.TerminalUsageSink, r billing.CallLegUsageRecord) error {
 	return s.AppendLeg(ctx, r)
 }
 
@@ -492,6 +496,7 @@ func (s *Spool) claim(ctx context.Context) (spoolRow, bool, error) {
 	}
 	return row, true, nil
 }
+
 func (s *Spool) markProcessed(ctx context.Context, key string) error {
 	s.databaseMu.RLock()
 	defer s.databaseMu.RUnlock()
@@ -504,6 +509,7 @@ func (s *Spool) markProcessed(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
 func (s *Spool) markError(ctx context.Context, row spoolRow, e error) error {
 	s.databaseMu.RLock()
 	defer s.databaseMu.RUnlock()
@@ -513,6 +519,7 @@ func (s *Spool) markError(ctx context.Context, row spoolRow, e error) error {
 	_, err := s.db.NewRaw(`UPDATE terminal_usage_spool SET status=?,claimed_at=NULL,last_error=?,attempt_count=attempt_count+1,updated_at=? WHERE spool_key=?`, statusError, e.Error(), s.now(), row.SpoolKey).Exec(ctx)
 	return errors.Join(e, err)
 }
+
 func (s *Spool) deferRow(ctx context.Context, row spoolRow, e error) error {
 	s.databaseMu.RLock()
 	defer s.databaseMu.RUnlock()
@@ -530,6 +537,7 @@ func (s *Spool) deferRow(ctx context.Context, row spoolRow, e error) error {
 	_, err := s.db.NewRaw(`UPDATE terminal_usage_spool SET status=?,claimed_at=NULL,last_error=?,attempt_count=?,next_attempt_at=?,updated_at=? WHERE spool_key=?`, statusPending, e.Error(), attempt, s.now().Add(delay), s.now(), row.SpoolKey).Exec(ctx)
 	return err
 }
+
 func (s *Spool) prune(ctx context.Context) error {
 	s.databaseMu.RLock()
 	defer s.databaseMu.RUnlock()
@@ -542,6 +550,7 @@ func (s *Spool) prune(ctx context.Context) error {
 }
 
 func (s *Spool) PendingCount() int { h := s.Health(); return h.PendingRecords }
+
 func (s *Spool) Health() Health {
 	h := Health{State: HealthReady}
 	if s == nil || s.db == nil {
@@ -591,13 +600,12 @@ func (s *Spool) Health() Health {
 		}
 	}
 	if !stats.Oldest.IsZero() {
-		h.OldestPendingAge = s.now().Sub(stats.Oldest)
-		if h.OldestPendingAge < 0 {
-			h.OldestPendingAge = 0
-		}
+		h.OldestPendingAge = max(s.now().Sub(stats.Oldest), 0)
 	}
 	if v := s.lastDelivery.Load(); v != nil {
-		h.LastDeliveryError = v.(string)
+		if sErr, ok := v.(string); ok {
+			h.LastDeliveryError = sErr
+		}
 	}
 	h.AppendCapacityFailures = s.appendCapacityFailures.Load()
 	if h.ErrorRows > 0 || h.LastDeliveryError != "" || h.ProbeError != "" {
@@ -702,7 +710,7 @@ func (s *Spool) Start(ctx context.Context) error {
 }
 
 func (s *Spool) drain(ctx context.Context) {
-	for i := 0; i < defaultDrainBatchSize; i++ {
+	for range defaultDrainBatchSize {
 		worked, err := s.processOnceLocked(ctx)
 		if !worked {
 			return
@@ -732,6 +740,7 @@ func (s *Spool) signalWake() {
 	default:
 	}
 }
+
 func (s *Spool) Stop(ctx context.Context) error {
 	s.stateMu.Lock()
 	cancel, done := s.cancel, s.done
@@ -756,6 +765,7 @@ func (s *Spool) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
 func (s *Spool) Close() error {
 	if s == nil {
 		return nil
@@ -783,6 +793,7 @@ func (s *Spool) isClosedOrClosing() bool {
 	defer s.stateMu.Unlock()
 	return s.closed || s.closing
 }
+
 func (s *Spool) closeDB() error {
 	if s.ownsDB && s.db != nil {
 		return s.db.Close()

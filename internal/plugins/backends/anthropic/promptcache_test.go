@@ -13,6 +13,7 @@ import (
 )
 
 func TestCacheControllerRequiresCacheEvidence(t *testing.T) {
+	t.Parallel()
 	c, err := NewCacheController(CacheControllerConfig{BaseURL: "https://example.test"})
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +25,7 @@ func TestCacheControllerRequiresCacheEvidence(t *testing.T) {
 }
 
 func TestCacheControllerRenewSanitizesZeroOutputRequestAndUsesFreshCredential(t *testing.T) {
+	t.Parallel()
 	var captured struct {
 		Body   map[string]any
 		APIKey string
@@ -77,6 +79,7 @@ func TestCacheControllerRenewSanitizesZeroOutputRequestAndUsesFreshCredential(t 
 }
 
 func TestCacheControllerReleaseIsIdempotentAndStaleHandleFails(t *testing.T) {
+	t.Parallel()
 	c, err := NewCacheController(CacheControllerConfig{BaseURL: "https://example.test"})
 	if err != nil {
 		t.Fatal(err)

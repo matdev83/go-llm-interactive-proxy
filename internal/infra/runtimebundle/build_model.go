@@ -207,7 +207,7 @@ func startModelRegistryRuntime(
 	if cfg.ModelInventory.EffectiveRefreshEnabled() && hasRefreshableModelInventory(inventories) {
 		interval := cfg.ModelInventory.RefreshIntervalDuration()
 		if interval > 0 {
-			startOwnedLoop(ledger, "model-registry-refresh", PhaseQuiesce, parent, func(ctx context.Context) {
+			startOwnedLoop(parent, ledger, "model-registry-refresh", PhaseQuiesce, func(ctx context.Context) {
 				runModelRegistryRefreshLoop(ctx, rt, interval)
 			})
 		}

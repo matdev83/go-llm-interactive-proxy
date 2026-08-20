@@ -95,7 +95,7 @@ func TestSQLiteClaimCompleteCallsYieldsLargeIncompletePrefix(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		callID, err := billing.NewBillingCallID()
 		if err != nil {
 			t.Fatal(err)

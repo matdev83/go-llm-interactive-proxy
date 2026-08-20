@@ -596,15 +596,15 @@ func TestBackendResourceIdentity_StartupFixedInputsAreFocusedOnly(t *testing.T) 
 func TestBackendResourceIdentity_PhysicalInputDTORequiresExplicitReview(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf(backendResourcePhysicalInput{})
+	typ := reflect.TypeFor[backendResourcePhysicalInput]()
 	want := map[string]reflect.Type{
-		"InstanceID":     reflect.TypeOf(""),
-		"FactoryKind":    reflect.TypeOf(""),
-		"ArtifactDigest": reflect.TypeOf(""),
-		"ProcessModel":   reflect.TypeOf(processhost.ProcessModel("")),
-		"ConfigureYAML":  reflect.TypeOf([]byte(nil)),
-		"RuntimePolicy":  reflect.TypeOf(backendplugin.RuntimePolicy{}),
-		"Secrets":        reflect.TypeOf(backendplugin.SecretBundle{}),
+		"InstanceID":     reflect.TypeFor[string](),
+		"FactoryKind":    reflect.TypeFor[string](),
+		"ArtifactDigest": reflect.TypeFor[string](),
+		"ProcessModel":   reflect.TypeFor[processhost.ProcessModel](),
+		"ConfigureYAML":  reflect.TypeFor[[]byte](),
+		"RuntimePolicy":  reflect.TypeFor[backendplugin.RuntimePolicy](),
+		"Secrets":        reflect.TypeFor[backendplugin.SecretBundle](),
 	}
 	if typ.NumField() != len(want) {
 		t.Fatalf("physical input DTO has %d fields; expected %d: review every new configure/launch input for identity treatment", typ.NumField(), len(want))
@@ -663,6 +663,7 @@ func assertIdentityOmitsSecret(t *testing.T, identity backendResourceIdentity, s
 	if strings.Contains(debug, secret) {
 		t.Fatalf("identity debug output contains secret plaintext %q: %s", secret, debug)
 	}
+	//nolint:staticcheck // SA9005: verifying JSON marshaling of identity struct does not leak secrets
 	status, err := json.Marshal(identity)
 	if err != nil {
 		t.Fatalf("identity JSON status rendering: %v", err)
@@ -695,14 +696,14 @@ func reflectValueContainsBytes(value reflect.Value, needle []byte) bool {
 			}
 			return strings.Contains(string(bytes), string(needle))
 		}
-		for i := 0; i < value.Len(); i++ {
+		for i := range value.Len() {
 			if reflectValueContainsBytes(value.Index(i), needle) {
 				return true
 			}
 		}
 	case reflect.Struct:
-		for i := 0; i < value.NumField(); i++ {
-			if reflectValueContainsBytes(value.Field(i), needle) {
+		for _, field := range value.Fields() {
+			if reflectValueContainsBytes(field, needle) {
 				return true
 			}
 		}

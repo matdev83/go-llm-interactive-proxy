@@ -38,7 +38,7 @@ func TestHarness_CloseReleasesPorts(t *testing.T) {
 // call t.Parallel: it performs a global goroutine census, and sibling parallel
 // tests that keep harness deployments alive would perturb both the baseline and
 // the after sample.
-func TestHarness_NoGoroutineLeak(t *testing.T) {
+func TestHarness_NoGoroutineLeak(t *testing.T) { //nolint:paralleltest // performs global goroutine census
 	baseline := settleGoroutines(t)
 
 	for i := range 3 {

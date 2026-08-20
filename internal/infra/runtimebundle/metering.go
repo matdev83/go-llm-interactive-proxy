@@ -23,6 +23,7 @@ type meteringRuntime struct {
 	checkReady   func(context.Context) error
 }
 
+//nolint:revive // owner is the resource owner parameter
 func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*meteringRuntime, error) {
 	if cfg == nil || !cfg.Metering.Enabled {
 		return nil, nil
@@ -64,6 +65,7 @@ func buildMeteringRuntime(owner *processResourceOwner, parent context.Context, c
 	}
 }
 
+//nolint:revive // owner is the resource owner parameter
 func openDurableMeteringJournal(owner *processResourceOwner, parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (metering.Recorder, string, func(context.Context) error, error) {
 	if owner == nil {
 		return nil, "", nil, fmt.Errorf("runtimebundle: nil process owner")

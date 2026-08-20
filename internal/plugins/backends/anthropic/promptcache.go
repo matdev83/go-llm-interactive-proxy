@@ -7,13 +7,15 @@ import (
 // Re-export the protocol-layer controller so the direct-Anthropic plugin
 // surface and its tests keep compiling. The production controller lives in
 // the shared anthropicmessages protocol adapter where the backend is built.
-type RenewalSnapshot = anthropicmessages.RenewalSnapshot
-type RenewalSystemBlock = anthropicmessages.RenewalSystemBlock
-type RenewalCacheControl = anthropicmessages.RenewalCacheControl
-type RenewalMessage = anthropicmessages.RenewalMessage
-type CacheTarget = anthropicmessages.CacheTarget
-type CacheControllerConfig = anthropicmessages.CacheControllerConfig
-type CacheController = anthropicmessages.CacheController
+type (
+	RenewalSnapshot       = anthropicmessages.RenewalSnapshot
+	RenewalSystemBlock    = anthropicmessages.RenewalSystemBlock
+	RenewalCacheControl   = anthropicmessages.RenewalCacheControl
+	RenewalMessage        = anthropicmessages.RenewalMessage
+	CacheTarget           = anthropicmessages.CacheTarget
+	CacheControllerConfig = anthropicmessages.CacheControllerConfig
+	CacheController       = anthropicmessages.CacheController
+)
 
 var (
 	ErrNoCacheEvidence = anthropicmessages.ErrNoCacheEvidence

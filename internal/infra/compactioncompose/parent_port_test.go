@@ -19,6 +19,7 @@ import (
 )
 
 func TestParentPortUsesTrustedParentForDetachedChild(t *testing.T) {
+	t.Parallel()
 	port := newTestPort(t)
 	parentCtx := execctx.WithViews(context.Background(), execctx.Views{
 		Scope:     scope.PrincipalScopeView{PrincipalID: scope.Known("principal-parent")},
@@ -40,6 +41,7 @@ func TestParentPortUsesTrustedParentForDetachedChild(t *testing.T) {
 }
 
 func TestParentPortRejectsUntrustedMetadata(t *testing.T) {
+	t.Parallel()
 	port := newTestPort(t)
 	_, err := port.CaptureMeta(context.Background(), compaction.PreservationMeta{SessionID: "forged", ALegID: "forged-a"})
 	if !errors.Is(err, corecontinuity.ErrInvalidBranchKey) {
@@ -48,6 +50,7 @@ func TestParentPortRejectsUntrustedMetadata(t *testing.T) {
 }
 
 func TestParentPortCASAndBoundaryState(t *testing.T) {
+	t.Parallel()
 	port := newTestPort(t)
 	ctx := execctx.WithViews(context.Background(), execctx.Views{
 		Scope:   scope.PrincipalScopeView{PrincipalID: scope.Known("principal-boundary")},

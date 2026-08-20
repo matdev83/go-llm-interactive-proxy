@@ -134,14 +134,15 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 	t.Parallel()
 	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)
-	q := &recordingQueries{
-		operator:  corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
-		trial:     corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
-		reconcile: corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
-	}
-	h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 
 	t.Run("operator-cost", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueries{
+			operator:  corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
+			trial:     corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
+			reconcile: corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
+		}
+		h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/operator-cost?account_id=acct&limit=10&after_sequence=5&after_key=k1&book=financial&from=2020-01-01T00:00:00Z&to=2020-01-02T00:00:00Z&currency=USD", nil)
 		h.ServeHTTP(rec, req)
@@ -166,6 +167,13 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 		}
 	})
 	t.Run("trial-balance", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueries{
+			operator:  corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
+			trial:     corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
+			reconcile: corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
+		}
+		h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/trial-balance?account_id=acct", nil))
 		if rec.Code != http.StatusOK {
@@ -180,6 +188,13 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 		}
 	})
 	t.Run("reconcile-required", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueries{
+			operator:  corebilling.OperatorCostReport{CustomerRevenue: corebilling.Money{Nano: 9, Currency: "USD"}},
+			trial:     corebilling.TrialBalanceReport{AccountID: "acct", Balanced: true},
+			reconcile: corebilling.AccountStatePage{Items: []corebilling.Account{{ID: "acct"}}},
+		}
+		h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/reconcile-required?limit=4", nil))
 		if rec.Code != http.StatusOK {
@@ -200,13 +215,14 @@ func TestBillingHandlerForwardsQueryContracts(t *testing.T) {
 
 func TestBillingHandlerExposesCallPathDiagnostics(t *testing.T) {
 	t.Parallel()
-	q := &recordingQueries{
-		exposures: corebilling.ExposurePage{Items: []corebilling.ExposureReport{{CallID: "bc_1", AccountID: "acct"}}},
-		call:      corebilling.CallExplanation{CallID: "bc_1", Result: corebilling.TurnResultSummary{Processed: true}},
-	}
-	h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 
 	t.Run("exposures", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueries{
+			exposures: corebilling.ExposurePage{Items: []corebilling.ExposureReport{{CallID: "bc_1", AccountID: "acct"}}},
+			call:      corebilling.CallExplanation{CallID: "bc_1", Result: corebilling.TurnResultSummary{Processed: true}},
+		}
+		h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/exposures?account_id=acct&limit=7&after_key=k0", nil))
 		if rec.Code != http.StatusOK {
@@ -224,6 +240,12 @@ func TestBillingHandlerExposesCallPathDiagnostics(t *testing.T) {
 		}
 	})
 	t.Run("call", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueries{
+			exposures: corebilling.ExposurePage{Items: []corebilling.ExposureReport{{CallID: "bc_1", AccountID: "acct"}}},
+			call:      corebilling.CallExplanation{CallID: "bc_1", Result: corebilling.TurnResultSummary{Processed: true}},
+		}
+		h := NewHandler(Options{Queries: q, DefaultPageSize: 25, MaxPageSize: 500})
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/call?call_id=bc_1", nil))
 		if rec.Code != http.StatusOK {

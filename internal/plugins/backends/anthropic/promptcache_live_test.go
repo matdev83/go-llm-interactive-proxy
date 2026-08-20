@@ -18,6 +18,7 @@ import (
 // part of default unit/quality runs and must never make generic scheduler tests
 // depend on provider credentials or network availability.
 func TestDirectAnthropicPromptCacheEffectLive(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("LIP_ANTHROPIC_CACHE_LIVE") != "1" {
 		t.Skip("set LIP_ANTHROPIC_CACHE_LIVE=1 to run the direct Anthropic cache-effect gate")
 	}
@@ -40,7 +41,7 @@ func TestDirectAnthropicPromptCacheEffectLive(t *testing.T) {
 
 	capture := &liveRequestCapture{base: http.DefaultTransport}
 	client := &http.Client{Transport: capture, Timeout: 45 * time.Second}
-	body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":1,"stream":false,"system":[{"type":"text","text":%q,"cache_control":{"type":"ephemeral","ttl":%q}}],"messages":[{"role":"user","content":"Reply with one word."}]}`, model, strings.Repeat("cache residency contract prefix ", 96), ttl))
+	body := fmt.Appendf(nil, `{"model":%q,"max_tokens":1,"stream":false,"system":[{"type":"text","text":%q,"cache_control":{"type":"ephemeral","ttl":%q}}],"messages":[{"role":"user","content":"Reply with one word."}]}`, model, strings.Repeat("cache residency contract prefix ", 96), ttl)
 
 	first, err := liveAnthropicCall(context.Background(), client, baseURL, apiKey, body)
 	if err != nil {
@@ -129,7 +130,7 @@ func liveAnthropicCall(ctx context.Context, client *http.Client, baseURL, apiKey
 	if err != nil {
 		return liveAnthropicResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return liveAnthropicResponse{}, fmt.Errorf("anthropic live status %d", resp.StatusCode)
 	}

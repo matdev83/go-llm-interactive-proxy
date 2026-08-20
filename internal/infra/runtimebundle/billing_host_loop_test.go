@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -714,9 +715,7 @@ func injectBillingHostLoopFailoverBackends(t *testing.T, executor *coreruntime.E
 	}
 	switch existing := executor.CapsResolver.(type) {
 	case capabilities.MapResolver:
-		for backendID, resolver := range capMap {
-			existing[backendID] = resolver
-		}
+		maps.Copy(existing, capMap)
 	case nil:
 		executor.CapsResolver = capMap
 	default:
@@ -725,6 +724,7 @@ func injectBillingHostLoopFailoverBackends(t *testing.T, executor *coreruntime.E
 	return &opens
 }
 
+//nolint:revive // test helper takes *testing.T as first argument
 func startBillingHostLoopHost(
 	t *testing.T,
 	ctx context.Context,
@@ -848,6 +848,7 @@ func billingHostLoopUsageEvents() []lipapi.Event {
 	}
 }
 
+//nolint:revive // test helper takes *testing.T as first argument
 func drainBillingHostLoopStream(t *testing.T, ctx context.Context, stream lipapi.EventStream) []lipapi.Event {
 	t.Helper()
 	defer func() { _ = stream.Close() }()

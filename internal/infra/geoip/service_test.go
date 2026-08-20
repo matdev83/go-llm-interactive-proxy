@@ -52,7 +52,7 @@ func TestServiceDoesNotCloseRetiredReaderDuringLookup(t *testing.T) {
 	old := &fakeReader{started: make(chan struct{}), continueC: make(chan struct{})}
 	next := &fakeReader{}
 	svc := New(old)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	lookupDone := make(chan struct{})
 	go func() {

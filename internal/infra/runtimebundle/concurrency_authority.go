@@ -27,6 +27,7 @@ type concurrencyAuthorityRuntime struct {
 	AuxiliaryLeasePolicy string
 }
 
+//nolint:revive // owner is the resource owner parameter
 func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent context.Context, cfg *config.Config, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, error) {
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
 		return nil, nil
@@ -64,6 +65,7 @@ func buildConcurrencyAuthorityRuntime(owner *processResourceOwner, parent contex
 	}, nil
 }
 
+//nolint:revive // owner is the resource owner parameter
 func buildConcurrencyLeaseStore(owner *processResourceOwner, parent context.Context, cfg *config.Config, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, error) {
 	if override := testing.ConcurrencyLeaseStoreOverride; override != nil {
 		return override, nil

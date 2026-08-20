@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -33,7 +34,7 @@ func buildKeepwarmGeneration(cfg *config.Config, nowFn func() time.Time, registr
 	}
 	id, err := registry.Register(manager)
 	if err != nil {
-		_ = manager.Quiesce(nil)
+		_ = manager.Quiesce(context.Background())
 		return nil, 0, fmt.Errorf("runtimebundle: register keep-warm manager: %w", err)
 	}
 	return manager, id, nil

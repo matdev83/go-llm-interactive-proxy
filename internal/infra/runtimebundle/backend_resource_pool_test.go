@@ -306,6 +306,7 @@ func TestBackendResourcePoolBuildFailureCleansPartialResultExactlyOnce(t *testin
 			// Cleanup must not run while the pool mutex is held.  Re-entering it
 			// here would deadlock the builder's failure handoff otherwise.
 			pool.mu.Lock()
+			//nolint:staticcheck // SA2001: deliberate lock acquisition to assert pool.mu is not held
 			pool.mu.Unlock()
 			cleanupCalls.Add(1)
 			return cleanupErr

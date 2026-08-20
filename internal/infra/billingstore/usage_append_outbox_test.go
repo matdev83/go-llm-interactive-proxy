@@ -18,6 +18,7 @@ func ensureLegacyUsageAppendOutbox(t *testing.T, store *DurableStore) {
 }
 
 func newLegacyOutboxTestStore(t *testing.T) *DurableStore {
+	t.Helper()
 	store := newSQLiteTestStore(t)
 	ensureLegacyUsageAppendOutbox(t, store)
 	return store

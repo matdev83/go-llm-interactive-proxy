@@ -404,7 +404,7 @@ func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) 
 			continue
 		}
 		fid := p.FactoryID()
-		var cls lipsdk.BackendExecutionClass = lipsdk.BackendExecutionUnknown
+		cls := lipsdk.BackendExecutionUnknown
 		if reg != nil {
 			if prof, ok := reg.BackendExecutionProfile(fid); ok {
 				cls = prof.EffectiveClass()

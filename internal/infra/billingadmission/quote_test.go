@@ -18,6 +18,7 @@ func (exposureStore) AdmitExposure(context.Context, billing.AdmitExposureInput) 
 }
 
 func TestAdapterQuoteIsSideEffectFreeAndBindsPessimisticSnapshot(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pricing := billing.PricingSnapshot{
 		Ref: billing.VersionRef{ID: "pricing", Version: "v1"}, Currency: "USD",
@@ -54,6 +55,7 @@ func TestAdapterQuoteIsSideEffectFreeAndBindsPessimisticSnapshot(t *testing.T) {
 }
 
 func TestAdapterQuoteSumsDuplicateParallelLeavesForAllPotentialLegs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pricing := billing.PricingSnapshot{
 		Ref: billing.VersionRef{ID: "pricing", Version: "v1"}, Currency: "USD",

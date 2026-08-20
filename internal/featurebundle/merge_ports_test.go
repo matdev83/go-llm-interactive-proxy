@@ -73,12 +73,15 @@ func (s mergeStubCompactionObserver) OnCompaction(context.Context, compaction.Ev
 type mergeStubCompactionPreserver struct{ id string }
 
 func (s mergeStubCompactionPreserver) ID() string { return s.id }
+
 func (mergeStubCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (mergeStubCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (mergeStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }

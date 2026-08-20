@@ -29,7 +29,7 @@ func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
 	observation := promptcache.Observation{
 		ALegID: "a", BLegID: "b", BackendInstanceID: "backend", TargetID: "target", GenerationID: "generation",
 		Lifecycle: promptcache.LifecycleSlidingExpiry,
-		Timing:    promptcache.Timing{ObservedAt: time.Unix(100, 0).UTC(), ExpiresAt: timePtr(time.Unix(400, 0).UTC())},
+		Timing:    promptcache.Timing{ObservedAt: time.Unix(100, 0).UTC(), ExpiresAt: new(time.Unix(400, 0).UTC())},
 		Renewable: true, Handle: promptcache.Handle("opaque"),
 	}
 	result := manager.ArmFromCommittedTurn(keepwarm.ArmInput{
@@ -48,13 +48,14 @@ func TestKeepwarmPromExportsBoundedManagerState(t *testing.T) {
 	assertMetricGauge(t, families, "lip_prompt_cache_keepwarm_active_targets", 1)
 }
 
-func timePtr(t time.Time) *time.Time { return &t }
+func timePtr(t time.Time) *time.Time { return new(t) }
 
 type testControllerForMetrics struct{}
 
 func (testControllerForMetrics) Renew(context.Context, promptcache.RenewRequest) (promptcache.RenewResponse, error) {
 	return promptcache.RenewResponse{}, nil
 }
+
 func (testControllerForMetrics) Release(context.Context, promptcache.ReleaseRequest) error {
 	return nil
 }

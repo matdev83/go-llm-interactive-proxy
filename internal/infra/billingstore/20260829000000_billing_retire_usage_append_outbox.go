@@ -435,7 +435,7 @@ func (s *DurableStore) CutoverUsageAppendOutbox(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("%w: reserve migration connection: %v", ErrUsageAppendCutoverBlocked, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	begin := cutoverBeginStatement(s.db.Dialect().Name())
 	if _, err := conn.ExecContext(ctx, begin); err != nil {
@@ -479,7 +479,7 @@ func reconcileProcessedInCriticalSection(ctx context.Context, conn bun.Conn, dia
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var key, kind, payload string
 		if err := rows.Scan(&key, &kind, &payload); err != nil {

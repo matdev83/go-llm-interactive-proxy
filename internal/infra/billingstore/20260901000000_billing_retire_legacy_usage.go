@@ -47,7 +47,7 @@ func retireLegacyUsagePersistenceWithHook(ctx context.Context, db *bun.DB, after
 	if err != nil {
 		return fmt.Errorf("%w: reserve migration connection: %v", ErrLegacyUsageRetirementBlocked, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	name := db.Dialect().Name()
 	if name != dialect.SQLite && name != dialect.PG {
@@ -193,20 +193,20 @@ func proveLegacyUsageRetirable(ctx context.Context, conn *sql.Conn, exists map[s
 		for rows.Next() {
 			var row legacyUsageProof
 			if err := rows.Scan(&row.key, &row.fingerprint, &row.payload); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("read turn_usage_records: %v", err)
 			}
 			if strings.TrimSpace(row.key) == "" || strings.TrimSpace(row.fingerprint) == "" || !legacyPayloadObject(row.payload) {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("turn_usage_records contains malformed or unprovable row %q", row.key)
 			}
 			turns[row.key] = row
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return legacyRetirementBlocked("read turn_usage_records: %v", err)
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	processed := make(map[string]legacyProcessingProof)
@@ -218,28 +218,28 @@ func proveLegacyUsageRetirable(ctx context.Context, conn *sql.Conn, exists map[s
 		for rows.Next() {
 			var row legacyProcessingProof
 			if err := rows.Scan(&row.key, &row.fingerprint, &row.status, &row.resultRef); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("read usage_record_processing: %v", err)
 			}
 			if strings.TrimSpace(row.key) == "" {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("usage_record_processing contains an empty key")
 			}
 			if row.status != "processed" {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("unresolved usage_record_processing row %q has status %q", row.key, row.status)
 			}
 			if err := proveLegacyProcessedResult(ctx, conn, name, row); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			processed[row.key] = row
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return legacyRetirementBlocked("read usage_record_processing: %v", err)
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	for key, row := range turns {
 		proof, ok := processed[key]
@@ -261,23 +261,23 @@ func proveLegacyUsageRetirable(ctx context.Context, conn *sql.Conn, exists map[s
 			var row legacyUsageProof
 			var turKey string
 			if err := rows.Scan(&row.key, &turKey, &row.fingerprint, &row.payload); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("read leg_usage_records: %v", err)
 			}
 			if strings.TrimSpace(row.key) == "" || strings.TrimSpace(turKey) == "" || strings.TrimSpace(row.fingerprint) == "" || !legacyPayloadObject(row.payload) {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("leg_usage_records contains malformed or unprovable row %q", row.key)
 			}
 			if _, ok := turns[turKey]; !ok {
-				rows.Close()
+				_ = rows.Close()
 				return legacyRetirementBlocked("legacy LUR %q has no parent TUR %q", row.key, turKey)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return legacyRetirementBlocked("read leg_usage_records: %v", err)
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	return nil
 }
@@ -316,9 +316,12 @@ func legacyRetirementBlocked(format string, args ...any) error {
 
 func dropLegacyUsageObjects(ctx context.Context, conn *sql.Conn, name dialect.Name, exists map[string]bool) error {
 	triggers := []struct{ name, table string }{
-		{"billing_tur_immutable_update", "turn_usage_records"}, {"billing_tur_immutable_delete", "turn_usage_records"},
-		{"billing_lur_immutable_update", "leg_usage_records"}, {"billing_lur_immutable_delete", "leg_usage_records"},
-		{"billing_tur_immutable", "turn_usage_records"}, {"billing_lur_immutable", "leg_usage_records"},
+		{"billing_tur_immutable_update", "turn_usage_records"},
+		{"billing_tur_immutable_delete", "turn_usage_records"},
+		{"billing_lur_immutable_update", "leg_usage_records"},
+		{"billing_lur_immutable_delete", "leg_usage_records"},
+		{"billing_tur_immutable", "turn_usage_records"},
+		{"billing_lur_immutable", "leg_usage_records"},
 	}
 	for _, trigger := range triggers {
 		if name == dialect.PG && !exists[trigger.table] {

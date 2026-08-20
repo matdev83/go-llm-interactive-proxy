@@ -101,7 +101,7 @@ func RunPromptCacheResidencyTCK(t *testing.T, factory func() PromptCacheResidenc
 		if err := subject.Release(context.Background(), promptcache.ReleaseRequest{Handle: observation.Handle}); err != nil {
 			t.Fatal(err)
 		}
-		if subject.UpstreamResident(observation.Handle) != true {
+		if !subject.UpstreamResident(observation.Handle) {
 			t.Fatal("local release deleted simulated upstream residency")
 		}
 		response, err = subject.Renew(context.Background(), promptcache.RenewRequest{Handle: observation.Handle, OperationID: "op-stale"})

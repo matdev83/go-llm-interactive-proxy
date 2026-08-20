@@ -52,17 +52,14 @@ func TestSQLiteAdmitExposureSerializesConcurrentCalls(t *testing.T) {
 	const count = 2
 	errs := make(chan error, count)
 	var wg sync.WaitGroup
-	for i := 0; i < count; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range count {
+		wg.Go(func() {
 			_, err := store.AdmitExposure(context.Background(), billing.AdmitExposureInput{
 				AccountID: "exposure-concurrent", CallID: "bc_concurrent_" + string(rune('1'+i)), Max: billing.Money{Nano: 60, Currency: "USD"},
 				PricingRef: billing.VersionRef{ID: "pricing", Version: "v1"}, ChargePolicyRef: billing.VersionRef{ID: "policy", Version: "v1"},
 			})
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
