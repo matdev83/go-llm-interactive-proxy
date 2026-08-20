@@ -27,10 +27,13 @@
 
 ## Respect git workflow: No work on main
 
-Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor. 
-Each time you start work on some fixes or implementation of new features create a new local worktree based on `main` with adequately named fix/spec/feat branch and work there, NOT ON MAIN.
+Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor.
 
-A single PR must not exceed **100 changed files**. Split large refactors so they stay reviewable and mergeable. Pre-commit rejects a commit that stages more than 100 paths; the recommended pre-push hook and PR CI apply the same limit to the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
+- Before changing files, check the current worktree and branch. If already inside a non-`main` worktree dedicated to the user's task, work there; do not create another worktree.
+- Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`.
+- Run `codegraph init` from the root of every newly created worktree before implementation. When reusing a dedicated worktree, run it only if `.codegraph/` is absent.
+
+The source-change gate limits a commit or PR to **100 modified `*.go` files**. Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
 
 ## Skill Loading
 
@@ -39,9 +42,18 @@ A single PR must not exceed **100 changed files**. Split large refactors so they
 - Tests/conformance/regressions: `golang-testing`; add `golang-stretchr-testify` for testify code.
 - Streaming/concurrency/cancellation: `golang-concurrency`, `golang-context`.
 - Error/security/observability/database/CLI/performance/lint/deps/docs/troubleshooting: load the matching `golang-*` skill.
-- Simplification/refactor-only: `go-simplify`.
+- Simplification/refactor-only: `golang-simplify`.
+- Architecture, call paths, implementations, dependency direction, or blast radius: `codegraph`.
 - PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
+
+### Canonical Skill Catalog
+
+- `.agents/skills/` is the single tracked catalog for Codex, OpenCode, Pi, Antigravity CLI, Cursor, and Codebuff. Git worktrees receive the complete catalog automatically.
+- `.agents/catalog.json` is the curated inventory. Add or update a skill there in the same change as its directory.
+- Do not create same-name copies under `.codex/skills`, `.cursor/skills`, `.kiro/skills`, `.opencode/skills`, or `.pi/skills`; duplicate discovery has agent-specific precedence and causes drift.
+- Keep portable frontmatter to `name`, `description`, optional `license`, and optional `metadata`. The folder name and frontmatter `name` must match.
+- Run `pwsh -NoProfile -File scripts/check-agent-skill-catalog.ps1` after catalog changes.
 
 ## Architecture Guardrails
 

@@ -19,8 +19,25 @@ func TestRun_StagedRejectsOverLimit(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1; stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "3 files") || !strings.Contains(stderr.String(), "2-file") {
+	if !strings.Contains(stderr.String(), "3 modified Go files") || !strings.Contains(stderr.String(), "2-file") {
 		t.Fatalf("reject message missing counts: %q", stderr.String())
+	}
+}
+
+func TestRun_StagedIgnoresNonGoPaths(t *testing.T) {
+	t.Parallel()
+	repo := initTempRepo(t)
+	for _, name := range []string{"README.md", "notes.txt", "config.json"} {
+		path := filepath.Join(repo, name)
+		if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, repo, "add", ".")
+	var stderr bytes.Buffer
+	code := run([]string{"--repo", repo, "--staged", "--limit", "1"}, &stderr, os.Getenv)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; stderr=%q", code, stderr.String())
 	}
 }
 
@@ -77,7 +94,7 @@ func TestRun_RangeCountsCommits(t *testing.T) {
 	git(t, repo, "-c", "user.email=qa@example.com", "-c", "user.name=QA", "commit", "-qm", "base")
 	base := strings.TrimSpace(string(git(t, repo, "rev-parse", "HEAD")))
 	for i := range 3 {
-		path := filepath.Join(repo, fmt.Sprintf("extra-%d.txt", i))
+		path := filepath.Join(repo, fmt.Sprintf("extra-%d.go", i))
 		if err := os.WriteFile(path, []byte("y\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +130,7 @@ func initTempRepo(t *testing.T) string {
 func stageFiles(t *testing.T, repo string, n int) {
 	t.Helper()
 	for i := range n {
-		path := filepath.Join(repo, fmt.Sprintf("f-%02d.txt", i))
+		path := filepath.Join(repo, fmt.Sprintf("f-%02d.go", i))
 		if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}

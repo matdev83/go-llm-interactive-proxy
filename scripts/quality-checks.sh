@@ -27,6 +27,15 @@ under_nested_go_module() {
 	return 1
 }
 
+is_agent_skill_path() {
+	case "$1" in
+		.agents/skills/*|.codex/skills/*|.cursor/skills/*|.kiro/skills/*|.opencode/skills/*|.pi/skills/*)
+			return 0
+			;;
+	esac
+	return 1
+}
+
 collect_quality_packages() {
 	local -a staged_go_files=()
 	local file dir
@@ -41,6 +50,9 @@ collect_quality_packages() {
 	fi
 
 	for file in "${staged_go_files[@]}"; do
+		if is_agent_skill_path "$file"; then
+			continue
+		fi
 		dir=$(dirname "$file")
 		if [ -z "$dir" ] || [ "$dir" = "." ]; then
 			force_full=true
@@ -68,7 +80,12 @@ echo "=== Quality Checks ==="
 echo ""
 
 echo "[1/7] Checking Go formatting..."
-unformatted=$(gofmt -l . 2>/dev/null || true)
+unformatted=$(gofmt -l . 2>/dev/null | while IFS= read -r file; do
+	file=${file//\\//}
+	if ! is_agent_skill_path "$file"; then
+		printf '%s\n' "$file"
+	fi
+done || true)
 if [ -n "$unformatted" ]; then
 	echo "Unformatted files:"
 	echo "$unformatted"

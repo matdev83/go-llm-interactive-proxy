@@ -1,4 +1,4 @@
-# Fail when a commit or branch range changes more than 100 files.
+# Fail when a commit or branch range changes more than 100 Go files.
 # Admin override: LIP_ALLOW_LARGE_CHANGE=1 or `git config lip.allowLargeChange true`.
 $ErrorActionPreference = "Stop"
 $root = (git rev-parse --show-toplevel).Trim()

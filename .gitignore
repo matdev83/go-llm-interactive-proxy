@@ -106,6 +106,7 @@ __pycache__/
 !/.gitleaks.toml
 !/.golangci.yml
 !/.goreleaser.yaml
+!/.agents/
 !/.jules/
 !/.kiro/
 !/.release-files

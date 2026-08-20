@@ -32,6 +32,12 @@ function Test-UnderNestedGoModule {
     return $false
 }
 
+function Test-AgentSkillPath {
+    param([string]$NormalizedPath)
+
+    return $NormalizedPath -match '^\.(agents|codex|cursor|kiro|opencode|pi)/skills/'
+}
+
 function Get-QualityPackages {
     $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
     if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
@@ -43,6 +49,9 @@ function Get-QualityPackages {
 
     foreach ($file in $stagedGoFiles) {
         $normalized = $file -replace '\\', '/'
+        if (Test-AgentSkillPath $normalized) {
+            continue
+        }
         $dir = Split-Path -Parent $normalized
         if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
             $forceFull = $true
@@ -69,7 +78,8 @@ Write-Host "Quality scope: $($qualityPackages -join ' ')" -ForegroundColor DarkG
 Write-Host ""
 
 Write-Host "[1/7] Checking Go formatting..." -ForegroundColor Yellow
-$unformatted = @(Invoke-TaskRunner -Label "quality-checks:gofmt" -Cwd $RepositoryRoot -Timeout "2m" -Output capture -Command @("gofmt", "-l", ".") 2>$null | Where-Object { $_ })
+$unformatted = @(Invoke-TaskRunner -Label "quality-checks:gofmt" -Cwd $RepositoryRoot -Timeout "2m" -Output capture -Command @("gofmt", "-l", ".") 2>$null |
+    Where-Object { $_ -and -not (Test-AgentSkillPath ($_ -replace '\\', '/')) })
 if ($unformatted.Count -gt 0) {
     Write-Host "Unformatted files:" -ForegroundColor Red
     $unformatted | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
