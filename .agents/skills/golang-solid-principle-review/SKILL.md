@@ -1,6 +1,6 @@
 ---
 name: golang-solid-principle-review
-description: Review Go packages, diffs, and APIs through idiomatic SOLID reasoning: cohesion, variation seams, behavioral substitution, consumer interfaces, and dependency direction.
+description: "Review Go packages, diffs, and APIs through idiomatic SOLID reasoning: cohesion, variation seams, behavioral substitution, consumer interfaces, and dependency direction. Use for architectural reviews focused on cohesion, extensibility, substitutability, interface design, and dependency direction without importing Java-style abstractions into Go."
 ---
 
 # Go SOLID review

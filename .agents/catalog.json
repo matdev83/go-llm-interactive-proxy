@@ -2,7 +2,7 @@
   "version": 1,
   "groups": {
     "golang": [
-      "go-simplify",
+      "golang-simplify",
       "golang-benchmark",
       "golang-cli",
       "golang-code-style",

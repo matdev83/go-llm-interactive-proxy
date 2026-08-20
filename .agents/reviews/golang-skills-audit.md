@@ -2,7 +2,7 @@
 
 Audit date: 2026-08-20
 
-Scope: the 37 tracked skills named `go-simplify` or `golang-*` under `.agents/skills/`
+Scope: the 37 tracked `golang-*` skills under `.agents/skills/`
 
 Change policy: report only; no skill content was edited
 
@@ -62,7 +62,7 @@ The CodeRabbit review on PR 140 was skipped because the PR contained 239 files, 
 
 | Skill | Verdict | Principal reason |
 |---|---|---|
-| `go-simplify` | PASS | Behavior-preserving scope and triggers are clear; no material issue found. |
+| `golang-simplify` | PASS | Behavior-preserving scope and triggers are clear; no material issue found. |
 | `golang-benchmark` | MAJOR | Incorrect benchmark-compilation and obsolete `allocfreetrace` guidance. |
 | `golang-cli` | MINOR | Overbroad Cobra/Viper rules and examples that bypass Cobra output/error handling. |
 | `golang-code-style` | MINOR | Nil collection and numeric pointer/value thresholds are presented as universal rules. |
@@ -106,7 +106,7 @@ Only the highest-value findings are listed here. Line numbers refer to the audit
 
 ### Language, runtime, and testing
 
-#### `go-simplify` — PASS
+#### `golang-simplify` — PASS
 
 No material correctness, trigger, or link defect was found. Its behavior-preservation rule and scope constraints are appropriate.
 

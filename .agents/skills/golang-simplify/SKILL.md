@@ -1,5 +1,5 @@
 ---
-name: go-simplify
+name: golang-simplify
 description: "Simplify existing Go code while preserving observable behavior, contracts, error identity, cleanup, concurrency, and performance characteristics. Use for focused refactors and staticcheck simplifications when the equivalence can be demonstrated."
 ---
 
