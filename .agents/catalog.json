@@ -64,6 +64,9 @@
       "go-lip-cordis-v4",
       "kiro-spec-archive",
       "lip-pr-delivery"
+    ],
+    "tooling": [
+      "codegraph"
     ]
   }
 }
