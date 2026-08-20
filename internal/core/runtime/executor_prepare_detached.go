@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -14,6 +13,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // prepareSubmitAndALegDetached prepares one trusted internal auxiliary call.
@@ -24,25 +24,22 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	ctx context.Context,
 	bus *corehooks.Bus,
 	call *lipapi.Call,
-) (traceID string, baseline lipapi.Call, aLeg b2bua.ALegRecord, routeAuth routeAuthoritySnapshot, outCtx context.Context, err error) {
+) (ibt *identityBoundTurn, workingCall *lipapi.Call, outCtx context.Context, err error) {
 	if e == nil || e.Store == nil || call == nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, ctx, fmt.Errorf("executor: invalid detached arguments")
+		return nil, nil, ctx, fmt.Errorf("executor: invalid detached arguments")
 	}
 	work := lipapi.CloneCall(*call)
-	traceID = strings.TrimSpace(work.ID)
+	traceID := strings.TrimSpace(work.ID)
 	if traceID == "" {
 		traceID = diag.StableCallID(&work)
 	}
-	work.ID = traceID
-	call.ID = traceID
+	work.ID, call.ID, outCtx = traceID, traceID, ctx
 
-	outCtx = ctx
 	var principal execview.PrincipalView
 	var reqScope scope.PrincipalScopeView
+	hasPrincipal := false
 	if s, p, ok := e.resolveRequestScope(ctx); ok {
-		reqScope, principal = s, p
-		outCtx = execview.WithPrincipal(outCtx, p)
-		outCtx = scope.WithScope(outCtx, s)
+		reqScope, principal, hasPrincipal, outCtx = s, p, true, scope.WithScope(execview.WithPrincipal(outCtx, p), s)
 	}
 	// Route-hint preferences are request-local advisory authority. Do not let
 	// a parent primary snapshot reorder the explicitly selected extractor route.
@@ -52,25 +49,24 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	// Create a fresh, unkeyed A-leg. A detached child must never replace or
 	// resolve the parent continuity key, and route overrides are intentionally
 	// not read for this private leg.
-	aLeg, err = e.Store.CreateALeg(outCtx, "")
+	aLeg, err := e.Store.CreateALeg(outCtx, "")
 	if err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, fmt.Errorf("executor: create detached a-leg: %w", err)
+		return nil, nil, outCtx, fmt.Errorf("executor: create detached a-leg: %w", err)
 	}
-	// Parent session/client/resume values remain available only through the
-	// trusted detached metadata. The canonical child carries only its private
-	// execution A-leg, avoiding session affinity or client-header authority.
-	work.Session.AuthoritativeSessionID = ""
-	work.Session.ClientSessionID = ""
-	work.Session.ALegID = aLeg.ALegID
-	work.Session.ContinuityKey = ""
-	work.Session.ResumeToken = ""
-	work.Session.Metadata = nil
+	work.Session = lipapi.SessionRef{ALegID: aLeg.ALegID}
 
 	preSession := session.SessionView{
 		ALegID:         aLeg.ALegID,
 		IsNew:          false,
 		ResumeEligible: false,
 	}
+
+	ibt, err = newIdentityBoundTurn(traceID, &work, principal, reqScope, hasPrincipal, lipworkspace.WorkspaceView{}, aLeg, routeAuthoritySnapshot{}, execctx.SecureSessionTurn{}, false, preSession)
+	if err != nil {
+		return nil, nil, outCtx, fmt.Errorf("executor: create identity bound turn: %w", err)
+	}
+	workingCall = &work
+
 	if e.Log != nil {
 		outCtx = corehooks.WithDiagnosticsLogger(outCtx, e.Log)
 	}
@@ -78,45 +74,34 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	// Keep the normal request-ingress and authority boundaries. The detached
 	// marker only changes session lifecycle/routing authority; it is not a
 	// bypass around billing, usage, hooks, or B-leg execution.
-	if outCtx, _, err = captureFrontendIngressBeforeSubmit(outCtx, work, reqScope, e.now()); err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
+	if outCtx, _, err = captureFrontendIngressBeforeSubmit(outCtx, *workingCall, ibt.scope, e.now()); err != nil {
+		return nil, nil, outCtx, err
 	}
-	if outCtx, err = e.admitRequestAuthorityOnce(outCtx, work.ID, aLeg.ALegID, traceID, reqScope); err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, err
+	if outCtx, err = e.admitRequestAuthorityOnce(outCtx, workingCall.ID, ibt.aLeg.ALegID, ibt.traceID, ibt.scope); err != nil {
+		return nil, nil, outCtx, err
 	}
-	admitted := true
-	failAfterAdmission := func(in error) (string, lipapi.Call, b2bua.ALegRecord, routeAuthoritySnapshot, context.Context, error) {
-		if admitted {
-			_ = e.releaseRequestAuthority(outCtx)
-		}
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, outCtx, in
-	}
-
-	submitMeta := &sdkhooks.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
-	if err := bus.RunSubmit(outCtx, &work, submitMeta); err != nil {
-		return failAfterAdmission(err)
+	submitMeta := &sdkhooks.SubmitMeta{TraceID: ibt.traceID, Annotations: map[string]string{}}
+	if err := bus.RunSubmit(outCtx, workingCall, submitMeta); err != nil {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, err
 	}
 	// Submit hooks may enrich canonical calls, but cannot turn detached
 	// lineage hints back into session or continuity authority.
-	work.Session.AuthoritativeSessionID = ""
-	work.Session.ClientSessionID = ""
-	work.Session.ALegID = aLeg.ALegID
-	work.Session.ContinuityKey = ""
-	work.Session.ResumeToken = ""
-	work.Session.Metadata = nil
+	workingCall.Session.AuthoritativeSessionID, workingCall.Session.ClientSessionID = "", ""
+	workingCall.Session.ALegID = ibt.aLeg.ALegID
+	workingCall.Session.ContinuityKey, workingCall.Session.ResumeToken, workingCall.Session.Metadata = "", "", nil
 
-	baseline = lipapi.CloneCall(work)
-	call.Session = work.Session
-	outCtx = diag.EnsureCallDiag(outCtx, traceID, aLeg.ALegID)
+	*workingCall = lipapi.CloneCall(*workingCall)
+	call.Session = workingCall.Session
+	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
 	outCtx = execctx.WithViews(outCtx, execctx.Views{
-		Principal: principal,
-		Scope:     reqScope,
-		Session:   preSession,
-		Attempt:   execview.AttemptView{TraceID: traceID},
+		Principal: ibt.principal,
+		Scope:     ibt.scope,
+		Session:   ibt.preSession,
+		Attempt:   execview.AttemptView{TraceID: ibt.traceID},
 		Annotations: map[string]string{
 			"execution_mode": "detached",
 		},
 	})
-	admitted = false // preparedRequest owns request-authority cleanup after return.
-	return traceID, baseline, aLeg, routeAuth, outCtx, nil
+	return ibt, workingCall, outCtx, nil
 }

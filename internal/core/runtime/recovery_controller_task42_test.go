@@ -37,16 +37,17 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "transport rejection wins",
 			configure: func(r *recoveryController) {
-				r.lastHardTransportReject = lipapi.TransportNegotiationResult{
+				failures := r.getFailures()
+				failures.TransportReject = lipapi.TransportNegotiationResult{
 					Kind:      lipapi.NegotiationReject,
 					Operation: transportWant.Operation,
 					Mode:      transportWant.Mode,
 				}
-				r.lastAdmissionErr = errTask42Admission
-				r.lastHardReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
-				r.isContextLimitExhaustion = true
-				r.transformExcludes.noteTransform("not-representable")
-				r.lastParallelFailure = errTask42Parallel
+				failures.AdmissionErr = errTask42Admission
+				failures.CapabilityReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
+				failures.ContextLimit = true
+				failures.TransformExcludes.noteTransform("not-representable")
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -62,11 +63,12 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "admission failure follows transport",
 			configure: func(r *recoveryController) {
-				r.lastAdmissionErr = errTask42Admission
-				r.lastHardReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
-				r.isContextLimitExhaustion = true
-				r.transformExcludes.noteTransform("not-representable")
-				r.lastParallelFailure = errTask42Parallel
+				failures := r.getFailures()
+				failures.AdmissionErr = errTask42Admission
+				failures.CapabilityReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
+				failures.ContextLimit = true
+				failures.TransformExcludes.noteTransform("not-representable")
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -78,10 +80,11 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "capability rejection follows admission",
 			configure: func(r *recoveryController) {
-				r.lastHardReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
-				r.isContextLimitExhaustion = true
-				r.transformExcludes.noteTransform("not-representable")
-				r.lastParallelFailure = errTask42Parallel
+				failures := r.getFailures()
+				failures.CapabilityReject = lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: capabilityWant.Missing}
+				failures.ContextLimit = true
+				failures.TransformExcludes.noteTransform("not-representable")
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -97,9 +100,10 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "context limit exhaustion follows capability",
 			configure: func(r *recoveryController) {
-				r.isContextLimitExhaustion = true
-				r.transformExcludes.noteTransform("not-representable")
-				r.lastParallelFailure = errTask42Parallel
+				failures := r.getFailures()
+				failures.ContextLimit = true
+				failures.TransformExcludes.noteTransform("not-representable")
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -111,8 +115,9 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "transform exclusion follows context limit",
 			configure: func(r *recoveryController) {
-				r.transformExcludes.noteTransform("not-representable")
-				r.lastParallelFailure = errTask42Parallel
+				failures := r.getFailures()
+				failures.TransformExcludes.noteTransform("not-representable")
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -124,7 +129,8 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 		{
 			name: "parallel failure follows transform exclusion",
 			configure: func(r *recoveryController) {
-				r.lastParallelFailure = errTask42Parallel
+				failures := r.getFailures()
+				failures.ParallelFailure = errTask42Parallel
 			},
 			check: func(t *testing.T, err error) {
 				t.Helper()
@@ -166,13 +172,12 @@ func TestTask42RecoveryReplacementErrorPrecedence(t *testing.T) {
 				},
 			}
 			r := &recoveryController{
-				opener:            newReplacementOpener(ex, nil, nil),
-				streamRecovery:    ex.StreamRecovery,
-				sel:               sel,
-				session:           &routing.SessionRoutingState{},
-				excluded:          map[string]struct{}{selector: {}},
-				rng:               routing.NewSeededRng(42),
-				transformExcludes: transformExcludeTracker{},
+				e:        ex,
+				opener:   newReplacementOpener(ex, nil, nil),
+				sel:      sel,
+				session:  &routing.SessionRoutingState{},
+				excluded: map[string]struct{}{selector: {}},
+				rng:      routing.NewSeededRng(42),
 			}
 			if tc.configure != nil {
 				tc.configure(r)

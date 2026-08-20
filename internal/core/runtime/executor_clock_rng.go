@@ -8,9 +8,20 @@ import (
 )
 
 type attemptBudget struct {
-	mu   sync.Mutex
-	max  int
-	used int
+	mu       sync.Mutex
+	max      int
+	used     int
+	failures *candidateFailureHistory
+}
+
+func (b *attemptBudget) getFailures() *candidateFailureHistory {
+	if b == nil {
+		return &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
+	}
+	if b.failures == nil {
+		b.failures = &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
+	}
+	return b.failures
 }
 
 func (b *attemptBudget) tryAcquire() bool {

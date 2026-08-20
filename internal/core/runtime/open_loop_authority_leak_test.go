@@ -6,13 +6,18 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority reproduces L6: when
@@ -55,27 +60,57 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse selector: %v", err)
 	}
-	plan := &routePlanState{
-		sel:      sel,
+	rng := routing.NewSeededRng(1)
+	progress := newRecoveryController(recoveryControllerInput{
 		budget:   &attemptBudget{max: 3},
-		excluded: map[string]struct{}{},
+		sel:      sel,
 		session:  &routing.SessionRoutingState{},
-		rng:      routing.NewSeededRng(1),
+		excluded: map[string]struct{}{},
+		rng:      rng,
+	})
+	plan := &routePlanState{
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: rng,
+		},
+		progress: progress,
+	}
+	call := &lipapi.Call{
+		ID:    "request-leak",
+		Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+		Session: lipapi.SessionRef{
+			ALegID: aLegID,
+		},
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode: lipapi.DeliveryModeStreaming,
+		},
+		Messages: testMinimalUserMessages(),
+	}
+	preSession := session.SessionView{
+		ALegID: aLegID,
+	}
+	ibt, err := newIdentityBoundTurn(
+		"trace-leak",
+		call,
+		execview.PrincipalView{},
+		scope.PrincipalScopeView{},
+		false,
+		lipworkspace.WorkspaceView{},
+		b2bua.ALegRecord{ALegID: aLegID},
+		routeAuthoritySnapshot{},
+		execctx.SecureSessionTurn{},
+		false,
+		preSession,
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
 	prep := &preparedRequest{
-		bus:     hooks.New(hooks.Config{}),
-		traceID: "trace-leak",
-		aLeg:    b2bua.ALegRecord{ALegID: aLegID},
-		aScope:  aScope,
-		baseline: lipapi.Call{
-			ID:    "request-leak",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
-			},
-			Messages: testMinimalUserMessages(),
-		},
+		bus:      hooks.New(hooks.Config{}),
+		identity: ibt,
+		call:     ibt.call,
+		aScope:   aScope,
 	}
 
 	_, err = ex.openInitialAttempt(context.Background(), prep, plan)

@@ -210,13 +210,14 @@ func TestParallelRegisterBLegFailureAppendsTerminalLegForJoin(t *testing.T) {
 		return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
-	p.billingCallID = callID
-	p.billingCallState = newBillingCallState(callID)
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
+	req.reqFacts.billingCallID = callID
+	req.reqFacts.billingCallState = newBillingCallState(callID)
 
 	raceErr := runRaceInGoroutine(t, 5*time.Second, func() error {
-		_, err := ex.tryOpenParallelGroup(context.Background(), p, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
+		_, err := ex.tryOpenParallelGroup(context.Background(), req, []routing.AttemptCandidate{authorityCandidate()}, nil, "", false)
 		return err
 	})
 	if raceErr == nil {
@@ -234,7 +235,7 @@ func TestParallelRegisterBLegFailureAppendsTerminalLegForJoin(t *testing.T) {
 		t.Fatalf("leg CallID = %s, want %s", legs[0].CallID, callID)
 	}
 
-	frozen := p.billingCallState.freezeAllocatedBLegs()
+	frozen := req.reqFacts.billingCallState.freezeAllocatedBLegs()
 	if len(frozen) == 0 {
 		t.Fatal("expected allocated B-leg to remain frozen after RegisterBLeg failure")
 	}

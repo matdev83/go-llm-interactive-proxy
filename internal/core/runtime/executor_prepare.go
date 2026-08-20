@@ -11,13 +11,21 @@ import (
 )
 
 func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, call *lipapi.Call) (traceID string, baseline lipapi.Call, aLeg b2bua.ALegRecord, routeAuth routeAuthoritySnapshot, outCtx context.Context, err error) {
+	ibt, workingCall, outCtx, err := e.prepareIdentity(ctx, bus, call)
+	if err == nil {
+		traceID, baseline, aLeg, routeAuth = ibt.traceID, *workingCall, ibt.aLeg, ibt.routeAuth
+	}
+	return
+}
+
+func (e *Executor) prepareIdentity(ctx context.Context, bus *hooks.Bus, call *lipapi.Call) (ibt *identityBoundTurn, workingCall *lipapi.Call, outCtx context.Context, err error) {
 	if e != nil {
 		if mode, marked := execctx.SessionModeFromContext(ctx); marked && mode == execctx.SessionModeDetached {
 			return e.prepareSubmitAndALegDetached(ctx, bus, call)
 		}
 	}
 	if e == nil || e.SecureSession == nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, routeAuthoritySnapshot{}, ctx, fmt.Errorf("executor: secure session manager is required")
+		return nil, nil, ctx, fmt.Errorf("executor: secure session manager is required")
 	}
 	return e.prepareSubmitAndALegSecure(ctx, bus, call)
 }

@@ -5,15 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -211,29 +207,9 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		return nil, fmt.Errorf("executor: interleaved continuation: %w", routing.ErrNoEligibleCandidate)
 	}
-	if from.terminal != nil && !out.registered {
-		if err := from.terminal.registerBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      out.bleg.BLegID,
-			Attempt: lifecycleAttempt(out.stream),
-		}); err != nil {
-			// The freshly admitted local out.authority is never tracked on an rs literal on
-			// this branch (the rs is constructed only on success below), so release it here to
-			// avoid leaking the reservation. Mirrors the sibling RegisterBLeg-failure release
-			// in tryReplacementIteration (executor_recv_loop.go): ReleaseKindSwallowed, since
-			// the opened attempt produced no client-facing output and is being discarded.
-			l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-			l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
-			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
-				_ = out.stream.Close()
-			}
-			e.appendPostOpenTerminalLeg(ctx, from.facts.billingCallState, from.facts.aLegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
-			return nil, err
-		}
-	}
-	fs, maxArgs := e.resolveToolCallFinalizers()
 	responsePipeline := newResponsePipelineForExecutor(e)
 	terminal := newTurnTerminalWithSharedALeg(from.terminal)
 	rs := &retryRecvStream{
@@ -248,17 +224,6 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
 		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
 	})
-	rs.attempt.install(newAttemptSession(attemptSessionInput{
-		inner:                 out.stream,
-		bleg:                  out.bleg,
-		cand:                  out.cand,
-		authority:             e.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		accounting:            newAttemptAccountingTracker(e.now()),
-		toolFinal:             newToolCallAssembler(fs, maxArgs, facts.baseline.Tools),
-		promptCacheSource:     promptCacheObservationSource(out.stream),
-		promptCacheController: promptCacheControllerFor(e.Backends[out.cand.Primary.Backend]),
-		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics},
-		recordAttemptLoggedFn: e.recordAttemptLogged,
-	}))
+	rs.attempt.install(out.session)
 	return rs, nil
 }

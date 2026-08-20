@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
 func newTestClock(t0 time.Time) (func() time.Time, func(d time.Duration)) {
@@ -979,5 +982,136 @@ func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 	}
 	if !sawSuccess || !sawLoser {
 		t.Fatalf("expected success and loser attempt outcomes, got %#v", atts)
+	}
+}
+
+type slogWrapper struct {
+	slog.Handler
+	onLog func(string)
+}
+
+func (w *slogWrapper) Handle(ctx context.Context, r slog.Record) error {
+	w.onLog(r.Message)
+	return w.Handler.Handle(ctx, r)
+}
+
+type mockRequestPartHook struct {
+	id          string
+	order       int
+	failureMode sdkhooks.FailureMode
+	handle      func(ctx context.Context, call *lipapi.Call, meta sdkhooks.PartMeta) error
+}
+
+func (m *mockRequestPartHook) ID() string                        { return m.id }
+func (m *mockRequestPartHook) Order() int                        { return m.order }
+func (m *mockRequestPartHook) FailureMode() sdkhooks.FailureMode { return m.failureMode }
+func (m *mockRequestPartHook) HandleRequestParts(ctx context.Context, call *lipapi.Call, meta sdkhooks.PartMeta) error {
+	return m.handle(ctx, call, meta)
+}
+
+func TestParallelRace_PostRequestHookExclusionRollback(t *testing.T) {
+	t.Parallel()
+	st := parallelStore(t)
+	ex := runtime.TestExecutor()
+	ex.Store = st
+
+	var panicObserved atomic.Bool
+	ex.Log = slog.New(&slogWrapper{
+		Handler: slog.NewTextHandler(os.Stdout, nil),
+		onLog: func(msg string) {
+			if strings.Contains(strings.ToLower(msg), "panic") {
+				panicObserved.Store(true)
+			}
+		},
+	})
+
+	ex.Backends = map[string]execbackend.Backend{
+		"exclude": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Error("open should not be called on excluded candidate")
+				return nil, errors.New("should not be called")
+			},
+		},
+		"winner": parallelBackend(completionEvents("winner-response")),
+	}
+
+	ex.Bus = hooks.New(hooks.Config{
+		RequestPartHooks: []sdkhooks.RequestPartHook{
+			&mockRequestPartHook{
+				id:          "exclude_hook",
+				order:       1,
+				failureMode: sdkhooks.FailClosed,
+				handle: func(ctx context.Context, call *lipapi.Call, meta sdkhooks.PartMeta) error {
+					if meta.BackendID == "exclude" {
+						call.Tools = []lipapi.ToolDef{{Name: "unsupported_tool"}}
+					}
+					return nil
+				},
+			},
+		},
+	})
+	ex.Rand = routing.NewSeededRng(1)
+
+	s, err := ex.Execute(t.Context(), parallelCall("exclude:model!winner:model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(t.Context(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := col.Text.String(); got != "winner-response" {
+		t.Fatalf("got %q want winner-response", got)
+	}
+
+	if panicObserved.Load() {
+		t.Fatal("detected panic in parallel race leg")
+	}
+}
+
+func TestParallelRace_PostRequestHookRejectionNotLostWhenBudgetNil(t *testing.T) {
+	t.Parallel()
+	st := parallelStore(t)
+	ex := runtime.TestExecutor()
+	ex.Store = st
+
+	ex.Backends = map[string]execbackend.Backend{
+		"exclude1": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, errors.New("should not be called")
+			},
+		},
+		"exclude2": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, errors.New("should not be called")
+			},
+		},
+	}
+
+	ex.Bus = hooks.New(hooks.Config{
+		RequestPartHooks: []sdkhooks.RequestPartHook{
+			&mockRequestPartHook{
+				id:          "exclude_hook",
+				order:       1,
+				failureMode: sdkhooks.FailClosed,
+				handle: func(ctx context.Context, call *lipapi.Call, meta sdkhooks.PartMeta) error {
+					call.Tools = []lipapi.ToolDef{{Name: "unsupported_tool"}}
+					return nil
+				},
+			},
+		},
+	})
+	ex.Rand = routing.NewSeededRng(1)
+
+	_, err := ex.Execute(t.Context(), parallelCall("exclude1:model!exclude2:model"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "missing required capabilities") {
+		t.Fatalf("expected capability negotiation reject error, got: %v", err)
 	}
 }

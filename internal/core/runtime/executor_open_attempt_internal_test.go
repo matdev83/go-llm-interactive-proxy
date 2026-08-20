@@ -49,19 +49,34 @@ func TestOpenPlannedCandidate_MaxAttemptsDoesNotPersistCycle(t *testing.T) {
 	}
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
-	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
-		bus:         ex.Bus,
-		traceID:     "cycle-budget-test",
-		aLegID:      aLeg.ALegID,
-		baseline:    lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
-		sel:         sel,
-		session:     &routing.SessionRoutingState{},
-		excluded:    map[string]struct{}{},
-		rng:         routing.NewSeededRng(1),
-		budget:      &attemptBudget{max: 0},
-		ttft:        &ttft,
+	progress := &recoveryController{
+		budget:   &attemptBudget{max: 0},
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		failures: &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}},
+	}
+	progress.budget.failures = progress.failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID:  "cycle-budget-test",
+				aLegID:   aLeg.ALegID,
+				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(1),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
 		interleaved: interleavedstate.State{},
-	})
+	}
+
+	_, err = ex.openNext(ctx, req)
 	if !errors.Is(err, lipapi.ErrMaxRouteAttempts) {
 		t.Fatalf("want ErrMaxRouteAttempts, got %v", err)
 	}
@@ -123,24 +138,37 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 	interleaved := interleavedstate.State{Cycle: seededCycle}
 	excluded := map[string]struct{}{}
 	ttft := newTTFTBudget(ex.now(), sel)
-	p := attemptOpenParams{
-		bus:         ex.Bus,
-		traceID:     "parallel-fail-state",
-		aLegID:      aLeg.ALegID,
-		baseline:    lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
-		sel:         sel,
-		session:     &routing.SessionRoutingState{},
-		excluded:    excluded,
-		rng:         routing.NewSeededRng(2),
-		budget:      &attemptBudget{max: 8},
-		ttft:        &ttft,
+	progress := &recoveryController{
+		budget:   &attemptBudget{max: 8},
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: excluded,
+		failures: &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}},
+	}
+	progress.budget.failures = progress.failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID:  "parallel-fail-state",
+				aLegID:   aLeg.ALegID,
+				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(2),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
 		interleaved: interleaved,
 	}
-	out1, err := ex.tryPlanOpenOnce(ctx, p)
+	out1, err := ex.openNext(ctx, req)
 	if err != nil {
 		t.Fatalf("first plan/open: %v", err)
 	}
-	if out1.opened {
+	if out1.session != nil {
 		t.Fatal("first iteration must soft-fail parallel race without winner")
 	}
 	if out1.interleaved.Cycle.IsEmpty() {
@@ -150,11 +178,8 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out1.interleaved.Cycle.Equal(stored.Cycle) {
-		t.Fatalf("threaded cycle must match persisted cycle, got %+v stored %+v", out1.interleaved.Cycle, stored.Cycle)
-	}
-	if stored.Cycle.NextIndex == seededCycle.NextIndex {
-		t.Fatal("parallel open must advance persisted thinker cycle after at least one leg is admitted")
+	if !stored.Cycle.IsEmpty() {
+		t.Fatalf("parallel race failure must not persist/commit cycle progress, got %+v", stored.Cycle)
 	}
 }
 
@@ -216,36 +241,47 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 	}}
 	excluded := map[string]struct{}{}
 	ttft := newTTFTBudget(ex.now(), sel)
-	var lastParallelFailure error
-	p := attemptOpenParams{
-		bus:                 ex.Bus,
-		traceID:             "parallel-failover-primary",
-		aLegID:              aLeg.ALegID,
-		baseline:            lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
-		sel:                 sel,
-		session:             &routing.SessionRoutingState{},
-		excluded:            excluded,
-		rng:                 routing.NewSeededRng(2),
-		budget:              &attemptBudget{max: 8},
-		ttft:                &ttft,
-		interleaved:         interleaved,
-		lastParallelFailure: &lastParallelFailure,
+	progress := &recoveryController{
+		budget:   &attemptBudget{max: 8},
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: excluded,
+		failures: &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}},
 	}
-	out, err := ex.tryPlanOpenOnce(ctx, p)
+	progress.budget.failures = progress.failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID:  "parallel-failover-primary",
+				aLegID:   aLeg.ALegID,
+				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(2),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
+		interleaved: interleaved,
+	}
+	out, err := ex.openNext(ctx, req)
 	if err != nil {
 		t.Fatalf("plan/open: %v", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("same-pass tryPlanOpenOnce must open primary after parallel soft-fail")
 	}
-	if lastParallelFailure != nil {
+	if req.progress.failures.ParallelFailure != nil {
 		t.Fatal("parallel failure context must clear after successful primary open")
 	}
 	if goodOpens != 1 {
 		t.Fatalf("good backend opens: got %d want 1", goodOpens)
 	}
-	if out.cand.Primary.Backend != "good" {
-		t.Fatalf("opened backend: got %q want good", out.cand.Primary.Backend)
+	if out.session.cand.Primary.Backend != "good" {
+		t.Fatalf("opened backend: got %q want good", out.session.cand.Primary.Backend)
 	}
 }
 
@@ -325,29 +361,43 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 		t.Fatal(err)
 	}
 	ttft := newTTFTBudget(ex.now(), sel)
-	out, err := ex.tryPlanOpenOnce(ctx, attemptOpenParams{
-		bus:     ex.Bus,
-		traceID: "thinker-open-fail-cycle",
-		aLegID:  aLeg.ALegID,
-		baseline: lipapi.Call{
-			Messages: []lipapi.Message{{
-				Role:  lipapi.RoleUser,
-				Parts: []lipapi.Part{lipapi.TextPart("plan this")},
-			}},
-			Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
-		},
-		sel:         sel,
-		session:     &routing.SessionRoutingState{},
-		excluded:    map[string]struct{}{},
-		rng:         routing.NewSeededRng(2),
-		budget:      &attemptBudget{max: 8},
-		ttft:        &ttft,
-		interleaved: seeded,
-	})
-	if err != nil {
-		t.Fatalf("tryPlanOpenOnce: %v", err)
+	progress := &recoveryController{
+		budget:   &attemptBudget{max: 8},
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		failures: &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}},
 	}
-	if out.opened {
+	progress.budget.failures = progress.failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID: "thinker-open-fail-cycle",
+				aLegID:  aLeg.ALegID,
+				baseline: lipapi.Call{
+					Messages: []lipapi.Message{{
+						Role:  lipapi.RoleUser,
+						Parts: []lipapi.Part{lipapi.TextPart("plan this")},
+					}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(2),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
+		interleaved: seeded,
+	}
+	out, err := ex.openNext(ctx, req)
+	if err != nil {
+		t.Fatalf("openNext: %v", err)
+	}
+	if out.session != nil {
 		t.Fatal("thinker recoverable open failure must not open a stream")
 	}
 	opensMu.Lock()
@@ -412,19 +462,34 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
 	budget := &attemptBudget{max: 8}
-	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
-		bus:         ex.Bus,
-		traceID:     "persist-fail",
-		aLegID:      aLeg.ALegID,
-		baseline:    lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
-		sel:         sel,
-		session:     &routing.SessionRoutingState{},
-		excluded:    map[string]struct{}{},
-		rng:         routing.NewSeededRng(1),
-		budget:      budget,
-		ttft:        &ttft,
+	failures := budget.getFailures()
+	progress := &recoveryController{
+		budget:   budget,
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		failures: failures,
+	}
+	budget.failures = failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID:  "persist-fail",
+				aLegID:   aLeg.ALegID,
+				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(1),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
 		interleaved: interleavedstate.State{},
-	})
+	}
+	_, err = ex.openNext(ctx, req)
 	if !errors.Is(err, errInjectedCyclePersist) {
 		t.Fatalf("want errInjectedCyclePersist, got %v", err)
 	}
@@ -490,19 +555,35 @@ func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	ttft := newTTFTBudget(ex.now(), sel)
-	_, err = ex.tryPlanOpenOnce(ctx, attemptOpenParams{
-		bus:         ex.Bus,
-		traceID:     "parallel-budget-cycle",
-		aLegID:      aLeg.ALegID,
-		baseline:    lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
-		sel:         sel,
-		session:     &routing.SessionRoutingState{},
-		excluded:    map[string]struct{}{},
-		rng:         routing.NewSeededRng(2),
-		budget:      &attemptBudget{max: 0},
-		ttft:        &ttft,
+	budget := &attemptBudget{max: 0}
+	failures := budget.getFailures()
+	progress := &recoveryController{
+		budget:   budget,
+		ttft:     ttft,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		failures: failures,
+	}
+	budget.failures = failures
+
+	req := openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID:  "parallel-budget-cycle",
+				aLegID:   aLeg.ALegID,
+				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+			},
+			bus: ex.Bus,
+		},
+		routeFacts: routeFacts{
+			sel: sel,
+			rng: routing.NewSeededRng(2),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
 		interleaved: interleavedstate.State{Cycle: seededCycle},
-	})
+	}
+	_, err = ex.openNext(ctx, req)
 	if !errors.Is(err, lipapi.ErrMaxRouteAttempts) {
 		t.Fatalf("want ErrMaxRouteAttempts, got %v", err)
 	}

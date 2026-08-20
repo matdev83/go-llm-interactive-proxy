@@ -5,15 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"slices"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -22,8 +15,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	metering "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
+	"io"
+	"log/slog"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const cancelLosersTimeout = 5 * time.Second
@@ -44,13 +44,14 @@ type parallelLeg struct {
 	stream           lipapi.ManagedEventStream
 	authority        authorityLifecycle
 	delay            time.Duration
-	// startedAt is when the leg successfully opened a backend stream. Zero means
-	// the open time is unknown (do not fabricate identical start/finish).
-	startedAt     time.Time
-	recvErr       error
-	observedUsage atomic.Value // lipapi.Event; set by leg workers, read on loser cleanup
-	interleaved   interleavedstate.State
-	memoUpdate    *interleavedthinking.PendingMemoUpdate
+	startedAt        time.Time
+	recvErr          error
+	observedUsage    atomic.Value // lipapi.Event
+	interleaved      interleavedstate.State
+	memoUpdate       *interleavedthinking.PendingMemoUpdate
+	tx               *attemptTx
+	managedByMain    bool
+	mainDone         bool
 }
 
 func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
@@ -61,47 +62,37 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 		scope.ReleaseBLeg(leg.bleg.BLegID)
 	}
 }
-
-// releaseLosers composes the parallel-race loser cleanup sequence: cancel/close
-// the loser streams, settle (or release) each loser's authority reservation, then
-// drop the loser B-legs from the A-leg scope. Incurred losers SettleAttempt with
-// SettlementKindLosing; pre-work losers remain on ReleaseKindLosing. It returns
-// the cancelLosers error so callers can fold stream-cleanup failures into their
-// aggregated error exactly as the prior hand-written blocks did. The per-leg
-// authority finalize and releaseBLegs are best-effort (individually guarded),
-// matching the previous behavior.
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
 		usage, _ := leg.observedUsage.Load().(lipapi.Event)
-		if usage.Kind == "" {
-			usage = emptyOperatorUsageShell()
+		if leg.tx != nil {
+			leg.tx.Rollback(ctx, sdkterminal.CommandParallelLoser, authorityapp.ReleaseKindLosing, billing.LegOutcomeFailed, usage)
+		} else if leg.authority.control != nil {
+			committed := leg.authority.outputCommitted != nil && leg.authority.outputCommitted.Load()
+			e.recordParallelBillingLeg(ctx, leg, usage, sdkterminal.CommandParallelLoser, committed)
+			_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
+				leg.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
+				if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
+					e.emitBackendEgressMeteringFact(cctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
+				}
+				return nil
+			})
 		}
-		committed := leg.authority.outputCommitted != nil && leg.authority.outputCommitted.Load()
-		e.recordParallelBillingLeg(ctx, leg, usage, sdkterminal.CommandParallelLoser, committed)
-		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
-			leg.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
-			// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
-			if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
-				e.emitBackendEgressMeteringFact(cctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
-			}
-			return nil
-		})
 	}
 	releaseBLegs(aScope, legs)
 	return err
 }
-
 func (e *Executor) tryOpenParallelGroup(
 	ctx context.Context,
-	p attemptOpenParams,
+	req openNextRequest,
 	candidates []routing.AttemptCandidate,
 	nextCycle *interleavedstate.CycleState,
 	stickyBackendID string,
 	stickyBinding bool,
-) (attemptOpenResult, error) {
-	var zero attemptOpenResult
-	interleaved := p.interleaved
+) (openedAttempt, error) {
+	var zero openedAttempt
+	interleaved := req.interleaved
 	cycleAdvance := nextCycle
 	maxHandicap := time.Duration(0)
 	for _, c := range candidates {
@@ -109,7 +100,6 @@ func (e *Executor) tryOpenParallelGroup(
 			maxHandicap = c.Handicap
 		}
 	}
-
 	type legEntry struct {
 		cand       routing.AttemptCandidate
 		startDelay time.Duration
@@ -124,15 +114,10 @@ func (e *Executor) tryOpenParallelGroup(
 	slices.SortStableFunc(entries, func(a, b legEntry) int {
 		return cmp.Compare(a.startDelay, b.startDelay)
 	})
-
-	if p.budget != nil {
-		// Parallel legs reserve attempt-budget slots up front so a no-winner iteration does
-		// not over-open. The N slots are intentionally NOT refunded when the race produces no
-		// winner: every leg that opened represents a genuine backend attempt, so counting them
-		// as consumed is correct back-pressure. Refunding would under-count real attempts.
+	if req.progress.budget != nil {
 		limited := make([]legEntry, 0, len(entries))
 		for _, entry := range entries {
-			if !p.budget.tryAcquire() {
+			if !req.progress.budget.tryAcquire() {
 				break
 			}
 			limited = append(limited, entry)
@@ -144,12 +129,8 @@ func (e *Executor) tryOpenParallelGroup(
 	}
 	if cycleAdvance != nil {
 		interleaved.Cycle = *cycleAdvance
-		if err := e.persistInterleavedState(ctx, p.aLegID, interleaved); err != nil {
-			return zero, fmt.Errorf("executor: persist interleaved cycle: %w", err)
-		}
-		p.interleaved = interleaved
+		req.interleaved = interleaved
 	}
-
 	var (
 		mu        sync.Mutex
 		winnerIdx = -1
@@ -158,33 +139,34 @@ func (e *Executor) tryOpenParallelGroup(
 		wg        sync.WaitGroup
 		fatalErr  error
 	)
+	defer func() {
+		mu.Lock()
+		for i := range legs {
+			legs[i].mainDone = true
+		}
+		mu.Unlock()
+	}()
 	winnerCh := make(chan struct{}, 1)
-
 	raceCtx, raceCancel := context.WithCancel(ctx)
 	defer raceCancel()
-
-	// Broadcast channel: closed once by any handicapped leg that fails terminally,
-	// waking all goroutines waiting in their handicap delay simultaneously.
 	fastForwardCh := make(chan struct{})
 	var fastForwardOnce sync.Once
-
 	broadcastFastForward := func() {
 		fastForwardOnce.Do(func() { close(fastForwardCh) })
 	}
-
 	for i, entry := range entries {
-		legs[i] = parallelLeg{billingCallState: p.billingCallState, cand: entry.cand, delay: entry.startDelay}
+		legs[i] = parallelLeg{billingCallState: req.reqFacts.billingCallState, cand: entry.cand, delay: entry.startDelay}
 	}
-
 	for idx, entry := range entries {
-		wg.Go(func() {
+		wg.Add(1)
+		go func(idx int, entry legEntry) {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					pe := safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
-					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: p.traceID})
+					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: req.reqFacts.traceID})
 				}
 			}()
-
 			if entry.startDelay > 0 {
 				timer := time.NewTimer(entry.startDelay)
 				select {
@@ -196,119 +178,129 @@ func (e *Executor) tryOpenParallelGroup(
 					timer.Stop()
 				}
 			}
-
 			mu.Lock()
 			if winnerIdx >= 0 {
 				mu.Unlock()
 				return
 			}
 			mu.Unlock()
-
-			legParams := p
-			legParams.excluded = map[string]struct{}{}
-			legParams.lastReject = nil
-			legParams.lastTransportReject = nil
-			legParams.isContextLimitExhaustion = nil
-			legParams.deferMemoInjectionCommit = true
-			// Parallel legs reserve attempt-budget slots before launch to avoid racy over-open.
-			legParams.budget = nil
-
-			out, err := e.openPlannedCandidate(ctx, legParams, entry.cand, nil, stickyBackendID, stickyBinding)
+			legReq := req
+			legReq.reqFacts.suppressThinker = true
+			legReq.reqFacts.suppressVisibleMemo = true
+			legReq.interleaved = interleaved
+			legProgress := *req.progress
+			legProgress.budget = nil
+			legReq.progress = &legProgress
+			plan := candidatePlan{
+				cand:            entry.cand,
+				nextCycle:       nil,
+				stickyBackendID: stickyBackendID,
+				stickyBinding:   stickyBinding,
+			}
+			evalOutcome, err := e.evaluateCandidate(ctx, legReq.reqFacts, legReq.routeFacts, plan, legReq.interleaved)
 			if err != nil {
-				if isParallelFatalErr(err) {
-					stopRace := false
-					mu.Lock()
-					if winnerIdx < 0 {
-						fatalErr = errors.Join(fatalErr, err)
-						stopRace = true
-					}
-					mu.Unlock()
-					if stopRace {
-						raceCancel()
-						select {
-						case winnerCh <- struct{}{}:
-						default:
-						}
-					}
+				mu.Lock()
+				if winnerIdx < 0 {
+					fatalErr = errors.Join(fatalErr, err)
 				}
+				mu.Unlock()
+				raceCancel()
+				return
+			}
+			if !evalOutcome.accepted {
+				mu.Lock()
+				e.applyRejection(req.progress.getFailures(), entry.cand, evalOutcome.rejection)
+				req.progress.excluded[entry.cand.Key] = struct{}{}
+				mu.Unlock()
 				if entry.cand.Handicap > 0 {
 					broadcastFastForward()
 				}
 				return
 			}
-			if !out.opened {
+			tx, err := e.startAttemptTx(ctx, legReq.reqFacts, legReq.routeFacts, entry.cand, nil, legReq.progress.getFailures())
+			if err != nil {
+				mu.Lock()
+				if winnerIdx < 0 {
+					fatalErr = errors.Join(fatalErr, err)
+				}
+				mu.Unlock()
+				raceCancel()
+				return
+			}
+			defer func() {
+				mu.Lock()
+				published := legs[idx].tx != nil
+				managed := legs[idx].managedByMain || winnerIdx >= 0
+				mainDone := legs[idx].mainDone
+				mu.Unlock()
+				if published && !managed && mainDone && !tx.completed {
+					tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+				} else if !published && !tx.completed {
+					tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+				}
+			}()
+			err = e.openAttemptTx(ctx, tx, evalOutcome, plan)
+			if tx.completed {
+				mu.Lock()
+				req.progress.excluded[entry.cand.Key] = struct{}{}
+				mu.Unlock()
 				if entry.cand.Handicap > 0 {
 					broadcastFastForward()
 				}
 				return
 			}
-			if p.aScope != nil {
-				if err := p.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-					ID:      out.bleg.BLegID,
-					Attempt: lifecycleAttempt(out.stream),
+			if err != nil {
+				mu.Lock()
+				if winnerIdx < 0 {
+					fatalErr = errors.Join(fatalErr, err)
+				}
+				mu.Unlock()
+				raceCancel()
+				if entry.cand.Handicap > 0 {
+					broadcastFastForward()
+				}
+				return
+			}
+			if legReq.reqFacts.aScope != nil {
+				if err := legReq.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+					ID:      tx.bleg.BLegID,
+					Attempt: lifecycleAttempt(tx.stream),
 				}); err != nil {
-					if !errors.Is(err, leglifecycle.ErrALegCanceled) {
-						_ = out.stream.Close()
-					}
-					stopRace := false
+					tx.stream = nil
+					tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindLosing, billing.LegOutcomeFailed, emptyOperatorUsageShell())
 					mu.Lock()
 					if winnerIdx < 0 {
 						fatalErr = errors.Join(fatalErr, err)
-						stopRace = true
 					}
 					mu.Unlock()
-					if stopRace {
-						raceCancel()
-						select {
-						case winnerCh <- struct{}{}:
-						default:
-						}
-					}
-					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
-					// finalize the just-opened local reservation (out.authority) before returning.
-					// Backend ingress already occurred in openPlannedCandidate; emit BE egress so
-					// the incurred terminal stays correlated (req 2.3 / 5.3).
-					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
-					usage := emptyOperatorUsageShell()
-					_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, false, func(cctx context.Context) error {
-						l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
-						if l.backendAttempted != nil && l.backendAttempted.Load() {
-							e.emitBackendEgressMeteringFact(cctx, out.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
-						}
-						return nil
-					})
-					// RegisterBLeg failed after Open, so this B-leg never enters legs[idx]
-					// and releaseLosers will not record it. Emit Failed terminal usage now
-					// so a later call-closure freeze remains joinable.
-					e.appendPostOpenTerminalLeg(ctx, p.billingCallState, p.aLegID, out.bleg, entry.cand.Primary, time.Time{}, time.Time{})
+					raceCancel()
 					return
 				}
+				tx.registered = true
 			}
-
 			legCtx := raceCtx
 			var legCancel context.CancelFunc = func() {}
 			ttftDeadline := ttftContextDeadline{}
-			if p.ttft != nil {
-				legCtx, legCancel, ttftDeadline = p.ttft.scopedContext(raceCtx, e.now(), entry.cand.Key, entry.cand.Primary.TTFTTimeout)
+			if req.progress.ttft != nil {
+				legCtx, legCancel, ttftDeadline = req.progress.ttft.scopedContext(raceCtx, e.now(), entry.cand.Key, entry.cand.Primary.TTFTTimeout)
 			}
 			defer legCancel()
-
 			mu.Lock()
-			legs[idx].stream = out.stream
-			legs[idx].bleg = out.bleg
-			legs[idx].authority = e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-			legs[idx].interleaved = out.interleaved
-			legs[idx].memoUpdate = out.memoUpdate
+			legs[idx].stream = tx.stream
+			legs[idx].bleg = tx.bleg
+			legs[idx].authority = tx.authLifecycle
+			legs[idx].tx = tx
+			legs[idx].interleaved = interleaved
+			legs[idx].memoUpdate = evalOutcome.shapeRes.MemoUpdate
 			legs[idx].startedAt = e.now()
 			if winnerIdx >= 0 {
 				mu.Unlock()
 				return
 			}
 			mu.Unlock()
-
 			var preBuf []lipapi.Event
 			for {
-				ev, err := out.stream.Recv(legCtx)
+				ev, err := tx.stream.Recv(legCtx)
 				if err != nil {
 					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
@@ -358,14 +350,13 @@ func (e *Executor) tryOpenParallelGroup(
 					return
 				}
 			}
-		})
+		}(idx, entry)
 	}
-
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				pe := safety.Capture(safety.BoundaryWorker, "parallel_race_waiter", r)
-				e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race waiter", diag.AttrOpts{CallID: p.traceID})
+				e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race waiter", diag.AttrOpts{CallID: req.reqFacts.traceID})
 			}
 		}()
 		wg.Wait()
@@ -374,61 +365,48 @@ func (e *Executor) tryOpenParallelGroup(
 		default:
 		}
 	}()
-
 	select {
 	case <-winnerCh:
 	case <-ctx.Done():
 		raceCancel()
-		// Defensively clean up legs that already opened before ctx was canceled. We must not
-		// wg.Wait here: a leg may be blocked in a backend Recv that ignores ctx, and the race
-		// contract is to return promptly on ctx cancellation. Snapshot the already-opened
-		// legs under the mutex (stream != nil iff the leg opened and stored its authority),
-		// then release their authority, cancel/close their streams, and drop them from the
-		// A-leg scope. Legs still opening observe the canceled ctx and bail out on their own.
 		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 		defer cleanupCancel()
 		mu.Lock()
 		openedLegs := make([]*parallelLeg, 0, len(legs))
 		for i := range legs {
 			if legs[i].stream != nil {
+				legs[i].managedByMain = true
 				openedLegs = append(openedLegs, &legs[i])
 			}
 		}
 		mu.Unlock()
 		if len(openedLegs) > 0 {
-			_ = e.releaseLosers(cleanupCtx, p.aScope, openedLegs)
+			_ = e.releaseLosers(cleanupCtx, req.reqFacts.aScope, openedLegs)
 		}
 		return zero, ctx.Err()
 	}
-
-	// Wait for all leg goroutines to finish so every opened stream is visible in the legs slice.
 	wg.Wait()
-
 	mu.Lock()
 	fatal := fatalErr
 	winner := winnerIdx
 	mu.Unlock()
-
 	if fatal != nil {
 		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 		defer cleanupCancel()
+		mu.Lock()
 		for i := range legs {
 			if legs[i].stream != nil {
+				legs[i].managedByMain = true
 				usage, _ := legs[i].observedUsage.Load().(lipapi.Event)
 				if usage.Kind == "" {
 					usage = emptyOperatorUsageShell()
 				}
-				committed := legs[i].authority.outputCommitted != nil && legs[i].authority.outputCommitted.Load()
-				e.recordParallelBillingLeg(cleanupCtx, &legs[i], usage, sdkterminal.CommandParallelLoser, committed)
-				_ = terminalizeAttemptEphemeral(cleanupCtx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
-					legs[i].authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
-					return nil
-				})
+				legs[i].tx.Rollback(cleanupCtx, sdkterminal.CommandParallelLoser, authorityapp.ReleaseKindLosing, billing.LegOutcomeFailed, usage)
 			}
 		}
+		mu.Unlock()
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatal)
 	}
-
 	if winner < 0 {
 		var parallelFailure error
 		var failedLegs []*parallelLeg
@@ -445,19 +423,19 @@ func (e *Executor) tryOpenParallelGroup(
 			parallelFailure = errors.Join(parallelFailure,
 				fmt.Errorf("candidate %q failed before winner: %w", legs[i].cand.Key, failure))
 			e.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    p.aLegID,
+				ALegID:    req.reqFacts.aLegID,
 				BLeg:      legs[i].bleg,
 				Cand:      legs[i].cand,
 				Outcome:   lipapi.AttemptSwallowedFailure,
 				Reason:    attemptReasonDetail(failure),
 				DetailErr: failure,
-			}, diag.AttrOpts{CallID: p.traceID, BLegID: legs[i].bleg.BLegID})
+			}, diag.AttrOpts{CallID: req.reqFacts.traceID, BLegID: legs[i].bleg.BLegID})
 			failedLegs = append(failedLegs, &legs[i])
 		}
 		if len(failedLegs) > 0 {
 			cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 			defer cleanupCancel()
-			if cerr := e.releaseLosers(cleanupCtx, p.aScope, failedLegs); cerr != nil {
+			if cerr := e.releaseLosers(cleanupCtx, req.reqFacts.aScope, failedLegs); cerr != nil {
 				parallelFailure = errors.Join(parallelFailure, cerr)
 			}
 		}
@@ -469,21 +447,17 @@ func (e *Executor) tryOpenParallelGroup(
 			parallelFailure = errors.New("parallel race failed without winner")
 		}
 		parallelFailure = fmt.Errorf("executor: parallel race arm failed: %w", parallelFailure)
-		if p.lastParallelFailure != nil {
-			*p.lastParallelFailure = parallelFailure
-		}
-		if p.excluded == nil {
-			p.excluded = map[string]struct{}{}
+		failures := req.progress.getFailures()
+		failures.ParallelFailure = parallelFailure
+		if req.progress.excluded == nil {
+			req.progress.excluded = map[string]struct{}{}
 		}
 		for _, c := range candidates {
-			p.excluded[c.Key] = struct{}{}
+			req.progress.excluded[c.Key] = struct{}{}
 		}
-		return attemptOpenResult{interleaved: interleaved}, nil
+		return openedAttempt{interleaved: interleaved}, nil
 	}
-	if p.lastParallelFailure != nil {
-		*p.lastParallelFailure = nil
-	}
-	committedInterleaved, err := e.commitMemoInjection(ctx, p.aLegID, legs[winner].interleaved, legs[winner].memoUpdate)
+	committedInterleaved, err := e.commitMemoInjection(ctx, req.reqFacts.aLegID, legs[winner].interleaved, legs[winner].memoUpdate)
 	if err != nil {
 		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 		defer cleanupCancel()
@@ -493,41 +467,56 @@ func (e *Executor) tryOpenParallelGroup(
 				toClean = append(toClean, &legs[i])
 			}
 		}
-		cleanupErr := e.releaseLosers(cleanupCtx, p.aScope, toClean)
+		cleanupErr := e.releaseLosers(cleanupCtx, req.reqFacts.aScope, toClean)
 		return zero, errors.Join(err, cleanupErr)
 	}
 	legs[winner].interleaved = committedInterleaved
-
+	if legs[winner].memoUpdate == nil && cycleAdvance != nil {
+		if err := e.persistInterleavedState(ctx, req.reqFacts.aLegID, legs[winner].interleaved); err != nil {
+			cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+			defer cleanupCancel()
+			var toClean []*parallelLeg
+			for i := range legs {
+				if legs[i].stream != nil {
+					toClean = append(toClean, &legs[i])
+				}
+			}
+			cleanupErr := e.releaseLosers(cleanupCtx, req.reqFacts.aScope, toClean)
+			return zero, errors.Join(err, cleanupErr)
+		}
+	}
+	mu.Lock()
 	var losers []*parallelLeg
 	for i := range legs {
 		if i == winner {
 			continue
 		}
 		if legs[i].stream != nil {
+			legs[i].managedByMain = true
 			if legs[i].recvErr != nil && !errors.Is(legs[i].recvErr, context.Canceled) &&
 				!errors.Is(legs[i].recvErr, context.DeadlineExceeded) {
 				e.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    p.aLegID,
+					ALegID:    req.reqFacts.aLegID,
 					BLeg:      legs[i].bleg,
 					Cand:      legs[i].cand,
 					Outcome:   lipapi.AttemptSwallowedFailure,
 					Reason:    attemptReasonDetail(legs[i].recvErr),
 					DetailErr: legs[i].recvErr,
-				}, diag.AttrOpts{CallID: p.traceID, BLegID: legs[i].bleg.BLegID})
+				}, diag.AttrOpts{CallID: req.reqFacts.traceID, BLegID: legs[i].bleg.BLegID})
 			} else {
 				e.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    p.aLegID,
+					ALegID:    req.reqFacts.aLegID,
 					BLeg:      legs[i].bleg,
 					Cand:      legs[i].cand,
 					Outcome:   lipapi.AttemptCancelled,
 					Reason:    "parallel race loser",
 					DetailErr: context.Canceled,
-				}, diag.AttrOpts{CallID: p.traceID, BLegID: legs[i].bleg.BLegID})
+				}, diag.AttrOpts{CallID: req.reqFacts.traceID, BLegID: legs[i].bleg.BLegID})
 			}
 			losers = append(losers, &legs[i])
 		}
 	}
-
+	mu.Unlock()
 	var losersDone <-chan error
 	if len(losers) > 0 {
 		done := make(chan error, 1)
@@ -537,7 +526,7 @@ func (e *Executor) tryOpenParallelGroup(
 			defer func() {
 				if r := recover(); r != nil {
 					pe := safety.Capture(safety.BoundaryBackend, "parallel_cancel_losers", r)
-					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: p.traceID})
+					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: req.reqFacts.traceID})
 					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
 				}
 				done <- cleanupErr
@@ -545,31 +534,26 @@ func (e *Executor) tryOpenParallelGroup(
 			}()
 			cancelCtx, cancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 			defer cancel()
-			cleanupErr = e.releaseLosers(cancelCtx, p.aScope, losers)
+			cleanupErr = e.releaseLosers(cancelCtx, req.reqFacts.aScope, losers)
 		}()
 	}
-
-	return attemptOpenResult{
-		opened:     true,
-		registered: p.aScope != nil,
-		stream: &parallelBridgeStream{
-			winner:           &legs[winner],
-			buf:              winnerBuf,
-			losersDone:       losersDone,
-			loserCleanupWait: cancelLosersTimeout,
-		},
-		bleg:        legs[winner].bleg,
-		cand:        legs[winner].cand,
-		authority:   legs[winner].authority.stateSnapshot(),
+	winnerSession := legs[winner].tx.Handoff()
+	winnerSession.inner = &parallelBridgeStream{
+		winner:           &legs[winner],
+		buf:              winnerBuf,
+		losersDone:       losersDone,
+		loserCleanupWait: cancelLosersTimeout,
+	}
+	return openedAttempt{
+		session:     winnerSession,
 		interleaved: legs[winner].interleaved,
+		memoUpdate:  nil,
 	}, nil
 }
-
 func isParallelFatalErr(err error) bool {
 	return errors.Is(err, lipapi.ErrMaxRouteAttempts) ||
 		errors.Is(err, lipapi.ErrTTFTTimeout)
 }
-
 func isWinningEvent(ev lipapi.Event) bool {
 	switch ev.Kind {
 	case lipapi.EventTextDelta:
@@ -580,7 +564,6 @@ func isWinningEvent(ev lipapi.Event) bool {
 		return false
 	}
 }
-
 func detachedCleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	base := parent
 	if base == nil {
@@ -593,7 +576,6 @@ func detachedCleanupContext(parent context.Context, timeout time.Duration) (cont
 	}
 	return context.WithTimeout(base, timeout)
 }
-
 func cancelLosers(ctx context.Context, losers []*parallelLeg) error {
 	var cleanupErr error
 	for _, l := range losers {
@@ -604,21 +586,18 @@ func cancelLosers(ctx context.Context, losers []*parallelLeg) error {
 			Kind:   leglifecycle.CancelRaceLoser,
 			Detail: "parallel race loser",
 		})
-		// context.Canceled on Cancel/Close is an expected race-loser teardown
-		// race (intentional loser cancel / client-cancel overlap); do not fail
-		// the winner stream Close over it. DeadlineExceeded must surface — it
-		// means the cleanup budget expired before Cancel/Close finished.
 		if res.Err != nil && !errors.Is(res.Err, context.Canceled) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("candidate %q cancel loser stream: %w", l.cand.Key, res.Err))
 		}
-		if err := l.stream.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("candidate %q close loser stream: %w", l.cand.Key, err))
+		if l.tx == nil {
+			if err := l.stream.Close(); err != nil && !errors.Is(err, context.Canceled) {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("candidate %q close loser stream: %w", l.cand.Key, err))
+			}
 		}
 	}
 	return cleanupErr
 }
 
-// parallelBridgeStream bridges a winning B-leg stream to the A-leg after the race.
 type parallelBridgeStream struct {
 	winner           *parallelLeg
 	buf              []lipapi.Event
@@ -655,7 +634,6 @@ func (s *parallelBridgeStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	return ev, nil
 }
-
 func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if s.winner != nil && s.winner.stream != nil {
 		s.finished.Store(true)
@@ -663,10 +641,8 @@ func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCa
 	}
 	return lipapi.CancelResult{}
 }
-
 func (s *parallelBridgeStream) Close() error {
 	var closeErr error
-	// Wait for loser cancellation to finish before returning, bounded by loserCleanupWait.
 	if s.losersDone != nil {
 		wait := s.loserCleanupWait
 		if wait <= 0 {

@@ -50,19 +50,19 @@ func (e *Executor) compactionServices() compaction.Services {
 // process-owned detector remains authoritative independently of metadata
 // observer registration so later preservation consumers can use its state and
 // pure previews.
-func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out attemptOpenResult) compaction.PreservationMeta {
+func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out openedAttempt) compaction.PreservationMeta {
 	if e == nil || e.Detector == nil || prep == nil {
 		return compaction.PreservationMeta{}
 	}
 	observers := e.compactionObservers()
 	meta := compactiondetect.RequestMeta{
-		TraceID:    prep.traceID,
-		ALegID:     prep.aLeg.ALegID,
-		BLegID:     out.bleg.BLegID,
-		AttemptSeq: out.bleg.Seq,
-		SessionID:  prep.baseline.Session.AuthoritativeSessionID,
+		TraceID:    prep.identity.traceID,
+		ALegID:     prep.identity.aLeg.ALegID,
+		BLegID:     out.session.bleg.BLegID,
+		AttemptSeq: out.session.bleg.Seq,
+		SessionID:  prep.identity.call.Session.AuthoritativeSessionID,
 	}
-	events := safeCompactionRequestOpened(e.Detector, meta, prep.baseline)
+	events := safeCompactionRequestOpened(e.Detector, meta, *prep.identity.call)
 	preservationMeta := compaction.PreservationMeta{
 		TraceID:    meta.TraceID,
 		SessionID:  meta.SessionID,
@@ -84,7 +84,7 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 		e.Log,
 		e.ExtensionMetrics,
 		e.compactionPreservers(),
-		prep.baseline,
+		*prep.identity.call,
 		events,
 		preservationMeta,
 		e.compactionServices(),
@@ -98,9 +98,9 @@ func (e *Executor) notifyCompactionOpenFailed(ctx context.Context, prep *prepare
 		return
 	}
 	meta := compaction.PreservationMeta{
-		TraceID:   prep.traceID,
-		SessionID: prep.baseline.Session.AuthoritativeSessionID,
-		ALegID:    prep.aLeg.ALegID,
+		TraceID:   prep.identity.traceID,
+		SessionID: prep.identity.call.Session.AuthoritativeSessionID,
+		ALegID:    prep.identity.aLeg.ALegID,
 	}
 	_ = extensions.RunCompactionPreserverRequestOpenFailed(
 		ctx,
@@ -203,28 +203,16 @@ func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, ev 
 }
 
 func safeCompactionRequestOpened(d *compactiondetect.Detector, meta compactiondetect.RequestMeta, call lipapi.Call) (events []compaction.Event) {
-	defer func() {
-		if recover() != nil {
-			events = nil
-		}
-	}()
+	defer func() { _ = recover() }()
 	return d.RequestOpened(meta, call)
 }
 
 func safeCompactionResponseReleased(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) (events []compaction.Event) {
-	defer func() {
-		if recover() != nil {
-			events = nil
-		}
-	}()
+	defer func() { _ = recover() }()
 	return d.ResponseReleased(meta, ev)
 }
 
 func safeCompactionPreviewResponse(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) (preview compaction.ResponsePreview) {
-	defer func() {
-		if recover() != nil {
-			preview = compaction.ResponsePreview{}
-		}
-	}()
+	defer func() { _ = recover() }()
 	return d.PreviewResponse(meta, ev)
 }

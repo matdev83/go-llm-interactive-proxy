@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
@@ -149,27 +150,41 @@ func newAuthorityRuntimeTestExecutorWithStore(t *testing.T, authority UsageAutho
 	return ex, store, backend, leg.ALegID
 }
 
-// authorityOpenParams builds the standard attemptOpenParams used by admission
-// denial tests that exercise openPlannedCandidate directly.
-func authorityOpenParams(t *testing.T, aLegID string, budget *attemptBudget) attemptOpenParams {
+// authorityOpenRequest builds the standard openNextRequest used by admission
+// denial tests that exercise evaluateAndOpenCandidate directly.
+func authorityOpenRequest(t *testing.T, aLegID string, budget *attemptBudget) openNextRequest {
 	t.Helper()
-	return attemptOpenParams{
-		bus:     hooks.New(hooks.Config{}),
-		traceID: "trace-1",
-		aLegID:  aLegID,
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
-			},
-			Messages: testMinimalUserMessages(),
-		},
-		session:  &routing.SessionRoutingState{},
-		excluded: map[string]struct{}{},
-		rng:      routing.NewSeededRng(1),
+	failures := budget.getFailures()
+	progress := &recoveryController{
 		budget:   budget,
+		excluded: map[string]struct{}{},
+		failures: failures,
+	}
+	budget.failures = failures
+	return openNextRequest{
+		reqFacts: requestFacts{
+			recvTurnFacts: recvTurnFacts{
+				traceID: "trace-1",
+				aLegID:  aLegID,
+				baseline: lipapi.Call{
+					ID:    "request-1",
+					Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+					Invocation: lipapi.Invocation{
+						Operation:    lipapi.OperationOpenAIChatCompletions,
+						DeliveryMode: lipapi.DeliveryModeStreaming,
+					},
+					Messages: testMinimalUserMessages(),
+				},
+			},
+			bus: hooks.New(hooks.Config{}),
+		},
+		routeFacts: routeFacts{
+			sel: &routing.Selector{},
+			rng: routing.NewSeededRng(1),
+		},
+		progress:    progress,
+		mode:        openModeInitial,
+		interleaved: interleavedstate.State{},
 	}
 }
 
@@ -207,25 +222,16 @@ func newAuthorityRuntimeTestExecutor(t *testing.T, authority UsageAuthorityServi
 	return ex, backend, leg.ALegID
 }
 
-// openAuthorityCandidate runs a single authority-aware openPlannedCandidate call
+// openAuthorityCandidate runs a single authority-aware evaluateAndOpenCandidate call
 // for the standard "backend-1:model-1" candidate.
-func openAuthorityCandidate(t *testing.T, ex *Executor, aLegID string) (attemptOpenResult, error) {
+func openAuthorityCandidate(t *testing.T, ex *Executor, aLegID string) (openedAttempt, error) {
 	t.Helper()
-	p := attemptOpenParams{
-		bus:     hooks.New(hooks.Config{}),
-		traceID: "trace-1",
-		aLegID:  aLegID,
-		baseline: lipapi.Call{
-			ID:    "request-1",
-			Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
-			Invocation: lipapi.Invocation{
-				Operation:    lipapi.OperationOpenAIChatCompletions,
-				DeliveryMode: lipapi.DeliveryModeStreaming,
-			},
-			Messages: testMinimalUserMessages(),
-		},
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	plan := candidatePlan{
+		cand: authorityCandidate(),
 	}
-	return ex.openPlannedCandidate(context.Background(), p, authorityCandidate(), nil, "", false)
+	return ex.evaluateAndOpenCandidate(context.Background(), req, plan)
 }
 
 // authorityCandidate returns the standard "backend-1:model-1" attempt candidate

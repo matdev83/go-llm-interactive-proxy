@@ -122,7 +122,6 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		prep.finalize(err)
 		cleanup()
 	}()
-
 	if err := e.checkCheapCredit(prepCtx, prep); err != nil {
 		return nil, err
 	}
@@ -136,21 +135,16 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	out, err := attemptOpenOwner{e}.openInitial(prepCtx, prep, plan)
 	if err != nil {
 		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
-		if !out.opened {
+		if out.session == nil {
 			e.notifyCompactionOpenFailed(prepCtx, prep)
 		}
 		return nil, err
 	}
-	// Compaction request observation runs only after the upstream B-leg opened
-	// (R3.2): signature-looking requests rejected before open emit nothing.
 	prep.compactionOpenMeta = e.observeCompactionOpened(prepCtx, prep, out)
 	stream, err := streamAssembler{e}.assemble(prepCtx, prep, plan, out)
 	if err != nil {
-		// Open succeeded and NextBLeg was noted, but assemble never handed the
-		// stream to a terminal recorder. Emit the Failed leg before freezing
-		// ExpectedBLegIDs on the abort closure so the post-usage join can complete.
-		if out.opened && strings.TrimSpace(out.bleg.BLegID) != "" {
-			e.appendPostOpenTerminalLeg(prepCtx, prep.billingCallState, prep.aLeg.ALegID, out.bleg, out.cand.Primary, time.Time{}, time.Time{})
+		if out.session != nil && strings.TrimSpace(out.session.bleg.BLegID) != "" {
+			e.appendPostOpenTerminalLeg(prepCtx, prep.billingCallState, prep.identity.aLeg.ALegID, out.session.bleg, out.session.cand.Primary, time.Time{}, time.Time{})
 		}
 		e.appendExposureAbortAfterAdmission(prepCtx, prep, plan)
 		return nil, err

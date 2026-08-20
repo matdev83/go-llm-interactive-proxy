@@ -26,11 +26,11 @@ type ttftBudget struct {
 	leafDeadlines map[string]time.Time
 }
 
-func newTTFTBudget(start time.Time, sel *routing.Selector) ttftBudget {
+func newTTFTBudget(start time.Time, sel *routing.Selector) *ttftBudget {
 	if sel == nil || sel.GlobalTTFTTimeout == nil {
-		return ttftBudget{start: start}
+		return &ttftBudget{start: start}
 	}
-	return ttftBudget{start: start, global: *sel.GlobalTTFTTimeout}
+	return &ttftBudget{start: start, global: *sel.GlobalTTFTTimeout}
 }
 
 func (b *ttftBudget) markCommitted() {

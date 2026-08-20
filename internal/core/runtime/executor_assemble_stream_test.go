@@ -4,10 +4,16 @@ import (
 	"context"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
@@ -17,14 +23,44 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := &routePlanState{
-		sel:    sel,
+	progress := newRecoveryController(recoveryControllerInput{
 		budget: &attemptBudget{max: 3},
+		sel:    sel,
+	})
+	plan := &routePlanState{
+		routeFacts: routeFacts{sel: sel},
+		progress:   progress,
 	}
 	newPrep := func() *preparedRequest {
+		call := &lipapi.Call{
+			Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+			Session: lipapi.SessionRef{
+				ALegID: "a-1",
+			},
+		}
+		preSession := session.SessionView{
+			ALegID: "a-1",
+		}
+		ibt, err := newIdentityBoundTurn(
+			"assemble-test",
+			call,
+			execview.PrincipalView{},
+			scope.PrincipalScopeView{},
+			false,
+			lipworkspace.WorkspaceView{},
+			b2bua.ALegRecord{ALegID: "a-1"},
+			routeAuthoritySnapshot{},
+			execctx.SecureSessionTurn{},
+			false,
+			preSession,
+		)
+		if err != nil {
+			panic(err)
+		}
 		return &preparedRequest{
-			traceID:  "assemble-test",
-			baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			identity: ibt,
+			call:     ibt.call,
+			guard:    &preStreamGuard{},
 		}
 	}
 	stream := lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}})
@@ -35,10 +71,11 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 	plainCand := routing.AttemptCandidate{
 		Primary: routing.Primary{Backend: "exec", Model: "m"},
 	}
-	out := attemptOpenResult{
-		opened: true,
-		stream: stream,
-		cand:   plainCand,
+	out := openedAttempt{
+		session: &attemptSession{
+			inner: stream,
+			cand:  plainCand,
+		},
 	}
 
 	t.Run("plain", func(t *testing.T) {
@@ -49,8 +86,8 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !localPrep.streamReturned {
-			t.Fatal("streamReturned must be set")
+		if !localPrep.guard.handedOver {
+			t.Fatal("guard must be handed over")
 		}
 		if _, ok := got.(*retryRecvStream); !ok {
 			t.Fatalf("want *retryRecvStream, got %T", got)
@@ -64,7 +101,10 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "hidden"}
 		hiddenOut := out
-		hiddenOut.cand = thinkerCand
+		hiddenOut.session = &attemptSession{
+			inner: out.session.inner,
+			cand:  thinkerCand,
+		}
 		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, hiddenOut)
 		if err != nil {
 			t.Fatal(err)
@@ -81,7 +121,10 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "visible"}
 		visibleOut := out
-		visibleOut.cand = thinkerCand
+		visibleOut.session = &attemptSession{
+			inner: out.session.inner,
+			cand:  thinkerCand,
+		}
 		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, visibleOut)
 		if err != nil {
 			t.Fatal(err)

@@ -160,23 +160,24 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	p.sel = sel
-	p.baseline.Route.Selector = "backend-1:model-1|backend-2:model-2"
-	p.baseline.ID = "req-seq"
+	budget := &attemptBudget{max: 5}
+	openReq := authorityOpenRequest(t, aLegID, budget)
+	openReq.routeFacts.sel = sel
+	openReq.reqFacts.baseline.Route.Selector = "backend-1:model-1|backend-2:model-2"
+	openReq.reqFacts.baseline.ID = "req-seq"
 
-	var out attemptOpenResult
+	var out openedAttempt
 	for range 4 {
 		var openErr error
-		out, openErr = ex.tryPlanOpenOnce(ctx, p)
+		out, openErr = ex.openNext(ctx, openReq)
 		if openErr != nil {
-			t.Fatalf("tryPlanOpenOnce: %v", openErr)
+			t.Fatalf("openNext: %v", openErr)
 		}
-		if out.opened {
+		if out.session != nil {
 			break
 		}
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("expected second candidate to open after recoverable open failure")
 	}
 	if opens.Load() != 2 {
@@ -189,7 +190,11 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 		t.Fatalf("failed incurred open must settle, not release; releaseCalls=%d", att.releaseCalls.Load())
 	}
 
-	life := ex.newAttemptAuthorityLifecycle(out.authority, out.cand)
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
+	}
+	life := ex.newAttemptAuthorityLifecycle(authState, out.session.cand)
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 2, TotalTokens: 5}, false) {
 		t.Fatal("winner settle must apply")
 	}
@@ -268,27 +273,32 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx = withMeteringHolder(ctx, holder)
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
-	p.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
-	p.baseline.ID = "req-par"
+	budget := &attemptBudget{max: 10}
+	openReq := authorityOpenRequest(t, aLegID, budget)
+	openReq.reqFacts.aScope = aScope
+	openReq.reqFacts.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
+	openReq.reqFacts.baseline.ID = "req-par"
 	candidates := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(ctx, p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(ctx, openReq, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("expected parallel race winner")
 	}
-	if out.stream != nil {
-		_ = out.stream.Close()
+	if out.session.inner != nil {
+		_ = out.session.inner.Close()
 	}
 
-	life := ex.newAttemptAuthorityLifecycle(out.authority, out.cand)
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
+	}
+	life := ex.newAttemptAuthorityLifecycle(authState, out.session.cand)
 	usage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
 		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
@@ -298,7 +308,7 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	}
 	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
 		traceID: "trace-par",
-	}), attempt: testAttemptSlot(out.bleg, out.cand, life)}
+	}), attempt: testAttemptSlot(out.session.bleg, out.session.cand, life)}
 	bindTestRuntimeOwners(stream, ex)
 	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
@@ -363,23 +373,31 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		return &textThenRecoverableErrStream{}, nil
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	out, err := ex.openPlannedCandidate(context.Background(), p, authorityCandidate(), nil, "", false)
-	if err != nil || !out.opened {
-		t.Fatalf("open: err=%v opened=%v", err, out.opened)
+	budget := &attemptBudget{max: 5}
+	req := authorityOpenRequest(t, aLegID, budget)
+	plan := candidatePlan{
+		cand: authorityCandidate(),
+	}
+	out, err := ex.evaluateAndOpenCandidate(context.Background(), req, plan)
+	if err != nil || out.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
+	}
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
 	}
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: p.baseline,
+			baseline: req.reqFacts.baseline,
 			aLegID:   aLegID,
 			traceID:  "trace-no-retry",
 		}),
-		recovery:         &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:          testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery:         &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:          testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.stream)
+	testStoreInner(rs, out.session.inner)
 
 	var lastErr error
 	for range 8 {
@@ -414,23 +432,31 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit request: %v", err)
 	}
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 3})
-	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
-	if err != nil || !out.opened {
-		t.Fatalf("open: err=%v opened=%v", err, out.opened)
+	budget := &attemptBudget{max: 3}
+	openReq := authorityOpenRequest(t, aLegID, budget)
+	plan := candidatePlan{
+		cand: authorityCandidate(),
+	}
+	out, err := ex.evaluateAndOpenCandidate(ctx, openReq, plan)
+	if err != nil || out.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
 	}
 
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
+	}
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: p.baseline,
+			baseline: openReq.reqFacts.baseline,
 			aLegID:   aLegID,
 			traceID:  "trace-cancel",
 		}),
-		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.stream)
+	testStoreInner(rs, out.session.inner)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -724,17 +750,21 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	})
 
 	ctx := withMeteringHolder(context.Background(), holder)
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 3})
-	p.bus = bus
-	p.baseline = orig
-	p.baseline.Route.Selector = "backend-1:model-1"
-	p.baseline.Invocation = lipapi.Invocation{
+	budget := &attemptBudget{max: 3}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.bus = bus
+	req.reqFacts.baseline = orig
+	req.reqFacts.baseline.Route.Selector = "backend-1:model-1"
+	req.reqFacts.baseline.Invocation = lipapi.Invocation{
 		Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming,
 	}
+	plan := candidatePlan{
+		cand: authorityCandidate(),
+	}
 
-	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
-	if err != nil || !out.opened {
-		t.Fatalf("open: err=%v opened=%v", err, out.opened)
+	out, err := ex.evaluateAndOpenCandidate(ctx, req, plan)
+	if err != nil || out.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
 	}
 	if !hook.ran.Load() {
 		t.Fatal("expected compression request-part hook to run before Open")
@@ -747,19 +777,23 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 		t.Fatalf("FE ingress snapshot must remain original; got %+v", feMsg)
 	}
 
+	var authState attemptAuthorityState
+	if out.session.authority.control != nil {
+		authState = out.session.authority.control.state
+	}
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: p.baseline,
+			baseline: req.reqFacts.baseline,
 			aLegID:   aLegID,
 			traceID:  "trace-comp",
 		}),
-		recovery: &recoveryController{budget: p.budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.bleg, out.cand, ex.newAttemptAuthorityLifecycle(out.authority, out.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.stream)
+	testStoreInner(rs, out.session.inner)
 	for {
 		_, rerr := rs.Recv(ctx)
 		if rerr != nil {

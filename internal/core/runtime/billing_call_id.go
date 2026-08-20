@@ -14,10 +14,9 @@ func stampBillingCallID(prep *preparedRequest) error {
 		return prep.billingCallID.Validate()
 	}
 	id, err := billing.NewBillingCallID()
-	if err != nil {
-		return err
+	if err == nil {
+		prep.billingCallID = id
+		prep.billingCallState = newBillingCallState(id)
 	}
-	prep.billingCallID = id
-	prep.billingCallState = newBillingCallState(id)
-	return nil
+	return err
 }

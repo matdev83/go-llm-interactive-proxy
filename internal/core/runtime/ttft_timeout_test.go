@@ -186,7 +186,7 @@ func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
 			aLegID:   "a1",
 			traceID:  "t1",
 		}),
-		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: &ttft, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
+		recovery: &recoveryController{budget: &attemptBudget{max: 1}, ttft: ttft, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}}, attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary}, authorityLifecycle{}),
 		responsePipeline: newResponsePipeline(),
 	}
 	testStoreInner(s, stream)

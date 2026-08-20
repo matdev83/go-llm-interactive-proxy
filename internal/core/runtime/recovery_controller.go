@@ -3,15 +3,9 @@ package runtime
 import (
 	"context"
 	"errors"
-	"io"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -21,6 +15,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"io"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
 )
 
 var (
@@ -28,107 +27,122 @@ var (
 	errRecoveryTurnCommitted          = errors.New("runtime: recovery turn already committed")
 )
 
-// recoveryController owns request-lifetime state that survives a recv-phase
-// attempt replacement. Attempt-local state remains on attemptSession and
-// request terminal truth remains on turnTerminal.
+type recoveryEnvironment interface {
+	now() time.Time
+	logInterleavedMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool)
+	logInterleavedMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState)
+	logInterleavedPhaseTransition(ctx context.Context, traceID string)
+	persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error)
+	openInterleavedExecutorContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error)
+	logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error)
+	appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome)
+	noteRouteDecision(ctx context.Context, traceID, decision, detail string)
+}
+
 type recoveryController struct {
-	opener replacementOpener
-
-	streamRecovery                streamrecovery.Config
-	nowFn                         func() time.Time
-	logMemoStoreSkippedFn         func(context.Context, string, string, bool)
-	logMemoCapturedFn             func(context.Context, string, interleavedthinking.MemoState)
-	logPhaseTransitionFn          func(context.Context, string)
-	persistCapturedMemoFn         func(context.Context, string, interleavedstate.State, interleavedthinking.MemoState) (interleavedstate.State, error)
-	openInterleavedContinuationFn func(context.Context, *retryRecvStream, interleavedstate.State) (*retryRecvStream, error)
-	logMemoPersistFailedFn        func(context.Context, string, error)
-	appendTerminalLegFn           func(context.Context, *billingCallState, string, b2bua.BLegRecord, routing.Primary, time.Time, time.Time, billing.LegOutcome)
-	commitAffinityFn              func(context.Context, affinity.Binding, string)
-
-	budget      *attemptBudget
-	ttft        *ttftBudget
-	sel         *routing.Selector
-	requestSize routing.RequestSizeEstimate
-	session     *routing.SessionRoutingState
-	excluded    map[string]struct{}
-	rng         routing.Rng
-
-	lastHardReject           lipapi.NegotiationResult
-	lastHardTransportReject  lipapi.TransportNegotiationResult
-	lastAdmissionErr         error
-	isContextLimitExhaustion bool
-	transformExcludes        transformExcludeTracker
-
-	affinityKey        affinity.Key
-	affinitySet        bool
-	affinityCommitOnce sync.Once
-
+	e                   recoveryEnvironment
+	affinityStore       affinity.Store
+	log                 *slog.Logger
+	streamRecovery      streamrecovery.Config
+	opener              replacementOpener
+	budget              *attemptBudget
+	ttft                *ttftBudget
+	sel                 *routing.Selector
+	requestSize         routing.RequestSizeEstimate
+	session             *routing.SessionRoutingState
+	excluded            map[string]struct{}
+	rng                 routing.Rng
+	affinityKey         affinity.Key
+	affinitySet         bool
+	affinityCommitOnce  *sync.Once
 	recoverPolicy       *streamrecovery.Policy
 	interleaved         interleavedstate.State
 	suppressThinker     bool
 	suppressVisibleMemo bool
-	lastParallelFailure error
-	attemptFactory      func(replacementOpenResult, requestTerminalFacts) *attemptSession
 	postOpenLeg         func(context.Context, *billingCallState, string, b2bua.BLegRecord, routing.Primary, time.Time, time.Time)
+	failures            *candidateFailureHistory
 }
-
 type recoveryControllerInput struct {
-	opener                        replacementOpener
-	budget                        *attemptBudget
-	ttft                          *ttftBudget
-	sel                           *routing.Selector
-	requestSize                   routing.RequestSizeEstimate
-	session                       *routing.SessionRoutingState
-	excluded                      map[string]struct{}
-	rng                           routing.Rng
-	affinityKey                   affinity.Key
-	affinitySet                   bool
-	interleaved                   interleavedstate.State
-	recoverPolicy                 *streamrecovery.Policy
-	streamRecovery                streamrecovery.Config
-	nowFn                         func() time.Time
-	logMemoStoreSkippedFn         func(context.Context, string, string, bool)
-	logMemoCapturedFn             func(context.Context, string, interleavedthinking.MemoState)
-	logPhaseTransitionFn          func(context.Context, string)
-	persistCapturedMemoFn         func(context.Context, string, interleavedstate.State, interleavedthinking.MemoState) (interleavedstate.State, error)
-	openInterleavedContinuationFn func(context.Context, *retryRecvStream, interleavedstate.State) (*retryRecvStream, error)
-	logMemoPersistFailedFn        func(context.Context, string, error)
-	appendTerminalLegFn           func(context.Context, *billingCallState, string, b2bua.BLegRecord, routing.Primary, time.Time, time.Time, billing.LegOutcome)
-	commitAffinityFn              func(context.Context, affinity.Binding, string)
+	e              recoveryEnvironment
+	affinityStore  affinity.Store
+	log            *slog.Logger
+	streamRecovery streamrecovery.Config
+	opener         replacementOpener
+	budget         *attemptBudget
+	ttft           *ttftBudget
+	sel            *routing.Selector
+	requestSize    routing.RequestSizeEstimate
+	session        *routing.SessionRoutingState
+	excluded       map[string]struct{}
+	rng            routing.Rng
+	affinityKey    affinity.Key
+	affinitySet    bool
+	interleaved    interleavedstate.State
+	recoverPolicy  *streamrecovery.Policy
 }
 
 func newRecoveryController(in recoveryControllerInput) *recoveryController {
+	failures := in.budget.getFailures()
+	if failures.progress != nil {
+		r := failures.progress
+		if in.opener != nil {
+			r.opener = in.opener
+		}
+		r.interleaved = in.interleaved
+		if in.recoverPolicy != nil {
+			r.recoverPolicy = in.recoverPolicy
+		}
+		if r.affinityCommitOnce == nil {
+			r.affinityCommitOnce = &sync.Once{}
+		}
+		return r
+	}
 	policy := in.recoverPolicy
-	if policy == nil && in.nowFn != nil {
-		policy = streamrecovery.NewPolicy(in.streamRecovery, in.nowFn())
+	if policy == nil {
+		var now time.Time
+		if in.e != nil {
+			now = in.e.now()
+		} else {
+			now = time.Now()
+		}
+		policy = streamrecovery.NewPolicy(in.streamRecovery, now)
 	}
 	r := &recoveryController{
-		opener:                        in.opener,
-		streamRecovery:                in.streamRecovery,
-		nowFn:                         in.nowFn,
-		logMemoStoreSkippedFn:         in.logMemoStoreSkippedFn,
-		logMemoCapturedFn:             in.logMemoCapturedFn,
-		logPhaseTransitionFn:          in.logPhaseTransitionFn,
-		persistCapturedMemoFn:         in.persistCapturedMemoFn,
-		openInterleavedContinuationFn: in.openInterleavedContinuationFn,
-		logMemoPersistFailedFn:        in.logMemoPersistFailedFn,
-		appendTerminalLegFn:           in.appendTerminalLegFn,
-		commitAffinityFn:              in.commitAffinityFn,
-		budget:                        in.budget,
-		ttft:                          in.ttft,
-		sel:                           in.sel,
-		requestSize:                   in.requestSize,
-		session:                       in.session,
-		excluded:                      in.excluded,
-		rng:                           in.rng,
-		affinityKey:                   in.affinityKey,
-		affinitySet:                   in.affinitySet,
-		recoverPolicy:                 policy,
-		interleaved:                   in.interleaved,
+		e:                  in.e,
+		affinityStore:      in.affinityStore,
+		log:                in.log,
+		streamRecovery:     in.streamRecovery,
+		opener:             in.opener,
+		budget:             in.budget,
+		ttft:               in.ttft,
+		sel:                in.sel,
+		requestSize:        in.requestSize,
+		session:            in.session,
+		excluded:           in.excluded,
+		rng:                in.rng,
+		affinityKey:        in.affinityKey,
+		affinitySet:        in.affinitySet,
+		affinityCommitOnce: &sync.Once{},
+		recoverPolicy:      policy,
+		interleaved:        in.interleaved,
+		failures:           failures,
 	}
+	failures.progress = r
 	return r
 }
-
+func (r *recoveryController) getFailures() *candidateFailureHistory {
+	if r == nil {
+		return &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
+	}
+	if r.failures == nil {
+		if r.budget != nil && r.budget.failures != nil {
+			r.failures = r.budget.failures
+		} else {
+			r.failures = &candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
+		}
+	}
+	return r.failures
+}
 func (r *recoveryController) scopedIdleContext(parent context.Context, parentCancel context.CancelFunc, now time.Time) (context.Context, context.CancelFunc, idleContextDeadline) {
 	if r == nil || r.recoverPolicy == nil || parent == nil {
 		return parent, parentCancel, idleContextDeadline{}
@@ -170,7 +184,6 @@ func (r *recoveryController) idleRecvDecision(now time.Time) recvRecoveryDecisio
 		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
-
 func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision {
 	if r == nil || r.recoverPolicy == nil {
 		return recvRecoveryDecision{}
@@ -182,10 +195,6 @@ func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision
 		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
-
-// bindOpener supports focused runtime fixtures that construct a stream owner
-// directly. Production assembly supplies the same collaborators at construction;
-// this one-way bind does not create a second recovery seam.
 func (r *recoveryController) bindOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg) {
 	if r == nil {
 		return
@@ -194,102 +203,28 @@ func (r *recoveryController) bindOpener(e *Executor, bus *hooks.Bus, aScope *leg
 		r.opener = newReplacementOpener(e, bus, aScope)
 	}
 	if e != nil {
-		if r.nowFn == nil {
-			r.nowFn = e.now
-		}
-		if r.streamRecovery == (streamrecovery.Config{}) {
-			r.streamRecovery = e.StreamRecovery
-		}
-		if r.logMemoStoreSkippedFn == nil {
-			r.logMemoStoreSkippedFn = e.logInterleavedMemoStoreSkipped
-		}
-		if r.logMemoCapturedFn == nil {
-			r.logMemoCapturedFn = e.logInterleavedMemoCaptured
-		}
-		if r.logPhaseTransitionFn == nil {
-			r.logPhaseTransitionFn = e.logInterleavedPhaseTransition
-		}
-		if r.persistCapturedMemoFn == nil {
-			r.persistCapturedMemoFn = e.persistCapturedMemo
-		}
-		if r.openInterleavedContinuationFn == nil {
-			r.openInterleavedContinuationFn = e.openInterleavedExecutorContinuation
-		}
-		if r.logMemoPersistFailedFn == nil {
-			r.logMemoPersistFailedFn = e.logInterleavedMemoPersistFailed
-		}
-		if r.appendTerminalLegFn == nil {
-			r.appendTerminalLegFn = e.appendIndependentTerminalLeg
-		}
-		if r.commitAffinityFn == nil {
-			r.commitAffinityFn = recoveryCommitAffinityCallback(e)
-		}
+		r.e = e
+		r.affinityStore = e.AffinityStore
+		r.log = e.Log
+		r.streamRecovery = e.StreamRecovery
 	}
 }
 
-func recoveryCommitAffinityCallback(e *Executor) func(context.Context, affinity.Binding, string) {
-	if e == nil {
-		return nil
-	}
-	return func(ctx context.Context, binding affinity.Binding, traceID string) {
-		persistCtx := context.WithoutCancel(ctx)
-		if e.AffinityStore == nil {
-			return
-		}
-		if err := e.AffinityStore.Set(persistCtx, binding); err != nil {
-			if e.Log != nil {
-				e.Log.DebugContext(persistCtx, "affinity binding set failed", "error", err)
-			}
-			return
-		}
-		e.noteRouteDecision(persistCtx, traceID, "affinity_bind", binding.BackendID)
-	}
-}
-
-// recoveryOpenSnapshot is the adapter-facing view of controller state. The
-// pointed-to values remain owned by recoveryController and are mutated only by
-// the current recv owner through this component.
 type recoveryOpenSnapshot struct {
-	sel                      *routing.Selector
-	requestSize              routing.RequestSizeEstimate
-	session                  *routing.SessionRoutingState
-	excluded                 map[string]struct{}
-	rng                      routing.Rng
-	budget                   *attemptBudget
-	ttft                     *ttftBudget
-	lastReject               *lipapi.NegotiationResult
-	lastTransportReject      *lipapi.TransportNegotiationResult
-	lastAdmissionErr         *error
-	affinityKey              affinity.Key
-	affinitySet              bool
-	isContextLimitExhaustion *bool
-	transformExcludes        *transformExcludeTracker
-	interleaved              interleavedstate.State
-	suppressThinker          bool
-	suppressVisibleMemo      bool
-	lastParallelFailure      *error
+	progress *recoveryController
+	facts    routeFacts
 }
 
 func (r *recoveryController) openSnapshot() recoveryOpenSnapshot {
 	return recoveryOpenSnapshot{
-		sel:                      r.sel,
-		requestSize:              r.requestSize,
-		session:                  r.session,
-		excluded:                 r.excluded,
-		rng:                      r.rng,
-		budget:                   r.budget,
-		ttft:                     r.ttft,
-		lastReject:               &r.lastHardReject,
-		lastTransportReject:      &r.lastHardTransportReject,
-		lastAdmissionErr:         &r.lastAdmissionErr,
-		affinityKey:              r.affinityKey,
-		affinitySet:              r.affinitySet,
-		isContextLimitExhaustion: &r.isContextLimitExhaustion,
-		transformExcludes:        &r.transformExcludes,
-		interleaved:              r.interleaved,
-		suppressThinker:          r.suppressThinker,
-		suppressVisibleMemo:      r.suppressVisibleMemo,
-		lastParallelFailure:      &r.lastParallelFailure,
+		progress: r,
+		facts: routeFacts{
+			sel:         r.sel,
+			requestSize: r.requestSize,
+			affinityKey: r.affinityKey,
+			affinitySet: r.affinitySet,
+			rng:         r.rng,
+		},
 	}
 }
 
@@ -297,11 +232,9 @@ type priorAttemptOutcome struct {
 	attempt *attemptSession
 	retired bool
 }
-
-// replacementOpenRequest/result are the narrow D10 adapter seam. Consumers do
-// not need to know the upstream attemptOpenParams representation.
 type replacementOpenRequest struct {
 	facts               requestTerminalFacts
+	pinnedFacts         recvTurnFacts
 	recovery            recoveryOpenSnapshot
 	prior               priorAttemptOutcome
 	isRetryPath         bool
@@ -309,7 +242,6 @@ type replacementOpenRequest struct {
 	suppressThinker     bool
 	suppressVisibleMemo bool
 }
-
 type replacementOpenResult struct {
 	opened      bool
 	registered  bool
@@ -318,72 +250,54 @@ type replacementOpenResult struct {
 	cand        routing.AttemptCandidate
 	authority   attemptAuthorityState
 	interleaved interleavedstate.State
+	session     *attemptSession
 }
-
-// replacementIterationResult is the recovery-owned decision and fully built
-// next attempt. Slot publication and terminal registration remain outside this
-// value so Close can arbitrate publication in one explicit Recv sequence.
 type replacementIterationResult struct {
 	opened bool
 	open   replacementOpenResult
 	next   *attemptSession
 }
-
 type replacementOpener func(context.Context, replacementOpenRequest) (replacementOpenResult, error)
 
-// newReplacementOpener is the documented D10 upstream bridge. Recovery owns
-// only this narrow open operation; all other executor behavior enters through
-// individually typed callbacks installed at construction.
 func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg) replacementOpener {
 	return func(ctx context.Context, req replacementOpenRequest) (replacementOpenResult, error) {
 		if e == nil {
 			return replacementOpenResult{}, errors.New("runtime: nil replacement opener executor")
 		}
 		p := req.recovery
-		out, err := e.tryPlanOpenOnce(ctx, attemptOpenParams{
-			bus:                      bus,
-			traceID:                  req.facts.traceID,
-			aLegID:                   req.facts.aLegID,
-			aScope:                   aScope,
-			baseline:                 req.facts.call,
-			failoverReq:              capabilities.NewFailoverRequirementSet(req.facts.call),
-			sel:                      p.sel,
-			requestSize:              p.requestSize,
-			session:                  p.session,
-			excluded:                 p.excluded,
-			rng:                      p.rng,
-			budget:                   p.budget,
-			ttft:                     p.ttft,
-			isRetryPath:              req.isRetryPath,
-			lastReject:               p.lastReject,
-			lastTransportReject:      p.lastTransportReject,
-			lastAdmissionErr:         p.lastAdmissionErr,
-			affinityKey:              p.affinityKey,
-			affinitySet:              p.affinitySet,
-			isContextLimitExhaustion: p.isContextLimitExhaustion,
-			transformExcludes:        p.transformExcludes,
-			interleaved:              req.interleaved,
-			suppressThinker:          req.suppressThinker,
-			suppressVisibleMemo:      req.suppressVisibleMemo,
-			lastParallelFailure:      p.lastParallelFailure,
-			billingCallID:            req.facts.billingCallID,
-			billingCallState:         req.facts.billingState,
+		out, err := e.openNext(ctx, openNextRequest{
+			reqFacts: requestFacts{
+				recvTurnFacts:       req.pinnedFacts,
+				bus:                 bus,
+				aScope:              aScope,
+				suppressThinker:     req.suppressThinker,
+				suppressVisibleMemo: req.suppressVisibleMemo,
+			},
+			routeFacts:  p.facts,
+			progress:    p.progress,
+			mode:        openModeRetry,
+			interleaved: req.interleaved,
 		})
 		if err != nil {
 			return replacementOpenResult{}, err
 		}
-		return replacementOpenResult{
-			opened:      out.opened,
-			registered:  out.registered,
-			stream:      out.stream,
-			bleg:        out.bleg,
-			cand:        out.cand,
-			authority:   out.authority,
+		res := replacementOpenResult{
+			opened:      out.session != nil,
+			registered:  out.session != nil,
 			interleaved: out.interleaved,
-		}, nil
+			session:     out.session,
+		}
+		if out.session != nil {
+			res.bleg = out.session.bleg
+			res.stream = out.session.inner
+			res.cand = out.session.cand
+			if out.session.authority.control != nil {
+				res.authority = out.session.authority.control.state
+			}
+		}
+		return res, nil
 	}
 }
-
 func (r *recoveryController) openReplacement(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementOpenResult, error) {
 	if r == nil || r.opener == nil {
 		return replacementOpenResult{}, errors.New("runtime: replacement opener unavailable")
@@ -400,6 +314,7 @@ func (r *recoveryController) openReplacement(ctx context.Context, request reques
 	}
 	out, err := r.opener(ctx, replacementOpenRequest{
 		facts:               request,
+		pinnedFacts:         request.toRecvTurnFacts(ctx),
 		recovery:            r.openSnapshot(),
 		prior:               priorOutcome,
 		isRetryPath:         true,
@@ -412,20 +327,17 @@ func (r *recoveryController) openReplacement(ctx context.Context, request reques
 	}
 	return out, err
 }
-
-// openInterleavedAttempt keeps the continuation's upstream translation beside
-// the D10 replacement adapter. The continuation still uses the existing
-// planner/open algorithm; only the recovery-owned inputs are projected here.
 func (r *recoveryController) openInterleavedAttempt(
 	ctx context.Context,
 	facts recvTurnFacts,
 	state interleavedstate.State,
-) (attemptOpenResult, error) {
+) (openedAttempt, error) {
 	if r == nil || r.opener == nil {
-		return attemptOpenResult{}, errors.New("runtime: interleaved opener unavailable")
+		return openedAttempt{}, errors.New("runtime: interleaved opener unavailable")
 	}
 	out, err := r.opener(ctx, replacementOpenRequest{
 		facts:               facts.terminalFacts(),
+		pinnedFacts:         facts.clone(),
 		recovery:            r.openSnapshot(),
 		prior:               priorAttemptOutcome{retired: true},
 		isRetryPath:         false,
@@ -437,70 +349,73 @@ func (r *recoveryController) openInterleavedAttempt(
 		r.interleaved = out.interleaved
 		r.suppressThinker = true
 		r.suppressVisibleMemo = true
-		r.resetPolicy(r.nowFn)
+		var nowFn func() time.Time
+		if r.e != nil {
+			nowFn = r.e.now
+		} else {
+			nowFn = time.Now
+		}
+		r.resetPolicy(nowFn)
 	}
-	return attemptOpenResult{
-		opened:      out.opened,
-		registered:  out.registered,
-		stream:      out.stream,
-		bleg:        out.bleg,
-		cand:        out.cand,
-		authority:   out.authority,
+	return openedAttempt{
+		session:     out.session,
 		interleaved: out.interleaved,
 	}, err
 }
 
 func (r *recoveryController) resetPolicy(now func() time.Time) {
-	if r == nil || now == nil {
+	if r == nil {
 		return
 	}
-	r.recoverPolicy = streamrecovery.NewPolicy(r.streamRecovery, now())
+	var cfg streamrecovery.Config
+	var t time.Time
+	if r.e != nil {
+		cfg = r.streamRecovery
+		t = r.e.now()
+	} else if now != nil {
+		t = now()
+	} else {
+		t = time.Now()
+	}
+	r.recoverPolicy = streamrecovery.NewPolicy(cfg, t)
 }
-
 func (r *recoveryController) logMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool) {
-	if r != nil && r.logMemoStoreSkippedFn != nil {
-		r.logMemoStoreSkippedFn(ctx, traceID, reason, interrupted)
+	if r != nil && r.e != nil {
+		r.e.logInterleavedMemoStoreSkipped(ctx, traceID, reason, interrupted)
 	}
 }
-
 func (r *recoveryController) logMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState) {
-	if r != nil && r.logMemoCapturedFn != nil {
-		r.logMemoCapturedFn(ctx, traceID, memo)
+	if r != nil && r.e != nil {
+		r.e.logInterleavedMemoCaptured(ctx, traceID, memo)
 	}
 }
-
 func (r *recoveryController) logPhaseTransition(ctx context.Context, traceID string) {
-	if r != nil && r.logPhaseTransitionFn != nil {
-		r.logPhaseTransitionFn(ctx, traceID)
+	if r != nil && r.e != nil {
+		r.e.logInterleavedPhaseTransition(ctx, traceID)
 	}
 }
-
 func (r *recoveryController) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error) {
-	if r == nil || r.persistCapturedMemoFn == nil {
+	if r == nil || r.e == nil {
 		return state, errors.New("runtime: interleaved memo persistence unavailable")
 	}
-	return r.persistCapturedMemoFn(ctx, aLegID, state, memo)
+	return r.e.persistCapturedMemo(ctx, aLegID, state, memo)
 }
-
 func (r *recoveryController) openInterleavedContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error) {
-	if r == nil || r.openInterleavedContinuationFn == nil {
+	if r == nil || r.e == nil {
 		return nil, errors.New("runtime: interleaved continuation opener unavailable")
 	}
-	return r.openInterleavedContinuationFn(ctx, from, state)
+	return r.e.openInterleavedExecutorContinuation(ctx, from, state)
 }
-
 func (r *recoveryController) logMemoPersistFailed(ctx context.Context, traceID string, err error) {
-	if r != nil && r.logMemoPersistFailedFn != nil {
-		r.logMemoPersistFailedFn(ctx, traceID, err)
+	if r != nil && r.e != nil {
+		r.e.logInterleavedMemoPersistFailed(ctx, traceID, err)
 	}
 }
-
 func (r *recoveryController) appendTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
-	if r != nil && r.appendTerminalLegFn != nil {
-		r.appendTerminalLegFn(ctx, state, aLegID, bleg, primary, started, finished, outcome)
+	if r != nil && r.e != nil {
+		r.e.appendIndependentTerminalLeg(ctx, state, aLegID, bleg, primary, started, finished, outcome)
 	}
 }
-
 func (r *recoveryController) exclude(key string) {
 	if r == nil {
 		return
@@ -510,54 +425,48 @@ func (r *recoveryController) exclude(key string) {
 	}
 	r.excluded[key] = struct{}{}
 }
-
 func (r *recoveryController) commitAffinity(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, now time.Time, reason string) {
-	if r == nil || r.commitAffinityFn == nil || !r.affinitySet || !r.affinityKey.Valid() || attempt == nil {
+	if r == nil || r.e == nil || !r.affinitySet || !r.affinityKey.Valid() || attempt == nil || r.affinityStore == nil {
 		return
+	}
+	if r.affinityCommitOnce == nil {
+		r.affinityCommitOnce = &sync.Once{}
 	}
 	r.affinityCommitOnce.Do(func() {
 		binding := affinity.BindingFromCandidate(r.affinityKey, attempt.cand, now, reason)
 		if strings.TrimSpace(binding.BackendID) == "" {
 			return
 		}
-		r.commitAffinityFn(ctx, binding, request.traceID)
+		persistCtx := context.WithoutCancel(ctx)
+		if err := r.affinityStore.Set(persistCtx, binding); err != nil {
+			if r.log != nil {
+				r.log.DebugContext(persistCtx, "affinity binding set failed", "error", err)
+			}
+			return
+		}
+		r.e.noteRouteDecision(persistCtx, request.traceID, "affinity_bind", binding.BackendID)
 	})
 }
-
-// tryReplacementIteration performs recovery-owned planning, admission, and
-// construction of one replacement attempt. Recv owns registration, slot
-// publication, response evidence, and terminal observation after this result.
 func (r *recoveryController) tryReplacementIteration(ctx context.Context, request requestTerminalFacts, prior *attemptSession, committed bool) (replacementIterationResult, error) {
-	var result replacementIterationResult
-	if r == nil {
-		return result, errors.New("runtime: recv recovery controller unavailable")
-	}
-	if prior == nil {
-		return result, errors.New("runtime: replacement attempt unavailable")
+	if r == nil || prior == nil {
+		return replacementIterationResult{}, errors.New("runtime: recovery controller or replacement attempt unavailable")
 	}
 	ctx = diag.EnsureCallDiag(ctx, request.traceID, request.aLegID)
 	if err := ctx.Err(); err != nil {
-		return result, err
+		return replacementIterationResult{}, err
 	}
 	if request.replacementBlocked {
-		return result, &lipapi.UpstreamFailureError{Phase: lipapi.PhasePostOutput, Recoverable: false, Reason: "secure session mandatory recorder failure after committed output", CandidateKey: strings.TrimSpace(prior.cand.Key)}
+		return replacementIterationResult{}, &lipapi.UpstreamFailureError{Phase: lipapi.PhasePostOutput, Recoverable: false, Reason: "secure session mandatory recorder failure after committed output", CandidateKey: strings.TrimSpace(prior.cand.Key)}
 	}
 	if !prior.authority.Settled() {
 		prior.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 	}
 	out, err := r.openReplacement(ctx, request, prior, committed)
 	if err != nil || !out.opened {
-		return result, err
+		return replacementIterationResult{}, err
 	}
-	if r.attemptFactory == nil {
-		return result, errors.New("runtime: replacement attempt construction unavailable")
+	if out.session == nil {
+		return replacementIterationResult{}, errors.New("runtime: replacement attempt construction unavailable")
 	}
-	next := r.attemptFactory(out, request)
-	if next == nil {
-		return result, errors.New("runtime: replacement attempt construction unavailable")
-	}
-	result.opened = true
-	result.open = out
-	result.next = next
-	return result, nil
+	return replacementIterationResult{opened: true, open: out, next: out.session}, nil
 }

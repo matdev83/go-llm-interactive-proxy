@@ -42,12 +42,16 @@ func TestPhase6_requestAdmitOnceZerosAttemptRequestCount(t *testing.T) {
 		t.Fatal("expected request authority state after admit")
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
-	out, err := ex.openPlannedCandidate(ctx, p, authorityCandidate(), nil, "", false)
-	if err != nil {
-		t.Fatalf("openPlannedCandidate: %v", err)
+	budget := &attemptBudget{max: 5}
+	req := authorityOpenRequest(t, aLegID, budget)
+	plan := candidatePlan{
+		cand: authorityCandidate(),
 	}
-	if !out.opened {
+	out, err := ex.evaluateAndOpenCandidate(ctx, req, plan)
+	if err != nil {
+		t.Fatalf("evaluateAndOpenCandidate: %v", err)
+	}
+	if out.session == nil {
 		t.Fatal("expected open")
 	}
 
@@ -111,19 +115,20 @@ func TestPhase6_parallelRaceDoesNotReReserveCustomerRequestCount(t *testing.T) {
 		t.Fatalf("admitRequestAuthorityOnce: %v", err)
 	}
 
-	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
-	p.aScope = aScope
-	p.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
+	req.reqFacts.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
 	candidates := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},
 		{Primary: routing.Primary{Backend: "backend-2", Model: "model-2"}, Key: "backend-2:model-2"},
 	}
 
-	out, err := ex.tryOpenParallelGroup(ctx, p, candidates, nil, "", false)
+	out, err := ex.tryOpenParallelGroup(ctx, req, candidates, nil, "", false)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if !out.opened {
+	if out.session == nil {
 		t.Fatal("expected parallel race to open a backend")
 	}
 

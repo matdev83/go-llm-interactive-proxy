@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -53,49 +54,52 @@ func (e *Executor) evaluateCandidateAdmission(
 
 func (e *Executor) noteCandidateAdmissionReject(
 	ctx context.Context,
-	p attemptOpenParams,
+	traceID string,
+	affinityKey affinity.Key,
+	affinitySet bool,
 	c routing.AttemptCandidate,
 	stickyBackendID string,
 	stickyBinding bool,
 	out candidateAdmissionOutcome,
 	phase string,
+	failures *candidateFailureHistory,
 ) {
 	reason := "admission_reject"
 	if out.admitRes.Transport.Kind == lipapi.NegotiationReject {
 		reason = "transport_reject"
 		e.recordTransportNegotiation(out.admitRes.Transport.Operation, out.admitRes.Transport.Mode, "reject")
-		if p.lastTransportReject != nil {
-			*p.lastTransportReject = out.admitRes.Transport
+		if failures != nil {
+			failures.TransportReject = out.admitRes.Transport
 		}
 	} else if out.admitRes.Capability.Kind == lipapi.NegotiationReject {
 		reason = "capability_reject"
-		if p.lastReject != nil {
-			*p.lastReject = out.admitRes.Capability
+		if failures != nil {
+			failures.CapabilityReject = out.admitRes.Capability
 		}
 	} else if out.admitRes.Requirements.Kind == lipapi.NegotiationReject {
 		reason = "requirements_reject"
-		if p.lastAdmissionErr != nil {
-			*p.lastAdmissionErr = out.admitRes.Requirements.Err()
+		if failures != nil {
+			failures.AdmissionErr = out.admitRes.Requirements.Err()
 		}
 	} else if out.admitRes.ProjectionError != nil {
 		reason = "projection_reject"
-		if p.lastAdmissionErr != nil {
-			*p.lastAdmissionErr = out.admitRes.ProjectionError
+		if failures != nil {
+			failures.AdmissionErr = out.admitRes.ProjectionError
 		}
 	}
 	if stickyBinding && c.Primary.Backend == stickyBackendID {
-		e.clearAffinityBinding(ctx, p.traceID, p.affinityKey, p.affinitySet, reason)
+		e.clearAffinityBinding(ctx, traceID, affinityKey, affinitySet, reason)
 	}
 	diag.LogDecision(
-		ctx, e.Log, reason, diag.AttrOpts{CallID: p.traceID},
+		ctx, e.Log, reason, diag.AttrOpts{CallID: traceID},
 		slog.String("decision", "exclude_candidate"),
 		slog.String("candidate_key", c.Key),
 		slog.String("backend", c.Primary.Backend),
 		slog.String("phase", phase),
 	)
 	cat := catalogRouteTraceIfEnabled(e, out.facts, out.admitRes.Capability, nil, false)
-	e.notePlanCandidate(ctx, p.traceID, c.Key, cat)
-	if p.transformExcludes != nil {
-		p.transformExcludes.noteOther()
+	e.notePlanCandidate(ctx, traceID, c.Key, cat)
+	if failures != nil {
+		failures.TransformExcludes.noteOther()
 	}
 }
