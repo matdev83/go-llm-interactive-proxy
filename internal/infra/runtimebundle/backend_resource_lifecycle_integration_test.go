@@ -28,19 +28,20 @@ import (
 // TestBackendResourceRuntimeBundle_CandidateRollbackLeavesActiveResourceUsable
 // proves that an unchanged active resource and a candidate share one physical
 // build, while candidate rollback releases only the candidate claim. Query
-// preparation remains allowed; physical lifecycle callbacks are not.
+// preparation remains allowed; generation-local lifecycle callbacks are not
+// part of a pool-compatible backend.
 func TestBackendResourceRuntimeBundle_CandidateRollbackLeavesActiveResourceUsable(t *testing.T) {
 	t.Parallel()
 
 	id := backendResourcePoolTestIdentity(t, "runtimebundle-candidate-isolation")
 	pool := newBackendResourcePool()
 	t.Cleanup(func() { _ = pool.Close() })
-	var builds, physicalCleanups, mutatingCalls, executions atomic.Int32
+	var builds, physicalCleanups, executions atomic.Int32
 	queries := &backendResourceLifecycleQueryProbe{}
 
 	build := func(context.Context, uint64) (execbackend.Backend, func() error, error) {
 		builds.Add(1)
-		backend := backendResourceLifecycleBackend(queries, &executions, &mutatingCalls)
+		backend := backendResourceLifecycleBackend(queries, &executions)
 		return backend, func() error {
 			physicalCleanups.Add(1)
 			return nil
@@ -89,10 +90,6 @@ func TestBackendResourceRuntimeBundle_CandidateRollbackLeavesActiveResourceUsabl
 	if got := queries.loads.Load(); got != 1 {
 		t.Fatalf("query preparation calls=%d, want 1", got)
 	}
-	if got := mutatingCalls.Load(); got != 0 {
-		t.Fatalf("reuse-hit physical mutation calls=%d, want 0", got)
-	}
-
 	if err := candidate.Cleanup(); err != nil {
 		t.Fatalf("candidate rollback: %v", err)
 	}
@@ -393,22 +390,7 @@ func (p *backendResourceLifecycleQueryProbe) LoadModels(ctx context.Context) (mo
 	return modelinventory.Snapshot{Models: []modelinventory.Model{{CanonicalID: "query-model"}}}, nil
 }
 
-func backendResourceLifecycleBackend(
-	queries modelinventory.Provider,
-	executions, mutatingCalls *atomic.Int32,
-) execbackend.Backend {
-	physicalClose := func() error {
-		mutatingCalls.Add(1)
-		return nil
-	}
-	physicalStart := func(context.Context) error {
-		mutatingCalls.Add(1)
-		return nil
-	}
-	physicalStop := func(context.Context) error {
-		mutatingCalls.Add(1)
-		return nil
-	}
+func backendResourceLifecycleBackend(queries modelinventory.Provider, executions *atomic.Int32) execbackend.Backend {
 	return execbackend.Backend{
 		Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		BackendPrefixes: []string{"runtimebundle-lifecycle"},
@@ -417,10 +399,5 @@ func backendResourceLifecycleBackend(
 			executions.Add(1)
 			return lipapi.NewFixedEventStream(nil), nil
 		},
-		// These callbacks model the physical adapter/session lifecycle. A pooled
-		// generation-facing value must strip them before publication.
-		Close: physicalClose,
-		Start: physicalStart,
-		Stop:  physicalStop,
 	}
 }

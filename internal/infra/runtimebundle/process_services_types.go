@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/geoip"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -46,6 +47,7 @@ type ProcessServices struct {
 	FactoryCatalog        *pluginreg.Registry
 	Tracing               ProcessTracing
 	Metrics               *metrics.Bundle
+	GeoIP                 *geoip.Service
 	DatabasePools         *db.PoolRegistry
 	Continuity            b2bua.Store
 	RouteOverrideStore    routeoverride.Store

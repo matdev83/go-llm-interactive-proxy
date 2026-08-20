@@ -79,6 +79,32 @@ func TestAggregateProtectedTrafficPostureUnavailableWhenStrictAuthorityDown(t *t
 	}
 }
 
+func TestAggregateProtectedTrafficPostureBillingSpoolIsAdvisory(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1700000000, 0).UTC()
+	posture := controlplane.AggregateProtectedTrafficPosture([]controlplane.ReadinessComponentStatus{
+		{
+			Component:        controlplane.ReadinessComponentBillingSpool,
+			State:            controlplane.CapabilityUnavailable,
+			Reason:           controlplane.ReasonStoreNotReady,
+			EnforcementScope: controlplane.EnforcementScopeAdvisorySingleProcess,
+		},
+	}, now)
+	if posture.State != controlplane.CapabilityUnavailable {
+		t.Fatalf("state=%q want unavailable", posture.State)
+	}
+	if !posture.MayServeStrict {
+		t.Fatal("advisory billing spool must not block strict traffic posture")
+	}
+}
+
+func TestReadinessComponentBillingSpoolIDIsStable(t *testing.T) {
+	t.Parallel()
+	if got := controlplane.ReadinessComponentBillingSpool; got != "billing_spool" {
+		t.Fatalf("component=%q want billing_spool", got)
+	}
+}
+
 func TestReadinessReportJSONRoundTripIndependentComponents(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1700000000, 0).UTC()

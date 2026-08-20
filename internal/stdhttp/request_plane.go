@@ -28,6 +28,8 @@ type (
 	StandardHTTPInput   = httpcontract.StandardHTTPInput
 	HTTPCoreInput       = httpcontract.HTTPCoreInput
 	HTTPSecurityInput   = httpcontract.HTTPSecurityInput
+	GeoIPSecurityInput  = httpcontract.GeoIPSecurityInput
+	GeoIPResolverConfig = httpcontract.GeoIPResolverConfig
 	HTTPOperationsInput = httpcontract.HTTPOperationsInput
 	HTTPModelInput      = httpcontract.HTTPModelInput
 	HTTPFrontendInput   = httpcontract.HTTPFrontendInput

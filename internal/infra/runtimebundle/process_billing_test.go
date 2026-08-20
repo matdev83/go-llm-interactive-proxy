@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestBuildProcessBillingRuntimeOwnsResourcesAcrossGenerationLifetime(t *test
 		BillingCallRatingResolver:   processBillingCallResolver{},
 		BillingProviderCostResolver: processBillingProviderResolver{},
 	}
-	if _, err := buildProcessBillingRuntime(owner, context.Background(), "", "", prod); err != nil {
+	if _, err := buildProcessBillingRuntime(owner, "", prod); err != nil {
 		t.Fatal(err)
 	}
 	sink.mu.Lock()
@@ -130,5 +131,26 @@ func TestBuildProcessBillingRuntimeOwnsResourcesAcrossGenerationLifetime(t *test
 	sink.mu.Unlock()
 	if starts != 1 || stops != 1 || closes != 1 {
 		t.Fatalf("lifecycle after process close = starts:%d stops:%d closes:%d", starts, stops, closes)
+	}
+}
+
+func TestBuildProcessBillingRuntimeRequiresInjectedTerminalSink(t *testing.T) {
+	t.Parallel()
+	var closers []func() error
+	owner := &processResourceOwner{register: func(close func() error) { closers = append(closers, close) }}
+	prod := ProductionOptions{
+		BillingStore:                processBillingStore{},
+		BillingCreditGate:           processBillingCreditGate{},
+		BillingExposureAdmission:    processBillingAdmission{},
+		BillingIdentity:             runtimecore.BillingIdentity{AccountID: func(context.Context, lipapi.Call) string { return "account" }},
+		BillingCallRatingResolver:   processBillingCallResolver{},
+		BillingProviderCostResolver: processBillingProviderResolver{},
+	}
+	_, err := buildProcessBillingRuntime(owner, "", prod)
+	if !errors.Is(err, ErrAuthoritativeBillingRequired) {
+		t.Fatalf("buildProcessBillingRuntime error = %v, want injected terminal sink requirement", err)
+	}
+	if len(closers) != 0 {
+		t.Fatalf("incomplete billing composition registered %d process resources", len(closers))
 	}
 }

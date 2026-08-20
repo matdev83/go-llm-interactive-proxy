@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -11,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingspool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -117,6 +119,7 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			}, nil
 		}
 	}
+	src.BillingSpool = billingSpoolHealth(in.Production.BillingTerminalUsageSink)
 	if in.SnapshotGeneration != nil {
 		gen := in.SnapshotGeneration
 		src.SnapshotStates = func() (controlplane.CapabilityState, controlplane.CapabilityState, controlplane.CapabilityState) {
@@ -186,6 +189,28 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 	return corecp.NewReadinessReportService(src)
 }
 
+func billingSpoolHealth(sink billing.TerminalUsageSink) func(context.Context) (controlplane.ReadinessComponentStatus, error) {
+	probe, ok := sink.(interface{ Health() billingspool.Health })
+	if !ok {
+		return nil
+	}
+	return func(_ context.Context) (controlplane.ReadinessComponentStatus, error) {
+		health := probe.Health()
+		state, reason := controlplane.CapabilityUnavailable, controlplane.ReasonBackingUnavailable
+		switch health.State {
+		case billingspool.HealthReady:
+			state, reason = controlplane.CapabilityReady, controlplane.ReasonNone
+		case billingspool.HealthDegraded:
+			state, reason = controlplane.CapabilityDegraded, controlplane.ReasonStoreNotReady
+		case billingspool.HealthFull:
+			reason = controlplane.ReasonStoreNotReady
+		}
+		return controlplane.ReadinessComponentStatus{
+			Component: controlplane.ReadinessComponentBillingSpool, State: state, Reason: reason,
+			EnforcementScope: controlplane.EnforcementScopeAdvisorySingleProcess, StoreBacking: "injected",
+		}, nil
+	}
+}
 func mapSnapshotState(s economics.SnapshotState) controlplane.CapabilityState {
 	switch s {
 	case economics.SnapshotReady, economics.SnapshotStale:

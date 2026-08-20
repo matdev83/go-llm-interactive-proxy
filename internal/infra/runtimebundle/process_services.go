@@ -85,6 +85,9 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	fail := func(err error) (*ProcessServices, error) {
 		return nil, withDisposedClosers(err, ps.closers)
 	}
+	if err := configureGeoIPProcessService(parent, ps, in.Cfg, register); err != nil {
+		return fail(err)
+	}
 
 	// Process-owned pool/host/artifacts/staging: register in acquisition order
 	// (staging → artifacts → host → pool) so reverse disposal keeps the pool
@@ -153,7 +156,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	if controlPlane != nil {
 		register(controlPlane.closer)
 	}
-	if err := configureProcessBilling(owner, parent, in.Cfg, in.Opts); err != nil {
+	if err := configureProcessBilling(owner, in.Cfg, in.Opts); err != nil {
 		return fail(err)
 	}
 	policyObs := assemblePolicyObserverChain(in.Opts, controlPlane)
@@ -178,6 +181,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	ps.Metrics = buildProcessMetricsBundle(in.Cfg, postgresPools.Stats)
+	if ps.Metrics != nil && ps.Metrics.GeoIP != nil && ps.GeoIP != nil {
+		status := ps.GeoIP.Status()
+		ps.Metrics.GeoIP.SetReady(status.Ready)
+		if !status.UpdatedAt.IsZero() {
+			ps.Metrics.GeoIP.SetAge(time.Since(status.UpdatedAt))
+		}
+	}
 	if ps.UsageAuthority != nil && ps.Metrics != nil {
 		ps.UsageAuthority.SetStageMetrics(ps.Metrics.AuthorityStageSink())
 	}

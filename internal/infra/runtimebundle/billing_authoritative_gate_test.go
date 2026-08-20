@@ -79,7 +79,7 @@ func TestRequireCompleteBillingCompositionRejectsEveryPartialPortSet(t *testing.
 	}
 }
 
-func TestRequireStableSpoolPathRejectsVolatileLocations(t *testing.T) {
+func TestValidateStablePathRejectsVolatileLocations(t *testing.T) {
 	t.Parallel()
 	// A literal stable state path, provably outside every candidate temp root
 	// (the guard is prefix-based and does not require the path to exist).

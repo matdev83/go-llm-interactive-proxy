@@ -44,9 +44,9 @@ settled-credit screen
 
 ## Terminal spool contract
 
-The process-owned `billingspool` is the only runtime terminal handoff. It uses SQLite WAL mode, synchronous durability, a stable process-state path, idempotent source fingerprints, bounded capacity, and bounded retry backoff. Append admission fails closed when capacity is exhausted; it never falls back to a central append or an unbounded request goroutine. Health reports pending, delivering, failed, oldest, capacity, and last-error state.
+The host constructs the durable terminal handoff and injects it through `ComposeBilling`; `billingspool` is the standard SQLite implementation. It uses SQLite WAL mode, synchronous durability, a stable process-state path, idempotent source fingerprints, bounded capacity, and bounded retry backoff. Append admission fails closed when capacity is exhausted; it never falls back to a central append or an unbounded request goroutine. When the injected sink exposes `billingspool.Health`, readiness reports its bounded health state.
 
-At startup the spool resets or reclaims stale `delivering` claims, then starts exactly one process-owned flusher. Shutdown stops the flusher after its lifecycle drain and closes the database. Rows are pruned only after successful central acknowledgement. A spool restart replays durable pending rows idempotently. Terminal call closure is not released to customer settlement until every frozen `ExpectedBLegIDs` entry has a valid sealed central B-leg row; call-first or out-of-order delivery cannot bypass this gate.
+At process startup `runtimebundle` starts the injected sink when it exposes the billing-spool lifecycle, and at process shutdown it stops and closes that sink. For `billingspool`, startup reclaims stale `delivering` claims and starts exactly one process-owned flusher; rows are pruned only after successful central acknowledgement, and a restart replays durable pending rows idempotently. Terminal call closure is not released to customer settlement until every frozen `ExpectedBLegIDs` entry has a valid sealed central B-leg row; call-first or out-of-order delivery cannot bypass this gate.
 
 ## Exposure and settlement
 
@@ -56,7 +56,7 @@ The process-owned complete-call worker claims a closure only after all expected 
 
 ## Worker ownership and health
 
-Customer completion and provider COGS workers are process-owned lifecycle services started and stopped by the host composition. They are not executor fields and do not run one goroutine per request. Readiness reports store, spool, worker, and reconciliation health. An incomplete terminal evidence set leaves exposure open; TTL alone never closes it.
+Customer completion and provider COGS workers are process-owned lifecycle services started and stopped by the host composition. They are not executor fields and do not run one goroutine per request. Readiness currently reports the configured store/journal rows and, when available from the injected terminal sink, a distinct advisory `billing_spool` row; worker and reconciliation readiness are not wired into that report. An incomplete terminal evidence set leaves exposure open; TTL alone never closes it.
 
 ## Destructive migration procedure
 

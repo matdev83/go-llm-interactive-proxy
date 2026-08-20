@@ -56,7 +56,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateCandidateManifestOwnership(frozen, pluginReg); err != nil {
 		return nil, err
 	}
-
 	regs := freezeRegistrations(config.RegistrationsFromConfig(frozen))
 	if err := validateCompactionContinuityGeneration(ps, regs); err != nil {
 		return nil, err
@@ -219,6 +218,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	}
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig
+	var geoInput httpcontract.GeoIPSecurityInput
 	var httpHeaders lipsdk.HTTPHeaders
 	var streamKA time.Duration
 	if frozen != nil {
@@ -228,6 +228,22 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		httpHeaders = frozen.HTTPHeaders.Effective()
 		if eff, err := config.EffectiveStreamRecoveryAutoResume(frozen, config.StreamRecoveryOverrides{}); err == nil {
 			streamKA = eff.KeepaliveInterval
+		}
+	}
+	if cand != nil && cand.security.geoip != nil && cand.security.geoip.Policy() != nil {
+		geoInput = httpcontract.GeoIPSecurityInput{
+			Policy: cand.security.geoip.Policy(),
+			Lookup: cand.process.geoip,
+			Observer: func() httpcontract.GeoIPObserver {
+				if cand.process.metrics != nil {
+					return cand.process.metrics.GeoIP
+				}
+				return nil
+			}(),
+			Resolver: httpcontract.GeoIPResolverConfig{
+				Source:         cand.security.geoip.ClientIPSource(),
+				TrustedProxies: cand.security.geoip.TrustedProxies(),
+			},
 		}
 	}
 	var plugins []config.PluginConfig
@@ -242,6 +258,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			SecureSessionStore:   cand.security.secureSessionStore,
 			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(cand.process.usageAuthority),
 			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(cand.process.concurrencyAuthority),
+			GeoIP:                geoInput,
 		},
 		Operations: httpcontract.HTTPOperationsInput{
 			BillingReports:          billingReports,

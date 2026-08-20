@@ -82,7 +82,7 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
 
 ## 4. Cross-Agent and Architecture Quality Gates
 
-- [ ] 4.1 Run comprehensive cross-agent detector regression matrix
+- [x] 4.1 Run comprehensive cross-agent detector regression matrix
   - Exercise Codex, Pi/OpenClaw, Cline, OpenCode, Hermes, KiloCode, Claude snapshot, Gemini, Roo, Aider, and Crush fixtures on canonical calls.
   - Exercise local-only compaction heuristic with resets, forks/new A-legs, short contexts, same-size rewrites, and reordered tails as negatives.
   - Prove series utilities produce one start/one maximum completion and completion-only rules never invent starts.
@@ -90,10 +90,18 @@ Implementation is TDD-first. Each task is deliberately bounded to no more than f
   - _Requirements: 1.5-1.6, 4.3-4.8, 5.1-5.7, 6.1-6.7, 7.3, 7.7, 8.6_
   - _Validation: focused detector/runtime suites_
 
-- [ ] 4.2 Run race, repository quality, and simplification gates
+- [x] 4.2 Run race, repository quality, and simplification gates
   - Run detector/runtime race tests with concurrent A-legs and overlapping turns.
   - Run formatting, vet, architecture/line-budget checks, and deterministic repository unit suites required by current CI.
   - Confirm no provider/frontend signature code, new external dependency, durable store, background worker, mutating observer, or detection-only `lipapi.Event` field was added.
   - Review final diff and remove interfaces/configuration/generalized frameworks that are not required by the frozen design.
   - _Requirements: 2.3-2.6, 7.4-7.6, 8.2-8.8_
   - _Validation: `make quality-checks`; `make test-unit`; targeted `go test -race`_
+
+## Completion Status
+
+- [x] Tasks 1.1-4.2 are implemented and merged by PR [#376](https://github.com/matdev83/go-llm-interactive-proxy/pull/376) at `2b30116cb0cfb2fc6e1b49aafe8838a5e64403b8`.
+- [x] The cross-agent rules, heuristic-negative, transaction-series, completion-only, and content-free-state matrices are present in the merged detector suites.
+- [x] PR #376 passed protected QA, repository hygiene, security, CodeQL, compliance, coverage, process-tree, and Linux/macOS/Windows test checks.
+- [x] The successor continuity implementation and certification are merged through PR [#385](https://github.com/matdev83/go-llm-interactive-proxy/pull/385) on `main` at `d606571735701ad6f767bd35b939597b4f8ad44f`.
+- [x] Windows local race execution remained unavailable because ThreadSanitizer failed allocation with error 87; repeated, checkptr, goleak-backed, and protected multi-platform CI coverage supplied the recorded concurrency evidence.

@@ -15,6 +15,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/openai/openai-go/v3 v3.50.0
+	github.com/oschwald/maxminddb-golang/v2 v2.2.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/samber/slog-formatter v1.3.0

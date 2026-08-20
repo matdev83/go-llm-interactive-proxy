@@ -59,8 +59,8 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 12458},
-	{Tree: "internal/stdhttp", Max: 5867},
+	{Tree: "internal/infra/runtimebundle", Max: 12593},
+	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
 }
@@ -78,15 +78,15 @@ var LineBudgets = []LineBudget{
 	// classification. Keep the measured-plus-25 ratchet. The compaction
 	// detector and continuity infrastructure add bounded recognition, branch
 	// coordination, preservation dispatch, and auxiliary worker ownership.
-	// Task 5.4 measured 82476 non-test lines: +1540 from the 80936 d606
-	// merge-base measurement and -4 from the 82480 Task 5.1 HEAD measurement
-	// in the final deletion/cleanup wave. The accepted increase replaces flattened shared
-	// ownership with five explicit lifetime owners and typed evidence seams;
-	// retain 25 lines of ratchet headroom after that documented boundary cost.
-	{Dir: "internal/core", Max: 82501},
+	// Current-main integration measures 83038 non-test lines: the ownership
+	// refactor's 1540-line increase over the 80936 d606 merge-base plus current
+	// main's independently ratcheted 562-line increase. The accepted ownership
+	// cost replaces flattened shared state with five explicit lifetime owners
+	// and typed evidence seams; retain 25 lines of ratchet headroom.
+	{Dir: "internal/core", Max: 83063},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 5867},
-	{Dir: "internal/infra/runtimebundle", Max: 12458},
+	{Dir: "internal/stdhttp", Max: 6246},
+	{Dir: "internal/infra/runtimebundle", Max: 12593},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -13,6 +14,7 @@ var (
 	errBackendResourcePoolClosed  = errors.New("runtimebundle: backend resource pool is closed")
 	errBackendResourceBuilderNil  = errors.New("runtimebundle: backend resource builder is nil")
 	errBackendResourceUnavailable = errors.New("runtimebundle: backend resource is unavailable")
+	errBackendResourceLifecycle   = errors.New("runtimebundle: backend resource lifecycle callback is incompatible with pooling")
 )
 
 type backendResourceState uint8
@@ -146,6 +148,9 @@ func (p *backendResourcePool) build(
 	p.mu.Lock()
 	entry.cleanup = cleanup
 	p.mu.Unlock()
+	if err == nil {
+		err = pooledBackendLifecycleError(backend)
+	}
 	if err != nil {
 		// A builder may return a cleanup capability for a partially constructed
 		// resource alongside its failure.  Route it through the entry-level
@@ -353,4 +358,21 @@ func stripPooledBackendLifecycle(backend execbackend.Backend) execbackend.Backen
 	backend.Stop = nil
 	backend.CleanupIdleTransports = nil
 	return backend
+}
+
+func pooledBackendLifecycleError(backend execbackend.Backend) error {
+	switch {
+	case backend.Close != nil:
+		return fmt.Errorf("%w: Close", errBackendResourceLifecycle)
+	case backend.Start != nil:
+		return fmt.Errorf("%w: Start", errBackendResourceLifecycle)
+	case backend.Stop != nil:
+		return fmt.Errorf("%w: Stop", errBackendResourceLifecycle)
+	case backend.CleanupIdleTransports != nil:
+		return fmt.Errorf("%w: CleanupIdleTransports", errBackendResourceLifecycle)
+	case backend.PreflightCapability != nil:
+		return fmt.Errorf("%w: PreflightCapability", errBackendResourceLifecycle)
+	default:
+		return nil
+	}
 }
