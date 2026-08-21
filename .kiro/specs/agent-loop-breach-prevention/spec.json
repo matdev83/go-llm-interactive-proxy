@@ -1,0 +1,23 @@
+{
+  "feature_name": "agent-loop-breach-prevention",
+  "created_at": "2026-08-21T15:35:00+02:00",
+  "updated_at": "2026-08-21T15:35:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "project_description": "Add an opt-in agent-loop breach prevention layer that treats backend terminal events as provisional until transport recovery and, for eligible clean stops, semantic completion verification have resolved. Preserve streaming output while preventing premature A-side terminal publication; reuse existing stream recovery for pre-output transport retries; safely continue post-output interruptions from retained canonical trajectory without replaying committed output or side effects; use a separate bounded auxiliary verifier for clean-stop decisions; inject only conditional internal recovery instructions that cannot be mistaken for new user intent or approval; and enforce bounded progress, exactly-once terminal ownership, protocol neutrality, observability, and conservative allow-stop behavior on uncertainty. Preserve existing behavior when disabled and do not weaken Go-LIP's no-silent-failover-after-output-commit invariant."
+}
