@@ -89,7 +89,7 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 
 4.1. **When** meaningful A-side output from an attempt has been committed, the proxy shall not replay, silently fail over, or restart that committed attempt as if no output had occurred.
 
-4.2. **When** a post-output transport interruption leaves a canonically resumable trajectory, Agent Loop Guard shall preserve the committed trajectory and may start a continuation from the last safe point without retracting prior A-side output.
+4.2. **When** a post-output transport interruption leaves a canonically resumable trajectory and the configured recovery budget permits another leg, Agent Loop Guard shall preserve the committed trajectory and shall start a continuation from the last safe point without retracting prior A-side output.
 
 4.3. **When** a continuation follows a post-output interruption, the proxy shall not duplicate already committed assistant content in the A-side stream.
 
@@ -117,7 +117,7 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 
 5.6. **If** semantic verification times out, fails, returns malformed output, or remains uncertain, the proxy shall treat the candidate as allowed to stop and shall not autonomously continue.
 
-5.7. **Where** an explicit frontend completion signal is available and configured as trusted, the proxy shall treat that signal as strong completion evidence and may bypass semantic continuation for that clean stop while retaining transport-failure protection.
+5.7. **Where** an explicit frontend completion signal is available and configured as trusted, the proxy shall treat that signal as authoritative completion evidence for the clean stop and shall bypass semantic verification for that stop while retaining transport-failure protection.
 
 ### Requirement 6: Conditional Recovery Without Scope or Authority Expansion
 
