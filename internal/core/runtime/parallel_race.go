@@ -538,12 +538,12 @@ func (e *Executor) tryOpenParallelGroup(
 		}()
 	}
 	winnerSession := legs[winner].tx.Handoff()
-	winnerSession.inner = &parallelBridgeStream{
+	winnerSession.storeInner(&parallelBridgeStream{
 		winner:           &legs[winner],
 		buf:              winnerBuf,
 		losersDone:       losersDone,
 		loserCleanupWait: cancelLosersTimeout,
-	}
+	})
 	return openedAttempt{
 		session:     winnerSession,
 		interleaved: legs[winner].interleaved,

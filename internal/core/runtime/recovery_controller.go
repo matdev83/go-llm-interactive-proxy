@@ -294,7 +294,7 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 		}
 		if out.session != nil {
 			res.bleg = out.session.bleg
-			res.stream = out.session.inner
+			res.stream = out.session.loadInner()
 			res.cand = out.session.cand
 			if out.session.authority.control != nil {
 				res.authority = out.session.authority.control.state

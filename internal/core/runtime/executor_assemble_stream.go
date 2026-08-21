@@ -51,12 +51,10 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	})
 	rs.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
 	rs.attempt.install(out.session)
-	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(ctx, rs.facts, rs.attempt.require(), out.session.inner)
+	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(ctx, rs.facts, rs.attempt.require(), out.session.loadInner())
 	views, viewsOK := rs.facts.viewsFor(ctx)
 	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
-		if out.session.inner != nil {
-			_ = out.session.inner.Close()
-		}
+		_ = out.session.AbortBeforeReturn(ctx, err)
 		return nil, err
 	}
 	var stream lipapi.EventStream = rs

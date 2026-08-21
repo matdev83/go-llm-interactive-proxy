@@ -177,6 +177,7 @@ func (tx *attemptTx) Handoff() *attemptSession {
 		bleg:                  tx.bleg,
 		cand:                  tx.cand,
 		authority:             tx.authLifecycle,
+		aScope:                tx.reqFacts.aScope,
 		accounting:            newAttemptAccountingTracker(tx.e.now()),
 		toolFinal:             newToolCallAssembler(fs, maxArgs, tx.reqFacts.baseline.Tools),
 		promptCacheSource:     promptCacheObservationSource(tx.stream),

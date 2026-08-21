@@ -10,8 +10,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
@@ -83,6 +85,7 @@ type attemptSession struct {
 	cand      routing.AttemptCandidate
 	authority authorityLifecycle
 	terminal  *streamTerminal
+	aScope    *leglifecycle.ALeg
 
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
@@ -138,6 +141,7 @@ type attemptSessionInput struct {
 	bleg      b2bua.BLegRecord
 	cand      routing.AttemptCandidate
 	authority authorityLifecycle
+	aScope    *leglifecycle.ALeg
 
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
@@ -154,6 +158,7 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		cand:      in.cand,
 		authority: in.authority,
 		terminal:  newStreamTerminal(sdkterminal.ScopeAttempt),
+		aScope:    in.aScope,
 
 		accounting:            in.accounting,
 		toolFinal:             in.toolFinal,
@@ -162,6 +167,75 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		finalStreamObs:        in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn,
 	}
+}
+
+// AbortBeforeReturn is the single idempotent owner for pre-return attempt
+// cleanup after ownership transfer. It must be used instead of reaching
+// into inner (e.g. out.session.inner.Close()) so authority, terminal,
+// observation and B-leg lifecycle are not bypassed. It is safe to call
+// concurrently with Close/Recv and is a no-op when the session is nil
+// or already aborted.
+func (a *attemptSession) AbortBeforeReturn(ctx context.Context, cause error) error {
+	if a == nil {
+		return cause
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if cause == nil {
+		cause = errors.New("runtime: attempt aborted before return")
+	}
+	if inner := a.takeInner(); inner != nil {
+		detail := cause.Error()
+		cancelCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+		cancelAndCloseInner(cancelCtx, inner, lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: detail}, nil)
+		cancel()
+	}
+	if a.terminal != nil && a.authority.control != nil {
+		termCtx, termCancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+		_ = a.terminal.Terminalize(termCtx, sdkterminal.CommandBackendOpenFailure, func() coreterm.AccumulatorSnapshot {
+			return coreterm.NewAccumulatorSnapshot(nil, false)
+		}, func(cctx context.Context, _ coreterm.Outcome) error {
+			kind := authorityapp.ReleaseKindLosing
+			if a.authority.backendAttempted == nil || !a.authority.backendAttempted.Load() {
+				kind = authorityapp.ReleaseKindAdmissionFailure
+			}
+			a.authority.finalizeIncurredOrRelease(cctx, kind, emptyOperatorUsageShell())
+			return nil
+		})
+		termCancel()
+		if !a.authority.Settled() {
+			kind := authorityapp.ReleaseKindLosing
+			if a.authority.backendAttempted == nil || !a.authority.backendAttempted.Load() {
+				kind = authorityapp.ReleaseKindAdmissionFailure
+			}
+			cleanupCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+			a.authority.finalizeIncurredOrRelease(cleanupCtx, kind, emptyOperatorUsageShell())
+			cancel()
+		}
+	} else if a.authority.control != nil && !a.authority.Settled() {
+		kind := authorityapp.ReleaseKindLosing
+		if a.authority.backendAttempted == nil || !a.authority.backendAttempted.Load() {
+			kind = authorityapp.ReleaseKindAdmissionFailure
+		}
+		cleanupCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+		a.authority.finalizeIncurredOrRelease(cleanupCtx, kind, emptyOperatorUsageShell())
+		cancel()
+	}
+	if a.aScope != nil && a.bleg.BLegID != "" {
+		a.aScope.ReleaseBLeg(a.bleg.BLegID)
+	}
+	if a.finalStreamObs != nil {
+		finCtx := ctx
+		if ctx != nil && ctx.Err() != nil {
+			finCtx = context.WithoutCancel(ctx)
+		}
+		if finCtx == nil {
+			finCtx = context.Background()
+		}
+		a.finalStreamObs.Finish(finCtx, response.OutcomeFailed)
+	}
+	return cause
 }
 
 func (a *attemptSession) recordAttemptLogged(ctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
