@@ -83,7 +83,9 @@ var LineBudgets = []LineBudget{
 	// main's independently ratcheted 562-line increase. The accepted ownership
 	// cost replaces flattened shared state with five explicit lifetime owners
 	// and typed evidence seams; retain 25 lines of ratchet headroom.
-	{Dir: "internal/core", Max: 83063},
+	// P1 fix for post-transfer assemble abort adds 72 lines for the single
+	// AbortBeforeReturn owner and B-leg release; bump to 83160 (83135+25).
+	{Dir: "internal/core", Max: 83160},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},
