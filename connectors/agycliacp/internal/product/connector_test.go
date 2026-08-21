@@ -26,7 +26,34 @@ func TestBuildCommandForwardsExplicitTimeout(t *testing.T) {
 	assertFlagValue(t, cmd, "--timeout-seconds", "45")
 }
 
+func TestResolveNativeModel_DynamicModels(t *testing.T) {
+	index := acp.NewModelIndex(agyCanonicalFallback)
+	index.Replace([]modelinventory.Model{
+		{
+			CanonicalID: "google/gemini-3.7-flash",
+			NativeID:    "gemini-3.7-flash-high",
+			DisplayName: "Gemini 3.7 Flash (High)",
+		},
+	})
+	spec := &agySpec{
+		cfg:   Config{},
+		exe:   "go-agy-acp-wrapper",
+		index: index,
+	}
+
+	got, err := spec.resolveNativeModel("google/gemini-3.7-flash")
+	if err != nil || got != "gemini-3.7-flash-high" {
+		t.Fatalf("resolveNativeModel(google/gemini-3.7-flash) = %q, %v", got, err)
+	}
+
+	got, err = spec.resolveNativeModel("gemini-3.7-flash-high")
+	if err != nil || got != "gemini-3.7-flash-high" {
+		t.Fatalf("resolveNativeModel(gemini-3.7-flash-high) = %q, %v", got, err)
+	}
+}
+
 func testAgySpec(t *testing.T, cfg Config) *agySpec {
+
 	t.Helper()
 	index := acp.NewModelIndex(agyCanonicalFallback)
 	index.Replace([]modelinventory.Model{{

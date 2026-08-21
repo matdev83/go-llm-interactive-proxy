@@ -26,10 +26,19 @@ type modelIdentity struct {
 	canonical string
 }
 
+const (
+	ReasoningLow    = "low"
+	ReasoningMedium = "medium"
+	ReasoningHigh   = "high"
+)
+
 // knownModelTable is the fixed pretty↔canonical conversion table for AGY
 // discovery parsing. Open/BuildCommand allowlists come from the active provider
 // snapshot/override, not this table alone.
 var knownModelTable = [...]modelIdentity{
+	{native: "gemini-3.7-flash-low", canonical: "google/gemini-3.7-flash"},
+	{native: "gemini-3.7-flash-medium", canonical: "google/gemini-3.7-flash"},
+	{native: "gemini-3.7-flash-high", canonical: "google/gemini-3.7-flash"},
 	{native: "gemini-3.6-flash-low", canonical: "google/gemini-3.6-flash"},
 	{native: "gemini-3.6-flash-medium", canonical: "google/gemini-3.6-flash"},
 	{native: "gemini-3.6-flash-high", canonical: "google/gemini-3.6-flash"},
@@ -50,6 +59,9 @@ func nativePrettyForCanonical(canonical string) (string, bool) {
 			return knownModelTable[i].native, true
 		}
 	}
+	if pretty, ok := defaultNativeForCanonical(canonical); ok {
+		return pretty, true
+	}
 	return "", false
 }
 
@@ -60,7 +72,102 @@ func canonicalForPretty(pretty string) (string, bool) {
 			return knownModelTable[i].canonical, true
 		}
 	}
+	if canonical, _, _, _, ok := parseNativeModelID(pretty); ok {
+		return canonical, true
+	}
 	return "", false
+}
+
+func defaultNativeForCanonical(canonical string) (string, bool) {
+	canonical = strings.TrimSpace(canonical)
+	switch {
+	case strings.HasPrefix(canonical, "google/gemini-"):
+		name := strings.TrimPrefix(canonical, "google/gemini-")
+		return "gemini-" + name, true
+	case strings.HasPrefix(canonical, "anthropic/claude-"):
+		name := strings.TrimPrefix(canonical, "anthropic/claude-")
+		name = strings.ReplaceAll(name, ".", "-")
+		return "claude-" + name, true
+	case strings.HasPrefix(canonical, "openai/gpt-"):
+		name := strings.TrimPrefix(canonical, "openai/gpt-")
+		return "gpt-" + name, true
+	}
+	return "", false
+}
+
+func parseNativeModelID(native string) (canonical, display, effort string, thinking, ok bool) {
+	if native == "" {
+		return "", "", "", false, false
+	}
+	base := native
+	for _, candidate := range []string{ReasoningLow, ReasoningMedium, ReasoningHigh} {
+		if strings.HasSuffix(base, "-"+candidate) {
+			effort = candidate
+			base = strings.TrimSuffix(base, "-"+candidate)
+			break
+		}
+	}
+	if strings.HasSuffix(base, "-thinking") {
+		thinking = true
+		base = strings.TrimSuffix(base, "-thinking")
+	}
+
+	switch {
+	case strings.HasPrefix(base, "gemini-"):
+		name := strings.TrimPrefix(base, "gemini-")
+		canonical = "google/gemini-" + name
+		display = "Gemini " + displayModelTail(name)
+	case strings.HasPrefix(base, "claude-"):
+		name := strings.TrimPrefix(base, "claude-")
+		name = normalizeClaudeVersion(name)
+		canonical = "anthropic/claude-" + name
+		display = "Claude " + displayModelTail(name)
+	case strings.HasPrefix(base, "gpt-"):
+		name := strings.TrimPrefix(base, "gpt-")
+		canonical = "openai/gpt-" + name
+		display = "GPT " + displayModelTail(name)
+	default:
+		return "", "", "", false, false
+	}
+	return canonical, display, effort, thinking, true
+}
+
+func normalizeClaudeVersion(name string) string {
+	parts := strings.Split(name, "-")
+	for i := 0; i+1 < len(parts); i++ {
+		if allDigits(parts[i]) && allDigits(parts[i+1]) {
+			parts[i] += "." + parts[i+1]
+			parts = append(parts[:i+1], parts[i+2:]...)
+			break
+		}
+	}
+	return strings.Join(parts, "-")
+}
+
+func displayModelTail(name string) string {
+	parts := strings.Split(name, "-")
+	for i, part := range parts {
+		if part == "oss" {
+			parts[i] = "OSS"
+			continue
+		}
+		if part != "" {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func agyCanonicalFallback(native string) string {
@@ -73,6 +180,7 @@ func agyCanonicalFallback(native string) string {
 func (s *agySpec) resolveNativeModel(effective string) (string, error) {
 	if s == nil {
 		return "", ErrUnknownModel
+
 	}
 	identity := strings.TrimSpace(acp.ResolveVendorModel(vendorPrefix, s.cfg.Model, defaultCanonicalModel, effective))
 	if identity == "" {
