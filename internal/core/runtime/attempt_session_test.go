@@ -223,7 +223,7 @@ func TestTryReplacementIterationInstallsFreshAttemptResources(t *testing.T) {
 	if !oldStream.closed {
 		t.Fatal("old backend stream was not closed when recv failover swallowed it")
 	}
-	if len(oldAttempt.toolFinal.active) != 0 || len(oldAttempt.toolFinal.passThrough) != 0 || len(oldAttempt.toolFinal.completed) != 0 || len(oldAttempt.toolFinal.drain) != 0 {
+	if oldAttempt.toolFinal != nil && (len(oldAttempt.toolFinal.active) != 0 || len(oldAttempt.toolFinal.passThrough) != 0 || len(oldAttempt.toolFinal.completed) != 0 || len(oldAttempt.toolFinal.drain) != 0) {
 		t.Fatal("old attempt tool finalizer state survived replacement")
 	}
 	if len(observerFactory.observers) < 2 || observerFactory.observers[0].finishCount != 1 || observerFactory.observers[0].outcome != response.OutcomeReplaced {
@@ -288,7 +288,8 @@ func TestAttemptSlotSnapshotsAndSwapsPointers(t *testing.T) {
 	if slot.snapshot() != first {
 		t.Fatal("snapshot did not return installed attempt")
 	}
-	if got, published := slot.swapIfOpen(second); !published || got != first || slot.snapshot() != second {
+	ready := &readyAttempt{session: second}
+	if got, published := slot.swapIfOpen(ready); !published || got != first || slot.snapshot() != second {
 		t.Fatal("swap did not publish replacement atomically")
 	}
 }
@@ -365,7 +366,8 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 
 	var slot attemptSlot
 	slot.install(old)
-	if got, published := slot.swapIfOpen(replacement); !published || got != old || slot.require() != replacement {
+	ready := &readyAttempt{session: replacement}
+	if got, published := slot.swapIfOpen(ready); !published || got != old || slot.require() != replacement {
 		t.Fatal("replacement must atomically publish the new attempt session")
 	}
 	old.toolFinal.clear()

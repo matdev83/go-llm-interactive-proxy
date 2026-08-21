@@ -81,7 +81,7 @@ func (s *retryRecvStream) Close() error {
 	s.responsePipeline.clearAttemptState(s.attempt.snapshot())
 	var c lipapi.ManagedEventStream
 	if current != nil {
-		c = current.takeInner()
+		c = current.detachStream()
 	}
 	// lipapi.EventStream.Close has no caller context. Project a detached
 	// request context from immutable facts; no mutable context cache belongs on

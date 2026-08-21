@@ -133,7 +133,7 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	if command == sdkterminal.CommandNormalFinish || committed {
 		surfaced = billing.SurfacedYes
 	}
-	workloadCtx := ctx
+	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          request.billingCallID,
 		aLegID:          request.aLegID,

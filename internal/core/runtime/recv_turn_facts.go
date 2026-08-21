@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
 func (f recvTurnFacts) attemptDiagAttrs(attempt *attemptSession) diag.AttrOpts {
@@ -197,6 +198,7 @@ func (f *recvTurnFacts) captureBoundModelViews(ctx context.Context) {
 // state and does not own cancellation or deadlines.
 func (f recvTurnFacts) projectContext(parent context.Context, logger *slog.Logger) context.Context {
 	ctx := diag.EnsureCallDiag(parent, f.traceID, f.aLegID)
+
 	if f.metering != nil {
 		ctx = withMeteringHolder(ctx, f.metering)
 	}
@@ -206,24 +208,43 @@ func (f recvTurnFacts) projectContext(parent context.Context, logger *slog.Logge
 	if f.recvViewsOK {
 		ctx = execctx.WithViews(ctx, cloneRecvViews(f.recvViews))
 	}
+
 	if f.secureTurnOK {
 		ctx = execctx.WithSecureSessionTurn(ctx, f.secureTurn)
+	} else {
+		// Overwrite with empty secure turn and mask any inherited policy.
+		ctx = execctx.WithSecureSessionTurn(ctx, execctx.SecureSessionTurn{})
+		ctx = session.WithoutSecureTurnPolicy(ctx)
 	}
+
 	if len(f.routePrefs) > 0 {
 		ctx = execctx.WithRouteCandidatePreferences(ctx, slices.Clone(f.routePrefs))
+	} else {
+		ctx = execctx.WithoutRouteCandidatePreferences(ctx)
 	}
+
 	if f.boundRegistryOK {
 		ctx = modelregistry.WithBoundView(ctx, f.boundRegistry)
+	} else {
+		ctx = modelregistry.WithBoundView(ctx, modelregistry.EmptyBoundView())
 	}
+
 	if f.boundCatalogOK {
 		ctx = modelcatalog.WithBoundView(ctx, f.boundCatalog)
+	} else {
+		ctx = modelcatalog.WithBoundView(ctx, modelcatalog.EmptyBoundView())
 	}
+
 	if f.nativeResolver != nil {
 		ctx = routing.WithNativeModelResolver(ctx, f.nativeResolver)
 	}
+
 	if f.modelViewIDOK {
 		ctx = modelview.WithIdentity(ctx, f.modelViewID)
+	} else {
+		ctx = modelview.WithIdentity(ctx, modelview.Identity{})
 	}
+
 	if logger != nil {
 		ctx = hooks.WithDiagnosticsLogger(ctx, logger)
 	}
@@ -243,11 +264,14 @@ func (f recvTurnFacts) hookMeta(bleg b2bua.BLegRecord, cand routing.AttemptCandi
 }
 
 func (f recvTurnFacts) viewsFor(ctx context.Context) (execctx.Views, bool) {
-	if v, ok := execctx.FromContext(ctx); ok {
-		return v, true
-	}
+	// Frozen facts are authoritative; context contributes only cancellation, deadline,
+	// tracing, diagnostics. Ignore any execctx.Views in the caller context for authoritative keys
+	// and return the frozen recvViews directly.
 	if f.recvViewsOK {
 		return cloneRecvViews(f.recvViews), true
+	}
+	if v, ok := execctx.FromContext(ctx); ok {
+		return v, true
 	}
 	return execctx.Views{}, false
 }

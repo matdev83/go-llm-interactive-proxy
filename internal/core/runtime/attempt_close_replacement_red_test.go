@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -178,7 +179,8 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 				err = regErr
 			}
 			if err == nil {
-				if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+				ready := &readyAttempt{session: plan.next}
+				if _, published := rs.attempt.swapIfOpen(ready); !published {
 					rs.terminal.cleanupUnpublishedReplacement(context.Background(), plan.next)
 				}
 			}
@@ -250,5 +252,150 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 		if !containsSettle(id) && !containsRelease(id) {
 			t.Fatalf("authority reservation %q was neither settled nor released", id)
 		}
+	}
+}
+
+func TestRetryRecvStreamCloseDuringReplacementOpen_AppendsReplacementLegExactlyOnce(t *testing.T) {
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed:        true,
+			Reserved:       true,
+			ReservationID:  "replacement-reservation",
+			ReservedAmount: authorityInputAmount(8),
+			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	wireDummyBilling(ex)
+
+	var mu sync.Mutex
+	var appendedLegs []billing.CallLegUsageRecord
+	ex.TerminalUsageSink = testTerminalSink{
+		appendLeg: func(ctx context.Context, record billing.CallLegUsageRecord) error {
+			mu.Lock()
+			defer mu.Unlock()
+			appendedLegs = append(appendedLegs, record)
+			return nil
+		},
+	}
+
+	budget := &attemptBudget{max: 3}
+	baseline := lipapi.Call{
+		ID:    "request-1",
+		Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode: lipapi.DeliveryModeStreaming,
+		},
+		Messages: testMinimalUserMessages(),
+	}
+	sel, err := routing.Parse("backend-1:model-1")
+	if err != nil {
+		t.Fatalf("parse selector: %v", err)
+	}
+
+	replacementStream := &closeReplacementRaceStream{}
+	replacementOpenEntered := make(chan struct{})
+	releaseReplacementOpen := make(chan struct{})
+	backend.openFn = func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+		close(replacementOpenEntered)
+		<-releaseReplacementOpen
+		return replacementStream, nil
+	}
+
+	oldAdmission := auth.admitResult
+	oldAdmission.ReservationID = "old-reservation"
+	oldAuthority := attemptAuthorityState{
+		admissionInput:  testAuthorityAdmissionInput(8),
+		admissionResult: oldAdmission,
+	}
+	terminal := newTurnTerminal()
+	bindTurnTerminalRuntime(terminal, ex)
+	callID, err := billing.NewBillingCallID()
+	if err != nil {
+		t.Fatalf("new billing call id: %v", err)
+	}
+	callState := newBillingCallState(callID)
+	rs := &retryRecvStream{
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline:         baseline,
+			aLegID:           aLegID,
+			traceID:          "trace-1",
+			billingCallState: callState,
+			billingCallID:    callID,
+		}),
+		terminal: terminal,
+		recovery: newRecoveryController(recoveryControllerInput{
+			e:              ex,
+			affinityStore:  ex.AffinityStore,
+			log:            ex.Log,
+			streamRecovery: ex.StreamRecovery,
+			opener:         newReplacementOpener(ex, hooks.New(hooks.Config{}), terminal.aLegScope()),
+			budget:         budget,
+			sel:            sel,
+			session:        &routing.SessionRoutingState{},
+			excluded:       map[string]struct{}{},
+			rng:            routing.NewSeededRng(1),
+		}),
+		attempt: testAttemptSlot(
+			b2bua.BLegRecord{ALegID: aLegID, BLegID: "old-bleg", Seq: 1},
+			authorityCandidate(),
+			testAuthorityLifecycle(ex, oldAuthority, authorityCandidate()),
+		),
+		responsePipeline: newResponsePipelineForExecutor(ex),
+	}
+
+	const replacementOpenTimeout = 5 * time.Second
+	var releaseOnce sync.Once
+	releaseOpen := func() { releaseOnce.Do(func() { close(releaseReplacementOpen) }) }
+	defer releaseOpen()
+
+	type recvResult struct {
+		ev  lipapi.Event
+		err error
+	}
+	resultCh := make(chan recvResult, 1)
+	go func() {
+		ev, err := rs.Recv(context.Background())
+		resultCh <- recvResult{ev: ev, err: err}
+	}()
+
+	select {
+	case <-replacementOpenEntered:
+	case <-time.After(replacementOpenTimeout):
+		t.Fatal("replacement backend Open did not enter its barrier")
+	}
+
+	if err := rs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	releaseOpen()
+	select {
+	case result := <-resultCh:
+		t.Logf("Recv returned ev=%+v err=%v", result.ev, result.err)
+		if result.err != nil && !errors.Is(result.err, io.EOF) {
+			t.Fatalf("Recv: %v", result.err)
+		}
+	case <-time.After(replacementOpenTimeout):
+		t.Fatal("Recv did not return after replacement Open was released")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	t.Logf("appendedLegs count=%d: %+v", len(appendedLegs), appendedLegs)
+
+	var replacementLegCount int
+	var replacementBLegID string
+	for _, leg := range appendedLegs {
+		if leg.BLegID != "old-bleg" {
+			replacementLegCount++
+			replacementBLegID = leg.BLegID
+		}
+	}
+	if replacementLegCount != 1 {
+		t.Fatalf("replacement BLegID %q appended %d times, want exactly 1 (total legs=%d: %+v)", replacementBLegID, replacementLegCount, len(appendedLegs), appendedLegs)
 	}
 }

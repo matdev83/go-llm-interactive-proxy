@@ -176,7 +176,8 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	if err := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err != nil {
 		t.Fatalf("register replacement: %v", err)
 	}
-	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+	ready := &readyAttempt{session: plan.next}
+	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("replacement publication unexpectedly closed")
 	}
 

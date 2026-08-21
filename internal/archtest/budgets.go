@@ -85,7 +85,12 @@ var LineBudgets = []LineBudget{
 	// and typed evidence seams; retain 25 lines of ratchet headroom.
 	// P1 fix for post-transfer assemble abort adds 72 lines for the single
 	// AbortBeforeReturn owner and B-leg release; bump to 83160 (83135+25).
-	{Dir: "internal/core", Max: 83160},
+	// Phase 2 ownership convergence adds readiness preparation and streamAssemblyTx; bump to 83345 (83320+25).
+	// Phase 3 ownership convergence adds TerminalizeAttempt single-owner terminalization (approx 300 lines); bump to 83700 (83649+51 headroom).
+	// Phase 5.1 isolated parallel workers outcome convergence adds coordinator goroutine and outcomes mapping; bump to 83900 (83830+70 headroom).
+	// Phase 6 ownership convergence final certification verifies 5-owner facade, fan-out 1, cross-owner 14, state-copy 6, cleanup 7.
+	// R1+R2 debt remediation (spec runtime-attempt-publication-ownership-convergence Debt Plan R1-R4): 5 shims deleted (AbortBeforeReturn/finishAsReplaced/Rollback/Abort/RollbackParallelLoser) + 4 session-owned methods added (drainSidebandEvidence/detachStream/closeDetached/hasInner), measured 84098, bump to 84200 with 102 headroom.
+	{Dir: "internal/core", Max: 84200},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},

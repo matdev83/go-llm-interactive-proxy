@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -242,6 +243,9 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
 		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
 	}
+	ex.Log = slog.Default()
+	t.Logf("winner cand key: %s", out.session.cand.Key)
+	t.Logf("winner authState: viaCoord=%t, stack=%+v", authState.viaCoordinator, authState.stack)
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}

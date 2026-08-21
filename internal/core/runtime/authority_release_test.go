@@ -153,7 +153,8 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if !opened {
 		t.Fatal("expected replacement to open after failed settle")
 	}
-	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+	ready := &readyAttempt{session: plan.next}
+	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}
 	// The prior reservation was already released (losing) and marked settled, so the
@@ -293,7 +294,8 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if got := prior.authority.stateSnapshot().admissionResult.ReservationID; got != "reservation-1" {
 		t.Fatalf("prior authority reservation ID = %q, want reservation-1", got)
 	}
-	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+	ready := &readyAttempt{session: plan.next}
+	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {
@@ -386,7 +388,8 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if !opened {
 		t.Fatal("expected replacement to open")
 	}
-	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+	ready := &readyAttempt{session: plan.next}
+	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}
 	if auth.releaseCalls.Load() != 0 {

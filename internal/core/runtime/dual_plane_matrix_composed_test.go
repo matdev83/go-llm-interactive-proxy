@@ -306,9 +306,11 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
-		traceID: "trace-par",
-	}), attempt: testAttemptSlot(out.session.bleg, out.session.cand, life)}
+	f := openReq.reqFacts.recvTurnFacts
+	f.traceID = "trace-par"
+	f.metering = holder
+	f.requestAuth = requestAuthorityFrom(ctx)
+	stream := &retryRecvStream{facts: testRecvTurnFacts(f), attempt: testAttemptSlot(out.session.bleg, out.session.cand, life)}
 	bindTestRuntimeOwners(stream, ex)
 	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
@@ -446,12 +448,11 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 	if out.session.authority.control != nil {
 		authState = out.session.authority.control.state
 	}
+	f := openReq.reqFacts.recvTurnFacts
+	f.traceID = "trace-cancel"
+	f.requestAuth = requestAuthorityFrom(ctx)
 	rs := &retryRecvStream{
-		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: openReq.reqFacts.baseline,
-			aLegID:   aLegID,
-			traceID:  "trace-cancel",
-		}),
+		facts:    testRecvTurnFacts(f),
 		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
 		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
@@ -781,15 +782,14 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	if out.session.authority.control != nil {
 		authState = out.session.authority.control.state
 	}
+	f := req.reqFacts.recvTurnFacts
+	f.traceID = "trace-comp"
+	f.metering = holder
+	f.requestAuth = requestAuthorityFrom(ctx)
 	rs := &retryRecvStream{
-		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: req.reqFacts.baseline,
-			aLegID:   aLegID,
-			traceID:  "trace-comp",
-		}),
-		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-
+		facts:            testRecvTurnFacts(f),
+		recovery:         &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:          testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	bindTestRuntimeOwners(rs, ex)

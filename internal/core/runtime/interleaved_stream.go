@@ -356,12 +356,10 @@ func (s *interleavedContinuationStream) closeThinkerInner(ctx context.Context) {
 	defer cleanupCancel()
 	thinkerAttempt := s.thinker.attempt.snapshot()
 	if thinkerAttempt != nil {
-		if inner := thinkerAttempt.takeInner(); inner != nil {
-			cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-				Kind:   lipapi.CancelContextDone,
-				Detail: "interleaved thinker handoff",
-			}, s.thinker.responsePipeline.log)
-		}
+		thinkerAttempt.cancelAndClose(cleanupCtx, leglifecycle.CancelCause{
+			Kind:   lipapi.CancelContextDone,
+			Detail: "interleaved thinker handoff",
+		}, s.thinker.responsePipeline.log)
 	}
 	if thinkerAttempt != nil && s.thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
 		s.thinker.terminal.releaseBLeg(thinkerAttempt.bleg.BLegID)
@@ -380,24 +378,20 @@ func (s *interleavedContinuationStream) closeActiveInner(ctx context.Context) {
 
 	if phase == interleavedPhaseExecutor && executor != nil {
 		if executorAttempt := executor.attempt.snapshot(); executorAttempt != nil {
-			if inner := executorAttempt.takeInner(); inner != nil {
-				cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-					Kind:   lipapi.CancelContextDone,
-					Detail: "interleaved executor finished",
-				}, executor.responsePipeline.log)
-			}
+			executorAttempt.cancelAndClose(cleanupCtx, leglifecycle.CancelCause{
+				Kind:   lipapi.CancelContextDone,
+				Detail: "interleaved executor finished",
+			}, executor.responsePipeline.log)
 		}
 		return
 	}
 	if thinker != nil {
 		thinkerAttempt := thinker.attempt.snapshot()
 		if thinkerAttempt != nil {
-			if inner := thinkerAttempt.takeInner(); inner != nil {
-				cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-					Kind:   lipapi.CancelContextDone,
-					Detail: "interleaved thinker finished",
-				}, thinker.responsePipeline.log)
-			}
+			thinkerAttempt.cancelAndClose(cleanupCtx, leglifecycle.CancelCause{
+				Kind:   lipapi.CancelContextDone,
+				Detail: "interleaved thinker finished",
+			}, thinker.responsePipeline.log)
 		}
 		if thinkerAttempt != nil && thinker.terminal != nil && thinkerAttempt.bleg.BLegID != "" {
 			thinker.terminal.releaseBLeg(thinkerAttempt.bleg.BLegID)
@@ -430,6 +424,12 @@ func (s *interleavedContinuationStream) finishWithCleanup(ctx context.Context) {
 				cmd = sdkterminal.CommandClose
 			} else if cancelPending {
 				cmd = sdkterminal.CommandCancel
+			} else if ctx != nil && ctx.Err() != nil {
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					cmd = sdkterminal.CommandTimeout
+				} else {
+					cmd = sdkterminal.CommandCancel
+				}
 			} else if s.thinker.terminal != nil && s.thinker.terminal.hasALeg() {
 				if err := s.thinker.terminal.aLegErr(); err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
@@ -461,12 +461,10 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 	defer cleanupCancel()
 	if exec != nil {
 		execAttempt := exec.attempt.require()
-		if inner := execAttempt.takeInner(); inner != nil {
-			cancelAndCloseInner(cleanupCtx, inner, leglifecycle.CancelCause{
-				Kind:   lipapi.CancelContextDone,
-				Detail: "interleaved executor handoff aborted",
-			}, exec.responsePipeline.log)
-		}
+		execAttempt.cancelAndClose(cleanupCtx, leglifecycle.CancelCause{
+			Kind:   lipapi.CancelContextDone,
+			Detail: "interleaved executor handoff aborted",
+		}, exec.responsePipeline.log)
 		// Finalize the executor-leg usage-authority reservation. On this abort path
 		// s.executor is still nil (it is only assigned on the success branch of
 		// beginExecutorContinuation), so the normal closeActiveInner/finishWithCleanup
@@ -608,9 +606,7 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 			_ = active.terminal.cancelALeg(ctx, cause)
 			res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 		} else if activeAttempt := active.attempt.snapshot(); activeAttempt != nil {
-			if inner := activeAttempt.loadInner(); inner != nil {
-				res = inner.Cancel(ctx, cause)
-			}
+			res = activeAttempt.cancel(ctx, cause)
 		}
 	}
 

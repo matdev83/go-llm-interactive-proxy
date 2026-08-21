@@ -9,10 +9,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // driftFacts builds a recvTurnFacts with fully frozen request authority.
@@ -166,5 +171,90 @@ func TestRecvContextDrift_ConcurrentGenerationReload(t *testing.T) {
 	close(errCh)
 	for e := range errCh {
 		t.Fatal(e)
+	}
+}
+
+// TestRecvContextDrift_ConflictingContextDoesNotOverrideFrozenFacts verifies that
+// when a conflicting context (carrying different principal, scope, session, and workspace)
+// is projected, the frozen facts win, and caller context values cannot overwrite them.
+func TestRecvContextDrift_ConflictingContextDoesNotOverrideFrozenFacts(t *testing.T) {
+	t.Parallel()
+	facts := driftFacts()
+
+	// Build a conflicting context.
+	conflictingScope := scope.PrincipalScopeView{
+		PrincipalID: scope.Known("evil-principal"),
+		Origin:      scope.OriginClient,
+	}
+	conflictingViews := execctx.Views{
+		Principal: execview.PrincipalView{
+			ID:     "evil-principal",
+			Claims: map[string]string{"role": "evil-role"},
+		},
+		Scope: conflictingScope,
+		Session: session.SessionView{
+			AuthoritativeSessionID: "evil-sess-id",
+		},
+		Workspace: lipworkspace.WorkspaceView{
+			ID: "evil-ws-id",
+		},
+	}
+	conflictCtx := execctx.WithViews(context.Background(), conflictingViews)
+
+	derived := facts.projectContext(conflictCtx, nil)
+	gotViews, ok := execctx.FromContext(derived)
+	if !ok {
+		t.Fatal("views missing in derived context")
+	}
+
+	if gotViews.Session.AuthoritativeSessionID != "sess-1" {
+		t.Fatalf("session overridden: got %q, want sess-1", gotViews.Session.AuthoritativeSessionID)
+	}
+	if gotViews.Principal.ID != "" { // driftFacts principal is empty/zero
+		t.Fatalf("principal overridden: got %q, want empty", gotViews.Principal.ID)
+	}
+}
+
+// TestRecvContextDrift_BoundViewsReloadPinning verifies that once views are captured
+// at preparation, subsequent generation reloads do not affect the pinned registry, catalog,
+// and native resolver in the projected context.
+func TestRecvContextDrift_BoundViewsReloadPinning(t *testing.T) {
+	t.Parallel()
+
+	// Pre-captured views
+	regView := modelregistry.EmptyBoundView()
+	catView := modelcatalog.EmptyBoundView()
+	resolver := &driftResolver{model: "frozen-model"}
+
+	facts := newRecvTurnFacts(context.Background(), recvTurnFactsInput{
+		baseline:        lipapi.Call{Session: lipapi.SessionRef{ALegID: "a-1"}},
+		traceID:         "trace-1",
+		aLegID:          "a-1",
+		boundRegistry:   regView,
+		boundRegistryOK: true,
+		boundCatalog:    catView,
+		boundCatalogOK:  true,
+		nativeResolver:  resolver,
+	})
+
+	// Simulate reloaded views in the caller context (representing generation reload)
+	reloadedRegView := modelregistry.EmptyBoundView()
+	reloadedCatView := modelcatalog.EmptyBoundView()
+	reloadedResolver := &driftResolver{model: "reloaded-model"}
+
+	reloadCtx := modelregistry.WithBoundView(context.Background(), reloadedRegView)
+	reloadCtx = modelcatalog.WithBoundView(reloadCtx, reloadedCatView)
+	reloadCtx = routing.WithNativeModelResolver(reloadCtx, reloadedResolver)
+
+	derived := facts.projectContext(reloadCtx, nil)
+
+	// Verify pinned resolver is used
+	gotResolver, ok := routing.NativeModelResolverFromContext(derived)
+	if !ok {
+		t.Fatal("resolver missing in derived context")
+	}
+	binding := gotResolver.ResolveModelBinding("any", "any")
+	if binding.Native != "frozen-model" {
+		t.Fatalf("resolver re-derived after reload: got %q, want frozen-model", binding.Native)
 	}
 }

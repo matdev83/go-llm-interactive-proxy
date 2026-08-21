@@ -40,7 +40,8 @@ func TestAttemptSlotSwapRetainsDetachedAttemptOwnership(t *testing.T) {
 	slot.install(old)
 	retained := slot.snapshot()
 	newAttempt := newAttemptSession(attemptSessionInput{cand: newCandidate})
-	if got, published := slot.swapIfOpen(newAttempt); !published || got != retained {
+	ready := &readyAttempt{session: newAttempt}
+	if got, published := slot.swapIfOpen(ready); !published || got != retained {
 		t.Fatalf("swap returned %p, want retained old attempt %p", got, retained)
 	}
 
@@ -88,7 +89,8 @@ func TestAttemptSidebandUsageRetainsSourceAttemptOwnershipAcrossSwap(t *testing.
 	if oldInner != oldSource {
 		t.Fatalf("retained source = %T, want old source", oldInner)
 	}
-	if got, published := slot.swapIfOpen(newAttempt); !published || got != retained {
+	ready := &readyAttempt{session: newAttempt}
+	if got, published := slot.swapIfOpen(ready); !published || got != retained {
 		t.Fatalf("swap returned %p, want retained old attempt %p", got, retained)
 	}
 

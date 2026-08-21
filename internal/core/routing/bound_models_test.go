@@ -200,3 +200,19 @@ func TestBindNativeModelIDs_nilSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWithNativeModelResolver_nilContextSafe(t *testing.T) {
+	t.Parallel()
+	ctx := routing.WithNativeModelResolver(nil, nil)
+	if ctx == nil {
+		t.Fatal("expected non-nil context when ctx is nil and resolver is nil")
+	}
+	ctx2 := routing.WithNativeModelResolver(nil, mapNativeResolver{})
+	if ctx2 == nil {
+		t.Fatal("expected non-nil context when ctx is nil and resolver is non-nil")
+	}
+	r, ok := routing.NativeModelResolverFromContext(ctx2)
+	if !ok || r == nil {
+		t.Fatal("expected resolver attached")
+	}
+}

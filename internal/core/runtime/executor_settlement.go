@@ -29,6 +29,7 @@ import (
 // request settle/release. Settlement uses a non-canceled context so post-output
 // accounting completes after client cancellation (requirement 11.7).
 func (t *turnTerminal) persistCancellationBilling(ctx context.Context, attempt *attemptSession, reason string, request requestTerminalFacts, p *responsePipeline) {
+	ctx = request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	if t == nil {
 		return
 	}

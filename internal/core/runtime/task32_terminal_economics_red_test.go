@@ -117,7 +117,8 @@ func TestTask32TerminalEconomics_OldAttemptCallbackRecordsOnlyOldBLeg(t *testing
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "next-backend", Model: "next-model"}},
 	})
 	stream.attempt.install(old)
-	if detached, published := stream.attempt.swapIfOpen(next); !published || detached != old {
+	ready := &readyAttempt{session: next}
+	if detached, published := stream.attempt.swapIfOpen(ready); !published || detached != old {
 		t.Fatalf("attempt swap detached=%p published=%v, want old=%p", detached, published, old)
 	}
 	callback := func(ctx context.Context) {
@@ -168,9 +169,10 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 		})
 		return result.Err
 	}
-	stream.attempt.swapIfOpen(newAttemptSession(attemptSessionInput{
+	ready := &readyAttempt{session: newAttemptSession(attemptSessionInput{
 		bleg: b2bua.BLegRecord{BLegID: "b-next-meter", Seq: 2},
-	}))
+	})}
+	stream.attempt.swapIfOpen(ready)
 	if old == nil {
 		t.Fatal("old attempt snapshot is nil")
 	}

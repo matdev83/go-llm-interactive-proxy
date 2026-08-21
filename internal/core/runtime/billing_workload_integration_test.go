@@ -91,6 +91,7 @@ func TestBillingWorkloadIdentitySurvivesBareTerminalContextAndMatchesClosure(t *
 			billingIdentityStamped: true,
 			billingAccountID:       "acct:principal",
 			baseline:               lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "child-session"}},
+			requestAuth:            requestAuthorityFrom(ctx),
 		}),
 	}
 	bindTestRuntimeOwners(stream, ex)

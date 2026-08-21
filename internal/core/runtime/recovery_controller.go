@@ -38,6 +38,7 @@ type recoveryEnvironment interface {
 	logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error)
 	appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome)
 	noteRouteDecision(ctx context.Context, traceID, decision, detail string)
+	prepareReadyAttempt(ctx context.Context, session *attemptSession, facts recvTurnFacts, pipeline *responsePipeline, committed bool, interleaved interleavedstate.State, memoUpdate *interleavedthinking.PendingMemoUpdate) (*readyAttempt, error)
 }
 
 type recoveryController struct {
@@ -60,7 +61,6 @@ type recoveryController struct {
 	interleaved         interleavedstate.State
 	suppressThinker     bool
 	suppressVisibleMemo bool
-	postOpenLeg         func(context.Context, *billingCallState, string, b2bua.BLegRecord, routing.Primary, time.Time, time.Time)
 	failures            *candidateFailureHistory
 }
 type recoveryControllerInput struct {
@@ -294,7 +294,6 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 		}
 		if out.session != nil {
 			res.bleg = out.session.bleg
-			res.stream = out.session.loadInner()
 			res.cand = out.session.cand
 			if out.session.authority.control != nil {
 				res.authority = out.session.authority.control.state

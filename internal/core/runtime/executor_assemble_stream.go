@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -49,26 +50,75 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
 		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
 	})
-	rs.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
-	rs.attempt.install(out.session)
-	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(ctx, rs.facts, rs.attempt.require(), out.session.loadInner())
-	views, viewsOK := rs.facts.viewsFor(ctx)
-	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
-		_ = out.session.AbortBeforeReturn(ctx, err)
+
+	// --- TASK 2.2 & 2.3 — Atomic readiness and stream assembly handoff ---
+	// 1. Prepare ready attempt while unpublished
+	ready, err := e.prepareReadyAttempt(ctx, out.session, rs.facts, responsePipeline, terminal.committed(), out.interleaved, out.memoUpdate)
+	if err != nil {
+		// prepareReadyAttempt already called AbortBeforeReturn on failure.
 		return nil, err
 	}
+
+	// 2. Set up the assembly transaction to hold the ready attempt and request guard
+	tx := &streamAssemblyTx{
+		ready: ready,
+		guard: prep.guard,
+	}
+	defer func() {
+		if !tx.committed {
+			tx.Rollback(ctx, errors.New("initial stream assembly failed before return"))
+		}
+	}()
+
+	// 3. Consume the ready capability and install the session in the slot
+	session, err := ready.Consume()
+	if err != nil {
+		return nil, err
+	}
+	rs.attempt.install(session)
+
 	var stream lipapi.EventStream = rs
-	if e.shouldWrapHiddenInterleavedThinker(out.session.cand) {
+	if e.shouldWrapHiddenInterleavedThinker(session.cand) {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
-		stream = newHiddenInterleavedStream(rs, e.newThinkerRecorder(out.session.cand, *prep.call), out.interleaved)
-	} else if e.shouldWrapVisibleInterleavedThinker(out.session.cand) {
+		stream = newHiddenInterleavedStream(rs, e.newThinkerRecorder(session.cand, *prep.call), out.interleaved)
+	} else if e.shouldWrapVisibleInterleavedThinker(session.cand) {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
-		stream = newVisibleInterleavedStream(rs, e.newThinkerRecorder(out.session.cand, *prep.call), out.interleaved)
+		stream = newVisibleInterleavedStream(rs, e.newThinkerRecorder(session.cand, *prep.call), out.interleaved)
 	}
-	if prep.guard != nil {
-		prep.guard.Handoff()
-	}
+
+	// 4. Non-fallible commit to finalize publication and handoff request ownership
+	tx.Commit()
+
 	return stream, nil
+}
+
+type streamAssemblyTx struct {
+	ready     *readyAttempt
+	guard     *preStreamGuard
+	committed bool
+}
+
+func (tx *streamAssemblyTx) Commit() {
+	if tx.committed {
+		return
+	}
+	tx.committed = true
+	if tx.guard != nil {
+		tx.guard.Handoff()
+	}
+}
+
+func (tx *streamAssemblyTx) Rollback(ctx context.Context, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tx.committed {
+		return
+	}
+	tx.committed = true
+	if tx.ready != nil {
+		tx.ready.Dispose(ctx, err)
+	}
 }

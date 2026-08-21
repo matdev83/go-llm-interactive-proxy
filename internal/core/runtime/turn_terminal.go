@@ -526,13 +526,12 @@ func (t *turnTerminal) registerReplacement(ctx context.Context, out replacementO
 		return nil
 	}
 	if err := t.registerBLeg(ctx, leglifecycle.BLegHandle{ID: out.bleg.BLegID, Attempt: lifecycleAttempt(out.stream)}); err != nil {
-		if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
-			_ = out.stream.Close()
+		evidence := attemptEvidence{
+			Command:     sdkterminal.CommandSwallowedAttempt,
+			ReleaseKind: authorityapp.ReleaseKindSwallowed,
+			LegOutcome:  billing.LegOutcomeSwallowed,
 		}
-		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandSwallowedAttempt, false, func(cctx context.Context) error {
-			next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
-			return nil
-		})
+		_ = next.TerminalizeAttempt(ctx, IntentOpenReadinessFailure, evidence)
 		return err
 	}
 	return nil
@@ -544,18 +543,21 @@ func (t *turnTerminal) cleanupUnpublishedReplacement(ctx context.Context, next *
 	}
 	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 	defer cleanupCancel()
-	if freshInner := next.takeInner(); freshInner != nil {
-		cancelAndCloseInner(cleanupCtx, freshInner, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone}, nil)
+	_cause := errors.New("publication closed")
+	_outcome := billing.LegOutcomeFailed
+	if errors.Is(_cause, context.Canceled) {
+		_outcome = billing.LegOutcomeCanceled
 	}
-	_ = next.terminalizeSnapshot(cleanupCtx, sdkterminal.CommandSwallowedAttempt, coreterm.NewAccumulatorSnapshot(nil, false), func(cctx context.Context, _ coreterm.Outcome) error {
-		next.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
-		return nil
-	})
+	_evidence := attemptEvidence{Command: sdkterminal.CommandBackendOpenFailure, LegOutcome: _outcome, Usage: emptyOperatorUsageShell(), Err: _cause, RecordReason: _cause.Error()}
+	next.TerminalizeAttempt(cleanupCtx, IntentPreReturnAbort, _evidence)
 }
 
 func (t *turnTerminal) terminalizeSwallowedAttempt(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
 	if t == nil || attempt == nil || p == nil {
 		return
+	}
+	if attempt.finalStreamObs != nil {
+		attempt.finalStreamObs.Finish(ctx, response.OutcomeReplaced)
 	}
 	_ = attempt.terminalizeSnapshot(ctx, sdkterminal.CommandSwallowedAttempt, p.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
 		t.recordSwallowedAttempt(cctx, request, attempt, p)

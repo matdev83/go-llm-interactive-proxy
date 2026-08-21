@@ -248,6 +248,7 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 }
 
 func (p *responsePipeline) observeSynthesizedUsage(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, pm sdk.PartMeta, committed bool) (lipapi.Event, responseRecordingResult, error) {
+	ctx = request.toRecvTurnFacts(ctx).projectContext(ctx, p.log)
 	if p == nil || attempt == nil {
 		return lipapi.Event{}, responseRecordingResult{}, errNilRetryRecvStream
 	}

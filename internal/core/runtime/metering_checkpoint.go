@@ -21,6 +21,9 @@ func withMeteringHolder(ctx context.Context, h *checkpoint.RequestHolder) contex
 	if h == nil {
 		return ctx
 	}
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	return context.WithValue(ctx, meteringHolderKey{}, h)
 }
 
