@@ -207,14 +207,19 @@ func parseAGYModelsListing(stdout string) ([]modelinventory.Model, []string) {
 	seen := make(map[string]struct{})
 	for rawLine := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(strings.TrimSuffix(rawLine, "\r"))
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "Fetching") {
 			continue
 		}
-		if _, ok := seen[line]; ok {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
 			continue
 		}
-		seen[line] = struct{}{}
-		canonical, ok := canonicalForPretty(line)
+		modelID := fields[0]
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		canonical, ok := canonicalForPretty(modelID)
 		if !ok {
 			warnings = append(warnings, fmt.Sprintf("agy models: unrecognized model name omitted: %q", line))
 			continue
