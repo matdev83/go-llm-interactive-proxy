@@ -52,6 +52,20 @@ func TestResolveNativeModel_DynamicModels(t *testing.T) {
 	}
 }
 
+func TestParseAGYModelsListing_TSVWithPreamble(t *testing.T) {
+	output := "Fetching available models...\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\ngemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+	models, warnings := parseAGYModelsListing(output)
+	if len(warnings) > 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d: %#v", len(models), models)
+	}
+	if models[0].CanonicalID != "google/gemini-3.7-flash" {
+		t.Fatalf("model[0] = %q, want google/gemini-3.7-flash", models[0].CanonicalID)
+	}
+}
+
 func testAgySpec(t *testing.T, cfg Config) *agySpec {
 
 	t.Helper()
