@@ -261,6 +261,9 @@ func scanTurnRecvOwnership(root string) (turnRecvCurrentInventory, error) {
 	}
 	var out turnRecvCurrentInventory
 	categoryCounts := make(map[string]int, len(turnRecvOwnershipCategories))
+	for _, cat := range turnRecvOwnershipCategories {
+		categoryCounts[cat] = 0
+	}
 	responsibilityCounts := make(map[string]int)
 	fieldNames := make(map[string]bool)
 	var receiverMethods []turnRecvMethod

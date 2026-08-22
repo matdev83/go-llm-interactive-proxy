@@ -114,11 +114,11 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				if out.session == nil {
+				if out.ready == nil || out.ready.session == nil {
 					b.Fatal("expected parallel race to open")
 				}
-				if out.session.inner != nil {
-					_ = out.session.inner.Close()
+				if out.ready.session.inner != nil {
+					_ = out.ready.session.inner.Close()
 				}
 			}
 		})

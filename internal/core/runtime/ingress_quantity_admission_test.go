@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
@@ -234,6 +235,9 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 						Parts: []lipapi.Part{lipapi.TextPart("be basis")},
 					}},
 				},
+				metering:         holder,
+				billingCallID:    billing.BillingCallID("bc_ffffffffffffffffffffffffffffffff"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_ffffffffffffffffffffffffffffffff")),
 			},
 			bus: bus,
 		},
@@ -249,11 +253,11 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 		cand: authorityCandidate(),
 	}
 
-	out, err := ex.evaluateAndOpenCandidate(withMeteringHolder(context.Background(), holder), req, plan)
+	out, err := ex.evaluateAndOpenCandidate(context.Background(), req, plan)
 	if err != nil {
 		t.Fatalf("evaluateAndOpenCandidate: %v", err)
 	}
-	if out.session == nil || out.session.inner == nil {
+	if out.ready == nil || out.ready.session == nil || out.ready.session.inner == nil {
 		t.Fatal("expected opened stream")
 	}
 	if backend.openCalls.Load() < 1 {
@@ -270,7 +274,7 @@ func TestAttemptAdmit_ReceivesBackendIngressQuantitiesBeforeOpen(t *testing.T) {
 	if !ok || in != 777 {
 		t.Fatalf("attempt admit input_token=%d ok=%v want 777 from post-hook BE ingress count (pre-hook would be 1); quantities=%+v", in, ok, got.Exposure.Quantities)
 	}
-	be := holder.BackendIngressFor(out.session.bleg.BLegID)
+	be := holder.BackendIngressFor(out.ready.BLeg().BLegID)
 	if be == nil {
 		t.Fatal("BE ingress must be stored for the attempt")
 	}

@@ -133,10 +133,12 @@ func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
 	if a == nil {
 		return nil
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if h.Attempt == nil {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	a.mu.Lock()
@@ -148,6 +150,16 @@ func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
 			return errors.Join(ErrALegCanceled, cleanupErr)
 		}
 		return ErrALegCanceled
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			a.mu.Unlock()
+			cleanupErr := cancelAndClose(ctx, a.cancelTimeout(), h.Attempt, CancelCause{Kind: CancelContextDone})
+			if cleanupErr != nil {
+				return errors.Join(err, cleanupErr)
+			}
+			return err
+		}
 	}
 	a.blegs[h.ID] = h.Attempt
 	a.mu.Unlock()
@@ -221,6 +233,9 @@ func (a *ALeg) cancelTimeout() time.Duration {
 func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt, cause CancelCause) error {
 	if b == nil {
 		return nil
+	}
+	if cause.Kind == "" {
+		cause.Kind = CancelContextDone
 	}
 	ctx := parent
 	cancel := func() {}

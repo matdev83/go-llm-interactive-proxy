@@ -223,6 +223,81 @@ func TestALeg_ReleaseBLeg_isConcurrencySafe(t *testing.T) {
 	}
 }
 
+func TestCoordinator_RegisterBLeg_ContextCanceledDisposesAttempt(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-1")
+	b := &recordingBLeg{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := a.RegisterBLeg(ctx, BLegHandle{ID: "b1", Attempt: b})
+	if err == nil {
+		t.Fatal("expected error from RegisterBLeg with canceled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RegisterBLeg error: got %v want context.Canceled", err)
+	}
+
+	if got, want := b.calls(), []string{"cancel:context_done", "close"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %v want %v", got, want)
+	}
+
+	// Subsequent CancelALeg must not double-cancel b
+	if err := c.CancelALeg(context.Background(), "a-1", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.calls(), []string{"cancel:context_done", "close"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls after CancelALeg = %v want %v (must not double cancel)", got, want)
+	}
+}
+
+func TestCoordinator_RegisterBLeg_ContextCanceledPropagatesCleanupErrors(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-1")
+	cancelErr := errors.New("cancel on ctx done failed")
+	closeErr := errors.New("close on ctx done failed")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := a.RegisterBLeg(ctx, BLegHandle{
+		ID: "b1",
+		Attempt: &erroringBLeg{
+			cancelErr: cancelErr,
+			closeErr:  closeErr,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from RegisterBLeg with canceled context and cleanup errors")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled in aggregate, got %v", err)
+	}
+	if !errors.Is(err, cancelErr) {
+		t.Fatalf("expected cancel error in aggregate, got %v", err)
+	}
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("expected close error in aggregate, got %v", err)
+	}
+}
+
+func TestCoordinator_RegisterBLeg_NilAttemptWithCanceledContext(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{})
+	a := c.StartALeg("a-1")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := a.RegisterBLeg(ctx, BLegHandle{ID: "b-nil", Attempt: nil})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want context.Canceled", err)
+	}
+}
+
 func legID(i int) string {
 	return fmt.Sprintf("b-%d", i)
 }

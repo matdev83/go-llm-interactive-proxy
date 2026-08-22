@@ -424,7 +424,10 @@ func TestPhase33_BackendIngress_AppendFailureFailClosedBeforeAuthority(t *testin
 	holder := &checkpoint.RequestHolder{}
 	budget := &attemptBudget{max: 5}
 	req := authorityOpenRequest(t, aLegID, budget)
-	ctx := withMeteringHolder(context.Background(), holder)
+	req.reqFacts.metering = holder
+	req.reqFacts.billingCallID = "bc_ffffffffffffffffffffffffffffffff"
+	req.reqFacts.billingCallState = newBillingCallState("bc_ffffffffffffffffffffffffffffffff")
+	ctx := context.Background()
 	req.reqFacts.baseline = lipapi.Call{
 		ID:    "req-be-fail",
 		Route: lipapi.RouteIntent{Selector: "backend-1:model-1"},

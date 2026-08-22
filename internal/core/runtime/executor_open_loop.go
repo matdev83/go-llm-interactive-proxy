@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 )
 
 type openNextRequest struct {
@@ -23,39 +22,8 @@ func (e *Executor) openInitialAttempt(ctx context.Context, prep *preparedRequest
 // stream is opened and its B-leg is registered with the A-leg scope.
 func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest, plan *routePlanState) (openedAttempt, error) {
 	e := o.Executor
-	if prep.recvTurnFacts.billingCallID == "" && prep.billingCallID != "" {
-		prep.recvTurnFacts.billingCallID = prep.billingCallID
-		prep.recvTurnFacts.billingCallState = prep.billingCallState
-	}
-	if prep.aLegID == "" && prep.identity != nil {
-		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
-			baseline:         *prep.call,
-			traceID:          prep.identity.traceID,
-			aLegID:           prep.identity.aLeg.ALegID,
-			secureTurn:       prep.identity.secureTurn,
-			secureTurnOK:     prep.identity.secureTurnOK,
-			billingCallID:    prep.billingCallID,
-			billingCallState: prep.billingCallState,
-		})
-	}
-	if plan.progress == nil {
-		plan.progress = newRecoveryController(recoveryControllerInput{
-			e:              e,
-			affinityStore:  e.AffinityStore,
-			log:            e.Log,
-			streamRecovery: e.StreamRecovery,
-			opener:         newReplacementOpener(e, prep.bus, prep.aScope),
-			budget:         &attemptBudget{max: e.effectiveMaxAttempts()},
-			ttft:           newTTFTBudget(e.now(), plan.sel),
-			sel:            plan.sel,
-			requestSize:    plan.requestSize,
-			session:        &routing.SessionRoutingState{FirstRequestConsumed: prep.identity.aLeg.WeightedFirstConsumed},
-			excluded:       map[string]struct{}{},
-			rng:            plan.rng,
-			affinityKey:    plan.affinityKey,
-			affinitySet:    plan.affinitySet,
-		})
-	}
+	prep.ensureRecvTurnFacts(ctx)
+	plan.ensureProgress(e, prep)
 	for {
 		if err := ctx.Err(); err != nil {
 			return openedAttempt{}, err
@@ -77,7 +45,7 @@ func (o attemptOpenOwner) openInitial(ctx context.Context, prep *preparedRequest
 		if err != nil {
 			return out, err
 		}
-		if out.session == nil {
+		if out.ready == nil {
 			plan.progress.interleaved = out.interleaved
 			continue
 		}

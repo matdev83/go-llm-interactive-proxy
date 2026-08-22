@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
@@ -31,7 +30,6 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -61,6 +59,8 @@ type candidatePlan struct {
 	nextCycle       *interleavedstate.CycleState
 	stickyBackendID string
 	stickyBinding   bool
+	parallel        bool
+	parentCtx       context.Context
 }
 
 type rejectionKind int
@@ -87,7 +87,7 @@ type candidateEvaluationOutcome struct {
 	admitOut          candidateAdmissionOutcome
 }
 type openedAttempt struct {
-	session     *attemptSession
+	ready       *readyAttempt
 	interleaved interleavedstate.State
 	memoUpdate  *interleavedthinking.PendingMemoUpdate
 }
@@ -100,6 +100,8 @@ type attemptTx struct {
 	authState        attemptAuthorityState
 	authLifecycle    authorityLifecycle
 	stream           lipapi.ManagedEventStream
+	streamDisposed   bool
+	session          *attemptSession
 	registered       bool
 	openInvoked      bool
 	openStartedAt    time.Time
@@ -108,59 +110,102 @@ type attemptTx struct {
 	backendAttempted bool
 	completed        bool
 	failures         *candidateFailureHistory
+
+	// attempt-local resources
+	accounting            attemptAccountingTracker
+	toolFinal             *toolCallAssembler
+	promptCacheSource     promptcache.ObservationSource
+	promptCacheController promptcache.Controller
+	finalStreamObs        *extensions.FinalStreamObservationSession
+	recordAttemptLoggedFn func(context.Context, recordAttemptParams, diag.AttrOpts)
 }
 
-func (tx *attemptTx) Rollback(ctx context.Context, cmd sdkterminal.Command, releaseKind authorityapp.ReleaseKind, outcome billing.LegOutcome, usage lipapi.Event) {
-	if tx == nil || tx.completed {
-		return
+func rollbackCommandToIntent(cmd sdkterminal.Command) attemptTerminalIntent {
+	switch cmd {
+	case sdkterminal.CommandParallelLoser:
+		return IntentParallelLoser
+	case sdkterminal.CommandBackendOpenFailure:
+		return IntentOpenReadinessFailure
+	case sdkterminal.CommandPreBackendDenial:
+		return IntentOpenReadinessFailure
+	case sdkterminal.CommandCancel, sdkterminal.CommandClose:
+		return IntentCancellation
+	case sdkterminal.CommandTimeout:
+		return IntentTimeout
+	case sdkterminal.CommandSwallowedAttempt:
+		return IntentSwallowedFailure
+	default:
+		return IntentSurfacedFailure
 	}
-	tx.completed = true
-	if ctx != nil && ctx.Err() != nil {
-		outcome = billing.LegOutcomeCanceled
+}
+
+func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
+	if e != nil {
+		in.emitBackendEgressFn = e.emitBackendEgressMeteringFact
+		in.appendBillingLegFn = func(cctx context.Context, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+			e.appendIndependentTerminalLeg(cctx, in.billingCallState, bleg.ALegID, bleg, primary, started, finished, outcome)
+		}
+		in.now = e.now
+		in.finalizeBilling = e.callFinalizeBilling
+		in.billingEnabled = e.billingEnabled
+		in.operatorRateRef = e.operatorRateRef
+		in.billingWorkload = e.billingWorkloadIdentityForALeg
+		in.observeBillingLeg = e.observeBillingLeg
+		in.appendBillingLeg = e.appendIndependentCallLeg
 	}
-	if tx.stream != nil {
-		if err := tx.stream.Close(); err != nil && tx.e != nil && tx.e.Log != nil {
-			tx.e.Log.DebugContext(ctx, "attemptTx: stream close failed on rollback", "error", err, "b_leg_id", tx.bleg.BLegID)
-		}
+	return newAttemptSession(in)
+}
+
+func (tx *attemptTx) createSession() *attemptSession {
+	if tx == nil {
+		return nil
 	}
-	if tx.authLifecycle.control != nil {
-		if usage.Kind == "" {
-			usage = emptyOperatorUsageShell()
-		}
-		committed := false
-		if tx.authLifecycle.outputCommitted != nil {
-			committed = tx.authLifecycle.outputCommitted.Load()
-		}
-		_ = terminalizeAttemptEphemeral(ctx, cmd, committed, func(cctx context.Context) error {
-			tx.authLifecycle.finalizeIncurredOrRelease(cctx, releaseKind, usage)
-			if tx.backendAttempted {
-				outcomeMeter := metering.AttemptOutcomeFailed
-				if cmd == sdkterminal.CommandParallelLoser {
-					outcomeMeter = metering.AttemptOutcomeLoser
-				}
-				tx.e.emitBackendEgressMeteringFact(cctx, tx.bleg.BLegID, outcomeMeter, metering.SurfacedNo, usage)
+	if tx.session != nil {
+		return tx.session
+	}
+	tx.session = tx.e.newAttemptSession(attemptSessionInput{
+		inner:                 tx.stream,
+		streamDisposed:        tx.streamDisposed,
+		bleg:                  tx.bleg,
+		cand:                  tx.cand,
+		authority:             tx.authLifecycle,
+		aScope:                tx.reqFacts.aScope,
+		traceID:               tx.reqFacts.traceID,
+		billingCallID:         tx.reqFacts.billingCallID,
+		billingCallState:      tx.reqFacts.billingCallState,
+		accounting:            tx.accounting,
+		toolFinal:             tx.toolFinal,
+		promptCacheSource:     tx.promptCacheSource,
+		promptCacheController: tx.promptCacheController,
+		finalStreamObs:        tx.finalStreamObs,
+		recordAttemptLoggedFn: tx.recordAttemptLoggedFn,
+	})
+	return tx.session
+}
+
+func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglifecycle.ALeg) *attemptSession {
+	if leg == nil {
+		return nil
+	}
+	if leg.tx != nil {
+		return leg.tx.createSession()
+	}
+	return e.newAttemptSession(attemptSessionInput{
+		inner:            leg.stream,
+		bleg:             leg.bleg,
+		cand:             leg.cand,
+		authority:        leg.authority,
+		aScope:           aScope,
+		billingCallState: leg.billingCallState,
+		recordAttemptLoggedFn: func(cctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
+			if e != nil {
+				e.recordAttemptLogged(cctx, p, attrs)
 			}
-			return nil
-		})
-	}
-	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
-		tx.budget.release()
-		tx.budgetAcquired = false
-	}
-	if tx.registered && tx.reqFacts.aScope != nil {
-		tx.reqFacts.aScope.ReleaseBLeg(tx.bleg.BLegID)
-	}
-	if tx.bleg.BLegID != "" && tx.e != nil {
-		started := tx.openStartedAt
-		finished := tx.e.now()
-		if started.IsZero() {
-			started = finished
-		}
-		tx.e.appendIndependentTerminalLeg(ctx, tx.reqFacts.billingCallState, tx.reqFacts.aLegID, tx.bleg, tx.cand.Primary, started, finished, outcome)
-	}
+		},
+	})
 }
 
-func (tx *attemptTx) Handoff() *attemptSession {
+func (tx *attemptTx) HandoffReady(pending pendingSelectionEffects) *readyAttempt {
 	if tx == nil {
 		panic("nil attemptTx handoff")
 	}
@@ -171,19 +216,43 @@ func (tx *attemptTx) Handoff() *attemptSession {
 		panic("nil executor in handoff")
 	}
 	tx.completed = true
-	fs, maxArgs := tx.e.resolveToolCallFinalizers()
-	return newAttemptSession(attemptSessionInput{
-		inner:                 tx.stream,
-		bleg:                  tx.bleg,
-		cand:                  tx.cand,
-		authority:             tx.authLifecycle,
-		aScope:                tx.reqFacts.aScope,
-		accounting:            newAttemptAccountingTracker(tx.e.now()),
-		toolFinal:             newToolCallAssembler(fs, maxArgs, tx.reqFacts.baseline.Tools),
-		promptCacheSource:     promptCacheObservationSource(tx.stream),
-		promptCacheController: promptCacheControllerFor(tx.e.Backends[tx.cand.Primary.Backend]),
-		finalStreamObs:        &extensions.FinalStreamObservationSession{Log: tx.e.Log, Metrics: tx.e.ExtensionMetrics},
-		recordAttemptLoggedFn: tx.e.recordAttemptLogged,
+	return newReadyAttempt(tx.createSession(), pending)
+}
+
+func (tx *attemptTx) rollback(ctx context.Context, cmd sdkterminal.Command, evidence attemptEvidence) attemptTerminalResult {
+	if tx == nil || tx.completed {
+		return attemptTerminalResult{}
+	}
+	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
+		tx.budget.release()
+		tx.budgetAcquired = false
+	}
+	tx.completed = true
+	session := tx.createSession()
+	intent := rollbackCommandToIntent(cmd)
+	return session.TerminalizeAttempt(ctx, intent, evidence)
+}
+
+func (tx *attemptTx) rollbackSimple(ctx context.Context, cmd sdkterminal.Command, rel authorityapp.ReleaseKind, outcome billing.LegOutcome, err error, reason string) {
+	if tx == nil || tx.completed {
+		return
+	}
+	var rErr error
+	if err != nil {
+		rErr = err
+	} else if ctx != nil {
+		rErr = ctx.Err()
+	}
+	tx.rollback(ctx, cmd, attemptEvidence{
+		Command:      cmd,
+		ReleaseKind:  rel,
+		LegOutcome:   outcome,
+		Usage:        emptyOperatorUsageShell(),
+		Err:          rErr,
+		TraceID:      tx.reqFacts.traceID,
+		ALegID:       tx.reqFacts.aLegID,
+		StartedAt:    tx.openStartedAt,
+		RecordReason: reason,
 	})
 }
 
@@ -203,6 +272,7 @@ func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route ro
 	if err != nil {
 		return nil, fmt.Errorf("executor: next b-leg: %w", err)
 	}
+
 	if rf.billingCallState != nil {
 		rf.billingCallState.noteAllocatedBLeg(bleg.BLegID, bleg.Seq)
 	}
@@ -423,10 +493,7 @@ func (e *Executor) openAttemptTx(
 		}
 		tx.budgetAcquired = true
 	}
-	hookCtx := ctx
-	if e != nil && e.Log != nil {
-		hookCtx = hooks.WithDiagnosticsLogger(ctx, e.Log)
-	}
+	hookCtx := tx.reqFacts.projectContext(ctx, e.Log)
 	if err := tx.reqFacts.bus.RunRequestPartHooks(hookCtx, &attempt, sdk.PartMeta{
 		TraceID:    tx.reqFacts.traceID,
 		ALegID:     tx.reqFacts.aLegID,
@@ -436,12 +503,12 @@ func (e *Executor) openAttemptTx(
 	}); err != nil {
 		return fmt.Errorf("executor: request hooks: %w", err)
 	}
-	postHook, postErr := e.rederiveAfterRequestHooks(ctx, tx.reqFacts, tx.routeFacts, &attempt, c, be, plan.stickyBackendID, plan.stickyBinding, tx.failures)
+	postHook, postErr := e.rederiveAfterRequestHooks(ctx, tx.reqFacts, tx.routeFacts, &attempt, c, be, plan.stickyBackendID, plan.stickyBinding, tx.failures, plan.parallel)
 	if postErr != nil {
 		return postErr
 	}
 	if postHook.excluded {
-		tx.Rollback(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return nil
 	}
 	preflightDecision := evalOutcome.preflightDecision
@@ -461,9 +528,6 @@ func (e *Executor) openAttemptTx(
 	admitDecision := preflightDecision
 	holder := tx.reqFacts.metering
 	scopeVal := tx.reqFacts.recvViews.Scope
-	if !tx.reqFacts.recvViewsOK {
-		holder, scopeVal = meteringHolderFrom(ctx), scopeFromCtx(ctx)
-	}
 	if holder != nil {
 		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 			Call:         authorizedFreeze,
@@ -514,11 +578,11 @@ func (e *Executor) openAttemptTx(
 		return err
 	}
 	if len(previewedClamps) > 0 && !backendCanEnforceAuthorityClamp(be, &openCall) {
-		tx.Rollback(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return nil
 	}
 	if admitDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
-		tx.Rollback(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return nil
 	}
 	if werr := checkpoint.AssertNotWidened(authorizedFreeze, openCall); werr != nil {
@@ -529,7 +593,7 @@ func (e *Executor) openAttemptTx(
 	projTarget.SupportedExtensions = append([]lipapi.ExtensionRequirement(nil), execbackend.EffectiveDialectSupport(ctx, be, openCall, c).ExtensionTypes...)
 	adaptedCall, adaptErr := lipapi.AdaptCallForCandidate(lipapi.CloneCall(openCall), projTarget)
 	if adaptErr != nil {
-		tx.Rollback(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return adaptErr
 	}
 	wireCall := adaptedCall
@@ -540,9 +604,6 @@ func (e *Executor) openAttemptTx(
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(wireCall); jerr == nil {
 			sc := tx.reqFacts.recvViews.Scope
-			if !tx.reqFacts.recvViewsOK {
-				sc = scopeFromCtx(ctx)
-			}
 			meta := sdktraffic.CaptureMeta{
 				TraceID:     tx.reqFacts.traceID,
 				ALegID:      tx.reqFacts.aLegID,
@@ -609,18 +670,24 @@ func (e *Executor) openAttemptTx(
 			tf := ttftFailure(ttftDeadline.scope, c.Key)
 			if ttftDeadline.scope == ttftTimeoutLeaf {
 				tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, ttftAttemptReason(ttftDeadline.scope), tf)
-				tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, nil, "")
 				return nil
 			}
 			tx.recordFailure(ctx, lipapi.AttemptSurfacedFailure, ttftAttemptReason(ttftDeadline.scope), tf)
-			tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindLosing, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindLosing, billing.LegOutcomeNeverStarted, nil, "")
 			return fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
 		}
 		openSpan.RecordError(err)
 		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {
 			if plan.stickyBinding && c.Primary.Backend == plan.stickyBackendID {
-				e.clearAffinityBinding(ctx, tx.reqFacts.traceID, tx.routeFacts.affinityKey, tx.routeFacts.affinitySet, "recoverable_pre_output_open")
+				if plan.parallel {
+					if tx.failures != nil {
+						tx.failures.AffinityReset = "recoverable_pre_output_open"
+					}
+				} else {
+					e.clearAffinityBinding(ctx, tx.reqFacts.traceID, tx.routeFacts.affinityKey, tx.routeFacts.affinitySet, "recoverable_pre_output_open")
+				}
 			}
 			tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)", err)
 			diag.LogDecision(
@@ -629,20 +696,31 @@ func (e *Executor) openAttemptTx(
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
 			)
-			tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, err, "recoverable pre-output (open)")
 			return nil
 		}
-		tx.recordFailure(ctx, lipapi.AttemptSurfacedFailure, attemptReasonDetail(err), err)
+		recordOutcome := lipapi.AttemptSurfacedFailure
+		recordReason := attemptReasonDetail(err)
 		releaseKind := authorityapp.ReleaseKindLosing
 		if errors.Is(err, context.Canceled) && openCtx.Err() == nil {
 			releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		} else if plan.parallel && (errors.Is(err, context.Canceled) || errors.Is(openCtx.Err(), context.Canceled)) {
+			parentCanceled := plan.parentCtx != nil && plan.parentCtx.Err() != nil
+			if !parentCanceled {
+				recordOutcome = lipapi.AttemptCancelled
+				recordReason = "parallel race loser"
+				releaseKind = authorityapp.ReleaseKindAdmissionFailure
+				tx.backendAttempted = false
+				tx.authLifecycle.backendAttempted.Store(false)
+			}
 		}
-		tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, releaseKind, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+		tx.recordFailure(ctx, recordOutcome, recordReason, err)
+		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, releaseKind, billing.LegOutcomeNeverStarted, nil, "")
 		return fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
 	}
 	if m := e.secureSessionForAttempt(); m != nil {
-		if st, ok := execctx.SecureSessionTurnFromContext(openCtx); ok {
-			tr := buildAttemptTrace(st, tx.reqFacts.aLegID, tx.bleg, c, openCall, openStart)
+		if tx.reqFacts.secureTurnOK {
+			tr := buildAttemptTrace(tx.reqFacts.secureTurn, tx.reqFacts.aLegID, tx.bleg, c, openCall, openStart)
 			persistCtx := context.WithoutCancel(openCtx)
 			if rerr := m.RecordAttemptOpened(persistCtx, tr); rerr != nil && e.Log != nil {
 				e.Log.DebugContext(persistCtx, "secure_session_attempt_trace_failed", "error", rerr)
@@ -661,7 +739,16 @@ func (e *Executor) openAttemptTx(
 		slog.String("verbosity", string(openCall.Options.Verbosity)),
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
-	if c.MarkedFirst {
+	// Initialize attempt-local resources on the acquisition owner
+	fs, maxArgs := e.resolveToolCallFinalizers()
+	tx.accounting = newAttemptAccountingTracker(e.now())
+	tx.toolFinal = newToolCallAssembler(fs, maxArgs, tx.reqFacts.baseline.Tools)
+	tx.promptCacheSource = promptCacheObservationSource(stream)
+	tx.promptCacheController = promptCacheControllerFor(e.Backends[c.Primary.Backend])
+	tx.finalStreamObs = &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics}
+	tx.recordAttemptLoggedFn = e.recordAttemptLogged
+
+	if c.MarkedFirst && !plan.parallel {
 		if err := e.Store.SetWeightedFirstConsumed(ctx, tx.reqFacts.aLegID, true); err != nil {
 			return fmt.Errorf("executor: set weighted first consumed: %w", err)
 		}
@@ -721,7 +808,7 @@ func (e *Executor) openNext(ctx context.Context, req openNextRequest) (openedAtt
 				return openedAttempt{interleaved: req.interleaved}, err
 			}
 			p.interleaved = out.interleaved
-			if out.session != nil {
+			if out.ready != nil {
 				failures.ParallelFailure = nil
 				return out, nil
 			}
@@ -739,7 +826,7 @@ func (e *Executor) openNext(ctx context.Context, req openNextRequest) (openedAtt
 			stickyBinding:   stickyBinding,
 		}
 		out, err := e.evaluateAndOpenCandidate(ctx, req, plan)
-		if err == nil && out.session != nil {
+		if err == nil && out.ready != nil {
 			failures.ParallelFailure = nil
 		}
 		return out, err
@@ -774,7 +861,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 			e.notePlanCandidate(ctx, req.reqFacts.traceID, plan.cand.Key, nil)
 		}
 		req.progress.excluded[plan.cand.Key] = struct{}{}
-		return openedAttempt{session: nil, interleaved: req.interleaved}, nil
+		return openedAttempt{ready: nil, interleaved: req.interleaved}, nil
 	}
 	ranContextEligibility := e.EligibilityResolver != nil
 	cat := catalogRouteTraceIfEnabled(e, evalOutcome.facts, evalOutcome.admitOut.admitRes.Capability, &modelcatalog.EligibilityDecision{IsEligible: true, Facts: evalOutcome.facts}, ranContextEligibility)
@@ -785,7 +872,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	}
 	defer func() {
 		if !tx.completed {
-			tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, emptyOperatorUsageShell())
+			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		}
 	}()
 	err = e.openAttemptTx(ctx, tx, evalOutcome, plan)
@@ -794,7 +881,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	}
 	if tx.completed {
 		req.progress.excluded[plan.cand.Key] = struct{}{}
-		return openedAttempt{session: nil, interleaved: req.interleaved}, nil
+		return openedAttempt{ready: nil, interleaved: req.interleaved}, nil
 	}
 	interleaved := req.interleaved
 	if plan.nextCycle != nil {
@@ -804,7 +891,11 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	if req.reqFacts.suppressThinker {
 		if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeFailed, emptyOperatorUsageShell())
+				outcome := billing.LegOutcomeFailed
+				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+					outcome = billing.LegOutcomeCanceled
+				}
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
@@ -813,31 +904,40 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		if evalOutcome.shapeRes.MemoUpdate != nil {
 			interleaved, err = e.commitMemoInjection(ctx, req.reqFacts.aLegID, interleaved, evalOutcome.shapeRes.MemoUpdate)
 			if err != nil {
-				tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeFailed, emptyOperatorUsageShell())
+				outcome := billing.LegOutcomeFailed
+				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+					outcome = billing.LegOutcomeCanceled
+				}
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
 				return openedAttempt{interleaved: req.interleaved}, err
 			}
 		} else if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeFailed, emptyOperatorUsageShell())
+				outcome := billing.LegOutcomeFailed
+				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+					outcome = billing.LegOutcomeCanceled
+				}
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
 	}
+	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
+	ready := tx.HandoffReady(pendingSelectionEffects{
+		interleaved: interleaved,
+		memoUpdate:  memoUpdate,
+	})
 	if req.reqFacts.aScope != nil {
 		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      tx.bleg.BLegID,
-			Attempt: lifecycleAttempt(tx.stream),
+			Attempt: ready.lifecycleHandle(),
 		}); err != nil {
-			tx.stream = nil
-			tx.Rollback(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeFailed, emptyOperatorUsageShell())
 			return openedAttempt{interleaved: req.interleaved}, err
 		}
 		tx.registered = true
 	}
-	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
-	session := tx.Handoff()
 	return openedAttempt{
-		session:     session,
+		ready:       ready,
 		interleaved: interleaved,
 		memoUpdate:  memoUpdate,
 	}, nil

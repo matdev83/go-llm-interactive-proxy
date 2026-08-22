@@ -386,12 +386,16 @@ func TestStreamObserverMeta_clonesScope(t *testing.T) {
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
-			traceID: "t1",
-			aLegID:  "a1",
+			traceID:     "t1",
+			aLegID:      "a1",
+			recvViews:   execctx.Views{Scope: orig.Clone()},
+			recvViewsOK: true,
 		}),
 		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b1", Seq: 1}, authorityCandidate(), authorityLifecycle{}),
 	}
-	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: orig.Clone()})
+	// Poison context must not affect frozen facts.
+	poison := scope.PrincipalScopeView{PrincipalID: scope.Known("poison-principal"), Roles: []string{"poison"}}
+	ctx := execctx.WithViews(context.Background(), execctx.Views{Scope: poison.Clone()})
 	attempt := rs.attempt.require()
 	views, viewsOK := rs.facts.viewsFor(ctx)
 	meta := rs.responsePipeline.streamObserverMeta(rs.facts, attempt, views, viewsOK)

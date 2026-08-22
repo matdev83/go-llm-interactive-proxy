@@ -35,10 +35,7 @@ func (t *turnTerminal) handoffBillingTurn(ctx context.Context, facts requestTerm
 	ids := facts.billingState.freezeAllocatedBLegs()
 	now := t.nowTime()
 	started, finished := facts.billingState.timingBounds(now)
-	workloadCtx := ctx
-	if facts.requestAuth != nil {
-		workloadCtx = withRequestAuthority(workloadCtx, facts.requestAuth)
-	}
+	workloadCtx := facts.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	record := billing.CallUsageRecord{
 		SchemaVersion:      billing.CurrentRecordSchemaVersion,
 		CallID:             facts.billingCallID,

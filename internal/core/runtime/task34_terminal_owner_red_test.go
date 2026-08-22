@@ -38,30 +38,51 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 			attempt := newAttemptSession(attemptSessionInput{})
 			snapshot := coreterm.NewAccumulatorSnapshot([]byte(test.name), false)
 			var attemptEffects, requestEffects atomic.Int32
-			effects := func(context.Context, coreterm.Outcome) error {
-				attemptEffects.Add(1)
-				return nil
+			// Attempt terminal via TerminalizeAttempt
+			attemptEv := attemptEvidence{Command: test.cmd, Snapshot: &snapshot}
+			attemptIntent := IntentSurfacedFailure
+			switch test.cmd {
+			case sdkterminal.CommandNormalFinish:
+				attemptIntent = IntentSuccess
+			case sdkterminal.CommandCancel:
+				attemptIntent = IntentCancellation
+			case sdkterminal.CommandTimeout:
+				attemptIntent = IntentTimeout
 			}
-			requestAfter := func(context.Context, coreterm.Outcome) error {
-				requestEffects.Add(1)
-				return nil
+			winnerA := attempt.TerminalizeAttempt(context.Background(), attemptIntent, attemptEv)
+			if !winnerA.Result.Won || winnerA.Result.Err != nil || winnerA.Result.Outcome.Command != test.cmd {
+				t.Fatalf("attempt winner=%+v want winning %s", winnerA.Result, test.cmd)
 			}
-
-			winner := turn.terminalizeSnapshot(context.Background(), test.cmd, attempt, snapshot, effects, requestAfter)
-			if !winner.Won || winner.Err != nil || winner.Outcome.Command != test.cmd {
-				t.Fatalf("winner=%+v want winning %s", winner, test.cmd)
-			}
-			observer := turn.terminalizeSnapshot(context.Background(), test.cmd, attempt, snapshot, effects, requestAfter)
-			if observer.Won || observer.Err != nil || observer.Outcome.Command != test.cmd {
-				t.Fatalf("same-command observer=%+v want published %s", observer, test.cmd)
+			attemptEffects.Add(1)
+			observerA := attempt.TerminalizeAttempt(context.Background(), attemptIntent, attemptEv)
+			if observerA.Result.Won || observerA.Result.Outcome.Command != test.cmd {
+				t.Fatalf("attempt same-command observer=%+v want published %s", observerA.Result, test.cmd)
 			}
 			conflict := sdkterminal.CommandEOF
 			if conflict == test.cmd {
 				conflict = sdkterminal.CommandCancel
 			}
-			loser := turn.terminalizeSnapshot(context.Background(), conflict, attempt, snapshot, effects, requestAfter)
-			if loser.Won || !errors.Is(loser.Err, sdkterminal.ErrConflict) || loser.Outcome.Command != test.cmd {
-				t.Fatalf("loser=%+v want conflict observing %s", loser, test.cmd)
+			conflictEv := attemptEvidence{Command: conflict, Snapshot: &snapshot}
+			loserA := attempt.TerminalizeAttempt(context.Background(), IntentSurfacedFailure, conflictEv)
+			if loserA.Result.Won || !errors.Is(loserA.Result.Err, sdkterminal.ErrConflict) || loserA.Result.Outcome.Command != test.cmd {
+				t.Fatalf("attempt loser=%+v want conflict observing %s", loserA.Result, test.cmd)
+			}
+			// Request terminal via terminalizeRequest
+			requestAfter := func(context.Context, coreterm.Outcome) error {
+				requestEffects.Add(1)
+				return nil
+			}
+			winnerR := turn.terminalizeRequest(context.Background(), test.cmd, snapshot, requestAfter)
+			if !winnerR.Won || winnerR.Err != nil || winnerR.Outcome.Command != test.cmd {
+				t.Fatalf("request winner=%+v want winning %s", winnerR, test.cmd)
+			}
+			observerR := turn.terminalizeRequest(context.Background(), test.cmd, snapshot, requestAfter)
+			if observerR.Won || observerR.Outcome.Command != test.cmd {
+				t.Fatalf("request same-command observer=%+v want published %s", observerR, test.cmd)
+			}
+			loserR := turn.terminalizeRequest(context.Background(), conflict, snapshot, requestAfter)
+			if loserR.Won || !errors.Is(loserR.Err, sdkterminal.ErrConflict) || loserR.Outcome.Command != test.cmd {
+				t.Fatalf("request loser=%+v want conflict observing %s", loserR, test.cmd)
 			}
 			if got := attemptEffects.Load(); got != 1 {
 				t.Fatalf("attempt effects=%d want once", got)
@@ -76,13 +97,10 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 		turn := newTurnTerminal()
 		attempt := newAttemptSession(attemptSessionInput{})
 		snapshot := coreterm.NewAccumulatorSnapshot(nil, false)
-		var effects atomic.Int32
-		result := turn.terminalizeSnapshot(context.Background(), sdkterminal.CommandSwallowedAttempt, attempt, snapshot, func(context.Context, coreterm.Outcome) error {
-			effects.Add(1)
-			return nil
-		}, nil)
-		if !result.Won || result.Err != nil || effects.Load() != 1 {
-			t.Fatalf("swallowed result=%+v effects=%d", result, effects.Load())
+		ev := attemptEvidence{Command: sdkterminal.CommandSwallowedAttempt, Snapshot: &snapshot}
+		result := attempt.TerminalizeAttempt(context.Background(), IntentSwallowedFailure, ev)
+		if !result.Result.Won || result.Result.Err != nil {
+			t.Fatalf("swallowed result=%+v", result.Result)
 		}
 		if turn.requestTerminal().Owner().State() != sdkterminal.StateOpen {
 			t.Fatalf("request state=%q want open", turn.requestTerminal().Owner().State())
@@ -121,34 +139,34 @@ func TestTask34TerminalOwner_CommandsAndEffects(t *testing.T) {
 		turn.markCommitted(attempt)
 		var attemptEffects atomic.Int32
 		requestEffects := func(ctx context.Context, _ coreterm.Outcome) error {
-			stream.terminal.recordBillingLegForAttempt(ctx, stream.facts.terminalFacts(), attempt, attempt.terminalEvidence(), sdkterminal.CommandGateReplacement, lipapi.Event{}, false, stream.facts.billingCallState)
 			stream.terminal.handoffBillingTurn(ctx, stream.facts.terminalFacts(), sdkterminal.CommandGateReplacement)
 			return nil
 		}
-		result := turn.terminalizeSnapshot(context.Background(), sdkterminal.CommandGateReplacement, attempt, coreterm.NewAccumulatorSnapshot(nil, false), func(context.Context, coreterm.Outcome) error {
-			attemptEffects.Add(1)
-			return nil
-		}, requestEffects)
-		if result.Won || !errors.Is(result.Err, sdkterminal.ErrOutputCommitted) || attemptEffects.Load() != 0 || closures.Load() != 1 {
-			t.Fatalf("gate replacement result=%+v attempt=%d closures=%d", result, attemptEffects.Load(), closures.Load())
+		snap := coreterm.NewAccumulatorSnapshot(nil, false)
+		result := turn.terminalizeRequest(context.Background(), sdkterminal.CommandGateReplacement, snap, requestEffects)
+		// Gate replacement is request-only; attempt terminal must remain unclaimed.
+		if result.Won || !errors.Is(result.Err, sdkterminal.ErrOutputCommitted) || closures.Load() != 1 {
+			t.Fatalf("gate replacement result=%+v closures=%d", result, closures.Load())
+		}
+		if attemptEffects.Load() != 0 {
+			t.Fatalf("gate replacement attempt effects must remain 0, got %d", attemptEffects.Load())
 		}
 		// A competing rejected gate still invokes the request closure seam, but
 		// the economic owner deduplicates the already sealed call.
-		result = turn.terminalizeSnapshot(context.Background(), sdkterminal.CommandGateReplacement, attempt, coreterm.NewAccumulatorSnapshot(nil, false), nil, func(cctx context.Context, out coreterm.Outcome) error {
-			return requestEffects(cctx, out)
-		})
+		result = turn.terminalizeRequest(context.Background(), sdkterminal.CommandGateReplacement, snap, requestEffects)
 		if result.Won || !errors.Is(result.Err, sdkterminal.ErrOutputCommitted) || closures.Load() != 1 {
 			t.Fatalf("repeated gate replacement result=%+v closures=%d", result, closures.Load())
 		}
 	})
 
 	t.Run("captured attempt remains authoritative after replacement", func(t *testing.T) {
-		turn := newTurnTerminal()
 		old := newAttemptSession(attemptSessionInput{})
 		next := newAttemptSession(attemptSessionInput{})
-		result := turn.terminalizeSnapshot(context.Background(), sdkterminal.CommandSwallowedAttempt, old, coreterm.NewAccumulatorSnapshot(nil, false), nil, nil)
-		if !result.Won || old.terminal.Owner().State() != sdkterminal.StateReleased {
-			t.Fatalf("old result=%+v state=%q", result, old.terminal.Owner().State())
+		snap := coreterm.NewAccumulatorSnapshot(nil, false)
+		ev := attemptEvidence{Command: sdkterminal.CommandSwallowedAttempt, Snapshot: &snap}
+		result := old.TerminalizeAttempt(context.Background(), IntentSwallowedFailure, ev)
+		if !result.Result.Won || old.terminal.Owner().State() != sdkterminal.StateReleased {
+			t.Fatalf("old result=%+v state=%q", result.Result, old.terminal.Owner().State())
 		}
 		if next.terminal.Owner().State() != sdkterminal.StateOpen {
 			t.Fatalf("replacement attempt state=%q want open", next.terminal.Owner().State())

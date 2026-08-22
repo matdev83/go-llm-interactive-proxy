@@ -393,7 +393,7 @@ func (p *responsePipeline) resolveCustomerUsageForTerminal(ctx context.Context, 
 			p.log.DebugContext(ctx, "customer stream usage reconstruction", "error", err)
 		}
 		if len(result.Events) > 0 {
-			return applyFrontendIngressInput(ctx, customerPlaneUsageEvent(mergeUsageEventsForClient(result.Events, true)))
+			return applyFrontendIngressInput(request.metering, customerPlaneUsageEvent(mergeUsageEventsForClient(result.Events, true)))
 		}
 	}
 	return p.resolveCustomerUsage(ctx, usageEv)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"maps"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
@@ -39,7 +40,7 @@ func testAttemptSession(s *retryRecvStream) *attemptSession {
 		return attempt
 	}
 	attempt := newAttemptSession(attemptSessionInput{})
-	s.attempt.install(attempt)
+	testInstallSlot(&s.attempt, attempt)
 	return attempt
 }
 
@@ -89,6 +90,18 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 	bindTurnTerminalRuntime(s.terminal, e)
 	if attempt := s.attempt.snapshot(); attempt != nil {
 		attempt.recordAttemptLoggedFn = e.recordAttemptLogged
+		attempt.emitBackendEgressFn = e.emitBackendEgressMeteringFact
+		attempt.appendBillingLegFn = func(ctx context.Context, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
+			e.appendIndependentTerminalLeg(ctx, s.facts.billingCallState, s.facts.aLegID, bleg, primary, started, finished, outcome)
+		}
+		attempt.now = e.now
+		attempt.aScope = s.terminal.aLegScope()
+		attempt.billingEnabled = e.billingEnabled
+		attempt.operatorRateRef = e.operatorRateRef
+		attempt.billingWorkload = e.billingWorkloadIdentityForALeg
+		attempt.observeBillingLeg = e.observeBillingLeg
+		attempt.appendBillingLeg = e.appendIndependentCallLeg
+		attempt.finalizeBilling = e.callFinalizeBilling
 	}
 	if s.recovery != nil {
 		s.recovery.bindOpener(e, s.responsePipeline.bus, s.terminal.aLegScope())

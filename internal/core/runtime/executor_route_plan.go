@@ -18,6 +18,7 @@ type candidateFailureHistory struct {
 	ContextLimit      bool
 	TransformExcludes *transformExcludeTracker
 	ParallelFailure   error
+	AffinityReset     string
 	progress          *recoveryController
 }
 
@@ -68,7 +69,10 @@ func (e *Executor) buildRoutePlan(ctx context.Context, prep *preparedRequest) (*
 	if err := routing.ValidateExecutionComposition(sel, e.BackendExecutionResolver, e.ExecutionCompositionPolicy); err != nil {
 		return nil, fmt.Errorf("executor: %w", err)
 	}
-	if resolver, ok := routing.NativeModelResolverFromContext(ctx); ok {
+	// Typed facts are authoritative; resolver is frozen at preparation and
+	// projected into context only for compatibility hooks. Never read live
+	// context here; missing resolver is supported pass-through.
+	if resolver := prep.nativeResolver; resolver != nil {
 		if err := routing.BindNativeModelIDs(sel, resolver); err != nil {
 			return nil, fmt.Errorf("executor: bind native model ids: %w", err)
 		}
@@ -129,4 +133,26 @@ func (p *routePlanState) facts() routeFacts {
 		return routeFacts{}
 	}
 	return p.routeFacts
+}
+
+func (plan *routePlanState) ensureProgress(e *Executor, prep *preparedRequest) {
+	if plan == nil || plan.progress != nil {
+		return
+	}
+	plan.progress = newRecoveryController(recoveryControllerInput{
+		e:              e,
+		affinityStore:  e.AffinityStore,
+		log:            e.Log,
+		streamRecovery: e.StreamRecovery,
+		opener:         newReplacementOpener(e, prep.bus, prep.aScope),
+		budget:         &attemptBudget{max: e.effectiveMaxAttempts()},
+		ttft:           newTTFTBudget(e.now(), plan.sel),
+		sel:            plan.sel,
+		requestSize:    plan.requestSize,
+		session:        &routing.SessionRoutingState{FirstRequestConsumed: prep.identity.aLeg.WeightedFirstConsumed},
+		excluded:       map[string]struct{}{},
+		rng:            plan.rng,
+		affinityKey:    plan.affinityKey,
+		affinitySet:    plan.affinitySet,
+	})
 }

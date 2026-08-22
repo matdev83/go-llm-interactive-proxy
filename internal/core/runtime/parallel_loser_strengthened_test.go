@@ -3,7 +3,11 @@ package runtime
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -28,13 +32,26 @@ func (f preflightCountFunc) CountCall(ctx context.Context, in app.CountCallInput
 }
 
 type spyAttemptProvider struct {
+	mu           sync.Mutex
 	id           string
 	admitCalls   atomic.Int32
 	settleCalls  atomic.Int32
 	releaseCalls atomic.Int32
-	settledIDs   atomic.Value // []string
-	releasedIDs  atomic.Value // []string
+	settledIDs   []string
+	releasedIDs  []string
 	clampDone    chan struct{}
+}
+
+func (p *spyAttemptProvider) getSettled() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.settledIDs)
+}
+
+func (p *spyAttemptProvider) getReleased() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.releasedIDs)
 }
 
 func (p *spyAttemptProvider) AdmitAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
@@ -58,15 +75,17 @@ func (p *spyAttemptProvider) AdmitAttempt(ctx context.Context, in authority.Atte
 
 func (p *spyAttemptProvider) SettleAttempt(ctx context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	p.settleCalls.Add(1)
-	curr, _ := p.settledIDs.Load().([]string)
-	p.settledIDs.Store(append(curr, in.Handles...))
+	p.mu.Lock()
+	p.settledIDs = append(p.settledIDs, in.Handles...)
+	p.mu.Unlock()
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *spyAttemptProvider) ReleaseAttempt(ctx context.Context, in authority.AttemptRelease) error {
 	p.releaseCalls.Add(1)
-	curr, _ := p.releasedIDs.Load().([]string)
-	p.releasedIDs.Store(append(curr, in.Handles...))
+	p.mu.Lock()
+	p.releasedIDs = append(p.releasedIDs, in.Handles...)
+	p.mu.Unlock()
 	return nil
 }
 
@@ -225,29 +244,32 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup failed: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected a winner session")
 	}
-	if out.session.cand.Primary.Backend != "winner" {
-		t.Fatalf("expected winner to be 'winner', got %s", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "winner" {
+		t.Fatalf("expected winner to be 'winner', got %s", out.ready.Candidate().Primary.Backend)
 	}
 
 	// Settle the winner manually to simulate winner committing/settling
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
-	life := ex.newAttemptAuthorityLifecycle(authState, out.session.cand)
+	life := ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate())
 	usage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
 		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
 	}
+	ex.Log = slog.Default()
+	t.Logf("winner cand key: %s", out.ready.Candidate().Key)
+	t.Logf("winner authState: viaCoord=%t, stack=%+v", authState.viaCoordinator, authState.stack)
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
 
-	if out.session.inner != nil {
-		_ = out.session.inner.Close()
+	if out.ready.session.inner != nil {
+		_ = out.ready.session.inner.Close()
 	}
 
 	// Assertions:
@@ -255,7 +277,7 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	// - "winner" should be settled.
 	// - "loser-open" should be settled (incurred).
 	// - "loser-clamp" should NOT be settled.
-	settled, _ := attProv.settledIDs.Load().([]string)
+	settled := attProv.getSettled()
 	t.Logf("settled handles: %v", settled)
 	hasWinnerSettle := false
 	hasLoserOpenSettle := false
@@ -283,7 +305,7 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 
 	// 2. Release calls:
 	// - "loser-clamp" should be released (admission/clamp failure).
-	released, _ := attProv.releasedIDs.Load().([]string)
+	released := attProv.getReleased()
 	t.Logf("released handles: %v", released)
 	hasLoserClampRelease := false
 	for _, h := range released {
@@ -303,5 +325,179 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	}
 	if got := memoStore.putCalls.Load(); got != 0 {
 		t.Errorf("expected 0 MemoStore.Put calls, got %d", got)
+	}
+}
+
+type spyLoserStream struct {
+	mu          sync.Mutex
+	cancelCalls int
+	closeCalls  int
+	cancelCause lipapi.CancelCause
+	blockCh     chan struct{}
+	recvStarted chan struct{}
+}
+
+func (s *spyLoserStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.recvStarted != nil {
+		select {
+		case s.recvStarted <- struct{}{}:
+		default:
+		}
+	}
+	if s.blockCh != nil {
+		select {
+		case <-s.blockCh:
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		}
+	}
+	return lipapi.Event{}, io.EOF
+}
+
+func (s *spyLoserStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelCalls++
+	s.cancelCause = cause
+	return lipapi.CancelResult{}
+}
+
+func (s *spyLoserStream) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeCalls++
+	return nil
+}
+
+func (s *spyLoserStream) counts() (int, int, lipapi.CancelCause) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelCalls, s.closeCalls, s.cancelCause
+}
+
+func TestParallelLoser_SingleOwnerTerminalization_ExactOnce(t *testing.T) {
+	t.Parallel()
+
+	attProv := &spyAttemptProvider{id: "spy-att"}
+	ex, _, _, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, nil)
+
+	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{{
+			ID: "spy-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
+
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+	tcaps := parallelTransportCaps()
+	loserRecvStartedCh := make(chan struct{}, 1)
+	loserStream := &spyLoserStream{blockCh: make(chan struct{}), recvStarted: loserRecvStartedCh}
+
+	ex.Backends["winner"] = execbackend.Backend{
+		Caps: caps, TransportCaps: tcaps,
+		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return &waitThenWinStream{
+				waitCh: loserRecvStartedCh,
+				events: []lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventTextDelta, Delta: "winner delta"},
+					{Kind: lipapi.EventResponseFinished},
+				},
+			}, nil
+		},
+	}
+
+	ex.Backends["loser"] = execbackend.Backend{
+		Caps: caps, TransportCaps: tcaps,
+		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return loserStream, nil
+		},
+	}
+
+	var (
+		logMu         sync.Mutex
+		loggedRecords []lipapi.AttemptRecord
+	)
+	ex.Store = &recordingAttemptStore{
+		Store: ex.Store,
+		onRecord: func(ctx context.Context, rec lipapi.AttemptRecord) {
+			logMu.Lock()
+			loggedRecords = append(loggedRecords, rec)
+			logMu.Unlock()
+		},
+	}
+
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
+	aScope := coord.StartALeg(aLegID)
+
+	winnerCand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: "winner", Model: "m"},
+		Key:     "winner:m",
+	}
+	loserCand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: "loser", Model: "m"},
+		Key:     "loser:m",
+	}
+
+	budget := &attemptBudget{max: 10}
+	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.aScope = aScope
+
+	ctx := context.Background()
+	out, err := ex.tryOpenParallelGroup(ctx, req, []routing.AttemptCandidate{winnerCand, loserCand}, nil, "", false)
+	if err != nil {
+		t.Fatalf("tryOpenParallelGroup failed: %v", err)
+	}
+	if out.ready == nil {
+		t.Fatal("expected winner readyAttempt")
+	}
+
+	// Winner bridge close triggers wait for loser cleanup
+	bridgeStream, ok := out.ready.session.inner.(*parallelBridgeStream)
+	if ok && bridgeStream != nil {
+		_ = bridgeStream.Close()
+	} else if out.ready.session.inner != nil {
+		_ = out.ready.session.inner.Close()
+	}
+
+	// 1. Verify loser stream Cancel & Close called exactly once
+	cancelCalls, closeCalls, cancelCause := loserStream.counts()
+	if cancelCalls != 1 {
+		t.Errorf("expected exactly 1 cancel on loser stream, got %d", cancelCalls)
+	}
+	if closeCalls != 1 {
+		t.Errorf("expected exactly 1 close on loser stream, got %d", closeCalls)
+	}
+	if cancelCause.Kind != lipapi.CancelRaceLoser {
+		t.Errorf("expected CancelRaceLoser cause, got %v", cancelCause.Kind)
+	}
+
+	// 2. Verify B-leg was released from aScope so subsequent cancel doesn't touch it
+	if err := coord.CancelALeg(ctx, aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+	// After CancelALeg, loser stream cancelCalls must STILL be 1 (not canceled again)
+	cancelCallsAfter, _, _ := loserStream.counts()
+	if cancelCallsAfter != 1 {
+		t.Errorf("loser stream canceled again after ALeg cancellation, cancel count = %d", cancelCallsAfter)
+	}
+
+	// 3. Verify attempt was logged exactly once with AttemptCancelled and 'parallel race loser'
+	logMu.Lock()
+	var loserLogs []lipapi.AttemptRecord
+	for _, rec := range loggedRecords {
+		if rec.BackendID == "loser" {
+			loserLogs = append(loserLogs, rec)
+		}
+	}
+	logMu.Unlock()
+	if len(loserLogs) != 1 {
+		t.Errorf("expected exactly 1 attempt log for loser, got %d", len(loserLogs))
+	} else {
+		if loserLogs[0].Outcome != lipapi.AttemptCancelled {
+			t.Errorf("expected AttemptCancelled outcome, got %v", loserLogs[0].Outcome)
+		}
+		if loserLogs[0].Reason != "parallel race loser" {
+			t.Errorf("expected 'parallel race loser' reason, got %q", loserLogs[0].Reason)
+		}
 	}
 }

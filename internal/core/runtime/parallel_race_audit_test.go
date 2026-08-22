@@ -43,10 +43,12 @@ func (s *auditStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	s.idx++
 	return ev, nil
 }
+
 func (s *auditStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
 	s.cancelCalls.Add(1)
 	return lipapi.CancelResult{}
 }
+
 func (s *auditStream) Close() error {
 	s.closeCalls.Add(1)
 	return nil
@@ -156,7 +158,7 @@ func TestParallelRaceAudit_ExclusionMapRace(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(1)
 	var wg sync.WaitGroup
 	errs := make([]error, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -248,12 +250,14 @@ func parallelStoreForAudit(t *testing.T) b2bua.Store {
 	}
 	return st
 }
+
 func auditCall(selector string) *lipapi.Call {
 	return &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: selector},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 	}
 }
+
 func auditCompletionEvents(text string) []lipapi.Event {
 	return []lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},

@@ -2,10 +2,33 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
+
+func testRetirePriorAttempt(s *retryRecvStream) {
+	if s == nil {
+		return
+	}
+	attempt := s.attempt.require()
+	if attempt == nil {
+		return
+	}
+	evidence := attemptEvidence{
+		Command:     sdkterminal.CommandSwallowedAttempt,
+		ReleaseKind: authorityapp.ReleaseKindSwallowed,
+		LegOutcome:  billing.LegOutcomeSwallowed,
+		Usage:       emptyOperatorUsageShell(),
+	}
+	attempt.TerminalizeAttempt(context.Background(), IntentSwallowedFailure, evidence)
+}
 
 // These fixture helpers keep legacy characterization tests focused on their
 // assertions while constructing the same explicit owner calls production uses.
@@ -22,69 +45,127 @@ func testTerminalOwners(s *retryRecvStream) (request, attempt *streamTerminal) {
 	return request, attempt
 }
 
+func testBuildEvidence(s *retryRecvStream, cmd sdkterminal.Command, snap *coreterm.AccumulatorSnapshot, effErr error) (attemptTerminalIntent, attemptEvidence) {
+	ev := attemptEvidence{
+		Command:   cmd,
+		Snapshot:  snap,
+		Committed: s.terminal.committed(),
+	}
+	if s.responsePipeline != nil {
+		ev.Usage = s.responsePipeline.operatorUsageForFinalize()
+		ev.StreamFallback = s.responsePipeline.billingEvidenceFallback()
+	}
+	ev.TraceID = s.facts.traceID
+	ev.ALegID = s.facts.aLegID
+	ev.BillingState = s.facts.billingCallState
+	ev.BillingCallID = s.facts.billingCallID
+
+	intent := IntentSurfacedFailure
+	switch cmd {
+	case sdkterminal.CommandNormalFinish:
+		intent = IntentSuccess
+		ev.LegOutcome = billing.LegOutcomeWinner
+		ev.ObsOutcome = response.OutcomeSuccessReleased
+		ev.RecordOutcome = lipapi.AttemptSuccess
+	case sdkterminal.CommandClose:
+		intent = IntentCancellation
+		ev.LegOutcome = billing.LegOutcomeCanceled
+		ev.ObsOutcome = response.OutcomeClosed
+		ev.RecordOutcome = lipapi.AttemptCancelled
+	case sdkterminal.CommandCancel:
+		intent = IntentCancellation
+		ev.LegOutcome = billing.LegOutcomeCanceled
+		ev.ObsOutcome = response.OutcomeCancelled
+		ev.RecordOutcome = lipapi.AttemptCancelled
+	}
+	if effErr != nil {
+		ev.Err = effErr
+		ev.RecordReason = attemptReasonDetail(effErr)
+		ev.RecordOutcome = lipapi.AttemptSurfacedFailure
+		ev.LegOutcome = billing.LegOutcomeFailed
+		ev.ObsOutcome = response.OutcomeFailed
+		intent = IntentSurfacedFailure
+		ev.Command = sdkterminal.CommandPartialError
+	}
+	return intent, ev
+}
+
 func testTerminalizeRequest(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
 	if s == nil || s.terminal == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
+	snap := s.responsePipeline.accumulatorSnapshot()
 	attempt := s.attempt.snapshot()
-	wrapped := func(cctx context.Context, _ coreterm.Outcome) error {
-		if effects == nil {
-			return nil
+	reqEff := func(cctx context.Context, _ coreterm.Outcome) error {
+		var effErr error
+		if effects != nil {
+			effErr = effects(cctx)
 		}
-		return effects(cctx)
-	}
-	requestAfter := func(cctx context.Context, _ coreterm.Outcome) error {
-		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
-			return nil
+		if attempt != nil && cmd.AllowsScope(sdkterminal.ScopeAttempt) {
+			intent, ev := testBuildEvidence(s, cmd, &snap, effErr)
+			res := attempt.TerminalizeAttempt(cctx, intent, ev)
+			if res.Result.Err != nil {
+				return res.Result.Err
+			}
+			if effErr != nil {
+				return effErr
+			}
+		} else if effErr != nil {
+			return effErr
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
+		if attempt != nil {
+			s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), s.terminal.committed(), s.facts.billingCallState)
+		}
 		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 		return nil
 	}
-	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
+	return s.terminal.terminalizeRequest(ctx, cmd, snap, reqEff)
 }
 
 func testTerminalizeRequestForAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
 	if s == nil || s.terminal == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
-	wrapped := func(cctx context.Context, _ coreterm.Outcome) error {
-		if effects == nil {
-			return nil
-		}
-		return effects(cctx)
+	snap := s.responsePipeline.accumulatorSnapshot()
+	if attempt != nil && cmd.AllowsScope(sdkterminal.ScopeAttempt) {
+		intent, ev := testBuildEvidence(s, cmd, &snap, nil)
+		attempt.TerminalizeAttempt(ctx, intent, ev)
 	}
-	requestAfter := func(cctx context.Context, _ coreterm.Outcome) error {
-		if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
-			return nil
+	reqEff := func(cctx context.Context, _ coreterm.Outcome) error {
+		if effects != nil {
+			if err := effects(cctx); err != nil {
+				return err
+			}
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
 		s.terminal.handoffBillingTurn(cctx, s.facts.terminalFacts(), cmd)
 		return nil
 	}
-	return s.terminal.terminalizeSnapshot(ctx, cmd, attempt, s.responsePipeline.accumulatorSnapshot(), wrapped, requestAfter)
+	return s.terminal.terminalizeRequest(ctx, cmd, snap, reqEff)
 }
 
 func testTerminalizeAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, effects func(context.Context) error) coreterm.Result {
 	if s == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
-	attempt := s.attempt.snapshot()
-	return testTerminalizeAttemptForAttempt(ctx, s, cmd, attempt, effects)
+	return testTerminalizeAttemptForAttempt(ctx, s, cmd, s.attempt.snapshot(), effects)
 }
 
 func testTerminalizeAttemptForAttempt(ctx context.Context, s *retryRecvStream, cmd sdkterminal.Command, attempt *attemptSession, effects func(context.Context) error) coreterm.Result {
-	if s == nil || attempt == nil {
+	if s == nil || attempt == nil || !cmd.AllowsScope(sdkterminal.ScopeAttempt) {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
 	}
-	return attempt.terminalizeSnapshot(ctx, cmd, s.responsePipeline.accumulatorSnapshot(), func(cctx context.Context, _ coreterm.Outcome) error {
-		var err error
-		if effects != nil {
-			err = effects(cctx)
+	snap := s.responsePipeline.accumulatorSnapshot()
+	intent, ev := testBuildEvidence(s, cmd, &snap, nil)
+	if effects != nil {
+		ev.ObsOutcome = response.OutcomeFailed
+	}
+	res := attempt.TerminalizeAttempt(ctx, intent, ev)
+	if effects != nil {
+		if err := effects(ctx); err != nil {
+			res.Result.Err = err
 		}
-		s.terminal.recordBillingLegForAttempt(cctx, s.facts.terminalFacts(), attempt, attempt.terminalEvidence(), cmd, s.responsePipeline.billingEvidenceFallback(), cmd == sdkterminal.CommandNormalFinish, s.facts.billingCallState)
-		return err
-	})
+	}
+	return res.Result
 }
 
 func testTurnTerminalize(ctx context.Context, turn *turnTerminal, cmd sdkterminal.Command, attempt *attemptSession, snapshot func() coreterm.AccumulatorSnapshot, effects func(context.Context, coreterm.Outcome) error) coreterm.Result {
@@ -92,5 +173,68 @@ func testTurnTerminalize(ctx context.Context, turn *turnTerminal, cmd sdktermina
 	if snapshot != nil {
 		evidence = snapshot()
 	}
-	return turn.terminalizeSnapshot(ctx, cmd, attempt, evidence, effects, nil)
+	if cmd == sdkterminal.CommandGateReplacement && turn != nil && turn.committed() {
+		return turn.terminalizeRequest(ctx, cmd, evidence, nil)
+	}
+	if !cmd.AllowsScope(sdkterminal.ScopeRequest) {
+		if attempt == nil {
+			return coreterm.Result{Err: sdkterminal.ErrInvalid}
+		}
+		ev := attemptEvidence{Command: cmd, Snapshot: &evidence, Usage: lipapi.Event{}}
+		intent := IntentSurfacedFailure
+		if cmd == sdkterminal.CommandNormalFinish {
+			intent = IntentSuccess
+		}
+		return attempt.TerminalizeAttempt(ctx, intent, ev).Result
+	}
+	return turn.terminalizeRequest(ctx, cmd, evidence, func(cctx context.Context, out coreterm.Outcome) error {
+		var effErr error
+		if effects != nil {
+			effErr = effects(cctx, out)
+		}
+		if attempt != nil && cmd.AllowsScope(sdkterminal.ScopeAttempt) {
+			ev := attemptEvidence{Command: cmd, Snapshot: &evidence, Usage: lipapi.Event{}}
+			intent := IntentSurfacedFailure
+			switch cmd {
+			case sdkterminal.CommandNormalFinish:
+				intent = IntentSuccess
+				ev.LegOutcome = billing.LegOutcomeWinner
+				ev.ObsOutcome = response.OutcomeSuccessReleased
+				ev.RecordOutcome = lipapi.AttemptSuccess
+			case sdkterminal.CommandClose:
+				intent = IntentCancellation
+				ev.LegOutcome = billing.LegOutcomeCanceled
+				ev.ObsOutcome = response.OutcomeClosed
+				ev.RecordOutcome = lipapi.AttemptCancelled
+			case sdkterminal.CommandCancel:
+				intent = IntentCancellation
+				ev.LegOutcome = billing.LegOutcomeCanceled
+				ev.ObsOutcome = response.OutcomeCancelled
+				ev.RecordOutcome = lipapi.AttemptCancelled
+			}
+			if effErr != nil {
+				ev.Err = effErr
+				ev.RecordReason = attemptReasonDetail(effErr)
+				ev.RecordOutcome = lipapi.AttemptSurfacedFailure
+				ev.LegOutcome = billing.LegOutcomeFailed
+				ev.ObsOutcome = response.OutcomeFailed
+				intent = IntentSurfacedFailure
+				ev.Command = sdkterminal.CommandPartialError
+			}
+			res := attempt.TerminalizeAttempt(cctx, intent, ev)
+			if res.Result.Won {
+				if res.Result.Err != nil {
+					return res.Result.Err
+				}
+			} else if res.Result.Err != nil && !errors.Is(res.Result.Err, sdkterminal.ErrInvalid) && !strings.Contains(res.Result.Err.Error(), "conflict") {
+				return res.Result.Err
+			}
+			if effErr != nil {
+				return effErr
+			}
+		} else if effErr != nil {
+			return effErr
+		}
+		return nil
+	})
 }

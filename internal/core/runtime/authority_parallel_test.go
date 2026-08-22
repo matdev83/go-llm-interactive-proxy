@@ -93,15 +93,15 @@ func TestParallelRaceWinnerPropagatesAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel race to open a backend")
 	}
-	if out.session.cand.Primary.Backend != "backend-1" {
-		t.Fatalf("winner backend = %q, want backend-1", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "backend-1" {
+		t.Fatalf("winner backend = %q, want backend-1", out.ready.Candidate().Primary.Backend)
 	}
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
 	if authState.admissionInput.Correlation.TraceID == "" {
 		t.Fatal("expected winner authority to have a trace ID")

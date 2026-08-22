@@ -486,3 +486,170 @@ func TestInterleavedClose_AfterExecutorAssigned_BlocksFirstRecv(t *testing.T) {
 
 	assertAssignedCancelCloseBilling(t, auth, capture, thinkerID, execID)
 }
+
+func TestInterleavedLifecycle_ExactSingleExecution_AbortCancelClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("thinker_close_exact_once", func(t *testing.T) {
+		t.Parallel()
+		auth := &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  "res-thinker-close",
+				ReservedAmount: authorityInputAmount(5),
+			},
+			status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+		capture := &abortJoinCapture{}
+		ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
+		wireAbortBilling(ex, capture)
+		callID, err := billing.NewBillingCallID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+			f.billingCallID = callID
+			return f
+		})
+		from = stampStreamIdentity(from)
+		installTestTurnTerminal(from)
+		from.terminal.setInterleavedThinker()
+		bindTurnTerminalRuntime(from.terminal, ex)
+		testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+			admissionInput:  testAuthorityAdmissionInput(5),
+			admissionResult: auth.admitResult,
+		}, testAttemptSession(from).cand)
+
+		s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+
+		if got := auth.releaseCalls.Load() + auth.settleCalls.Load(); got != 1 {
+			t.Fatalf("authority finalized count = %d, want 1", got)
+		}
+		calls, legs := capture.snapshot()
+		if len(calls) != 1 {
+			t.Fatalf("call closures = %d, want 1", len(calls))
+		}
+		if len(legs) != 1 {
+			t.Fatalf("terminal legs = %d, want 1", len(legs))
+		}
+	})
+
+	t.Run("thinker_cancel_exact_once", func(t *testing.T) {
+		t.Parallel()
+		auth := &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  "res-thinker-cancel",
+				ReservedAmount: authorityInputAmount(5),
+			},
+			status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+		capture := &abortJoinCapture{}
+		ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
+		wireAbortBilling(ex, capture)
+		callID, err := billing.NewBillingCallID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+			f.billingCallID = callID
+			return f
+		})
+		from = stampStreamIdentity(from)
+		installTestTurnTerminal(from)
+		from.terminal.setInterleavedThinker()
+		bindTurnTerminalRuntime(from.terminal, ex)
+		testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+			admissionInput:  testAuthorityAdmissionInput(5),
+			admissionResult: auth.admitResult,
+		}, testAttemptSession(from).cand)
+
+		s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})
+		_ = s.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelClientGone})
+
+		if got := auth.releaseCalls.Load() + auth.settleCalls.Load(); got != 1 {
+			t.Fatalf("authority finalized count = %d, want 1", got)
+		}
+		calls, legs := capture.snapshot()
+		if len(calls) != 1 {
+			t.Fatalf("call closures = %d, want 1", len(calls))
+		}
+		if len(legs) != 1 {
+			t.Fatalf("terminal legs = %d, want 1", len(legs))
+		}
+	})
+
+	t.Run("abort_executor_handoff_exact_once", func(t *testing.T) {
+		t.Parallel()
+		auth := &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  "res-exec-abort",
+				ReservedAmount: authorityInputAmount(9),
+			},
+			status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+		capture := &abortJoinCapture{}
+		ex, from := setupInterleavedAuthorityContinuation(t, auth, "hidden")
+		wireAbortBilling(ex, capture)
+		callID, err := billing.NewBillingCallID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		from = withTestRecvFacts(from, func(f recvTurnFacts) recvTurnFacts {
+			f.billingCallID = callID
+			return f
+		})
+		from = stampStreamIdentity(from)
+		installTestTurnTerminal(from)
+		from.terminal.setInterleavedThinker()
+		bindTurnTerminalRuntime(from.terminal, ex)
+		testAttemptSession(from).authority = ex.newAttemptAuthorityLifecycle(attemptAuthorityState{
+			admissionInput: testAuthorityAdmissionInput(5),
+			admissionResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  "res-thinker-ok",
+				ReservedAmount: authorityInputAmount(5),
+			},
+		}, testAttemptSession(from).cand)
+		testStoreInner(from, lipapi.NewFixedEventStream([]lipapi.Event{
+			{Kind: lipapi.EventResponseFinished},
+		}))
+
+		s := newHiddenInterleavedStream(from, nil, interleavedstate.State{})
+		s.mu.Lock()
+		s.finished = true
+		s.mu.Unlock()
+
+		_, err = s.beginExecutorContinuation(context.Background())
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("beginExecutorContinuation error = %v, want io.EOF", err)
+		}
+
+		thinkerID := testAttemptSession(s.thinker).bleg.BLegID
+		if thinkerID == "" {
+			t.Fatal("missing thinker B-leg ID")
+		}
+
+		calls, legs := capture.snapshot()
+		if len(calls) != 1 {
+			t.Fatalf("call closures = %d, want 1", len(calls))
+		}
+		if len(legs) != 2 {
+			t.Fatalf("terminal legs = %d, want 2 (thinker+executor)", len(legs))
+		}
+		if _, err := billing.JoinCompleteCall(calls[0], legs); err != nil {
+			t.Fatalf("aborted handoff must yield joinable call closure: %v", err)
+		}
+		if got := auth.releaseCalls.Load() + auth.settleCalls.Load(); got < 2 {
+			t.Fatalf("authority finalized = %d, want >= 2", got)
+		}
+	})
+}

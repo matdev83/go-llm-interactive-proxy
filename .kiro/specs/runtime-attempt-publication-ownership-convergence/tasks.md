@@ -133,8 +133,8 @@
 
 ## Phase 5 — Isolate Parallel Arms and Serialize Shared Reduction
 
-- [ ] 5. Remove shared recovery mutation from parallel workers
-- [ ] 5.1 Make each parallel arm return an immutable outcome
+- [x] 5. Remove shared recovery mutation from parallel workers
+- [x] 5.1 Make each parallel arm return an immutable outcome
   - Give each arm immutable request/route inputs and an independent prepublication attempt owner.
   - Return either a ready capability or typed failure delta with arm evidence and pending winner effects.
   - Remove worker mutation of exclusions, failure history, budgets, TTFT, `[first]`, interleaved, affinity and slot state.
@@ -144,7 +144,7 @@
   - _Depends: 4.2_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 5.2 Introduce one parallel-round reducer for shared progress and publication
+- [x] 5.2 Introduce one parallel-round reducer for shared progress and publication
   - Make one coordinator own arm starts, handicap progression, attempt/TTFT budget application, failure merge, winner selection and ready-attempt publication.
   - Preserve first-success behavior for the same controlled arrival schedule while making shared progress deterministic.
   - Merge all-failure deltas in stable arm order and retain existing public final-error precedence.
@@ -154,7 +154,7 @@
   - _Depends: 5.1_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 5.3 Commit winner-only state only after accepted publication
+- [x] 5.3 Commit winner-only state only after accepted publication
   - Keep affinity, interleaved memo/cycle and other selection effects pending until the winning ready attempt is accepted by publication.
   - Ensure publication denial, losing arms and all-failure rounds cannot consume or persist winner-only state.
   - If existing durable winner state requires atomicity across writes, add only the narrow compare-and-apply store operation needed for that invariant.
@@ -166,8 +166,8 @@
 
 ## Phase 6 — Seal Lifecycle Boundaries and Certify the Refactor
 
-- [ ] 6. Complete structural convergence and repository certification
-- [ ] 6.1 Remove direct lifecycle-sensitive attempt-resource access
+- [x] 6. Complete structural convergence and repository certification
+- [x] 6.1 Remove direct lifecycle-sensitive attempt-resource access
   - Replace assembler, receive, replacement, parallel, A-leg and request-terminal raw stream/resource manipulation with lifecycle-complete attempt operations.
   - Keep attempt internals private to their owner and remove obsolete store/take/raw replacement seams from production callers.
   - Tighten AST allowlists so new lifecycle bypasses fail architecture tests.
@@ -177,7 +177,7 @@
   - _Depends: 5.3_
   - _Validation: go test ./internal/core/runtime ./internal/archtest_
 
-- [ ] 6.2 Run the complete fault and state-transition matrix
+- [x] 6.2 Run the complete fault and state-transition matrix
   - Inject failures after every acquisition, readiness, publication, selection-commit and terminal effect and prove exact cleanup/attribution.
   - Exercise normal success, pre-output recoverable failure, post-output failure, EOF, cancellation, timeout, Close, replacement, parallel winner/loser and interleaved continuation.
   - Assert no leaked reservation, B-leg registration, stream, observer, billing obligation, stale attempt-local state or goroutine remains.
@@ -187,7 +187,7 @@
   - _Depends: 6.1_
   - _Validation: go test ./internal/core/runtime ./internal/archtest_
 
-- [ ] 6.3 Run race, checkptr, leak, performance and platform certification
+- [x] 6.3 Run race, checkptr, leak, performance and platform certification
   - Repeat publication/terminal/parallel scheduling campaigns under supported race detection and pointer checking.
   - Run leak detection for attempt-owned goroutines and blocked cleanup paths under cancellation and timeout.
   - Compare normal single-attempt TTFT/allocation behavior and representative parallel races to ensure correctness was not achieved through coarse serialization.
@@ -197,7 +197,7 @@
   - _Depends: 6.2_
   - _Validation: repository CI plus supported race and checkptr commands_
 
-- [ ] 6.4 Tighten final architecture metrics and delete transitional seams
+- [x] 6.4 Tighten final architecture metrics and delete transitional seams
   - Compare the before/after ownership metrics and require no regression in facade owners, coordinator fan-out, cross-owner access, state-copy surface or cleanup-site count without an explicit exception.
   - Remove temporary dual-path adapters, raw publication helpers and obsolete branch-specific cleanup once their replacements are green.
   - Re-run both predecessor architecture ratchets and this spec's ratchets at their strict target settings.

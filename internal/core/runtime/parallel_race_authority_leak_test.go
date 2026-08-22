@@ -345,6 +345,12 @@ func TestParallelRaceAuthorityLeak_L4_CtxDoneReleasesOpenedLegs(t *testing.T) {
 		t.Fatal("tryOpenParallelGroup did not return after ctx cancel")
 	}
 
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(5 * time.Millisecond) {
+		if auth.lastSettle().ReservationID != "" {
+			break
+		}
+	}
+
 	if got := auth.releaseCalls.Load(); got != 0 {
 		t.Fatalf("release calls = %d, want 0 (opened leg must settle on ctx.Done)", got)
 	}

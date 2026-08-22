@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -14,21 +15,7 @@ func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedReq
 // interleaved-thinking wrappers when the opened candidate requires them.
 func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, plan *routePlanState, out openedAttempt) (lipapi.EventStream, error) {
 	e := a.Executor
-	if prep.recvTurnFacts.billingCallID == "" && prep.billingCallID != "" {
-		prep.recvTurnFacts.billingCallID = prep.billingCallID
-		prep.recvTurnFacts.billingCallState = prep.billingCallState
-	}
-	if prep.aLegID == "" && prep.identity != nil {
-		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
-			baseline:         *prep.call,
-			traceID:          prep.identity.traceID,
-			aLegID:           prep.identity.aLeg.ALegID,
-			secureTurn:       prep.identity.secureTurn,
-			secureTurnOK:     prep.identity.secureTurnOK,
-			billingCallID:    prep.billingCallID,
-			billingCallState: prep.billingCallState,
-		})
-	}
+	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	bindTurnTerminalRuntime(terminal, e)
 	responsePipeline := newResponsePipelineForExecutor(e, prep.compactionOpenMeta)
@@ -49,26 +36,81 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
 		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
 	})
-	rs.recovery.postOpenLeg = e.appendPostOpenTerminalLeg
-	rs.attempt.install(out.session)
-	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(ctx, rs.facts, rs.attempt.require(), out.session.loadInner())
-	views, viewsOK := rs.facts.viewsFor(ctx)
-	if err := rs.responsePipeline.openFinalStreamObservation(ctx, rs.facts, rs.attempt.require(), views, viewsOK, rs.terminal.committed()); err != nil {
-		_ = out.session.AbortBeforeReturn(ctx, err)
+
+	// All fallible assembly before atomic publish.
+	if out.ready == nil {
+		return nil, errors.New("runtime: nil ready for stream assembly")
+	}
+	// Fallible preparation: sideband drain and final observation before publish.
+	if err := out.ready.Prepare(ctx, rsFacts, responsePipeline, terminal.committed()); err != nil {
 		return nil, err
 	}
+	tx := &streamAssemblyTx{
+		ready: out.ready,
+		guard: prep.guard,
+		slot:  &rs.attempt,
+	}
+	defer func() {
+		if !tx.committed {
+			tx.Rollback(ctx, errors.New("initial stream assembly failed before return"))
+		}
+	}()
+
 	var stream lipapi.EventStream = rs
-	if e.shouldWrapHiddenInterleavedThinker(out.session.cand) {
+	// Determine candidate for wrapper selection without consuming ready.
+	cand := out.ready.Candidate()
+	if e.shouldWrapHiddenInterleavedThinker(cand) {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
-		stream = newHiddenInterleavedStream(rs, e.newThinkerRecorder(out.session.cand, *prep.call), out.interleaved)
-	} else if e.shouldWrapVisibleInterleavedThinker(out.session.cand) {
+		stream = newHiddenInterleavedStream(rs, e.newThinkerRecorder(cand, *prep.call), out.interleaved)
+	} else if e.shouldWrapVisibleInterleavedThinker(cand) {
 		rs.terminal.setInterleavedThinker()
 		rs.terminal.deferALegEndToOuter()
-		stream = newVisibleInterleavedStream(rs, e.newThinkerRecorder(out.session.cand, *prep.call), out.interleaved)
+		stream = newVisibleInterleavedStream(rs, e.newThinkerRecorder(cand, *prep.call), out.interleaved)
 	}
-	if prep.guard != nil {
-		prep.guard.Handoff()
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
+
 	return stream, nil
+}
+
+type streamAssemblyTx struct {
+	ready     *readyAttempt
+	guard     *preStreamGuard
+	slot      *attemptSlot
+	committed bool
+}
+
+func (tx *streamAssemblyTx) Commit() error {
+	if tx == nil || tx.committed {
+		return nil
+	}
+	if tx.ready == nil {
+		return errors.New("runtime: nil ready for commit")
+	}
+	if tx.slot != nil {
+		if _, published := tx.slot.publishReady(tx.ready); !published {
+			return errors.New("runtime: publication closed")
+		}
+	}
+	tx.committed = true
+	if tx.guard != nil {
+		tx.guard.Handoff()
+	}
+	return nil
+}
+
+func (tx *streamAssemblyTx) Rollback(ctx context.Context, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tx == nil || tx.committed {
+		return
+	}
+	tx.committed = true
+	if tx.ready != nil {
+		tx.ready.Dispose(ctx, err)
+	}
 }

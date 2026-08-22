@@ -85,7 +85,15 @@ var LineBudgets = []LineBudget{
 	// and typed evidence seams; retain 25 lines of ratchet headroom.
 	// P1 fix for post-transfer assemble abort adds 72 lines for the single
 	// AbortBeforeReturn owner and B-leg release; bump to 83160 (83135+25).
-	{Dir: "internal/core", Max: 83160},
+	// Phase 2 ownership convergence adds readiness preparation and streamAssemblyTx; bump to 83345 (83320+25).
+	// Phase 3 ownership convergence adds TerminalizeAttempt single-owner terminalization (approx 300 lines); bump to 83700 (83649+51 headroom).
+	// Phase 5.1 isolated parallel workers outcome convergence adds coordinator goroutine and outcomes mapping; bump to 83900 (83830+70 headroom).
+	// Phase 6 ownership convergence final certification verifies 5-owner facade, fan-out 1, cross-owner 14, state-copy 6, cleanup 7.
+	// R1+R2 debt remediation (spec runtime-attempt-publication-ownership-convergence Debt Plan R1-R4): 5 shims deleted (AbortBeforeReturn/finishAsReplaced/Rollback/Abort/RollbackParallelLoser) + 4 session-owned methods added (drainSidebandEvidence/detachStream/closeDetached/hasInner), measured 84098, bump to 84200 with 102 headroom.
+	// Reviewer Blocker 2 parallel outcome ownership convergence: explicit outcome handoff/ack protocol, worker-owned attemptTx self-cleanup, isolated arm context cancellation, and serial reducer affinity delta; measured 84484, bump to 84525 with 41 headroom.
+	// Reviewer Blocker 3 attempt publication and physical cancel/close ownership convergence: attemptSession sole physical owner, attemptLifecycleHandle delegation on ALeg registration, turnTerminal closeClose sequence inversion, Recv loop detachStream elimination; measured 84615, bump to 84650 with 35 headroom.
+	// Reviewer Blocker publication ownership convergence: unpublished readyAttempt lifecycle handle, ready cancellation disposal state machine, and linearizable cancel vs consume coordination; measured 85021, bump to 85060 with 39 headroom.
+	{Dir: "internal/core", Max: 85060},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},

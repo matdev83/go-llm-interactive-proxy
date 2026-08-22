@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
@@ -14,6 +15,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -29,10 +31,8 @@ import (
 // request settle/release. Settlement uses a non-canceled context so post-output
 // accounting completes after client cancellation (requirement 11.7).
 func (t *turnTerminal) persistCancellationBilling(ctx context.Context, attempt *attemptSession, reason string, request requestTerminalFacts, p *responsePipeline) {
-	if t == nil {
-		return
-	}
-	if attempt == nil {
+	ctx = request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
+	if t == nil || attempt == nil {
 		return
 	}
 	if attempt.accounting.usageObserved || t.finalizeBillingAfterCancel(ctx, attempt, reason, request, p) {
@@ -40,23 +40,15 @@ func (t *turnTerminal) persistCancellationBilling(ctx context.Context, attempt *
 	} else {
 		t.settleCancellationAuthorityForAttempt(ctx, attempt, p)
 	}
-	t.finishCancellationAuthorityForAttempt(ctx, attempt, p)
+	t.finishCancellationAuthorityForAttempt(ctx, attempt, request, p)
 }
 
-// finishCancellationAuthority is the single cancellation tail: advisory usage
-// apply, then request-authority settle or unused-hold release.
-func (t *turnTerminal) finishCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession, p *responsePipeline) {
+func (t *turnTerminal) finishCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession, request requestTerminalFacts, p *responsePipeline) {
 	if t == nil || attempt == nil {
 		return
 	}
 	attempt.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, p.operatorUsageForFinalize())
-	if t.committed() {
-		_ = t.settleRequestAuthorityWithFrontendEgress(ctx, p.usageEvidenceOrEmpty(), requestTerminalFacts{}, p)
-		return
-	}
-	if t.releaseRequestAuthority != nil {
-		_ = t.releaseRequestAuthority(ctx)
-	}
+	t.settleOrReleaseRequestAuthority(ctx, p, request)
 }
 
 // reconcileOrSettleCancellationAuthority routes the cancellation settlement based
@@ -64,7 +56,7 @@ func (t *turnTerminal) finishCancellationAuthorityForAttempt(ctx context.Context
 // authoritative usage is available (the caller guarantees usageObserved or
 // finalizeBilling succeeded), it calls ReconcileAuthoritative to adjust the prior
 // estimated settlement with the authoritative usage event. When not yet settled,
-// it falls back to settleCancellationAuthority which settles as a Cancellation.
+// it routes to settleCancellationAuthority which settles as a Cancellation.
 func (t *turnTerminal) reconcileOrSettleCancellationAuthorityForAttempt(ctx context.Context, attempt *attemptSession, p *responsePipeline) {
 	if t == nil || attempt == nil {
 		return
@@ -79,8 +71,8 @@ func (t *turnTerminal) reconcileOrSettleCancellationAuthorityForAttempt(ctx cont
 // settleCancellationAuthority settles the usage-authority reservation for a canceled
 // attempt with the observed usage as a Cancellation. It is a no-op when the
 // reservation is already settled (preventing a double settle of a strict
-// reservation, e.g. after a prior partial/final settle). The losing-fallback
-// (ReleaseKindLosing when the settle fails) now lives inside the authorityLifecycle
+// reservation, e.g. after a prior partial/final settle). The losing-attempt
+// release (ReleaseKindLosing when the settle fails) now lives inside the authorityLifecycle
 // owner's Settle, mirroring the finalizeResponseFinishedAuthority path. It passes
 // a non-canceled context to Settle so cancellation of the client request does not
 // abort the post-output settlement (requirement 11.7).
@@ -100,9 +92,24 @@ func (t *turnTerminal) finalizeBillingAfterCancel(ctx context.Context, attempt *
 	if attempt == nil {
 		return false
 	}
-	ev, ok := request.billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
-		TraceID: strings.TrimSpace(request.traceID),
-		ALegID:  strings.TrimSpace(request.aLegID),
+	billingState := request.billingState
+	if billingState == nil {
+		billingState = attempt.billingCallState
+	}
+	if billingState == nil {
+		return false
+	}
+	traceID := strings.TrimSpace(request.traceID)
+	if traceID == "" {
+		traceID = strings.TrimSpace(attempt.traceID)
+	}
+	aLegID := strings.TrimSpace(request.aLegID)
+	if aLegID == "" {
+		aLegID = strings.TrimSpace(attempt.bleg.ALegID)
+	}
+	ev, ok := billingState.finalizeOnce(ctx, execbackend.BillingFinalizationInput{
+		TraceID: traceID,
+		ALegID:  aLegID,
 		BLegID:  strings.TrimSpace(attempt.bleg.BLegID),
 		Backend: strings.TrimSpace(attempt.cand.Primary.Backend),
 		Model:   strings.TrimSpace(attempt.cand.Primary.Model),
@@ -173,7 +180,7 @@ func (t *turnTerminal) finalizeTokenAccounting(ctx context.Context, attempt *att
 // finalizeResponseFinishedAuthority is the single authority-finalization chokepoint for
 // response_finished completion paths. It runs token-accounting finalization, which settles
 // the usage-authority reservation via the authorityLifecycle owner (the owner folds the
-// losing-fallback release into Settle, so a failed settle releases ReleaseKindLosing and
+// losing-attempt release into Settle, so a failed settle releases ReleaseKindLosing and
 // marks the lifecycle settled). Idempotent via the turn terminal's request-level
 // accounting-finalized claim (which gates
 // usage-delta re-queue, not authority idempotency — the owner owns that via settled). It
@@ -190,45 +197,77 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 		return lipapi.Event{}, false, nil
 	}
 	if t.accountingFinalized() && t.requestTerminal().Owner().State().IsTerminal() {
-		// The winning completion path already emitted/requeued the synthesized
-		// usage event. A later drain observation must not emit it again.
 		return lipapi.Event{}, false, nil
 	}
-	var usageEv lipapi.Event
-	var ok bool
-	var err error
-	effects := func(cctx context.Context) error {
-		if !t.claimAccountingFinalization() {
-			return nil
-		}
-		usageEv, ok, err = t.finalizeTokenAccounting(cctx, attempt, ev, request, p)
-		if err != nil {
-			t.unclaimAccountingFinalization()
-			return err
-		}
-		authorityEv := p.lastAuthorityUsageSnapshot()
-		if authorityEv.Kind == "" {
-			authorityEv = usageEv
-		}
-		attempt.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
-		t.emitBackendEgressMeteringFactForAttempt(cctx, attempt, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-		if t.isInterleavedThinker() {
-			return nil
-		}
-		return t.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv, request, p)
+	snapshot := p.accumulatorSnapshot()
+	// Token accounting and observe must happen inside the attempt terminal winner
+	// so concurrent losers wait for the winner's effects via streamTerminal.
+	var preparedUsageEv lipapi.Event
+	var preparedAuthorityEv lipapi.Event
+	var preparedOK bool
+	var preparedErr error
+	evidence := attemptEvidence{
+		Command:        sdkterminal.CommandNormalFinish,
+		LegOutcome:     billing.LegOutcomeWinner,
+		Usage:          lipapi.Event{},
+		ObsOutcome:     response.OutcomeSuccessReleased,
+		TraceID:        request.traceID,
+		ALegID:         request.aLegID,
+		Snapshot:       &snapshot,
+		RecordOutcome:  lipapi.AttemptSuccess,
+		StartedAt:      attempt.accounting.requestStartedAt,
+		StreamFallback: p.billingEvidenceFallback(),
+		BillingState:   request.billingState,
+		BillingCallID:  request.billingCallID,
+		Committed:      t.committed(),
+		ObserveEvent:   &ev,
+		AuthorityPrepare: func(cctx context.Context) (lipapi.Event, lipapi.Event, bool, error) {
+			if !t.claimAccountingFinalization() {
+				return lipapi.Event{}, lipapi.Event{}, false, nil
+			}
+			usageEv, ok, err := t.finalizeTokenAccounting(cctx, attempt, ev, request, p)
+			if err != nil {
+				t.unclaimAccountingFinalization()
+				return lipapi.Event{}, lipapi.Event{}, false, err
+			}
+			authorityEv := p.lastAuthorityUsageSnapshot()
+			if authorityEv.Kind == "" {
+				authorityEv = usageEv
+			}
+			preparedUsageEv = usageEv
+			preparedAuthorityEv = authorityEv
+			preparedOK = ok
+			// Do not settle request authority here; it will be done in the request winner
+			return usageEv, authorityEv, ok, nil
+		},
 	}
+	resOuter := attempt.TerminalizeAttempt(ctx, IntentSuccess, evidence)
+	if !resOuter.Result.Won {
+		return lipapi.Event{}, false, terminalLossError(resOuter.Result)
+	}
+	if resOuter.Result.Err != nil {
+		return preparedUsageEv, preparedOK, resOuter.Result.Err
+	}
+	// Use the prepared authorityEv for request settlement; if Prepare didn't run (loser), use evidence.Usage
+	authorityEv := preparedAuthorityEv
+	if authorityEv.Kind == "" {
+		authorityEv = preparedUsageEv
+	}
+	// Also need to handle the case where Prepare error was already propagated
+	if preparedErr != nil {
+		return preparedUsageEv, preparedOK, preparedErr
+	}
+	// Request authority settlement for non-thinker is now handled inside the attempt terminal winner via typed seams;
+	// for thinker the attempt-only path keeps request open, so we still need to handle request-side effects here if needed.
+	// However billing leg is now owned by the attempt terminal winner, so we only handoff the call closure here.
 	var r terminal.Result
 	if t.isInterleavedThinker() {
-		r = attempt.terminalizeSnapshot(ctx, sdkterminal.CommandNormalFinish, p.accumulatorSnapshot(), func(cctx context.Context, _ terminal.Outcome) error {
-			err := effects(cctx)
-			t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandNormalFinish, p.billingEvidenceFallback(), t.committed(), request.billingState)
-			return err
-		})
+		r = terminal.Result{Won: true, Outcome: terminal.Outcome{Command: sdkterminal.CommandNormalFinish}, State: sdkterminal.StateReleased}
 	} else {
-		r = t.terminalizeSnapshot(ctx, sdkterminal.CommandNormalFinish, attempt, p.accumulatorSnapshot(), func(cctx context.Context, _ terminal.Outcome) error {
-			return effects(cctx)
-		}, func(cctx context.Context, _ terminal.Outcome) error {
-			t.recordBillingLegForAttempt(cctx, request, attempt, attempt.terminalEvidence(), sdkterminal.CommandNormalFinish, p.billingEvidenceFallback(), t.committed(), request.billingState)
+		r = t.terminalizeRequest(ctx, sdkterminal.CommandNormalFinish, snapshot, func(cctx context.Context, _ terminal.Outcome) error {
+			if err := t.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv, request, p); err != nil {
+				return err
+			}
 			t.handoffBillingTurn(cctx, request, sdkterminal.CommandNormalFinish)
 			return nil
 		})
@@ -238,9 +277,9 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 		return lipapi.Event{}, false, terminalLossError(r)
 	}
 	if r.Err != nil {
-		return usageEv, ok, r.Err
+		return preparedUsageEv, preparedOK, r.Err
 	}
-	return usageEv, ok, err
+	return preparedUsageEv, preparedOK, nil
 }
 
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
@@ -277,7 +316,7 @@ func (t *turnTerminal) settleRequestAuthorityWithFrontendEgress(ctx context.Cont
 	// Monetary rating is exclusively a post-usage current-record concern. Runtime
 	// settlement receives only the non-money authority/egress evidence.
 	err := t.settleRequestAuthority(ctx, egressFacts)
-	if t.requestAuthorityNeedsRetry != nil && t.requestAuthorityNeedsRetry(ctx) {
+	if request.requestAuth != nil && !request.requestAuth.Settled {
 		// Provider settlement failed: keep customer once-only open for retry.
 		p.unmarkCustomerSettled()
 	}
@@ -301,7 +340,7 @@ func reconstructCustomerUsageForResponse(ctx context.Context, streamUsage *accou
 		backend = strings.TrimSpace(attempt.cand.Primary.Backend)
 		model = strings.TrimSpace(attempt.cand.Primary.Model)
 	}
-	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil && holder.FrontendIngress.Call.ID != "" {
+	if holder := facts.metering; holder != nil && holder.FrontendIngress != nil && holder.FrontendIngress.Call.ID != "" {
 		call = holder.FrontendIngress.Call
 	}
 	result, err := streamUsage.Reconstruct(ctx, accountingstream.Input{
@@ -314,11 +353,10 @@ func reconstructCustomerUsageForResponse(ctx context.Context, streamUsage *accou
 	if out.Kind == "" {
 		return lipapi.Event{}
 	}
-	return applyFrontendIngressInput(ctx, out)
+	return applyFrontendIngressInput(facts.metering, out)
 }
 
-func applyFrontendIngressInput(ctx context.Context, ev lipapi.Event) lipapi.Event {
-	holder := meteringHolderFrom(ctx)
+func applyFrontendIngressInput(holder *checkpoint.RequestHolder, ev lipapi.Event) lipapi.Event {
 	if holder == nil || holder.FrontendIngress == nil {
 		return ev
 	}

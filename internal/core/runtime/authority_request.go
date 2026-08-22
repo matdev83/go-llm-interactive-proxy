@@ -68,6 +68,9 @@ func withRequestAuthority(ctx context.Context, st *requestAuthorityState) contex
 	if st == nil {
 		return ctx
 	}
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	return context.WithValue(ctx, requestAuthorityKey{}, st)
 }
 
