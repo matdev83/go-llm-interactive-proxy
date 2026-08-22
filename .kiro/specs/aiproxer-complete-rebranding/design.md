@@ -2,9 +2,9 @@
 
 ## Overview
 
-This design rebrands the existing brownfield repository to **aiproxer** while preserving its current architecture and behavior. The technical problem is not choosing replacement strings; it is controlling the dependency graph so compile-time namespaces, runtime contracts, nested modules, tests, automation, release packaging, and documentation do not all break at once.
+This design rebrands the existing brownfield repository to **aiproxer** while preserving its current architecture and behavior. The technical problem is not choosing replacement strings; it is controlling a repository-wide dependency graph so compile-time namespaces, runtime contracts, nested modules, tests, automation, release packaging, generated artifacts, documentation, and repository hosting do not all break at once.
 
-The design uses a **dependency-ordered sequence of bounded rename waves**. Every wave has explicit entry dependencies, a small mutation surface, focused validation, and a green exit checkpoint. Compile-time namespace changes are stabilized before runtime wire/config names; runtime names are stabilized before release/tooling; documentation and historical artifacts converge only after code naming freezes. The GitHub repository transfer/rename is a late owner-controlled cutover.
+The design uses a **dependency-ordered sequence of bounded rename waves**. Every wave has explicit entry dependencies, deterministic ownership, a small mutation surface, focused validation, and a green exit checkpoint. Compile-time namespace changes stabilize before runtime wire/config names; runtime names stabilize before broad tooling/release convergence; documentation and historical artifacts converge only after code naming freezes. The GitHub repository transfer/rename remains a late owner-controlled cutover.
 
 No production architecture layer is introduced. No code is split for Open Core/Enterprise purposes. This is an identity migration across the architecture that already exists.
 
@@ -15,7 +15,9 @@ No production architecture layer is introduced. No code is split for Open Core/E
 - Migrate public packages to `aipapi`, `aipsdk`, and `aipruntime`, and the standard distribution to `aipstd`.
 - Migrate project-owned wire/config/operational identifiers to `AIP`/`aip`/`aiproxer.com` forms as appropriate.
 - Keep implementation failures local through small chronological waves and green checkpoints.
-- Reach a final tracked tree with zero semantic matches from the Legacy Token Set.
+- Make parallel work deterministic through immutable module/path ownership.
+- Make zero-legacy verification reproducible across agents through frozen scanner provenance.
+- Reach a final tracked tree and generated distribution set with zero semantic matches from the Legacy Token Set.
 - Preserve behavior, data, architecture boundaries, and test intent.
 
 ### Non-Goals
@@ -38,8 +40,9 @@ No production architecture layer is introduced. No code is split for Open Core/E
 - Standard distribution command/binary/build identity.
 - Project-owned HTTP, environment, config, schema, user-agent/service, metric, tracing/logging, IPC, persistence, and generated-artifact names.
 - Tests, fixtures, scripts, Make targets, workflows, release tooling, agent instructions/skills, Kiro artifacts, docs, comments, help, filenames, and directories.
-- Canonical GitHub repository transfer/rename and post-cutover verification.
-- Temporary migration mechanics and their mandatory removal.
+- Canonical GitHub repository transfer/rename and post-cutover verification/rebinding.
+- Temporary migration mechanics and their mandatory removal from the workspace.
+- Out-of-tree scanner provenance/evidence used only to prove convergence.
 
 ### Out of Boundary
 
@@ -56,6 +59,7 @@ No production architecture layer is introduced. No code is split for Open Core/E
 - Existing connector-support and connector local-module replacement model.
 - Existing GitHub repository transfer/rename behavior.
 - Temporary per-file Go import aliases during a bounded public-package wave only.
+- Out-of-tree scanner/pattern/evidence files with recorded checksums.
 
 ### Revalidation Triggers
 
@@ -65,6 +69,8 @@ No production architecture layer is introduced. No code is split for Open Core/E
 - Discovery of a durable branded identifier requiring data migration.
 - Changes to connector module topology or local replacement strategy.
 - Changes to the timing or mechanics of repository host cutover.
+- Any post-freeze change to Issue #429 that changes the Legacy Token Set.
+- Any scanner implementation/contract or artifact-manifest change after provenance freeze.
 
 ## Architecture
 
@@ -78,28 +84,30 @@ Important brownfield constraints:
 - Connector-support and connector directories are independent Go modules and depend on the root and sometimes on each other through local relative replacements.
 - The canonical API and SDK packages are hub dependencies, so moving them causes wide compile-time fallout if not consumer-batched.
 - Standard project-specific HTTP headers are centralized but consumed across frontends/config/tests/docs.
-- Environment names and project identity are referenced by test infrastructure, scripts, quality/release workflows, and persistence tooling.
-- Release configuration hard-codes project/build/binary identity.
+- Environment names and project identity are referenced by test infrastructure, scripts, CI workflows, quality/release tooling, and persistence infrastructure.
+- A single `.github/**` workflow can contain environment names, module paths, command paths, artifact names, and repository names owned by different migration concerns; identifier-family ownership must therefore be explicit and sequential.
+- Release configuration hard-codes project/build/binary identity and can produce artifacts not present in the tracked source tree.
 - Active and archived repository documentation contains source-brand names and is explicitly in the feature scope.
+- Repository transfer preserves many repository-scoped assets, but organization/owner-scoped policy and access dependencies can require target-owner recreation or rebinding.
 
 ### Architecture Pattern & Boundary Map
 
-**Selected pattern:** dependency-ordered migration waves with invariant checkpoints.
+**Selected pattern:** dependency-ordered migration waves with deterministic ownership and invariant checkpoints.
 
 ```mermaid
 flowchart TD
-    B[0. Baseline + classified inventory] --> M[1. Root module namespace]
-    M --> S[2. Connector-support modules]
-    S --> C[3. Connector module batches]
+    B[0. Baseline + scanner/artifact/ownership freeze] --> M[1. Root module namespace]
+    M --> S[2. Connector-support complete edge graph]
+    S --> C[3. Frozen connector batches]
     C --> API[4. pkg/aipapi]
     API --> SDK[5. pkg/aipsdk]
     SDK --> RT[6. pkg/aipruntime]
     RT --> STD[7. cmd/aipstd + distribution identity]
     STD --> RC[8. Runtime contract namespaces]
-    RC --> TOOL[9. Tooling + CI + release + agents]
-    TOOL --> DOC[10. Docs + Kiro + comments + tracked path cleanup]
-    DOC --> HOST[11. GitHub host cutover]
-    HOST --> FINAL[12. Remove scaffolding + zero-legacy + full gates]
+    RC --> TOOL[9. Tooling + CI + release + non-Kiro agents]
+    TOOL --> DOC[10. Docs + Kiro + history + path cleanup]
+    DOC --> HOST[11. GitHub host cutover + config rebinding]
+    HOST --> FINAL[12. Workspace cleanup + source/artifact/full-clone gates]
 ```
 
 The numbering above describes design waves, not task IDs. `tasks.md` decomposes each wave into agent-sized units.
@@ -109,7 +117,8 @@ The numbering above describes design waves, not task IDs. `tasks.md` decomposes 
 - Existing core/plugin/SDK boundaries remain unchanged except for target names.
 - No generic compatibility or rename abstraction is added.
 - Compile-time namespace migration precedes runtime behavior-contract migration.
-- Runtime contract migration precedes release/docs convergence.
+- Runtime contract migration precedes broad release/docs convergence.
+- Same-file sequential edits are permitted only when identifier-family ownership is explicitly disjoint, as with `.github/**` environment-name substitutions vs later non-environment CI identity changes.
 - Repository host transfer is separated from code mutation so lack of organization permission cannot strand the codebase mid-compile failure.
 
 ### Target Namespace Matrix
@@ -128,7 +137,7 @@ The numbering above describes design waves, not task IDs. `tasks.md` decomposes 
 | Environment namespace | `AIP_*` | Runtime/test/CI/scripts |
 | Metrics | `aip_*` | Meaning/labels unchanged |
 
-The mapping source side is the Legacy Token Set defined by Issue #429 and discovered baseline variants. It stays out of durable new artifacts to avoid making the specification a final-tree violation.
+The mapping source side is the Legacy Token Set defined by the frozen Issue #429 source revision and discovered baseline semantic variants. Concrete retired spellings stay out of durable new artifacts to avoid making the specification a final-tree violation.
 
 ## Migration Control Model
 
@@ -141,7 +150,7 @@ A wave may update its direct tests/fixtures and immediate dependents, but it mus
 A batch has:
 
 1. a bounded path/consumer set;
-2. one explicit name mapping;
+2. one explicit name mapping or identifier-family ownership;
 3. focused compiler/tests/checks;
 4. a stop condition on unexpected broad failures.
 
@@ -156,12 +165,13 @@ Rules:
 - aliases may exist only in the active package wave;
 - new code must use the target local name;
 - no exported bridge package is created;
-- aliases carrying Legacy Token Set spelling are removed before the wave/final convergence gate;
-- no equivalent runtime dual-read shim is permitted for headers/env/config solely for branding compatibility.
+- aliases carrying Legacy Token Set spelling are removed before the package-wave gate;
+- no equivalent runtime dual-read shim is permitted for headers/env/config solely for branding compatibility;
+- final convergence removes all migration-only helpers from the workspace, not merely from Git tracking.
 
 ### Invariant 4: Semantic classification precedes bulk editing
 
-Before edits, generate an **untracked** migration inventory from Issue #429 patterns and baseline searches. Classify each match as:
+Before edits, generate an out-of-tree migration inventory from the frozen Issue #429 source revision and baseline searches. Classify each match as:
 
 - module/import;
 - public package/Go identifier;
@@ -169,23 +179,83 @@ Before edits, generate an **untracked** migration inventory from Issue #429 patt
 - persistence/observability;
 - tooling/CI/release;
 - docs/agent/Kiro/historical;
+- generated artifact surface;
 - false positive / third-party / unrelated term.
 
 Bulk replacement may operate only on a classified target class and exact mapping. A raw three-character global substitution is prohibited.
 
-### Invariant 5: Zero-legacy scanner is out-of-tree
+### Invariant 5: Scanner provenance is frozen and reproducible
 
-The final scanner needs the source spellings to detect them, but committing those spellings would violate the target state. Therefore its pattern file/script is generated or supplied outside the tracked tree using Issue #429 and baseline inventory. The scanner checks:
+The scanner needs retired source spellings but those spellings must not become permanent tracked content. Before the first scan, freeze an **out-of-tree provenance bundle** containing:
 
-- `git ls-files` path names;
-- textual content of `git ls-files` entries;
-- optional generated release metadata/build output for target naming.
+- Issue #429 URL and `updated_at` value used as the source revision;
+- SHA-256 of the exact UTF-8 issue body snapshot;
+- scanner contract identifier `aiproxer-rebrand-scan/v1`;
+- SHA-256 of the scanner implementation used for all gates;
+- deterministic generated Legacy Token Set pattern file plus SHA-256;
+- generated-artifact manifest plus SHA-256;
+- baseline commit SHA;
+- canonical invocation.
 
-A permanent in-repository guard may assert positive target invariants (for example canonical module path/header/env prefixes), but it must not embed retired spellings simply to reject them.
+Canonical invocation contract:
+
+```text
+python3 "$AIP_REBRAND_SCANNER" scan \
+  --repo . \
+  --patterns "$AIP_REBRAND_PATTERNS" \
+  --artifacts "$AIP_REBRAND_ARTIFACT_MANIFEST" \
+  --format json
+```
+
+The implementation log or CI artifact stores the metadata/checksums and results, not the retired spellings in the repository. Every later scan reuses the same checksummed bundle. If Issue #429 changes materially after freeze, the owner must explicitly approve a rebaseline; prior downstream scan evidence becomes stale and must be regenerated.
+
+### Invariant 6: Generated artifacts are mandatory scan inputs when producible
+
+The baseline inventory creates an artifact manifest from repository build/release producers. If an artifact family can be produced in the implementation environment, final convergence must produce and scan it.
+
+Per-artifact probes include, as applicable:
+
+- release archives: archive filename, entry names, extracted tracked/textual payloads, and included executable probes;
+- release metadata/checksums/package manifests: filenames and textual metadata;
+- standard executable: filename, `--help`/`--version` output where supported, and Go build/module metadata (`go version -m` or equivalent);
+- package/container outputs: package/image/tag names, labels, environment/entrypoint/config metadata, and textual manifests;
+- other generated distributables discovered by the inventory: explicit probe recorded in the artifact manifest.
+
+A tracked-tree-only zero result is insufficient when the repository's enabled release/build pipeline produces additional artifacts.
+
+### Invariant 7: Parallel ownership is immutable before dispatch
+
+Parallel workers never choose “the next” module or broad overlapping directory at execution time.
+
+Before any parallel wave:
+
+- freeze an immutable, non-overlapping module/path assignment in the implementation handoff;
+- record a checksum of the assignment;
+- assign each connector/path exactly once;
+- reserve shared files for the serial merge/close task;
+- require the merge checkpoint before the next dependency wave.
+
+### Invariant 8: CI and repository-document ownership is explicit
+
+Some files are touched in more than one chronological wave, but identifier ownership must not overlap.
+
+**`.github/**` ownership:**
+
+- Runtime environment-name subwave owns **only project-owned environment-variable identifiers** inside `.github/**`, along with the same environment names in runtime/tests/scripts.
+- Later CI convergence owns repository/module/command/artifact/release/path branding inside `.github/**` and must not re-derive environment mappings.
+- CI convergence ends with a full Legacy Token Set scan of `.github/**` so the two sequential passes converge on one target-only workflow state.
+
+**Agent/Kiro/document ownership:**
+
+- Non-Kiro active agent automation: `.agents/skills/**`, `.agents/catalog.json`, `.cursor/**`, `.jules/**`, `.coderabbit.yaml`, and equivalent non-Kiro agent/rule configuration discovered by inventory. It explicitly excludes `.agents/reviews/**`, root `AGENTS.md`, and all `.kiro/**`.
+- Active Kiro/repository instructions: root `AGENTS.md`, `.kiro/AGENTS.md`, `.kiro/steering/**`, `.kiro/rules/**`, `.kiro/settings/**`, `.kiro/templates/**`, and active `.kiro/specs/*` excluding `.kiro/specs/archive/**`.
+- Historical tracked review/spec material: `.kiro/specs/archive/**`, `.agents/reviews/**`, and other inventory-classified historical review paths not owned by active agent automation.
+
+These path partitions are disjoint and may be parallelized only after code/tooling naming freeze.
 
 ## Chronological Migration Waves
 
-### Wave 0 — Baseline and inventory
+### Wave 0 — Baseline, provenance, inventory, and ownership freeze
 
 **Purpose:** establish known-good evidence and reduce unknown scope before any rename.
 
@@ -194,11 +264,14 @@ Actions:
 - capture current root quality/unit/architecture status;
 - run existing all-module checks;
 - record any pre-existing failures separately;
-- build the untracked classified migration inventory;
+- snapshot Issue #429 and freeze `aiproxer-rebrand-scan/v1` provenance/checksums;
+- build the classified migration inventory;
+- enumerate all producible generated artifact families and their scan probes;
 - identify potentially durable branded identifiers;
-- freeze the target namespace matrix.
+- freeze the target namespace matrix;
+- freeze non-overlapping connector batch membership before parallel connector work.
 
-**Exit:** baseline is understood and every match class has an owner/wave.
+**Exit:** baseline is understood; scanner provenance and artifact manifest are reproducible; every match class has an owner/wave; every connector belongs to exactly one frozen batch.
 
 ### Wave 1 — Root module namespace
 
@@ -208,25 +281,33 @@ Change only the root module declaration and root-module import prefix to `github
 
 **Exit:** root module tidies, compiles, tests, and architecture checks pass under the target module root.
 
-### Wave 2 — Connector-support module namespace
+### Wave 2 — Connector-support complete dependency graph
 
-Migrate each connector-support module declaration plus its root dependency and local replacement. Keep relative source locations unchanged.
+For each connector-support module, migrate:
 
-**Exit:** each support module independently tidies/tests with `GOWORK=off`; root remains green.
+- module declaration;
+- source imports of root/support project modules;
+- root-module `require`/`replace` edges;
+- every inter-support `require`/`replace` edge;
+- local replacement targets while preserving intended relative source topology.
 
-### Wave 3 — Connector modules in bounded batches
+Process support modules in dependency order and validate each module before the next. After all support modules are green, validate the complete support graph so no inter-support edge remains on the source namespace.
 
-Partition independent connector modules into small batches (recommended 4–6 modules per agent task, adjusted down when a connector is complex). For each batch:
+**Exit:** every support module independently tidies/tests with `GOWORK=off`; every support-to-root/support-to-support edge resolves to the target namespace; root remains green.
+
+### Wave 3 — Connector modules in frozen bounded batches
+
+Use only the immutable module-to-batch assignment frozen in Wave 0. Recommended batch size is 4–6 modules, adjusted downward for complex connectors. For each assigned module:
 
 - change module declaration;
 - change project-owned `require` targets;
 - change root/support `replace` targets while preserving relative paths;
 - update Go imports;
-- tidy/test the batch immediately.
+- tidy/test immediately.
 
-Do not open all connector `go.mod` files in one task.
+Parallel workers must not edit support/root/shared script files and may not reassign modules. The serial close task proves every connector was covered exactly once.
 
-**Exit:** repository all-module checks pass and no module metadata refers to the Legacy Token Set.
+**Exit:** repository all-module checks pass and no module metadata/import edge refers to the Legacy Token Set.
 
 ### Wave 4 — Canonical API package (`pkg/aipapi`)
 
@@ -267,36 +348,41 @@ Runtime-name changes are isolated from compile-time package moves.
 Subwaves:
 
 1. `X-AIP-*` custom HTTP headers and their frontend/config/contract fixtures;
-2. `AIP_*` runtime/test/CI environment names;
-3. project-owned config/schema/agent/user-agent/service/IPC identifiers;
+2. `AIP_*` runtime/test/script environment names **plus only environment-variable identifiers inside `.github/**`**;
+3. project-owned config/schema/user-agent/service/IPC identifiers;
 4. `aip_*` metrics and tracing/logging resource identities;
 5. discovered durable branded identifiers, each with data-safe migration evidence if required.
 
-No final dual-read of retired project names is introduced.
+No final dual-read of retired project names is introduced. The `.github/**` files touched in subwave 2 are revisited later only for non-environment identifier families.
 
-**Exit:** runtime behavior tests pass using target names only, with non-brand semantics unchanged.
+**Exit:** runtime behavior tests pass using target names only, with non-brand semantics unchanged; CI files contain the target environment names even though broader CI naming convergence is still pending.
 
-### Wave 8 — Developer tooling, CI, release, and agent surfaces
+### Wave 8 — Developer tooling, CI, release, and non-Kiro agent surfaces
 
 After all source paths/contracts are target-stable:
 
-- Make/script/checker paths and environment names;
-- GitHub workflows/configuration;
+- Make/script/checker paths and non-environment project identities;
+- `.github/**` repository/module/command/artifact/path/release identities other than the already-migrated environment-name family;
+- full cross-wave `.github/**` zero-legacy scan;
 - release project/build/binary/archive identity;
-- install/package/container examples and generation inputs;
-- repository agent skills, prompts, rules, code-review configuration.
+- install/package/container generation inputs;
+- active non-Kiro agent automation under the exact path partition defined by Invariant 8.
 
-**Exit:** local quality commands and CI/release-oriented commands invoke only target paths/names.
+**Exit:** local quality commands and CI/release-oriented commands invoke only target paths/names; `.github/**` has no semantic Legacy Token Set matches; non-Kiro active agent automation is target-only.
 
-### Wave 9 — Documentation and historical tracked artifacts
+### Wave 9 — Documentation, active Kiro, and historical tracked artifacts
 
-Now perform content convergence across README/docs, steering/templates, AGENTS, active/archive Kiro artifacts, examples, comments/help, goldens, filenames, and directories.
+Perform content convergence after code/tooling/release naming freezes. Parallel workers use the disjoint path partitions from Invariant 8:
 
-Disjoint documentation directories may be handled in parallel only after code naming freeze. Every worker receives the same target namespace matrix and must not invent synonyms.
+- README and `docs/**` plus documentation-specific filenames/directories;
+- active Kiro/repository instruction partition;
+- historical Kiro/review partition.
 
-**Exit:** target docs refer to valid target code paths, and tracked-path/content scan is close to zero except any items explicitly reserved for host cutover.
+After those workers merge, a serial remainder task handles source comments/help/goldens/examples/config samples and any inventory-classified path not already owned.
 
-### Wave 10 — GitHub repository cutover
+**Exit:** target docs refer to valid target code paths; each path was owned exactly once; tracked-path/content scan is zero except external host state reserved for cutover.
+
+### Wave 10 — GitHub repository cutover and configuration rebinding
 
 This is an owner/operator checkpoint.
 
@@ -305,21 +391,36 @@ Preconditions:
 - target organization `aiproxer` exists and acting owner has required permissions;
 - target repository name is available and transfer constraints are satisfied;
 - source tree/automation is target-ready;
-- rollback/coordination window is agreed.
+- rollback/coordination window is agreed;
+- host configuration has been inventoried and classified.
+
+Configuration classes:
+
+| Class | Examples | Required handling |
+|---|---|---|
+| Repository-scoped, expected to remain associated | issues/PRs/history, repository settings, repository webhooks, repository secrets, deploy keys, releases, repository-level rules/configuration | Verify after transfer; do not assume success merely because transfer completed |
+| Organization/owner-scoped or external | organization rulesets/policies, organization secrets/variables, teams/role bindings, GitHub App/install access, package/container registry permissions, Pages custom-domain/DNS dependencies, external integrations | Recreate/rebind at target owner when required, then verify |
+| Platform-managed redirect | old repository URL redirect | Accept as GitHub behavior; never use as maintained canonical identity |
 
 Operation:
 
 - transfer/rename repository to `github.com/aiproxer/aiproxer`;
 - update local remotes used by maintainers;
-- verify Actions, branch/ruleset behavior, secrets/environments, integrations/webhooks, releases, canonical links, and repository metadata.
-
-GitHub redirects from the former host location are accepted as external platform behavior, not a maintained compatibility contract.
+- verify repository-scoped assets;
+- recreate/rebind target-owner dependencies where required;
+- verify Actions, branch/ruleset behavior, secrets/environments, integrations/webhooks, releases, packages/containers, Pages/DNS where applicable, canonical links, and repository metadata.
 
 ### Wave 11 — Final convergence
 
-Remove all temporary aliases/manifests/scaffolding, run the external Legacy Token Set scan over paths and contents, execute full quality/test/module/parity gates, then clean-clone from the canonical target location and perform standard distribution/release smoke verification.
+Remove all migration-only aliases/manifests/helper shims/compatibility bridges from the workspace, leaving only external scanner inputs/evidence outside the repository for verification. Then:
 
-**Exit:** zero legacy branding in the tracked tree; full validation green; clean clone works from target host.
+1. run the frozen scanner over tracked paths and textual tracked contents;
+2. generate every artifact family required by the frozen artifact manifest and run its defined probes;
+3. run full root quality/test/architecture/parity gates and full all-module checks;
+4. clean-clone from the canonical target location;
+5. in the clean clone, rerun the platform-appropriate complete all-module validation with CI-equivalent `GOWORK` behavior, standard distribution/release smoke, generated-artifact probes, and the same frozen zero-legacy scan.
+
+**Exit:** zero legacy branding in tracked source and generated distributables; full validation green; clean clone works from target host with the complete module graph.
 
 ## File Structure Plan
 
@@ -338,9 +439,9 @@ The target architecture remains structurally the same. Only branded package/comm
 ├── connector-support/           # Independent target-namespace Go modules
 ├── connectors/                  # Independent target-namespace Go modules
 ├── docs/                        # Target-name docs after code freeze
-├── .github/                     # Target CI/release/repository references
-├── .agents/                     # Target agent skills/instructions
-└── .kiro/                       # Target steering/templates/specs, including archives
+├── .github/                     # CI/repository automation; two ordered identifier-family passes
+├── .agents/                     # Active skills vs historical reviews partitioned explicitly
+└── .kiro/                       # Active vs archive paths partitioned explicitly
 ```
 
 The implementation must not create a second compatibility copy of any moved public package.
@@ -352,12 +453,12 @@ The implementation must not create a second compatibility copy of any moved publ
 ```mermaid
 sequenceDiagram
     participant A as Coding agent
-    participant I as Migration inventory
+    participant I as Frozen inventory/ownership manifest
     participant C as Compiler/focused tests
     participant G as Wave gate
 
-    A->>I: Select one classified package/consumer batch
-    A->>A: Move/rename only that batch
+    A->>I: Read assigned path/module batch
+    A->>A: Move/rename only assigned surface
     A->>C: Compile/test affected packages
     alt focused gate fails
         C-->>A: Local failure set
@@ -365,7 +466,7 @@ sequenceDiagram
         A->>C: Re-run focused proof
     else focused gate passes
         C-->>A: Green
-        A->>G: Run package-wave boundary checks when batch closes wave
+        A->>G: Run wave boundary check
         alt boundary gate passes
             G-->>A: Permit next dependent wave
         else boundary gate fails
@@ -374,15 +475,29 @@ sequenceDiagram
     end
 ```
 
+### Scanner/artifact evidence flow
+
+```mermaid
+flowchart LR
+    ISSUE[Freeze Issue #429 snapshot] --> PROV[Scanner + pattern + artifact checksums]
+    PROV --> BASE[Baseline inventory]
+    BASE --> WAVES[Reuse unchanged provenance at wave gates]
+    WAVES --> SRC[Final tracked path/content scan]
+    WAVES --> ART[Generate + probe mandatory artifacts]
+    SRC --> CLONE[Clean-clone repeat]
+    ART --> CLONE
+```
+
 ### Repository cutover flow
 
 ```mermaid
 flowchart LR
-    READY[Target-ready source tree] --> PRE[Verify org/name/permissions]
+    READY[Target-ready source tree] --> PRE[Verify org/name/permissions + config matrix]
     PRE -->|fail| HOLD[Hold cutover; code remains usable]
     PRE -->|pass| MOVE[Transfer/rename repository]
-    MOVE --> VERIFY[Verify settings, Actions, releases, integrations, remotes]
-    VERIFY --> CLEAN[Clean clone + full final convergence]
+    MOVE --> VERIFY[Verify repository-scoped assets]
+    VERIFY --> REBIND[Recreate/rebind org/external dependencies]
+    REBIND --> CLEAN[Clean clone + full final convergence]
 ```
 
 ## Requirements Traceability
@@ -390,15 +505,15 @@ flowchart LR
 | Requirement | Design realization |
 |---|---|
 | 1 | Target Namespace Matrix; scope boundaries |
-| 2 | Semantic inventory; out-of-tree zero-legacy scanner; Wave 9/11 |
-| 3 | Waves 1–3 module dependency order |
+| 2 | Semantic inventory; mandatory source + generated-artifact scanner; Waves 9/11 |
+| 3 | Waves 1–3 complete module dependency order and frozen batches |
 | 4 | Waves 4–6 one-public-package-at-a-time migration |
-| 5 | Wave 7 runtime contract subwaves; no dual-read rule |
+| 5 | Wave 7 runtime contract subwaves; explicit `.github/**` env ownership; no dual-read rule |
 | 6 | Inventory classification + persistence/observability subwaves |
-| 7 | Wave 8 tooling/CI/release/agent convergence |
-| 8 | Migration Control Model; green checkpoint sequence |
-| 9 | Wave 10 owner/operator GitHub cutover |
-| 10 | All wave gates + final clean clone/full verification |
+| 7 | Wave 8 tooling/CI/release/non-Kiro agent convergence; `.github/**` cross-wave scan |
+| 8 | Migration Control Model; scanner provenance; immutable ownership; green checkpoint sequence |
+| 9 | Wave 10 repository-vs-organization configuration matrix and owner/operator cutover |
+| 10 | Workspace cleanup; full source/artifact/module gates; full clean-clone verification |
 
 ## Components and Interfaces
 
@@ -406,14 +521,17 @@ This rebrand does not add production components. The following are **migration w
 
 | Work unit | Intent | Requirements | Output |
 |---|---|---|---|
-| Classified Migration Inventory | Map every source-brand occurrence to a wave or false-positive decision | 2, 6, 8 | Untracked inventory |
+| Scanner Provenance Bundle | Freeze Issue source, scanner, patterns, artifact manifest, invocation, and checksums | 2, 8, 10 | Reproducible out-of-tree evidence |
+| Classified Migration Inventory | Map every source-brand occurrence to a wave or false-positive decision | 2, 6, 8 | Checksummed out-of-tree inventory |
+| Ownership Manifest | Assign every connector/path in a parallel wave exactly once | 3, 8 | Immutable handoff |
 | Module Graph Migrator | Change root/support/connector module namespaces in dependency order | 3, 8 | Green module graph |
 | Public Package Wave | Move one hub package and consumer batches without duplicate compatibility trees | 4, 8, 10 | Target-only package path |
 | Runtime Contract Wave | Change live project-owned names and fixtures together | 5, 6, 10 | Target-only runtime names |
-| Tooling/Release Convergence | Align automation and distribution with stabilized code names | 7, 10 | Target build/release pipeline |
-| Documentation Convergence | Rewrite maintained and archived tracked text/path names | 2, 7 | Target-only docs/tree |
-| Host Cutover | Move canonical repository location after code readiness | 9, 10 | Canonical GitHub target |
-| Final Scanner/Gates | Prove no tracked legacy names and no behavior regressions | 2, 10 | Implementation GO/NO-GO |
+| CI Ownership Passes | First environment identifiers, then non-environment identities, followed by whole-workflow scan | 5, 7, 8 | Target-only `.github/**` |
+| Tooling/Release Convergence | Align automation/distribution and generate scan-worthy artifacts | 2, 7, 10 | Target build/release pipeline |
+| Documentation/Kiro Convergence | Rewrite maintained and archived tracked text/path names with disjoint ownership | 2, 7, 8 | Target-only docs/tree |
+| Host Cutover | Transfer repository and verify/rebind repository/organization configuration | 9, 10 | Canonical GitHub target |
+| Final Scanner/Gates | Prove no source/artifact legacy names and no behavior regressions | 2, 10 | Implementation GO/NO-GO |
 
 ## Data Models
 
@@ -428,6 +546,20 @@ For **project-branded durable identifiers discovered during inventory**, classif
 
 This classification prevents a cosmetic rename from orphaning billing/session/continuity/config state.
 
+### Migration evidence records
+
+Implementation-only evidence (not permanent source-brand content) should record:
+
+- baseline commit and command results;
+- scanner provenance/checksums;
+- classified inventory checksum;
+- artifact-manifest checksum and per-artifact probe results;
+- immutable connector/path ownership manifest checksum;
+- durable identifier classification/migration evidence;
+- repository-host configuration classification and post-cutover verification.
+
+These records may live in CI artifacts or an external implementation log; they must not require committing retired spellings to the final tracked tree.
+
 ## Error Handling and Rollback
 
 ### Batch-level failure
@@ -436,18 +568,21 @@ This classification prevents a cosmetic rename from orphaning billing/session/co
 - Do not start the next dependency wave.
 - Use compiler/test errors to repair the bounded set.
 - If failure breadth exceeds the intended batch, revert/reduce the batch.
+- Do not reassign frozen parallel ownership ad hoc; update/rechecksum the manifest explicitly if a repartition is necessary before work resumes.
 
 ### Module-resolution failure
 
-- Verify module declaration, `require`, `replace`, and import roots together.
+- Verify module declaration, `require`, `replace`, and source import roots together.
+- For connector-support failures, inspect support-to-support edges as well as root edges.
 - Run module-local checks with the same `GOWORK` behavior used by repository scripts.
 - Never bypass resolution by fetching a stale external source namespace.
 
-### Runtime-contract failure
+### Runtime-contract / CI failure
 
 - Keep change and tests in the same subwave.
 - Do not restore a permanent legacy alias to make tests green.
-- Fix callers/fixtures/configuration to use the target contract.
+- For `.github/**`, distinguish environment-name ownership from later non-environment CI ownership rather than letting two tasks apply overlapping replacements.
+- Run the whole `.github/**` cross-wave scan when CI convergence closes.
 
 ### Persistent-identifier failure
 
@@ -455,11 +590,17 @@ This classification prevents a cosmetic rename from orphaning billing/session/co
 - Restore from rollback path or retain physical storage until migration proof is complete.
 - Separate storage migration from unrelated name waves if necessary.
 
+### Scanner-provenance drift
+
+- If the Issue source, scanner, pattern generator, or artifact manifest changes after freeze, do not compare new results to old evidence as if they were equivalent.
+- Require explicit owner-approved rebaseline, new checksums, and rerun all affected downstream zero-legacy gates.
+
 ### GitHub cutover failure
 
 - Do not mutate additional source namespaces to compensate.
 - Keep source at the target module identity and hold the external host step until permissions/name constraints are resolved.
-- If transfer partially succeeds, verify canonical repository state before proceeding to final convergence.
+- If transfer partially succeeds, verify canonical repository state before proceeding.
+- If a repository-scoped asset is missing or an organization-scoped dependency is unavailable, recreate/rebind only that host configuration; do not introduce source-level legacy compatibility.
 
 ## Testing Strategy
 
@@ -470,11 +611,14 @@ Every task names the smallest useful proof set: package `go test`, module-local 
 ### Wave-boundary tests
 
 - Root module wave: root tidy/build/unit/architecture checks.
-- Connector-support and connector waves: existing all-module checks plus module-local tests.
+- Connector-support wave: every support module plus complete inter-support edge validation.
+- Connector wave: frozen per-module batches plus existing all-module scripts.
 - `aipapi`/`aipsdk`/`aipruntime` waves: public package tests, direct consumer zones, root unit/architecture checks, then module checks for downstream connectors.
-- Runtime contract wave: frontend/core/config/testkit contract tests plus affected integration fixtures.
-- Tooling/release wave: quality scripts, CI-equivalent local commands where feasible, release config validation/build.
-- Final convergence: full repository quality/test/parity/module gates and clean-clone smoke.
+- Runtime contract wave: frontend/core/config/testkit contract tests plus affected integration fixtures; environment-name changes include only the environment identifier family inside `.github/**`.
+- CI/tooling wave: quality scripts, full `.github/**` source-brand scan after remaining CI edits, CI-equivalent commands where feasible.
+- Release wave: release config validation, local snapshot/build, and artifact probes from the frozen manifest.
+- Final convergence: full repository quality/test/parity/module gates plus mandatory source/artifact scans.
+- Clean clone: **the same complete all-module script and CI-equivalent `GOWORK` behavior**, not a representative connector subset, plus standard distribution/release/configuration smoke and repeated source/artifact scans.
 
 ### Positive identity assertions
 
@@ -490,15 +634,15 @@ These tests enforce the target state without embedding retired spellings.
 
 ## Migration Strategy
 
-The overall migration is intentionally sequential on the critical path. Parallelism is permitted only inside a wave where files/modules are dependency-independent and a merge checkpoint follows before the next wave.
+The overall migration is intentionally sequential on the critical path. Parallelism is permitted only inside a wave where an immutable ownership manifest proves modules/paths are dependency-independent and a merge checkpoint follows before the next wave.
 
 ```mermaid
 flowchart TD
-    A[Baseline] --> B[Root module]
-    B --> C[Support modules]
-    C --> D1[Connector batch 1]
-    C --> D2[Connector batch 2]
-    C --> D3[Connector batch 3]
+    A[Baseline + provenance + ownership freeze] --> B[Root module]
+    B --> C[Support complete edge graph]
+    C --> D1[Frozen connector batch A]
+    C --> D2[Frozen connector batch B]
+    C --> D3[Frozen connector batches C+]
     D1 --> DM[All-module merge gate]
     D2 --> DM
     D3 --> DM
@@ -506,30 +650,36 @@ flowchart TD
     E --> F[aipsdk]
     F --> G[aipruntime]
     G --> H[aipstd]
-    H --> I[Runtime contracts]
-    I --> J[Tooling/release]
-    J --> K1[Docs group A]
-    J --> K2[Docs group B]
-    J --> K3[Historical/Kiro group]
-    K1 --> KM[Documentation merge gate]
+    H --> I[Runtime contracts + CI env identifiers]
+    I --> J[Tooling/remaining CI/release/non-Kiro agents]
+    J --> K1[README/docs]
+    J --> K2[Active Kiro/AGENTS]
+    J --> K3[Archived Kiro/reviews]
+    K1 --> KM[Documentation/path merge gate]
     K2 --> KM
     K3 --> KM
-    KM --> L[GitHub cutover]
-    L --> M[Final convergence]
+    KM --> L[GitHub cutover + rebinding]
+    L --> M[Workspace cleanup + source/artifact/full-clone convergence]
 ```
 
-Connector batches may be parallel only after the support-module checkpoint and only if they do not modify shared support/root files. Documentation batches may be parallel only after source/tooling naming freeze. Public package waves are sequential because each is a hub dependency of the next and because separating them dramatically improves failure attribution.
+Connector batches may be parallel only after support-module validation and ownership freeze, and only if they do not modify shared support/root files. Documentation/Kiro/archive batches may be parallel only after source/tooling naming freeze and only under the explicit path partitions above. Public package waves are sequential because each is a hub dependency of the next and because separating them dramatically improves failure attribution.
 
 ## Brownfield Design Validation
 
 ### Validation findings incorporated
 
-1. **Multi-module graph:** design repaired to migrate root, connector-support, and connector modules separately.
-2. **Hub package blast radius:** design repaired to migrate one public package family at a time, with consumer-zone batches.
-3. **Runtime compatibility conflict:** design explicitly rejects permanent dual-name compatibility because Issue #429 requires a clean identity break.
-4. **Durable state risk:** design adds discovery/classification and data-safe migration for genuinely branded persisted identifiers.
-5. **Final-scan self-reference:** design keeps the source pattern inventory out of the tracked tree so the new spec does not defeat its own zero-legacy criterion.
-6. **Host permission uncertainty:** repository transfer is a late operator checkpoint rather than an early prerequisite that could block code migration.
-7. **Commercial-boundary creep:** explicit boundary prevents this rename from becoming an Open Core/Enterprise split.
+1. **Multi-module graph:** root, connector-support, and connector modules migrate separately; support source imports plus inter-support `require`/`replace` edges are explicit.
+2. **Hub package blast radius:** one public package family migrates at a time with consumer-zone batches.
+3. **Runtime compatibility conflict:** permanent dual-name compatibility remains prohibited because Issue #429 requires a clean identity break.
+4. **Durable state risk:** discovery/classification and data-safe migration cover genuinely branded persisted identifiers.
+5. **Scanner self-reference and reproducibility:** source patterns remain out-of-tree, but the Issue snapshot, scanner contract/implementation, pattern set, artifact manifest, and invocation are frozen/checksummed.
+6. **Generated artifact escape:** producible release/build/package/container outputs are mandatory final scan inputs through explicit per-artifact probes.
+7. **Parallel connector ambiguity:** immutable module-to-batch membership is frozen before parallel execution.
+8. **CI same-file overlap:** environment identifiers inside `.github/**` belong to the runtime env subwave; all remaining CI branding belongs to the later CI wave; a full cross-wave scan closes the surface.
+9. **Agent/Kiro path overlap:** active non-Kiro agent automation, active Kiro/AGENTS material, and archived Kiro/review material have disjoint exact path partitions.
+10. **Workspace shim ambiguity:** final convergence removes migration-only helpers from the workspace; only external scanner inputs/evidence may remain.
+11. **Host configuration uncertainty:** repository transfer is a late operator checkpoint with repository-vs-organization configuration classification, verification, and recreation/rebinding where necessary.
+12. **Clean-clone undercoverage:** the target-host clean clone runs the complete all-module gate with CI-equivalent `GOWORK` behavior, not a representative subset.
+13. **Commercial-boundary creep:** explicit boundary prevents this rename from becoming an Open Core/Enterprise split.
 
-**Verdict: GO.** The design is implementation-ready provided coding agents respect task dependencies and do not collapse the staged waves into a single repository-wide replacement.
+**Verdict: GO.** The design is implementation-ready provided coding agents respect task dependencies, frozen ownership/provenance, and do not collapse the staged waves into a single repository-wide replacement.
