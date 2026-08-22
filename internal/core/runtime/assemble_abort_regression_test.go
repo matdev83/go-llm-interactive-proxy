@@ -24,14 +24,17 @@ type trackingStream struct {
 }
 
 func (s *trackingStream) Recv(context.Context) (lipapi.Event, error) { return lipapi.Event{}, nil }
+
 func (s *trackingStream) Cancel(_ context.Context, _ lipapi.CancelCause) lipapi.CancelResult {
 	s.cancelCalls.Add(1)
 	return lipapi.CancelResult{Err: s.cancelErr}
 }
+
 func (s *trackingStream) Close() error {
 	s.closeCalls.Add(1)
 	return s.closeErr
 }
+
 func (s *trackingStream) Counts() (int64, int64) {
 	return s.cancelCalls.Load(), s.closeCalls.Load()
 }

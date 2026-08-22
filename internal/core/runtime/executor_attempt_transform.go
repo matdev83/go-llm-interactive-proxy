@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -33,21 +32,17 @@ func (e *Executor) candidateAttemptMeta(ctx context.Context, rf requestFacts, at
 		BackendPrefixes: execbackend.CloneBackendPrefixes(be),
 		Model:           strings.TrimSpace(c.Primary.Model),
 		ReplaySupport:   execbackend.EffectiveReplaySupport(ctx, be, attempt, c),
-		Scope:           scopeFromCtx(ctx),
+		Scope:           rf.recvViews.Scope,
 		Session: session.SessionView{
 			AuthoritativeSessionID: strings.TrimSpace(attempt.Session.AuthoritativeSessionID),
 			ClientSessionHint:      strings.TrimSpace(attempt.Session.ClientSessionID),
 			ALegID:                 rf.aLegID,
 		},
-		Workspace: lipworkspace.WorkspaceView{},
+		Workspace: cloneWorkspaceView(rf.recvViews.Workspace),
 	}
-	if v, ok := execctx.FromContext(ctx); ok {
-		meta.Workspace = cloneWorkspaceView(v.Workspace)
-		meta.Scope = v.Scope
-		if v.Session.AuthoritativeSessionID != "" || v.Session.ClientSessionHint != "" {
-			meta.Session = cloneSessionView(v.Session)
-			meta.Session.ALegID = rf.aLegID
-		}
+	if rf.recvViews.Session.AuthoritativeSessionID != "" || rf.recvViews.Session.ClientSessionHint != "" {
+		meta.Session = cloneSessionView(rf.recvViews.Session)
+		meta.Session.ALegID = rf.aLegID
 	}
 	return meta
 }

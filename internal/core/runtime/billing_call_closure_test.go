@@ -430,7 +430,7 @@ func TestTerminalUsageSinkSwallowedAttemptDoesNotFreezeUntilRequestTerminal(t *t
 		t.Fatal("swallowed attempt-terminal must not freeze allocated B-legs")
 	}
 
-	stream.attempt.install(newAttemptSession(attemptSessionInput{
+	testInstallSlot(&stream.attempt, newAttemptSession(attemptSessionInput{
 		bleg: b2bua.BLegRecord{BLegID: "b-replacement", ALegID: "a-1", Seq: 2},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}},
 	}))

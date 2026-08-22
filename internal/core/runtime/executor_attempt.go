@@ -38,6 +38,9 @@ type recordAttemptParams struct {
 }
 
 func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) error {
+	if e.Store == nil {
+		return nil
+	}
 	now := e.now()
 	rec := lipapi.AttemptRecord{
 		BLegID:         p.BLeg.BLegID,

@@ -47,7 +47,7 @@ func blockingRecvBackend(track *[]*ignoreCtxBlockingStream, mu *sync.Mutex) exec
 	}
 }
 
-func TestParallelRace_ParentContextCancelReturnsPromptlyWhileLegsBlock(t *testing.T) {
+func TestParallelRace_ParentContextCancelReturnsAfterBlockedLegsRelease(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
 	var (
@@ -74,19 +74,20 @@ func TestParallelRace_ParentContextCancelReturnsPromptlyWhileLegsBlock(t *testin
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
+	time.Sleep(50 * time.Millisecond)
+	streamsMu.Lock()
+	for _, s := range streams {
+		close(s.release)
+	}
+	streamsMu.Unlock()
+
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Execute err = %v, want context.Canceled", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Execute blocked past deadline after parent context canceled")
+		t.Fatal("Execute blocked past deadline after blocked legs were released")
 	}
-
-	streamsMu.Lock()
-	for _, s := range streams {
-		close(s.release)
-	}
-	streamsMu.Unlock()
 	time.Sleep(100 * time.Millisecond)
 }

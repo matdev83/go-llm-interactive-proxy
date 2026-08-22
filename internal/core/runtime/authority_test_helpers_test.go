@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -152,6 +154,7 @@ func newAuthorityRuntimeTestExecutorWithStore(t *testing.T, authority UsageAutho
 
 // authorityOpenRequest builds the standard openNextRequest used by admission
 // denial tests that exercise evaluateAndOpenCandidate directly.
+// It populates typed requestFacts explicitly; no context fallback is used.
 func authorityOpenRequest(t *testing.T, aLegID string, budget *attemptBudget) openNextRequest {
 	t.Helper()
 	failures := budget.getFailures()
@@ -175,6 +178,10 @@ func authorityOpenRequest(t *testing.T, aLegID string, budget *attemptBudget) op
 					},
 					Messages: testMinimalUserMessages(),
 				},
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
+				billingCallID:    billing.BillingCallID("bc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
 			},
 			bus: hooks.New(hooks.Config{}),
 		},

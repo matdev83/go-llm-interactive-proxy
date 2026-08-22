@@ -124,11 +124,11 @@ func TestExecutor_SharedProgressParity(t *testing.T) {
 	t.Logf("openCalls: %v", openCalls)
 	t.Logf("excluded: %v", plan.progress.excluded)
 
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected opened attempt session")
 	}
-	if out.session.cand.Primary.Backend != "success-be" {
-		t.Fatalf("expected success-be, got %s", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "success-be" {
+		t.Fatalf("expected success-be, got %s", out.ready.Candidate().Primary.Backend)
 	}
 
 	// The progress controller must be shared, and we should check that failing-be was excluded in it
@@ -149,7 +149,7 @@ func TestExecutor_SharedProgressParity(t *testing.T) {
 
 	// Run replacement opener to simulate a retry on the same progress
 	priorOutcome := priorAttemptOutcome{
-		attempt: out.session,
+		attempt: out.ready.session,
 		retired: true,
 	}
 	req := replacementOpenRequest{

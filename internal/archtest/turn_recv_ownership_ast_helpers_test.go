@@ -83,15 +83,15 @@ func turnRecvReceiverName(expr ast.Expr) string {
 
 func turnRecvFieldCategory(name string) string {
 	switch name {
-	case "baseline", "aLegID", "traceID", "compactionOpenMeta", "recvViews", "recvViewsOK", "routePrefs", "boundRegistry", "boundRegistryOK", "boundCatalog", "boundCatalogOK", "nativeResolver", "modelViewID", "modelViewIDOK", "secureTurn", "secureTurnOK":
+	case "facts", "baseline", "aLegID", "traceID", "compactionOpenMeta", "recvViews", "recvViewsOK", "routePrefs", "boundRegistry", "boundRegistryOK", "boundCatalog", "boundCatalogOK", "nativeResolver", "modelViewID", "modelViewIDOK", "secureTurn", "secureTurnOK":
 		return "immutable_request_fact"
-	case "innerMu", "inner", "bleg", "cand", "authority", "attemptTerm", "accounting", "toolFinal", "promptCacheSource", "promptCacheController":
+	case "attempt", "innerMu", "inner", "bleg", "cand", "authority", "attemptTerm", "accounting", "toolFinal", "promptCacheSource", "promptCacheController":
 		return "current_attempt_state"
-	case "budget", "ttft", "sel", "requestSize", "session", "excluded", "rng", "lastHardReject", "lastHardTransportReject", "lastAdmissionErr", "isContextLimitExhaustion", "transformExcludes", "affinityKey", "affinitySet", "affinityCommitOnce", "recoverPolicy", "interleaved", "suppressThinker", "suppressVisibleMemo", "lastParallelFailure", "isInterleavedThinker":
+	case "recovery", "budget", "ttft", "sel", "requestSize", "session", "excluded", "rng", "lastHardReject", "lastHardTransportReject", "lastAdmissionErr", "isContextLimitExhaustion", "transformExcludes", "affinityKey", "affinitySet", "affinityCommitOnce", "recoverPolicy", "interleaved", "suppressThinker", "suppressVisibleMemo", "lastParallelFailure", "isInterleavedThinker":
 		return "recovery_routing_state"
-	case "seenEvents", "visibleText", "customer", "secureRecvRecordingHardStop", "gateBuf", "gateDrain", "gateLive", "recoverDrain", "lastAuthorityUsage", "lastCustomerUsage", "toolClass", "eventsMu", "usageMu", "finalStreamObs", "internalUsageKeys", "committedTools":
+	case "responsePipeline", "seenEvents", "visibleText", "customer", "secureRecvRecordingHardStop", "gateBuf", "gateDrain", "gateLive", "recoverDrain", "lastAuthorityUsage", "lastCustomerUsage", "toolClass", "eventsMu", "usageMu", "finalStreamObs", "internalUsageKeys", "committedTools":
 		return "response_pipeline_state"
-	case "committed", "finished", "endOnce", "metering", "requestAuth", "tokenAccountingFinalized", "aScope", "holdALegEnd", "termMu", "requestTerm", "billingLegMu", "billingLegRecorded", "billingCallClosureMu", "billingCallClosureSuccess", "billingAccountID", "billingCustomerPricing", "billingChargePolicy", "billingIdentityStamped", "billingCallID", "billingCallState", "keepwarmArmOnce":
+	case "terminal", "committed", "finished", "endOnce", "metering", "requestAuth", "tokenAccountingFinalized", "aScope", "holdALegEnd", "termMu", "requestTerm", "billingLegMu", "billingLegRecorded", "billingCallClosureMu", "billingCallClosureSuccess", "billingAccountID", "billingCustomerPricing", "billingChargePolicy", "billingIdentityStamped", "billingCallID", "billingCallState", "keepwarmArmOnce":
 		return "request_terminal_state"
 	case "executor", "bus", "cachedCtxMu", "lastParent", "cachedCtx":
 		return "infrastructure_compatibility_state"
@@ -104,7 +104,7 @@ func turnRecvMethodResponsibility(name string) string {
 	switch {
 	case name == "Recv" || name == "Close":
 		return "eventstream_control"
-	case name == "loadInner" || name == "storeInner" || name == "takeAndNilInner" || name == "cancelAndCloseInner" || name == "lifecycleAttempt":
+	case name == "loadInner" || name == "storeInner" || name == "takeAndNilInner" || name == "lifecycleAttempt":
 		return "current_attempt_state"
 	case strings.Contains(name, "Billing") || strings.Contains(name, "Authority") || strings.Contains(name, "TokenAccounting") || strings.Contains(name, "RequestAuthority") || strings.Contains(name, "Cancellation") || strings.Contains(name, "Terminal") || name == "finishALegScope" || name == "commitSuccessfulTurn":
 		return "request_terminal_state"

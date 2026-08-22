@@ -91,6 +91,7 @@ func TestBillingWorkloadIdentitySurvivesBareTerminalContextAndMatchesClosure(t *
 			billingIdentityStamped: true,
 			billingAccountID:       "acct:principal",
 			baseline:               lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "child-session"}},
+			requestAuth:            requestAuthorityFrom(ctx),
 		}),
 	}
 	bindTestRuntimeOwners(stream, ex)
@@ -173,7 +174,7 @@ func TestTask51NilLoggerSettlementProjection(t *testing.T) {
 	}
 	// Both settlement sites receive a bare context. The response owner exists,
 	// but deliberately has no logger; facts projection must still carry identity.
-	stream.terminal.finishCancellationAuthorityForAttempt(stream.facts.projectContext(context.Background(), stream.responsePipeline.log), stream.attempt.require(), stream.responsePipeline)
+	stream.terminal.finishCancellationAuthorityForAttempt(stream.facts.projectContext(context.Background(), stream.responsePipeline.log), stream.attempt.require(), stream.facts.terminalFacts(), stream.responsePipeline)
 	if requestAuthorityFrom(auth.applyCtx) != requestAuth || meteringHolderFrom(auth.applyCtx) != holder {
 		t.Fatalf("cancellation projection lost facts: requestAuth=%p/%p metering=%p/%p", requestAuthorityFrom(auth.applyCtx), requestAuth, meteringHolderFrom(auth.applyCtx), holder)
 	}

@@ -50,9 +50,9 @@ func TestAttemptSessionInnerFence(t *testing.T) {
 			}
 			// Any .inner selector in runtime production code outside attempt_session.go
 			// is a fence violation. The owner exposes loadInner/storeInner/takeInner
-			// and AbortBeforeReturn/cancelAndClose; direct field access bypasses them.
+			// and TerminalizeAttempt; direct field access bypasses them.
 			pos := fset.Position(sel.Pos())
-			violations = append(violations, filepath.ToSlash(name)+":"+itoa(pos.Line)+": direct .inner access (use loadInner/storeInner/takeInner or AbortBeforeReturn)")
+			violations = append(violations, filepath.ToSlash(name)+":"+itoa(pos.Line)+": direct .inner access (use loadInner/storeInner/takeInner or TerminalizeAttempt)")
 			return true
 		})
 	}

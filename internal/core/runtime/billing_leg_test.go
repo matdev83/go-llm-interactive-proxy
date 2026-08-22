@@ -123,7 +123,7 @@ func TestBillingLegHandoffCoversSequentialReplacementBLegs(t *testing.T) {
 	if result := testTerminalizeAttempt(context.Background(), stream, sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("first attempt terminalization: %v", result.Err)
 	}
-	stream.attempt.install(newAttemptSession(attemptSessionInput{bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}}))
+	testInstallSlot(&stream.attempt, newAttemptSession(attemptSessionInput{bleg: b2bua.BLegRecord{BLegID: "b-2", ALegID: "a-1", Seq: 2}, cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "backend-b", Model: "model-b"}}}))
 	stream.responsePipeline.lastAuthorityUsage = lipapi.Event{}
 	if result := testTerminalizeAttempt(context.Background(), stream, sdkterminal.CommandSwallowedAttempt, nil); result.Err != nil {
 		t.Fatalf("replacement attempt terminalization: %v", result.Err)

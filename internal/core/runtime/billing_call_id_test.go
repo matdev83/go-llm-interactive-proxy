@@ -201,10 +201,10 @@ func TestFailoverAndParallelBLegsSharePreparedBillingCallID(t *testing.T) {
 	})
 	plan := &routePlanState{routeFacts: routeFacts{sel: sel}, progress: progress}
 	out := openedAttempt{
-		session: &attemptSession{
+		ready: newReadyAttempt(&attemptSession{
 			inner: lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}),
 			cand:  routing.AttemptCandidate{Primary: routing.Primary{Backend: "exec", Model: "m"}},
-		},
+		}, pendingSelectionEffects{}),
 	}
 	got, err := TestExecutor().assembleExecutorStream(context.Background(), prep, plan, out)
 	if err != nil {

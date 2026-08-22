@@ -13,6 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
@@ -36,6 +40,27 @@ type preparedRequest struct {
 	billingExposure    billing.CallExposure
 	execSpan           trace.Span
 	compactionOpenMeta compaction.PreservationMeta
+}
+
+func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
+	if prep == nil {
+		return
+	}
+	if prep.recvTurnFacts.billingCallID == "" && prep.billingCallID != "" {
+		prep.recvTurnFacts.billingCallID = prep.billingCallID
+		prep.recvTurnFacts.billingCallState = prep.billingCallState
+	}
+	if prep.aLegID == "" && prep.identity != nil {
+		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
+			baseline:         *prep.call,
+			traceID:          prep.identity.traceID,
+			aLegID:           prep.identity.aLeg.ALegID,
+			secureTurn:       prep.identity.secureTurn,
+			secureTurnOK:     prep.identity.secureTurnOK,
+			billingCallID:    prep.billingCallID,
+			billingCallState: prep.billingCallState,
+		})
+	}
 }
 
 func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*preparedRequest, context.Context, func(), error) {
@@ -113,6 +138,10 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		recvViews = v
 		recvViewsOK = true
 	}
+	boundReg, boundRegOK := modelregistry.BoundViewFromContext(prepCtx)
+	boundCat, boundCatOK := modelcatalog.BoundViewFromContext(prepCtx)
+	nativeResolver, _ := routing.NativeModelResolverFromContext(prepCtx)
+	modelViewID, modelViewIDOK := modelview.FromContext(prepCtx)
 	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, recvTurnFactsInput{
 		baseline:               *workingCall,
 		traceID:                ibt.traceID,
@@ -122,6 +151,13 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		routePrefs:             slices.Clone(execctx.RouteCandidatePreferences(prepCtx)),
 		secureTurn:             ibt.secureTurn,
 		secureTurnOK:           ibt.secureTurnOK,
+		boundRegistry:          boundReg,
+		boundRegistryOK:        boundRegOK,
+		boundCatalog:           boundCat,
+		boundCatalogOK:         boundCatOK,
+		nativeResolver:         nativeResolver,
+		modelViewID:            modelViewID,
+		modelViewIDOK:          modelViewIDOK,
 		metering:               meteringHolderFrom(prepCtx),
 		requestAuth:            requestAuthorityFrom(prepCtx),
 		billingAccountID:       pr.billingExposure.AccountID,

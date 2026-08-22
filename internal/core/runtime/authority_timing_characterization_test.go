@@ -149,7 +149,7 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 	if err != nil {
 		t.Fatalf("initial evaluateAndOpenCandidate: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected initial attempt to open")
 	}
 
@@ -158,20 +158,22 @@ func TestAuthorityTiming_failoverIssuesAuthoritativeAdmitPerAttempt(t *testing.T
 		t.Fatalf("parse selector: %v", err)
 	}
 	var priorState attemptAuthorityState
-	if out.session.authority.control != nil {
-		priorState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		priorState = out.ready.session.authority.control.state
 	}
-	priorCand := out.session.cand
+	priorCand := out.ready.Candidate()
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: req.reqFacts.baseline,
 			aLegID:   aLegID,
 			traceID:  "trace-1",
 		}),
-		recovery: &recoveryController{budget: budget, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(out.session.bleg, priorCand, testAuthorityLifecycle(ex, priorState, priorCand)),
+		recovery: &recoveryController{budget: budget, sel: sel, session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)}, attempt: testAttemptSlot(out.ready.BLeg(), priorCand, testAuthorityLifecycle(ex, priorState, priorCand)),
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
+
+	testRetirePriorAttempt(rs)
 
 	iterRes, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 	opened := iterRes.opened
@@ -249,7 +251,7 @@ func TestAuthorityTiming_parallelRaceIssuesAuthoritativeAdmitPerLeg(t *testing.T
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel race to open a backend")
 	}
 
@@ -313,11 +315,11 @@ func TestAuthorityTiming_loserReleaseAfterOpenSetsBackendAttempted(t *testing.T)
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected winner to open")
 	}
-	if out.session.cand.Primary.Backend != "winner" {
-		t.Fatalf("winner backend = %q, want winner", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "winner" {
+		t.Fatalf("winner backend = %q, want winner", out.ready.Candidate().Primary.Backend)
 	}
 
 	// Wait briefly for loser cancel/settle path to finish after winner election.
@@ -411,7 +413,7 @@ func TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit(t *testing.T
 	if err != nil {
 		t.Fatalf("evaluateAndOpenCandidate: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected backend to open")
 	}
 	if !hookRan.Load() {
@@ -430,8 +432,8 @@ func TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit(t *testing.T
 		t.Fatalf("Open call messages = %d, want >= 2 after pre-admit mutation", len(openedCall.Messages))
 	}
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
 	if authState.admissionResult.ReservationID != "reservation-mutate" {
 		t.Fatalf("reservation ID = %q, want reservation-mutate still held through Open", authState.admissionResult.ReservationID)

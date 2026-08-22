@@ -173,11 +173,11 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 		if openErr != nil {
 			t.Fatalf("openNext: %v", openErr)
 		}
-		if out.session != nil {
+		if out.ready != nil && out.ready.session != nil {
 			break
 		}
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected second candidate to open after recoverable open failure")
 	}
 	if opens.Load() != 2 {
@@ -191,10 +191,10 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	}
 
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
-	life := ex.newAttemptAuthorityLifecycle(authState, out.session.cand)
+	life := ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate())
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 2, TotalTokens: 5}, false) {
 		t.Fatal("winner settle must apply")
 	}
@@ -275,6 +275,8 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	ctx = withMeteringHolder(ctx, holder)
 	budget := &attemptBudget{max: 10}
 	openReq := authorityOpenRequest(t, aLegID, budget)
+	openReq.reqFacts.metering = holder
+	openReq.reqFacts.requestAuth = requestAuthorityFrom(ctx)
 	openReq.reqFacts.aScope = aScope
 	openReq.reqFacts.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
 	openReq.reqFacts.baseline.ID = "req-par"
@@ -287,18 +289,18 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel race winner")
 	}
-	if out.session.inner != nil {
-		_ = out.session.inner.Close()
+	if out.ready.session.inner != nil {
+		_ = out.ready.session.inner.Close()
 	}
 
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
-	life := ex.newAttemptAuthorityLifecycle(authState, out.session.cand)
+	life := ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate())
 	usage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
 		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
@@ -306,9 +308,11 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	stream := &retryRecvStream{facts: testRecvTurnFacts(recvTurnFacts{
-		traceID: "trace-par",
-	}), attempt: testAttemptSlot(out.session.bleg, out.session.cand, life)}
+	f := openReq.reqFacts.recvTurnFacts
+	f.traceID = "trace-par"
+	f.metering = holder
+	f.requestAuth = requestAuthorityFrom(ctx)
+	stream := &retryRecvStream{facts: testRecvTurnFacts(f), attempt: testAttemptSlot(out.ready.BLeg(), out.ready.Candidate(), life)}
 	bindTestRuntimeOwners(stream, ex)
 	_ = stream.terminal.settleRequestAuthorityWithFrontendEgress(ctx, usage, stream.facts.terminalFacts(), stream.responsePipeline)
 
@@ -379,12 +383,12 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		cand: authorityCandidate(),
 	}
 	out, err := ex.evaluateAndOpenCandidate(context.Background(), req, plan)
-	if err != nil || out.session == nil {
-		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
+	if err != nil || out.ready.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.ready.session != nil)
 	}
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
 	rs := &retryRecvStream{
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -393,11 +397,11 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 			traceID:  "trace-no-retry",
 		}),
 		recovery:         &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1|backend-2:model-2"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:          testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		attempt:          testAttemptSlot(out.ready.BLeg(), out.ready.Candidate(), ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: newResponsePipeline(),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.session.inner)
+	testStoreInner(rs, out.ready.session.inner)
 
 	var lastErr error
 	for range 8 {
@@ -438,25 +442,24 @@ func TestDualPlaneMatrix_CancellationSettlesIncurredAttempt(t *testing.T) {
 		cand: authorityCandidate(),
 	}
 	out, err := ex.evaluateAndOpenCandidate(ctx, openReq, plan)
-	if err != nil || out.session == nil {
-		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
+	if err != nil || out.ready.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.ready.session != nil)
 	}
 
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
+	f := openReq.reqFacts.recvTurnFacts
+	f.traceID = "trace-cancel"
+	f.requestAuth = requestAuthorityFrom(ctx)
 	rs := &retryRecvStream{
-		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: openReq.reqFacts.baseline,
-			aLegID:   aLegID,
-			traceID:  "trace-cancel",
-		}),
+		facts:    testRecvTurnFacts(f),
 		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
+		attempt:  testAttemptSlot(out.ready.BLeg(), out.ready.Candidate(), ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.session.inner)
+	testStoreInner(rs, out.ready.session.inner)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -752,6 +755,8 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	ctx := withMeteringHolder(context.Background(), holder)
 	budget := &attemptBudget{max: 3}
 	req := authorityOpenRequest(t, aLegID, budget)
+	req.reqFacts.metering = holder
+	req.reqFacts.requestAuth = requestAuthorityFrom(ctx)
 	req.reqFacts.bus = bus
 	req.reqFacts.baseline = orig
 	req.reqFacts.baseline.Route.Selector = "backend-1:model-1"
@@ -762,9 +767,9 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 		cand: authorityCandidate(),
 	}
 
-	out, err := ex.evaluateAndOpenCandidate(ctx, req, plan)
-	if err != nil || out.session == nil {
-		t.Fatalf("open: err=%v opened=%v", err, out.session != nil)
+	out, err := ex.evaluateAndOpenCandidate(context.Background(), req, plan)
+	if err != nil || out.ready.session == nil {
+		t.Fatalf("open: err=%v opened=%v", err, out.ready.session != nil)
 	}
 	if !hook.ran.Load() {
 		t.Fatal("expected compression request-part hook to run before Open")
@@ -778,22 +783,21 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	}
 
 	var authState attemptAuthorityState
-	if out.session.authority.control != nil {
-		authState = out.session.authority.control.state
+	if out.ready.session.authority.control != nil {
+		authState = out.ready.session.authority.control.state
 	}
+	f := req.reqFacts.recvTurnFacts
+	f.traceID = "trace-comp"
+	f.metering = holder
+	f.requestAuth = requestAuthorityFrom(ctx)
 	rs := &retryRecvStream{
-		facts: testRecvTurnFacts(recvTurnFacts{
-			baseline: req.reqFacts.baseline,
-			aLegID:   aLegID,
-			traceID:  "trace-comp",
-		}),
-		recovery: &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
-		attempt:  testAttemptSlot(out.session.bleg, out.session.cand, ex.newAttemptAuthorityLifecycle(authState, out.session.cand), newAttemptAccountingTracker(time.Unix(1, 0))),
-
+		facts:            testRecvTurnFacts(f),
+		recovery:         &recoveryController{budget: budget, sel: mustParseSelector(t, "backend-1:model-1"), session: &routing.SessionRoutingState{}, excluded: map[string]struct{}{}, rng: routing.NewSeededRng(1)},
+		attempt:          testAttemptSlot(out.ready.BLeg(), out.ready.Candidate(), ex.newAttemptAuthorityLifecycle(authState, out.ready.Candidate()), newAttemptAccountingTracker(time.Unix(1, 0))),
 		responsePipeline: &responsePipeline{customer: newCustomerEvidenceAccumulator()},
 	}
 	bindTestRuntimeOwners(rs, ex)
-	testStoreInner(rs, out.session.inner)
+	testStoreInner(rs, out.ready.session.inner)
 	for {
 		_, rerr := rs.Recv(ctx)
 		if rerr != nil {

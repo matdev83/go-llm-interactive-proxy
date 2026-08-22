@@ -8,60 +8,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
-
-// TestReleaseBLegs_NilScopeAndLegsAreNoOps covers the nil-input guards of releaseBLegs.
-// It must not panic on nil scope, nil legs, or an empty legs slice, and it must not touch scopes
-// when there is nothing to release.
-func TestReleaseBLegs_NilScopeAndLegsAreNoOps(t *testing.T) {
-	t.Parallel()
-	t.Run("nil_scope", func(t *testing.T) {
-		t.Parallel()
-		releaseBLegs(nil, []*parallelLeg{{bleg: b2bua.BLegRecord{BLegID: "b1"}}})
-	})
-	t.Run("nil_legs", func(t *testing.T) {
-		t.Parallel()
-		c := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
-		a := c.StartALeg("a-no-legs")
-		releaseBLegs(a, nil)
-		releaseBLegs(a, []*parallelLeg{})
-	})
-}
-
-// TestReleaseBLegs_ReleasesEveryLegFromScope proves releaseBLegs removes every leg's B-leg id
-// from the scope so a subsequent CancelALeg does not cancel or close them.
-func TestReleaseBLegs_ReleasesEveryLegFromScope(t *testing.T) {
-	t.Parallel()
-	c := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 0})
-	a := c.StartALeg("a-release-legs")
-	survivor := &recBLeg{}
-	released := &recBLeg{}
-	if err := a.RegisterBLeg(t.Context(), leglifecycle.BLegHandle{ID: "kept", Attempt: survivor}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.RegisterBLeg(t.Context(), leglifecycle.BLegHandle{ID: "released", Attempt: released}); err != nil {
-		t.Fatal(err)
-	}
-
-	releaseBLegs(a, []*parallelLeg{
-		{bleg: b2bua.BLegRecord{BLegID: "released"}},
-	})
-
-	if got := released.calls(); got != nil {
-		t.Fatalf("released leg touched before CancelALeg: %v", got)
-	}
-	if err := c.CancelALeg(t.Context(), "a-release-legs", leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
-		t.Fatal(err)
-	}
-	if got := released.calls(); got != nil {
-		t.Fatalf("released leg must not be canceled by CancelALeg after releaseBLegs, got %v", got)
-	}
-	if got, want := survivor.calls(), []string{"cancel:explicit", "close"}; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("survivor must still be canceled and closed: got %v want %v", got, want)
-	}
-}
 
 // TestMemoSkipReason_MapsEveryOutcome proves memoSkipReason returns the bounded diagnostic string
 // for every MemoOutcome value a shape result can produce, and the empty string for any other

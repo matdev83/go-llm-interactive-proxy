@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -64,6 +66,11 @@ func TestOpenPlannedCandidate_MaxAttemptsDoesNotPersistCycle(t *testing.T) {
 				traceID:  "cycle-budget-test",
 				aLegID:   aLeg.ALegID,
 				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},
@@ -153,6 +160,11 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 				traceID:  "parallel-fail-state",
 				aLegID:   aLeg.ALegID,
 				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},
@@ -168,7 +180,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 	if err != nil {
 		t.Fatalf("first plan/open: %v", err)
 	}
-	if out1.session != nil {
+	if out1.ready != nil && out1.ready.session != nil {
 		t.Fatal("first iteration must soft-fail parallel race without winner")
 	}
 	if out1.interleaved.Cycle.IsEmpty() {
@@ -256,6 +268,11 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 				traceID:  "parallel-failover-primary",
 				aLegID:   aLeg.ALegID,
 				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},
@@ -271,7 +288,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 	if err != nil {
 		t.Fatalf("plan/open: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("same-pass tryPlanOpenOnce must open primary after parallel soft-fail")
 	}
 	if req.progress.failures.ParallelFailure != nil {
@@ -280,8 +297,8 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 	if goodOpens != 1 {
 		t.Fatalf("good backend opens: got %d want 1", goodOpens)
 	}
-	if out.session.cand.Primary.Backend != "good" {
-		t.Fatalf("opened backend: got %q want good", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "good" {
+		t.Fatalf("opened backend: got %q want good", out.ready.Candidate().Primary.Backend)
 	}
 }
 
@@ -382,6 +399,11 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 					}},
 					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 				},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},
@@ -397,7 +419,7 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 	if err != nil {
 		t.Fatalf("openNext: %v", err)
 	}
-	if out.session != nil {
+	if out.ready != nil && out.ready.session != nil {
 		t.Fatal("thinker recoverable open failure must not open a stream")
 	}
 	opensMu.Lock()
@@ -478,6 +500,11 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 				traceID:  "persist-fail",
 				aLegID:   aLeg.ALegID,
 				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},
@@ -572,6 +599,11 @@ func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
 				traceID:  "parallel-budget-cycle",
 				aLegID:   aLeg.ALegID,
 				baseline: lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}, Messages: testMinimalUserMessages()},
+
+				billingCallID:    billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+				billingCallState: newBillingCallState(billing.BillingCallID("bc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+				recvViews:        execctx.Views{},
+				recvViewsOK:      false,
 			},
 			bus: ex.Bus,
 		},

@@ -51,7 +51,7 @@ func (p *responsePipeline) recordClientFacing(
 	ev lipapi.Event,
 	committed bool,
 ) responseRecordingResult {
-	return p.recordClientFacingEvidence(ctx, responseRequestEvidence{traceID: facts.traceID, aLegID: facts.aLegID, secureTurn: facts.secureTurn, secureTurnOK: facts.secureTurnOK}, attempt, ev, committed)
+	return p.recordClientFacingEvidence(ctx, facts.responseEvidence(), attempt, ev, committed)
 }
 
 func (p *responsePipeline) recordClientFacingTerminal(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, ev lipapi.Event, committed bool) responseRecordingResult {

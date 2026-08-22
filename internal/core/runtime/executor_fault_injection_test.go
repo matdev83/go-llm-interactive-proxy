@@ -185,7 +185,7 @@ func TestExecutorFault_UsageAuthorityReleaseError(t *testing.T) {
 		t.Fatalf("expected successful open: %v", err)
 	}
 
-	out.session.authority.Release(ctx, authorityapp.ReleaseKindAdmissionFailure)
+	out.ready.session.authority.Release(ctx, authorityapp.ReleaseKindAdmissionFailure)
 
 	if got := auth.releaseCalls.Load(); got != 1 {
 		t.Errorf("expected 1 release call, got %d", got)
@@ -228,7 +228,7 @@ func TestExecutorFault_UsageAuthoritySettleError(t *testing.T) {
 		t.Fatalf("expected successful open: %v", err)
 	}
 
-	out.session.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
+	out.ready.session.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 
 	if got := auth.settleCalls.Load(); got != 1 {
 		t.Errorf("expected 1 settle call, got %d", got)

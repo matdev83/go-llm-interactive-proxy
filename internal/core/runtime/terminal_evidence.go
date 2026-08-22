@@ -92,6 +92,16 @@ func (f requestTerminalFacts) responseEvidence() responseRequestEvidence {
 	}
 }
 
+func (f recvTurnFacts) responseEvidence() responseRequestEvidence {
+	return responseRequestEvidence{
+		traceID:      f.traceID,
+		aLegID:       f.aLegID,
+		sessionID:    f.baseline.Session.AuthoritativeSessionID,
+		secureTurn:   f.secureTurn,
+		secureTurnOK: f.secureTurnOK,
+	}
+}
+
 func (a *attemptSession) terminalEvidence() attemptTerminalEvidence {
 	if a == nil {
 		return attemptTerminalEvidence{}

@@ -165,6 +165,8 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
+	testRetirePriorAttempt(rs)
+
 	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 	opened := plan.opened
 	if err != nil {
@@ -176,7 +178,11 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 	if err := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err != nil {
 		t.Fatalf("register replacement: %v", err)
 	}
-	if _, published := rs.attempt.swapIfOpen(plan.next); !published {
+	ready := plan.next
+	if err := ready.Prepare(context.Background(), rs.facts, rs.responsePipeline, rs.terminal.committed()); err != nil {
+		t.Fatalf("prepare replacement: %v", err)
+	}
+	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("replacement publication unexpectedly closed")
 	}
 

@@ -186,14 +186,14 @@ func TestTDD_ContextAuthorityPinning(t *testing.T) {
 		t.Fatalf("openInitialAttempt failed: %v", err)
 	}
 
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected opened attempt session")
 	}
 
 	// PROVE 1: Planner preferences (PreferredCandidateKeys) used pinned RoutePrefs (backend-B), not poisoned (backend-A)
 	// Since backend-B is preferred, it should be selected first.
-	if out.session.cand.Primary.Backend != "backend-B" {
-		t.Fatalf("planner preferred candidate: want backend-B, got %s", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "backend-B" {
+		t.Fatalf("planner preferred candidate: want backend-B, got %s", out.ready.Candidate().Primary.Backend)
 	}
 
 	// PROVE 2: Metering holder used pinned metering holder, not poisoned metering holder
@@ -353,7 +353,7 @@ func TestTDD_ContextAuthorityPinningReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openInitialAttempt failed: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected opened attempt session")
 	}
 
@@ -380,10 +380,10 @@ func TestTDD_ContextAuthorityPinningReplacement(t *testing.T) {
 	hookMetering = nil
 
 	// Retire the first attempt
-	out.session.authority.finalizeIncurredOrRelease(context.Background(), authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+	out.ready.session.authority.finalizeIncurredOrRelease(context.Background(), authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 
 	// Call openReplacement (or tryReplacementIteration) with the poisoned context
-	res, err := progress.tryReplacementIteration(poisonedCtx, prep.terminalFacts(), out.session, false)
+	res, err := progress.tryReplacementIteration(poisonedCtx, prep.terminalFacts(), out.ready.session, false)
 	if err != nil {
 		t.Fatalf("tryReplacementIteration failed: %v", err)
 	}
@@ -392,8 +392,8 @@ func TestTDD_ContextAuthorityPinningReplacement(t *testing.T) {
 	}
 
 	// PROVE 1: Planner preferences (PreferredCandidateKeys) used pinned RoutePrefs (backend-B), not poisoned (backend-A)
-	if res.next.cand.Primary.Backend != "backend-B" {
-		t.Fatalf("planner preferred candidate: want backend-B, got %s", res.next.cand.Primary.Backend)
+	if res.next.Candidate().Primary.Backend != "backend-B" {
+		t.Fatalf("planner preferred candidate: want backend-B, got %s", res.next.Candidate().Primary.Backend)
 	}
 
 	// PROVE 2: Metering holder used pinned metering holder, not poisoned metering holder

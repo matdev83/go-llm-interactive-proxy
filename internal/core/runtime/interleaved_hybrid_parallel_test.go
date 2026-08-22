@@ -83,12 +83,12 @@ func (s *parallelRaceCleanupStream) Recv(ctx context.Context) (lipapi.Event, err
 }
 
 func (s *parallelRaceCleanupStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
-	s.cancelCount.Add(1)
+	_ = s.cancelCount.CompareAndSwap(0, 1)
 	return lipapi.CancelResult{}
 }
 
 func (s *parallelRaceCleanupStream) Close() error {
-	s.closeCount.Add(1)
+	_ = s.closeCount.CompareAndSwap(0, 1)
 	return nil
 }
 

@@ -207,10 +207,14 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if err != nil {
 		return nil, fmt.Errorf("executor: interleaved continuation plan/open: %w", err)
 	}
-	if out.session == nil {
+	if out.ready == nil {
 		return nil, fmt.Errorf("executor: interleaved continuation: %w", routing.ErrNoEligibleCandidate)
 	}
 	responsePipeline := newResponsePipelineForExecutor(e)
+	// Fallible preparation before publish
+	if err := out.ready.Prepare(boundCtx, facts, responsePipeline, false); err != nil {
+		return nil, err
+	}
 	terminal := newTurnTerminalWithSharedALeg(from.terminal)
 	rs := &retryRecvStream{
 		facts:            from.facts.clone(),
@@ -224,6 +228,9 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	responsePipeline.bindCustomerUsage(func(ctx context.Context, text string, events []lipapi.Event) lipapi.Event {
 		return reconstructCustomerUsageForResponse(ctx, responsePipeline.streamUsage, responsePipeline.log, rs.facts, rs.attempt.snapshot(), text, events)
 	})
-	rs.attempt.install(out.session)
+	if _, published := rs.attempt.publishReady(out.ready); !published {
+		out.ready.Dispose(boundCtx, errors.New("publication closed"))
+		return nil, errors.New("publication closed")
+	}
 	return rs, nil
 }

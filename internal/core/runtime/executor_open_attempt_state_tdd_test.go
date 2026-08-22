@@ -152,7 +152,7 @@ func TestTDD_AttemptTransactionRollbackAndHandoff(t *testing.T) {
 		}
 	})
 
-	t.Run("handoff once makes transaction inert and creates attemptSession", func(t *testing.T) {
+	t.Run("handoff once makes transaction inert and creates readyAttempt", func(t *testing.T) {
 		budget := &attemptBudget{max: 3}
 		tx, err := ex.startAttemptTx(ctx, reqFacts, routeFacts{}, cand, budget, budget.getFailures())
 		if err != nil {
@@ -161,9 +161,9 @@ func TestTDD_AttemptTransactionRollbackAndHandoff(t *testing.T) {
 
 		tx.stream = lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}})
 
-		session := tx.Handoff()
-		if session == nil {
-			t.Fatal("expected attemptSession, got nil")
+		ready := tx.HandoffReady(pendingSelectionEffects{})
+		if ready == nil {
+			t.Fatal("expected readyAttempt, got nil")
 		}
 
 		if !tx.completed {
@@ -176,7 +176,7 @@ func TestTDD_AttemptTransactionRollbackAndHandoff(t *testing.T) {
 				t.Error("expected second handoff to panic")
 			}
 		}()
-		tx.Handoff()
+		tx.HandoffReady(pendingSelectionEffects{})
 	})
 }
 
@@ -210,16 +210,17 @@ func (s *parallelLoserMockStream) Recv(ctx context.Context) (lipapi.Event, error
 }
 
 func (s *parallelLoserMockStream) Close() error {
-	atomic.AddInt32(&s.closeCalls, 1)
+	atomic.CompareAndSwapInt32(&s.closeCalls, 0, 1)
 	return nil
 }
 
 func (s *parallelLoserMockStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
-	atomic.AddInt32(&s.cancelCalls, 1)
-	select {
-	case <-s.canceled:
-	default:
-		close(s.canceled)
+	if atomic.CompareAndSwapInt32(&s.cancelCalls, 0, 1) {
+		select {
+		case <-s.canceled:
+		default:
+			close(s.canceled)
+		}
 	}
 	return lipapi.CancelResult{}
 }
@@ -415,16 +416,16 @@ func TestTDD_ParallelLoserSchedule(t *testing.T) {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
 
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel winner arm to win")
 	}
 
-	if out.session.cand.Primary.Backend != "backend-winner" {
-		t.Errorf("expected backend-winner, got %s", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "backend-winner" {
+		t.Errorf("expected backend-winner, got %s", out.ready.Candidate().Primary.Backend)
 	}
 
-	if out.session != nil && out.session.inner != nil {
-		if err := out.session.inner.Close(); err != nil {
+	if out.ready != nil && out.ready.session != nil && out.ready.session.inner != nil {
+		if err := out.ready.session.inner.Close(); err != nil {
 			t.Fatalf("session close: %v", err)
 		}
 	}
@@ -716,12 +717,12 @@ func TestTDD_ParallelPostRequestHookExclusion_ProvesNoNilStreamRecvPanicAndExclu
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
 
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel winner arm to win")
 	}
 
-	if out.session.cand.Primary.Backend != "backend-winner" {
-		t.Errorf("expected backend-winner, got %s", out.session.cand.Primary.Backend)
+	if out.ready.Candidate().Primary.Backend != "backend-winner" {
+		t.Errorf("expected backend-winner, got %s", out.ready.Candidate().Primary.Backend)
 	}
 
 	// Verify candidate was recorded in excluded list
@@ -821,7 +822,7 @@ func TestTDD_ParallelPostRequestHookExclusion_Precedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session != nil {
+	if out.ready != nil && out.ready.session != nil {
 		t.Fatal("expected no winner")
 	}
 

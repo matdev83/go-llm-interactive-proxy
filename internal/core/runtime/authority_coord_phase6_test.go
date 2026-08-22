@@ -51,7 +51,7 @@ func TestPhase6_requestAdmitOnceZerosAttemptRequestCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluateAndOpenCandidate: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected open")
 	}
 
@@ -128,7 +128,7 @@ func TestPhase6_parallelRaceDoesNotReReserveCustomerRequestCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected parallel race to open a backend")
 	}
 

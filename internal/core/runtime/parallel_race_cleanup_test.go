@@ -12,7 +12,7 @@ import (
 )
 
 // errCancelCloseStream returns configurable errors from Cancel and Close so
-// cancelLosers / releaseLosers / parallelBridgeStream.Close error filtering can
+// releaseLosers / parallelBridgeStream.Close error filtering can
 // be pinned without a full parallel race.
 type errCancelCloseStream struct {
 	cancelErr error
@@ -29,7 +29,7 @@ func (s *errCancelCloseStream) Cancel(context.Context, lipapi.CancelCause) lipap
 
 func (s *errCancelCloseStream) Close() error { return s.closeErr }
 
-func TestCancelLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
+func TestReleaseLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Cancel DeadlineExceeded surfaces", func(t *testing.T) {
@@ -38,9 +38,10 @@ func TestCancelLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
 			cand:   routing.AttemptCandidate{Key: "loser-deadline"},
 			stream: &errCancelCloseStream{cancelErr: context.DeadlineExceeded},
 		}}
-		err := cancelLosers(context.Background(), legs)
+		ex := &Executor{}
+		err := ex.releaseLosers(context.Background(), nil, legs)
 		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("cancelLosers err = %v, want context.DeadlineExceeded", err)
+			t.Fatalf("releaseLosers err = %v, want context.DeadlineExceeded", err)
 		}
 	})
 
@@ -50,9 +51,10 @@ func TestCancelLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
 			cand:   routing.AttemptCandidate{Key: "loser-close-deadline"},
 			stream: &errCancelCloseStream{closeErr: context.DeadlineExceeded},
 		}}
-		err := cancelLosers(context.Background(), legs)
+		ex := &Executor{}
+		err := ex.releaseLosers(context.Background(), nil, legs)
 		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("cancelLosers err = %v, want context.DeadlineExceeded", err)
+			t.Fatalf("releaseLosers err = %v, want context.DeadlineExceeded", err)
 		}
 	})
 
@@ -62,8 +64,9 @@ func TestCancelLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
 			cand:   routing.AttemptCandidate{Key: "loser-canceled"},
 			stream: &errCancelCloseStream{cancelErr: context.Canceled},
 		}}
-		if err := cancelLosers(context.Background(), legs); err != nil {
-			t.Fatalf("cancelLosers err = %v, want nil for context.Canceled", err)
+		ex := &Executor{}
+		if err := ex.releaseLosers(context.Background(), nil, legs); err != nil {
+			t.Fatalf("releaseLosers err = %v, want nil for context.Canceled", err)
 		}
 	})
 
@@ -73,8 +76,9 @@ func TestCancelLosers_DeadlineExceededSurfaces_CanceledIgnored(t *testing.T) {
 			cand:   routing.AttemptCandidate{Key: "loser-close-canceled"},
 			stream: &errCancelCloseStream{closeErr: context.Canceled},
 		}}
-		if err := cancelLosers(context.Background(), legs); err != nil {
-			t.Fatalf("cancelLosers err = %v, want nil for context.Canceled", err)
+		ex := &Executor{}
+		if err := ex.releaseLosers(context.Background(), nil, legs); err != nil {
+			t.Fatalf("releaseLosers err = %v, want nil for context.Canceled", err)
 		}
 	})
 }
