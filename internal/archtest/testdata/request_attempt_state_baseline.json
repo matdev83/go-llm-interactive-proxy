@@ -138,19 +138,19 @@
     "pointer_out_fields": null,
     "route_progress_duplicated_fields": null,
     "translation_sites": [
-      "internal/core/runtime/executor_route_plan.go:121"
+      "internal/core/runtime/executor_route_plan.go:124"
     ],
-    "direct_field_copy_assignments": 295,
+    "direct_field_copy_assignments": 287,
     "context_business_state_rereads": 15,
-    "pre_handoff_cleanup_sites": 23
+    "pre_handoff_cleanup_sites": 20
   },
   "target": {
     "attempt_open_params_deleted": true,
     "max_pointer_out_fields": 0,
     "max_route_progress_duplicates": 0,
     "max_translation_sites": 1,
-    "max_direct_field_copy_assignments": 295,
+    "max_direct_field_copy_assignments": 287,
     "max_context_business_state_rereads": 15,
-    "max_pre_handoff_cleanup_sites": 23
+    "max_pre_handoff_cleanup_sites": 20
   }
 }

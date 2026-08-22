@@ -21,6 +21,7 @@ func TestPhase2_ReadyAttempt_SingleUse(t *testing.T) {
 	session := &attemptSession{}
 	ready := &readyAttempt{
 		session: session,
+		state:   readyStatePrepared,
 	}
 
 	// First consume must succeed
@@ -63,7 +64,7 @@ func TestPhase2_ReadyAttempt_Disposal(t *testing.T) {
 	ready.Dispose(context.Background(), errors.New("unconsumed ready attempt disposal test"))
 
 	// Verify that the readyAttempt is marked consumed and session stream/terminal resources are cleaned up
-	if !ready.consumed {
+	if !ready.IsConsumed() {
 		t.Error("expected readyAttempt to be marked consumed after Dispose")
 	}
 }
@@ -85,7 +86,9 @@ func TestPhase2_AssemblyCommitAtomicity_Success(t *testing.T) {
 	}
 
 	// Perform successful commit
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("tx.Commit() failed: %v", err)
+	}
 
 	if !tx.committed {
 		t.Error("expected streamAssemblyTx to be committed")
@@ -96,9 +99,8 @@ func TestPhase2_AssemblyCommitAtomicity_Success(t *testing.T) {
 
 	// Attempt rollback after commit should be a no-op (mutual exclusivity)
 	tx.Rollback(context.Background(), errors.New("test rollback after commit"))
-	if ready.consumed {
-		// Because it was not consumed via Dispose in Rollback
-		// Note that the caller of Consume() marks it consumed, but tx.Rollback didn't call Dispose since committed.
+	if ready.IsConsumed() {
+		t.Error("expected readyAttempt not to be consumed via Dispose during rollback of committed tx")
 	}
 }
 
@@ -127,8 +129,8 @@ func TestPhase2_AssemblyCommitAtomicity_Failure(t *testing.T) {
 	if !tx.committed {
 		t.Error("expected streamAssemblyTx committed flag to be set to true on rollback")
 	}
-	if ready.session == nil || !ready.consumed {
-		t.Error("expected ready attempt to be disposed/consumed on rollback")
+	if ready.session != nil || !ready.IsConsumed() {
+		t.Error("expected ready attempt to be disposed/consumed and detached on rollback")
 	}
 	if guard.handedOver {
 		t.Error("expected request guard NOT to be handed over (Handoff not called) on failure rollback")

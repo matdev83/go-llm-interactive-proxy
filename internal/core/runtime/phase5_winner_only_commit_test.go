@@ -143,12 +143,12 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 		t.Fatalf("unexpected reducer error: %v", err)
 	}
 
-	if opened.session != sessionA {
-		t.Fatalf("expected arm A to win, got session %v", opened.session)
+	if opened.ready.session != sessionA {
+		t.Fatalf("expected arm A to win, got session %v", opened.ready.session)
 	}
 
 	// Verify loser readyB was disposed without committing its pending effects
-	if !readyB.consumed {
+	if !readyB.IsConsumed() {
 		t.Errorf("expected loser readyB to be marked consumed/disposed")
 	}
 
@@ -245,7 +245,7 @@ func TestPhase5_WinnerOnlyCommit_AllFailureNeverPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected reducer error: %v", err)
 	}
-	if opened.session != nil {
+	if opened.ready != nil && opened.ready.session != nil {
 		t.Fatalf("expected nil session on all-failure round")
 	}
 
@@ -428,7 +428,7 @@ func TestPhase5_WinnerOnlyCommit_ContextCanceledNeverPersists(t *testing.T) {
 		t.Fatalf("expected context.Canceled error, got %v", err)
 	}
 
-	if !readyA.consumed {
+	if !readyA.IsConsumed() {
 		t.Errorf("expected readyA to be disposed on context cancellation")
 	}
 
@@ -548,7 +548,7 @@ func TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases(t *testing.T) 
 	}
 
 	// Winner readyAttempt must be disposed
-	if !readyA.consumed {
+	if !readyA.IsConsumed() {
 		t.Errorf("expected readyA to be marked consumed/disposed after commit failure")
 	}
 
@@ -594,7 +594,7 @@ func TestPhase5_WinnerOnlyCommit_LoserDisposeDoesNotMutateStore(t *testing.T) {
 	ctx := context.Background()
 	ready.Dispose(ctx, errors.New("parallel race loser"))
 
-	if !ready.consumed {
+	if !ready.IsConsumed() {
 		t.Errorf("expected readyAttempt to be marked consumed after Dispose")
 	}
 	// Calling Consume after Dispose should fail
@@ -639,7 +639,9 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 
 	slot := &attemptSlot{}
 	initialSession := &attemptSession{terminal: newStreamTerminal(sdkterminal.ScopeAttempt), bleg: b2bua.BLegRecord{BLegID: "bleg-initial"}}
-	slot.install(initialSession)
+	slot.mu.Lock()
+	slot.current = initialSession
+	slot.mu.Unlock()
 
 	// Close wins the race and closes publication on the slot
 	closedCurrent := slot.closePublicationAndSnapshot()
@@ -677,7 +679,7 @@ func TestPhase5_WinnerOnlyCommit_PublicationDeniedByClosedSlot(t *testing.T) {
 	// Caller disposes the unpublished ready attempt
 	ready.Dispose(ctx, errors.New("publication closed"))
 
-	if !ready.consumed {
+	if !ready.IsConsumed() {
 		t.Errorf("expected ready to be consumed/disposed")
 	}
 

@@ -173,13 +173,15 @@ func TestRetryRecvStreamCloseDuringReplacementOpenDoesNotPublishAttempt(t *testi
 	}
 	resultCh := make(chan replacementResult, 1)
 	go func() {
+		testRetirePriorAttempt(rs)
+
 		plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 		if err == nil && plan.opened {
 			if regErr := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err == nil {
 				err = regErr
 			}
 			if err == nil {
-				ready := &readyAttempt{session: plan.next}
+				ready := plan.next
 				if _, published := rs.attempt.swapIfOpen(ready); !published {
 					rs.terminal.cleanupUnpublishedReplacement(context.Background(), plan.next)
 				}
@@ -345,6 +347,8 @@ func TestRetryRecvStreamCloseDuringReplacementOpen_AppendsReplacementLegExactlyO
 		),
 		responsePipeline: newResponsePipelineForExecutor(ex),
 	}
+
+	testRetirePriorAttempt(rs)
 
 	const replacementOpenTimeout = 5 * time.Second
 	var releaseOnce sync.Once

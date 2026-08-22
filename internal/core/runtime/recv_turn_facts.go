@@ -132,31 +132,10 @@ func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts
 }
 
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {
-	f := recvTurnFacts{
-		baseline:               lipapi.CloneCall(in.baseline),
-		traceID:                in.traceID,
-		aLegID:                 in.aLegID,
-		recvViews:              cloneRecvViews(in.recvViews),
-		recvViewsOK:            in.recvViewsOK,
-		routePrefs:             slices.Clone(in.routePrefs),
-		secureTurn:             in.secureTurn,
-		secureTurnOK:           in.secureTurnOK,
-		boundRegistry:          in.boundRegistry,
-		boundRegistryOK:        in.boundRegistryOK,
-		boundCatalog:           in.boundCatalog,
-		boundCatalogOK:         in.boundCatalogOK,
-		nativeResolver:         in.nativeResolver,
-		modelViewID:            in.modelViewID,
-		modelViewIDOK:          in.modelViewIDOK,
-		metering:               in.metering,
-		requestAuth:            in.requestAuth,
-		billingAccountID:       in.billingAccountID,
-		billingCustomerPricing: in.billingCustomerPricing,
-		billingChargePolicy:    in.billingChargePolicy,
-		billingIdentityStamped: in.billingIdentityStamped,
-		billingCallID:          in.billingCallID,
-		billingCallState:       in.billingCallState,
-	}
+	f := recvTurnFacts(in)
+	f.baseline = lipapi.CloneCall(in.baseline)
+	f.recvViews = cloneRecvViews(in.recvViews)
+	f.routePrefs = slices.Clone(in.routePrefs)
 	if f.billingCallState == nil {
 		if f.billingCallID == "" {
 			if callID, err := billing.NewBillingCallID(); err == nil {
@@ -174,22 +153,34 @@ func (f recvTurnFacts) clone() recvTurnFacts {
 }
 
 // captureBoundModelViews freezes the request's model publications before any
-// recv-phase replacement. The source context is consulted only at assembly time.
+// recv-phase replacement. This is the ONLY allowed business-fact FromContext read;
+// it runs at assembly (facts freeze) time, before the typed boundary. After freeze,
+// contexts are write-only (projectContext) and must never be read for business facts.
+// Explicit input wins over context: if the caller already populated the typed
+// field, the context value is ignored, preserving authoritative typed facts.
 func (f *recvTurnFacts) captureBoundModelViews(ctx context.Context) {
-	if v, ok := modelregistry.BoundViewFromContext(ctx); ok {
-		f.boundRegistry = v
-		f.boundRegistryOK = true
+	if !f.boundRegistryOK {
+		if v, ok := modelregistry.BoundViewFromContext(ctx); ok {
+			f.boundRegistry = v
+			f.boundRegistryOK = true
+		}
 	}
-	if v, ok := modelcatalog.BoundViewFromContext(ctx); ok {
-		f.boundCatalog = v
-		f.boundCatalogOK = true
+	if !f.boundCatalogOK {
+		if v, ok := modelcatalog.BoundViewFromContext(ctx); ok {
+			f.boundCatalog = v
+			f.boundCatalogOK = true
+		}
 	}
-	if r, ok := routing.NativeModelResolverFromContext(ctx); ok {
-		f.nativeResolver = r
+	if f.nativeResolver == nil {
+		if r, ok := routing.NativeModelResolverFromContext(ctx); ok {
+			f.nativeResolver = r
+		}
 	}
-	if id, ok := modelview.FromContext(ctx); ok {
-		f.modelViewID = id
-		f.modelViewIDOK = true
+	if !f.modelViewIDOK {
+		if id, ok := modelview.FromContext(ctx); ok {
+			f.modelViewID = id
+			f.modelViewIDOK = true
+		}
 	}
 }
 
@@ -257,21 +248,17 @@ func (f recvTurnFacts) hookMeta(bleg b2bua.BLegRecord, cand routing.AttemptCandi
 		BackendID: strings.TrimSpace(cand.Primary.Backend), AttemptSeq: bleg.Seq,
 	}
 	tm := sdk.ToolMeta{TraceID: f.traceID, ALegID: f.aLegID, BLegID: bleg.BLegID, AttemptSeq: bleg.Seq}
-	if v, ok := f.viewsFor(nil); ok { //nolint:staticcheck // intentional nil context forces stream snapshot fallback
+	if v, ok := f.viewsFor(nil); ok { //nolint:staticcheck // intentional nil context isolates frozen fact path
 		tm.Principal, tm.Scope, tm.Session, tm.Workspace = v.Principal, v.Scope, v.Session, v.Workspace
 	}
 	return pm, tm
 }
 
-func (f recvTurnFacts) viewsFor(ctx context.Context) (execctx.Views, bool) {
-	// Frozen facts are authoritative; context contributes only cancellation, deadline,
-	// tracing, diagnostics. Ignore any execctx.Views in the caller context for authoritative keys
-	// and return the frozen recvViews directly.
+func (f recvTurnFacts) viewsFor(_ context.Context) (execctx.Views, bool) {
+	// Frozen facts are authoritative; context is write-only for business facts.
+	// Missing recvViews is a supported absent optional state, never resurrected from context.
 	if f.recvViewsOK {
 		return cloneRecvViews(f.recvViews), true
-	}
-	if v, ok := execctx.FromContext(ctx); ok {
-		return v, true
 	}
 	return execctx.Views{}, false
 }

@@ -1,6 +1,7 @@
 package routing_test
 
 import (
+	"context"
 	"errors"
 	"net/url"
 	"testing"
@@ -203,11 +204,12 @@ func TestBindNativeModelIDs_nilSafe(t *testing.T) {
 
 func TestWithNativeModelResolver_nilContextSafe(t *testing.T) {
 	t.Parallel()
-	ctx := routing.WithNativeModelResolver(nil, nil)
+	var nilCtx context.Context
+	ctx := routing.WithNativeModelResolver(nilCtx, nil)
 	if ctx == nil {
 		t.Fatal("expected non-nil context when ctx is nil and resolver is nil")
 	}
-	ctx2 := routing.WithNativeModelResolver(nil, mapNativeResolver{})
+	ctx2 := routing.WithNativeModelResolver(nilCtx, mapNativeResolver{})
 	if ctx2 == nil {
 		t.Fatal("expected non-nil context when ctx is nil and resolver is non-nil")
 	}

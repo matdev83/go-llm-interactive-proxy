@@ -320,7 +320,7 @@ func TestPhase6_FaultMatrix_AcquisitionAndReadiness(t *testing.T) {
 			terminal: newStreamTerminal(sdkterminal.ScopeAttempt),
 			bleg:     b2bua.BLegRecord{ALegID: "aleg-r", BLegID: "bleg-r", Seq: 1},
 		}
-		ready := &readyAttempt{session: session}
+		ready := &readyAttempt{session: session, state: readyStatePrepared}
 
 		// First consume must succeed
 		got, err := ready.Consume()
@@ -350,7 +350,7 @@ func TestPhase6_FaultMatrix_AcquisitionAndReadiness(t *testing.T) {
 		ready2 := &readyAttempt{session: session2}
 		ready2.Dispose(context.Background(), errors.New("disposed test"))
 
-		if !ready2.consumed {
+		if !ready2.IsConsumed() {
 			t.Error("expected ready2 to be marked consumed after Dispose")
 		}
 		if session2.loadInner() != nil {
@@ -415,7 +415,9 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 	}
 
 	slot := &attemptSlot{}
-	slot.install(oldSession)
+	slot.mu.Lock()
+	slot.current = oldSession
+	slot.mu.Unlock()
 
 	// Prepare a replacement attempt with pending selection effects
 	replacementStream := &phase6TrackingStream{}
@@ -439,6 +441,7 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 			interleaved: initialInterleaved,
 			memoUpdate:  pendingUpdate,
 		},
+		state: readyStatePrepared,
 	}
 
 	// 1. Close the slot publication window (simulating Close() winning before swap)
@@ -463,7 +466,7 @@ func TestPhase6_FaultMatrix_PublicationDenial_CloseWinsRace(t *testing.T) {
 	ready.Dispose(ctx, errors.New("publication closed"))
 
 	// 4. Assert exact cleanup and state
-	if !ready.consumed {
+	if !ready.IsConsumed() {
 		t.Error("expected ready attempt to be marked consumed")
 	}
 	if replacementSession.loadInner() != nil {
@@ -961,7 +964,7 @@ func TestPhase6_FaultMatrix_PostOutputFailure_ProhibitsRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// 1. First event should be received (started/delta)
 	ev1, err := stream.Recv(context.Background())

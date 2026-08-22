@@ -374,6 +374,8 @@ func TestPhase1_1_ObserverStartupFailure_Replacement(t *testing.T) {
 	testStoreInner(rs, oldStream)
 	oldAttempt := rs.attempt.snapshot()
 
+	testRetirePriorAttempt(rs)
+
 	// Trigger replacement iteration
 	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 	if err != nil || !plan.opened {
@@ -386,12 +388,13 @@ func TestPhase1_1_ObserverStartupFailure_Replacement(t *testing.T) {
 	}
 
 	// In Phase 2, we run readiness on the unpublished replacement attempt BEFORE swapping:
-	ready, obsErr := ex.prepareReadyAttempt(context.Background(), plan.next, rs.facts, rs.responsePipeline, rs.terminal.committed(), plan.open.interleaved, nil)
+	ready := plan.next
+	obsErr := ready.Prepare(context.Background(), rs.facts, rs.responsePipeline, rs.terminal.committed())
 	if obsErr == nil {
 		t.Fatal("expected observer startup error, got nil")
 	}
-	if ready != nil {
-		t.Fatal("expected ready capability to be nil on observer startup failure")
+	if !ready.IsConsumed() {
+		t.Fatal("expected ready capability to be disposed on observer startup failure")
 	}
 
 	// Verify that the slot still holds the old attempt (not the failed replacement)
@@ -483,13 +486,15 @@ func TestPhase1_2_FreezeReplacementCloseAndRaces(t *testing.T) {
 		}
 		resultCh := make(chan replResult, 1)
 		go func() {
+			testRetirePriorAttempt(rs)
+
 			plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 			if err == nil && plan.opened {
 				if regErr := rs.terminal.registerReplacement(context.Background(), plan.open, plan.next); err == nil {
 					err = regErr
 				}
 				if err == nil {
-					ready := &readyAttempt{session: plan.next}
+					ready := plan.next
 					if _, published := rs.attempt.swapIfOpen(ready); !published {
 						rs.terminal.cleanupUnpublishedReplacement(context.Background(), plan.next)
 					}
@@ -579,11 +584,9 @@ func TestPhase1_2_FreezeReplacementCloseAndRaces(t *testing.T) {
 		finish := lipapi.Event{Kind: lipapi.EventResponseFinished}
 		var wg sync.WaitGroup
 		for range 5 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				_, _, _ = rs.terminal.finalizeResponseFinishedAuthority(context.Background(), finish, rs.facts.terminalFacts(), rs.attempt.snapshot(), rs.responsePipeline)
-			}()
+			})
 		}
 		wg.Wait()
 

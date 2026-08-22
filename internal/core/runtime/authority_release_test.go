@@ -153,7 +153,10 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if !opened {
 		t.Fatal("expected replacement to open after failed settle")
 	}
-	ready := &readyAttempt{session: plan.next}
+	ready := plan.next
+	if err := ready.Prepare(context.Background(), rs.facts, rs.responsePipeline, rs.terminal.committed()); err != nil {
+		t.Fatalf("prepare replacement: %v", err)
+	}
 	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}
@@ -282,6 +285,8 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
+	testRetirePriorAttempt(rs)
+
 	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 	opened := plan.opened
 	if err != nil {
@@ -294,7 +299,10 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if got := prior.authority.stateSnapshot().admissionResult.ReservationID; got != "reservation-1" {
 		t.Fatalf("prior authority reservation ID = %q, want reservation-1", got)
 	}
-	ready := &readyAttempt{session: plan.next}
+	ready := plan.next
+	if err := ready.Prepare(context.Background(), rs.facts, rs.responsePipeline, rs.terminal.committed()); err != nil {
+		t.Fatalf("prepare replacement: %v", err)
+	}
 	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}
@@ -369,15 +377,13 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	}
 	bindTestRuntimeOwners(rs, ex)
 
-	// Recv normally continues directly into replacement publication. Exercise
-	// the recoverable midpoint through the cohesive terminal owner so this
-	// assertion remains before recovery settles the prior attempt.
-	rs.terminal.terminalizeSwallowedAttempt(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.responsePipeline)
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls after swallowed recv = %d, want 0", auth.settleCalls.Load())
+	// Recv retires recoverable pre-output prior attempts via TerminalizeAttempt before replacement open.
+	testRetirePriorAttempt(rs)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls after swallowed recv = %d, want 1", auth.settleCalls.Load())
 	}
-	if testAttemptSession(rs).authority.Settled() {
-		t.Fatal("expected authoritySettled to remain false after swallowed recv failure")
+	if !testAttemptSession(rs).authority.Settled() {
+		t.Fatal("expected authoritySettled to be true after swallowed recv failure")
 	}
 
 	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
@@ -388,7 +394,10 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if !opened {
 		t.Fatal("expected replacement to open")
 	}
-	ready := &readyAttempt{session: plan.next}
+	ready := plan.next
+	if err := ready.Prepare(context.Background(), rs.facts, rs.responsePipeline, rs.terminal.committed()); err != nil {
+		t.Fatalf("prepare replacement: %v", err)
+	}
 	if _, published := rs.attempt.swapIfOpen(ready); !published {
 		t.Fatal("expected explicit replacement publication")
 	}

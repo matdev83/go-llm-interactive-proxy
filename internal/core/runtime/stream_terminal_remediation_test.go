@@ -215,7 +215,7 @@ func TestRetryRecvStream_installAttempt_concurrentWithClose_noDeadlockOnceReques
 	for range 16 {
 		wg.Go(func() {
 			<-start
-			rs.attempt.install(newAttemptSession(attemptSessionInput{}))
+			testInstallSlot(&rs.attempt, newAttemptSession(attemptSessionInput{}))
 		})
 	}
 	for range 16 {

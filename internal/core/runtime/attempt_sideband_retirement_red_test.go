@@ -37,10 +37,10 @@ func TestAttemptSlotSwapRetainsDetachedAttemptOwnership(t *testing.T) {
 	oldAccountingSnapshot := old.accounting.snapshot()
 
 	var slot attemptSlot
-	slot.install(old)
+	testInstallSlot(&slot, old)
 	retained := slot.snapshot()
 	newAttempt := newAttemptSession(attemptSessionInput{cand: newCandidate})
-	ready := &readyAttempt{session: newAttempt}
+	ready := &readyAttempt{session: newAttempt, state: readyStatePrepared}
 	if got, published := slot.swapIfOpen(ready); !published || got != retained {
 		t.Fatalf("swap returned %p, want retained old attempt %p", got, retained)
 	}
@@ -83,13 +83,13 @@ func TestAttemptSidebandUsageRetainsSourceAttemptOwnershipAcrossSwap(t *testing.
 		accounting: newAttemptAccountingTracker(time.Unix(303, 0)),
 	})
 	var slot attemptSlot
-	slot.install(old)
+	testInstallSlot(&slot, old)
 	retained := slot.snapshot()
 	oldInner := retained.loadInner()
 	if oldInner != oldSource {
 		t.Fatalf("retained source = %T, want old source", oldInner)
 	}
-	ready := &readyAttempt{session: newAttempt}
+	ready := &readyAttempt{session: newAttempt, state: readyStatePrepared}
 	if got, published := slot.swapIfOpen(ready); !published || got != retained {
 		t.Fatalf("swap returned %p, want retained old attempt %p", got, retained)
 	}
@@ -97,7 +97,7 @@ func TestAttemptSidebandUsageRetainsSourceAttemptOwnershipAcrossSwap(t *testing.
 	// Keep consuming the retained old source after the slot publishes its replacement.
 	// The helper must bind evidence to the source's attempt, not re-snapshot the slot.
 	rs := &retryRecvStream{responsePipeline: newResponsePipeline()}
-	rs.attempt.install(newAttempt)
+	testInstallSlot(&rs.attempt, newAttempt)
 	rs.responsePipeline.consumeBackendUsageEvidenceForAttempt(context.Background(), rs.facts, retained, oldInner)
 
 	if !retained.accounting.usageObserved {

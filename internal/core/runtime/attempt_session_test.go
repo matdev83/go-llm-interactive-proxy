@@ -284,11 +284,13 @@ func TestAttemptSlotSnapshotsAndSwapsPointers(t *testing.T) {
 	first := newAttemptSession(attemptSessionInput{})
 	second := newAttemptSession(attemptSessionInput{})
 	var slot attemptSlot
-	slot.install(first)
+	slot.mu.Lock()
+	slot.current = first
+	slot.mu.Unlock()
 	if slot.snapshot() != first {
 		t.Fatal("snapshot did not return installed attempt")
 	}
-	ready := &readyAttempt{session: second}
+	ready := &readyAttempt{session: second, state: readyStatePrepared}
 	if got, published := slot.swapIfOpen(ready); !published || got != first || slot.snapshot() != second {
 		t.Fatal("swap did not publish replacement atomically")
 	}
@@ -365,8 +367,10 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 	})
 
 	var slot attemptSlot
-	slot.install(old)
-	ready := &readyAttempt{session: replacement}
+	slot.mu.Lock()
+	slot.current = old
+	slot.mu.Unlock()
+	ready := &readyAttempt{session: replacement, state: readyStatePrepared}
 	if got, published := slot.swapIfOpen(ready); !published || got != old || slot.require() != replacement {
 		t.Fatal("replacement must atomically publish the new attempt session")
 	}
@@ -388,4 +392,62 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 	if len(old.toolFinal.active) != 0 || len(old.toolFinal.drain) != 0 {
 		t.Fatal("old tool finalizer was not discarded during replacement cleanup")
 	}
+}
+
+// testInstallSlot publishes a session directly for test setup, under proper lock.
+// Production must use publishReady/swapIfOpen with ready capability.
+func testInstallSlot(slot *attemptSlot, s *attemptSession) {
+	if slot == nil {
+		return
+	}
+	slot.mu.Lock()
+	old := slot.current
+	slot.current = s
+	slot.mu.Unlock()
+	if s != nil && old != nil {
+		if s.billingEnabled == nil {
+			s.billingEnabled = old.billingEnabled
+		}
+		if s.operatorRateRef == nil {
+			s.operatorRateRef = old.operatorRateRef
+		}
+		if s.billingWorkload == nil {
+			s.billingWorkload = old.billingWorkload
+		}
+		if s.observeBillingLeg == nil {
+			s.observeBillingLeg = old.observeBillingLeg
+		}
+		if s.appendBillingLeg == nil {
+			s.appendBillingLeg = old.appendBillingLeg
+		}
+		if s.finalizeBilling == nil {
+			s.finalizeBilling = old.finalizeBilling
+		}
+		if s.appendBillingLegFn == nil {
+			s.appendBillingLegFn = old.appendBillingLegFn
+		}
+		if s.emitBackendEgressFn == nil {
+			s.emitBackendEgressFn = old.emitBackendEgressFn
+		}
+		if s.recordAttemptLoggedFn == nil {
+			s.recordAttemptLoggedFn = old.recordAttemptLoggedFn
+		}
+		if s.now == nil {
+			s.now = old.now
+		}
+		if s.aScope == nil {
+			s.aScope = old.aScope
+		}
+	}
+}
+
+// testReadySession returns the underlying session for test assertions.
+// Production must use narrow BLeg()/Candidate() etc.
+func testReadySession(r *readyAttempt) *attemptSession {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.session
 }

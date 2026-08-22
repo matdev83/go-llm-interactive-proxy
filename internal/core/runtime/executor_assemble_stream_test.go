@@ -72,10 +72,10 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		Primary: routing.Primary{Backend: "exec", Model: "m"},
 	}
 	out := openedAttempt{
-		session: &attemptSession{
+		ready: newReadyAttempt(&attemptSession{
 			inner: stream,
 			cand:  plainCand,
-		},
+		}, pendingSelectionEffects{}),
 	}
 
 	t.Run("plain", func(t *testing.T) {
@@ -101,10 +101,10 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "hidden"}
 		hiddenOut := out
-		hiddenOut.session = &attemptSession{
-			inner: out.session.inner,
+		hiddenOut.ready = newReadyAttempt(&attemptSession{
+			inner: stream,
 			cand:  thinkerCand,
-		}
+		}, pendingSelectionEffects{})
 		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, hiddenOut)
 		if err != nil {
 			t.Fatal(err)
@@ -121,10 +121,10 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		ex.MemoStore = interleavedthinking.NewMemoStore(1024)
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{StreamToClient: "visible"}
 		visibleOut := out
-		visibleOut.session = &attemptSession{
-			inner: out.session.inner,
+		visibleOut.ready = newReadyAttempt(&attemptSession{
+			inner: stream,
 			cand:  thinkerCand,
-		}
+		}, pendingSelectionEffects{})
 		got, err := ex.assembleExecutorStream(context.Background(), localPrep, plan, visibleOut)
 		if err != nil {
 			t.Fatal(err)

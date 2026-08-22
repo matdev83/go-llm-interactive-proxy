@@ -104,7 +104,7 @@ func turnRecvMethodResponsibility(name string) string {
 	switch {
 	case name == "Recv" || name == "Close":
 		return "eventstream_control"
-	case name == "loadInner" || name == "storeInner" || name == "takeAndNilInner" || name == "cancelAndCloseInner" || name == "lifecycleAttempt":
+	case name == "loadInner" || name == "storeInner" || name == "takeAndNilInner" || name == "lifecycleAttempt":
 		return "current_attempt_state"
 	case strings.Contains(name, "Billing") || strings.Contains(name, "Authority") || strings.Contains(name, "TokenAccounting") || strings.Contains(name, "RequestAuthority") || strings.Contains(name, "Cancellation") || strings.Contains(name, "Terminal") || name == "finishALegScope" || name == "commitSuccessfulTurn":
 		return "request_terminal_state"

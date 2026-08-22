@@ -35,6 +35,7 @@ type billingLegDraft struct {
 	startedAt       time.Time
 	finishedAt      time.Time
 	command         sdkterminal.Command
+	outcome         billing.LegOutcome
 	surfaced        billing.SurfacedState
 	finalize        lipapi.Event
 	stream          lipapi.Event
@@ -57,6 +58,10 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 	}
 	evidence := mergeStreamCostOntoLeg(finalBillingEvidenceFromEvent(draft.finalize), finalBillingEvidenceFromEvent(draft.stream))
 	evidence = normalizeBillingEvidenceIdentity(evidence, draft.callID, bLegID)
+	outcome := draft.outcome
+	if outcome == "" {
+		outcome = legOutcomeFromCommand(draft.command)
+	}
 	return billing.CallLegUsageRecord{
 		CallID:          draft.callID,
 		ALegID:          strings.TrimSpace(draft.aLegID),
@@ -68,7 +73,7 @@ func billingLegRecord(draft billingLegDraft) billing.CallLegUsageRecord {
 		OperatorRateRef: draft.operatorRateRef,
 		StartedAt:       draft.startedAt,
 		FinishedAt:      draft.finishedAt,
-		Outcome:         legOutcomeFromCommand(draft.command),
+		Outcome:         outcome,
 		Surfaced:        draft.surfaced,
 		Evidence:        evidence,
 		Workload:        draft.workload,

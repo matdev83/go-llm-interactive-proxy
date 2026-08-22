@@ -88,6 +88,8 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	}
 	bindTestRuntimeOwners(rs, ex)
 
+	testRetirePriorAttempt(rs)
+
 	plan, err := rs.recovery.tryReplacementIteration(context.Background(), rs.facts.terminalFacts(), rs.attempt.require(), rs.terminal.committed())
 	if err == nil {
 		err = rs.terminal.registerReplacement(context.Background(), plan.open, plan.next)

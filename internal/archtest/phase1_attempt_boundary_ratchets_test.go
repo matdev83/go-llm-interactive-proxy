@@ -31,7 +31,8 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 	if err := json.Unmarshal(metricsBytes, &metrics); err != nil {
 		t.Fatalf("failed to unmarshal before metrics: %v", err)
 	}
-	if metrics["schema_version"].(float64) != 1 {
+	schemaVer, ok := metrics["schema_version"].(float64)
+	if !ok || schemaVer != 1 {
 		t.Fatalf("unexpected before metrics schema version")
 	}
 
@@ -95,8 +96,8 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 	t.Run("raw_publication_detected_red", func(t *testing.T) {
 		t.Parallel()
 		// Rule: Reject publication of raw attempt owner (must use ready capability).
-		// swapIfOpen must take a ready capability (*readyAttempt).
-		// install is only allowed for initial stream assembly in executor_assemble_stream.go and interleaved_open.go.
+		// swapIfOpen/publishReady must take a ready capability (*readyAttempt).
+		// Any production install(*attemptSession) is now forbidden; publication must be via ready capability.
 		runtimeDir := filepath.Join(root, "internal", "core", "runtime")
 		entries, err := os.ReadDir(runtimeDir)
 		if err != nil {
@@ -124,23 +125,20 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 				if !ok {
 					return true
 				}
-				if sel.Sel.Name == "swapIfOpen" {
+				switch sel.Sel.Name {
+				case "swapIfOpen", "publishReady":
 					pos := fset.Position(call.Pos())
 					if len(call.Args) > 0 {
 						argText := nodeText(call.Args[0])
-						if !strings.Contains(argText, "ready") {
-							invalidPublications = append(invalidPublications, fmt.Sprintf("%s:%d: swapIfOpen called with raw argument %s (want ready capability)", ent.Name(), pos.Line, argText))
+						if !strings.Contains(strings.ToLower(argText), "ready") {
+							invalidPublications = append(invalidPublications, fmt.Sprintf("%s:%d: %s called with raw argument %s (want ready capability)", ent.Name(), pos.Line, sel.Sel.Name, argText))
 						} else {
 							allowedPublications = append(allowedPublications, fmt.Sprintf("%s:%d: %s", ent.Name(), pos.Line, nodeText(call)))
 						}
 					}
-				} else if sel.Sel.Name == "install" {
+				case "install":
 					pos := fset.Position(call.Pos())
-					if ent.Name() != "executor_assemble_stream.go" && ent.Name() != "interleaved_open.go" {
-						invalidPublications = append(invalidPublications, fmt.Sprintf("%s:%d: install called outside initial stream assembly: %s", ent.Name(), pos.Line, nodeText(call)))
-					} else {
-						allowedPublications = append(allowedPublications, fmt.Sprintf("%s:%d: %s", ent.Name(), pos.Line, nodeText(call)))
-					}
+					invalidPublications = append(invalidPublications, fmt.Sprintf("%s:%d: install(*attemptSession) forbidden in production (use publishReady): %s", ent.Name(), pos.Line, nodeText(call)))
 				}
 				return true
 			})
@@ -149,7 +147,7 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 		if len(invalidPublications) > 0 {
 			t.Fatalf("Phase6.1: found invalid publication calls:\n%s", strings.Join(invalidPublications, "\n"))
 		}
-		t.Logf("Phase6.1: publication boundary sealed (%d allowed publication sites):\n%s", len(allowedPublications), strings.Join(allowedPublications, "\n"))
+		t.Logf("Phase6.1: publication boundary sealed (%d allowed publication sites, 0 raw installs):\n%s", len(allowedPublications), strings.Join(allowedPublications, "\n"))
 	})
 
 	t.Run("post_publication_readiness_work_detected_red", func(t *testing.T) {
@@ -268,15 +266,12 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 	t.Run("duplicate_terminal_entry_points_detected_red", func(t *testing.T) {
 		t.Parallel()
 		// Rule: Exactly one production terminal entry is TerminalizeAttempt on
-		// attemptSession. Owner teardown is cancelAndClose on attemptSession
-		// (detaches+closes stream without settling authority/billing, paired with
-		// turnTerminal settlement). Five legacy shims (AbortBeforeReturn,
-		// finishAsReplaced on attemptSession and Rollback/Abort/RollbackParallelLoser on attemptTx)
-		// delegated 1:1 to TerminalizeAttempt and have been deleted (R1). This ratchet
-		// asserts GREEN: 1 production entry + 1 teardown + 0 transitional.
+		// attemptSession. Owner teardown cancelAndClose and legacy shims
+		// (AbortBeforeReturn, finishAsReplaced, Rollback, Abort, RollbackParallelLoser)
+		// have been deleted. This ratchet asserts GREEN: 1 production entry + 0 teardown + 0 transitional.
 		// Per-site justification:
 		// - TerminalizeAttempt (attemptSession): sole production entry, 9-step lifecycle.
-		// - cancelAndClose (attemptSession): owner stream-teardown, takeInner+cancelAndCloseInner, no authority/billing settlement.
+		// - cancelAndClose (attemptSession): deleted, terminal paths use TerminalizeAttempt.
 		// - AbortBeforeReturn (attemptSession): deleted, migrated to TerminalizeAttempt IntentPreReturnAbort with evidence.Err=cause.
 		// - finishAsReplaced (attemptSession): deleted, observation Finish via TerminalizeAttempt IntentReplacement or direct Finish paired with terminalizeSnapshot.
 		// - Rollback/Abort (attemptTx): deleted, migrated to budget-release+Handoff+TerminalizeAttempt with mapIntentFromCommand.
@@ -329,8 +324,8 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 		if len(production) != 1 {
 			t.Fatalf("Phase6.1: expected exactly 1 production terminal entry TerminalizeAttempt on attemptSession, got %d: %v", len(production), production)
 		}
-		if len(teardown) != 1 {
-			t.Fatalf("Phase6.1: expected exactly 1 owner teardown cancelAndClose on attemptSession, got %d: %v", len(teardown), teardown)
+		if len(teardown) != 0 {
+			t.Fatalf("Phase6.1: expected exactly 0 owner teardown cancelAndClose on attemptSession, got %d: %v", len(teardown), teardown)
 		}
 		if len(transitional) != 0 {
 			t.Fatalf("Phase6.1: expected exactly 0 transitional shims after R1 (all 5 deleted), got %d: %v\n%s", len(transitional), transitional, strings.Join(transitional, "\n"))
@@ -338,7 +333,7 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 		if len(cleanupMethods) != len(production)+len(teardown)+len(transitional) {
 			t.Fatalf("Phase6.1: drift guard: cleanupMethods count mismatch")
 		}
-		t.Logf("Phase6.1: sealed terminal boundary: 1 production TerminalizeAttempt + 1 teardown cancelAndClose + 0 transitional (5 deleted):\nproduction: %s\nteardown: %s", strings.Join(production, "; "), strings.Join(teardown, "; "))
+		t.Logf("Phase6.1: sealed terminal boundary: 1 production TerminalizeAttempt + 0 teardown + 0 transitional (6 deleted):\nproduction: %s", strings.Join(production, "; "))
 	})
 
 	t.Run("context_first_resolution_detected_red", func(t *testing.T) {
@@ -412,6 +407,41 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 		t.Log("Phase5.1: workers isolated: no shared recovery mutations found inside parallel worker goroutines")
 	})
 
+	t.Run("terminalization_single_entry_ratchet", func(t *testing.T) {
+		t.Parallel()
+		runtimeDir := filepath.Join(root, "internal", "core", "runtime")
+		entries, err := os.ReadDir(runtimeDir)
+		if err != nil {
+			t.Fatalf("read runtime dir: %v", err)
+		}
+		var bad []string
+		var direct []string
+		for _, ent := range entries {
+			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".go") || strings.HasSuffix(ent.Name(), "_test.go") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(runtimeDir, ent.Name()))
+			if err != nil {
+				t.Fatalf("read %s: %v", ent.Name(), err)
+			}
+			text := string(data)
+			// Allow legacy terminalizeSnapshot in executor_open_attempt/parallel_race/interleaved/turn_terminal for never-opened/interleaved until fully migrated
+			if strings.Contains(text, "terminalizeSnapshot") {
+				bad = append(bad, fmt.Sprintf("%s: contains terminalizeSnapshot (must be zero outside legacy)", ent.Name()))
+			}
+			if strings.Contains(text, ".terminal.Terminalize") && ent.Name() != "attempt_session.go" {
+				direct = append(direct, fmt.Sprintf("%s: contains direct .terminal.Terminalize through attempt (must be zero outside attempt_session.go)", ent.Name()))
+			}
+		}
+		if len(bad) > 0 {
+			t.Fatalf("terminalization blocker: found %d production terminalizeSnapshot sites:\n%s", len(bad), strings.Join(bad, "\n"))
+		}
+		if len(direct) > 0 {
+			t.Fatalf("terminalization blocker: found %d direct .terminal.Terminalize sites outside attempt_session.go:\n%s", len(direct), strings.Join(direct, "\n"))
+		}
+		t.Log("terminalization single-entry ratchet: zero terminalizeSnapshot (legacy allowed) and zero direct .terminal.Terminalize outside attempt_session.go+executor_settlement")
+	})
+
 	t.Run("ownership_metrics_before_after_ratchet", func(t *testing.T) {
 		t.Parallel()
 		afterMetricsPath := filepath.Join(root, "internal", "archtest", "testdata", "phase1_attempt_boundary_after_metrics.json")
@@ -423,34 +453,41 @@ func TestPhase1_AttemptBoundaryRatchets(t *testing.T) {
 		if err := json.Unmarshal(afterBytes, &afterMetrics); err != nil {
 			t.Fatalf("failed to unmarshal after metrics: %v", err)
 		}
-		afterMap := afterMetrics["metrics"].(map[string]any)
-		beforeMap := metrics["metrics"].(map[string]any)
+		afterMap, okA := afterMetrics["metrics"].(map[string]any)
+		beforeMap, okB := metrics["metrics"].(map[string]any)
+		if !okA || !okB {
+			t.Fatalf("missing metrics map in after/before metrics")
+		}
 
 		// Verify facade owner count remains 5 (present in after only)
 		if v, ok := afterMap["facade_owner_count"]; ok {
-			if got := int(v.(float64)); got != 5 {
-				t.Errorf("facade_owner_count = %d, want 5", got)
+			if vNum, ok := v.(float64); !ok || int(vNum) != 5 {
+				t.Errorf("facade_owner_count = %v, want 5", v)
 			}
 		}
 		// Coordinator fan-out remains 1 — must not grow
-		if got := int(afterMap["coordinator_fan_out_goroutines"].(float64)); got > int(beforeMap["coordinator_fan_out_goroutines"].(float64)) {
-			t.Errorf("coordinator_fan_out_goroutines regressed: got %d, before %v", got, beforeMap["coordinator_fan_out_goroutines"])
+		afterFanOut, okA := afterMap["coordinator_fan_out_goroutines"].(float64)
+		beforeFanOut, okB := beforeMap["coordinator_fan_out_goroutines"].(float64)
+		if okA && okB && int(afterFanOut) > int(beforeFanOut) {
+			t.Errorf("coordinator_fan_out_goroutines regressed: got %d, before %v", int(afterFanOut), beforeMap["coordinator_fan_out_goroutines"])
 		}
 		// Cleanup site count reduced (from 9 to 7)
-		if got := int(afterMap["cleanup_site_count"].(float64)); got > int(beforeMap["cleanup_site_count"].(float64)) {
-			t.Errorf("cleanup_site_count regressed: got %d, before %v", got, beforeMap["cleanup_site_count"])
+		afterCleanup, okAC := afterMap["cleanup_site_count"].(float64)
+		beforeCleanup, okBC := beforeMap["cleanup_site_count"].(float64)
+		if okAC && okBC && int(afterCleanup) > int(beforeCleanup) {
+			t.Errorf("cleanup_site_count regressed: got %d, before %v", int(afterCleanup), beforeMap["cleanup_site_count"])
 		}
 		// Bounded growth check: cross_owner and state_copy may grow at most +2 with explicit justification
 		justifications, _ := afterMetrics["justifications"].(map[string]any)
 		for _, key := range []string{"cross_owner_access_sites", "state_copy_surface_sites"} {
-			beforeVal := int(beforeMap[key].(float64))
-			afterVal := int(afterMap[key].(float64))
-			delta := afterVal - beforeVal
-			if delta > 2 {
+			beforeNum, _ := beforeMap[key].(float64)
+			afterNum, _ := afterMap[key].(float64)
+			beforeVal, afterVal := int(beforeNum), int(afterNum)
+			if delta := afterVal - beforeVal; delta > 2 {
 				t.Errorf("%s growth too large: before %d after %d delta %d (>2) requires review", key, beforeVal, afterVal, delta)
-			}
-			if delta > 0 {
-				if justifications == nil || justifications[key] == nil || strings.TrimSpace(justifications[key].(string)) == "" {
+			} else if delta > 0 {
+				justStr, _ := justifications[key].(string)
+				if justifications == nil || strings.TrimSpace(justStr) == "" {
 					t.Errorf("%s grew %d->%d but missing justification in after_metrics.json justifications[%q]", key, beforeVal, afterVal, key)
 				}
 			}

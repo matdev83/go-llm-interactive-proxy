@@ -28,7 +28,7 @@ func TestPhase6_Certification_RepeatedScheduling_NoFlake(t *testing.T) {
 	ex := TestExecutor()
 	const iterations = 20
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		candA := routing.AttemptCandidate{Key: "cand-a", Primary: routing.Primary{Backend: "b-a", Model: "m-a"}}
 		candB := routing.AttemptCandidate{Key: "cand-b", Primary: routing.Primary{Backend: "b-b", Model: "m-b"}}
 		candC := routing.AttemptCandidate{Key: "cand-c", Primary: routing.Primary{Backend: "b-c", Model: "m-c"}}
@@ -70,8 +70,8 @@ func TestPhase6_Certification_RepeatedScheduling_NoFlake(t *testing.T) {
 		if err != nil {
 			t.Fatalf("iteration %d: unexpected reducer error: %v", i, err)
 		}
-		if opened.session == nil || opened.session.bleg.BLegID != "bleg-b" {
-			t.Fatalf("iteration %d: expected winner B, got %v", i, opened.session)
+		if opened.ready == nil || opened.ready.session == nil || opened.ready.session.bleg.BLegID != "bleg-b" {
+			t.Fatalf("iteration %d: expected winner B, got %v", i, opened.ready.session)
 		}
 
 		// Verify losers A and C were terminalized
@@ -151,7 +151,7 @@ func TestPhase6_Certification_ParallelArmsRunConcurrently_NotSerialized(t *testi
 	start := time.Now()
 
 	wg.Add(numArms)
-	for i := 0; i < numArms; i++ {
+	for range numArms {
 		go func() {
 			defer wg.Done()
 			time.Sleep(delayPerArm)
@@ -266,7 +266,7 @@ func TestPhase6_Certification_RealParallelBackendOpenRunsConcurrently(t *testing
 	if err != nil {
 		t.Fatalf("tryOpenParallelGroup failed: %v", err)
 	}
-	if opened.session == nil {
+	if opened.ready == nil || opened.ready.session == nil {
 		t.Fatalf("expected a winning session from concurrent parallel open, got nil")
 	}
 	// Concurrency assertion: at least 2 Open calls overlapped.

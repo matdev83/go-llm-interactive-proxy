@@ -234,24 +234,18 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 		}
 	}
 
-	if in.finishBeforeRelease && ev.Kind == lipapi.EventResponseFinished {
-		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeSuccessReleased)
-	}
 	releaseDispatch := p.emitTrafficPTCFinal(ctx, in.facts, in.attempt, &ev, in.pm)
 	p.rememberClientEvent(ev)
-	if in.finishAfterRemember && ev.Kind == lipapi.EventResponseFinished {
-		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeSuccessReleased)
-	}
 	p.commitAffinityIfOutput(ctx, in.recovery, in.facts.terminalFacts(), in.attempt, in.now, ev)
 	p.notifyCompactionAfterRelease(ctx, ev, releaseDispatch)
 	return ev, recording, nil
 }
 
 func (p *responsePipeline) observeSynthesizedUsage(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, pm sdk.PartMeta, committed bool) (lipapi.Event, responseRecordingResult, error) {
-	ctx = request.toRecvTurnFacts(ctx).projectContext(ctx, p.log)
 	if p == nil || attempt == nil {
 		return lipapi.Event{}, responseRecordingResult{}, errNilRetryRecvStream
 	}
+	ctx = request.toRecvTurnFacts(ctx).projectContext(ctx, p.log)
 	if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, attempt.finalStreamObs, ev, committed); err != nil {
 		p.finishFinalStreamObservation(ctx, attempt, response.OutcomeFailed)
 		return lipapi.Event{}, responseRecordingResult{}, err
@@ -260,9 +254,6 @@ func (p *responsePipeline) observeSynthesizedUsage(ctx context.Context, ev lipap
 	if recording.failed() && recording.mandatory() {
 		p.finishFinalStreamObservation(ctx, attempt, response.OutcomeFailed)
 		return lipapi.Event{}, recording, recording.err
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		p.finishFinalStreamObservation(ctx, attempt, response.OutcomeSuccessReleased)
 	}
 	releaseDispatch := p.emitTrafficPTCFinalEvidence(ctx, request.responseEvidence(), attempt, &ev, pm)
 	p.rememberClientEvent(ev)

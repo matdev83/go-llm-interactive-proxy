@@ -51,15 +51,19 @@ func (e *Executor) compactionServices() compaction.Services {
 // observer registration so later preservation consumers can use its state and
 // pure previews.
 func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out openedAttempt) compaction.PreservationMeta {
-	if e == nil || e.Detector == nil || prep == nil {
+	if e == nil || e.Detector == nil || prep == nil || out.ready == nil {
+		return compaction.PreservationMeta{}
+	}
+	bleg := out.ready.BLeg()
+	if bleg.BLegID == "" {
 		return compaction.PreservationMeta{}
 	}
 	observers := e.compactionObservers()
 	meta := compactiondetect.RequestMeta{
 		TraceID:    prep.identity.traceID,
 		ALegID:     prep.identity.aLeg.ALegID,
-		BLegID:     out.session.bleg.BLegID,
-		AttemptSeq: out.session.bleg.Seq,
+		BLegID:     bleg.BLegID,
+		AttemptSeq: bleg.Seq,
 		SessionID:  prep.identity.call.Session.AuthoritativeSessionID,
 	}
 	events := safeCompactionRequestOpened(e.Detector, meta, *prep.identity.call)

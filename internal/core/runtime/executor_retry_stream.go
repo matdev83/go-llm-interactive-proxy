@@ -11,7 +11,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
@@ -53,16 +52,6 @@ func (d idleContextDeadline) expired(_ context.Context, err error) bool {
 	return d.active && d.parent != nil && d.parent.Err() == nil && errors.Is(err, context.DeadlineExceeded)
 }
 
-func cancelAndCloseInner(ctx context.Context, c lipapi.ManagedEventStream, cause leglifecycle.CancelCause, logger *slog.Logger) {
-	if c == nil {
-		return
-	}
-	_ = c.Cancel(ctx, cause)
-	if cerr := c.Close(); cerr != nil && logger != nil {
-		logger.DebugContext(ctx, "retry_recv inner stream close", "reason", string(cause.Kind), "error", cerr)
-	}
-}
-
 func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
 	if stream == nil {
 		return nil
@@ -79,29 +68,13 @@ func (s *retryRecvStream) Close() error {
 	}
 	current := s.attempt.closePublicationAndSnapshot()
 	s.responsePipeline.clearAttemptState(s.attempt.snapshot())
-	var c lipapi.ManagedEventStream
-	if current != nil {
-		c = current.detachStream()
-	}
 	// lipapi.EventStream.Close has no caller context. Project a detached
 	// request context from immutable facts; no mutable context cache belongs on
 	// the EventStream facade.
 	ctx := s.responsePipeline.withDecisionEvidence(s.facts.projectContext(context.Background(), s.responsePipeline.log), s.terminal)
-	if c == nil {
-		s.terminal.closeWithoutInner(ctx, s.facts.terminalFacts(), current, s.responsePipeline)
-		s.terminal.endALeg(aLegEndBase)
-		return nil
-	}
-	if !s.terminal.finished() {
-		_ = s.terminal.cancelForClose(ctx, c)
-		s.terminal.closeWithInner(ctx, s.facts.terminalFacts(), current, s.responsePipeline)
-		if s.terminal != nil && s.terminal.hasALeg() {
-			s.terminal.endALeg(aLegEndBase)
-			return nil
-		}
-	}
+	s.terminal.closeClose(ctx, s.facts.terminalFacts(), current, s.responsePipeline)
 	s.terminal.endALeg(aLegEndBase)
-	return s.terminal.closeBackend(ctx, s.facts.terminalFacts(), current, s.responsePipeline, c)
+	return nil
 }
 
 func gateBufHasCommittedOutput(buf []lipapi.Event) bool {

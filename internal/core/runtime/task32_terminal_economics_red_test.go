@@ -116,8 +116,8 @@ func TestTask32TerminalEconomics_OldAttemptCallbackRecordsOnlyOldBLeg(t *testing
 		bleg: b2bua.BLegRecord{ALegID: "a-old", BLegID: "b-next", Seq: 2},
 		cand: routing.AttemptCandidate{Primary: routing.Primary{Backend: "next-backend", Model: "next-model"}},
 	})
-	stream.attempt.install(old)
-	ready := &readyAttempt{session: next}
+	testInstallSlot(&stream.attempt, old)
+	ready := &readyAttempt{session: next, state: readyStatePrepared}
 	if detached, published := stream.attempt.swapIfOpen(ready); !published || detached != old {
 		t.Fatalf("attempt swap detached=%p published=%v, want old=%p", detached, published, old)
 	}
@@ -158,7 +158,7 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 		attempt:          attemptSlot{},
 	}
 	bindTestRuntimeOwners(stream, executor)
-	stream.attempt.install(newAttemptSession(attemptSessionInput{
+	testInstallSlot(&stream.attempt, newAttemptSession(attemptSessionInput{
 		bleg: b2bua.BLegRecord{BLegID: "b-old-meter", Seq: 1},
 	}))
 	old := stream.attempt.snapshot()
@@ -169,9 +169,12 @@ func TestTask32TerminalEconomics_OldAttemptCallbackMetersOnlyOldBLeg(t *testing.
 		})
 		return result.Err
 	}
-	ready := &readyAttempt{session: newAttemptSession(attemptSessionInput{
-		bleg: b2bua.BLegRecord{BLegID: "b-next-meter", Seq: 2},
-	})}
+	ready := &readyAttempt{
+		session: newAttemptSession(attemptSessionInput{
+			bleg: b2bua.BLegRecord{BLegID: "b-next-meter", Seq: 2},
+		}),
+		state: readyStatePrepared,
+	}
 	stream.attempt.swapIfOpen(ready)
 	if old == nil {
 		t.Fatal("old attempt snapshot is nil")

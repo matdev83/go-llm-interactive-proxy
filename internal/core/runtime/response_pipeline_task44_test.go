@@ -1,12 +1,16 @@
 package runtime
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
 func task44ParseRuntimeFile(t *testing.T, name string) *ast.File {
@@ -164,5 +168,14 @@ func TestTask44ObservationBoundaryIsResponseOwned(t *testing.T) {
 	methods := task44ReceiverMethods(t, file, "responsePipeline")
 	if !methods["observeClientFacing"] {
 		t.Fatal("responsePipeline has no cohesive emitted-event observation boundary")
+	}
+}
+
+func TestResponsePipeline_ObserveSynthesizedUsage_NilReceiver(t *testing.T) {
+	t.Parallel()
+	var p *responsePipeline
+	_, _, err := p.observeSynthesizedUsage(t.Context(), lipapi.Event{}, requestTerminalFacts{}, nil, sdk.PartMeta{}, false)
+	if !errors.Is(err, errNilRetryRecvStream) {
+		t.Fatalf("got %v, want %v", err, errNilRetryRecvStream)
 	}
 }

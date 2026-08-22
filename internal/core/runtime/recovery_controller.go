@@ -11,7 +11,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -19,7 +18,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
-	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -36,9 +34,7 @@ type recoveryEnvironment interface {
 	persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error)
 	openInterleavedExecutorContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error)
 	logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error)
-	appendIndependentTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome)
 	noteRouteDecision(ctx context.Context, traceID, decision, detail string)
-	prepareReadyAttempt(ctx context.Context, session *attemptSession, facts recvTurnFacts, pipeline *responsePipeline, committed bool, interleaved interleavedstate.State, memoUpdate *interleavedthinking.PendingMemoUpdate) (*readyAttempt, error)
 }
 
 type recoveryController struct {
@@ -255,12 +251,12 @@ type replacementOpenResult struct {
 	cand        routing.AttemptCandidate
 	authority   attemptAuthorityState
 	interleaved interleavedstate.State
-	session     *attemptSession
+	ready       *readyAttempt
 }
 type replacementIterationResult struct {
 	opened bool
 	open   replacementOpenResult
-	next   *attemptSession
+	next   *readyAttempt
 }
 type replacementOpener func(context.Context, replacementOpenRequest) (replacementOpenResult, error)
 
@@ -287,17 +283,15 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 			return replacementOpenResult{}, err
 		}
 		res := replacementOpenResult{
-			opened:      out.session != nil,
-			registered:  out.session != nil,
+			opened:      out.ready != nil,
+			registered:  out.ready != nil,
 			interleaved: out.interleaved,
-			session:     out.session,
+			ready:       out.ready,
 		}
-		if out.session != nil {
-			res.bleg = out.session.bleg
-			res.cand = out.session.cand
-			if out.session.authority.control != nil {
-				res.authority = out.session.authority.control.state
-			}
+		if out.ready != nil {
+			res.bleg = out.ready.BLeg()
+			res.cand = out.ready.Candidate()
+			res.authority = out.ready.AuthorityState()
 		}
 		return res, nil
 	}
@@ -364,7 +358,7 @@ func (r *recoveryController) openInterleavedAttempt(
 		r.resetPolicy(nowFn)
 	}
 	return openedAttempt{
-		session:     out.session,
+		ready:       out.ready,
 		interleaved: out.interleaved,
 	}, err
 }
@@ -424,12 +418,6 @@ func (r *recoveryController) logMemoPersistFailed(ctx context.Context, traceID s
 	}
 }
 
-func (r *recoveryController) appendTerminalLeg(ctx context.Context, state *billingCallState, aLegID string, bleg b2bua.BLegRecord, primary routing.Primary, started, finished time.Time, outcome billing.LegOutcome) {
-	if r != nil && r.e != nil {
-		r.e.appendIndependentTerminalLeg(ctx, state, aLegID, bleg, primary, started, finished, outcome)
-	}
-}
-
 func (r *recoveryController) exclude(key string) {
 	if r == nil {
 		return
@@ -474,15 +462,12 @@ func (r *recoveryController) tryReplacementIteration(ctx context.Context, reques
 	if request.replacementBlocked {
 		return replacementIterationResult{}, &lipapi.UpstreamFailureError{Phase: lipapi.PhasePostOutput, Recoverable: false, Reason: "secure session mandatory recorder failure after committed output", CandidateKey: strings.TrimSpace(prior.cand.Key)}
 	}
-	if !prior.authority.Settled() {
-		prior.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
-	}
 	out, err := r.openReplacement(ctx, request, prior, committed)
 	if err != nil || !out.opened {
 		return replacementIterationResult{}, err
 	}
-	if out.session == nil {
+	if out.ready == nil {
 		return replacementIterationResult{}, errors.New("runtime: replacement attempt construction unavailable")
 	}
-	return replacementIterationResult{opened: true, open: out, next: out.session}, nil
+	return replacementIterationResult{opened: true, open: out, next: out.ready}, nil
 }

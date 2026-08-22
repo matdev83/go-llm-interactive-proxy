@@ -60,15 +60,15 @@ func TestPhase5_ParallelRoundReducer_DeterministicWinnerSelection(t *testing.T) 
 		t.Fatalf("unexpected reducer error: %v", err)
 	}
 
-	if opened.session != sessionB {
-		t.Fatalf("expected earliest arrival (candB) to win, got session %v", opened.session)
+	if opened.ready.session != sessionB {
+		t.Fatalf("expected earliest arrival (candB) to win, got session %v", opened.ready.session)
 	}
 
 	// Ready A and Ready C must be disposed
-	if !readyA.consumed {
+	if !readyA.IsConsumed() {
 		t.Errorf("expected losing readyA to be marked consumed/disposed")
 	}
-	if !readyC.consumed {
+	if !readyC.IsConsumed() {
 		t.Errorf("expected losing readyC to be marked consumed/disposed")
 	}
 }
@@ -100,25 +100,25 @@ func TestPhase5_ParallelRoundReducer_StableFailureMergeOrder(t *testing.T) {
 		progress:   progress,
 	}
 
-	// Outcomes arrive in order [3, 1, 2]
+	// Outcomes arrive in order [3, 1, 2] — reducer must apply in entries order [1,2,3] regardless of arrival.
 	outcome3 := parallelArmOutcome{
 		cand:    cand3,
 		failErr: errors.New("stream err 3"),
 		arrival: 1,
-		hist:    candidateFailureHistory{ContextLimit: true},
+		delta:   parallelFailureDeltaFromHistory(candidateFailureHistory{ContextLimit: true}),
 	}
 	outcome1 := parallelArmOutcome{
 		cand:      cand1,
 		rejected:  true,
 		rejection: candidateRejection{kind: rejectAdmission, detail: lipapi.CandidateAdmissionResult{Kind: lipapi.NegotiationReject, Capability: lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: []lipapi.Capability{lipapi.CapabilityVision}}}},
 		arrival:   2,
-		hist:      candidateFailureHistory{CapabilityReject: lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: []lipapi.Capability{lipapi.CapabilityVision}}},
+		delta:     parallelFailureDeltaFromHistory(candidateFailureHistory{CapabilityReject: lipapi.NegotiationResult{Kind: lipapi.NegotiationReject, Missing: []lipapi.Capability{lipapi.CapabilityVision}}}),
 	}
 	outcome2 := parallelArmOutcome{
 		cand:    cand2,
 		failErr: errors.New("stream err 2"),
 		arrival: 3,
-		hist:    candidateFailureHistory{},
+		delta:   parallelFailureDeltaFromHistory(candidateFailureHistory{}),
 	}
 
 	collected := []parallelArmOutcome{outcome3, outcome1, outcome2}
@@ -128,7 +128,7 @@ func TestPhase5_ParallelRoundReducer_StableFailureMergeOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected reduce error: %v", err)
 	}
-	if opened.session != nil {
+	if opened.ready != nil && opened.ready.session != nil {
 		t.Fatalf("expected nil session on all-failed round")
 	}
 
@@ -190,7 +190,7 @@ func TestPhase5_ParallelRoundReducer_ContextCancellation_DisposesAll(t *testing.
 		t.Fatalf("expected context.Canceled error, got %v", err)
 	}
 
-	if !readyA.consumed {
+	if !readyA.IsConsumed() {
 		t.Errorf("expected readyA to be disposed on context cancellation")
 	}
 }
@@ -228,12 +228,17 @@ func TestPhase5_ParallelRoundReducer_FatalError_WinnerSurvives(t *testing.T) {
 		t.Fatalf("expected nil error (winner survives loser fatal), got %v", err)
 	}
 
-	if opened.session != sessionA {
-		t.Fatalf("expected winner sessionA, got %v", opened.session)
+	if opened.ready != readyA {
+		t.Fatalf("expected winner readyA, got %v", opened.ready)
 	}
-
-	if !readyA.consumed {
-		t.Errorf("expected readyA to be consumed into winner session")
+	if opened.ready.session != sessionA {
+		t.Fatalf("expected winner sessionA via compat, got %v", opened.ready.session)
+	}
+	if readyA.IsConsumed() {
+		t.Errorf("expected readyA to remain unpublished through winner effects (not yet consumed)")
+	}
+	if readyA.session != sessionA {
+		t.Errorf("expected readyA session to still be attached before publication")
 	}
 }
 
@@ -335,8 +340,8 @@ func TestPhase5_ParallelRoundReducer_WinnerSurvivesEarlierLoserFatal(t *testing.
 		t.Fatalf("unexpected error (winner must survive earlier loser fatal): %v", err)
 	}
 
-	if opened.session != sessionA {
-		t.Fatalf("expected winner sessionA, got %v", opened.session)
+	if opened.ready.session != sessionA {
+		t.Fatalf("expected winner sessionA, got %v", opened.ready.session)
 	}
 }
 
@@ -349,6 +354,7 @@ func TestPhase5_ParallelRoundReducer_SingleAttemptRecordPerOpenedLeg(t *testing.
 	}
 
 	setupTest := func(t *testing.T) (*Executor, *[]logEntry) {
+		t.Helper()
 		ex := TestExecutor()
 		var logs []logEntry
 		ex.Store = &recordingAttemptStore{onRecord: func(ctx context.Context, rec lipapi.AttemptRecord) {}}
@@ -410,12 +416,12 @@ func TestPhase5_ParallelRoundReducer_SingleAttemptRecordPerOpenedLeg(t *testing.
 		if err != nil {
 			t.Fatalf("Reduce: %v", err)
 		}
-		if opened.session != sessionA {
+		if opened.ready.session != sessionA {
 			t.Fatalf("expected sessionA winner")
 		}
 
 		// Wait briefly for loser cleanup goroutine to finish
-		if bstream, ok := opened.session.inner.(*parallelBridgeStream); ok && bstream.losersDone != nil {
+		if bstream, ok := opened.ready.session.inner.(*parallelBridgeStream); ok && bstream.losersDone != nil {
 			<-bstream.losersDone
 		}
 

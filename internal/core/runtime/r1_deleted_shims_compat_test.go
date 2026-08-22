@@ -49,16 +49,10 @@ func (tx *attemptTx) Rollback(ctx context.Context, cmd sdkterminal.Command, rele
 	if tx == nil || tx.completed {
 		return
 	}
-	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
-		tx.budget.release()
-		tx.budgetAcquired = false
-	}
 	var err error
 	if ctx != nil {
 		err = ctx.Err()
 	}
-	sess := tx.Handoff()
-	intent := rollbackCommandToIntent(cmd)
 	evidence := attemptEvidence{
 		Command:     cmd,
 		ReleaseKind: releaseKind,
@@ -69,16 +63,12 @@ func (tx *attemptTx) Rollback(ctx context.Context, cmd sdkterminal.Command, rele
 		ALegID:      tx.reqFacts.aLegID,
 		StartedAt:   tx.openStartedAt,
 	}
-	sess.TerminalizeAttempt(ctx, intent, evidence)
+	tx.rollback(ctx, cmd, evidence)
 }
 
 func (tx *attemptTx) RollbackParallelLoser(ctx context.Context, usage lipapi.Event, recvErr error) {
 	if tx == nil || tx.completed {
 		return
-	}
-	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
-		tx.budget.release()
-		tx.budgetAcquired = false
 	}
 	outcome := lipapi.AttemptCancelled
 	reason := "parallel race loser"
@@ -88,7 +78,6 @@ func (tx *attemptTx) RollbackParallelLoser(ctx context.Context, usage lipapi.Eve
 		reason = attemptReasonDetail(recvErr)
 		detailErr = recvErr
 	}
-	sess := tx.Handoff()
 	evidence := attemptEvidence{
 		Command:       sdkterminal.CommandParallelLoser,
 		ReleaseKind:   authorityapp.ReleaseKindLosing,
@@ -101,7 +90,7 @@ func (tx *attemptTx) RollbackParallelLoser(ctx context.Context, usage lipapi.Eve
 		ALegID:        tx.reqFacts.aLegID,
 		StartedAt:     tx.openStartedAt,
 	}
-	sess.TerminalizeAttempt(ctx, IntentParallelLoser, evidence)
+	tx.rollback(ctx, sdkterminal.CommandParallelLoser, evidence)
 }
 
 func (tx *attemptTx) Abort(ctx context.Context, cmd sdkterminal.Command, releaseKind authorityapp.ReleaseKind, outcome billing.LegOutcome, usage lipapi.Event) {

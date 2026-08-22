@@ -21,7 +21,7 @@ func TestExecutorAuthorityDisabledAllowsOpenWithoutAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openAuthorityCandidate: %v", err)
 	}
-	if out.session == nil {
+	if out.ready == nil || out.ready.session == nil {
 		t.Fatal("expected backend to open when authority is disabled")
 	}
 	if backend.openCalls.Load() != 1 {
@@ -123,8 +123,8 @@ func TestExecutorAuthorityAdmitPopulatesRequestCount(t *testing.T) {
 	if in.Correlation.BLegID == "" || in.ReservationKey.BLegID == "" {
 		t.Fatal("real admission must carry the allocated B-leg")
 	}
-	if in.Correlation.BLegID != out.session.bleg.BLegID {
-		t.Fatalf("real admission BLegID = %q, want %q", in.Correlation.BLegID, out.session.bleg.BLegID)
+	if in.Correlation.BLegID != out.ready.BLeg().BLegID {
+		t.Fatalf("real admission BLegID = %q, want %q", in.Correlation.BLegID, out.ready.BLeg().BLegID)
 	}
 	if in.Correlation.BLegID != in.ReservationKey.BLegID {
 		t.Fatalf("real admission BLegID = %q, want reservation key BLegID %q", in.Correlation.BLegID, in.ReservationKey.BLegID)
