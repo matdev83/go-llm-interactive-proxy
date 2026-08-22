@@ -18,7 +18,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 1. Freeze Safety, Compatibility, Privacy, and Resource Contracts With RED Tests
 
-- [ ] 1.1 Freeze exact/native/signed/opaque non-compressibility
+- [x] 1.1 Freeze exact/native/signed/opaque non-compressibility
   - Add RED table tests covering OpenAI Responses exact items, Codex exact/native artifacts, Anthropic signed/redacted/opaque thinking, unknown dialects, and mixed exact-bearing parts.
   - Prove readable text inside an exact-bearing structure never makes it compressor input.
   - Prove compression-disabled behavior is byte/structure equivalent to current reasoning preservation.
