@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -409,7 +410,11 @@ func (s *immediateErrStubStream) Recv(ctx context.Context) (lipapi.Event, error)
 		}
 	}
 	if s.waitCh != nil {
-		<-s.waitCh
+		select {
+		case <-s.waitCh:
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		}
 	}
 	return lipapi.Event{}, s.err
 }
@@ -460,9 +465,10 @@ func TestTryOpenParallelGroup_WinnerSurvivesOtherArmFatalTTFT(t *testing.T) {
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg(aLegID)
 
-	winOpenedCh := make(chan struct{}, 1)
-	winStream := &winningDeltaStubStream{openedCh: winOpenedCh}
-	fatalStream := &immediateErrStubStream{waitCh: winOpenedCh, err: lipapi.ErrTTFTTimeout}
+	fatalOpenedCh := make(chan struct{})
+	var fatalOpenedOnce atomic.Bool
+	winStream := &winningDeltaStubStream{}
+	fatalStream := &immediateErrStubStream{err: lipapi.ErrTTFTTimeout}
 
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
 	tcaps := lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
@@ -476,7 +482,16 @@ func TestTryOpenParallelGroup_WinnerSurvivesOtherArmFatalTTFT(t *testing.T) {
 			TransportCaps:           tcaps,
 			EnforcesMaxOutputTokens: true,
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return winStream, nil
+				return &customCloseStream{
+					ManagedEventStream: &waitThenStream{
+						wait: fatalOpenedCh,
+						events: []lipapi.Event{
+							{Kind: lipapi.EventTextDelta, Delta: "win"},
+							{Kind: lipapi.EventResponseFinished},
+						},
+					},
+					onClose: func() { winStream.closeCount.Add(1) },
+				}, nil
 			},
 		},
 		"fatal-backend": {
@@ -484,6 +499,9 @@ func TestTryOpenParallelGroup_WinnerSurvivesOtherArmFatalTTFT(t *testing.T) {
 			TransportCaps:           tcaps,
 			EnforcesMaxOutputTokens: true,
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if fatalOpenedOnce.CompareAndSwap(false, true) {
+					close(fatalOpenedCh)
+				}
 				return fatalStream, nil
 			},
 		},
@@ -519,6 +537,11 @@ func TestTryOpenParallelGroup_WinnerSurvivesOtherArmFatalTTFT(t *testing.T) {
 	if winStream.closeCount.Load() != 1 {
 		t.Errorf("expected winner stream close count 1, got %d", winStream.closeCount.Load())
 	}
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(5 * time.Millisecond) {
+		if fatalStream.cancelCount.Load() > 0 || fatalStream.closeCount.Load() > 0 {
+			break
+		}
+	}
 	if fatalStream.cancelCount.Load() == 0 && fatalStream.closeCount.Load() == 0 {
 		t.Errorf("expected fatal arm stream to be terminalized (cancel or close)")
 	}
@@ -533,7 +556,9 @@ func TestTryOpenParallelGroup_ALegCanceledAbortsRoundAndTerminalizesArms(t *test
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	aScope := coord.StartALeg(aLegID)
 
-	cancelStream := &immediateErrStubStream{err: leglifecycle.ErrALegCanceled}
+	blockingOpenedCh := make(chan struct{})
+	var blockingOpenedOnce atomic.Bool
+	cancelStream := &immediateErrStubStream{waitCh: blockingOpenedCh, err: leglifecycle.ErrALegCanceled}
 	blockingStream := &blockingStubStream{}
 
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
@@ -556,6 +581,9 @@ func TestTryOpenParallelGroup_ALegCanceledAbortsRoundAndTerminalizesArms(t *test
 			TransportCaps:           tcaps,
 			EnforcesMaxOutputTokens: true,
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if blockingOpenedOnce.CompareAndSwap(false, true) {
+					close(blockingOpenedCh)
+				}
 				return blockingStream, nil
 			},
 		},
@@ -583,6 +611,11 @@ func TestTryOpenParallelGroup_ALegCanceledAbortsRoundAndTerminalizesArms(t *test
 		t.Fatalf("expected errors.Is(err, leglifecycle.ErrALegCanceled), got: %v", err)
 	}
 
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(5 * time.Millisecond) {
+		if blockingStream.cancelCount.Load() > 0 || blockingStream.closeCount.Load() > 0 {
+			break
+		}
+	}
 	if blockingStream.cancelCount.Load() == 0 && blockingStream.closeCount.Load() == 0 {
 		t.Errorf("expected blocking arm stream to be terminalized (cancel or close)")
 	}

@@ -543,8 +543,6 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 		if active.terminal != nil && active.terminal.hasALeg() {
 			_ = active.terminal.cancelALeg(ctx, cause)
 			res = lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
-		} else if activeAttempt := active.attempt.snapshot(); activeAttempt != nil {
-			res = activeAttempt.cancel(ctx, cause)
 		}
 	}
 

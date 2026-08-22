@@ -92,6 +92,7 @@ func (e *Executor) rederiveAfterRequestHooks(
 	stickyBackendID string,
 	stickyBinding bool,
 	failures *candidateFailureHistory,
+	parallel bool,
 ) (postHookRederiveResult, error) {
 	var out postHookRederiveResult
 	if attempt == nil {
@@ -131,7 +132,38 @@ func (e *Executor) rederiveAfterRequestHooks(
 	}
 	out.facts = admitOut.facts
 	if admitOut.admitRes.Kind == lipapi.NegotiationReject {
-		e.noteCandidateAdmissionReject(ctx, rf.traceID, route.affinityKey, route.affinitySet, c, stickyBackendID, stickyBinding, admitOut, "post_request_hooks", failures)
+		if !parallel {
+			e.noteCandidateAdmissionReject(ctx, rf.traceID, route.affinityKey, route.affinitySet, c, stickyBackendID, stickyBinding, admitOut, "post_request_hooks", failures)
+		} else {
+			reason := "admission_reject"
+			if admitOut.admitRes.Transport.Kind == lipapi.NegotiationReject {
+				reason = "transport_reject"
+				if failures != nil {
+					failures.TransportReject = admitOut.admitRes.Transport
+				}
+			} else if admitOut.admitRes.Capability.Kind == lipapi.NegotiationReject {
+				reason = "capability_reject"
+				if failures != nil {
+					failures.CapabilityReject = admitOut.admitRes.Capability
+				}
+			} else if admitOut.admitRes.Requirements.Kind == lipapi.NegotiationReject {
+				reason = "requirements_reject"
+				if failures != nil {
+					failures.AdmissionErr = admitOut.admitRes.Requirements.Err()
+				}
+			} else if admitOut.admitRes.ProjectionError != nil {
+				reason = "projection_reject"
+				if failures != nil {
+					failures.AdmissionErr = admitOut.admitRes.ProjectionError
+				}
+			}
+			if stickyBinding && c.Primary.Backend == stickyBackendID && failures != nil {
+				failures.AffinityReset = reason
+			}
+			if failures != nil && failures.TransformExcludes != nil {
+				failures.TransformExcludes.noteOther()
+			}
+		}
 		out.excluded = true
 		return out, nil
 	}
@@ -146,7 +178,11 @@ func (e *Executor) rederiveAfterRequestHooks(
 		d := e.EligibilityResolver.Check(ctx, c, *attempt, facts)
 		if !d.IsEligible {
 			if stickyBinding && c.Primary.Backend == stickyBackendID {
-				e.clearAffinityBinding(ctx, rf.traceID, route.affinityKey, route.affinitySet, string(d.Reason))
+				if !parallel {
+					e.clearAffinityBinding(ctx, rf.traceID, route.affinityKey, route.affinitySet, string(d.Reason))
+				} else if failures != nil {
+					failures.AffinityReset = string(d.Reason)
+				}
 			}
 			if failures != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
 				failures.ContextLimit = true

@@ -102,6 +102,70 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 	return cleanupErr
 }
 
+type outcomeHandoff struct {
+	outcome parallelArmOutcome
+	ack     chan bool
+}
+
+type parallelDecisionSnapshot struct {
+	outcomes []parallelArmOutcome
+	fatalErr error
+	canceled bool
+}
+
+func (e *Executor) reportParallelArmOutcome(
+	parentCtx context.Context,
+	raceCtx context.Context,
+	outcomeCh chan<- outcomeHandoff,
+	outcome parallelArmOutcome,
+	tx *attemptTx,
+	ready *readyAttempt,
+) {
+	ackCh := make(chan bool, 1)
+	outcomeCh <- outcomeHandoff{outcome: outcome, ack: ackCh}
+	accepted := <-ackCh
+	if accepted {
+		return
+	}
+
+	if ready == nil && (tx == nil || tx.completed) {
+		return
+	}
+
+	cleanupCtx, cleanupCancel := detachedCleanupContext(parentCtx, cancelLosersTimeout)
+	defer cleanupCancel()
+
+	if ready != nil {
+		ready.Dispose(cleanupCtx, errors.New("parallel race loser"))
+	} else if tx != nil && !tx.completed {
+		usage := outcome.observed
+		_outcome := lipapi.AttemptCancelled
+		_reason := "parallel race loser"
+		_detailErr := error(context.Canceled)
+		if outcome.failErr != nil && !errors.Is(outcome.failErr, context.Canceled) && !errors.Is(outcome.failErr, context.DeadlineExceeded) {
+			_outcome = lipapi.AttemptSwallowedFailure
+			_reason = attemptReasonDetail(outcome.failErr)
+			_detailErr = outcome.failErr
+		}
+		tx.rollback(cleanupCtx, sdkterminal.CommandParallelLoser, attemptEvidence{
+			Command:       sdkterminal.CommandParallelLoser,
+			ReleaseKind:   authorityapp.ReleaseKindLosing,
+			LegOutcome:    billing.LegOutcomeFailed,
+			Usage:         usage,
+			Err:           _detailErr,
+			RecordOutcome: _outcome,
+			RecordReason:  _reason,
+			CancelCause: &lipapi.CancelCause{
+				Kind:   lipapi.CancelRaceLoser,
+				Detail: "parallel race loser",
+			},
+			TraceID:   tx.reqFacts.traceID,
+			ALegID:    tx.reqFacts.aLegID,
+			StartedAt: tx.openStartedAt,
+		})
+	}
+}
+
 func (e *Executor) tryOpenParallelGroup(
 	ctx context.Context,
 	req openNextRequest,
@@ -140,7 +204,6 @@ func (e *Executor) tryOpenParallelGroup(
 		req.interleaved = interleaved
 	}
 
-	winnerCh := make(chan struct{}, 1)
 	raceCtx, raceCancel := context.WithCancel(ctx)
 	defer raceCancel()
 	fastForwardCh := make(chan struct{})
@@ -166,7 +229,7 @@ func (e *Executor) tryOpenParallelGroup(
 		req.progress.ttft.mu.Unlock()
 	}
 
-	outcomeCh := make(chan parallelArmOutcome, len(entries))
+	outcomeCh := make(chan outcomeHandoff, len(entries))
 	var wg sync.WaitGroup
 
 	for _, entry := range entries {
@@ -174,49 +237,88 @@ func (e *Executor) tryOpenParallelGroup(
 		go func(entry legEntry) {
 			defer wg.Done()
 
+			armCtx, armCancel := context.WithCancel(raceCtx)
+			var ttftDeadline ttftContextDeadline
+			if frozenTTFT != nil {
+				workerTTFT := &ttftBudget{
+					start:         frozenTTFT.start,
+					global:        frozenTTFT.global,
+					done:          frozenTTFT.done,
+					leafDeadlines: maps.Clone(frozenTTFT.leafDeadlines),
+				}
+				armCtx, armCancel, ttftDeadline = workerTTFT.scopedContext(raceCtx, e.now(), entry.cand.Key, entry.cand.Primary.TTFTTimeout)
+			}
+			defer armCancel()
+
 			localHist := candidateFailureHistory{TransformExcludes: &transformExcludeTracker{}}
 			if entry.delay > 0 {
 				timer := time.NewTimer(entry.delay)
 				select {
 				case <-timer.C:
-				case <-raceCtx.Done():
+				case <-armCtx.Done():
 					timer.Stop()
+					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
+						cand:    entry.cand,
+						failErr: armCtx.Err(),
+						delta:   parallelFailureDeltaFromHistory(localHist),
+					}, nil, nil)
+					return
 				case <-fastForwardCh:
 					timer.Stop()
 				}
 			}
 
-			workerReqFacts := frozenReqFacts
-			workerReqFacts.suppressThinker, workerReqFacts.suppressVisibleMemo = true, true
-
-			plan := candidatePlan{cand: entry.cand, stickyBackendID: stickyBackendID, stickyBinding: stickyBinding}
-
-			evalOutcome, err := e.evaluateCandidate(ctx, workerReqFacts, frozenRouteFacts, plan, frozenInterleaved)
-			if err != nil {
-				outcomeCh <- parallelArmOutcome{
+			if err := armCtx.Err(); err != nil {
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:    entry.cand,
 					failErr: err,
 					delta:   parallelFailureDeltaFromHistory(localHist),
-				}
+				}, nil, nil)
+				return
+			}
+
+			workerReqFacts := frozenReqFacts
+			workerReqFacts.suppressThinker, workerReqFacts.suppressVisibleMemo = true, true
+
+			plan := candidatePlan{
+				cand:            entry.cand,
+				stickyBackendID: stickyBackendID,
+				stickyBinding:   stickyBinding,
+				parallel:        true,
+				parentCtx:       ctx,
+			}
+
+			evalOutcome, err := e.evaluateCandidate(armCtx, workerReqFacts, frozenRouteFacts, plan, frozenInterleaved)
+			if err != nil {
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
+					cand:    entry.cand,
+					failErr: err,
+					delta:   parallelFailureDeltaFromHistory(localHist),
+				}, nil, nil)
 				return
 			}
 			if !evalOutcome.accepted {
-				outcomeCh <- parallelArmOutcome{
+				if evalOutcome.rejection.kind == rejectAdmission {
+					if stickyBinding && entry.cand.Primary.Backend == stickyBackendID {
+						localHist.AffinityReset = "admission_reject"
+					}
+				}
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:      entry.cand,
 					rejected:  true,
 					rejection: cloneCandidateRejection(evalOutcome.rejection),
 					delta:     parallelFailureDeltaFromHistory(localHist),
-				}
+				}, nil, nil)
 				return
 			}
 
-			tx, err := e.startAttemptTx(ctx, workerReqFacts, frozenRouteFacts, entry.cand, nil, &localHist)
+			tx, err := e.startAttemptTx(armCtx, workerReqFacts, frozenRouteFacts, entry.cand, nil, &localHist)
 			if err != nil {
-				outcomeCh <- parallelArmOutcome{
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:    entry.cand,
 					failErr: err,
 					delta:   parallelFailureDeltaFromHistory(localHist),
-				}
+				}, nil, nil)
 				return
 			}
 
@@ -224,43 +326,66 @@ func (e *Executor) tryOpenParallelGroup(
 				if r := recover(); r != nil {
 					pe := safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
 					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: frozenReqFacts.traceID})
-					rollbackAttemptTxOpenFailure(ctx, tx, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted)
+					if tx != nil && !tx.completed {
+						rollbackAttemptTxOpenFailure(ctx, tx, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted)
+					}
 				}
 			}()
 
-			err = e.openAttemptTx(ctx, tx, evalOutcome, plan)
+			err = e.openAttemptTx(armCtx, tx, evalOutcome, plan)
 			if tx.completed {
-				outcomeCh <- parallelArmOutcome{
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:      entry.cand,
 					completed: true,
 					bleg:      tx.bleg,
 					delta:     parallelFailureDeltaFromHistory(localHist),
-				}
+				}, nil, nil)
 				return
 			}
 			if err != nil {
 				rollbackAttemptTxOpenFailure(ctx, tx, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted)
-				outcomeCh <- parallelArmOutcome{
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:    entry.cand,
 					failErr: err,
 					bleg:    tx.bleg,
 					delta:   parallelFailureDeltaFromHistory(localHist),
-				}
+				}, nil, nil)
 				return
 			}
 			if workerReqFacts.aScope != nil {
-				if err := workerReqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+				sess := tx.createSession()
+				if sess != nil {
+					sess.releaseKind = authorityapp.ReleaseKindLosing
+					sess.defaultCommand = sdkterminal.CommandParallelLoser
+					sess.defaultLegOutcome = billing.LegOutcomeFailed
+				}
+				if err := workerReqFacts.aScope.RegisterBLeg(armCtx, leglifecycle.BLegHandle{
 					ID:      tx.bleg.BLegID,
-					Attempt: lifecycleAttempt(tx.stream),
+					Attempt: sess.lifecycleHandle(),
 				}); err != nil {
-					tx.stream = nil
-					rollbackAttemptTxOpenFailure(ctx, tx, authorityapp.ReleaseKindLosing, billing.LegOutcomeFailed)
-					outcomeCh <- parallelArmOutcome{
+					cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+					tx.rollback(cleanupCtx, sdkterminal.CommandParallelLoser, attemptEvidence{
+						Command:       sdkterminal.CommandParallelLoser,
+						ReleaseKind:   authorityapp.ReleaseKindLosing,
+						LegOutcome:    billing.LegOutcomeFailed,
+						Err:           err,
+						RecordOutcome: lipapi.AttemptCancelled,
+						RecordReason:  "parallel race loser",
+						CancelCause: &lipapi.CancelCause{
+							Kind:   lipapi.CancelRaceLoser,
+							Detail: "parallel race loser",
+						},
+						TraceID:   tx.reqFacts.traceID,
+						ALegID:    tx.reqFacts.aLegID,
+						StartedAt: tx.openStartedAt,
+					})
+					cleanupCancel()
+					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 						cand:    entry.cand,
 						failErr: err,
 						bleg:    tx.bleg,
 						delta:   parallelFailureDeltaFromHistory(localHist),
-					}
+					}, nil, nil)
 					return
 				}
 				tx.registered = true
@@ -279,40 +404,28 @@ func (e *Executor) tryOpenParallelGroup(
 				startedAt:        e.now(),
 			}
 
-			legCtx, legCancel, ttftDeadline := raceCtx, context.CancelFunc(func() {}), ttftContextDeadline{}
-			if frozenTTFT != nil {
-				workerTTFT := &ttftBudget{
-					start:         frozenTTFT.start,
-					global:        frozenTTFT.global,
-					done:          frozenTTFT.done,
-					leafDeadlines: maps.Clone(frozenTTFT.leafDeadlines),
-				}
-				legCtx, legCancel, ttftDeadline = workerTTFT.scopedContext(raceCtx, e.now(), entry.cand.Key, entry.cand.Primary.TTFTTimeout)
-			}
-			defer legCancel()
-
-			select {
-			case <-raceCtx.Done():
-				outcomeCh <- parallelArmOutcome{
+			if err := armCtx.Err(); err != nil {
+				observed := emptyOperatorUsageShell()
+				armLeg.observedUsage.Store(observed)
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 					cand:     entry.cand,
-					failErr:  raceCtx.Err(),
+					failErr:  err,
 					bleg:     tx.bleg,
-					observed: emptyOperatorUsageShell(),
+					observed: observed,
 					armLeg:   armLeg,
 					delta:    parallelFailureDeltaFromHistory(localHist),
-				}
+				}, tx, nil)
 				return
-			default:
 			}
 
 			var preBuf []lipapi.Event
 			for {
-				ev, err := tx.stream.Recv(legCtx)
+				ev, err := tx.stream.Recv(armCtx)
 				if err != nil {
 					observed := operatorUsageOrShell(preBuf)
 					armLeg.observedUsage.Store(observed)
 					var localErr error
-					if ttftDeadline.expired(legCtx, err) {
+					if ttftDeadline.expired(armCtx, err) {
 						if ttftDeadline.scope == ttftTimeoutGlobal {
 							localErr = lipapi.ErrTTFTTimeout
 						} else {
@@ -322,14 +435,14 @@ func (e *Executor) tryOpenParallelGroup(
 						localErr = err
 					}
 
-					outcomeCh <- parallelArmOutcome{
+					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 						cand:     entry.cand,
 						failErr:  localErr,
 						bleg:     tx.bleg,
 						observed: observed,
 						armLeg:   armLeg,
 						delta:    parallelFailureDeltaFromHistory(localHist),
-					}
+					}, tx, nil)
 					return
 				}
 				preBuf = append(preBuf, ev)
@@ -341,7 +454,7 @@ func (e *Executor) tryOpenParallelGroup(
 						memoUpdate:  evalOutcome.shapeRes.MemoUpdate,
 					})
 
-					outcomeCh <- parallelArmOutcome{
+					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
 						cand:  entry.cand,
 						ready: ready,
 						pending: pendingSelectionEffects{
@@ -353,13 +466,14 @@ func (e *Executor) tryOpenParallelGroup(
 						winnerBuf: preBuf,
 						armLeg:    armLeg,
 						delta:     parallelFailureDeltaFromHistory(localHist),
-					}
+					}, tx, ready)
 					return
 				}
 			}
 		}(entry)
 	}
 
+	allDoneCh := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -367,77 +481,153 @@ func (e *Executor) tryOpenParallelGroup(
 			}
 		}()
 		wg.Wait()
-		close(outcomeCh)
-		select {
-		case winnerCh <- struct{}{}:
-		default:
-		}
+		close(allDoneCh)
 	}()
 
-	var (
-		outcomesMu sync.Mutex
-		outcomes   []parallelArmOutcome
-	)
-	coordinatorDoneCh := make(chan struct{})
+	decisionCh := make(chan parallelDecisionSnapshot, 1)
 
 	go func() {
-		defer close(coordinatorDoneCh)
 		defer func() {
 			if r := recover(); r != nil {
 				e.logParallelRacePanic(ctx, safety.Capture(safety.BoundaryWorker, "parallel_race_coordinator", r), "executor: isolated panic in parallel race coordinator", diag.AttrOpts{CallID: req.reqFacts.traceID})
 			}
 		}()
-		var arrivalSeq uint64
-		for o := range outcomeCh {
-			arrivalSeq++
-			o.arrival = arrivalSeq
-			outcomesMu.Lock()
-			outcomes = append(outcomes, o)
-			outcomesMu.Unlock()
 
-			if o.rejected || o.failErr != nil || o.completed {
-				if o.cand.Handicap > 0 {
-					broadcastFastForward()
-				}
+		var (
+			arrivalSeq       uint64
+			accepting        = true
+			published        = false
+			acceptedOutcomes []parallelArmOutcome
+			fatalErr         error
+		)
+
+		publishDecision := func(canceled bool) {
+			if published {
+				return
 			}
-			if isParallelFatalErr(o.failErr) {
-				raceCancel()
-				select {
-				case winnerCh <- struct{}{}:
-				default:
-				}
+			published = true
+			accepting = false
+			raceCancel()
+
+			snapshotOutcomes := make([]parallelArmOutcome, len(acceptedOutcomes))
+			copy(snapshotOutcomes, acceptedOutcomes)
+
+			select {
+			case decisionCh <- parallelDecisionSnapshot{
+				outcomes: snapshotOutcomes,
+				fatalErr: fatalErr,
+				canceled: canceled,
+			}:
+			default:
 			}
-			if o.ready != nil {
-				raceCancel()
-				select {
-				case winnerCh <- struct{}{}:
-				default:
+		}
+
+		for {
+			select {
+			case handoff := <-outcomeCh:
+				arrivalSeq++
+				o := handoff.outcome
+				o.arrival = arrivalSeq
+
+				if accepting {
+					if o.rejected || o.failErr != nil || o.completed {
+						if o.cand.Handicap > 0 {
+							broadcastFastForward()
+						}
+					}
+					if isRoundAbortingFatalErr(o.failErr) {
+						fatalErr = errors.Join(fatalErr, o.failErr)
+						if handoff.ack != nil {
+							handoff.ack <- true
+						}
+						acceptedOutcomes = append(acceptedOutcomes, o)
+						publishDecision(false)
+						continue
+					}
+					if isParallelFatalErr(o.failErr) {
+						fatalErr = errors.Join(fatalErr, o.failErr)
+					}
+
+					if o.ready != nil && ctx.Err() == nil {
+						// Atomically accept winner, append to outcomes, and publish decision snapshot
+						if handoff.ack != nil {
+							handoff.ack <- true
+						}
+						acceptedOutcomes = append(acceptedOutcomes, o)
+						publishDecision(false)
+						continue
+					}
+
+					// Pre-winner non-fatal failure / rejection / completed: accept ownership so reducer owns cleanup/deltas
+					if handoff.ack != nil {
+						handoff.ack <- true
+					}
+					acceptedOutcomes = append(acceptedOutcomes, o)
+
+				} else {
+					// Post-decision or post-cancellation outcome: reject ownership so worker self-cleans
+					if handoff.ack != nil {
+						handoff.ack <- false
+					}
+				}
+
+			case <-ctx.Done():
+				// Parent context canceled: publish abandoned snapshot immediately
+				publishDecision(true)
+
+			case <-allDoneCh:
+				// All workers finished. Drain any remaining handoffs in outcomeCh.
+				for {
+					select {
+					case handoff := <-outcomeCh:
+						arrivalSeq++
+						o := handoff.outcome
+						o.arrival = arrivalSeq
+						if accepting {
+							if isParallelFatalErr(o.failErr) {
+								fatalErr = errors.Join(fatalErr, o.failErr)
+							}
+							if o.ready != nil && ctx.Err() == nil {
+								if handoff.ack != nil {
+									handoff.ack <- true
+								}
+								acceptedOutcomes = append(acceptedOutcomes, o)
+								publishDecision(false)
+								continue
+							}
+							if handoff.ack != nil {
+								handoff.ack <- true
+							}
+							acceptedOutcomes = append(acceptedOutcomes, o)
+						} else {
+							if handoff.ack != nil {
+								handoff.ack <- false
+							}
+						}
+					default:
+						if !published {
+							publishDecision(ctx.Err() != nil)
+						}
+						return
+					}
 				}
 			}
 		}
 	}()
 
+	var snapshot parallelDecisionSnapshot
 	select {
-	case <-winnerCh:
-		<-coordinatorDoneCh
+	case snapshot = <-decisionCh:
 	case <-ctx.Done():
 		raceCancel()
-		select {
-		case <-coordinatorDoneCh:
-		case <-time.After(50 * time.Millisecond):
-		}
+		snapshot = <-decisionCh
 	}
 
-	outcomesMu.Lock()
-	collectedOutcomes := make([]parallelArmOutcome, len(outcomes))
-	copy(collectedOutcomes, outcomes)
-	outcomesMu.Unlock()
-
-	// Parallel round reducer owns shared progress mutation: excluded/failures/budget/TTFT/[first]/interleaved/affinity/slot — workers already isolated in 5.1
-	return e.reduceParallelOutcomes(ctx, req, entries, candidates, cycleAdvance, collectedOutcomes)
+	reducer := newParallelRoundReducer(e, req, entries, candidates, cycleAdvance)
+	reducer.losersDone = allDoneCh
+	return reducer.Reduce(ctx, snapshot.outcomes)
 }
 
-// Parallel round reducer owns shared progress mutation: excluded/failures/budget/TTFT/[first]/interleaved/affinity/slot — workers already isolated in 5.1
 func (e *Executor) reduceParallelOutcomes(
 	ctx context.Context,
 	req openNextRequest,
@@ -463,6 +653,7 @@ type parallelRoundReducer struct {
 	entries      []legEntry
 	candidates   []routing.AttemptCandidate
 	cycleAdvance *interleavedstate.CycleState
+	losersDone   <-chan struct{}
 }
 
 func newParallelRoundReducer(
@@ -611,12 +802,20 @@ func (r *parallelRoundReducer) Reduce(
 		pending := winnerOut.ready.Pending()
 		committedInterleaved, err := r.e.commitMemoInjection(ctx, r.req.reqFacts.aLegID, pending.interleaved, pending.memoUpdate)
 		if err != nil {
-			return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, err)
+			return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
 		}
-		legs[winnerIdx].interleaved = committedInterleaved
+		if winnerIdx >= 0 {
+			legs[winnerIdx].interleaved = committedInterleaved
+		}
 		if pending.memoUpdate == nil && r.cycleAdvance != nil {
-			if err := r.e.persistInterleavedState(ctx, r.req.reqFacts.aLegID, legs[winnerIdx].interleaved); err != nil {
-				return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, err)
+			if err := r.e.persistInterleavedState(ctx, r.req.reqFacts.aLegID, committedInterleaved); err != nil {
+				return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
+			}
+		}
+
+		if winnerOut.cand.MarkedFirst {
+			if err := r.e.Store.SetWeightedFirstConsumed(ctx, r.req.reqFacts.aLegID, true); err != nil {
+				return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
 			}
 		}
 
@@ -625,44 +824,65 @@ func (r *parallelRoundReducer) Reduce(
 			if i == winnerIdx {
 				continue
 			}
-			if legs[i].stream != nil {
+			if legs[i].stream != nil && (legs[i].tx == nil || !legs[i].tx.completed) {
 				legs[i].managedByMain = true
 				losers = append(losers, &legs[i])
 			}
 		}
 
 		var losersDone <-chan error
-		if len(losers) > 0 {
+		if r.losersDone != nil || len(losers) > 0 {
 			done := make(chan error, 1)
 			losersDone = done
 			go func() {
 				var cleanupErr error
-				defer func() {
-					if rcv := recover(); rcv != nil {
-						pe := safety.Capture(safety.BoundaryBackend, "parallel_cancel_losers", rcv)
-						r.e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: r.req.reqFacts.traceID})
-						cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
-					}
-					done <- cleanupErr
-					close(done)
-				}()
-				cancelCtx, cancel := detachedCleanupContext(ctx, cancelLosersTimeout)
-				defer cancel()
-				cleanupErr = r.e.releaseLosers(cancelCtx, r.req.reqFacts.aScope, losers)
+				if len(losers) > 0 {
+					func() {
+						defer func() {
+							if rcv := recover(); rcv != nil {
+								pe := safety.Capture(safety.BoundaryBackend, "parallel_cancel_losers", rcv)
+								r.e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: r.req.reqFacts.traceID})
+								cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
+							}
+						}()
+						cancelCtx, cancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+						defer cancel()
+						cleanupErr = r.e.releaseLosers(cancelCtx, r.req.reqFacts.aScope, losers)
+					}()
+				}
+				if r.losersDone != nil {
+					<-r.losersDone
+				}
+				done <- cleanupErr
+				close(done)
 			}()
 		}
 
+		winnerLeg := winnerOut.armLeg
+		if winnerLeg == nil && winnerIdx >= 0 {
+			winnerLeg = &legs[winnerIdx]
+		}
+		if winnerLeg == nil {
+			winnerLeg = &parallelLeg{
+				cand:        winnerOut.cand,
+				bleg:        winnerOut.bleg,
+				interleaved: committedInterleaved,
+			}
+		} else {
+			winnerLeg.interleaved = committedInterleaved
+		}
+
 		if err := winnerOut.ready.InstallBridgeStream(&parallelBridgeStream{
-			winner:           &legs[winnerIdx],
+			winner:           winnerLeg,
 			buf:              winnerBuf,
 			losersDone:       losersDone,
 			loserCleanupWait: cancelLosersTimeout,
 		}); err != nil {
-			return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, err)
+			return zero, r.e.cleanUpParallelFailure(ctx, r.req, legs, winnerIdx, winnerOut, r.losersDone, err)
 		}
 		return openedAttempt{
 			ready:       winnerOut.ready,
-			interleaved: legs[winnerIdx].interleaved,
+			interleaved: committedInterleaved,
 			memoUpdate:  nil,
 		}, nil
 	}
@@ -680,13 +900,28 @@ func (r *parallelRoundReducer) Reduce(
 			failure = errors.New("parallel leg ended before winner")
 		}
 		parallelFailure = errors.Join(parallelFailure, fmt.Errorf("candidate %q failed before winner: %w", legs[i].cand.Key, failure))
-		failedLegs = append(failedLegs, &legs[i])
+		if legs[i].tx == nil || !legs[i].tx.completed {
+			failedLegs = append(failedLegs, &legs[i])
+		}
 	}
 	if len(failedLegs) > 0 {
 		if cerr := r.e.releaseLosers(cleanupCtx, r.req.reqFacts.aScope, failedLegs); cerr != nil {
 			parallelFailure = errors.Join(parallelFailure, cerr)
 		}
 	}
+
+	// Apply affinity reset in stable candidate order only on all-failure
+	for _, entry := range r.entries {
+		for j := range collectedOutcomes {
+			if collectedOutcomes[j].cand.Key == entry.cand.Key {
+				if collectedOutcomes[j].delta.affinityReset != "" {
+					r.e.clearAffinityBinding(ctx, r.req.reqFacts.traceID, r.req.routeFacts.affinityKey, r.req.routeFacts.affinitySet, collectedOutcomes[j].delta.affinityReset)
+				}
+				break
+			}
+		}
+	}
+
 	if skipped := len(r.candidates) - len(legs); skipped > 0 {
 		parallelFailure = errors.Join(parallelFailure, fmt.Errorf("parallel race skipped %d leg(s) due max-attempt budget", skipped))
 	}
@@ -702,6 +937,10 @@ func (r *parallelRoundReducer) Reduce(
 		r.req.progress.excluded[c.Key] = struct{}{}
 	}
 	return openedAttempt{interleaved: r.req.interleaved}, nil
+}
+
+func isRoundAbortingFatalErr(err error) bool {
+	return errors.Is(err, leglifecycle.ErrALegCanceled)
 }
 
 func isParallelFatalErr(err error) bool {
@@ -729,7 +968,7 @@ func detachedCleanupContext(parent context.Context, timeout time.Duration) (cont
 func (r *parallelRoundReducer) releaseOpenedLegs(ctx context.Context, legs []parallelLeg) {
 	var opened []*parallelLeg
 	for i := range legs {
-		if legs[i].stream != nil {
+		if legs[i].stream != nil && (legs[i].tx == nil || !legs[i].tx.completed) {
 			legs[i].managedByMain = true
 			opened = append(opened, &legs[i])
 		}
@@ -746,7 +985,7 @@ func rollbackAttemptTxOpenFailure(ctx context.Context, tx *attemptTx, rel author
 	tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, rel, outcome, nil, "")
 }
 
-func (e *Executor) cleanUpParallelFailure(ctx context.Context, req openNextRequest, legs []parallelLeg, winner int, wo *parallelArmOutcome, err error) error {
+func (e *Executor) cleanUpParallelFailure(ctx context.Context, req openNextRequest, legs []parallelLeg, winner int, wo *parallelArmOutcome, losersDone <-chan struct{}, err error) error {
 	cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 	defer cleanupCancel()
 	if wo != nil && wo.ready != nil {
@@ -754,11 +993,18 @@ func (e *Executor) cleanUpParallelFailure(ctx context.Context, req openNextReque
 	}
 	var toClean []*parallelLeg
 	for i := range legs {
-		if i != winner && legs[i].stream != nil {
+		if i != winner && legs[i].stream != nil && (legs[i].tx == nil || !legs[i].tx.completed) {
 			toClean = append(toClean, &legs[i])
 		}
 	}
 	cleanupErr := e.releaseLosers(cleanupCtx, req.reqFacts.aScope, toClean)
+	if losersDone != nil {
+		select {
+		case <-losersDone:
+		case <-cleanupCtx.Done():
+			cleanupErr = errors.Join(cleanupErr, cleanupCtx.Err())
+		}
+	}
 	return errors.Join(err, cleanupErr)
 }
 
@@ -767,6 +1013,7 @@ type parallelBridgeStream struct {
 	buf              []lipapi.Event
 	bufIdx           int
 	finished         atomic.Bool
+	closed           atomic.Bool
 	losersDone       <-chan error
 	loserCleanupWait time.Duration
 }
@@ -808,6 +1055,10 @@ func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCa
 }
 
 func (s *parallelBridgeStream) Close() error {
+	if !s.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	s.finished.Store(true)
 	var closeErr error
 	if s.losersDone != nil {
 		wait := cmp.Or(s.loserCleanupWait, cancelLosersTimeout)
@@ -855,6 +1106,7 @@ type parallelFailureDelta struct {
 	admissionErr     error
 	contextLimit     bool
 	parallelFailure  error
+	affinityReset    string
 }
 
 func cloneCandidateRejection(r candidateRejection) candidateRejection {
@@ -878,6 +1130,7 @@ func parallelFailureDeltaFromHistory(h candidateFailureHistory) parallelFailureD
 		admissionErr:     h.AdmissionErr,
 		contextLimit:     h.ContextLimit,
 		parallelFailure:  h.ParallelFailure,
+		affinityReset:    h.AffinityReset,
 	}
 	if h.TransformExcludes != nil {
 		h.TransformExcludes.mu.Lock()
@@ -925,5 +1178,8 @@ func (d parallelFailureDelta) applyToShared(target *candidateFailureHistory) {
 	}
 	if d.parallelFailure != nil {
 		target.ParallelFailure = d.parallelFailure
+	}
+	if d.affinityReset != "" {
+		target.AffinityReset = d.affinityReset
 	}
 }

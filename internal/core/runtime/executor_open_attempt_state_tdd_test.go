@@ -627,6 +627,7 @@ func TestTDD_ParallelPostRequestHookExclusion_ProvesNoNilStreamRecvPanicAndExclu
 			case <-loserHookRun:
 			case <-time.After(10 * time.Second):
 			}
+			time.Sleep(10 * time.Millisecond)
 			return lipapi.NewFixedEventStream([]lipapi.Event{
 				{Kind: lipapi.EventResponseStarted},
 				{Kind: lipapi.EventTextDelta, Delta: "winner-text"},

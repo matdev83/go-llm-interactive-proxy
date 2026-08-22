@@ -328,8 +328,12 @@ func (t *turnTerminal) terminalizeWithEvidence(
 	ev.RecordReason = reason
 	ev.Err = cause
 	ev.AuthorityPrepare = prep
-	if cmd == sdkterminal.CommandCancel {
+	switch cmd {
+	case sdkterminal.CommandCancel:
 		ev.BillingReason = reason
+		ev.CancelCause = &lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: reason}
+	case sdkterminal.CommandTimeout:
+		ev.CancelCause = &lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "timeout"}
 	}
 	t.terminalizeTurn(ctx, cmd, intent, request, attempt, p, ev, snapshot)
 }
@@ -337,9 +341,6 @@ func (t *turnTerminal) terminalizeWithEvidence(
 func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
 	if t == nil || p == nil || t.finished() {
 		return
-	}
-	if t.hasALeg() {
-		_ = t.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelClientGone})
 	}
 	snapshot := p.accumulatorSnapshot()
 	ev := t.makeBaseEvidence(request, attempt, p, &snapshot)
@@ -349,8 +350,12 @@ func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFa
 	ev.RecordOutcome = lipapi.AttemptCancelled
 	ev.RecordReason = "client closed"
 	ev.BillingReason = "client closed"
+	ev.CancelCause = &lipapi.CancelCause{Kind: lipapi.CancelClientGone, Detail: "client closed"}
 	if attempt != nil {
 		attempt.TerminalizeAttempt(ctx, IntentCancellation, ev)
+	}
+	if t.hasALeg() {
+		_ = t.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelClientGone})
 	}
 	t.terminalizeTurn(ctx, sdkterminal.CommandClose, IntentCancellation, request, nil, p, ev, snapshot)
 }
@@ -456,7 +461,7 @@ func (t *turnTerminal) registerReplacement(ctx context.Context, out replacementO
 	if t == nil || next == nil || out.registered {
 		return nil
 	}
-	if err := t.registerBLeg(ctx, leglifecycle.BLegHandle{ID: out.bleg.BLegID, Attempt: lifecycleAttempt(out.stream)}); err != nil {
+	if err := t.registerBLeg(ctx, leglifecycle.BLegHandle{ID: out.bleg.BLegID, Attempt: next.lifecycleHandle()}); err != nil {
 		next.Dispose(ctx, err)
 		return err
 	}

@@ -211,10 +211,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if idleDeadline.expired(recvCtx, recvErr) && recovery != nil && recovery.recoverPolicy != nil {
 			dec := recovery.idleRecvDecision(p.nowTime())
 			if dec.finish {
-				if stream := attempt.detachStream(); stream != nil {
-					_ = stream.Cancel(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: dec.reason})
-					_ = stream.Close()
-				}
+				attempt.setPendingCancelCause(lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: dec.reason})
 				if dec.warning.Kind != "" {
 					p.appendRecoveryDrain(dec.warning)
 				}
@@ -253,12 +250,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if p != nil && p.log != nil && recvErr != nil {
 				p.log.DebugContext(ctx, "retry_recv context cancellation", "reason", reason, "recv_error_detail", recvErrorDetail(recvErr))
 			}
-			if terminal != nil && terminal.hasALeg() {
-				if stream := attempt.detachStream(); stream != nil {
-					_ = terminal.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
-				}
-			}
 			terminal.terminalizeCancellation(ctx, facts.terminalFacts(), attempt, p, reason, errors.Is(recvErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded))
+			if terminal != nil && terminal.hasALeg() {
+				_ = terminal.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
+			}
 			terminal.endALeg(aLegEndBase)
 			return lipapi.Event{}, false, recvErr
 		}
@@ -422,6 +417,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				return lipapi.Event{}, io.EOF
 			}
+			if terminal != nil && terminal.hasALeg() {
+				if scopeErr := terminal.aLegErr(); terminal.isALegCanceled(scopeErr) {
+					terminal.terminalizeCancellation(ctx, facts.terminalFacts(), attempt, p, "a-leg canceled", false)
+					terminal.endALeg(aLegEndBase)
+					return lipapi.Event{}, scopeErr
+				}
+			}
 			if terminal.committed() && p.recordingBlocksReplacement() && p.secureRecordingMandatory {
 				if err := terminal.terminalizeGateReplacement(ctx, facts.terminalFacts(), slot.require(), p); err != nil {
 					return lipapi.Event{}, err
@@ -489,7 +491,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		if err != nil && terminal != nil && terminal.hasALeg() {
 			if scopeErr := terminal.aLegErr(); terminal.isALegCanceled(scopeErr) {
-				_ = attempt.detachStream()
 				terminal.terminalizeCancellation(ctx, facts.terminalFacts(), attempt, p, "a-leg canceled", false)
 				terminal.endALeg(aLegEndBase)
 				return lipapi.Event{}, scopeErr

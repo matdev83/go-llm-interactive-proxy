@@ -18,6 +18,7 @@ type candidateFailureHistory struct {
 	ContextLimit      bool
 	TransformExcludes *transformExcludeTracker
 	ParallelFailure   error
+	AffinityReset     string
 	progress          *recoveryController
 }
 

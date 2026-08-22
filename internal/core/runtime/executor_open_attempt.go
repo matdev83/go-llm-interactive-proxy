@@ -59,6 +59,8 @@ type candidatePlan struct {
 	nextCycle       *interleavedstate.CycleState
 	stickyBackendID string
 	stickyBinding   bool
+	parallel        bool
+	parentCtx       context.Context
 }
 
 type rejectionKind int
@@ -98,6 +100,8 @@ type attemptTx struct {
 	authState        attemptAuthorityState
 	authLifecycle    authorityLifecycle
 	stream           lipapi.ManagedEventStream
+	streamDisposed   bool
+	session          *attemptSession
 	registered       bool
 	openInvoked      bool
 	openStartedAt    time.Time
@@ -156,8 +160,12 @@ func (tx *attemptTx) createSession() *attemptSession {
 	if tx == nil {
 		return nil
 	}
-	return tx.e.newAttemptSession(attemptSessionInput{
+	if tx.session != nil {
+		return tx.session
+	}
+	tx.session = tx.e.newAttemptSession(attemptSessionInput{
 		inner:                 tx.stream,
+		streamDisposed:        tx.streamDisposed,
 		bleg:                  tx.bleg,
 		cand:                  tx.cand,
 		authority:             tx.authLifecycle,
@@ -172,6 +180,7 @@ func (tx *attemptTx) createSession() *attemptSession {
 		finalStreamObs:        tx.finalStreamObs,
 		recordAttemptLoggedFn: tx.recordAttemptLoggedFn,
 	})
+	return tx.session
 }
 
 func (e *Executor) createSessionForParallelLeg(leg *parallelLeg, aScope *leglifecycle.ALeg) *attemptSession {
@@ -494,7 +503,7 @@ func (e *Executor) openAttemptTx(
 	}); err != nil {
 		return fmt.Errorf("executor: request hooks: %w", err)
 	}
-	postHook, postErr := e.rederiveAfterRequestHooks(ctx, tx.reqFacts, tx.routeFacts, &attempt, c, be, plan.stickyBackendID, plan.stickyBinding, tx.failures)
+	postHook, postErr := e.rederiveAfterRequestHooks(ctx, tx.reqFacts, tx.routeFacts, &attempt, c, be, plan.stickyBackendID, plan.stickyBinding, tx.failures, plan.parallel)
 	if postErr != nil {
 		return postErr
 	}
@@ -672,7 +681,13 @@ func (e *Executor) openAttemptTx(
 		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {
 			if plan.stickyBinding && c.Primary.Backend == plan.stickyBackendID {
-				e.clearAffinityBinding(ctx, tx.reqFacts.traceID, tx.routeFacts.affinityKey, tx.routeFacts.affinitySet, "recoverable_pre_output_open")
+				if plan.parallel {
+					if tx.failures != nil {
+						tx.failures.AffinityReset = "recoverable_pre_output_open"
+					}
+				} else {
+					e.clearAffinityBinding(ctx, tx.reqFacts.traceID, tx.routeFacts.affinityKey, tx.routeFacts.affinitySet, "recoverable_pre_output_open")
+				}
 			}
 			tx.recordFailure(ctx, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)", err)
 			diag.LogDecision(
@@ -684,11 +699,22 @@ func (e *Executor) openAttemptTx(
 			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, billing.LegOutcomeNeverStarted, err, "recoverable pre-output (open)")
 			return nil
 		}
-		tx.recordFailure(ctx, lipapi.AttemptSurfacedFailure, attemptReasonDetail(err), err)
+		recordOutcome := lipapi.AttemptSurfacedFailure
+		recordReason := attemptReasonDetail(err)
 		releaseKind := authorityapp.ReleaseKindLosing
 		if errors.Is(err, context.Canceled) && openCtx.Err() == nil {
 			releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		} else if plan.parallel && (errors.Is(err, context.Canceled) || errors.Is(openCtx.Err(), context.Canceled)) {
+			parentCanceled := plan.parentCtx != nil && plan.parentCtx.Err() != nil
+			if !parentCanceled {
+				recordOutcome = lipapi.AttemptCancelled
+				recordReason = "parallel race loser"
+				releaseKind = authorityapp.ReleaseKindAdmissionFailure
+				tx.backendAttempted = false
+				tx.authLifecycle.backendAttempted.Store(false)
+			}
 		}
+		tx.recordFailure(ctx, recordOutcome, recordReason, err)
 		tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, releaseKind, billing.LegOutcomeNeverStarted, nil, "")
 		return fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
 	}
@@ -722,7 +748,7 @@ func (e *Executor) openAttemptTx(
 	tx.finalStreamObs = &extensions.FinalStreamObservationSession{Log: e.Log, Metrics: e.ExtensionMetrics}
 	tx.recordAttemptLoggedFn = e.recordAttemptLogged
 
-	if c.MarkedFirst {
+	if c.MarkedFirst && !plan.parallel {
 		if err := e.Store.SetWeightedFirstConsumed(ctx, tx.reqFacts.aLegID, true); err != nil {
 			return fmt.Errorf("executor: set weighted first consumed: %w", err)
 		}
@@ -897,11 +923,11 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		}
 	}
 	if req.reqFacts.aScope != nil {
+		sess := tx.createSession()
 		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      tx.bleg.BLegID,
-			Attempt: lifecycleAttempt(tx.stream),
+			Attempt: sess.lifecycleHandle(),
 		}); err != nil {
-			tx.stream = nil
 			outcome := billing.LegOutcomeFailed
 			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 				outcome = billing.LegOutcomeCanceled

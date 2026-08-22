@@ -334,9 +334,16 @@ type spyLoserStream struct {
 	closeCalls  int
 	cancelCause lipapi.CancelCause
 	blockCh     chan struct{}
+	recvStarted chan struct{}
 }
 
 func (s *spyLoserStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.recvStarted != nil {
+		select {
+		case s.recvStarted <- struct{}{}:
+		default:
+		}
+	}
 	if s.blockCh != nil {
 		select {
 		case <-s.blockCh:
@@ -382,14 +389,14 @@ func TestParallelLoser_SingleOwnerTerminalization_ExactOnce(t *testing.T) {
 
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
 	tcaps := parallelTransportCaps()
-	loserOpenStartedCh := make(chan struct{}, 1)
-	loserStream := &spyLoserStream{blockCh: make(chan struct{})}
+	loserRecvStartedCh := make(chan struct{}, 1)
+	loserStream := &spyLoserStream{blockCh: make(chan struct{}), recvStarted: loserRecvStartedCh}
 
 	ex.Backends["winner"] = execbackend.Backend{
 		Caps: caps, TransportCaps: tcaps,
 		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return &waitThenWinStream{
-				waitCh: loserOpenStartedCh,
+				waitCh: loserRecvStartedCh,
 				events: []lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventTextDelta, Delta: "winner delta"},
@@ -402,10 +409,6 @@ func TestParallelLoser_SingleOwnerTerminalization_ExactOnce(t *testing.T) {
 	ex.Backends["loser"] = execbackend.Backend{
 		Caps: caps, TransportCaps: tcaps,
 		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			select {
-			case loserOpenStartedCh <- struct{}{}:
-			default:
-			}
 			return loserStream, nil
 		},
 	}
