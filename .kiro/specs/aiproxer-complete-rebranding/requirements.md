@@ -12,7 +12,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 - **Out of scope**: Open Core vs Enterprise separation; feature movement between repositories; licensing/commercial packaging redesign; functional architecture redesign; provider/protocol renaming; unrelated cleanup/refactors.
 - **Adjacent expectations**: the later commercial split may build on the `aiproxer` identity, but this specification neither anticipates nor implements that split.
 - **Boundary ownership**: repository-wide naming migration across public contracts, core/plugin consumers, composition, config/wiring, tooling, release, tests, and documentation.
-- **Revalidation triggers**: public import paths, runtime wire/config names, release identifiers, persistent branded names, GitHub host path, CI/release composition.
+- **Revalidation triggers**: public import paths, runtime wire/config names, release identifiers, persistent branded names, GitHub host path, CI/release composition, Legacy Token Set source revision or scanner contract.
 
 ## Requirements
 
@@ -28,9 +28,9 @@ The **Legacy Token Set** means the source product/repository names and project-s
 4. Where a three-letter project abbreviation is appropriate, the system shall use `aip` with casing adapted to the identifier convention.
 5. The rebranding shall preserve the existing architectural ownership of features and shall not introduce an Open Core/Enterprise code split.
 
-### Requirement 2: Zero legacy branding in the final tracked tree
+### Requirement 2: Zero legacy branding in maintained source and produced artifacts
 
-**Objective:** As a maintainer, I want the source tree to contain only the target identity, so that no maintained artifact preserves an obsolete project identity.
+**Objective:** As a maintainer, I want maintained source and produced distribution artifacts to contain only the target identity, so that no shipped or maintained surface preserves an obsolete project identity.
 
 #### Acceptance Criteria
 
@@ -38,7 +38,8 @@ The **Legacy Token Set** means the source product/repository names and project-s
 2. When final convergence runs, every textual Git-tracked file shall contain zero semantic matches from the Legacy Token Set.
 3. Where legacy branding exists in source, tests, comments, help, examples, scripts, workflows, release files, README/docs, AGENTS, agent skills, Kiro steering/templates/specifications, archived project documents, fixtures, or generated-source inputs, the repository shall replace or rename it to the applicable target identity.
 4. If a raw character sequence matches a Legacy Token Set pattern but is demonstrably an unrelated provider, protocol, third-party, or natural-language identifier, the migration shall leave that identifier unchanged.
-5. The final zero-legacy condition shall apply to the maintained tracked tree and generated artifacts produced from it, but shall not require rewriting immutable Git object history, external issue/PR discussion history, or GitHub-managed redirects.
+5. When the repository can produce release/build/package/container artifacts, final convergence shall generate the applicable artifact set identified by the migration inventory and shall scan artifact names plus textual/metadata payloads for Legacy Token Set matches; this set shall include release archives and metadata and any other distributable artifact family enabled by the repository at implementation time.
+6. The zero-legacy condition shall not require rewriting immutable Git object history, external issue/PR discussion history, or GitHub-managed redirects.
 
 ### Requirement 3: Complete Go module-graph migration
 
@@ -47,7 +48,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 #### Acceptance Criteria
 
 1. When the root module namespace is migrated, the root `go.mod` and all root-module imports shall resolve under `github.com/aiproxer/aiproxer` before public package-directory renames begin.
-2. When connector-support modules are migrated, each module declaration, root-module requirement, inter-support requirement, and local replacement shall resolve to the target namespace and the existing relative source location.
+2. When connector-support modules are migrated, each module declaration, source import, root-module requirement/replacement, and every inter-support `require`/`replace` edge shall resolve to the target namespace while preserving the intended relative local source topology.
 3. When connector modules are migrated, each module declaration and all project-owned module requirements/replacements shall resolve to the target namespace.
 4. While a connector batch is in progress, previously completed module batches shall remain independently buildable/testable with the repository's supported module-check mode, including `GOWORK=off` where used by existing checks.
 5. When the module-graph wave completes, all repository module tidy/check gates shall pass without references to the Legacy Token Set.
@@ -114,6 +115,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 5. When a major migration wave completes, all gates designated for that wave shall pass before the next wave begins.
 6. If a migration batch produces a failure set too broad to attribute to that batch, the implementer shall reduce/revert the batch rather than stack additional rename waves on top of unresolved failures.
 7. The implementation shall not combine unrelated architecture cleanup or feature changes with the rebranding solely to make the rename convenient.
+8. Before the first Legacy Token Set scan, the implementation shall freeze and record the exact Issue #429 source revision, scanner contract/version, pattern-set checksum, scanner checksum, artifact-manifest checksum, and canonical invocation; all later migration gates shall use that same provenance unless an explicitly approved rebaseline invalidates and regenerates the downstream scan evidence.
 
 ### Requirement 9: Canonical repository-host cutover
 
@@ -123,9 +125,10 @@ The **Legacy Token Set** means the source product/repository names and project-s
 
 1. Before host cutover, the implementation shall verify that the acting owner has permission to create/transfer into the `aiproxer` organization and that the target `aiproxer` repository name does not conflict with an existing repository or fork-network constraint.
 2. When the codebase and repository-owned automation are target-ready, the repository shall be transferred/renamed so its canonical location is `github.com/aiproxer/aiproxer`.
-3. When host cutover completes, repository settings that can be affected by ownership/name changes—including branch/ruleset behavior, Actions, secrets/environments, webhooks/integrations, release configuration, and canonical links—shall be verified.
-4. When host cutover completes, contributor documentation and maintained remote/clone/install examples shall reference only the target canonical location.
-5. GitHub-managed redirects from the former location may continue as platform behavior, but the maintained repository shall not rely on them as its canonical source identity.
+3. Before transfer, the implementation shall classify relevant repository-host configuration into repository-scoped assets expected to remain associated with the repository and organization/owner-scoped dependencies that may require recreation or rebinding at the target owner.
+4. When host cutover completes, repository-scoped assets—including applicable repository settings, webhooks, repository secrets, deploy keys, releases, and repository-level rules/configuration—shall be verified in the target location, while organization/owner-scoped dependencies such as organization rulesets, organization secrets/variables, team/app access, package/container permissions, Pages/DNS dependencies, and other target-owner policy shall be recreated or rebound where required and then verified.
+5. When host cutover completes, contributor documentation and maintained remote/clone/install examples shall reference only the target canonical location.
+6. GitHub-managed redirects from the former location may continue as platform behavior, but the maintained repository shall not rely on them as its canonical source identity.
 
 ### Requirement 10: Functional preservation and final implementation gate
 
@@ -134,8 +137,8 @@ The **Legacy Token Set** means the source product/repository names and project-s
 #### Acceptance Criteria
 
 1. While names are migrated, routing, streaming, capability negotiation, frontend/backend behavior, secure sessions, billing/accounting semantics, persistence semantics, plugin boundaries, and connector behavior shall remain functionally unchanged except where the name itself is an external contract being intentionally replaced.
-2. When final convergence begins, all temporary migration aliases, manifests, helper shims, duplicate package paths, and compatibility-only target/source bridges shall be removed or kept strictly out of the tracked tree.
+2. When final convergence begins, all temporary migration aliases, manifests, helper shims, duplicate package paths, compatibility-only target/source bridges, and other migration-only workspace artifacts shall be removed from the working tree and workspace; only the external scanner inputs/evidence required for final verification may remain outside the repository.
 3. When final convergence runs, architecture guardrails, root tests, all-module checks, contract/parity checks, and repository quality gates shall pass under the target namespaces.
-4. When final convergence runs, the Legacy Token Set scan over tracked paths and textual contents shall report zero project-brand matches.
-5. After the GitHub host cutover, a clean clone from `github.com/aiproxer/aiproxer` shall build/test the standard distribution and complete a release/configuration smoke path using only target identities.
+4. When final convergence runs, the frozen Legacy Token Set scanner shall report zero project-brand matches across tracked paths/textual contents and the mandatory generated artifact set.
+5. After the GitHub host cutover, a clean clone from `github.com/aiproxer/aiproxer` shall run the platform-appropriate full all-module validation with the same `GOWORK` behavior as CI, build/test the standard distribution, and complete a release/configuration smoke path using only target identities.
 6. If any final verification gate fails because of the rebranding, the implementation shall remain incomplete and the feature shall not be declared migrated.
