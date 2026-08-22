@@ -6,7 +6,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 ## 1. Freeze Conversation-View Contracts With RED Tests
 
-- [ ] 1.1 Freeze semantic message identity and anchor contracts
+- [x] 1.1 Freeze semantic message identity and anchor contracts
   - Add RED table tests covering legacy `Instructions`/`Messages` versus item-authority identity equivalence, line-ending/JSON normalization, transient-field exclusion, and repeated-identical-message occurrence ordinals.
   - Add RED negatives for non-message items and partial content-part/sub-string identity requests.
   - Pin a versioned v1 digest format and deterministic canonicalization without persisting/logging plaintext.
@@ -212,3 +212,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Depends: 5.3_
   - _Validation: `make quality-checks`; `make test-unit`; `make parity-checks`; targeted `go test -race`; PostgreSQL integration when configured_
   - _Requirements: 13.7-13.18_
+
+## Implementation Notes
+
+- Any task adding non-test Go lines under `internal/core` must bump the `internal/core` ratchet in `internal/archtest/budgets.go` (`LineBudgets`, measured+25) with one rationale comment in the existing chronological style; `go test ./internal/archtest/...` is a required per-task gate alongside the focused package tests (caught after 1.1 review; reviewer missed it, controller verification caught it).
