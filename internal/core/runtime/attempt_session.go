@@ -254,26 +254,26 @@ type attemptLifecycleHandle struct {
 	session *attemptSession
 }
 
-func (h *attemptLifecycleHandle) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
-	if h == nil || h.session == nil {
+func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if a == nil {
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
 	intent := IntentCancellation
-	cmd := h.session.defaultCommand
+	cmd := a.defaultCommand
 	if cmd == "" {
 		cmd = sdkterminal.CommandCancel
 	}
-	relKind := h.session.releaseKind
-	legOutcome := h.session.defaultLegOutcome
+	relKind := a.releaseKind
+	legOutcome := a.defaultLegOutcome
 	if legOutcome == "" {
 		legOutcome = billing.LegOutcomeCanceled
 	}
-	if cause.Kind == lipapi.CancelRaceLoser || h.session.defaultCommand == sdkterminal.CommandParallelLoser {
+	if cause.Kind == lipapi.CancelRaceLoser || a.defaultCommand == sdkterminal.CommandParallelLoser {
 		intent = IntentParallelLoser
 		relKind = authorityapp.ReleaseKindLosing
 		cmd = sdkterminal.CommandParallelLoser
 		legOutcome = billing.LegOutcomeFailed
-	} else if h.session.defaultCommand == sdkterminal.CommandBackendOpenFailure {
+	} else if a.defaultCommand == sdkterminal.CommandBackendOpenFailure {
 		intent = IntentSwallowedFailure
 		relKind = authorityapp.ReleaseKindSwallowed
 		cmd = sdkterminal.CommandBackendOpenFailure
@@ -287,7 +287,7 @@ func (h *attemptLifecycleHandle) Cancel(ctx context.Context, cause lipapi.Cancel
 	if detail == "" {
 		detail = string(cause.Kind)
 	}
-	h.session.TerminalizeAttempt(ctx, intent, attemptEvidence{
+	a.TerminalizeAttempt(ctx, intent, attemptEvidence{
 		Command:       cmd,
 		ReleaseKind:   relKind,
 		CancelCause:   &cause,
@@ -296,27 +296,27 @@ func (h *attemptLifecycleHandle) Cancel(ctx context.Context, cause lipapi.Cancel
 		RecordOutcome: lipapi.AttemptCancelled,
 		RecordReason:  detail,
 		BillingReason: detail,
-		TraceID:       h.session.traceID,
-		ALegID:        h.session.bleg.ALegID,
-		StartedAt:     h.session.accounting.requestStartedAt,
+		TraceID:       a.traceID,
+		ALegID:        a.bleg.ALegID,
+		StartedAt:     a.accounting.requestStartedAt,
 	})
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
-func (h *attemptLifecycleHandle) Close() error {
-	if h == nil || h.session == nil {
+func (a *attemptSession) closeViaLifecycle() error {
+	if a == nil {
 		return nil
 	}
-	cmd := h.session.defaultCommand
+	cmd := a.defaultCommand
 	if cmd == "" {
 		cmd = sdkterminal.CommandClose
 	}
-	relKind := h.session.releaseKind
-	legOutcome := h.session.defaultLegOutcome
+	relKind := a.releaseKind
+	legOutcome := a.defaultLegOutcome
 	if legOutcome == "" {
 		legOutcome = billing.LegOutcomeCanceled
 	}
-	h.session.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
+	a.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
 		Command:       cmd,
 		ReleaseKind:   relKind,
 		LegOutcome:    legOutcome,
@@ -324,11 +324,25 @@ func (h *attemptLifecycleHandle) Close() error {
 		RecordOutcome: lipapi.AttemptCancelled,
 		RecordReason:  "aleg close",
 		BillingReason: "aleg close",
-		TraceID:       h.session.traceID,
-		ALegID:        h.session.bleg.ALegID,
-		StartedAt:     h.session.accounting.requestStartedAt,
+		TraceID:       a.traceID,
+		ALegID:        a.bleg.ALegID,
+		StartedAt:     a.accounting.requestStartedAt,
 	})
 	return nil
+}
+
+func (h *attemptLifecycleHandle) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if h == nil || h.session == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+	}
+	return h.session.cancelViaLifecycle(ctx, cause)
+}
+
+func (h *attemptLifecycleHandle) Close() error {
+	if h == nil || h.session == nil {
+		return nil
+	}
+	return h.session.closeViaLifecycle()
 }
 
 func (h *attemptLifecycleHandle) Recv(context.Context) (lipapi.Event, error) {
@@ -451,6 +465,23 @@ type pendingSelectionEffects struct {
 	memoUpdate  *interleavedthinking.PendingMemoUpdate
 }
 
+type pendingInvalidationKind int
+
+const (
+	invalidationNone pendingInvalidationKind = iota
+	invalidationCancel
+	invalidationClose
+	invalidationDispose
+)
+
+type pendingInvalidation struct {
+	kind        pendingInvalidationKind
+	cancelCause *lipapi.CancelCause
+	intent      attemptTerminalIntent
+	evidence    *attemptEvidence
+	err         error
+}
+
 type readyState int
 
 const (
@@ -464,23 +495,38 @@ const (
 // readyAttempt is a private single-use capability that gates publication.
 // It owns the unpublished attemptSession until publication or disposal.
 type readyAttempt struct {
-	mu         sync.Mutex
-	cond       *sync.Cond
-	session    *attemptSession
-	pending    pendingSelectionEffects
-	state      readyState
-	opInFlight bool
-	prepErr    error
+	mu                  sync.Mutex
+	cond                *sync.Cond
+	session             *attemptSession
+	boundSess           *attemptSession
+	pending             pendingSelectionEffects
+	state               readyState
+	opInFlight          bool
+	pendingInvalidation *pendingInvalidation
+	prepErr             error
+	defaultReleaseKind  authorityapp.ReleaseKind
+	defaultCommand      sdkterminal.Command
+	defaultLegOutcome   billing.LegOutcome
 }
 
 func newReadyAttempt(session *attemptSession, pending pendingSelectionEffects) *readyAttempt {
 	r := &readyAttempt{
-		session: session,
-		pending: pending,
-		state:   readyStateActive,
+		session:   session,
+		boundSess: session,
+		pending:   pending,
+		state:     readyStateActive,
 	}
 	r.cond = sync.NewCond(&r.mu)
 	return r
+}
+
+func (r *readyAttempt) hasPendingInvalidation() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingInvalidation != nil
 }
 
 func (r *readyAttempt) getCond() *sync.Cond {
@@ -544,7 +590,7 @@ func (r *readyAttempt) InstallBridgeStream(bridge lipapi.ManagedEventStream) err
 	for r.opInFlight {
 		cond.Wait()
 	}
-	if r.state == readyStateConsumed || r.state == readyStateDisposed {
+	if r.state == readyStateConsumed || r.state == readyStateDisposed || r.pendingInvalidation != nil {
 		r.mu.Unlock()
 		return errors.New("runtime: readyAttempt already consumed or disposed")
 	}
@@ -561,6 +607,10 @@ func (r *readyAttempt) InstallBridgeStream(bridge lipapi.ManagedEventStream) err
 	r.mu.Lock()
 	r.opInFlight = false
 	cond.Broadcast()
+	if r.pendingInvalidation != nil || r.state == readyStateDisposed {
+		r.mu.Unlock()
+		return errors.New("runtime: readyAttempt canceled or disposed during bridge install")
+	}
 	r.mu.Unlock()
 	return nil
 }
@@ -581,7 +631,7 @@ func (r *readyAttempt) Prepare(ctx context.Context, facts recvTurnFacts, p *resp
 	for r.opInFlight {
 		cond.Wait()
 	}
-	if r.state == readyStateConsumed || r.state == readyStateDisposed {
+	if r.state == readyStateConsumed || r.state == readyStateDisposed || r.pendingInvalidation != nil {
 		r.mu.Unlock()
 		if r.prepErr != nil {
 			return r.prepErr
@@ -624,6 +674,16 @@ func (r *readyAttempt) Prepare(ctx context.Context, facts recvTurnFacts, p *resp
 
 	r.mu.Lock()
 	r.opInFlight = false
+	if r.pendingInvalidation != nil {
+		if err != nil {
+			r.prepErr = err
+		} else {
+			r.prepErr = errors.New("runtime: attempt canceled during prepare")
+		}
+		cond.Broadcast()
+		r.mu.Unlock()
+		return r.prepErr
+	}
 	if err != nil {
 		r.state = readyStateDisposed
 		r.prepErr = err
@@ -663,7 +723,7 @@ func (r *readyAttempt) Consume() (*attemptSession, error) {
 	for r.opInFlight {
 		cond.Wait()
 	}
-	if r.state == readyStateConsumed || r.state == readyStateDisposed {
+	if r.state == readyStateConsumed || r.state == readyStateDisposed || r.pendingInvalidation != nil {
 		r.mu.Unlock()
 		return nil, errors.New("runtime: readyAttempt already consumed")
 	}
@@ -703,17 +763,361 @@ func (r *readyAttempt) markStreamDisposed() {
 	}
 }
 
+type readyLifecycleHandle struct {
+	ready *readyAttempt
+}
+
+func (h *readyLifecycleHandle) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if h == nil || h.ready == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+	}
+	return h.ready.cancelViaLifecycle(ctx, cause)
+}
+
+func (h *readyLifecycleHandle) Close() error {
+	if h == nil || h.ready == nil {
+		return nil
+	}
+	return h.ready.closeViaLifecycle()
+}
+
+func (h *readyLifecycleHandle) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
 func (r *readyAttempt) lifecycleHandle() leglifecycle.BLegAttempt {
 	if r == nil {
 		return nil
 	}
+	return &readyLifecycleHandle{ready: r}
+}
+
+func (r *readyAttempt) setDefaultEvidence(releaseKind authorityapp.ReleaseKind, cmd sdkterminal.Command, legOutcome billing.LegOutcome) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.defaultReleaseKind = releaseKind
+	r.defaultCommand = cmd
+	r.defaultLegOutcome = legOutcome
+	if r.session != nil {
+		r.session.releaseKind = releaseKind
+		r.session.defaultCommand = cmd
+		r.session.defaultLegOutcome = legOutcome
+	}
+}
+
+func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if r == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+	}
+	r.mu.Lock()
+	if r.state == readyStateConsumed {
+		sess := r.boundSess
+		r.mu.Unlock()
+		if sess != nil {
+			return sess.cancelViaLifecycle(ctx, cause)
+		}
+		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+	}
+	if r.state == readyStateDisposed {
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+	}
+	if r.opInFlight {
+		if r.pendingInvalidation == nil {
+			r.pendingInvalidation = &pendingInvalidation{
+				kind:        invalidationCancel,
+				cancelCause: &cause,
+			}
+			r.state = readyStateDisposed
+			cond := r.getCond()
+			for r.opInFlight {
+				cond.Wait()
+			}
+			sess := r.session
+			r.session = nil
+			r.pending = pendingSelectionEffects{}
+			relKind := r.defaultReleaseKind
+			cmd := r.defaultCommand
+			legOutcome := r.defaultLegOutcome
+			cond.Broadcast()
+			r.mu.Unlock()
+
+			if sess != nil {
+				r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+			}
+			return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+		}
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+	}
+
+	r.state = readyStateDisposed
 	sess := r.session
+	r.session = nil
+	r.pending = pendingSelectionEffects{}
+	relKind := r.defaultReleaseKind
+	cmd := r.defaultCommand
+	legOutcome := r.defaultLegOutcome
+	cond := r.getCond()
+	cond.Broadcast()
 	r.mu.Unlock()
-	if sess == nil {
+
+	if sess != nil {
+		r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+	}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+}
+
+func (r *readyAttempt) terminalizeSessionForCancel(
+	ctx context.Context,
+	sess *attemptSession,
+	cause lipapi.CancelCause,
+	cmd sdkterminal.Command,
+	relKind authorityapp.ReleaseKind,
+	legOutcome billing.LegOutcome,
+) {
+	intent := IntentCancellation
+	if cmd == "" {
+		cmd = sess.defaultCommand
+	}
+	if cmd == "" {
+		cmd = sdkterminal.CommandCancel
+	}
+	if relKind == "" {
+		relKind = sess.releaseKind
+	}
+	if legOutcome == "" {
+		legOutcome = sess.defaultLegOutcome
+	}
+	if legOutcome == "" {
+		legOutcome = billing.LegOutcomeCanceled
+	}
+	if cause.Kind == lipapi.CancelRaceLoser || cmd == sdkterminal.CommandParallelLoser {
+		intent = IntentParallelLoser
+		relKind = authorityapp.ReleaseKindLosing
+		cmd = sdkterminal.CommandParallelLoser
+		legOutcome = billing.LegOutcomeFailed
+	} else if cmd == sdkterminal.CommandBackendOpenFailure {
+		intent = IntentSwallowedFailure
+		relKind = authorityapp.ReleaseKindSwallowed
+		cmd = sdkterminal.CommandBackendOpenFailure
+		if (ctx != nil && ctx.Err() != nil) || cause.Kind == lipapi.CancelContextDone {
+			legOutcome = billing.LegOutcomeCanceled
+		} else {
+			legOutcome = billing.LegOutcomeFailed
+		}
+	}
+	detail := cause.Detail
+	if detail == "" {
+		detail = string(cause.Kind)
+	}
+	sess.TerminalizeAttempt(ctx, intent, attemptEvidence{
+		Command:       cmd,
+		ReleaseKind:   relKind,
+		CancelCause:   &cause,
+		LegOutcome:    legOutcome,
+		ObsOutcome:    response.OutcomeCancelled,
+		RecordOutcome: lipapi.AttemptCancelled,
+		RecordReason:  detail,
+		BillingReason: detail,
+		TraceID:       sess.traceID,
+		ALegID:        sess.bleg.ALegID,
+		StartedAt:     sess.accounting.requestStartedAt,
+	})
+}
+
+func (r *readyAttempt) closeViaLifecycle() error {
+	if r == nil {
 		return nil
 	}
-	return sess.lifecycleHandle()
+	r.mu.Lock()
+	if r.state == readyStateConsumed {
+		sess := r.boundSess
+		r.mu.Unlock()
+		if sess != nil {
+			return sess.closeViaLifecycle()
+		}
+		return nil
+	}
+	if r.state == readyStateDisposed {
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return nil
+	}
+	if r.opInFlight {
+		if r.pendingInvalidation == nil {
+			r.pendingInvalidation = &pendingInvalidation{
+				kind: invalidationClose,
+			}
+			r.state = readyStateDisposed
+			cond := r.getCond()
+			for r.opInFlight {
+				cond.Wait()
+			}
+			sess := r.session
+			r.session = nil
+			r.pending = pendingSelectionEffects{}
+			relKind := r.defaultReleaseKind
+			cmd := r.defaultCommand
+			legOutcome := r.defaultLegOutcome
+			cond.Broadcast()
+			r.mu.Unlock()
+
+			if sess != nil {
+				r.terminalizeSessionForClose(sess, cmd, relKind, legOutcome)
+			}
+			return nil
+		}
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return nil
+	}
+
+	r.state = readyStateDisposed
+	sess := r.session
+	r.session = nil
+	r.pending = pendingSelectionEffects{}
+	relKind := r.defaultReleaseKind
+	cmd := r.defaultCommand
+	legOutcome := r.defaultLegOutcome
+	cond := r.getCond()
+	cond.Broadcast()
+	r.mu.Unlock()
+
+	if sess != nil {
+		r.terminalizeSessionForClose(sess, cmd, relKind, legOutcome)
+	}
+	return nil
+}
+
+func (r *readyAttempt) terminalizeSessionForClose(
+	sess *attemptSession,
+	cmd sdkterminal.Command,
+	relKind authorityapp.ReleaseKind,
+	legOutcome billing.LegOutcome,
+) {
+	if cmd == "" {
+		cmd = sess.defaultCommand
+	}
+	if cmd == "" {
+		cmd = sdkterminal.CommandClose
+	}
+	if relKind == "" {
+		relKind = sess.releaseKind
+	}
+	if legOutcome == "" {
+		legOutcome = sess.defaultLegOutcome
+	}
+	if legOutcome == "" {
+		legOutcome = billing.LegOutcomeCanceled
+	}
+	sess.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
+		Command:       cmd,
+		ReleaseKind:   relKind,
+		LegOutcome:    legOutcome,
+		ObsOutcome:    response.OutcomeClosed,
+		RecordOutcome: lipapi.AttemptCancelled,
+		RecordReason:  "aleg close",
+		BillingReason: "aleg close",
+		TraceID:       sess.traceID,
+		ALegID:        sess.bleg.ALegID,
+		StartedAt:     sess.accounting.requestStartedAt,
+	})
+}
+
+func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTerminalIntent, evidence attemptEvidence) {
+	if r == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.Lock()
+	if r.state == readyStateConsumed || r.state == readyStateDisposed {
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return
+	}
+	if r.opInFlight {
+		if r.pendingInvalidation == nil {
+			r.pendingInvalidation = &pendingInvalidation{
+				kind:     invalidationDispose,
+				intent:   intent,
+				evidence: &evidence,
+			}
+			r.state = readyStateDisposed
+			cond := r.getCond()
+			for r.opInFlight {
+				cond.Wait()
+			}
+			sess := r.session
+			r.session = nil
+			r.pending = pendingSelectionEffects{}
+			cond.Broadcast()
+			r.mu.Unlock()
+
+			if sess != nil {
+				if evidence.TraceID == "" {
+					evidence.TraceID = sess.traceID
+				}
+				if evidence.ALegID == "" {
+					evidence.ALegID = sess.bleg.ALegID
+				}
+				if evidence.StartedAt.IsZero() {
+					evidence.StartedAt = sess.accounting.requestStartedAt
+				}
+				sess.TerminalizeAttempt(ctx, intent, evidence)
+			}
+			return
+		}
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return
+	}
+
+	r.state = readyStateDisposed
+	sess := r.session
+	r.session = nil
+	r.pending = pendingSelectionEffects{}
+	cond := r.getCond()
+	cond.Broadcast()
+	r.mu.Unlock()
+
+	if sess != nil {
+		if evidence.TraceID == "" {
+			evidence.TraceID = sess.traceID
+		}
+		if evidence.ALegID == "" {
+			evidence.ALegID = sess.bleg.ALegID
+		}
+		if evidence.StartedAt.IsZero() {
+			evidence.StartedAt = sess.accounting.requestStartedAt
+		}
+		sess.TerminalizeAttempt(ctx, intent, evidence)
+	}
 }
 
 func (r *readyAttempt) Dispose(ctx context.Context, err error) {
@@ -724,18 +1128,66 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 		ctx = context.Background()
 	}
 	r.mu.Lock()
-	cond := r.getCond()
-	for r.opInFlight {
-		cond.Wait()
-	}
 	if r.state == readyStateConsumed || r.state == readyStateDisposed {
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
 		r.mu.Unlock()
 		return
 	}
+	if r.opInFlight {
+		if r.pendingInvalidation == nil {
+			r.pendingInvalidation = &pendingInvalidation{
+				kind: invalidationDispose,
+				err:  err,
+			}
+			r.state = readyStateDisposed
+			cond := r.getCond()
+			for r.opInFlight {
+				cond.Wait()
+			}
+			sess := r.session
+			r.session = nil
+			r.pending = pendingSelectionEffects{}
+			cond.Broadcast()
+			r.mu.Unlock()
+
+			if sess != nil {
+				if err == nil {
+					err = errors.New("runtime: attempt aborted before return")
+				}
+				outcome := billing.LegOutcomeFailed
+				if errors.Is(err, context.Canceled) {
+					outcome = billing.LegOutcomeCanceled
+				}
+				evidence := attemptEvidence{
+					Command:      sdkterminal.CommandBackendOpenFailure,
+					LegOutcome:   outcome,
+					Usage:        emptyOperatorUsageShell(),
+					Err:          err,
+					RecordReason: err.Error(),
+					TraceID:      sess.traceID,
+					ALegID:       sess.bleg.ALegID,
+					StartedAt:    sess.accounting.requestStartedAt,
+				}
+				sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
+			}
+			return
+		}
+		cond := r.getCond()
+		for r.opInFlight {
+			cond.Wait()
+		}
+		r.mu.Unlock()
+		return
+	}
+
 	r.state = readyStateDisposed
 	sess := r.session
 	r.session = nil
 	r.pending = pendingSelectionEffects{}
+	cond := r.getCond()
 	cond.Broadcast()
 	r.mu.Unlock()
 
@@ -753,6 +1205,9 @@ func (r *readyAttempt) Dispose(ctx context.Context, err error) {
 			Usage:        emptyOperatorUsageShell(),
 			Err:          err,
 			RecordReason: err.Error(),
+			TraceID:      sess.traceID,
+			ALegID:       sess.bleg.ALegID,
+			StartedAt:    sess.accounting.requestStartedAt,
 		}
 		sess.TerminalizeAttempt(ctx, IntentPreReturnAbort, evidence)
 	}

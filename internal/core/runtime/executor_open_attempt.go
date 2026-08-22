@@ -922,26 +922,20 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 			}
 		}
 	}
-	if req.reqFacts.aScope != nil {
-		sess := tx.createSession()
-		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      tx.bleg.BLegID,
-			Attempt: sess.lifecycleHandle(),
-		}); err != nil {
-			outcome := billing.LegOutcomeFailed
-			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-				outcome = billing.LegOutcomeCanceled
-			}
-			tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindSwallowed, outcome, nil, "")
-			return openedAttempt{interleaved: req.interleaved}, err
-		}
-		tx.registered = true
-	}
 	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
 	ready := tx.HandoffReady(pendingSelectionEffects{
 		interleaved: interleaved,
 		memoUpdate:  memoUpdate,
 	})
+	if req.reqFacts.aScope != nil {
+		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      tx.bleg.BLegID,
+			Attempt: ready.lifecycleHandle(),
+		}); err != nil {
+			return openedAttempt{interleaved: req.interleaved}, err
+		}
+		tx.registered = true
+	}
 	return openedAttempt{
 		ready:       ready,
 		interleaved: interleaved,

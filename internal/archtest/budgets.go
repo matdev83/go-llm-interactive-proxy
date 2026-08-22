@@ -92,7 +92,8 @@ var LineBudgets = []LineBudget{
 	// R1+R2 debt remediation (spec runtime-attempt-publication-ownership-convergence Debt Plan R1-R4): 5 shims deleted (AbortBeforeReturn/finishAsReplaced/Rollback/Abort/RollbackParallelLoser) + 4 session-owned methods added (drainSidebandEvidence/detachStream/closeDetached/hasInner), measured 84098, bump to 84200 with 102 headroom.
 	// Reviewer Blocker 2 parallel outcome ownership convergence: explicit outcome handoff/ack protocol, worker-owned attemptTx self-cleanup, isolated arm context cancellation, and serial reducer affinity delta; measured 84484, bump to 84525 with 41 headroom.
 	// Reviewer Blocker 3 attempt publication and physical cancel/close ownership convergence: attemptSession sole physical owner, attemptLifecycleHandle delegation on ALeg registration, turnTerminal closeClose sequence inversion, Recv loop detachStream elimination; measured 84615, bump to 84650 with 35 headroom.
-	{Dir: "internal/core", Max: 84650},
+	// Reviewer Blocker publication ownership convergence: unpublished readyAttempt lifecycle handle, ready cancellation disposal state machine, and linearizable cancel vs consume coordination; measured 85021, bump to 85060 with 39 headroom.
+	{Dir: "internal/core", Max: 85060},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},
