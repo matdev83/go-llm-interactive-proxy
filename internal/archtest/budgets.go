@@ -103,7 +103,8 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content Task 3.1 pre-B-leg seam (authoritative A-leg/secret/submit/CTP ordering, deep-cloned ingress vs backend working call isolation, seam before inference transforms/billing/route); measured 90002, bump to 90027 with 25 headroom.
 	// Non-forwardable conversation content Task 3.2 early backend-effective projection (snapshot once after A-leg, frozen Snapshot+ProjectionEvidence before pre-request/billing/routing, fail-closed bounded evidence); measured 90095, bump to 90120 with 25 headroom.
 	// Non-forwardable conversation content Task 3.2 remediation (secure seam, MemoryStore prepareRequest coverage, backend Open reuse, failure counters, bounded summary without OverlayID/plaintext); measured 90145, bump to 90170 with 25 headroom.
-	{Dir: "internal/core", Max: 90170},
+	// Non-forwardable conversation content Task 3.3 generic two-phase local-turn stage (frozen ordered Handler list in snapshot, tag-before-handle/reply, finite EventStream, no B-leg/billing, panic recovery, fail-open/closed, cancellation/Close finite no goroutine); measured 90450, bump to 90475 with 25 headroom.
+	{Dir: "internal/core", Max: 90475},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12616},

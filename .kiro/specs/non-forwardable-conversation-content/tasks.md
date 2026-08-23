@@ -109,7 +109,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/runtime/...`_
   - _Requirements: 5.1-5.10, 9.8, 10.1-10.5, 12.3-12.4, 13.1_
 
-- [ ] 3.3 Implement the generic two-phase local-turn stage
+- [x] 3.3 Implement the generic two-phase local-turn stage
   - Add FeatureBundle/runtime-snapshot support for ordered `localturn.Handler` contributions and run pure Match against the preserved ingress view.
   - On claim, validate source indexes and commit source `never_backend` tags before Handle; merge successful tags into the request-local snapshot.
   - After Handle returns text, construct the canonical assistant message, commit its tag, then create the local finite EventStream from exactly that content.

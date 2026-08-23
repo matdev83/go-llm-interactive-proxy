@@ -67,6 +67,10 @@ type CoreRuntime struct {
 	// runtime prefers it over AsReader(Store) to avoid widening b2bua.Store
 	// while preserving the single-snapshot per-turn invariant (task 3.2).
 	ConversationViewReader conversationview.Reader
+	// ConversationViewTagger is the optional narrow tagger port for local-turn
+	// tag-before-release. When set, runtime prefers it over AsTagger(Store).
+	// Nil means tagger is resolved via AsTagger(Store) if available.
+	ConversationViewTagger conversationview.Tagger
 }
 
 // BillingRuntime carries the runtime seams for two-stage exposure admission and

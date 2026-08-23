@@ -50,7 +50,9 @@ func (r ReasonCode) Validate() error {
 	return nil
 }
 
-func validateHandlerID(id string) error {
+// ValidateHandlerID reports whether id is a bounded ascii identifier for a handler.
+// Exported for feature-bundle validation; keeps vet/lint from flagging unused helper.
+func ValidateHandlerID(id string) error {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
 		return fmt.Errorf("localturn: handler id is required")
@@ -68,6 +70,8 @@ func validateHandlerID(id string) error {
 	}
 	return nil
 }
+
+func validateHandlerID(id string) error { return ValidateHandlerID(id) }
 
 // Meta carries authoritative per-request context for Match.
 // MessageCount is the number of complete normalized messages in the ingress call

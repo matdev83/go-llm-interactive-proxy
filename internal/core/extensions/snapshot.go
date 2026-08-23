@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -67,6 +68,7 @@ type RequestRuntimeSnapshot struct {
 	policyObserver          policydecision.Observer
 	timeoutBudget           TimeoutBudgetSource
 	timeoutGuard            *ProviderTimeoutGuard
+	localTurnHandlers       []localturn.Handler
 	gen                     int64
 }
 
@@ -104,6 +106,7 @@ type SnapshotOptions struct {
 	// budgets. Nil defaults to [DefaultTimeoutBudgetSource] (zero budget for every
 	// stage/provider) so legacy extension behavior is unchanged (requirements 6.3, 10.5).
 	TimeoutBudgetSource TimeoutBudgetSource
+	LocalTurnHandlers   []localturn.Handler
 	Generation          int64
 }
 
@@ -169,6 +172,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	if budget == nil {
 		budget = DefaultTimeoutBudgetSource{}
 	}
+	localTurns := localturn.MaterializeSorted(opts.LocalTurnHandlers)
 	return &RequestRuntimeSnapshot{
 		hookBus:                 bus,
 		state:                   st,
@@ -194,6 +198,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		policyObserver:          polObs,
 		timeoutBudget:           budget,
 		timeoutGuard:            NewProviderTimeoutGuard(),
+		localTurnHandlers:       localTurns,
 		gen:                     opts.Generation,
 	}
 }
@@ -459,6 +464,24 @@ func (s *RequestRuntimeSnapshot) ProviderTimeoutGuard() *ProviderTimeoutGuard {
 		return nil
 	}
 	return s.timeoutGuard
+}
+
+// LocalTurnHandlers returns a defensive copy of frozen local-turn handlers (may be empty).
+// Mutating the returned slice does not affect the snapshot.
+func (s *RequestRuntimeSnapshot) LocalTurnHandlers() []localturn.Handler {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.localTurnHandlers)
+}
+
+// LocalTurnHandlersExecution returns the frozen local-turn handler slice in execution order
+// (sorted by Order then ID). The returned slice must not be mutated.
+func (s *RequestRuntimeSnapshot) LocalTurnHandlersExecution() []localturn.Handler {
+	if s == nil {
+		return nil
+	}
+	return s.localTurnHandlers
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.

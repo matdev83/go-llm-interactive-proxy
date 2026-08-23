@@ -27,23 +27,12 @@ import (
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
-// extensionRuntime holds the request runtime snapshot produced by
-// [buildExtensionRuntime]. The snapshot is immutable for the lifetime of the
-// [Built] generation.
+// extensionRuntime holds the request runtime snapshot for [Built] generation.
 type extensionRuntime struct {
 	Snap *extensions.RequestRuntimeSnapshot
 }
 
-// buildExtensionRuntime builds the request runtime snapshot, preserving the
-// exec-cell closure: the caller declares the executor cell and passes a provider
-// so the snapshot's auxiliary client can resolve the executor after it is
-// constructed (snapshot is built before the executor; see [Build]).
-//
-// policyObs is the pre-assembled policy observer chain (operator observers plus
-// the control-plane policy observer adapter, when enabled). It is assembled once
-// in [Build] via [assemblePolicyObserverChain] so the usage-authority evidence
-// sink can fan to the same chain instance the runtime snapshot uses, avoiding
-// duplicate control-plane events for authority decisions.
+// buildExtensionRuntime builds the snapshot preserving exec-cell closure.
 func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sg *secretGuardRuntime, extensionState lipstate.Store) *extensionRuntime {
 	var plane extensions.SecretGuardPlane
 	if sg != nil {
@@ -194,6 +183,7 @@ func buildRuntimeSnapshot(
 		RawCapture:              trafficRaw,
 		TrafficRedactors:        trafficRedactors,
 		CompactionObservers:     compactionObservers,
+		LocalTurnHandlers:       slices.Clone(opts.Extensions.LocalTurnHandlers),
 		SecretGuardPlane:        sgPlane,
 		PolicyObserver:          policyObs,
 		TimeoutBudgetSource:     budgetSrc,

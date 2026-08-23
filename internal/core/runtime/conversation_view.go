@@ -25,6 +25,22 @@ func (e *Executor) conversationViewReader() conversationview.Reader {
 	return nil
 }
 
+// conversationViewTagger returns the optional narrow tagger.
+// Prefer explicit ConversationViewTagger when set, otherwise resolve via
+// conversationview.AsTagger(Store).
+func (e *Executor) conversationViewTagger() conversationview.Tagger {
+	if e == nil {
+		return nil
+	}
+	if e.ConversationViewTagger != nil {
+		return e.ConversationViewTagger
+	}
+	if t, ok := conversationview.AsTagger(e.Store); ok {
+		return t
+	}
+	return nil
+}
+
 // conversationProjectionSummary is the bounded observable diagnostic for
 // the 3.2 seam. It contains only counts/revisions/placement classes and
 // StateRevision, never OverlayID, message identity/digest, or plaintext.

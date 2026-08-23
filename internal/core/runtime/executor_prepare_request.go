@@ -47,6 +47,12 @@ type preparedRequest struct {
 	conversationSnapshot conversationview.Snapshot
 	conversationEvidence *conversationview.ProjectionEvidence
 	conversationSummary  conversationProjectionSummary
+	// Task 3.3: generic two-phase local-turn stage. When isLocal true,
+	// localStream is the finite canonical response, merged snapshot already
+	// contains source+reply tags, and no billing/route/B-leg must run.
+	isLocal        bool
+	localStream    lipapi.EventStream
+	localHandlerID string
 }
 
 func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
@@ -137,6 +143,40 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		pr.conversationEvidence = ibt.conversationEvidence
 		pr.conversationSnapshot = ibt.conversationSnapshot
 		pr.conversationSummary = ibt.conversationSummary
+	}
+
+	// Task 3.3: generic two-phase local-turn stage. Frozen ordered handler list
+	// in snapshot; pure Match against preserved ingress before credit/billing/route/B-leg.
+	if pr.identity.ingressCall != nil {
+		handlers := e.localTurnHandlers()
+		if len(handlers) > 0 {
+			tagger := e.conversationViewTagger()
+			if tagger == nil {
+				err := fmt.Errorf("executor: conversation view tagger not available for localturn")
+				pr.finalize(err)
+				return nil, nil, noop, err
+			}
+			out, err := e.runLocalTurnStage(prepCtx, *pr.identity.ingressCall, pr.conversationSnapshot, handlers, tagger, pr.identity.aLeg.ALegID, pr.identity.traceID)
+			if err != nil {
+				_ = e.releaseRequestAuthority(prepCtx)
+				pr.finalize(err)
+				return nil, nil, noop, err
+			}
+			if out.claimed {
+				// Merge source+reply tags into frozen request-local snapshot without second store read.
+				pr.conversationSnapshot = out.mergedSnap
+				pr.identity.conversationSnapshot = out.mergedSnap
+				pr.localStream = out.stream
+				pr.isLocal = true
+				pr.localHandlerID = out.handlerID
+				// Release prior concurrency authority deterministically; no billing/route/B-leg.
+				guardLocal := &preStreamGuard{executor: e, ctx: prepCtx, requestAuthorityAdmitted: true}
+				pr.guard = guardLocal
+				_ = e.releaseRequestAuthority(prepCtx)
+				guardLocal.requestAuthorityAdmitted = false
+				return pr, prepCtx, guardLocal.Close, nil
+			}
+		}
 	}
 
 	guard := &preStreamGuard{

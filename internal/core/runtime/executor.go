@@ -122,6 +122,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		prep.finalize(err)
 		cleanup()
 	}()
+	// Task 3.3: local-turn success has no B-leg/provider/inference billing.
+	if prep.isLocal && prep.localStream != nil {
+		return prep.localStream, nil
+	}
 	if err := e.checkCheapCredit(prepCtx, prep); err != nil {
 		return nil, err
 	}

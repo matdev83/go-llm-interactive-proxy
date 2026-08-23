@@ -145,6 +145,9 @@ func (b FeatureBundle) Validate() error {
 		if localturn.IsNilHandler(h) {
 			return fmt.Errorf("feature: FeatureBundle: LocalTurnHandlers[%d] must not be nil", i)
 		}
+		if err := localturn.ValidateHandlerID(h.ID()); err != nil {
+			return fmt.Errorf("feature: FeatureBundle: LocalTurnHandlers[%d] invalid id: %w", i, err)
+		}
 	}
 	return nil
 }
