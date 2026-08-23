@@ -90,10 +90,9 @@ func NewCompressionReservationHook(cfg Config, store CompressionStore, next Post
 }
 
 // BuildPostAppendHook constructs the composable post-append hook chain rooted in compression.
-// For task 4.2 it contains only reservation; future stages (4.3 egress, 4.4 submit/bind)
-// will extend this chain without changing its construction site. Hook is nil when
-// compression disabled to preserve disabled-mode byte equivalency.
-// Next stage is nil for 4.2; 4.3 will supply egress stage that chains via PostReservationStage.
+// For task 4.2 it contains only reservation; 4.3 extends it with egress decision/redaction
+// before request construction. Future stages (4.4 submit/bind) will extend further.
+// Hook is nil when compression disabled to preserve disabled-mode byte equivalency.
 func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) PostAppendHook {
 	if !cfg.Compression.Enabled {
 		return nil
@@ -102,15 +101,15 @@ func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) P
 	if !ok || cs == nil {
 		return nil
 	}
-	// Validate services are present (fail closed is handled at bundle validation, but hook construction is defensive).
 	if err := svc.validateFor(cfg); err != nil {
 		return nil
 	}
-	// Current chain: reservation only. Future tasks will wrap/sequence egress and submit.
-	return NewCompressionReservationHook(cfg, cs, nil)
+	egressStage := NewPostReservationEgressStage(cfg, cs, svc, nil)
+	return NewCompressionReservationHook(cfg, cs, egressStage)
 }
 
 // BuildPostAppendHookWithNext allows tests and future stages to inject the next stage for chaining.
+// This is the reservation-level injection (pre-egress) retained for 4.2-era tests.
 func BuildPostAppendHookWithNext(cfg Config, store TurnStore, svc CompressionServices, next PostReservationStage) PostAppendHook {
 	if !cfg.Compression.Enabled {
 		return nil
@@ -123,4 +122,21 @@ func BuildPostAppendHookWithNext(cfg Config, store TurnStore, svc CompressionSer
 		return nil
 	}
 	return NewCompressionReservationHook(cfg, cs, next)
+}
+
+// BuildPostAppendHookWithEgressNext allows tests and 4.4 to inject the post-egress
+// next stage that receives PreparedReservation (sanitized segments + decision).
+func BuildPostAppendHookWithEgressNext(cfg Config, store TurnStore, svc CompressionServices, next PostEgressStage) PostAppendHook {
+	if !cfg.Compression.Enabled {
+		return nil
+	}
+	cs, ok := store.(CompressionStore)
+	if !ok || cs == nil {
+		return nil
+	}
+	if err := svc.validateFor(cfg); err != nil {
+		return nil
+	}
+	egressStage := NewPostReservationEgressStage(cfg, cs, svc, next)
+	return NewCompressionReservationHook(cfg, cs, egressStage)
 }

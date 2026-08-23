@@ -180,7 +180,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: session/aggregate saturation tests_
   - _Requirements: 4, 5_
 
-- [ ] 4.3 Apply egress decision/redaction before request construction
+- [x] 4.3 Apply egress decision/redaction before request construction
   - Evaluate route/purpose/principal policy after reservation and before submit; clear reservation on deny/missing required policy.
   - Redact locally when required, then re-run bounded input accounting over sanitized text.
   - Prove fake provider never receives denied/unredacted sensitive text.

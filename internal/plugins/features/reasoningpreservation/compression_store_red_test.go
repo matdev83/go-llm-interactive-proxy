@@ -515,7 +515,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		_ = cs.ClearCompression(context.Background(), p, "t1")
+		_ = cs.ClearCompression(context.Background(), p, "t1", "")
 	}()
 	wg.Wait()
 	stats := cs.CompressionStats()
@@ -528,7 +528,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func() {
 			defer wg.Done()
-			_ = cs.ClearCompression(context.Background(), p, "t1")
+			_ = cs.ClearCompression(context.Background(), p, "t1", "")
 		}()
 	}
 	wg.Wait()
@@ -853,7 +853,7 @@ func TestCompression_Replacement_ConcurrentClearDeleteExactlyOnce(t *testing.T) 
 	for i := 0; i < 4; i++ {
 		go func() {
 			defer wg.Done()
-			_ = cs.ClearCompression(context.Background(), p, "t1")
+			_ = cs.ClearCompression(context.Background(), p, "t1", "")
 		}()
 	}
 	for i := 0; i < 4; i++ {

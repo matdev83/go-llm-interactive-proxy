@@ -125,7 +125,7 @@ type CompressionStore interface {
 	UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte) error
 	BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error
 	AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
-	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string) error
+	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string, expectedReservationID string) error
 	GetCompressionState(ctx context.Context, partition SessionPartition, artifactID string) (CompressionState, bool, error)
 	CompressionStats() CompressionStats
 }
@@ -434,7 +434,7 @@ func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, partition Session
 	return nil
 }
 
-func (s *memoryTurnStore) ClearCompression(ctx context.Context, partition SessionPartition, artifactID string) error {
+func (s *memoryTurnStore) ClearCompression(ctx context.Context, partition SessionPartition, artifactID string, expectedReservationID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -444,6 +444,20 @@ func (s *memoryTurnStore) ClearCompression(ctx context.Context, partition Sessio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := partition.key()
+	m, ok := s.compBy[key]
+	if !ok {
+		return nil
+	}
+	entry, ok := m[artifactID]
+	if !ok {
+		return nil
+	}
+	if expectedReservationID != "" && entry.reservationID != expectedReservationID {
+		return fmt.Errorf("%w: reservation mismatch on clear", ErrCompressionConflict)
+	}
+	if expectedReservationID != "" && entry.pending != nil && entry.pending.ReservationID != expectedReservationID {
+		return fmt.Errorf("%w: pending reservation mismatch on clear", ErrCompressionConflict)
+	}
 	s.clearOptionalLocked(key, artifactID)
 	return nil
 }
