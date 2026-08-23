@@ -173,7 +173,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 ## 5. Continuation, Reload, Observability, and Delivery Gates
 
-- [ ] 5.1 Certify replay/continuation/reload separation of A-leg and B-leg truth
+- [x] 5.1 Certify replay/continuation/reload separation of A-leg and B-leg truth
   - Add legacy full-history and OpenResponses `previous_response_id` tests proving client-visible local messages materialize then filter, while backend-only steering is reconstructed only after materialization.
   - Prove hidden steering never enters frontend continuation/client response/CTP augmentation but is present in PTB/backend calls.
   - Prove durable restart and runtime generation reload retain exclusions/active steering even when the producer/handler is absent afterward.
