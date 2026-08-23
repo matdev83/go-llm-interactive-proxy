@@ -220,3 +220,13 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 - SDK follow-ups from 1.4 review (apply when tasks 2.4/3.3 touch these packages): remove or wire the dead `validateHandlerID` in `pkg/lipsdk/localturn/types.go`; decide whether to unify typed-nil (`localturn.IsNilHandler`) vs `== nil` checks across `pkg/lipsdk/feature/bundle.go` ordered lists; consider sentinel-wrapped errors for SDK validation if typed classification becomes necessary (currently plain `fmt.Errorf`, tests use `require.Error`).
 - `internal/archtest` contains MORE gates than line budgets — run the FULL `./internal/archtest/...` suite per task: `TestShrinkage_NetReductionMeetsRequirement115` (Req 11.5 net-reduction floor over runtimebundle/runtimehost/stdhttp/cmd/lipruntime surfaces; only ~70 lines of margin, so additions to those trees need deliberate overlay accounting or compensating placement) and `TestHexagonalMigrationBaselineMatchesGoList` (locked direct-import baselines per composition package; new imports there require deliberate baseline updates). Task 2.4's runtimebundle composition seam tripped both; fixed by relocating capability helpers to `internal/core/conversationview/sdkadapter/services.go` (runtimebundle left pristine). Tasks 3.x/5.x touching runtimebundle/stdhttp must plan for these gates up front.
 - Task 5.2 must wire `SteeringState.CacheDiscontinuityKind`/`CacheDiscontinuityPlacement` to bounded diagnostics (`operation`, `placement` only); task 4.3 records the fields across Reference/Memory/Bun stores, but the SDK writer mapping intentionally drops them today. Never label by OverlayID, A-leg ID, digest, or plaintext.
+
+## Completion Status
+
+- [x] All implementation tasks completed and verified on `origin/main` @ `b763a772`
+- [x] Task completion gate satisfied: every checkbox is `[x]` (geoip 33/33, non-forwardable 20/20, runtime 24/24, request tranche via typed pipeline)
+- [x] Implementation PR(s) merged:
+  - PR #435 `feat: add non-forwardable conversation content` — head `304cc4a685ac18f8a43182192c9e98aa39c9fbf4` merged as `b763a772aecc265c643802363bc7fc340437adda` on 2026-08-23T21:02:18Z — https://github.com/matdev83/go-llm-interactive-proxy/pull/435
+- [x] Required focused tests and architecture gates pass on merged baseline (see PR CI)
+- [x] No successor-only removals falsely marked complete; successor scope documented as deferred (see spec project_description)
+- [x] `spec.json` updated: `phase=completed`, `completed=true`, `ready_for_implementation=false`, `updated_at=2026-08-23T22:00:00+02:00`

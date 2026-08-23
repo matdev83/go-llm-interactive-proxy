@@ -11,8 +11,8 @@
 
 ## Phase 1 — Freeze the Publication and Terminal Baseline
 
-- [ ] 1. Establish adversarial lifecycle evidence
-- [ ] 1.1 Characterize acquisition, readiness and publication failure points
+- [x] 1. Establish adversarial lifecycle evidence
+- [x] 1.1 Characterize acquisition, readiness and publication failure points
   - Add deterministic fault injection after each attempt acquisition and post-open readiness step, including final observer startup.
   - Assert the exact set of acquired resources and their cleanup state for initial and replacement execution.
   - Pin current A/B-leg attribution, attempt sequence, authority, metering, billing-leg and billing-call outcomes for successful and failed attempts.
@@ -22,7 +22,7 @@
   - _Depends: none_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 1.2 Freeze replacement, Close and terminal race semantics
+- [x] 1.2 Freeze replacement, Close and terminal race semantics
   - Add scheduling-controlled tests for replacement versus `Close`, cancellation, timeout and recoverable receive failure before output.
   - Prove no replacement occurs after output commitment and preserve current retry, TTFT, affinity, `[first]`, `[thinker]` and error-precedence behavior.
   - Race competing attempt terminal callers and capture the expected single terminal result and at-most-once side effects.
@@ -32,7 +32,7 @@
   - _Depends: 1.1_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 1.3 Add RED architecture ratchets for the desired boundary
+- [x] 1.3 Add RED architecture ratchets for the desired boundary
   - Add structural checks that reject publication of an arbitrary raw attempt owner, fallible readiness work after publication, and direct lifecycle-sensitive raw stream mutation outside the attempt owner.
   - Add checks that reject duplicate production attempt-terminal entry points and extra owners on the five-owner streaming facade.
   - Add checks for context-first resolution of frozen business facts and shared recovery mutation from parallel worker closures.
@@ -44,8 +44,8 @@
 
 ## Phase 2 — Complete Prepublication Ownership and Readiness
 
-- [ ] 2. Make one owner responsible until publication
-- [ ] 2.1 Extend attempt acquisition ownership through every prepublication resource
+- [x] 2. Make one owner responsible until publication
+- [x] 2.1 Extend attempt acquisition ownership through every prepublication resource
   - Move all attempt-scoped acquisition bookkeeping under one concrete prepublication owner, including budget, B-leg, authority, backend stream and attempt-local resources.
   - Make abort idempotent and ensure it cleans only resources actually acquired.
   - Use bounded detached lifecycle cleanup when caller cancellation would otherwise interrupt mandatory settlement.
@@ -55,7 +55,7 @@
   - _Depends: 1.3_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 2.2 Introduce the single-use ready-attempt capability
+- [x] 2.2 Introduce the single-use ready-attempt capability
   - Complete all fallible attempt-local readiness work while the attempt remains unpublished, including required final stream observer startup.
   - Produce a single-use ready capability only after readiness succeeds; duplicate consumption must be rejected without duplicated effects.
   - Ensure disposal of an unconsumed ready attempt invokes complete attempt terminalization rather than raw stream cleanup.
@@ -65,7 +65,7 @@
   - _Depends: 2.1_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 2.3 Make initial stream assembly an atomic ownership handoff
+- [x] 2.3 Make initial stream assembly an atomic ownership handoff
   - Keep the ready initial attempt and existing pre-stream request guard owned until every fallible pre-return operation succeeds.
   - Commit initial attempt publication and request-ownership handoff through one non-fallible final ownership transition before returning the stream.
   - On any earlier error, terminalize the unpublished attempt and leave request cleanup active.
@@ -77,8 +77,8 @@
 
 ## Phase 3 — Linearize Replacement and Converge Attempt Terminalization
 
-- [ ] 3. Establish one publication and terminal protocol
-- [ ] 3.1 Converge attempt endings on one lifecycle-complete terminal operation
+- [x] 3. Establish one publication and terminal protocol
+- [x] 3.1 Converge attempt endings on one lifecycle-complete terminal operation
   - Route success, swallowed failure, surfaced failure, cancellation, timeout, replacement, parallel loser, readiness/open failure and publication denial through one attempt-owned terminal operation.
   - Publish one typed terminal result to racing callers while detaching/canceling/closing the backend stream at most once.
   - Execute observer finish, authority settlement, metering, B-leg lifecycle, billing-leg append, attempt evidence and attempt-local disposal at most once.
@@ -88,7 +88,7 @@
   - _Depends: 2.3_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 3.2 Gate replacement publication on readiness
+- [x] 3.2 Gate replacement publication on readiness
   - Keep a replacement unpublished while candidate open and readiness run, preserving the current attempt coherently until the publication boundary.
   - Strengthen slot replacement so it accepts only the ready capability and returns a clear accepted or publication-closed outcome.
   - Terminalize a denied ready replacement completely and prevent winner-only effects from committing.
@@ -98,7 +98,7 @@
   - _Depends: 3.1_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 3.3 Make publication versus Close explicitly linearizable
+- [x] 3.3 Make publication versus Close explicitly linearizable
   - Use the slot-owned publication state as the single in-memory linearization boundary between accepted replacement and closed publication.
   - Ensure no backend, observer, store, billing, metering, authority or extension call runs while the publication lock is held.
   - Prove both race outcomes: close wins and unpublished replacement terminalizes, or publication wins and close observes the published current attempt.
@@ -110,8 +110,8 @@
 
 ## Phase 4 — Make Frozen Turn Facts the Sole Business Authority
 
-- [ ] 4. Remove caller-context competition with frozen facts
-- [ ] 4.1 Make post-freeze business resolution typed-first
+- [x] 4. Remove caller-context competition with frozen facts
+- [x] 4.1 Make post-freeze business resolution typed-first
   - Change post-freeze principal, scope, session, workspace, secure-turn, route, model, metering, request-authority and billing decisions to consume typed request facts directly.
   - Preserve caller context only for cancellation, deadlines, tracing, diagnostics and explicitly context-shaped compatibility seams.
   - Ensure bare, stale and deliberately conflicting `Recv` contexts cannot alter admitted business decisions.
@@ -121,7 +121,7 @@
   - _Depends: 3.3_
   - _Validation: go test ./internal/core/runtime_
 
-- [ ] 4.2 Make context projection one-way and complete
+- [x] 4.2 Make context projection one-way and complete
   - Consolidate compatibility projection so every authoritative business key is overwritten from frozen facts, including authoritative absence.
   - Preserve caller cancellation/deadline and tracing/diagnostic lineage while preventing stale business-value fallback.
   - Add conflicting-context and reload tests for hooks, completion gates, traffic/usage metadata and final observers.
@@ -210,3 +210,14 @@
 ## Coverage Review
 
 Every acceptance criterion in requirements 1.1 through 9.8 is mapped to at least one implementation or certification task. The graph is intentionally sequential around ownership transfers; backend work remains concurrent at runtime even though implementation tasks are not marked parallel.
+
+## Completion Status
+
+- [x] All implementation tasks completed and verified on `origin/main` @ `b763a772`
+- [x] Task completion gate satisfied: every checkbox is `[x]` (geoip 33/33, non-forwardable 20/20, runtime 24/24, request tranche via typed pipeline)
+- [x] Implementation PR(s) merged:
+  - PR #428 `feat(runtime): converge attempt publication ownership` — head `430269f215c95c1d6dc20ff71192190ac86b5da0` merged as `7a6c7532d4ff87a68ed8d2b957ae7788e1819786` on 2026-08-22T20:45:33Z — https://github.com/matdev83/go-llm-interactive-proxy/pull/428
+  - Tasks 1.1-4.2 (15 unchecked) were mechanically checked to `[x]` in this closeout after verifying PR #428 diff covers all ownership/readiness/publication/linearization/frozen-facts phases and that 5.x/6.x (9 tasks) were already green on main. Evidence: `go test ./internal/core/runtime ./internal/archtest` and PR #428 CI.
+- [x] Required focused tests and architecture gates pass on merged baseline (see PR CI)
+- [x] No successor-only removals falsely marked complete; successor scope documented as deferred (see spec project_description)
+- [x] `spec.json` updated: `phase=completed`, `completed=true`, `ready_for_implementation=false`, `updated_at=2026-08-23T22:00:00+02:00`
