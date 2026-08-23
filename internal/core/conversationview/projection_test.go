@@ -816,6 +816,51 @@ func TestResolveAfterIngressTailAnchor_ExcludedTerminalUserRejectsNoFallback(t *
 		require.Error(t, err)
 		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
 	})
+	t.Run("item authority trailing tool items reject unsafe boundary", func(t *testing.T) {
+		t.Parallel()
+		u1 := textItem(lipapi.RoleUser, "u1", "user turn")
+		toolCall := lipapi.Item{Kind: lipapi.ItemKindToolCall, ID: "tc1", ToolCall: &lipapi.ToolCallItem{CallID: "c1", Name: "t", Arguments: json.RawMessage(`{}`)}}
+		toolResult := lipapi.Item{Kind: lipapi.ItemKindToolResult, ID: "tr1", ToolResult: &lipapi.ToolResultItem{CallID: "c1", Output: "result"}}
+		snap := snapshotWithTagsAndOverlays(nil, nil)
+		call := lipapi.Call{Items: []lipapi.Item{u1, toolCall, toolResult}}
+		anchor, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err, "trailing surviving tool items after terminal user must reject registration")
+		assert.ErrorIs(t, err, conversationview.ErrTerminalNotUser)
+		_ = anchor
+	})
+	t.Run("item authority trailing reasoning item rejects unsafe boundary", func(t *testing.T) {
+		t.Parallel()
+		u1 := textItem(lipapi.RoleUser, "u1", "user turn")
+		reasoning := lipapi.Item{Kind: lipapi.ItemKindReasoning, ID: "r1"}
+		snap := snapshotWithTagsAndOverlays(nil, nil)
+		call := lipapi.Call{Items: []lipapi.Item{u1, reasoning}}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err, "trailing surviving non-message item must reject registration")
+		assert.ErrorIs(t, err, conversationview.ErrTerminalNotUser)
+	})
+	t.Run("item authority reference to absent target rejects unsafe boundary", func(t *testing.T) {
+		t.Parallel()
+		u1 := textItem(lipapi.RoleUser, "u1", "user turn")
+		dangling := lipapi.Item{Kind: lipapi.ItemKindItemReference, ID: "ref-x", Reference: &lipapi.ItemReference{ID: "msg-gone"}}
+		snap := snapshotWithTagsAndOverlays(nil, nil)
+		call := lipapi.Call{Items: []lipapi.Item{u1, dangling}}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err, "projection preserves references to absent targets; surviving reference makes boundary unsafe")
+		assert.ErrorIs(t, err, conversationview.ErrTerminalNotUser)
+	})
+	t.Run("item authority reference to excluded message is cleaned and boundary restored", func(t *testing.T) {
+		t.Parallel()
+		m1 := textItem(lipapi.RoleUser, "msg-1", "will be excluded")
+		u2 := textItem(lipapi.RoleUser, "u2", "terminal user")
+		refToExcluded := lipapi.Item{Kind: lipapi.ItemKindItemReference, ID: "ref-1", Reference: &lipapi.ItemReference{ID: "msg-1"}}
+		idM1 := mustIdentityForItem(t, m1)
+		snap := snapshotWithTagsAndOverlays([]conversationview.Tag{{Identity: idM1, Reason: "test_reason"}}, nil)
+		call := lipapi.Call{Items: []lipapi.Item{m1, u2, refToExcluded}}
+		anchor, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.NoError(t, err, "reference targeting excluded message must be cleaned exactly like projection")
+		assert.Equal(t, mustIdentityForItem(t, u2), anchor.Identity)
+		assert.Equal(t, uint32(1), anchor.Occurrence)
+	})
 }
 
 // Helper to silence unused import warning for fmt if not used elsewhere – we use fmt in test helpers above.
