@@ -303,7 +303,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: focused `-race`/goleak suites where platform-supported_
   - _Requirements: 5, 11, 13_
 
-- [ ] 7.4 Certify parser/resource limits and disabled-mode performance
+- [x] 7.4 Certify parser/resource limits and disabled-mode performance
   - Fuzz strict decoder and bounded raw extractor; include huge/malformed/duplicate/control-character cases and ensure raw cap is applied before decode.
   - Benchmark disabled mode against existing reasoning preservation and measure bounded shadow/active overhead.
   - Verify generic scheduler outer result cap plus feature `max_output_bytes` and decoded surrogate caps compose without redundant unbounded copies.

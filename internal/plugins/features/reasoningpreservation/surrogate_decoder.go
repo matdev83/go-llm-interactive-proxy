@@ -88,12 +88,12 @@ func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurroga
 	if len(raw) == 0 {
 		return ReasoningSurrogate{Sanitization: "none"}, OutcomeDecodeInvalid, fmt.Errorf("%w: empty raw bytes", ErrSurrogateDecodeInvalid)
 	}
-	if !utf8.Valid(raw) {
-		return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: raw bytes must be valid UTF-8", ErrSurrogateControlInvalid)
-	}
-	// Raw bytes already bounded; defensive hard ceiling check content-free.
+	// Hard ceiling before UTF-8 scan: ensures raw cap before decode avoids O(n) scan on huge malformed.
 	if len(raw) > HardRawOutputCeiling {
 		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: raw %d > hard ceiling %d", ErrSurrogateOversize, len(raw), HardRawOutputCeiling)
+	}
+	if !utf8.Valid(raw) {
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: raw bytes must be valid UTF-8", ErrSurrogateControlInvalid)
 	}
 	if params.MaxSurrogateBytes <= 0 {
 		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: max_surrogate_bytes %d must be >0", ErrSurrogateOversize, params.MaxSurrogateBytes)
