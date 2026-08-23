@@ -15,6 +15,7 @@ func collectedFromText(t *testing.T, text string) lipapi.Collected {
 	t.Helper()
 	var c lipapi.Collected
 	c.Text.WriteString(text)
+	c.FinishReceived = true
 	return c
 }
 
@@ -22,6 +23,7 @@ func collectedWithToolCall(t *testing.T, text string) lipapi.Collected {
 	t.Helper()
 	var c lipapi.Collected
 	c.Text.WriteString(text)
+	c.FinishReceived = true
 	c.ToolArgs = map[string]*strings.Builder{"call-1": func() *strings.Builder { b := &strings.Builder{}; b.WriteString("{}"); return b }()}
 	c.ToolNames = map[string]string{"call-1": "my_tool"}
 	c.ToolCallOrder = []string{"call-1"}

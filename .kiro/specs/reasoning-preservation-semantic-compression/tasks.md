@@ -142,7 +142,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: canonical request validation + prompt/envelope separation tests_
   - _Requirements: 6, 8, 9, 10_
 
-- [ ] 3.4 Implement feature-level raw result extraction bounded before decode
+- [x] 3.4 Implement feature-level raw result extraction bounded before decode
   - Reject tool calls/non-text channels first, then iterate collected text fragments with a byte counter.
   - Stop and return `raw_oversize` once `max_output_bytes` is exceeded; do not construct the full string or invoke JSON decode first.
   - Treat the scheduler `MaxResultBytes` as only an outer defense-in-depth ceiling.
