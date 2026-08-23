@@ -1,0 +1,91 @@
+package reasoningpreservation_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	coremetering "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCompressorBilling_WorkloadIdentity(t *testing.T) {
+	t.Parallel()
+	identity, err := billing.WorkloadIdentityFromAuxiliaryRole(billing.WorkloadRoleReasoningPreservationCompressor)
+	require.NoError(t, err)
+	require.Equal(t, billing.WorkloadClassAuxiliary, identity.Class)
+	require.Equal(t, billing.WorkloadRole(billing.WorkloadRoleReasoningPreservationCompressor), identity.Role)
+	require.NoError(t, identity.Validate())
+
+	// metering projects same identity from auxiliary fact
+	fact := metering.Fact{Lifecycle: metering.LifecycleAuxiliaryRequest, Scope: scope.PrincipalScopeView{Origin: scope.OriginInternal}}
+	projected, err := coremetering.ProjectWorkloadIdentity(fact, string(billing.WorkloadRoleReasoningPreservationCompressor))
+	require.NoError(t, err)
+	require.Equal(t, identity, projected)
+
+	// control-plane alternative: internal origin also projects auxiliary
+	fact2 := metering.Fact{Lifecycle: metering.LifecycleBackendAttempt, Scope: scope.PrincipalScopeView{Origin: scope.OriginInternal}}
+	projected2, err := coremetering.ProjectWorkloadIdentity(fact2, string(billing.WorkloadRoleReasoningPreservationCompressor))
+	require.NoError(t, err)
+	require.Equal(t, billing.WorkloadClassAuxiliary, projected2.Class)
+}
+
+func TestCompressorBilling_PromptExcludesControlPlane(t *testing.T) {
+	t.Parallel()
+	trace := "trace-ctrl-123"
+	aleg := "aleg-ctrl-456"
+	bleg := "bleg-ctrl-789"
+	branch := "branch-ctrl-xyz"
+	principalID := "principal-ctrl-999"
+	req, err := reasoningpreservation.BuildCompressorAuxRequest(reasoningpreservation.CompressorAuxRequestParams{
+		Route:               "compressor-route",
+		ParentTraceID:       trace,
+		ParentALegID:        aleg,
+		ParentBLegID:        bleg,
+		ParentBranchBinding: branch,
+		Segments:            []reasoningpreservation.CompressorInputSegment{{Index: 0, Text: "sanitized reasoning text"}},
+		MaxOutputTokens:     100,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "reasoning_preservation_compressor", req.Role)
+	require.Equal(t, "private", req.Visibility)
+	var modelBlob string
+	for _, m := range req.Call.Messages {
+		for _, p := range m.Parts {
+			modelBlob += p.Text
+		}
+	}
+	// sanitized text and schema must be present
+	require.Contains(t, modelBlob, "sanitized reasoning text")
+	require.Contains(t, modelBlob, reasoningpreservation.CompressorSystemPrompt)
+	require.Contains(t, modelBlob, reasoningpreservation.CompressorOutputSchema)
+	// control-plane lineage must NOT leak into model prompt
+	for _, leak := range []string{trace, aleg, bleg, branch, principalID, "reasoning_preservation_compressor", "private"} {
+		require.NotContains(t, modelBlob, leak, "leak %q", leak)
+	}
+	// envelope retains lineage for billing/routing
+	require.Equal(t, trace, req.ParentTraceID)
+	require.Equal(t, aleg, req.ParentALegID)
+	require.Equal(t, bleg, req.ParentBLegID)
+	require.Equal(t, branch, req.ParentBranchBinding)
+}
+
+func TestCompressorBilling_RawOversizeStillBillable_AtFeatureBoundary(t *testing.T) {
+	t.Parallel()
+	// Feature-level raw extractor must reject oversize before decode, but executor billing is independent.
+	var c lipapi.Collected
+	c.Text.WriteString(strings.Repeat("a", 11) + `{"schema_version":1,"segments":[{"index":0,"text":"ok"}]}`)
+	c.FinishReceived = true
+	_, err := reasoningpreservation.ExtractBoundedRaw(c, 10)
+	require.Error(t, err)
+	require.ErrorIs(t, err, reasoningpreservation.ErrRawOversize)
+
+	// Billing identity for compressor remains valid regardless of raw outcome
+	identity, err := billing.WorkloadIdentityFromAuxiliaryRole(billing.WorkloadRoleReasoningPreservationCompressor)
+	require.NoError(t, err)
+	require.True(t, identity.IsAuxiliary())
+}

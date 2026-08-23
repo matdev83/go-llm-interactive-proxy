@@ -66,7 +66,8 @@ func TestCompactionContinuitySecurity_NoFeatureOwnedPersistenceOrMoneyPath(t *te
 
 	assertExactFields(t, "auxiliary.BackgroundClient", reflect.TypeFor[auxiliary.BackgroundClient](), "Await", "Forget", "SubmitCollect")
 	assertExactFields(t, "compaction.Services", reflect.TypeFor[compaction.Services](), "BackgroundAux", "State")
-	assertExactFields(t, "auxiliary.SubmitOptions", reflect.TypeFor[auxiliary.SubmitOptions](), "CoalesceKey", "Timeout")
+	// OnCoalesced is additive optional content-free callback on SubmitOptions; it is not a BackgroundClient method and preserves three-method fixture.
+	assertExactFields(t, "auxiliary.SubmitOptions", reflect.TypeFor[auxiliary.SubmitOptions](), "CoalesceKey", "OnCoalesced", "Timeout")
 }
 
 // TestCompactionContinuitySecurity_DetachedModeIsNotWireSettable verifies the

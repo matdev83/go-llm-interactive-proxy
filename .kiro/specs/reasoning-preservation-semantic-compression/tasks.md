@@ -276,7 +276,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 7. Certify Economics, Security, Concurrency, Performance, and Repository Quality
 
-- [ ] 7.1 Certify billing/admission/workload attribution
+- [x] 7.1 Certify billing/admission/workload attribution
   - Prove originating-principal attribution, auxiliary workload role/class, separate child BillingCallID/B-leg evidence, primary protocol usage exclusion, and account/operator aggregate inclusion.
   - Cover pre-submit admission rejection and submitted-but-invalid/raw-oversize/stale/insufficient-savings results.
   - Confirm control-plane principal/scope exists for billing but never enters model prompt.
