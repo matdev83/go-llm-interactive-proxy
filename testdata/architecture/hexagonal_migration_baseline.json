@@ -153,6 +153,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/localstream",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane",

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/localstream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 )
@@ -109,24 +110,18 @@ func localTurnSourceRequests(call lipapi.Call, res localturn.MatchResult) ([]con
 }
 
 // canonicalReplyMessage constructs the canonical assistant text message for tagging and streaming.
+// Delegates to the producer-neutral localstream helper so reply-tag identity
+// equals encoded/decoded assistant content across all official frontends.
 func canonicalReplyMessage(text string) lipapi.Message {
-	return lipapi.Message{
-		Role:  lipapi.RoleAssistant,
-		Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: text}},
-	}
+	return localstream.CanonicalAssistantMessage(text)
 }
 
 // buildLocalEventStream constructs a finite EventStream from reply text with
 // exactly the same content that was tagged. No provider usage, no B-leg ID,
 // no background goroutine; obeys context cancellation/Close.
+// Delegates to the generic localstream factory used by frontend contract tests.
 func buildLocalEventStream(replyText string) lipapi.EventStream {
-	events := []lipapi.Event{
-		{Kind: lipapi.EventResponseStarted},
-		{Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventTextDelta, Delta: replyText},
-		{Kind: lipapi.EventResponseFinished},
-	}
-	return lipapi.NewFixedEventStream(events)
+	return localstream.NewTextStream(replyText)
 }
 
 // runLocalTurnStage executes the two-phase local-turn protocol against the

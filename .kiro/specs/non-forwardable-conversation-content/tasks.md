@@ -119,7 +119,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./pkg/lipsdk/... ./internal/featurebundle/... ./internal/core/runtime/...`_
   - _Requirements: 4.1-4.6, 7.1-7.13, 8.1-8.7_
 
-- [ ] 3.4 Certify local canonical response behavior through frontends
+- [x] 3.4 Certify local canonical response behavior through frontends
   - Add generic local-stream helpers/factory using existing canonical event sequence with no background goroutine and no provider usage/B-leg identity.
   - Extend bounded official frontend contract tests so streaming/non-streaming encoders accept the same local stream and replay decodes to identity-equivalent assistant content.
   - Prove local reply/claimed source remain client-visible in A-leg/continuation yet are filtered on the next backend turn.
