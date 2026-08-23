@@ -124,7 +124,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: fake-policy/sanitizer tests_
   - _Requirements: 7, 8_
 
-- [ ] 3.2 Implement bounded semantic-segment preparation
+- [x] 3.2 Implement bounded semantic-segment preparation
   - Extract only classifier-approved reasoning placements; exclude ordinary answer text, transcript, tools, files/media, signatures, opaque/native data.
   - Apply required redaction before input byte/token accounting.
   - Produce local segment indexes only; never place raw session/account/lineage/anchor/digest IDs into model-visible payload.
