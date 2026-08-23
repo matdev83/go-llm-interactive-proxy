@@ -162,7 +162,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 4. Wire Original-First Shadow Submission Only
 
-- [ ] 4.1 Capture exact parent attribution and artifact correlation after original append
+- [x] 4.1 Capture exact parent attribution and artifact correlation after original append
   - Extend observer-owned post-append data only with the trusted scope/lineage/correlation needed for reservation and child execution.
   - Keep raw principal/session/account/lineage out of model payload and content telemetry.
   - Confirm no compression path exists before authoritative append success.

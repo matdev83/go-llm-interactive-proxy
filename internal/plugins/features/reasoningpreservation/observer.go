@@ -16,15 +16,23 @@ import (
 )
 
 type StreamObserverFactory struct {
-	cfg      Config
-	store    TurnStore
-	tel      *Telemetry
-	id       string
-	order    int
-	lastDiag atomic.Value
+	cfg            Config
+	store          TurnStore
+	tel            *Telemetry
+	id             string
+	order          int
+	lastDiag       atomic.Value
+	postAppendHook PostAppendHook
 }
 
 func NewStreamObserverFactory(cfg Config, store TurnStore, tel ...*Telemetry) *StreamObserverFactory {
+	return NewStreamObserverFactoryWithPostAppendHook(cfg, store, nil, tel...)
+}
+
+// NewStreamObserverFactoryWithPostAppendHook creates a factory with an immutable post-append hook.
+// The hook is assigned once at construction and never mutated thereafter, avoiding data races.
+// When compression is disabled the hook must be nil.
+func NewStreamObserverFactoryWithPostAppendHook(cfg Config, store TurnStore, hook PostAppendHook, tel ...*Telemetry) *StreamObserverFactory {
 	var t *Telemetry
 	if len(tel) > 0 {
 		t = tel[0]
@@ -33,11 +41,12 @@ func NewStreamObserverFactory(cfg Config, store TurnStore, tel ...*Telemetry) *S
 		t = NewTelemetry()
 	}
 	f := &StreamObserverFactory{
-		cfg:   cfg,
-		store: store,
-		tel:   t,
-		id:    ID + "-observer",
-		order: 0,
+		cfg:            cfg,
+		store:          store,
+		tel:            t,
+		id:             ID + "-observer",
+		order:          0,
+		postAppendHook: hook,
 	}
 	f.lastDiag.Store("")
 	return f
@@ -222,22 +231,25 @@ func (o *streamObserver) Observe(_ context.Context, ev lipapi.Event) error {
 
 func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutcome) error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.finished {
+		o.mu.Unlock()
 		return nil
 	}
 	o.finished = true
 	if outcome != response.OutcomeSuccessReleased {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if !o.captureEligible() {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if o.oversized {
 		o.factory.recordOutcome(OutcomeOversize, map[string]int{"bytes": o.reasoningBytes})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	o.flushTextLocked()
@@ -246,12 +258,14 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	placed, _, err := DerivePlacementsFromParts(o.parts)
 	if err != nil || len(placed) == 0 {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	partition, ok := sessionPartitionOrMiss(o.meta.Session.AuthoritativeSessionID)
 	if !ok {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	msg := lipapi.Message{Role: lipapi.RoleAssistant, Parts: o.parts}
@@ -259,6 +273,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if err != nil {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	reasoningBytes := 0
@@ -268,6 +283,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if reasoningBytes <= 0 || reasoningBytes > o.cfg.State.MaxReasoningBytesPerTurn {
 		o.factory.recordOutcome(OutcomeOversize, map[string]int{"bytes": reasoningBytes})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	art := TurnArtifact{
@@ -283,6 +299,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if err != nil {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if sum.EvictedTurns > 0 || sum.ExpiredTurns > 0 || sum.EvictedBytes > 0 || sum.ExpiredBytes > 0 {
@@ -292,7 +309,36 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 		})
 	}
 	o.factory.recordOutcome(OutcomeObserved, map[string]int{"count": 1, "bytes": reasoningBytes})
+	var hook PostAppendHook
+	var corr PostAppendCorrelation
+	var hasCorr bool
+	if o.factory.cfg.Compression.Enabled && o.factory.postAppendHook != nil {
+		if segs := ExtractSemanticSegments(art.Reasoning); len(segs) > 0 {
+			semDigest := computeSemanticDigest(art.Reasoning)
+			egressHash := computeEgressPolicyRefHash(o.factory.cfg.Compression.EgressPolicyRef)
+			corr = PostAppendCorrelation{
+				Partition:           partition,
+				ArtifactID:          art.ID,
+				Anchor:              anchor,
+				OriginalDigest:      anchor,
+				SemanticDigest:      semDigest,
+				EgressPolicyRefHash: egressHash,
+				TraceID:             o.meta.TraceID,
+				ALegID:              o.meta.ALegID,
+				BLegID:              o.meta.BLegID,
+				BranchBinding:       o.meta.CandidateKey,
+				Scope:               o.meta.Scope.Clone(),
+				PolicyRevision:      o.factory.cfg.Compression.EgressPolicyRef,
+			}
+			hook = o.factory.postAppendHook
+			hasCorr = true
+		}
+	}
 	o.clearPendingLocked()
+	o.mu.Unlock()
+	if hasCorr && hook != nil {
+		_ = hook(ctx, corr)
+	}
 	return nil
 }
 
