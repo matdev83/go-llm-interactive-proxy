@@ -133,12 +133,15 @@ func NewHandler(opts Options) http.Handler {
 		}
 
 		var req CountRequest
-		if err := jsonbody.DecodeIgnoringCancellation(w, r, &req, jsonbody.Policy{
+		if err := jsonbody.Decode(w, r, &req, jsonbody.Policy{
 			MaxBytes: maxBodyBytes,
 		}); err != nil {
-			if errors.Is(err, jsonbody.ErrTooLarge) {
+			switch {
+			case errors.Is(err, context.Canceled):
+				writeError(w, http.StatusRequestTimeout, "request_canceled")
+			case errors.Is(err, jsonbody.ErrTooLarge):
 				writeError(w, http.StatusRequestEntityTooLarge, "request_too_large")
-			} else {
+			default:
 				writeError(w, http.StatusBadRequest, "invalid_json")
 			}
 			return

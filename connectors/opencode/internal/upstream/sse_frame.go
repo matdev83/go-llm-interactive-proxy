@@ -9,16 +9,19 @@ import (
 )
 
 // SSE frames are decoded line-by-line under a per-frame payload cap so a
-// single provider frame cannot force unbounded materialization or huge
+// single provider frame cannot materialize unbounded data or force huge
 // per-frame allocation. The raw line scanner reserves only enough headroom for
-// the frame prefix; the payload cap itself is owned by decodeSSEFrame.
+// the frame prefix plus the line terminator; the payload cap itself is owned
+// by decodeSSEFrame, which runs before materialization.
 const (
 	// maxSSEFrameBytes bounds the decoded payload of one SSE data: frame.
 	maxSSEFrameBytes = 1 << 20 // 1 MiB
 
-	// maxSSEFrameLineBytes bounds one raw scanner token: the data: prefix
-	// plus a payload at the frame cap.
-	maxSSEFrameLineBytes = maxSSEFrameBytes + len(sseFrameDataPrefix)
+	// maxSSEFrameLineBytes bounds one raw scanner token: the data: prefix,
+	// a payload at the frame cap, and the line terminator (LF or CRLF). The
+	// +2 covers CRLF; without it, an exact-cap payload with any line ending
+	// would fail bufio.Scanner with ErrTooLong before decodeSSEFrame runs.
+	maxSSEFrameLineBytes = maxSSEFrameBytes + len(sseFrameDataPrefix) + 2
 )
 
 const sseFrameDataPrefix = "data:"

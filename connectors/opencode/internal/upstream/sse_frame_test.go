@@ -65,6 +65,44 @@ func TestGeminiSSEStreamRejectsOversizedFrame(t *testing.T) {
 	}
 }
 
+func TestSSEStreamsAdmitExactCapPayloadWithLineTerminators(t *testing.T) {
+	t.Parallel()
+
+	// A payload at exactly maxSSEFrameBytes with an LF or CRLF line ending
+	// must survive the scanner (token bound includes the terminator) and the
+	// decodeSSEFrame cap check before materializing a text delta.
+	for _, tc := range []struct {
+		name       string
+		newStream  func(*http.Response) lipapi.EventStream
+		prefix     string
+		suffix     string
+		terminator string
+	}{
+		{name: "anthropic LF", newStream: newAnthropicSSEStream, prefix: `{"type":"content_block_delta","delta":{"type":"text_delta","text":"`, suffix: `"}}`, terminator: "\n"},
+		{name: "anthropic CRLF", newStream: newAnthropicSSEStream, prefix: `{"type":"content_block_delta","delta":{"type":"text_delta","text":"`, suffix: `"}}`, terminator: "\r\n"},
+		{name: "gemini LF", newStream: newGeminiSSEStream, prefix: `{"candidates":[{"content":{"parts":[{"text":"`, suffix: `"}]}}]}`, terminator: "\n"},
+		{name: "gemini CRLF", newStream: newGeminiSSEStream, prefix: `{"candidates":[{"content":{"parts":[{"text":"`, suffix: `"}]}}]}`, terminator: "\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := strings.Repeat("t", maxSSEFrameBytes-len(tc.prefix)-len(tc.suffix))
+			payload := tc.prefix + text + tc.suffix
+			if len(payload) != maxSSEFrameBytes {
+				t.Fatalf("payload=%d bytes, want exact cap %d", len(payload), maxSSEFrameBytes)
+			}
+			body := "data:" + payload + tc.terminator + tc.terminator
+			s := tc.newStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
+			defer s.Close()
+			ev, err := s.Recv(context.Background())
+			if err != nil {
+				t.Fatalf("Recv: %v", err)
+			}
+			if ev.Kind != lipapi.EventTextDelta || ev.Delta != text {
+				t.Fatalf("event=%+v, want exact-cap text delta", ev)
+			}
+		})
+	}
+}
+
 func TestAnthropicSSEStreamEmitsTextFrame(t *testing.T) {
 	t.Parallel()
 

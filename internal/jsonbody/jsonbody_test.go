@@ -42,7 +42,10 @@ func TestDecodeRejectsOversizedContentLengthBeforeReading(t *testing.T) {
 func TestDecodeRejectsChunkedOversize(t *testing.T) {
 	t.Parallel()
 
+	// ContentLength -1 (unknown length, e.g. chunked transfer) must reach
+	// http.MaxBytesReader instead of the early ContentLength check.
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 32)))
+	req.ContentLength = -1
 	w := httptest.NewRecorder()
 	var got request
 	err := jsonbody.Decode(w, req, &got, jsonbody.Policy{MaxBytes: 16})
@@ -56,6 +59,7 @@ func TestDecodeRejectsTrailingDocumentsBeforeMaterialization(t *testing.T) {
 
 	for _, body := range []string{`{"name":"one"}{"name":"two"}`, `{"name":"one"} trailing`} {
 		t.Run(body, func(t *testing.T) {
+			t.Parallel()
 			var got request
 			err := jsonbody.Decode(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)), &got, jsonbody.Policy{
 				MaxBytes: 128,
@@ -126,18 +130,23 @@ func TestDecodeAllowsConfiguredWhitespaceBody(t *testing.T) {
 	}
 }
 
-func TestDecodeIgnoringCancellationStillMaterializesBody(t *testing.T) {
+func TestDecodeRejectsNonJSONWhitespaceBody(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"ok"}`)).WithContext(ctx)
-	var got request
-	if err := jsonbody.DecodeIgnoringCancellation(httptest.NewRecorder(), req, &got, jsonbody.Policy{MaxBytes: 128}); err != nil {
-		t.Fatalf("error=%v, want successful decode", err)
-	}
-	if got.Name != "ok" {
-		t.Fatalf("destination=%+v, want decoded body", got)
+	// U+00A0 (NBSP) is not JSON whitespace: it must not be treated as an
+	// empty body by AllowEmpty and must not be classified as MalformedEmpty.
+	for _, allowEmpty := range []bool{false, true} {
+		var got request
+		err := jsonbody.Decode(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", strings.NewReader("\u00a0")), &got, jsonbody.Policy{
+			MaxBytes:   64,
+			AllowEmpty: allowEmpty,
+		})
+		if jsonshape.Classify(err) != jsonshape.KindMalformed {
+			t.Fatalf("AllowEmpty=%v: error=%v, want malformed", allowEmpty, err)
+		}
+		if errors.Is(err, jsonbody.ErrEmpty) {
+			t.Fatalf("AllowEmpty=%v: NBSP body classified as empty", allowEmpty)
+		}
 	}
 }
 

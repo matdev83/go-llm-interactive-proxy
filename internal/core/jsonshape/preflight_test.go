@@ -106,6 +106,7 @@ func TestPreflightMalformedReasons(t *testing.T) {
 		wantReason jsonshape.MalformedReason
 	}{
 		{name: "empty", data: " \n\t ", wantReason: jsonshape.MalformedEmpty},
+		{name: "non-JSON whitespace", data: "\u00a0", wantReason: jsonshape.MalformedSyntax},
 		{name: "syntax", data: `nope`, wantReason: jsonshape.MalformedSyntax},
 		{name: "multiple values", data: `{}{}`, wantReason: jsonshape.MalformedMultipleValues},
 		{name: "incomplete", data: `{"a":1`, wantReason: jsonshape.MalformedIncomplete},

@@ -17,7 +17,7 @@ func readNonStreamResponse(body io.Reader) ([]byte, error) {
 	limited := io.LimitReader(body, maxNonStreamResponseBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opencode: read non-stream response: %w", err)
 	}
 	if int64(len(data)) > maxNonStreamResponseBytes {
 		return nil, errNonStreamResponseTooLarge

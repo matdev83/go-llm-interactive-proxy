@@ -136,7 +136,9 @@ func TestServiceFailureReturnsSafeError(t *testing.T) {
 	}
 }
 
-func TestRequestContextPassedToService(t *testing.T) {
+type ctxMarker struct{}
+
+func TestCanceledRequestReturnsRequestCanceledWithoutCallingService(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -147,11 +149,35 @@ func TestRequestContextPassedToService(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", bytes.NewBufferString(validRequestBody())).WithContext(ctx)
 	h.ServeHTTP(rr, req)
 
+	if rr.Code != http.StatusRequestTimeout {
+		t.Fatalf("status %d body=%s, want 408 request_canceled", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "request_canceled") {
+		t.Fatalf("body=%s, want request_canceled wire code", rr.Body.String())
+	}
+	if svc.calls != 0 {
+		t.Fatalf("service calls = %d, want 0 for canceled request", svc.calls)
+	}
+}
+
+func TestRequestContextPropagatesToService(t *testing.T) {
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), ctxMarker{}, "token-count-ctx")
+	svc := &fakeService{}
+	h := NewHandler(Options{Enabled: true, Service: svc})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/token-count", strings.NewReader(validRequestBody())).WithContext(ctx)
+	h.ServeHTTP(rr, req)
+
 	if svc.calls != 1 {
 		t.Fatalf("service calls = %d", svc.calls)
 	}
-	if svc.ctxErr != context.Canceled {
-		t.Fatalf("service context error = %v", svc.ctxErr)
+	if svc.ctxValue != "token-count-ctx" {
+		t.Fatalf("service context value = %v, want request context value", svc.ctxValue)
+	}
+	if svc.ctxErr != nil {
+		t.Fatalf("service context error = %v, want nil for live request", svc.ctxErr)
 	}
 }
 
@@ -163,6 +189,7 @@ type fakeService struct {
 	calls    int
 	last     CountRequest
 	ctxErr   error
+	ctxValue any
 	response CountResponse
 	err      error
 }
@@ -171,6 +198,7 @@ func (s *fakeService) Count(ctx context.Context, req CountRequest) (CountRespons
 	s.calls++
 	s.last = req
 	s.ctxErr = ctx.Err()
+	s.ctxValue = ctx.Value(ctxMarker{})
 	if s.err != nil {
 		return CountResponse{}, s.err
 	}

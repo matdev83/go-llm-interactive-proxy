@@ -34,17 +34,10 @@ func Decode(w http.ResponseWriter, r *http.Request, dest any, policy Policy) err
 	if r == nil {
 		return errors.New("jsonbody: nil request")
 	}
-	return decode(w, r, dest, policy, r.Context())
+	return decode(r.Context(), w, r, dest, policy)
 }
 
-// DecodeIgnoringCancellation preserves adapters that decode before forwarding
-// an already-canceled request to their domain service. Body and shape errors
-// are still returned normally.
-func DecodeIgnoringCancellation(w http.ResponseWriter, r *http.Request, dest any, policy Policy) error {
-	return decode(w, r, dest, policy, context.Background())
-}
-
-func decode(w http.ResponseWriter, r *http.Request, dest any, policy Policy, ctx context.Context) error {
+func decode(ctx context.Context, w http.ResponseWriter, r *http.Request, dest any, policy Policy) error {
 	if r == nil {
 		return errors.New("jsonbody: nil request")
 	}
@@ -82,7 +75,7 @@ func decode(w http.ResponseWriter, r *http.Request, dest any, policy Policy, ctx
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(bytes.TrimSpace(data)) == 0 {
+	if isJSONWhitespace(data) {
 		if policy.AllowEmpty {
 			return nil
 		}
@@ -100,4 +93,18 @@ func decode(w http.ResponseWriter, r *http.Request, dest any, policy Policy, ctx
 		return err
 	}
 	return nil
+}
+
+// isJSONWhitespace reports whether data contains only JSON whitespace (space,
+// tab, CR, LF). Other Unicode spaces (e.g. U+00A0) are not valid JSON
+// whitespace and must not be treated as an empty body.
+func isJSONWhitespace(data []byte) bool {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+		default:
+			return false
+		}
+	}
+	return true
 }

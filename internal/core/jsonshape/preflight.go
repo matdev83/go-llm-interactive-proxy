@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -203,29 +202,23 @@ func countValue(frames *[]frame, limits Limits) error {
 }
 
 func whitespaceOnly(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+		default:
 			return false
 		}
-		if !unicode.IsSpace(r) {
-			return false
-		}
-		data = data[size:]
 	}
 	return true
 }
 
 func hasTrailingNonWhitespace(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+		default:
 			return true
 		}
-		if !unicode.IsSpace(r) {
-			return true
-		}
-		data = data[size:]
 	}
 	return false
 }

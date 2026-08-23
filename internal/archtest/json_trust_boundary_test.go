@@ -19,7 +19,7 @@ func TestJSONTrustBoundaryOwners(t *testing.T) {
 	}{
 		{path: "internal/stdhttp/admin/billing/commands.go", selector: "jsonbody.Decode"},
 		{path: "internal/stdhttp/admin/keepwarm/handler.go", selector: "jsonbody.Decode"},
-		{path: "internal/stdhttp/admin/tokenaccounting/handler.go", selector: "jsonbody.DecodeIgnoringCancellation"},
+		{path: "internal/stdhttp/admin/tokenaccounting/handler.go", selector: "jsonbody.Decode"},
 		{path: "connectors/opencode/internal/upstream/anthropic.go", identCall: "readNonStreamResponse"},
 		{path: "connectors/opencode/internal/upstream/gemini.go", identCall: "readNonStreamResponse"},
 	} {
