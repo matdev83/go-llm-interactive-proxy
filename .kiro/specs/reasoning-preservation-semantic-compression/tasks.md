@@ -115,7 +115,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 3. Implement the Isolated Compressor, Egress Policy, and Bounded Decoder
 
-- [ ] 3.1 Implement feature-scoped egress decision and sanitizer contract
+- [x] 3.1 Implement feature-scoped egress decision and sanitizer contract
   - Define a narrow trusted allow/redact/deny decision for purpose `reasoning_semantic_compression`, explicit route, and originating trusted scope.
   - Reuse existing secret/redaction authority when available; do not add a competing heuristic detector.
   - Deny when required redaction cannot be performed, and keep control-plane policy/scope data out of model messages.
