@@ -150,6 +150,7 @@ func TestCompression_Attach_SurrogatePerTurnBound(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	// surrogate exceeds per-turn
@@ -174,11 +175,13 @@ func TestCompression_Attach_SurrogatePerSessionBound(t *testing.T) {
 	d1 := appendArtifactForCompression(t, cs, p, "t1", 32)
 	d2 := appendArtifactForCompression(t, cs, p, "t2", 32)
 	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d1, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, egressHashFor(policy), d1, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d1, policy))
 	sur1 := surrogateFor(d1, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hello", Bytes: 10})
 	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), sur1))
 	res2, err := cs.ReserveCompression(context.Background(), p, "t2", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t2", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t2", res2, auxiliary.JobID("job2"), d2, policy))
 	sur2 := surrogateFor(d2, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "world!", Bytes: 10})
@@ -203,11 +206,13 @@ func TestCompression_Attach_SurrogateTotalBound(t *testing.T) {
 	d1 := appendArtifactForCompression(t, cs, p1, "t1", 32)
 	d2 := appendArtifactForCompression(t, cs, p2, "t2", 32)
 	res1, err := cs.ReserveCompression(context.Background(), p1, "t1", d1, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p1, "t1", res1, egressHashFor(policy), d1, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p1, "t1", res1, auxiliary.JobID("job1"), d1, policy))
 	sur1 := surrogateFor(d1, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hello", Bytes: 10})
 	require.NoError(t, cs.AttachSurrogate(context.Background(), p1, "t1", res1, auxiliary.JobID("job1"), sur1))
 	res2, err := cs.ReserveCompression(context.Background(), p2, "t2", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p2, "t2", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p2, "t2", res2, auxiliary.JobID("job2"), d2, policy))
 	sur2 := surrogateFor(d2, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "world!", Bytes: 10})
@@ -261,6 +266,7 @@ func TestCompression_AggregateExhaustion_PreservesOriginals(t *testing.T) {
 	p1 := reasoningpreservation.NewSessionPartition("s1")
 	d1 := appendArtifactForCompression(t, cs2, p1, "t1", 32)
 	res1, err := cs2.ReserveCompression(context.Background(), p1, "t1", d1, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs2.UpdateReservationPolicyHash(context.Background(), p1, "t1", res1, egressHashFor(policy), d1, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs2.BindCompressionJob(context.Background(), p1, "t1", res1, auxiliary.JobID("job1"), d1, policy))
 	sur1 := surrogateFor(d1, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hello10", Bytes: 10})
@@ -269,6 +275,7 @@ func TestCompression_AggregateExhaustion_PreservesOriginals(t *testing.T) {
 	p2 := reasoningpreservation.NewSessionPartition("s2")
 	d2 := appendArtifactForCompression(t, cs2, p2, "t2", 32)
 	res2, err := cs2.ReserveCompression(context.Background(), p2, "t2", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs2.UpdateReservationPolicyHash(context.Background(), p2, "t2", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs2.BindCompressionJob(context.Background(), p2, "t2", res2, auxiliary.JobID("job2"), d2, policy))
 	sur2 := surrogateFor(d2, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "world10", Bytes: 10})
@@ -291,6 +298,7 @@ func TestCompression_StaleCAS(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	// wrong digest
 	wrongDigest := digestFor("wrong")
@@ -332,6 +340,7 @@ func TestCompression_DoubleAttach_Rejected(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -357,6 +366,7 @@ func TestCompression_RepeatedStale_NoDrift(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -389,6 +399,7 @@ func TestCompression_DeleteReappend_FreshState(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -400,6 +411,7 @@ func TestCompression_DeleteReappend_FreshState(t *testing.T) {
 	// re-append same ID should allow fresh reservation
 	d2 := appendArtifactForCompression(t, cs, p, "t1", 32)
 	res2, err := cs.ReserveCompression(context.Background(), p, "t1", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	assert.NotEqual(t, res, res2)
 	state, ok, err := cs.GetCompressionState(context.Background(), p, "t1")
@@ -430,6 +442,7 @@ func TestCompression_TTLExpiry_ClearsOptional(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -456,6 +469,7 @@ func TestCompression_DefensiveCopies(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "original", Bytes: 8})
@@ -488,6 +502,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	policy := "v1"
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -524,6 +539,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	// re-setup
 	d2 := appendArtifactForCompression(t, cs, p, "t2", 32)
 	res2, err := cs.ReserveCompression(context.Background(), p, "t2", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t2", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t2", res2, auxiliary.JobID("job2"), d2, policy))
 	sur2 := surrogateFor(d2, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -564,6 +580,7 @@ func TestCompression_FIFOEviction_ClearsOptionalAndPreservesCounters(t *testing.
 		id := fmt.Sprintf("t%d", i)
 		d := appendArtifactForCompression(t, cs, p, id, 32)
 		res, err := cs.ReserveCompression(context.Background(), p, id, d, policy, semanticDigestFor(policy), egressHashFor(policy))
+		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, id, res, egressHashFor(policy), d, policy, semanticDigestFor(policy), egressHashFor(policy)))
 		require.NoError(t, err)
 		require.NoError(t, cs.BindCompressionJob(context.Background(), p, id, res, auxiliary.JobID(fmt.Sprintf("job%d", i)), d, policy))
 		sur := surrogateFor(d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -612,6 +629,7 @@ func TestCompression_OptionalPressureNeverEvictsOriginal(t *testing.T) {
 	// fill surrogate aggregate
 	d1 := appendArtifactForCompression(t, cs, p, "t1", 32)
 	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d1, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, egressHashFor(policy), d1, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d1, policy))
 	sur1 := surrogateFor(d1, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hello", Bytes: 5})
@@ -619,6 +637,7 @@ func TestCompression_OptionalPressureNeverEvictsOriginal(t *testing.T) {
 	// second artifact original appended should remain even though surrogate budget exhausted
 	d2 := appendArtifactForCompression(t, cs, p, "t2", 32)
 	res2, err := cs.ReserveCompression(context.Background(), p, "t2", d2, policy, semanticDigestFor(policy), egressHashFor(policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t2", res2, egressHashFor(policy), d2, policy, semanticDigestFor(policy), egressHashFor(policy)))
 	// reserve may succeed for pending? But pendingPerSession limit is 1, so after surrogate attached pending=0, so reserve may succeed. Let's check.
 	// Actually pendingPerSession is 0 now, so reserve should succeed.
 	require.NoError(t, err)
@@ -656,6 +675,7 @@ func TestCompression_Replacement_NoDrift(t *testing.T) {
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	// v1
 	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, egressHashFor("v1"), d, "v1", semanticDigestFor("v1"), egressHashFor("v1")))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d, "v1"))
 	sur1 := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "0123456789", Bytes: 10})
@@ -665,6 +685,7 @@ func TestCompression_Replacement_NoDrift(t *testing.T) {
 	require.Equal(t, 10, stats.TotalSurrogateBytes)
 	// re-compression path: reserve v2 while surrogate v1 exists (different revision) => allowed
 	res2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", semanticDigestFor("v2"), egressHashFor("v2"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, egressHashFor("v2"), d, "v2", semanticDigestFor("v2"), egressHashFor("v2")))
 	require.NoError(t, err, "re-compression with different policy revision should be allowed")
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), d, "v2"))
 	sur2 := surrogateFor(d, "v2", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -712,12 +733,14 @@ func TestCompression_Replacement_BudgetCredit(t *testing.T) {
 			p := reasoningpreservation.NewSessionPartition("sess-budget-credit-" + tc.name)
 			d := appendArtifactForCompression(t, cs, p, "t1", 32)
 			res1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+			require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, egressHashFor("v1"), d, "v1", semanticDigestFor("v1"), egressHashFor("v1")))
 			require.NoError(t, err)
 			require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d, "v1"))
 			sur1 := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "0123456789", Bytes: 10})
 			require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), sur1))
 			// per-session limit L=10 fully consumed; re-compress with v2
 			res2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", semanticDigestFor("v2"), egressHashFor("v2"))
+			require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, egressHashFor("v2"), d, "v2", semanticDigestFor("v2"), egressHashFor("v2")))
 			require.NoError(t, err)
 			require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), d, "v2"))
 			sur2 := surrogateFor(d, "v2", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "x", Bytes: tc.newBytes})
@@ -756,6 +779,7 @@ func TestCompression_Reserve_SameRevisionDuplicateRejected(t *testing.T) {
 	p := reasoningpreservation.NewSessionPartition("sess-same-rev")
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor("v1"), d, "v1", semanticDigestFor("v1"), egressHashFor("v1")))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, "v1"))
 	sur := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -775,6 +799,7 @@ func TestCompression_Reserve_WhilePendingRejected(t *testing.T) {
 	p := reasoningpreservation.NewSessionPartition("sess-pending-conflict")
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, egressHashFor("v1"), d, "v1", semanticDigestFor("v1"), egressHashFor("v1")))
 	require.NoError(t, err)
 	// while pending exists, any revision must be conflict
 	_, err = cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
@@ -807,12 +832,14 @@ func TestCompression_Replacement_ConcurrentClearDeleteExactlyOnce(t *testing.T) 
 	d := appendArtifactForCompression(t, cs, p, "t1", 32)
 	// v1 attach 10
 	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, egressHashFor("v1"), d, "v1", semanticDigestFor("v1"), egressHashFor("v1")))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d, "v1"))
 	sur1 := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "0123456789", Bytes: 10})
 	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), sur1))
 	// v2 replacement 2
 	res2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", semanticDigestFor("v2"), egressHashFor("v2"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, egressHashFor("v2"), d, "v2", semanticDigestFor("v2"), egressHashFor("v2")))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), d, "v2"))
 	sur2 := surrogateFor(d, "v2", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})

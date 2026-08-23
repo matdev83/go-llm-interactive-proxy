@@ -46,6 +46,7 @@ func TestCompression_DigestCAS(t *testing.T) {
 			// For the success case, attach digests match reservation.
 			// For the zero-reservation path, we test separate case below.
 			res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, baseSem, baseEg)
+			require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, baseEg, d, policy, baseSem, baseEg))
 			require.NoError(t, err)
 			require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 			sur := surrogateForWithDigests(d, policy, tc.surSem, tc.surEg, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -86,6 +87,7 @@ func TestCompression_ZeroReservedDigestRejectedAtAttach(t *testing.T) {
 	var zero [32]byte
 	eg := egressHashFor(policy)
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, zero, eg)
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, eg, d, policy, zero, eg))
 	require.NoError(t, err, "reserve may accept zero but attach must reject")
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
 	sur := surrogateForWithDigests(d, policy, zero, eg, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
@@ -105,6 +107,7 @@ func TestCompression_DigestDefensiveCopy(t *testing.T) {
 	sem := semanticDigestFor(policy)
 	eg := egressHashFor(policy)
 	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, sem, eg)
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, eg, d, policy, sem, eg))
 	require.NoError(t, err)
 	// Pending defensive copy
 	state, ok, err := cs.GetCompressionState(context.Background(), p, "t1")
@@ -152,6 +155,7 @@ func TestCompression_DigestWithReplacement(t *testing.T) {
 	sem1 := semanticDigestFor("v1")
 	eg1 := egressHashFor("v1")
 	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", sem1, eg1)
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, eg1, d, "v1", sem1, eg1))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d, "v1"))
 	sur1 := surrogateForWithDigests(d, "v1", sem1, eg1, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "0123456789", Bytes: 10})
@@ -160,6 +164,7 @@ func TestCompression_DigestWithReplacement(t *testing.T) {
 	sem2 := semanticDigestFor("v2")
 	eg2 := egressHashFor("v2")
 	res2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", sem2, eg2)
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, eg2, d, "v2", sem2, eg2))
 	require.NoError(t, err)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), d, "v2"))
 	sur2 := surrogateForWithDigests(d, "v2", sem2, eg2, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})

@@ -12,7 +12,9 @@ import (
 // It contains only envelope/context data—no model payload or content telemetry.
 // EgressPolicyRefHash is a provisional hash of the configured egress_policy_ref;
 // task 4.3 will derive the authoritative PendingCompression.EgressPolicyHash from the
-// trusted egress decision PolicyVersion before Reserve.
+// trusted egress decision PolicyVersion via UpdateReservationPolicyHash before Bind.
+// Do NOT treat EgressPolicyRefHash as authoritative — it is a stable provisional
+// placeholder derived from config, not a policy decision hash.
 type PostAppendCorrelation struct {
 	Partition           SessionPartition
 	ArtifactID          string
@@ -20,6 +22,7 @@ type PostAppendCorrelation struct {
 	OriginalDigest      [32]byte
 	SemanticDigest      [32]byte
 	EgressPolicyRefHash [32]byte
+	SourceBytes         int
 	TraceID             string
 	ALegID              string
 	BLegID              string

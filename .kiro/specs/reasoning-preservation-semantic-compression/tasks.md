@@ -171,7 +171,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: surfaced-winner/order/privacy tests_
   - _Requirements: 4, 8, 9_
 
-- [ ] 4.2 Reserve optional capacity before any provider submission
+- [x] 4.2 Reserve optional capacity before any provider submission
   - Reserve pending state using artifact/digest/policy revision under per-session and feature-instance aggregate limits.
   - Skip compression without provider work when reservation fails or source is below threshold/ineligible.
   - Prove reservation cannot evict original reasoning.

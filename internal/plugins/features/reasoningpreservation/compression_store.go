@@ -49,14 +49,18 @@ type ReasoningSurrogate struct {
 // match. Zero SemanticDigest is invalid and Attach rejects it as a
 // conflict (real artifacts have content). Zero EgressPolicyHash is allowed
 // but CAS-checked — a mismatch still yields a conflict.
+// PolicyHashAuthoritative is false at Reserve (provisional ref hash) and
+// becomes true after successful UpdateReservationPolicyHash CAS promotion.
+// Bind and Attach reject unless authoritative.
 type PendingCompression struct {
-	JobID            auxiliary.JobID
-	OriginalDigest   [32]byte
-	SemanticDigest   [32]byte
-	EgressPolicyHash [32]byte
-	CreatedAt        time.Time
-	PolicyRevision   string
-	ReservationID    string
+	JobID                   auxiliary.JobID
+	OriginalDigest          [32]byte
+	SemanticDigest          [32]byte
+	EgressPolicyHash        [32]byte
+	PolicyHashAuthoritative bool
+	CreatedAt               time.Time
+	PolicyRevision          string
+	ReservationID           string
 }
 
 // CompressionState is additive optional state per artifact revision.
@@ -118,6 +122,7 @@ func IsNotFoundError(err error) bool { return errors.Is(err, ErrCompressionNotFo
 type CompressionStore interface {
 	TurnStore
 	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error)
+	UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte) error
 	BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error
 	AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
 	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string) error
@@ -194,12 +199,13 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	entry.policyRevision = policyRevision
 	entry.reservationID = reservationID
 	entry.pending = &PendingCompression{
-		OriginalDigest:   originalDigest,
-		SemanticDigest:   semanticDigest,
-		EgressPolicyHash: egressPolicyHash,
-		CreatedAt:        now,
-		PolicyRevision:   policyRevision,
-		ReservationID:    reservationID,
+		OriginalDigest:          originalDigest,
+		SemanticDigest:          semanticDigest,
+		EgressPolicyHash:        egressPolicyHash,
+		PolicyHashAuthoritative: false,
+		CreatedAt:               now,
+		PolicyRevision:          policyRevision,
+		ReservationID:           reservationID,
 	}
 	if s.pendingPerSession == nil {
 		s.pendingPerSession = make(map[string]int)
@@ -207,6 +213,63 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	s.pendingPerSession[key]++
 	s.totalPending++
 	return reservationID, nil
+}
+
+func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if artifactID == "" || reservationID == "" || policyRevision == "" {
+		return fmt.Errorf("%w: missing update fields", ErrCompressionConflict)
+	}
+	var zeroHash [32]byte
+	if newHash == zeroHash {
+		return fmt.Errorf("%w: zero authoritative hash", ErrCompressionConflict)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := partition.key()
+	m, ok := s.compBy[key]
+	if !ok {
+		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	}
+	entry, ok := m[artifactID]
+	if !ok || entry.pending == nil {
+		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	}
+	if entry.reservationID != reservationID || entry.pending.ReservationID != reservationID {
+		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.EgressPolicyHash != expectedOldHash {
+		return fmt.Errorf("%w: expected old hash mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.OriginalDigest != originalDigest {
+		return fmt.Errorf("%w: digest mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.PolicyRevision != policyRevision {
+		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.SemanticDigest != semanticDigest {
+		return fmt.Errorf("%w: semantic digest mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.PolicyHashAuthoritative {
+		return fmt.Errorf("%w: already authoritative", ErrCompressionConflict)
+	}
+	// verify artifact still exists
+	list := s.by[key]
+	found := false
+	for i := range list {
+		if list[i].ID == artifactID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("%w: artifact not found", ErrCompressionNotFound)
+	}
+	entry.pending.EgressPolicyHash = newHash
+	entry.pending.PolicyHashAuthoritative = true
+	return nil
 }
 
 func (s *memoryTurnStore) BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error {
@@ -238,6 +301,9 @@ func (s *memoryTurnStore) BindCompressionJob(ctx context.Context, partition Sess
 	}
 	if entry.pending.PolicyRevision != policyRevision {
 		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	}
+	if !entry.pending.PolicyHashAuthoritative {
+		return fmt.Errorf("%w: not authoritative", ErrCompressionConflict)
 	}
 	// verify artifact still exists
 	list := s.by[key]
@@ -289,6 +355,9 @@ func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, partition Session
 	}
 	if entry.reservationID != reservationID || entry.pending.ReservationID != reservationID {
 		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
+	}
+	if !entry.pending.PolicyHashAuthoritative {
+		return fmt.Errorf("%w: not authoritative", ErrCompressionConflict)
 	}
 	if entry.pending.JobID != "" && entry.pending.JobID != jobID {
 		return fmt.Errorf("%w: job mismatch", ErrCompressionConflict)

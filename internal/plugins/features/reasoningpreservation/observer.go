@@ -316,6 +316,10 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 		if segs := ExtractSemanticSegments(art.Reasoning); len(segs) > 0 {
 			semDigest := computeSemanticDigest(art.Reasoning)
 			egressHash := computeEgressPolicyRefHash(o.factory.cfg.Compression.EgressPolicyRef)
+			srcBytes := 0
+			for _, s := range segs {
+				srcBytes += len(s.Text)
+			}
 			corr = PostAppendCorrelation{
 				Partition:           partition,
 				ArtifactID:          art.ID,
@@ -323,6 +327,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 				OriginalDigest:      anchor,
 				SemanticDigest:      semDigest,
 				EgressPolicyRefHash: egressHash,
+				SourceBytes:         srcBytes,
 				TraceID:             o.meta.TraceID,
 				ALegID:              o.meta.ALegID,
 				BLegID:              o.meta.BLegID,

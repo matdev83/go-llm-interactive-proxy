@@ -1,0 +1,126 @@
+package reasoningpreservation
+
+import (
+	"context"
+	"errors"
+)
+
+// ReservationOutcome is a typed content-free outcome of the reservation stage.
+type ReservationOutcome string
+
+const (
+	ReservationReserved              ReservationOutcome = "reserved"
+	ReservationSkippedIneligible     ReservationOutcome = "skipped_ineligible"
+	ReservationSkippedBelowThreshold ReservationOutcome = "skipped_below_threshold"
+	ReservationNotFound              ReservationOutcome = "not_found"
+	ReservationConflict              ReservationOutcome = "conflict"
+	ReservationBudgetExceeded        ReservationOutcome = "budget_exceeded"
+	ReservationError                 ReservationOutcome = "error"
+)
+
+// ReservationResult is passed to next hooks in the post-append chain.
+// It is content-free: no reasoning text, no credentials, no raw hashes.
+type ReservationResult struct {
+	Outcome       ReservationOutcome
+	ReservationID string
+	Correlation   PostAppendCorrelation
+	Err           error
+}
+
+// IsReserved reports whether reservation succeeded.
+func (r ReservationResult) IsReserved() bool { return r.Outcome == ReservationReserved }
+
+// TryReserveCompression performs the local reservation BEFORE any egress/provider call.
+// It checks ineligibility and MinSourceBytes, then calls ReserveCompression with the
+// correct SemanticDigest from correlation and provisional EgressPolicyRefHash.
+// On budget/conflict/notfound it returns typed outcome and leaves original untouched.
+// It never evicts original reasoning and never calls provider.
+func TryReserveCompression(ctx context.Context, cfg Config, store CompressionStore, corr PostAppendCorrelation) ReservationResult {
+	if store == nil {
+		return ReservationResult{Outcome: ReservationNotFound, Correlation: corr, Err: ErrCompressionNotFound}
+	}
+	if !cfg.Compression.Enabled {
+		return ReservationResult{Outcome: ReservationSkippedIneligible, Correlation: corr}
+	}
+	var zeroDigest [32]byte
+	if corr.SemanticDigest == zeroDigest {
+		return ReservationResult{Outcome: ReservationSkippedIneligible, Correlation: corr}
+	}
+	if corr.ArtifactID == "" || corr.PolicyRevision == "" {
+		return ReservationResult{Outcome: ReservationConflict, Correlation: corr, Err: ErrCompressionConflict}
+	}
+	// Source eligibility: below MinSourceBytes => no reserve. Zero source bytes with MinSourceBytes>0 is also below threshold.
+	if cfg.Compression.MinSourceBytes > 0 && corr.SourceBytes < cfg.Compression.MinSourceBytes {
+		return ReservationResult{Outcome: ReservationSkippedBelowThreshold, Correlation: corr}
+	}
+
+	reservationID, err := store.ReserveCompression(ctx, corr.Partition, corr.ArtifactID, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, corr.EgressPolicyRefHash)
+	if err == nil {
+		return ReservationResult{Outcome: ReservationReserved, ReservationID: reservationID, Correlation: corr}
+	}
+	if errors.Is(err, ErrCompressionNotFound) {
+		return ReservationResult{Outcome: ReservationNotFound, Correlation: corr, Err: err}
+	}
+	if errors.Is(err, ErrCompressionBudgetExceeded) {
+		return ReservationResult{Outcome: ReservationBudgetExceeded, Correlation: corr, Err: err}
+	}
+	if errors.Is(err, ErrCompressionConflict) {
+		return ReservationResult{Outcome: ReservationConflict, Correlation: corr, Err: err}
+	}
+	return ReservationResult{Outcome: ReservationError, Correlation: corr, Err: err}
+}
+
+// PostReservationStage is the next composable stage after reservation (egress, submit).
+// It receives the ReservationResult (including ReservationID) for chaining.
+type PostReservationStage func(ctx context.Context, res ReservationResult) error
+
+// NewCompressionReservationHook returns a concrete LOCAL post-append hook that reserves
+// optional capacity before any provider submission. It is invoked unlocked after original
+// append success. It returns nil always (fail-open) so original is never invalidated.
+// If reservation succeeds (OutcomeReserved) and next is non-nil, it invokes next with
+// the ReservationResult; non-reserved outcomes never call next; next errors are fail-open.
+func NewCompressionReservationHook(cfg Config, store CompressionStore, next PostReservationStage) PostAppendHook {
+	return func(ctx context.Context, corr PostAppendCorrelation) error {
+		res := TryReserveCompression(ctx, cfg, store, corr)
+		if res.Outcome == ReservationReserved && next != nil {
+			_ = next(ctx, res)
+		}
+		return nil
+	}
+}
+
+// BuildPostAppendHook constructs the composable post-append hook chain rooted in compression.
+// For task 4.2 it contains only reservation; future stages (4.3 egress, 4.4 submit/bind)
+// will extend this chain without changing its construction site. Hook is nil when
+// compression disabled to preserve disabled-mode byte equivalency.
+// Next stage is nil for 4.2; 4.3 will supply egress stage that chains via PostReservationStage.
+func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) PostAppendHook {
+	if !cfg.Compression.Enabled {
+		return nil
+	}
+	cs, ok := store.(CompressionStore)
+	if !ok || cs == nil {
+		return nil
+	}
+	// Validate services are present (fail closed is handled at bundle validation, but hook construction is defensive).
+	if err := svc.validateFor(cfg); err != nil {
+		return nil
+	}
+	// Current chain: reservation only. Future tasks will wrap/sequence egress and submit.
+	return NewCompressionReservationHook(cfg, cs, nil)
+}
+
+// BuildPostAppendHookWithNext allows tests and future stages to inject the next stage for chaining.
+func BuildPostAppendHookWithNext(cfg Config, store TurnStore, svc CompressionServices, next PostReservationStage) PostAppendHook {
+	if !cfg.Compression.Enabled {
+		return nil
+	}
+	cs, ok := store.(CompressionStore)
+	if !ok || cs == nil {
+		return nil
+	}
+	if err := svc.validateFor(cfg); err != nil {
+		return nil
+	}
+	return NewCompressionReservationHook(cfg, cs, next)
+}

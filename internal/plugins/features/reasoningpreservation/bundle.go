@@ -51,7 +51,8 @@ func FeatureBundleWithPartsAndCompression(cfg Config, svc CompressionServices, p
 	}
 	tel := NewTelemetry()
 	xform := NewAttemptTransformWithCompanionPolicy(cfg, store, policy, tel)
-	obs := NewStreamObserverFactory(cfg, store, tel)
+	hook := BuildPostAppendHook(cfg, store, svc)
+	obs := NewStreamObserverFactoryWithPostAppendHook(cfg, store, hook, tel)
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:           lipfeature.SchemaVersionV1,
 		AttemptTransforms:       []request.AttemptTransform{xform},
