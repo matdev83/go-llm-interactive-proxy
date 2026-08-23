@@ -2,6 +2,7 @@ package conversationview
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -9,6 +10,17 @@ import (
 
 func boolPtr(b bool) *bool { v := b; return &v }
 func intPtr(i int) *int    { v := i; return &v }
+
+func checkedCapacity(parts ...int) (int, error) {
+	total := 0
+	for _, part := range parts {
+		if part < 0 || total > math.MaxInt-part {
+			return 0, ErrProjectionFailed
+		}
+		total += part
+	}
+	return total, nil
+}
 
 // FallbackEvidence records a deterministic stable-prefix fallback for a missing anchor.
 type FallbackEvidence struct {
@@ -309,8 +321,16 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	// without relying on synthetic ID string markers. Provenance indices are
 	// derived solely from placement logic (Snapshot + input) and are not
 	// part of the model-visible content identity.
-	final := make([]lipapi.Item, 0, len(filtered)+len(stable)+len(resolvedAnchors))
-	provIndex := make(map[string]int, len(stable)+len(resolvedAnchors))
+	finalCapacity, err := checkedCapacity(len(filtered), len(stable), len(resolvedAnchors))
+	if err != nil {
+		return lipapi.Call{}, nil, fmt.Errorf("%w: projected item capacity overflow", err)
+	}
+	provenanceCapacity, err := checkedCapacity(len(stable), len(resolvedAnchors))
+	if err != nil {
+		return lipapi.Call{}, nil, fmt.Errorf("%w: projection provenance capacity overflow", err)
+	}
+	final := make([]lipapi.Item, 0, finalCapacity)
+	provIndex := make(map[string]int, provenanceCapacity)
 	// prefix region with interleaved after anchors that fall inside prefix
 	for i := 0; i < leading; i++ {
 		final = append(final, filtered[i])
@@ -344,7 +364,7 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
 	// Deterministic provenance: derived solely from Snapshot + input, with exact injected positions.
-	provenance := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
+	provenance := make([]OverlayProvenance, 0, provenanceCapacity)
 	for _, ov := range stable {
 		idx := provIndex[ov.OverlayID]
 		// provIndex always present for stable; fallback to -1 only on invariant breach
@@ -389,7 +409,7 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	sort.Slice(provenance, func(i, j int) bool { return provenance[i].SlotOrdinal < provenance[j].SlotOrdinal })
 	evidence := &ProjectionEvidence{
 		FilteredCount: filteredCount,
-		InjectedCount: len(stable) + len(resolvedAnchors),
+		InjectedCount: provenanceCapacity,
 		Fallbacks:     fallbacks,
 		Provenance:    provenance,
 	}
@@ -494,9 +514,17 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	})
 
 	// Assemble instructions and messages with placement-aware provenance.
-	provenanceLegacy := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
+	provenanceCapacity, err := checkedCapacity(len(stable), len(resolvedAnchors))
+	if err != nil {
+		return lipapi.Call{}, nil, fmt.Errorf("%w: projection provenance capacity overflow", err)
+	}
+	provenanceLegacy := make([]OverlayProvenance, 0, provenanceCapacity)
 	// Build finalInstr with after injections and stable, recording provenance indices.
-	finalInstr := make([]lipapi.Message, 0, len(filteredInstr)+len(stable)+len(resolvedAnchors))
+	finalInstructionCapacity, err := checkedCapacity(len(filteredInstr), len(stable), len(resolvedAnchors))
+	if err != nil {
+		return lipapi.Call{}, nil, fmt.Errorf("%w: projected instruction capacity overflow", err)
+	}
+	finalInstr := make([]lipapi.Message, 0, finalInstructionCapacity)
 	afterInstrByIdx := make(map[int][]SteeringOverlay)
 	for _, r := range resolvedAnchors {
 		if r.isInstr {
@@ -549,7 +577,11 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	}
 
 	// Assemble messages final with after injections.
-	finalMsgs := make([]lipapi.Message, 0, len(filteredMsgs)+len(resolvedAnchors))
+	finalMessageCapacity, err := checkedCapacity(len(filteredMsgs), len(resolvedAnchors))
+	if err != nil {
+		return lipapi.Call{}, nil, fmt.Errorf("%w: projected message capacity overflow", err)
+	}
+	finalMsgs := make([]lipapi.Message, 0, finalMessageCapacity)
 	afterMsgByIdx := make(map[int][]SteeringOverlay)
 	for _, r := range resolvedAnchors {
 		if !r.isInstr {
@@ -597,7 +629,7 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	sort.Slice(provenanceLegacy, func(i, j int) bool { return provenanceLegacy[i].SlotOrdinal < provenanceLegacy[j].SlotOrdinal })
 	evidence := &ProjectionEvidence{
 		FilteredCount: filteredCount,
-		InjectedCount: len(stable) + len(resolvedAnchors),
+		InjectedCount: provenanceCapacity,
 		Fallbacks:     fallbacks,
 		Provenance:    provenanceLegacy,
 	}
