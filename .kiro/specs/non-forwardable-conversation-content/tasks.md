@@ -141,7 +141,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/runtime/...`_
   - _Requirements: 6.1-6.9, 11.7, 12.2, 13.1_
 
-- [ ] 4.2 Add adversarial late-transform and multi-path runtime tests
+- [x] 4.2 Add adversarial late-transform and multi-path runtime tests
   - Add fake attempt transforms that reintroduce tagged messages and remove/move/duplicate persistent steering; prove reassertion restores or rejects before PTB/Open.
   - Cover initial open, pre-output failover/retry, parallel/race, TTFT replacement and interleaved thinker/executor paths through the single guard.
   - Prove an in-flight turn remains on snapshot N while a concurrent mutation N+1 applies to the next turn.
