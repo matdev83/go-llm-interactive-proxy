@@ -285,7 +285,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: focused billing/metering/runtime tests_
   - _Requirements: 8, 9_
 
-- [ ] 7.2 Certify privacy and data-egress failure modes
+- [x] 7.2 Certify privacy and data-egress failure modes
   - Exercise allow/redact/deny/missing-policy/route-policy mismatch with sensitive ordinary reasoning fixtures.
   - Prove redaction precedes input sizing and provider submission and that content-bearing telemetry stays clean.
   - Verify no second secret detector is introduced where existing trusted sanitization can be reused.
