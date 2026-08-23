@@ -15,7 +15,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/conversationview/...`_
   - _Requirements: 1.1-1.10, 13.7_
 
-- [ ] 1.2 Freeze coherent snapshot and store semantics
+- [x] 1.2 Freeze coherent snapshot and store semantics
   - Define RED contract tests for one A-leg `Snapshot` containing `never_backend` tags plus active steering, with narrow Reader/Tagger/Steering mutation ports.
   - Cover tag batch atomicity/idempotency/4096 cap and overlay no-op/replace/deactivate, revision, immutable slot ordering, 64-overlay and byte caps.
   - Cover A-leg not-found/delete/recreate and owned-copy snapshot semantics.
@@ -216,3 +216,4 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 ## Implementation Notes
 
 - Any task adding non-test Go lines under `internal/core` must bump the `internal/core` ratchet in `internal/archtest/budgets.go` (`LineBudgets`, measured+25) with one rationale comment in the existing chronological style; `go test ./internal/archtest/...` is a required per-task gate alongside the focused package tests (caught after 1.1 review; reviewer missed it, controller verification caught it).
+- Task 2.2/2.3 store work must: extract the conversationview contract suite into a reusable driver taking port constructors (currently hardwired to `*ReferenceStore` in `storecontract_test.go`), run it against Memory/Bun adapters, and prefer unexporting `GetOverlay` (or gating it for tests) so the narrow Reader/Tagger/SteeringStore surface stays canonical. Tighten `TestContract_ConcurrentSmoke` to exact count and add an aggregate-cap replace-overflow assertion when touching that suite.
