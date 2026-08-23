@@ -297,6 +297,16 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		} else if e.Log != nil {
 			e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 		}
+		// --- Task 3.1 seam: preserve deep-cloned authoritative ingress view ---
+		// This clone is taken after secure A-leg + secret/submit/CTP boundaries
+		// and before inference-specific transforms/billing/route planning.
+		// It is the unmodified client/A-leg view for CTP/continuation.
+		// No snapshot/project yet (3.2); backendClone continues through
+		// inference-specific preparation. Deep clone guarantees isolation.
+		ingressClone := lipapi.CloneCall(*workingCall)
+		ibt.ingressCall = &ingressClone
+		backendClone := lipapi.CloneCall(*workingCall)
+		workingCall = &backendClone
 		ann := maps.Clone(submitMeta.Annotations)
 		if ann == nil {
 			ann = make(map[string]string, len(submitMeta.Annotations))
@@ -366,6 +376,14 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		); err != nil {
 			return failAfterRequestAdmit(err)
 		}
+	}
+	// Ensure ingress is set even when snap == nil (no CTP branch).
+	if ibt.ingressCall == nil {
+		ingressClone := lipapi.CloneCall(*workingCall)
+		ibt.ingressCall = &ingressClone
+		// Ensure backend workingCall is a distinct clone for isolation.
+		backendClone := lipapi.CloneCall(*workingCall)
+		workingCall = &backendClone
 	}
 	effective := lipapi.CloneCall(*workingCall)
 	if ibt.routeAuth.active() {

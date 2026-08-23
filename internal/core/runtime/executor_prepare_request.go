@@ -108,6 +108,20 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx = ibt.projectContext(prepCtx)
 	pr.identity = ibt
 	pr.call = workingCall
+	// Task 3.1 seam: ingress view is preserved in ibt.ingressCall (deep
+	// clone taken after secure A-leg + secret/submit/CTP boundaries and
+	// before inference-specific transforms). See conversation_view_seam.go.
+	// No snapshot/project yet (3.2). Ensure isolation fallback if ingress
+	// was not set (detached legacy or snap==nil edge).
+	if pr.identity.ingressCall == nil {
+		ing := lipapi.CloneCall(*workingCall)
+		pr.identity.ingressCall = &ing
+		bk := lipapi.CloneCall(*workingCall)
+		pr.call = &bk
+	} else if pr.identity.ingressCall == pr.call {
+		bk := lipapi.CloneCall(*pr.call)
+		pr.call = &bk
+	}
 
 	guard := &preStreamGuard{
 		executor:                 e,
@@ -181,6 +195,7 @@ func (p *preparedRequest) finalize(err error) {
 type identityBoundTurn struct {
 	traceID      string
 	call         *lipapi.Call
+	ingressCall  *lipapi.Call
 	principal    execview.PrincipalView
 	scope        scope.PrincipalScopeView
 	hasPrincipal bool
@@ -215,7 +230,7 @@ func newIdentityBoundTurn(traceID string, call *lipapi.Call, principal execview.
 		}
 	}
 	cloned := lipapi.CloneCall(*call)
-	return &identityBoundTurn{traceID, &cloned, principal, scope, hasPrincipal, workspace, aLeg, routeAuth, secureTurn, secureTurnOK, preSession}, nil
+	return &identityBoundTurn{traceID: traceID, call: &cloned, principal: principal, scope: scope, hasPrincipal: hasPrincipal, workspace: workspace, aLeg: aLeg, routeAuth: routeAuth, secureTurn: secureTurn, secureTurnOK: secureTurnOK, preSession: preSession}, nil
 }
 
 func (t *identityBoundTurn) projectContext(ctx context.Context) context.Context {

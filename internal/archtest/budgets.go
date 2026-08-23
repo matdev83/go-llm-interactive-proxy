@@ -100,7 +100,8 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content memory A-leg conversation-view state (B2BUA MemoryStore capability + extracted contract suite with tightenings); measured 88729, bump to 88754 with 25 headroom.
 	// Non-forwardable conversation content Bun SQLite/PostgreSQL persistence (A-leg-owned migrations + deterministic Bun adapter + SQLite/PG contract tests); measured 89658, bump to 89683 with 25 headroom.
 	// Non-forwardable conversation content sdkadapter services relocation (capability-resolving helpers moved from runtimebundle to sdkadapter, deterministic fail-closed FromStore/Services); measured 89919 (core) / 12591 (runtimebundle), bump to 89944/12616 with 25 headroom.
-	{Dir: "internal/core", Max: 89944},
+	// Non-forwardable conversation content Task 3.1 pre-B-leg seam (authoritative A-leg/secret/submit/CTP ordering, deep-cloned ingress vs backend working call isolation, seam before inference transforms/billing/route); measured 90002, bump to 90027 with 25 headroom.
+	{Dir: "internal/core", Max: 90027},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12616},

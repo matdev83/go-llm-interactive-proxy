@@ -89,7 +89,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 ## 3. Integrate Base Projection and Local Success
 
-- [ ] 3.1 Split/factor request preparation only as needed to expose the authoritative pre-B-leg seam
+- [x] 3.1 Split/factor request preparation only as needed to expose the authoritative pre-B-leg seam
   - Characterize existing ordering from accepted canonical ingress through secure A-leg authority, CTP evidence, submit policy, backend-oriented pre-request work, billing and route planning.
   - Refactor minimally so one conversation-view Snapshot/local-turn decision can occur after trusted A-leg/secret/submit boundaries but before inference-specific work.
   - Preserve the unmodified client/A-leg ingress view for CTP/continuation while passing a separate projected clone to backend-oriented stages.

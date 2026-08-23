@@ -85,6 +85,14 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
+	// --- Task 3.1 seam: preserve authoritative ingress view before any
+	// inference-specific work. For detached, there is no snapshot/CTP branch,
+	// but we still capture the accepted ingress after submit hooks and before
+	// backend session sanitization, mirroring secure path ordering.
+	ingressClone := lipapi.CloneCall(*workingCall)
+	ibt.ingressCall = &ingressClone
+	backendClone := lipapi.CloneCall(*workingCall)
+	workingCall = &backendClone
 	// Submit hooks may enrich canonical calls, but cannot turn detached
 	// lineage hints back into session or continuity authority.
 	workingCall.Session.AuthoritativeSessionID, workingCall.Session.ClientSessionID = "", ""
@@ -93,6 +101,11 @@ func (e *Executor) prepareSubmitAndALegDetached(
 
 	*workingCall = lipapi.CloneCall(*workingCall)
 	call.Session = workingCall.Session
+	// Ensure backend is distinct from preserved ingress (deep clone isolation).
+	if ibt.ingressCall != nil && ibt.ingressCall == workingCall {
+		bk := lipapi.CloneCall(*ibt.ingressCall)
+		workingCall = &bk
+	}
 	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
 	outCtx = execctx.WithViews(outCtx, execctx.Views{
 		Principal: ibt.principal,
