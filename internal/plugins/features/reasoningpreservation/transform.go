@@ -10,14 +10,16 @@ import (
 )
 
 type AttemptTransform struct {
-	cfg           Config
-	store         TurnStore
-	tel           *Telemetry
-	id            string
-	order         int
-	companion     CompanionPolicy
-	svc           CompressionServices
-	adoptionStage CompletedAdoptionStage
+	cfg               Config
+	store             TurnStore
+	tel               *Telemetry
+	id                string
+	order             int
+	companion         CompanionPolicy
+	svc               CompressionServices
+	adoptionStage     CompletedAdoptionStage
+	viewStage         ReasoningViewStage
+	viewConsumerStage ReasoningViewConsumerStage
 }
 
 func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *AttemptTransform {
@@ -29,12 +31,14 @@ func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *Attemp
 		t = NewTelemetry()
 	}
 	return &AttemptTransform{
-		cfg:           cfg,
-		store:         store,
-		tel:           t,
-		id:            ID + "-transform",
-		order:         0,
-		adoptionStage: identityAdoptionStage,
+		cfg:               cfg,
+		store:             store,
+		tel:               t,
+		id:                ID + "-transform",
+		order:             0,
+		adoptionStage:     identityAdoptionStage,
+		viewStage:         identityReasoningViewStage,
+		viewConsumerStage: identityReasoningViewConsumerStage,
 	}
 }
 
@@ -44,6 +48,16 @@ func NewAttemptTransformWithAdoptionStage(cfg Config, store TurnStore, stage Com
 	t := NewAttemptTransform(cfg, store, tel...)
 	if stage != nil {
 		t.adoptionStage = stage
+	}
+	return t
+}
+
+// NewAttemptTransformWithViewStage creates a transform with an explicit view stage.
+// The stage is immutable; if nil, identity is used. Task 6.1 injects the selection stage.
+func NewAttemptTransformWithViewStage(cfg Config, store TurnStore, viewStage ReasoningViewStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	if viewStage != nil {
+		t.viewStage = viewStage
 	}
 	return t
 }
@@ -71,6 +85,60 @@ func NewAttemptTransformWithServicesAndStage(cfg Config, store TurnStore, svc Co
 	t := NewAttemptTransformWithServices(cfg, store, svc, tel...)
 	if stage != nil {
 		t.adoptionStage = stage
+	}
+	return t
+}
+
+// NewAttemptTransformWithServicesViewStage creates a transform with explicit services and view stage immutably.
+func NewAttemptTransformWithServicesViewStage(cfg Config, store TurnStore, svc CompressionServices, viewStage ReasoningViewStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransformWithServices(cfg, store, svc, tel...)
+	if viewStage != nil {
+		t.viewStage = viewStage
+	}
+	return t
+}
+
+// NewAttemptTransformWithViewStageAndAdoptionStage creates a transform with explicit view and adoption stages.
+func NewAttemptTransformWithViewStageAndAdoptionStage(cfg Config, store TurnStore, viewStage ReasoningViewStage, adoptionStage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	if viewStage != nil {
+		t.viewStage = viewStage
+	}
+	if adoptionStage != nil {
+		t.adoptionStage = adoptionStage
+	}
+	return t
+}
+
+// NewAttemptTransformWithViewConsumerStage creates a transform with an explicit view consumer stage.
+func NewAttemptTransformWithViewConsumerStage(cfg Config, store TurnStore, consumer ReasoningViewConsumerStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	if consumer != nil {
+		t.viewConsumerStage = consumer
+	}
+	return t
+}
+
+// NewAttemptTransformWithViewStageViewConsumer creates a transform with explicit view and consumer stages.
+func NewAttemptTransformWithViewStageViewConsumer(cfg Config, store TurnStore, viewStage ReasoningViewStage, consumer ReasoningViewConsumerStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	if viewStage != nil {
+		t.viewStage = viewStage
+	}
+	if consumer != nil {
+		t.viewConsumerStage = consumer
+	}
+	return t
+}
+
+// NewAttemptTransformWithServicesViewStageAndAdoptionStage is the full view+services+adoption wiring.
+func NewAttemptTransformWithServicesViewStageAndAdoptionStage(cfg Config, store TurnStore, svc CompressionServices, viewStage ReasoningViewStage, adoptionStage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransformWithServices(cfg, store, svc, tel...)
+	if viewStage != nil {
+		t.viewStage = viewStage
+	}
+	if adoptionStage != nil {
+		t.adoptionStage = adoptionStage
 	}
 	return t
 }
@@ -203,6 +271,29 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 				// pass bounded raw to next stage via local adoption; no Forget yet (deferred to 5.3)
 			} else if adoption.Outcome != AdoptionOutcomeNone {
 				// rejection already cleared pending and forgotten once, content-free telemetry recorded
+			}
+			// 6.1 revalidation via immutable view stage seam (policy-aware, bounded, no model content).
+			var viewDecisions map[string]ReasoningViewResult
+			if t.viewStage != nil {
+				viewDecisions = t.viewStage(ctx, t.cfg.Compression, cs, t.svc, partition, candidates, meta.ReplaySupport, meta)
+			} else {
+				viewDecisions = selectReasoningViews(ctx, t.cfg.Compression, cs, t.svc, partition, candidates, meta.ReplaySupport, meta)
+			}
+			// Thread view decisions to next immutable consumer stage instead of discard.
+			// Default identity consumer does nothing (shadow); 6.2 injects ephemeral builder.
+			// In shadow mode force identity regardless of injected consumer.
+			if t.cfg.Compression.Enabled && t.cfg.Compression.Mode != CompressionShadow {
+				if t.viewConsumerStage != nil {
+					if out := t.viewConsumerStage(ctx, call, viewDecisions); out != nil {
+						call = out
+					}
+				}
+			} else {
+				// Shadow: ensure call unchanged via identity consumer (even if 6.2 builder injected).
+				if t.viewConsumerStage != nil && t.cfg.Compression.Enabled {
+					_ = t.viewConsumerStage // keep seam wired but force identity for shadow
+				}
+				_ = viewDecisions
 			}
 			// Restore using same classified/candidates without reclassifying.
 			if t.cfg.Action == ActionObserve {

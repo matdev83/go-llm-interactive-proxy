@@ -238,7 +238,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 6. Enable Explicit Destination-Gated Active Replay
 
-- [ ] 6.1 Revalidate semantic class and destination representability before selection
+- [x] 6.1 Revalidate semantic class and destination representability before selection
   - Re-run the canonical classifier over original placements and require existing destination `ReasoningReplaySupport` for the original dialect.
   - Reject stale/unknown/exact placements and preserve existing client-reasoning precedence.
   - Do not add provider-name/model-name exceptions.
