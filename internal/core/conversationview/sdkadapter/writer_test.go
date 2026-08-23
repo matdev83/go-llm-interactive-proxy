@@ -386,6 +386,51 @@ func TestWriter_Put_AfterIngressTailExcludedTerminalNoFallback(t *testing.T) {
 	})
 }
 
+// TestWriter_Put_ConcurrentTagBeforePersistRejects reproduces the deterministic
+// resolve/tag/persist TOCTOU sequence: the writer resolves a clean anchor at
+// state revision N, an exclusion commits at N+1, and the subsequent PutSteering
+// must be rejected by the store's atomic registration invariant instead of
+// persisting an anchor that projection would immediately remove.
+func TestWriter_Put_ConcurrentTagBeforePersistRejects(t *testing.T) {
+	t.Parallel()
+	store := conversationview.NewReferenceStore()
+	ctx := context.Background()
+	aLeg := "a_toctou_tag_before_put"
+	require.NoError(t, store.CreateALeg(ctx, aLeg))
+
+	u1 := textMessage(lipapi.RoleUser, "turn one")
+	call := lipapi.Call{
+		Instructions: []lipapi.Message{textMessage(lipapi.RoleSystem, "sys")},
+		Messages:     []lipapi.Message{u1},
+	}
+	anchor, err := conversationview.ResolveAfterIngressTailAnchor(call, conversationview.Snapshot{})
+	require.NoError(t, err)
+
+	// Concurrent TagNeverBackend(U) commits between resolution and persistence.
+	_, err = store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: anchor.Identity, Reason: conversationview.ReasonCode("late_tag")}})
+	require.NoError(t, err)
+
+	resolver := func(context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+		return call, conversationview.Snapshot{}, nil
+	}
+	w, err := sdkadapter.NewWriter(store, aLeg, resolver)
+	require.NoError(t, err)
+	_, err = w.Put(ctx, steering.PutRequest{
+		OverlayID:           "ov-toctou",
+		Message:             steering.Message{Role: lipapi.RoleSystem, Text: "anchored steering"},
+		Placement:           steering.AfterIngressTail,
+		AnchorMissingPolicy: steering.FailClosed,
+		Reason:              "r",
+	})
+	require.Error(t, err, "persistence after concurrent exclusion must reject")
+	assert.ErrorIs(t, err, conversationview.ErrSteeringAnchorExcluded)
+
+	snap, serr := store.Snapshot(ctx, aLeg)
+	require.NoError(t, serr)
+	assert.Empty(t, snap.Steering, "rejected registration must not persist an overlay")
+	assert.Len(t, snap.NeverBackend, 1)
+}
+
 func TestWriter_Put_StateMappingAndErrorMapping(t *testing.T) {
 	t.Parallel()
 	store := conversationview.NewReferenceStore()

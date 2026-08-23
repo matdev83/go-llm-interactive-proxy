@@ -120,7 +120,12 @@ func TestIntegration_Postgres_WriterLaterReader_NoStaleCache(t *testing.T) {
 	t.Cleanup(func() { _ = s2.Close() })
 
 	aLegID := "a_5_1_pg_writer_reader_12345678901234567890123456789012"
-	_, err := s1.db.NewRaw(`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`, aLegID, "", int64(0), int64(0)).Exec(ctx)
+	// Deterministic leg ID against a persistent database: clear any prior run so
+	// FK cascade removes stale conversation-view dependents and exact-count
+	// assertions stay meaningful.
+	_, err := s1.db.NewRaw(`DELETE FROM a_legs WHERE a_leg_id = ?`, aLegID).Exec(ctx)
+	require.NoError(t, err)
+	_, err = s1.db.NewRaw(`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`, aLegID, "", int64(0), int64(0)).Exec(ctx)
 	require.NoError(t, err)
 	cvWriter := s1.ConversationViewStore()
 	cvReader := s2.ConversationViewStore()
