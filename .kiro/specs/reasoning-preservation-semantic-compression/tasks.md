@@ -27,7 +27,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: `go test -count=1 ./internal/plugins/features/reasoningpreservation/...`_
   - _Requirements: 1, 2, 13_
 
-- [ ] 1.2 Freeze surfaced-winner/original-first lifecycle
+- [x] 1.2 Freeze surfaced-winner/original-first lifecycle
   - Add RED tests proving compressor work is impossible for failed/cancelled/closed/replaced/gate-replaced streams, swallowed retries, and parallel losers.
   - Prove original `TurnArtifact` append precedes any reservation/provider submission on `success_released`.
   - Prove compressor failure cannot delete or invalidate a committed original.
