@@ -161,7 +161,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/conversationview/... ./internal/core/runtime/...`_
   - _Requirements: 10.1-10.12, 13.9-13.10_
 
-- [ ] 4.4 Add bounded backend-family translation sentinels
+- [x] 4.4 Add bounded backend-family translation sentinels
   - Add representative OpenAI-family, Anthropic-family and Gemini-family tests proving the final canonical steering order survives translation and is not silently dropped/repositioned.
   - Prove unsupported required role/placement rejects explicitly through normal pre-open semantics.
   - Keep provider cache controls/TTL/`PromptCacheKey` unchanged and assert no visibility-specific provider branch is introduced.

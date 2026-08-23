@@ -101,47 +101,22 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 }
 
 func buildSystemInstruction(call *lipapi.Call) *genai.Content {
-	capacity := 0
-	if len(call.Instructions) > 0 {
-		capacity++
-	}
-	for _, m := range call.Messages {
-		if m.Role == lipapi.RoleSystem {
-			capacity += len(m.Parts)
-		}
-	}
-
-	var texts []string
-	if capacity > 0 {
-		texts = make([]string, 0, capacity)
-	}
-
-	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
-		texts = append(texts, t)
-	}
-	for _, m := range call.Messages {
-		if m.Role != lipapi.RoleSystem {
-			continue
-		}
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText || strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			texts = append(texts, p.Text)
-		}
-	}
-	if len(texts) == 0 {
+	// Only top-level Instructions map to Gemini system instruction.
+	// Mid-conversation system messages in call.Messages are not silently lifted;
+	// they flow to buildContents and explicitly return unsupported role error.
+	if len(call.Instructions) == 0 {
 		return nil
 	}
-	return &genai.Content{Parts: []*genai.Part{genai.NewPartFromText(strings.Join(texts, "\n\n"))}}
+	t := lipapi.JoinInstructionText(call.Instructions)
+	if t == "" {
+		return nil
+	}
+	return &genai.Content{Parts: []*genai.Part{genai.NewPartFromText(t)}}
 }
 
 func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
 	out := make([]*genai.Content, 0, len(call.Messages))
 	for _, m := range call.Messages {
-		if m.Role == lipapi.RoleSystem {
-			continue
-		}
 		c, err := messageToContent(m)
 		if err != nil {
 			return nil, fmt.Errorf("gemini: message content: %w", err)
@@ -149,7 +124,7 @@ func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
 		out = append(out, c)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("gemini: no contents after filtering system messages")
+		return nil, fmt.Errorf("gemini: no contents")
 	}
 	return out, nil
 }
