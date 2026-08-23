@@ -71,8 +71,6 @@ func ValidateHandlerID(id string) error {
 	return nil
 }
 
-func validateHandlerID(id string) error { return ValidateHandlerID(id) }
-
 // Meta carries authoritative per-request context for Match.
 // MessageCount is the number of complete normalized messages in the ingress call
 // available for claiming. Handlers must not claim indexes outside [0, MessageCount).
