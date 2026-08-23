@@ -328,6 +328,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 		RawCaptureSinks:                  append(merged.RawCaptureSinks[:0:0], merged.RawCaptureSinks...),
 		TrafficRedactors:                 append(merged.TrafficRedactors[:0:0], merged.TrafficRedactors...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
+		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 	}
 	if processOpts != nil {
 		ext.TrafficObservers = append(ext.TrafficObservers, processOpts.Production.TrafficObservers...)
@@ -338,7 +339,6 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 	}
 	return ext
 }
-
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
@@ -364,6 +364,7 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.RawCaptureSinks = append(dst.RawCaptureSinks, src.RawCaptureSinks...)
 	dst.TrafficRedactors = append(dst.TrafficRedactors, src.TrafficRedactors...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
+	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if src.SecretGuardEnvironment != nil {
 		dst.SecretGuardEnvironment = src.SecretGuardEnvironment
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -50,6 +51,7 @@ type MergedFeatureSurface struct {
 	CompactionObservers              []compaction.Observer
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
+	LocalTurnHandlers                []localturn.Handler
 }
 
 // Append concatenates all fields from bundle b into the receiver. This is the single
@@ -85,6 +87,7 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
+	m.LocalTurnHandlers = append(m.LocalTurnHandlers, b.LocalTurnHandlers...)
 }
 
 // MergeBundles concatenates one or more FeatureBundles into a single MergedFeatureSurface,

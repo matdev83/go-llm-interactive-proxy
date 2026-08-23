@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -520,6 +521,42 @@ func (e *Executor) openAttemptTx(
 	if err != nil {
 		return fmt.Errorf("executor: %w", err)
 	}
+	// Task 4.1: final conversation-view reassertion at shared candidate-open choke point.
+	// Uses frozen snapshot/provenance/filteredBaseline (no store read) to remove reintroduced never_backend and
+	// rebuild steering exactly once at frozen placement, handling late transforms based on projected baseline.
+	var reassertProvenance []conversationview.OverlayProvenance
+	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationSnapshot.Steering) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
+		reasserted, reEv, rerr := conversationview.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
+		if rerr != nil {
+			if obs := e.conversationViewObserver(); obs != nil {
+				safe := conversationview.SafeObserver(obs)
+				safe.OnProjectionFailure(conversationview.StageFinal)
+				if errors.Is(rerr, conversationview.ErrAnchorMissing) || errors.Is(rerr, conversationview.ErrAnchorNotFound) {
+					safe.OnAnchorFailure(conversationview.AnchorFailClosed)
+				}
+			}
+			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: conversation view reassert: %w", rerr)
+		}
+		openCall = reasserted
+		if reEv != nil && len(reEv.Provenance) > 0 {
+			reassertProvenance = reEv.Provenance
+		} else {
+			reassertProvenance = tx.reqFacts.conversationProvenance
+		}
+		if obs := e.conversationViewObserver(); obs != nil {
+			safe := conversationview.SafeObserver(obs)
+			summary := conversationview.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
+			safe.OnProjection(conversationview.StageFinal, summary)
+			if reEv != nil {
+				for range reEv.Fallbacks {
+					safe.OnAnchorFallback(conversationview.StageFinal, conversationview.AnchorStablePrefixFallback)
+				}
+			}
+		}
+	} else {
+		reassertProvenance = tx.reqFacts.conversationProvenance
+	}
 	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(ctx, &openCall, c, tx.reqFacts.aLegID, tx.bleg.BLegID)
 	if perr != nil {
 		return perr
@@ -595,6 +632,20 @@ func (e *Executor) openAttemptTx(
 	if adaptErr != nil {
 		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return adaptErr
+	}
+	// Verify candidate adaptation preserved full projection (never_backend absent, steering exact count/order/placement).
+	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationProvenance) > 0 || len(reassertProvenance) > 0 {
+		provForVerify := reassertProvenance
+		if len(provForVerify) == 0 {
+			provForVerify = tx.reqFacts.conversationProvenance
+		}
+		if verr := conversationview.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
+			if obs := e.conversationViewObserver(); obs != nil {
+				conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageFinal)
+			}
+			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: conversation view adaptation integrity: %w", verr)
+		}
 	}
 	wireCall := adaptedCall
 	wireCall.Session.ClientSessionID = ""

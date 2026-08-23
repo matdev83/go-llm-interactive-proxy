@@ -93,7 +93,7 @@ func paramsForCall(call *lipapi.Call, cand routing.AttemptCandidate, normalizeRo
 		Messages:  msgs,
 	}
 
-	if sys := buildSystemBlocks(call); len(sys) > 0 {
+	if sys := buildSystemBlocks(call, normalizeRoles); len(sys) > 0 {
 		p.System = sys
 	}
 
@@ -138,37 +138,49 @@ func reasoningEffortEnablesThinking(effort string) bool {
 	return effort != "" && !strings.EqualFold(effort, "none")
 }
 
-func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
-	capBlocks := 0
-	if len(call.Instructions) > 0 {
-		capBlocks++
-	}
-	for _, m := range call.Messages {
-		if m.Role == lipapi.RoleSystem {
-			capBlocks += len(m.Parts)
+func buildSystemBlocks(call *lipapi.Call, normalizeRoles bool) []anthropic.TextBlockParam {
+	// Only top-level Instructions map to System for normal provider semantics.
+	// When NormalizeRoles is true (compatible-mode such as Alibaba Token Plan Intl),
+	// legacy lifting of RoleSystem Messages into System blocks is preserved explicitly
+	// without reintroducing silent relocation for normal semantics.
+	if normalizeRoles {
+		capBlocks := 0
+		if len(call.Instructions) > 0 {
+			capBlocks++
 		}
-	}
-
-	var out []anthropic.TextBlockParam
-	if capBlocks > 0 {
-		out = make([]anthropic.TextBlockParam, 0, capBlocks)
-	}
-
-	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
-		out = append(out, anthropic.TextBlockParam{Text: t})
-	}
-	for _, m := range call.Messages {
-		if m.Role != lipapi.RoleSystem {
-			continue
+		for _, m := range call.Messages {
+			if m.Role == lipapi.RoleSystem {
+				capBlocks += len(m.Parts)
+			}
 		}
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText || strings.TrimSpace(p.Text) == "" {
+		var out []anthropic.TextBlockParam
+		if capBlocks > 0 {
+			out = make([]anthropic.TextBlockParam, 0, capBlocks)
+		}
+		if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
+			out = append(out, anthropic.TextBlockParam{Text: t})
+		}
+		for _, m := range call.Messages {
+			if m.Role != lipapi.RoleSystem {
 				continue
 			}
-			out = append(out, anthropic.TextBlockParam{Text: p.Text})
+			for _, p := range m.Parts {
+				if p.Kind != lipapi.PartText || strings.TrimSpace(p.Text) == "" {
+					continue
+				}
+				out = append(out, anthropic.TextBlockParam{Text: p.Text})
+			}
 		}
+		return out
 	}
-	return out
+	if len(call.Instructions) == 0 {
+		return nil
+	}
+	t := lipapi.JoinInstructionText(call.Instructions)
+	if t == "" {
+		return nil
+	}
+	return []anthropic.TextBlockParam{{Text: t}}
 }
 
 // buildAnthropicMessages builds message params with default role handling.
@@ -180,11 +192,18 @@ func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error)
 // coercing messages whose role is neither system nor a structured tool exchange
 // (assistant tool_use / tool tool_result) to user, for providers that reject
 // other roles.
+// Top-level Instructions are already mapped to System blocks. For normal
+// provider semantics any RoleSystem in call.Messages is mid-conversation and
+// explicitly unsupported (must reject before Open, not silently lift). For
+// compatible-mode (NormalizeRoles=true, e.g. Alibaba Token Plan Intl) legacy
+// lifting of RoleSystem Messages into System blocks is preserved explicitly.
 func buildAnthropicMessagesWithRolePolicy(call *lipapi.Call, normalizeRoles bool) ([]anthropic.MessageParam, error) {
 	out := make([]anthropic.MessageParam, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
-			continue
+			if normalizeRoles {
+				continue
+			}
 		}
 		if normalizeRoles && m.Role != lipapi.RoleUser {
 			structuredToolMessage := (m.Role == lipapi.RoleAssistant && messageHasPartKind(m, lipapi.PartJSON)) ||

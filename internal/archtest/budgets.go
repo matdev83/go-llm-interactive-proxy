@@ -59,7 +59,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 12593},
+	{Tree: "internal/infra/runtimebundle", Max: 12616},
 	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -93,10 +93,28 @@ var LineBudgets = []LineBudget{
 	// Reviewer Blocker 2 parallel outcome ownership convergence: explicit outcome handoff/ack protocol, worker-owned attemptTx self-cleanup, isolated arm context cancellation, and serial reducer affinity delta; measured 84484, bump to 84525 with 41 headroom.
 	// Reviewer Blocker 3 attempt publication and physical cancel/close ownership convergence: attemptSession sole physical owner, attemptLifecycleHandle delegation on ALeg registration, turnTerminal closeClose sequence inversion, Recv loop detachStream elimination; measured 84615, bump to 84650 with 35 headroom.
 	// Reviewer Blocker publication ownership convergence: unpublished readyAttempt lifecycle handle, ready cancellation disposal state machine, and linearizable cancel vs consume coordination; measured 85021, bump to 85060 with 39 headroom.
-	{Dir: "internal/core", Max: 85060},
+	// Non-forwardable conversation content semantic identity/anchor contract adds internal/core/conversationview; measured 85751, bump to 85776 with 25 headroom.
+	// Non-forwardable conversation content snapshot/store contract (Reader/Tagger/SteeringStore + ReferenceStore) adds store value objects and contract suite; measured 86586, bump to 86611 with 25 headroom.
+	// Non-forwardable conversation content projection/placement/cache-prefix invariants (pure deterministic Project + ResolveAfterIngressTailAnchor); measured 87176, bump to 87201 with 25 headroom.
+	// Non-forwardable conversation content provenance (D14 request-local provenance for final reassertion); measured 87281, bump to 87306 with 25 headroom.
+	// Non-forwardable conversation content memory A-leg conversation-view state (B2BUA MemoryStore capability + extracted contract suite with tightenings); measured 88729, bump to 88754 with 25 headroom.
+	// Non-forwardable conversation content Bun SQLite/PostgreSQL persistence (A-leg-owned migrations + deterministic Bun adapter + SQLite/PG contract tests); measured 89658, bump to 89683 with 25 headroom.
+	// Non-forwardable conversation content sdkadapter services relocation (capability-resolving helpers moved from runtimebundle to sdkadapter, deterministic fail-closed FromStore/Services); measured 89919 (core) / 12591 (runtimebundle), bump to 89944/12616 with 25 headroom.
+	// Non-forwardable conversation content Task 3.1 pre-B-leg seam (authoritative A-leg/secret/submit/CTP ordering, deep-cloned ingress vs backend working call isolation, seam before inference transforms/billing/route); measured 90002, bump to 90027 with 25 headroom.
+	// Non-forwardable conversation content Task 3.2 early backend-effective projection (snapshot once after A-leg, frozen Snapshot+ProjectionEvidence before pre-request/billing/routing, fail-closed bounded evidence); measured 90095, bump to 90120 with 25 headroom.
+	// Non-forwardable conversation content Task 3.2 remediation (secure seam, MemoryStore prepareRequest coverage, backend Open reuse, failure counters, bounded summary without OverlayID/plaintext); measured 90145, bump to 90170 with 25 headroom.
+	// Non-forwardable conversation content Task 3.3 generic two-phase local-turn stage (frozen ordered Handler list in snapshot, tag-before-handle/reply, finite EventStream, no B-leg/billing, panic recovery, fail-open/closed, cancellation/Close finite no goroutine); measured 90450, bump to 90475 with 25 headroom.
+	// Non-forwardable conversation content Task 3.4 generic canonical local stream helper/factory and bounded frontend contract/continuation-visibility slice (streaming + non-streaming official frontends, legacy full-history and OpenResponses materialized-history filtering, no B-leg/usage); measured 90511, bump to 90536 with 25 headroom.
+	// Non-forwardable conversation content Task 4.1 final conversation-view reassertion at shared candidate-open choke point (pure Reassert with provenance, frozen snapshot/provenance, no store read, PTB from reasserted call, candidate adaptation integrity, fail-closed anchor); measured 90833, bump to 90858 with 25 headroom.
+	// Non-forwardable conversation content Task 4.1 precision fixes (placement-aware provenance with Injected* indices, FilterNeverBackend helper, filtered baseline frozen, per-identity extra handling, full VerifyAdaptationPreservesProjection with never_backend/order/placement); measured 91661, bump to 91686 with 25 headroom.
+	// Non-forwardable conversation content Task 4.1 adversarial harden (item_reference cleanup, same-slice collision fail-closed, provenance without synthetic ID scan, insertion-shift handling); measured 91760, bump to 91785 with 25 headroom.
+	// Non-forwardable conversation content Task 4.3 cache regression (bounded CacheDiscontinuityKind/Placement in SteeringState for create/replace/move/deactivate, MemoryStore/Bun parity, stable_prefix and fixed activation ordering U_N,STEER,A_N,U_N+1 across 3 turns, moving-tail negative, anchor fallback/fail_closed); measured 91840, bump to 91865 with 25 headroom.
+	// Non-forwardable conversation content Task 5.2 bounded diagnostics and security guards (content-free observer seam for filter/injection/fallback/failure/mutation, SDK Writer observer wiring, runtime early/final projection summary emission, Prometheus bounded labels, docs hidden-steering not secrecy, reason-code/secret-guard ordering tests); measured 92021, bump to 92046 with 25 headroom.
+	// Remediation round 1: panic-isolated SafeObserver wrapper, anchor failure only on ErrAnchorMissing/ErrAnchorNotFound, stage label on OnAnchorFallback (stage+policy), production compose helper internal/infra/metrics NewConversationViewServicesWithMetrics; measured 92070, bump to 92095 with 25 headroom.
+	{Dir: "internal/core", Max: 92095},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12593},
+	{Dir: "internal/infra/runtimebundle", Max: 12616},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }

@@ -11,6 +11,7 @@ The durable source of truth is split by purpose:
 - `docs/dogfood-local.md` - canonical **no-key** stub workflow (`lipstd check-config`, `routes`, `inventory`, `serve`) aligned with `config/examples/*.yaml`.
 - `docs/runtime-config-reload.md` - explicit SIGHUP/management-API runtime config reload (no watcher; atomic source replace; generation publication).
 - `docs/proxy-identity.md` - A-leg/B-leg identity carriers, modes, allowlist/exclusions, OpenRouter attribution.
+- `docs/conversation-view.md` - A-leg/B-leg conversation-view projection (client-visible/backend-hidden vs backend-visible/client-hidden, whole-message granularity, semantic identity, fixed anchors, cache-prefix invariants).
 - `docs/architecture.md` - this current-state runtime map.
 
 ## Product shape
@@ -47,7 +48,8 @@ Recoverable upstream failures may trigger failover only before the first downstr
 - secure-session authority, resume policy, and session-start audit emission;
 - capability negotiation, model catalog eligibility, and explicit mismatch failures;
 - hook and extension stage execution order, failure policy, timeout boundaries where implemented, and panic isolation;
-- canonical event collection, stream error classification, and resource bounds.
+- canonical event collection, stream error classification, and resource bounds;
+- conversation-view projection (A-leg-owned snapshot, early backend-effective projection, final reassertion before PTB/`Backend.Open`, generic local-turn seam, trusted steering writer) — see `docs/conversation-view.md` for visibility directions, whole-message granularity, semantic identity, fixed anchors, cache-prefix stability, and limits.
 
 These concerns are shared runtime semantics. Provider request shapes, SDK clients, wire payloads, and protocol-specific error rendering stay in adapters and plugins.
 

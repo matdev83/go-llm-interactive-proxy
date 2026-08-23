@@ -5,3 +5,6 @@ testdata/**/fuzz/** text eol=lf
 /.gitignore text eol=lf
 /.github/workflows/*.yml text eol=lf
 docs/dogfood-local.md whitespace=cr-at-eol
+
+# JSON fixtures and spec metadata intentionally retain CRLF on Windows.
+*.json whitespace=cr-at-eol

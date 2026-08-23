@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -297,6 +299,32 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		} else if e.Log != nil {
 			e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 		}
+		// --- Task 3.2 seam: snapshot once after authoritative A-leg resolution ---
+		// Preserve ingress before projection; project exclusion+steering ONCE
+		// before backend request/pre-request transforms, context estimation,
+		// billing, routing/capability/baseline. Fail closed on snapshot/
+		// projection errors; evidence stays bounded content-free.
+		ingressClone := lipapi.CloneCall(*workingCall)
+		ibt.ingressCall = &ingressClone
+		backendClone := lipapi.CloneCall(*workingCall)
+		originalForFilter := lipapi.CloneCall(backendClone)
+		// Snapshot coherent view and derive backend-effective call.
+		snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
+		if perr != nil {
+			return failAfterRequestAdmit(perr)
+		}
+		ibt.conversationSnapshot = snapView
+		ibt.conversationEvidence = projEv
+		ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
+		ibt.convSnapshotSet = true
+		if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+			ibt.conversationFilteredBaseline = &filtered
+		} else {
+			// Filter should not fail if Project succeeded; treat as fail-closed
+			return failAfterRequestAdmit(ferr)
+		}
+		backendClone = projected
+		workingCall = &backendClone
 		ann := maps.Clone(submitMeta.Annotations)
 		if ann == nil {
 			ann = make(map[string]string, len(submitMeta.Annotations))
@@ -366,6 +394,14 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		); err != nil {
 			return failAfterRequestAdmit(err)
 		}
+	}
+	// Ensure ingress is set even when snap == nil (no CTP branch).
+	if ibt.ingressCall == nil {
+		ingressClone := lipapi.CloneCall(*workingCall)
+		ibt.ingressCall = &ingressClone
+		// Ensure backend workingCall is a distinct clone for isolation.
+		backendClone := lipapi.CloneCall(*workingCall)
+		workingCall = &backendClone
 	}
 	effective := lipapi.CloneCall(*workingCall)
 	if ibt.routeAuth.active() {

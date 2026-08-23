@@ -20,7 +20,7 @@ func BenchmarkBuildSystemBlocks(b *testing.B) {
 	}
 
 	for b.Loop() {
-		_ = buildSystemBlocks(call)
+		_ = buildSystemBlocks(call, false)
 	}
 }
 

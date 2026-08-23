@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -135,11 +136,8 @@ type AuthOptions struct {
 	AuthErrorRenderersByFrontend map[string]httpauth.AuthErrorRenderer
 }
 
-// ExtensionsOptions carries the feature-bundle extension surfaces merged into the
-// runtime snapshot (task 5.1).
+// ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
 // SecretGuardInputs carries single-user catalog / matcher composition overrides.
-// Feature enablement comes only from enabled secrets-guard YAML registrations
-// (ComposeRuntimeConfig); there is no separate production enable flag.
 type SecretGuardInputs struct {
 	// SingleUser seeds/overrides the composed source catalog when the feature YAML
 	// is enabled. When SingleUser.MatcherConfigured is true, SingleUser.Matcher wins
@@ -170,6 +168,7 @@ type ExtensionsOptions struct {
 	TrafficRedactors                 []traffic.Redactor
 	CompactionObservers              []compaction.Observer
 	SecretGuards                     []sdk.Guard
+	LocalTurnHandlers                []localturn.Handler
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.
 	SecretGuardInputs      SecretGuardInputs

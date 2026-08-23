@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -85,14 +86,42 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
+	// --- Task 3.2 seam: snapshot once after A-leg resolution ---
+	// Preserve ingress then project exclusion+steering before backend work;
+	// fail closed on snapshot/projection errors.
+	ingressClone := lipapi.CloneCall(*workingCall)
+	ibt.ingressCall = &ingressClone
+	backendClone := lipapi.CloneCall(*workingCall)
+	originalForFilter := lipapi.CloneCall(backendClone)
+	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
+	if perr != nil {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, perr
+	}
+	ibt.conversationSnapshot = snapView
+	ibt.conversationEvidence = projEv
+	ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
+	ibt.convSnapshotSet = true
+	if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+		ibt.conversationFilteredBaseline = &filtered
+	} else {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, ferr
+	}
+	backendClone = projected
+	workingCall = &backendClone
 	// Submit hooks may enrich canonical calls, but cannot turn detached
-	// lineage hints back into session or continuity authority.
 	workingCall.Session.AuthoritativeSessionID, workingCall.Session.ClientSessionID = "", ""
 	workingCall.Session.ALegID = ibt.aLeg.ALegID
 	workingCall.Session.ContinuityKey, workingCall.Session.ResumeToken, workingCall.Session.Metadata = "", "", nil
 
 	*workingCall = lipapi.CloneCall(*workingCall)
 	call.Session = workingCall.Session
+	// Ensure backend is distinct from preserved ingress (deep clone isolation).
+	if ibt.ingressCall != nil && ibt.ingressCall == workingCall {
+		bk := lipapi.CloneCall(*ibt.ingressCall)
+		workingCall = &bk
+	}
 	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
 	outCtx = execctx.WithViews(outCtx, execctx.Views{
 		Principal: ibt.principal,

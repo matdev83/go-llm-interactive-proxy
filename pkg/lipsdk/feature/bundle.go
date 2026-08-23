@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -74,6 +75,10 @@ type FeatureBundle struct {
 	// SecretGuards contribute opaque ingress secret-guard evaluators (optional; schema V1).
 	SecretGuards []secretguard.Guard
 
+	// LocalTurnHandlers contribute generic proxy-local turn handlers (optional; schema V1).
+	// Each handler is ordered via Handler.Order/ID; nil entries are rejected by Validate.
+	LocalTurnHandlers []localturn.Handler
+
 	Lifecycles []lipplugin.Lifecycle
 }
 
@@ -101,6 +106,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.CompactionObservers) == 0 &&
 		len(b.CompactionPreservers) == 0 &&
 		len(b.SecretGuards) == 0 &&
+		len(b.LocalTurnHandlers) == 0 &&
 		len(b.Lifecycles) == 0
 }
 
@@ -133,6 +139,14 @@ func (b FeatureBundle) Validate() error {
 	for i, p := range b.CompactionPreservers {
 		if p == nil {
 			return fmt.Errorf("feature: FeatureBundle: CompactionPreservers[%d] must not be nil", i)
+		}
+	}
+	for i, h := range b.LocalTurnHandlers {
+		if localturn.IsNilHandler(h) {
+			return fmt.Errorf("feature: FeatureBundle: LocalTurnHandlers[%d] must not be nil", i)
+		}
+		if err := localturn.ValidateHandlerID(h.ID()); err != nil {
+			return fmt.Errorf("feature: FeatureBundle: LocalTurnHandlers[%d] invalid id: %w", i, err)
 		}
 	}
 	return nil

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -62,6 +63,14 @@ type CoreRuntime struct {
 	// Keepwarm is the generation-owned provider-neutral maintenance orchestrator.
 	// It is nil for test/minimal executors that do not compose the feature.
 	Keepwarm *keepwarm.Orchestrator
+	// ConversationViewReader is an optional narrow snapshot port. When set,
+	// runtime prefers it over AsReader(Store) to avoid widening b2bua.Store
+	// while preserving the single-snapshot per-turn invariant (task 3.2).
+	ConversationViewReader conversationview.Reader
+	// ConversationViewTagger is the optional narrow tagger port for local-turn
+	// tag-before-release. When set, runtime prefers it over AsTagger(Store).
+	// Nil means tagger is resolved via AsTagger(Store) if available.
+	ConversationViewTagger conversationview.Tagger
 }
 
 // BillingRuntime carries the runtime seams for two-stage exposure admission and
@@ -178,6 +187,9 @@ type ObservabilityRuntime struct {
 	RouteTrace                 *diag.RouteTraceBuffer
 	PolicyDiagnosticsEnabled   bool
 	CompletionBufferLimits     completion.BufferLimits
+	// ConversationViewObserver is optional narrow diagnostics for bounded conversation-view
+	// projection/anchor/steering metrics. Nil is no-op. Labels are bounded enums only (placement, operation, policy, stage).
+	ConversationViewObserver conversationview.Observer
 }
 
 // ExtensionRuntime carries the hook bus and frozen per-build extension snapshot.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -14,23 +15,26 @@ import (
 )
 
 type requestTerminalFacts struct {
-	call               lipapi.Call
-	traceID            string
-	aLegID             string
-	billingCallID      billing.BillingCallID
-	billingState       *billingCallState
-	accountID          string
-	sessionID          string
-	pricing            billing.VersionRef
-	chargePolicy       billing.VersionRef
-	identityStamped    bool
-	requestAuth        *requestAuthorityState
-	secureTurn         execctx.SecureSessionTurn
-	secureTurnOK       bool
-	replacementBlocked bool
-	routePrefs         []string
-	recvViews          execctx.Views
-	metering           *checkpoint.RequestHolder
+	call                         lipapi.Call
+	traceID                      string
+	aLegID                       string
+	billingCallID                billing.BillingCallID
+	billingState                 *billingCallState
+	accountID                    string
+	sessionID                    string
+	pricing                      billing.VersionRef
+	chargePolicy                 billing.VersionRef
+	identityStamped              bool
+	requestAuth                  *requestAuthorityState
+	secureTurn                   execctx.SecureSessionTurn
+	secureTurnOK                 bool
+	replacementBlocked           bool
+	routePrefs                   []string
+	recvViews                    execctx.Views
+	metering                     *checkpoint.RequestHolder
+	conversationSnapshot         conversationview.Snapshot
+	conversationProvenance       []conversationview.OverlayProvenance
+	conversationFilteredBaseline lipapi.Call
 }
 
 // attemptTerminalEvidence is a value snapshot of the current B-leg identity.
@@ -63,23 +67,44 @@ type responseRequestEvidence struct {
 
 func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 	return requestTerminalFacts{
-		call:            lipapi.CloneCall(f.baseline),
-		traceID:         f.traceID,
-		aLegID:          f.aLegID,
-		billingCallID:   f.billingCallID,
-		billingState:    f.billingCallState,
-		accountID:       f.billingAccountID,
-		sessionID:       f.baseline.Session.AuthoritativeSessionID,
-		pricing:         f.billingCustomerPricing,
-		chargePolicy:    f.billingChargePolicy,
-		identityStamped: f.billingIdentityStamped,
-		requestAuth:     f.requestAuth,
-		secureTurn:      f.secureTurn,
-		secureTurnOK:    f.secureTurnOK,
-		routePrefs:      slices.Clone(f.routePrefs),
-		recvViews:       f.recvViews,
-		metering:        f.metering,
+		call:                         lipapi.CloneCall(f.baseline),
+		traceID:                      f.traceID,
+		aLegID:                       f.aLegID,
+		billingCallID:                f.billingCallID,
+		billingState:                 f.billingCallState,
+		accountID:                    f.billingAccountID,
+		sessionID:                    f.baseline.Session.AuthoritativeSessionID,
+		pricing:                      f.billingCustomerPricing,
+		chargePolicy:                 f.billingChargePolicy,
+		identityStamped:              f.billingIdentityStamped,
+		requestAuth:                  f.requestAuth,
+		secureTurn:                   f.secureTurn,
+		secureTurnOK:                 f.secureTurnOK,
+		routePrefs:                   slices.Clone(f.routePrefs),
+		recvViews:                    f.recvViews,
+		metering:                     f.metering,
+		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
+		conversationProvenance:       slices.Clone(f.conversationProvenance),
+		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
 	}
+}
+
+func cloneSnapshot(s conversationview.Snapshot) conversationview.Snapshot {
+	out := s
+	if s.NeverBackend != nil {
+		out.NeverBackend = slices.Clone(s.NeverBackend)
+	}
+	if s.Steering != nil {
+		out.Steering = slices.Clone(s.Steering)
+		// Deep copy anchors
+		for i := range out.Steering {
+			if out.Steering[i].Placement.Anchor != nil {
+				cp := *out.Steering[i].Placement.Anchor
+				out.Steering[i].Placement.Anchor = &cp
+			}
+		}
+	}
+	return out
 }
 
 func (f requestTerminalFacts) responseEvidence() responseRequestEvidence {
