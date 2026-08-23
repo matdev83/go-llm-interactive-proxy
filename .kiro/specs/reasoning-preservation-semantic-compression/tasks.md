@@ -256,7 +256,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: mixed-placement/exact-byte/order tests_
   - _Requirements: 1, 12_
 
-- [ ] 6.3 Gate surrogate use strictly on explicit active mode
+- [x] 6.3 Gate surrogate use strictly on explicit active mode
   - Shadow remains original-only even with a valid surrogate.
   - Active uses surrogate only after all classifier/correlation/destination checks pass; every uncertainty falls back to original/unrepresentable behavior already defined by reasoning preservation.
   - Compression-specific failures never become candidate retry/failover authority.

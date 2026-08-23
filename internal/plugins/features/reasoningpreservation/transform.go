@@ -191,7 +191,8 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	// Shares single ClassifyAssistantTurns via collectRestoreCandidates to avoid double Classify.
 	// Poll is immutable-construction via CompressionServices; no cross-attempt state.
 	// Completed candidate is captured locally and passed to placeholder for 5.2.
-	if t.cfg.Compression.Enabled {
+	// Gate surrogate use strictly on explicit active mode; invalid mode fails closed to original with no polling/selection.
+	if t.cfg.Compression.Enabled && (t.cfg.Compression.Mode == CompressionShadow || t.cfg.Compression.Mode == CompressionActive) {
 		if cs, ok := t.store.(CompressionStore); ok {
 			// Shared classification for both poll and restore.
 			classified, candidates, cerr := collectRestoreCandidates(call, arts, meta.ReplaySupport)
@@ -332,6 +333,30 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 				}
 			}
 			t.recordRestoreOutcome(resTmp)
+			// 6.3 gate telemetry: active_used only when actual surrogate text injected; shadow_ready not active; original_fallback proper.
+			if t.tel != nil && t.cfg.Compression.Mode == CompressionActive {
+				used := false
+				if len(viewDecisions) > 0 && resTmp.Mutated && resTmp.RestoredCount > 0 {
+					for _, dec := range viewDecisions {
+						if dec.Kind == ViewSurrogate {
+							used = true
+							break
+						}
+					}
+				}
+				if used {
+					t.tel.RecordCompressionMeasurement(OutcomeActiveUsed, 0, 0, 0)
+				} else {
+					// Active fallback: surrogate existed but not used due to any uncertainty.
+					if len(viewDecisions) > 0 {
+						t.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+					} else if pollRes.Kind != PollKindNoPending && pollRes.Kind != "" {
+						t.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+					} else if adoption.Outcome != AdoptionOutcomeNone {
+						t.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+					}
+				}
+			}
 			if resTmp.Exclude {
 				reason := resTmp.ReasonCode
 				if reason == "" {
@@ -345,6 +370,7 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 			return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 		}
 	}
+	// Invalid mode or disabled: fail closed to original without polling/selection. No surrogate use, no Exclude from compression.
 	res, err := RestoreMissingReasoning(RestoreInput{
 		Action:            t.cfg.Action,
 		OnUnrepresentable: t.cfg.OnUnrepresentable,

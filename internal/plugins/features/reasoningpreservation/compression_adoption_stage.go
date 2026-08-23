@@ -252,9 +252,12 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 				savedBytes = 0
 			}
 			tel.RecordCompressionMeasurement(OutcomeSurrogateAttached, rawCount, decodedBytes, savedBytes)
-			tel.RecordCompressionMeasurement(OutcomeShadowReady, 0, 0, savedBytes)
+			if cfg.Compression.Mode == CompressionShadow {
+				tel.RecordCompressionMeasurement(OutcomeShadowReady, 0, 0, savedBytes)
+			}
+			// Active mode does not record shadow_ready; active_used is recorded at view injection when actually surrogate text is used.
 		}
-		// shadow always original, no active selection
+		// shadow always original, no active selection; active selection is gated strictly on explicit mode at view time.
 		return AdoptionResult{Outcome: AdoptionOutcomeNone, Candidate: cand, RawByteCount: rawCount, BoundedRaw: raw}
 	}
 }
