@@ -154,7 +154,7 @@ func reservationForSubmit(t *testing.T, cs reasoningpreservation.CompressionStor
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
 	// egress promote
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"}, cfg.Compression.Route)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, id, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, id, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	// decide segments: use segs if provided else extract
 	useSegs := segs
 	if len(useSegs) == 0 {
@@ -474,7 +474,7 @@ func TestSubmitStage_ScopeEqualsOriginatingClone(t *testing.T) {
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"}, cfg.Compression.Route)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-scope", res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-scope", res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	pr := reasoningpreservation.PreparedReservation{
 		Reservation:      reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: res.ReservationID, Correlation: corr},
 		Segments:         []reasoningpreservation.CompressorInputSegment{{Index: 0, Text: longScopeText}},

@@ -52,10 +52,7 @@ func ComputeEgressPolicyHash(decision CompressionEgressDecision, route string) [
 // (via store Snapshot lookup, never from correlation/model metadata),
 // enforces MaxInputBytes/Tokens after redaction, derives the authoritative
 // EgressPolicyHash, performs full CAS provisional->authoritative promotion
-// via UpdateReservationPolicyHash, and on success calls next with
-// PreparedReservation. On deny/missing/mismatch/sanitizer error/budget
-// exceed/stale CAS it clears the reservation, never calls next/provider,
-// and fails open (returns nil) so original remains untouched.
+// via UpdateReservationPolicyHash(returns nil, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))) so original remains untouched.
 // Trusted sanitizer is taken from svc.Sanitizer, not from untrusted
 // policy decision; policy may request redact but cannot inject arbitrary
 // sanitizer authority.
@@ -133,8 +130,13 @@ func NewPostReservationEgressStage(cfg Config, store CompressionStore, svc Compr
 		// segments is sanitized, bounded, and contains only local index+text.
 		// Derive authoritative hash from decision metadata (stable versioned).
 		authoritativeHash := ComputeEgressPolicyHash(dec, route)
+		routeHash := sha256.Sum256([]byte(route))
+		sanitization := SanitizationNone
+		if dec.Action == EgressRedactThenAllow {
+			sanitization = SanitizationRedacted
+		}
 		// Full CAS promotion provisional -> authoritative.
-		err = store.UpdateReservationPolicyHash(ctx, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID, res.Correlation.EgressPolicyRefHash, res.Correlation.OriginalDigest, res.Correlation.PolicyRevision, res.Correlation.SemanticDigest, authoritativeHash)
+		err = store.UpdateReservationPolicyHash(ctx, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID, res.Correlation.EgressPolicyRefHash, res.Correlation.OriginalDigest, res.Correlation.PolicyRevision, res.Correlation.SemanticDigest, authoritativeHash, sanitization, routeHash)
 		if err != nil {
 			_ = store.ClearCompression(ctx, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
 			return nil

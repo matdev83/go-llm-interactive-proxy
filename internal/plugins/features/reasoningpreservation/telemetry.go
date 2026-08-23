@@ -9,8 +9,19 @@ import (
 
 // Telemetry accumulates content-safe aggregate outcome counters for one feature instance.
 type Telemetry struct {
-	outcomes sync.Map // SafeOutcome -> *atomic.Int64
-	bytes    sync.Map // SafeOutcome -> *atomic.Int64 total raw bytes (content-free counts)
+	outcomes     sync.Map // SafeOutcome -> *atomic.Int64
+	bytes        sync.Map // SafeOutcome -> *atomic.Int64 total raw bytes (content-free counts) - kept for 5.2 wrapper
+	rawBytes     sync.Map // SafeOutcome -> *atomic.Int64 raw bytes
+	decodedBytes sync.Map // SafeOutcome -> *atomic.Int64 decoded bytes
+	savedBytes   sync.Map // SafeOutcome -> *atomic.Int64 saved bytes
+}
+
+// CompressionMeasurements is a content-free snapshot of per-outcome byte measurements.
+type CompressionMeasurements struct {
+	Counts       map[SafeOutcome]int64
+	RawBytes     map[SafeOutcome]int64
+	DecodedBytes map[SafeOutcome]int64
+	SavedBytes   map[SafeOutcome]int64
 }
 
 func NewTelemetry() *Telemetry {
@@ -43,6 +54,7 @@ func (t *Telemetry) Record(outcome SafeOutcome, counts map[string]int) {
 
 // RecordCompression records a compression-safe outcome with content-free byte count.
 // It is a minimal wrapper over Record that keeps call sites explicit and bounded.
+// Kept for 5.2 raw path; new code should use RecordCompressionMeasurement.
 func (t *Telemetry) RecordCompression(outcome SafeOutcome, rawBytes int) {
 	if t == nil || !isKnownOutcome(outcome) {
 		return
@@ -55,6 +67,51 @@ func (t *Telemetry) RecordCompression(outcome SafeOutcome, rawBytes int) {
 		m["bytes"] = rawBytes
 	}
 	t.Record(outcome, m)
+}
+
+// RecordCompressionMeasurement records an outcome with explicit raw/decoded/saved bytes, each clamped.
+// It is content-free and outcome-whitelisted via isKnownOutcome.
+func (t *Telemetry) RecordCompressionMeasurement(outcome SafeOutcome, rawBytes, decodedBytes, savedBytes int) {
+	if t == nil || !isKnownOutcome(outcome) {
+		return
+	}
+	v, _ := t.outcomes.LoadOrStore(outcome, &atomic.Int64{})
+	n, ok := v.(*atomic.Int64)
+	if !ok || n == nil {
+		return
+	}
+	n.Add(1)
+	if rawBytes > 0 {
+		if rawBytes > HardRawOutputCeiling {
+			rawBytes = HardRawOutputCeiling
+		}
+		vb, _ := t.rawBytes.LoadOrStore(outcome, &atomic.Int64{})
+		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
+			nb.Add(int64(rawBytes))
+		}
+		vb2, _ := t.bytes.LoadOrStore(outcome, &atomic.Int64{})
+		if nb, ok := vb2.(*atomic.Int64); ok && nb != nil {
+			nb.Add(int64(rawBytes))
+		}
+	}
+	if decodedBytes > 0 {
+		if decodedBytes > HardCompressionMaxSurrogateBytes {
+			decodedBytes = HardCompressionMaxSurrogateBytes
+		}
+		vb, _ := t.decodedBytes.LoadOrStore(outcome, &atomic.Int64{})
+		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
+			nb.Add(int64(decodedBytes))
+		}
+	}
+	if savedBytes > 0 {
+		if savedBytes > HardRawOutputCeiling {
+			savedBytes = HardRawOutputCeiling
+		}
+		vb, _ := t.savedBytes.LoadOrStore(outcome, &atomic.Int64{})
+		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
+			nb.Add(int64(savedBytes))
+		}
+	}
 }
 
 func (t *Telemetry) Snapshot() map[SafeOutcome]int64 {
@@ -100,6 +157,93 @@ func (t *Telemetry) BytesSnapshot() map[SafeOutcome]int64 {
 		return true
 	})
 	return out
+}
+
+// RawBytesSnapshot returns raw bytes per outcome.
+func (t *Telemetry) RawBytesSnapshot() map[SafeOutcome]int64 {
+	out := make(map[SafeOutcome]int64)
+	if t == nil {
+		return out
+	}
+	t.rawBytes.Range(func(key, value any) bool {
+		o, ok := key.(SafeOutcome)
+		if !ok {
+			return true
+		}
+		n, ok := value.(*atomic.Int64)
+		if !ok || n == nil {
+			return true
+		}
+		if c := n.Load(); c > 0 {
+			out[o] = c
+		}
+		return true
+	})
+	return out
+}
+
+// DecodedBytesSnapshot returns decoded bytes per outcome.
+func (t *Telemetry) DecodedBytesSnapshot() map[SafeOutcome]int64 {
+	out := make(map[SafeOutcome]int64)
+	if t == nil {
+		return out
+	}
+	t.decodedBytes.Range(func(key, value any) bool {
+		o, ok := key.(SafeOutcome)
+		if !ok {
+			return true
+		}
+		n, ok := value.(*atomic.Int64)
+		if !ok || n == nil {
+			return true
+		}
+		if c := n.Load(); c > 0 {
+			out[o] = c
+		}
+		return true
+	})
+	return out
+}
+
+// SavedBytesSnapshot returns saved bytes per outcome.
+func (t *Telemetry) SavedBytesSnapshot() map[SafeOutcome]int64 {
+	out := make(map[SafeOutcome]int64)
+	if t == nil {
+		return out
+	}
+	t.savedBytes.Range(func(key, value any) bool {
+		o, ok := key.(SafeOutcome)
+		if !ok {
+			return true
+		}
+		n, ok := value.(*atomic.Int64)
+		if !ok || n == nil {
+			return true
+		}
+		if c := n.Load(); c > 0 {
+			out[o] = c
+		}
+		return true
+	})
+	return out
+}
+
+// CompressionMeasurementsSnapshot returns per-outcome counts and byte measurements.
+func (t *Telemetry) CompressionMeasurementsSnapshot() CompressionMeasurements {
+	if t == nil {
+		return CompressionMeasurements{
+			Counts:       map[SafeOutcome]int64{},
+			RawBytes:     map[SafeOutcome]int64{},
+			DecodedBytes: map[SafeOutcome]int64{},
+			SavedBytes:   map[SafeOutcome]int64{},
+		}
+	}
+	return CompressionMeasurements{
+		Counts:       t.Snapshot(),
+		RawBytes:     t.RawBytesSnapshot(),
+		DecodedBytes: t.DecodedBytesSnapshot(),
+		SavedBytes:   t.SavedBytesSnapshot(),
+	}
 }
 
 // SafeInventory is the process-local, content-safe diagnostics projection for one enabled instance.

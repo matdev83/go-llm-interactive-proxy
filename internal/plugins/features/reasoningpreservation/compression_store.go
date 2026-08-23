@@ -26,20 +26,32 @@ type SurrogateSegment struct {
 	Bytes          int
 }
 
+const (
+	SanitizationNone     = "none"
+	SanitizationRedacted = "redacted"
+)
+
+func isValidSanitization(s string) bool {
+	return s == SanitizationNone || s == SanitizationRedacted
+}
+
 // ReasoningSurrogate is the validated optional replacement for semantic-text placements.
 // SemanticDigest is the SHA-256 of the canonical semantic-text payload that was
 // compressed; EgressPolicyHash is the hash of the egress policy version that
 // authorized submission. Both are immutable correlation digests verified by
 // AttachSurrogate CAS. A zero SemanticDigest is invalid (real artifacts always
 // have content) and Attach rejects it as a conflict.
+// Sanitization is the content-free class that authorized the surrogate (none/redacted).
+// AuthorizedRouteHash is sha256(route) at promotion, verified by Attach CAS.
 type ReasoningSurrogate struct {
-	OriginalDigest   [32]byte
-	PolicyRevision   string
-	Sanitization     string
-	Segments         []SurrogateSegment
-	Bytes            int
-	SemanticDigest   [32]byte
-	EgressPolicyHash [32]byte
+	OriginalDigest      [32]byte
+	PolicyRevision      string
+	Sanitization        string
+	Segments            []SurrogateSegment
+	Bytes               int
+	SemanticDigest      [32]byte
+	EgressPolicyHash    [32]byte
+	AuthorizedRouteHash [32]byte
 }
 
 // PendingCompression tracks a reservation awaiting background result.
@@ -49,6 +61,8 @@ type ReasoningSurrogate struct {
 // match. Zero SemanticDigest is invalid and Attach rejects it as a
 // conflict (real artifacts have content). Zero EgressPolicyHash is allowed
 // but CAS-checked — a mismatch still yields a conflict.
+// Sanitization is the content-free class (none/redacted) derived from the egress decision.
+// AuthorizedRouteHash is sha256(route) at promotion, verified by adoption.
 // PolicyHashAuthoritative is false at Reserve (provisional ref hash) and
 // becomes true after successful UpdateReservationPolicyHash CAS promotion.
 // Bind and Attach reject unless authoritative.
@@ -57,6 +71,8 @@ type PendingCompression struct {
 	OriginalDigest          [32]byte
 	SemanticDigest          [32]byte
 	EgressPolicyHash        [32]byte
+	AuthorizedRouteHash     [32]byte
+	Sanitization            string
 	PolicyHashAuthoritative bool
 	CreatedAt               time.Time
 	PolicyRevision          string
@@ -122,7 +138,7 @@ func IsNotFoundError(err error) bool { return errors.Is(err, ErrCompressionNotFo
 type CompressionStore interface {
 	TurnStore
 	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error)
-	UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte) error
+	UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error
 	BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error
 	AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
 	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string, expectedReservationID string) error
@@ -215,16 +231,22 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	return reservationID, nil
 }
 
-func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte) error {
+func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if artifactID == "" || reservationID == "" || policyRevision == "" {
 		return fmt.Errorf("%w: missing update fields", ErrCompressionConflict)
 	}
+	if !isValidSanitization(sanitization) {
+		return fmt.Errorf("%w: invalid sanitization %q", ErrCompressionConflict, sanitization)
+	}
 	var zeroHash [32]byte
 	if newHash == zeroHash {
 		return fmt.Errorf("%w: zero authoritative hash", ErrCompressionConflict)
+	}
+	if routeHash == zeroHash {
+		return fmt.Errorf("%w: zero route hash", ErrCompressionConflict)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -268,6 +290,8 @@ func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, parti
 		return fmt.Errorf("%w: artifact not found", ErrCompressionNotFound)
 	}
 	entry.pending.EgressPolicyHash = newHash
+	entry.pending.Sanitization = sanitization
+	entry.pending.AuthorizedRouteHash = routeHash
 	entry.pending.PolicyHashAuthoritative = true
 	return nil
 }
@@ -384,6 +408,25 @@ func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, partition Session
 	if entry.pending.EgressPolicyHash != clone.EgressPolicyHash {
 		return fmt.Errorf("%w: egress policy hash mismatch", ErrCompressionConflict)
 	}
+	if !isValidSanitization(clone.Sanitization) {
+		return fmt.Errorf("%w: invalid surrogate sanitization %q", ErrCompressionConflict, clone.Sanitization)
+	}
+	if !isValidSanitization(entry.pending.Sanitization) {
+		return fmt.Errorf("%w: invalid pending sanitization %q", ErrCompressionConflict, entry.pending.Sanitization)
+	}
+	if entry.pending.Sanitization != clone.Sanitization {
+		return fmt.Errorf("%w: sanitization mismatch", ErrCompressionConflict)
+	}
+	var zeroRouteHash [32]byte
+	if entry.pending.AuthorizedRouteHash == zeroRouteHash {
+		return fmt.Errorf("%w: zero pending route hash", ErrCompressionConflict)
+	}
+	if clone.AuthorizedRouteHash == zeroRouteHash {
+		return fmt.Errorf("%w: zero surrogate route hash", ErrCompressionConflict)
+	}
+	if entry.pending.AuthorizedRouteHash != clone.AuthorizedRouteHash {
+		return fmt.Errorf("%w: route hash mismatch", ErrCompressionConflict)
+	}
 	// oldBytes is the existing surrogate size for this artifact (replacement path).
 	// By construction oldBytes <= cur session/total counters.
 	oldBytes := 0
@@ -457,6 +500,28 @@ func (s *memoryTurnStore) ClearCompression(ctx context.Context, partition Sessio
 	}
 	if expectedReservationID != "" && entry.pending != nil && entry.pending.ReservationID != expectedReservationID {
 		return fmt.Errorf("%w: pending reservation mismatch on clear", ErrCompressionConflict)
+	}
+	// CAS clear of expected pending: preserve surrogate if exists.
+	if expectedReservationID != "" {
+		if entry.pending != nil {
+			if c := s.pendingPerSession[key]; c > 0 {
+				s.pendingPerSession[key] = c - 1
+				if s.pendingPerSession[key] == 0 {
+					delete(s.pendingPerSession, key)
+				}
+			}
+			if s.totalPending > 0 {
+				s.totalPending--
+			}
+			entry.pending = nil
+			if entry.surrogate == nil {
+				delete(m, artifactID)
+				if len(m) == 0 {
+					delete(s.compBy, key)
+				}
+			}
+		}
+		return nil
 	}
 	s.clearOptionalLocked(key, artifactID)
 	return nil

@@ -14,16 +14,17 @@ import (
 
 func surrogateParams(expected []int, sourceBytes int) reasoningpreservation.SurrogateDecodeParams {
 	return reasoningpreservation.SurrogateDecodeParams{
-		ExpectedIndexes:   expected,
-		SourceBytes:       sourceBytes,
-		MaxSurrogateBytes: 1024,
-		MinSavedBytes:     1,
-		MinSavingsRatio:   0.01,
-		OriginalDigest:    sha256.Sum256([]byte("orig")),
-		PolicyRevision:    "v1",
-		Sanitization:      "none",
-		SemanticDigest:    sha256.Sum256([]byte("semantic")),
-		EgressPolicyHash:  sha256.Sum256([]byte("egress")),
+		ExpectedIndexes:     expected,
+		SourceBytes:         sourceBytes,
+		MaxSurrogateBytes:   1024,
+		MinSavedBytes:       1,
+		MinSavingsRatio:     0.01,
+		OriginalDigest:      sha256.Sum256([]byte("orig")),
+		PolicyRevision:      "v1",
+		Sanitization:        "none",
+		SemanticDigest:      sha256.Sum256([]byte("semantic")),
+		EgressPolicyHash:    sha256.Sum256([]byte("egress")),
+		AuthorizedRouteHash: sha256.Sum256([]byte("test-route")),
 	}
 }
 
@@ -461,16 +462,17 @@ func TestSurrogateDecoder_CorrelatedFields(t *testing.T) {
 	sem := sha256.Sum256([]byte("sem2"))
 	eg := sha256.Sum256([]byte("eg2"))
 	params := reasoningpreservation.SurrogateDecodeParams{
-		ExpectedIndexes:   []int{1},
-		SourceBytes:       50,
-		MaxSurrogateBytes: 1024,
-		MinSavedBytes:     1,
-		MinSavingsRatio:   0.01,
-		OriginalDigest:    orig,
-		PolicyRevision:    "rev-5",
-		Sanitization:      "redacted",
-		SemanticDigest:    sem,
-		EgressPolicyHash:  eg,
+		ExpectedIndexes:     []int{1},
+		SourceBytes:         50,
+		MaxSurrogateBytes:   1024,
+		MinSavedBytes:       1,
+		MinSavingsRatio:     0.01,
+		OriginalDigest:      orig,
+		PolicyRevision:      "rev-5",
+		Sanitization:        "redacted",
+		SemanticDigest:      sem,
+		EgressPolicyHash:    eg,
+		AuthorizedRouteHash: sha256.Sum256([]byte("test-route")),
 	}
 	raw := marshalSurrogate(t, 1, []map[string]any{{"index": 1, "text": "compressed"}}, nil)
 	sur, _, err := reasoningpreservation.DecodeSurrogate(raw, params)
@@ -517,16 +519,17 @@ func FuzzSurrogateDecoder(f *testing.F) {
 			sourceBytes = 10 * 1024 * 1024
 		}
 		params := reasoningpreservation.SurrogateDecodeParams{
-			ExpectedIndexes:   []int{0},
-			SourceBytes:       sourceBytes,
-			MaxSurrogateBytes: 1024,
-			MinSavedBytes:     1,
-			MinSavingsRatio:   0.1,
-			OriginalDigest:    sha256.Sum256([]byte("orig")),
-			PolicyRevision:    "v1",
-			Sanitization:      "none",
-			SemanticDigest:    sha256.Sum256([]byte("sem")),
-			EgressPolicyHash:  sha256.Sum256([]byte("eg")),
+			ExpectedIndexes:     []int{0},
+			SourceBytes:         sourceBytes,
+			MaxSurrogateBytes:   1024,
+			MinSavedBytes:       1,
+			MinSavingsRatio:     0.1,
+			OriginalDigest:      sha256.Sum256([]byte("orig")),
+			PolicyRevision:      "v1",
+			Sanitization:        "none",
+			SemanticDigest:      sha256.Sum256([]byte("sem")),
+			EgressPolicyHash:    sha256.Sum256([]byte("eg")),
+			AuthorizedRouteHash: sha256.Sum256([]byte("test-route")),
 		}
 		sur, outcome, err := reasoningpreservation.DecodeSurrogate(raw, params)
 		if err != nil {

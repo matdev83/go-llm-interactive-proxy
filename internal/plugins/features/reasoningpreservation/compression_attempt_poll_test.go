@@ -101,7 +101,7 @@ func setupPollPendingForFixture(t *testing.T, cs reasoningpreservation.Compressi
 	resID, err := cs.ReserveCompression(context.Background(), p, art.ID, digest, "v1", semDigest, egHash)
 	require.NoError(t, err)
 	newHash := sha256.Sum256([]byte("v1-route-purpose"))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, art.ID, resID, egHash, digest, "v1", semDigest, newHash))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, art.ID, resID, egHash, digest, "v1", semDigest, newHash, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	jobID := auxiliary.JobID("job-" + art.ID)
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, art.ID, resID, jobID, digest, "v1"))
 	return jobID, resID
@@ -250,7 +250,7 @@ func TestPollOnce_PollCountExactlyOne(t *testing.T) {
 	res2, err := cs.ReserveCompression(context.Background(), p, "art-2", secondArt.Anchor, "v1", sem2, eg2)
 	require.NoError(t, err)
 	newHash2 := sha256.Sum256([]byte("v1-route-purpose"))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-2", res2, eg2, secondArt.Anchor, "v1", sem2, newHash2))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-2", res2, eg2, secondArt.Anchor, "v1", sem2, newHash2, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "art-2", res2, "job-art-2", secondArt.Anchor, "v1"))
 	snap, _ := cs.Snapshot(context.Background(), p)
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollPending}}

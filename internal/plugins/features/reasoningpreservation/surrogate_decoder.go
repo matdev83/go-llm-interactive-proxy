@@ -12,15 +12,11 @@ import (
 )
 
 // SurrogateDecodeOutcome is the typed content-free outcome of strict decoding.
-type SurrogateDecodeOutcome string
+// It is an alias to SafeOutcome so telemetry and decoder share the same string taxonomy.
+type SurrogateDecodeOutcome = SafeOutcome
 
 const (
-	OutcomeDecodeInvalid       SurrogateDecodeOutcome = "decode_invalid"
-	OutcomeSchemaInvalid       SurrogateDecodeOutcome = "schema_invalid"
-	OutcomeControlInvalid      SurrogateDecodeOutcome = "control_invalid"
-	OutcomeSurrogateOversize   SurrogateDecodeOutcome = "surrogate_oversize"
-	OutcomeInsufficientSavings SurrogateDecodeOutcome = "insufficient_savings"
-	OutcomeSurrogateDecoded    SurrogateDecodeOutcome = "decoded"
+	OutcomeSurrogateDecoded SurrogateDecodeOutcome = "decoded"
 )
 
 var (
@@ -36,16 +32,17 @@ var (
 // size used for savings comparison. Caller must provide raw bytes already
 // bounded by ExtractBoundedRaw (max_output_bytes / hard ceiling).
 type SurrogateDecodeParams struct {
-	ExpectedIndexes   []int
-	SourceBytes       int
-	MaxSurrogateBytes int
-	MinSavedBytes     int
-	MinSavingsRatio   float64
-	OriginalDigest    [32]byte
-	PolicyRevision    string
-	Sanitization      string
-	SemanticDigest    [32]byte
-	EgressPolicyHash  [32]byte
+	ExpectedIndexes     []int
+	SourceBytes         int
+	MaxSurrogateBytes   int
+	MinSavedBytes       int
+	MinSavingsRatio     float64
+	OriginalDigest      [32]byte
+	PolicyRevision      string
+	Sanitization        string
+	SemanticDigest      [32]byte
+	EgressPolicyHash    [32]byte
+	AuthorizedRouteHash [32]byte
 }
 
 // DecodeSurrogate implements the strict versioned JSON decoder for raw bounded
@@ -62,37 +59,44 @@ type SurrogateDecodeParams struct {
 func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurrogate, SurrogateDecodeOutcome, error) {
 	// Defensive param validation: expected indexes must be provided.
 	if len(params.ExpectedIndexes) == 0 {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: expected indexes must not be empty", ErrSurrogateSchemaInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: expected indexes must not be empty", ErrSurrogateSchemaInvalid)
 	}
 	// Validate expected indexes are non-negative and distinct (caller contract).
 	seenExp := make(map[int]struct{}, len(params.ExpectedIndexes))
 	for _, idx := range params.ExpectedIndexes {
 		if idx < 0 {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: expected index %d must be >=0", ErrSurrogateSchemaInvalid, idx)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: expected index %d must be >=0", ErrSurrogateSchemaInvalid, idx)
 		}
 		if _, dup := seenExp[idx]; dup {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: duplicate expected index %d", ErrSurrogateSchemaInvalid, idx)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: duplicate expected index %d", ErrSurrogateSchemaInvalid, idx)
 		}
 		seenExp[idx] = struct{}{}
 	}
 	if params.PolicyRevision == "" {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: policy revision required", ErrSurrogateSchemaInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: policy revision required", ErrSurrogateSchemaInvalid)
 	}
 	if params.Sanitization == "" {
-		params.Sanitization = "none"
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: sanitization required", ErrSurrogateSchemaInvalid)
+	}
+	if !isValidSanitization(params.Sanitization) {
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: invalid sanitization %q", ErrSurrogateSchemaInvalid, params.Sanitization)
+	}
+	var zeroRouteHash [32]byte
+	if params.AuthorizedRouteHash == zeroRouteHash {
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: route hash required", ErrSurrogateSchemaInvalid)
 	}
 	if len(raw) == 0 {
-		return ReasoningSurrogate{}, OutcomeDecodeInvalid, fmt.Errorf("%w: empty raw bytes", ErrSurrogateDecodeInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeDecodeInvalid, fmt.Errorf("%w: empty raw bytes", ErrSurrogateDecodeInvalid)
 	}
 	if !utf8.Valid(raw) {
-		return ReasoningSurrogate{}, OutcomeControlInvalid, fmt.Errorf("%w: raw bytes must be valid UTF-8", ErrSurrogateControlInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: raw bytes must be valid UTF-8", ErrSurrogateControlInvalid)
 	}
 	// Raw bytes already bounded; defensive hard ceiling check content-free.
 	if len(raw) > HardRawOutputCeiling {
-		return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: raw %d > hard ceiling %d", ErrSurrogateOversize, len(raw), HardRawOutputCeiling)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: raw %d > hard ceiling %d", ErrSurrogateOversize, len(raw), HardRawOutputCeiling)
 	}
 	if params.MaxSurrogateBytes <= 0 {
-		return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: max_surrogate_bytes %d must be >0", ErrSurrogateOversize, params.MaxSurrogateBytes)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: max_surrogate_bytes %d must be >0", ErrSurrogateOversize, params.MaxSurrogateBytes)
 	}
 	effectiveMax := params.MaxSurrogateBytes
 	if effectiveMax > HardCompressionMaxSurrogateBytes {
@@ -100,16 +104,16 @@ func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurroga
 	}
 	// Explicit caller-params validation for SourceBytes: must be >0, schema_invalid for invalid caller params.
 	if params.SourceBytes <= 0 {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: source_bytes %d must be >0", ErrSurrogateSchemaInvalid, params.SourceBytes)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: source_bytes %d must be >0", ErrSurrogateSchemaInvalid, params.SourceBytes)
 	}
 	// Savings ratio defensive NaN/Inf check before use.
 	if math.IsNaN(params.MinSavingsRatio) || math.IsInf(params.MinSavingsRatio, 0) {
-		return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: min_savings_ratio is NaN/Inf", ErrSurrogateInsufficientSavings)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: min_savings_ratio is NaN/Inf", ErrSurrogateInsufficientSavings)
 	}
 	// Strict JSON decode with DisallowUnknownFields and trailing-token rejection.
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return ReasoningSurrogate{}, OutcomeDecodeInvalid, fmt.Errorf("%w: empty JSON", ErrSurrogateDecodeInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeDecodeInvalid, fmt.Errorf("%w: empty JSON", ErrSurrogateDecodeInvalid)
 	}
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.DisallowUnknownFields()
@@ -123,93 +127,93 @@ func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurroga
 	}
 	var wire wireRes
 	if err := dec.Decode(&wire); err != nil {
-		return ReasoningSurrogate{}, OutcomeDecodeInvalid, fmt.Errorf("%w: %v", ErrSurrogateDecodeInvalid, err)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeDecodeInvalid, fmt.Errorf("%w: %v", ErrSurrogateDecodeInvalid, err)
 	}
 	var extra json.RawMessage
 	if err := dec.Decode(&extra); err != io.EOF {
-		return ReasoningSurrogate{}, OutcomeDecodeInvalid, fmt.Errorf("%w: trailing JSON", ErrSurrogateDecodeInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeDecodeInvalid, fmt.Errorf("%w: trailing JSON", ErrSurrogateDecodeInvalid)
 	}
 	if wire.SchemaVersion != 1 {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: schema_version %d want 1", ErrSurrogateSchemaInvalid, wire.SchemaVersion)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: schema_version %d want 1", ErrSurrogateSchemaInvalid, wire.SchemaVersion)
 	}
 	if wire.Segments == nil {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments must be present", ErrSurrogateSchemaInvalid)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments must be present", ErrSurrogateSchemaInvalid)
 	}
 	// Validate expected count and indexes exactly once.
 	if len(wire.Segments) != len(params.ExpectedIndexes) {
-		return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments count %d want %d", ErrSurrogateSchemaInvalid, len(wire.Segments), len(params.ExpectedIndexes))
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments count %d want %d", ErrSurrogateSchemaInvalid, len(wire.Segments), len(params.ExpectedIndexes))
 	}
 	seen := make(map[int]struct{}, len(wire.Segments))
 	totalBytes := 0
 	for i, s := range wire.Segments {
 		if s.Index < 0 {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments[%d].index %d must be >=0", ErrSurrogateSchemaInvalid, i, s.Index)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: segments[%d].index %d must be >=0", ErrSurrogateSchemaInvalid, i, s.Index)
 		}
 		if _, dup := seen[s.Index]; dup {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: duplicate segment index %d", ErrSurrogateSchemaInvalid, s.Index)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: duplicate segment index %d", ErrSurrogateSchemaInvalid, s.Index)
 		}
 		seen[s.Index] = struct{}{}
 		if _, ok := seenExp[s.Index]; !ok {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: unexpected index %d", ErrSurrogateSchemaInvalid, s.Index)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: unexpected index %d", ErrSurrogateSchemaInvalid, s.Index)
 		}
 		if !utf8.ValidString(s.Text) {
-			return ReasoningSurrogate{}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text must be valid UTF-8", ErrSurrogateControlInvalid, i)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text must be valid UTF-8", ErrSurrogateControlInvalid, i)
 		}
 		if strings.TrimSpace(s.Text) == "" {
-			return ReasoningSurrogate{}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text must be non-empty/non-whitespace", ErrSurrogateControlInvalid, i)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text must be non-empty/non-whitespace", ErrSurrogateControlInvalid, i)
 		}
 		if containsDisallowedControl(s.Text) {
-			return ReasoningSurrogate{}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text contains disallowed control", ErrSurrogateControlInvalid, i)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeControlInvalid, fmt.Errorf("%w: segments[%d].text contains disallowed control", ErrSurrogateControlInvalid, i)
 		}
 		segLen := len(s.Text)
 		if segLen > HardCompressionMaxSurrogateBytes {
-			return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: segments[%d] %d > hard ceiling %d", ErrSurrogateOversize, i, segLen, HardCompressionMaxSurrogateBytes)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: segments[%d] %d > hard ceiling %d", ErrSurrogateOversize, i, segLen, HardCompressionMaxSurrogateBytes)
 		}
 		if segLen > effectiveMax {
-			return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: segments[%d] %d > max_surrogate_bytes %d", ErrSurrogateOversize, i, segLen, effectiveMax)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: segments[%d] %d > max_surrogate_bytes %d", ErrSurrogateOversize, i, segLen, effectiveMax)
 		}
 		// Overflow-safe aggregate: use int64 for total to avoid int overflow on 32-bit.
 		total64 := int64(totalBytes) + int64(segLen)
 		if total64 > int64(HardCompressionMaxSurrogateBytes) {
-			return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: decoded aggregate %d > hard ceiling %d", ErrSurrogateOversize, total64, HardCompressionMaxSurrogateBytes)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: decoded aggregate %d > hard ceiling %d", ErrSurrogateOversize, total64, HardCompressionMaxSurrogateBytes)
 		}
 		if total64 > int64(effectiveMax) {
-			return ReasoningSurrogate{}, OutcomeSurrogateOversize, fmt.Errorf("%w: decoded aggregate %d > max_surrogate_bytes %d", ErrSurrogateOversize, total64, effectiveMax)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: decoded aggregate %d > max_surrogate_bytes %d", ErrSurrogateOversize, total64, effectiveMax)
 		}
 		totalBytes = int(total64)
 	}
 	// Check missing expected indexes (duplicate already checked, size equal, unexpected checked; but keep explicit).
 	for idx := range seenExp {
 		if _, ok := seen[idx]; !ok {
-			return ReasoningSurrogate{}, OutcomeSchemaInvalid, fmt.Errorf("%w: missing expected index %d", ErrSurrogateSchemaInvalid, idx)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: missing expected index %d", ErrSurrogateSchemaInvalid, idx)
 		}
 	}
 	// Savings validation: strictly smaller, MinSavedBytes, MinSavingsRatio with overflow-safe math.
 	source64 := int64(params.SourceBytes)
 	decoded64 := int64(totalBytes)
 	if decoded64 >= source64 {
-		return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: decoded %d not strictly smaller than source %d", ErrSurrogateInsufficientSavings, decoded64, source64)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: decoded %d not strictly smaller than source %d", ErrSurrogateInsufficientSavings, decoded64, source64)
 	}
 	saved64 := source64 - decoded64
 	if saved64 < 0 {
 		// Defensive overflow: should not happen due to previous check, but guard.
-		return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: negative savings", ErrSurrogateInsufficientSavings)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: negative savings", ErrSurrogateInsufficientSavings)
 	}
 	if int64(params.MinSavedBytes) > 0 && saved64 < int64(params.MinSavedBytes) {
-		return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: saved %d < min_saved_bytes %d", ErrSurrogateInsufficientSavings, saved64, params.MinSavedBytes)
+		return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: saved %d < min_saved_bytes %d", ErrSurrogateInsufficientSavings, saved64, params.MinSavedBytes)
 	}
 	if params.MinSavingsRatio > 0 {
 		// Ratio defensive already handled NaN/Inf above; compute ratio safely.
 		if source64 <= 0 {
-			return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: source_bytes %d invalid for ratio", ErrSurrogateInsufficientSavings, source64)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: source_bytes %d invalid for ratio", ErrSurrogateInsufficientSavings, source64)
 		}
 		ratio := float64(saved64) / float64(source64)
 		if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
-			return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: ratio NaN/Inf", ErrSurrogateInsufficientSavings)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: ratio NaN/Inf", ErrSurrogateInsufficientSavings)
 		}
 		// Defensive: if ratio is not in (0,1) due to misconfig, treat as insufficient.
 		if ratio < params.MinSavingsRatio {
-			return ReasoningSurrogate{}, OutcomeInsufficientSavings, fmt.Errorf("%w: ratio %f < min %f", ErrSurrogateInsufficientSavings, ratio, params.MinSavingsRatio)
+			return ReasoningSurrogate{Sanitization: "none"}, OutcomeInsufficientSavings, fmt.Errorf("%w: ratio %f < min %f", ErrSurrogateInsufficientSavings, ratio, params.MinSavingsRatio)
 		}
 	}
 	// Build correlated ReasoningSurrogate (defensive copies, sorted by expected order for determinism).
@@ -232,13 +236,14 @@ func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurroga
 		}
 	}
 	sur := ReasoningSurrogate{
-		OriginalDigest:   params.OriginalDigest,
-		PolicyRevision:   params.PolicyRevision,
-		Sanitization:     params.Sanitization,
-		Segments:         segments,
-		Bytes:            totalBytes,
-		SemanticDigest:   params.SemanticDigest,
-		EgressPolicyHash: params.EgressPolicyHash,
+		OriginalDigest:      params.OriginalDigest,
+		PolicyRevision:      params.PolicyRevision,
+		Sanitization:        params.Sanitization,
+		Segments:            segments,
+		Bytes:               totalBytes,
+		SemanticDigest:      params.SemanticDigest,
+		EgressPolicyHash:    params.EgressPolicyHash,
+		AuthorizedRouteHash: params.AuthorizedRouteHash,
 	}
 	return sur, OutcomeSurrogateDecoded, nil
 }

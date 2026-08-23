@@ -218,7 +218,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: oversized integration tests_
   - _Requirements: 10, 11, 13_
 
-- [ ] 5.3 Validate/correlate and CAS-attach surrogate under aggregate byte budgets
+- [x] 5.3 Validate/correlate and CAS-attach surrogate under aggregate byte budgets
   - Verify pending JobID, artifact/original digest, semantic profile, egress-policy hash/version, and compression-policy revision.
   - Enforce per-turn/per-session/feature-instance surrogate bytes before CAS attachment; reject optional state at exhaustion without original eviction.
   - Atomically move pending count to surrogate bytes and prevent counter drift on stale/replayed results.

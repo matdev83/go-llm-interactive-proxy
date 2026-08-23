@@ -50,7 +50,13 @@ func FeatureBundleWithPartsAndCompression(cfg Config, svc CompressionServices, p
 		return nil, lipfeature.FeatureBundle{}, err
 	}
 	tel := NewTelemetry()
-	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, policy, identityAdoptionStage, tel)
+	stage := CompletedAdoptionStage(identityAdoptionStage)
+	if cfg.Compression.Enabled {
+		if cs, ok := store.(CompressionStore); ok {
+			stage = NewDecoderAdoptionStage(cfg, cs, svc, tel)
+		}
+	}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, policy, stage, tel)
 	hook := BuildPostAppendHook(cfg, store, svc)
 	obs := NewStreamObserverFactoryWithPostAppendHook(cfg, store, hook, tel)
 	b := lipfeature.FeatureBundle{

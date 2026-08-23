@@ -10,41 +10,60 @@ import (
 type SafeOutcome string
 
 const (
-	OutcomeObserved          SafeOutcome = "observed"
-	OutcomePreserved         SafeOutcome = "preserved"
-	OutcomeMissing           SafeOutcome = "missing"
-	OutcomeRestored          SafeOutcome = "restored"
-	OutcomeAmbiguous         SafeOutcome = "ambiguous"
-	OutcomeConflicting       SafeOutcome = "conflicting"
-	OutcomeUnmatched         SafeOutcome = "unmatched"
-	OutcomeUnrepresentable   SafeOutcome = "unrepresentable"
-	OutcomeStateError        SafeOutcome = "state_error"
-	OutcomeEvicted           SafeOutcome = "evicted"
-	OutcomeOversize          SafeOutcome = "oversize"
-	OutcomeBoundedRaw        SafeOutcome = "bounded_raw"
-	OutcomeRawOversize       SafeOutcome = "raw_oversize"
-	OutcomeRawInvalidChannel SafeOutcome = "raw_invalid_channel"
-	OutcomeRawInvalidLimit   SafeOutcome = "raw_invalid_limit"
+	OutcomeObserved            SafeOutcome = "observed"
+	OutcomePreserved           SafeOutcome = "preserved"
+	OutcomeMissing             SafeOutcome = "missing"
+	OutcomeRestored            SafeOutcome = "restored"
+	OutcomeAmbiguous           SafeOutcome = "ambiguous"
+	OutcomeConflicting         SafeOutcome = "conflicting"
+	OutcomeUnmatched           SafeOutcome = "unmatched"
+	OutcomeUnrepresentable     SafeOutcome = "unrepresentable"
+	OutcomeStateError          SafeOutcome = "state_error"
+	OutcomeEvicted             SafeOutcome = "evicted"
+	OutcomeOversize            SafeOutcome = "oversize"
+	OutcomeBoundedRaw          SafeOutcome = "bounded_raw"
+	OutcomeRawOversize         SafeOutcome = "raw_oversize"
+	OutcomeRawInvalidChannel   SafeOutcome = "raw_invalid_channel"
+	OutcomeRawInvalidLimit     SafeOutcome = "raw_invalid_limit"
+	OutcomeDecodeInvalid       SafeOutcome = "decode_invalid"
+	OutcomeSchemaInvalid       SafeOutcome = "schema_invalid"
+	OutcomeControlInvalid      SafeOutcome = "control_invalid"
+	OutcomeSurrogateOversize   SafeOutcome = "surrogate_oversize"
+	OutcomeInsufficientSavings SafeOutcome = "insufficient_savings"
+	OutcomeStale               SafeOutcome = "stale"
+	OutcomeSurrogateAttached   SafeOutcome = "surrogate_attached"
+	OutcomeShadowReady         SafeOutcome = "shadow_ready"
 )
 
 var safeCountKeys = map[string]struct{}{
-	"count":               {},
-	"bytes":               {},
-	"restored":            {},
-	"observed":            {},
-	"preserved":           {},
-	"missing":             {},
-	"ambiguous":           {},
-	"conflicting":         {},
-	"unmatched":           {},
-	"unrepresentable":     {},
-	"state_error":         {},
-	"evicted":             {},
-	"oversize":            {},
-	"bounded_raw":         {},
-	"raw_oversize":        {},
-	"raw_invalid_channel": {},
-	"raw_invalid_limit":   {},
+	"count":                {},
+	"bytes":                {},
+	"rawBytes":             {},
+	"decodedBytes":         {},
+	"savedBytes":           {},
+	"restored":             {},
+	"observed":             {},
+	"preserved":            {},
+	"missing":              {},
+	"ambiguous":            {},
+	"conflicting":          {},
+	"unmatched":            {},
+	"unrepresentable":      {},
+	"state_error":          {},
+	"evicted":              {},
+	"oversize":             {},
+	"bounded_raw":          {},
+	"raw_oversize":         {},
+	"raw_invalid_channel":  {},
+	"raw_invalid_limit":    {},
+	"decode_invalid":       {},
+	"schema_invalid":       {},
+	"control_invalid":      {},
+	"surrogate_oversize":   {},
+	"insufficient_savings": {},
+	"stale":                {},
+	"surrogate_attached":   {},
+	"shadow_ready":         {},
 }
 
 func FormatSafeDiagnostic(outcome SafeOutcome, ruleID string, counts map[string]int) (string, error) {
@@ -83,7 +102,9 @@ func isKnownOutcome(o SafeOutcome) bool {
 	case OutcomeObserved, OutcomePreserved, OutcomeMissing, OutcomeRestored,
 		OutcomeAmbiguous, OutcomeConflicting, OutcomeUnmatched,
 		OutcomeUnrepresentable, OutcomeStateError, OutcomeEvicted, OutcomeOversize,
-		OutcomeBoundedRaw, OutcomeRawOversize, OutcomeRawInvalidChannel, OutcomeRawInvalidLimit:
+		OutcomeBoundedRaw, OutcomeRawOversize, OutcomeRawInvalidChannel, OutcomeRawInvalidLimit,
+		OutcomeDecodeInvalid, OutcomeSchemaInvalid, OutcomeControlInvalid, OutcomeSurrogateOversize, OutcomeInsufficientSavings,
+		OutcomeStale, OutcomeSurrogateAttached, OutcomeShadowReady:
 		return true
 	default:
 		return false
