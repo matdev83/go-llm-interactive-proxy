@@ -85,16 +85,24 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
-	// --- Task 3.1 seam: preserve authoritative ingress view before any
-	// inference-specific work. For detached, there is no snapshot/CTP branch,
-	// but we still capture the accepted ingress after submit hooks and before
-	// backend session sanitization, mirroring secure path ordering.
+	// --- Task 3.2 seam: snapshot once after A-leg resolution ---
+	// Preserve ingress then project exclusion+steering before backend work;
+	// fail closed on snapshot/projection errors.
 	ingressClone := lipapi.CloneCall(*workingCall)
 	ibt.ingressCall = &ingressClone
 	backendClone := lipapi.CloneCall(*workingCall)
+	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
+	if perr != nil {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, perr
+	}
+	ibt.conversationSnapshot = snapView
+	ibt.conversationEvidence = projEv
+	ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
+	ibt.convSnapshotSet = true
+	backendClone = projected
 	workingCall = &backendClone
 	// Submit hooks may enrich canonical calls, but cannot turn detached
-	// lineage hints back into session or continuity authority.
 	workingCall.Session.AuthoritativeSessionID, workingCall.Session.ClientSessionID = "", ""
 	workingCall.Session.ALegID = ibt.aLeg.ALegID
 	workingCall.Session.ContinuityKey, workingCall.Session.ResumeToken, workingCall.Session.Metadata = "", "", nil

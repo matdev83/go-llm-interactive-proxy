@@ -297,15 +297,24 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		} else if e.Log != nil {
 			e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 		}
-		// --- Task 3.1 seam: preserve deep-cloned authoritative ingress view ---
-		// This clone is taken after secure A-leg + secret/submit/CTP boundaries
-		// and before inference-specific transforms/billing/route planning.
-		// It is the unmodified client/A-leg view for CTP/continuation.
-		// No snapshot/project yet (3.2); backendClone continues through
-		// inference-specific preparation. Deep clone guarantees isolation.
+		// --- Task 3.2 seam: snapshot once after authoritative A-leg resolution ---
+		// Preserve ingress before projection; project exclusion+steering ONCE
+		// before backend request/pre-request transforms, context estimation,
+		// billing, routing/capability/baseline. Fail closed on snapshot/
+		// projection errors; evidence stays bounded content-free.
 		ingressClone := lipapi.CloneCall(*workingCall)
 		ibt.ingressCall = &ingressClone
 		backendClone := lipapi.CloneCall(*workingCall)
+		// Snapshot coherent view and derive backend-effective call.
+		snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
+		if perr != nil {
+			return failAfterRequestAdmit(perr)
+		}
+		ibt.conversationSnapshot = snapView
+		ibt.conversationEvidence = projEv
+		ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
+		ibt.convSnapshotSet = true
+		backendClone = projected
 		workingCall = &backendClone
 		ann := maps.Clone(submitMeta.Annotations)
 		if ann == nil {

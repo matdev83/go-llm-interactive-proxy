@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -62,6 +63,10 @@ type CoreRuntime struct {
 	// Keepwarm is the generation-owned provider-neutral maintenance orchestrator.
 	// It is nil for test/minimal executors that do not compose the feature.
 	Keepwarm *keepwarm.Orchestrator
+	// ConversationViewReader is an optional narrow snapshot port. When set,
+	// runtime prefers it over AsReader(Store) to avoid widening b2bua.Store
+	// while preserving the single-snapshot per-turn invariant (task 3.2).
+	ConversationViewReader conversationview.Reader
 }
 
 // BillingRuntime carries the runtime seams for two-stage exposure admission and

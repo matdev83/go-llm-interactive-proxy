@@ -99,7 +99,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: focused `go test ./internal/core/runtime/...`_
   - _Requirements: 5.1-5.2, 5.5, 5.8-5.10, 12.1, 13.6_
 
-- [ ] 3.2 Integrate one coherent early backend-effective projection
+- [x] 3.2 Integrate one coherent early backend-effective projection
   - Snapshot conversation-view state once after authoritative A-leg resolution and carry it in prepared request state.
   - Project exclusion + persistent steering before backend request/pre-request transforms, context estimation, billing, routing and capability work.
   - Fail closed on snapshot/projection error and prove filtered content does not affect route/context/cost while steering does.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -40,6 +41,12 @@ type preparedRequest struct {
 	billingExposure    billing.CallExposure
 	execSpan           trace.Span
 	compactionOpenMeta compaction.PreservationMeta
+	// Task 3.2: frozen snapshot taken once after authoritative A-leg resolution,
+	// carried through every B-leg attempt; projection evidence is bounded
+	// content-free (counts/revisions/placement, no plaintext).
+	conversationSnapshot conversationview.Snapshot
+	conversationEvidence *conversationview.ProjectionEvidence
+	conversationSummary  conversationProjectionSummary
 }
 
 func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
@@ -108,11 +115,14 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx = ibt.projectContext(prepCtx)
 	pr.identity = ibt
 	pr.call = workingCall
-	// Task 3.1 seam: ingress view is preserved in ibt.ingressCall (deep
-	// clone taken after secure A-leg + secret/submit/CTP boundaries and
-	// before inference-specific transforms). See conversation_view_seam.go.
-	// No snapshot/project yet (3.2). Ensure isolation fallback if ingress
-	// was not set (detached legacy or snap==nil edge).
+	// Task 3.2: carry frozen snapshot+evidence from 3.1 seam; exactly once
+	// per logical turn. Fail closed already handled inside prepareIdentity.
+	// PreserveIngress fallback retains isolation.
+	if ibt.convSnapshotSet {
+		pr.conversationSnapshot = ibt.conversationSnapshot
+		pr.conversationEvidence = ibt.conversationEvidence
+		pr.conversationSummary = ibt.conversationSummary
+	}
 	if pr.identity.ingressCall == nil {
 		ing := lipapi.CloneCall(*workingCall)
 		pr.identity.ingressCall = &ing
@@ -121,6 +131,12 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	} else if pr.identity.ingressCall == pr.call {
 		bk := lipapi.CloneCall(*pr.call)
 		pr.call = &bk
+	}
+	// Ensure preparedRequest also mirrors evidence when fallback path created empty snapshot
+	if pr.conversationEvidence == nil && ibt.conversationEvidence != nil {
+		pr.conversationEvidence = ibt.conversationEvidence
+		pr.conversationSnapshot = ibt.conversationSnapshot
+		pr.conversationSummary = ibt.conversationSummary
 	}
 
 	guard := &preStreamGuard{
@@ -205,6 +221,11 @@ type identityBoundTurn struct {
 	secureTurn   execctx.SecureSessionTurn
 	secureTurnOK bool
 	preSession   session.SessionView
+	// Task 3.2 frozen view carried from 3.1 seam.
+	conversationSnapshot conversationview.Snapshot
+	conversationEvidence *conversationview.ProjectionEvidence
+	conversationSummary  conversationProjectionSummary
+	convSnapshotSet      bool
 }
 
 func newIdentityBoundTurn(traceID string, call *lipapi.Call, principal execview.PrincipalView, scope scope.PrincipalScopeView, hasPrincipal bool, workspace lipworkspace.WorkspaceView, aLeg b2bua.ALegRecord, routeAuth routeAuthoritySnapshot, secureTurn execctx.SecureSessionTurn, secureTurnOK bool, preSession session.SessionView) (*identityBoundTurn, error) {
