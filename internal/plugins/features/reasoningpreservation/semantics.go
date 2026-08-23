@@ -1,6 +1,10 @@
 package reasoningpreservation
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+import (
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
 
 // ReplaySemantics is the bounded typed classification for reasoning replay.
 // It is derived from canonical dialect plus structure/presence, not provider strings.
@@ -52,7 +56,7 @@ func ClassifyReasoningPart(part lipapi.Part) ReplaySemantics {
 	}
 	switch normalized {
 	case lipapi.ReasoningDialectOpenAIChatTextV1:
-		if rp.Text == "" {
+		if strings.TrimSpace(rp.Text) == "" {
 			return ReplayUnknown
 		}
 		return ReplaySemanticText
@@ -70,11 +74,9 @@ func ClassifyReasoningPart(part lipapi.Part) ReplaySemantics {
 // ClassifyPlacement returns per-placement semantics for a single placed reasoning.
 func ClassifyPlacement(idx int, pr PlacedReasoning) SegmentSemantics {
 	dialect := lipapi.ReasoningDialect("")
-	if pr.Part.Reasoning != nil {
-		dialect = lipapi.NormalizeReasoningDialect(pr.Part.Reasoning.Dialect)
-	}
 	srcBytes := 0
-	if pr.Part.Reasoning != nil {
+	if pr.Part.Kind == lipapi.PartReasoning && pr.Part.Reasoning != nil {
+		dialect = lipapi.NormalizeReasoningDialect(pr.Part.Reasoning.Dialect)
 		srcBytes = lipapi.ReasoningPayloadBytes(pr.Part.Reasoning)
 	}
 	return SegmentSemantics{

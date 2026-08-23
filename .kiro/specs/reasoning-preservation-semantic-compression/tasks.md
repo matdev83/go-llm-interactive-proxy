@@ -66,7 +66,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 2. Implement Minimal Foundations Without Changing Backend-Visible Replay
 
-- [ ] 2.1 Implement the canonical replay-semantics classifier
+- [x] 2.1 Implement the canonical replay-semantics classifier
   - Add one pure typed classifier using canonical reasoning dialect and part structure/presence semantics.
   - Return semantic-text only for the narrow proven plain-text case; exact/unknown wins conservatively.
   - Reuse this same classifier later for submission and active selection.
