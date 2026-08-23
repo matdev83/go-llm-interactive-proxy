@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -520,6 +521,17 @@ func (e *Executor) openAttemptTx(
 	if err != nil {
 		return fmt.Errorf("executor: %w", err)
 	}
+	// Task 4.1: final conversation-view reassertion at shared candidate-open choke point.
+	// Uses frozen snapshot/provenance/filteredBaseline (no store read) to remove reintroduced never_backend and
+	// rebuild steering exactly once at frozen placement, handling late transforms based on projected baseline.
+	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationSnapshot.Steering) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
+		reasserted, _, rerr := conversationview.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
+		if rerr != nil {
+			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: conversation view reassert: %w", rerr)
+		}
+		openCall = reasserted
+	}
 	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(ctx, &openCall, c, tx.reqFacts.aLegID, tx.bleg.BLegID)
 	if perr != nil {
 		return perr
@@ -595,6 +607,13 @@ func (e *Executor) openAttemptTx(
 	if adaptErr != nil {
 		tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 		return adaptErr
+	}
+	// Verify candidate adaptation preserved full projection (never_backend absent, steering exact count/order/placement).
+	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
+		if verr := conversationview.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance); verr != nil {
+			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
+			return fmt.Errorf("executor: conversation view adaptation integrity: %w", verr)
+		}
 	}
 	wireCall := adaptedCall
 	wireCall.Session.ClientSessionID = ""

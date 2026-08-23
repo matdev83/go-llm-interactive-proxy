@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -91,6 +92,7 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	ingressClone := lipapi.CloneCall(*workingCall)
 	ibt.ingressCall = &ingressClone
 	backendClone := lipapi.CloneCall(*workingCall)
+	originalForFilter := lipapi.CloneCall(backendClone)
 	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
 	if perr != nil {
 		_ = e.releaseRequestAuthority(outCtx)
@@ -100,6 +102,12 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	ibt.conversationEvidence = projEv
 	ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
 	ibt.convSnapshotSet = true
+	if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+		ibt.conversationFilteredBaseline = &filtered
+	} else {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, ferr
+	}
 	backendClone = projected
 	workingCall = &backendClone
 	// Submit hooks may enrich canonical calls, but cannot turn detached

@@ -131,7 +131,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 ## 4. Enforce Final B-Leg View and Cache Stability
 
-- [ ] 4.1 Add final conversation-view reassertion at the shared candidate-open choke point
+- [x] 4.1 Add final conversation-view reassertion at the shared candidate-open choke point
   - After candidate/interleaved/attempt transforms, rebuild/reassert the frozen snapshot so excluded messages cannot reappear and active steering is exact-once at the intended placement.
   - Validate the reasserted candidate call and require normal candidate adaptation to preserve required steering semantics; reject instead of silently move/drop.
   - Emit PTB only from the final reasserted/adapted call, then call backend `Open`.

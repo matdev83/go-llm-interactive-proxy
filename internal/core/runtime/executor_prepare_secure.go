@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -305,6 +307,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		ingressClone := lipapi.CloneCall(*workingCall)
 		ibt.ingressCall = &ingressClone
 		backendClone := lipapi.CloneCall(*workingCall)
+		originalForFilter := lipapi.CloneCall(backendClone)
 		// Snapshot coherent view and derive backend-effective call.
 		snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
 		if perr != nil {
@@ -314,6 +317,12 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		ibt.conversationEvidence = projEv
 		ibt.conversationSummary = newConversationProjectionSummary(snapView, projEv)
 		ibt.convSnapshotSet = true
+		if filtered, ferr := conversationview.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
+			ibt.conversationFilteredBaseline = &filtered
+		} else {
+			// Filter should not fail if Project succeeded; treat as fail-closed
+			return failAfterRequestAdmit(ferr)
+		}
 		backendClone = projected
 		workingCall = &backendClone
 		ann := maps.Clone(submitMeta.Annotations)

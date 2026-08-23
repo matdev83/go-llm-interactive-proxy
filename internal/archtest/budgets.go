@@ -105,7 +105,10 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content Task 3.2 remediation (secure seam, MemoryStore prepareRequest coverage, backend Open reuse, failure counters, bounded summary without OverlayID/plaintext); measured 90145, bump to 90170 with 25 headroom.
 	// Non-forwardable conversation content Task 3.3 generic two-phase local-turn stage (frozen ordered Handler list in snapshot, tag-before-handle/reply, finite EventStream, no B-leg/billing, panic recovery, fail-open/closed, cancellation/Close finite no goroutine); measured 90450, bump to 90475 with 25 headroom.
 	// Non-forwardable conversation content Task 3.4 generic canonical local stream helper/factory and bounded frontend contract/continuation-visibility slice (streaming + non-streaming official frontends, legacy full-history and OpenResponses materialized-history filtering, no B-leg/usage); measured 90511, bump to 90536 with 25 headroom.
-	{Dir: "internal/core", Max: 90536},
+	// Non-forwardable conversation content Task 4.1 final conversation-view reassertion at shared candidate-open choke point (pure Reassert with provenance, frozen snapshot/provenance, no store read, PTB from reasserted call, candidate adaptation integrity, fail-closed anchor); measured 90833, bump to 90858 with 25 headroom.
+	// Non-forwardable conversation content Task 4.1 precision fixes (placement-aware provenance with Injected* indices, FilterNeverBackend helper, filtered baseline frozen, per-identity extra handling, full VerifyAdaptationPreservesProjection with never_backend/order/placement); measured 91661, bump to 91686 with 25 headroom.
+	// Non-forwardable conversation content Task 4.1 adversarial harden (item_reference cleanup, same-slice collision fail-closed, provenance without synthetic ID scan, insertion-shift handling); measured 91760, bump to 91785 with 25 headroom.
+	{Dir: "internal/core", Max: 91785},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12616},

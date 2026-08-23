@@ -7,6 +7,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func boolPtr(b bool) *bool { v := b; return &v }
+func intPtr(i int) *int    { v := i; return &v }
+
 // FallbackEvidence records a deterministic stable-prefix fallback for a missing anchor.
 type FallbackEvidence struct {
 	OverlayID string        `json:"overlay_id"`
@@ -17,6 +20,8 @@ type FallbackEvidence struct {
 // It is derived solely from Snapshot + input call and is used by a later final-reassertion
 // stage to recognize/rebuild/remove projection-owned steering instances without string heuristics.
 // It does not affect MessageIdentityOf values or model-visible content.
+// Injected* fields record the exact trajectory position of the injected copy for
+// placement-aware reassertion without broad identity sweeps.
 type OverlayProvenance struct {
 	OverlayID        string          `json:"overlay_id"`
 	Revision         uint64          `json:"revision"`
@@ -24,6 +29,12 @@ type OverlayProvenance struct {
 	ResolvedKind     PlacementKind   `json:"resolved_kind"`
 	ResolvedAnchor   *MessageAnchor  `json:"resolved_anchor,omitempty"`
 	InjectedIdentity MessageIdentity `json:"injected_identity"`
+	// Exact injected position for placement-aware reassertion.
+	InjectedAuthority           string `json:"injected_authority"`            // "item" or "legacy"
+	InjectedItemIndex           int    `json:"injected_item_index,omitempty"` // valid when authority == "item"
+	InjectedLegacyIsInstruction *bool  `json:"injected_legacy_is_instruction,omitempty"`
+	InjectedLegacyIndex         *int   `json:"injected_legacy_index,omitempty"`
+	InjectedTrajectoryIndex     int    `json:"injected_trajectory_index"`
 }
 
 // MatchesMessage reports whether msg is the projection-owned copy for this provenance entry
@@ -289,61 +300,41 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	})
 
 	leading := leadingInstructionItemCount(filtered)
-	stableItems := make([]lipapi.Item, 0, len(stable))
-	for _, ov := range stable {
-		stableItems = append(stableItems, steeringOverlayToItem(ov))
-	}
-	// Assemble final items: prefix + stable + history with after injections.
-	final := make([]lipapi.Item, 0, len(filtered)+len(stable)+len(resolvedAnchors))
-	// prefix
-	final = append(final, filtered[:leading]...)
-	// stable
-	final = append(final, stableItems...)
-	// history with after injections
 	// Build map from idx to list of overlays (in order)
 	afterByIdx := make(map[int][]SteeringOverlay)
 	for _, r := range resolvedAnchors {
 		afterByIdx[r.idx] = append(afterByIdx[r.idx], r.ov)
 	}
-	for i := leading; i < len(filtered); i++ {
+	// Assemble final items deterministically and record exact injected positions
+	// without relying on synthetic ID string markers. Provenance indices are
+	// derived solely from placement logic (Snapshot + input) and are not
+	// part of the model-visible content identity.
+	final := make([]lipapi.Item, 0, len(filtered)+len(stable)+len(resolvedAnchors))
+	provIndex := make(map[string]int, len(stable)+len(resolvedAnchors))
+	// prefix region with interleaved after anchors that fall inside prefix
+	for i := 0; i < leading; i++ {
 		final = append(final, filtered[i])
 		if ovs, ok := afterByIdx[i]; ok {
 			for _, ov := range ovs {
+				provIndex[ov.OverlayID] = len(final)
 				final = append(final, steeringOverlayToItem(ov))
 			}
 		}
 	}
-	// Handle anchors that were inside prefix region (rare): they would be before stable insertion.
-	// We already handled afterByIdx for i < leading if any: those would not be injected above.
-	// Fix: inject prefix anchors immediately after their prefix item before stable.
-	// For simplicity, handle prefix anchors separately: rebuild prefix with interleaved after.
-	prefixAnchors := 0
-	for _, r := range resolvedAnchors {
-		if r.idx < leading {
-			prefixAnchors++
-		}
+	// stable prefix region (deterministic SlotOrdinal order)
+	for _, ov := range stable {
+		provIndex[ov.OverlayID] = len(final)
+		final = append(final, steeringOverlayToItem(ov))
 	}
-	if prefixAnchors > 0 {
-		// Rebuild to interleave correctly.
-		fixed := make([]lipapi.Item, 0, len(filtered)+len(stable)+len(resolvedAnchors))
-		for i := 0; i < leading; i++ {
-			fixed = append(fixed, filtered[i])
-			if ovs, ok := afterByIdx[i]; ok {
-				for _, ov := range ovs {
-					fixed = append(fixed, steeringOverlayToItem(ov))
-				}
+	// history region with after injections
+	for i := leading; i < len(filtered); i++ {
+		final = append(final, filtered[i])
+		if ovs, ok := afterByIdx[i]; ok {
+			for _, ov := range ovs {
+				provIndex[ov.OverlayID] = len(final)
+				final = append(final, steeringOverlayToItem(ov))
 			}
 		}
-		fixed = append(fixed, stableItems...)
-		for i := leading; i < len(filtered); i++ {
-			fixed = append(fixed, filtered[i])
-			if ovs, ok := afterByIdx[i]; ok {
-				for _, ov := range ovs {
-					fixed = append(fixed, steeringOverlayToItem(ov))
-				}
-			}
-		}
-		final = fixed
 	}
 
 	out := lipapi.CloneCall(call)
@@ -352,20 +343,31 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	if err := out.Validate(); err != nil {
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
-	// Deterministic provenance: derived solely from Snapshot + input.
+	// Deterministic provenance: derived solely from Snapshot + input, with exact injected positions.
 	provenance := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
 	for _, ov := range stable {
-		// Stable includes fallback overlays whose resolved kind is stable_prefix.
+		idx := provIndex[ov.OverlayID]
+		// provIndex always present for stable; fallback to -1 only on invariant breach
+		if _, ok := provIndex[ov.OverlayID]; !ok {
+			idx = -1
+		}
 		provenance = append(provenance, OverlayProvenance{
-			OverlayID:        ov.OverlayID,
-			Revision:         ov.Revision,
-			SlotOrdinal:      ov.SlotOrdinal,
-			ResolvedKind:     PlacementStablePrefix,
-			ResolvedAnchor:   nil,
-			InjectedIdentity: overlayInjectedIdentity(ov),
+			OverlayID:               ov.OverlayID,
+			Revision:                ov.Revision,
+			SlotOrdinal:             ov.SlotOrdinal,
+			ResolvedKind:            PlacementStablePrefix,
+			ResolvedAnchor:          nil,
+			InjectedIdentity:        overlayInjectedIdentity(ov),
+			InjectedAuthority:       "item",
+			InjectedItemIndex:       idx,
+			InjectedTrajectoryIndex: idx,
 		})
 	}
 	for _, r := range resolvedAnchors {
+		idx := provIndex[r.ov.OverlayID]
+		if _, ok := provIndex[r.ov.OverlayID]; !ok {
+			idx = -1
+		}
 		anchorCopy := r.ov.Placement.Anchor
 		var cp *MessageAnchor
 		if anchorCopy != nil {
@@ -373,12 +375,15 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 			cp = &tmp
 		}
 		provenance = append(provenance, OverlayProvenance{
-			OverlayID:        r.ov.OverlayID,
-			Revision:         r.ov.Revision,
-			SlotOrdinal:      r.ov.SlotOrdinal,
-			ResolvedKind:     PlacementAfterMessage,
-			ResolvedAnchor:   cp,
-			InjectedIdentity: overlayInjectedIdentity(r.ov),
+			OverlayID:               r.ov.OverlayID,
+			Revision:                r.ov.Revision,
+			SlotOrdinal:             r.ov.SlotOrdinal,
+			ResolvedKind:            PlacementAfterMessage,
+			ResolvedAnchor:          cp,
+			InjectedIdentity:        overlayInjectedIdentity(r.ov),
+			InjectedAuthority:       "item",
+			InjectedItemIndex:       idx,
+			InjectedTrajectoryIndex: idx,
 		})
 	}
 	sort.Slice(provenance, func(i, j int) bool { return provenance[i].SlotOrdinal < provenance[j].SlotOrdinal })
@@ -488,15 +493,10 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 		return resolvedAnchors[i].ov.SlotOrdinal < resolvedAnchors[j].ov.SlotOrdinal
 	})
 
-	// Build stable messages for instructions region.
-	stableMsgs := make([]lipapi.Message, 0, len(stable))
-	for _, ov := range stable {
-		stableMsgs = append(stableMsgs, steeringOverlayToMessage(ov))
-	}
-
-	// Assemble instructions: filteredInstr + stable (appended) + after anchored within instructions interleaved.
-	// For simplicity, build instructions final with after injections.
-	finalInstr := make([]lipapi.Message, 0, len(filteredInstr)+len(stableMsgs)+len(resolvedAnchors))
+	// Assemble instructions and messages with placement-aware provenance.
+	provenanceLegacy := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
+	// Build finalInstr with after injections and stable, recording provenance indices.
+	finalInstr := make([]lipapi.Message, 0, len(filteredInstr)+len(stable)+len(resolvedAnchors))
 	afterInstrByIdx := make(map[int][]SteeringOverlay)
 	for _, r := range resolvedAnchors {
 		if r.isInstr {
@@ -507,12 +507,46 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 		finalInstr = append(finalInstr, m)
 		if ovs, ok := afterInstrByIdx[i]; ok {
 			for _, ov := range ovs {
+				idx := len(finalInstr)
 				finalInstr = append(finalInstr, steeringOverlayToMessage(ov))
+				var cp *MessageAnchor
+				if ov.Placement.Anchor != nil {
+					tmp := *ov.Placement.Anchor
+					cp = &tmp
+				}
+				provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
+					OverlayID:                   ov.OverlayID,
+					Revision:                    ov.Revision,
+					SlotOrdinal:                 ov.SlotOrdinal,
+					ResolvedKind:                PlacementAfterMessage,
+					ResolvedAnchor:              cp,
+					InjectedIdentity:            overlayInjectedIdentity(ov),
+					InjectedAuthority:           "legacy",
+					InjectedLegacyIsInstruction: boolPtr(true),
+					InjectedLegacyIndex:         intPtr(idx),
+					InjectedTrajectoryIndex:     idx,
+				})
 			}
 		}
 	}
 	// Append stable overlays at end of instruction region (after all instruction messages and their after injections).
-	finalInstr = append(finalInstr, stableMsgs...)
+	for pos, ov := range stable {
+		idx := len(finalInstr)
+		finalInstr = append(finalInstr, steeringOverlayToMessage(ov))
+		_ = pos
+		provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
+			OverlayID:                   ov.OverlayID,
+			Revision:                    ov.Revision,
+			SlotOrdinal:                 ov.SlotOrdinal,
+			ResolvedKind:                PlacementStablePrefix,
+			ResolvedAnchor:              nil,
+			InjectedIdentity:            overlayInjectedIdentity(ov),
+			InjectedAuthority:           "legacy",
+			InjectedLegacyIsInstruction: boolPtr(true),
+			InjectedLegacyIndex:         intPtr(idx),
+			InjectedTrajectoryIndex:     idx,
+		})
+	}
 
 	// Assemble messages final with after injections.
 	finalMsgs := make([]lipapi.Message, 0, len(filteredMsgs)+len(resolvedAnchors))
@@ -522,11 +556,31 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 			afterMsgByIdx[r.idx] = append(afterMsgByIdx[r.idx], r.ov)
 		}
 	}
+	// We need base offset for trajectory index: instructions length.
+	instrLen := len(finalInstr)
 	for i, m := range filteredMsgs {
 		finalMsgs = append(finalMsgs, m)
 		if ovs, ok := afterMsgByIdx[i]; ok {
 			for _, ov := range ovs {
+				idxInMsgs := len(finalMsgs)
 				finalMsgs = append(finalMsgs, steeringOverlayToMessage(ov))
+				var cp *MessageAnchor
+				if ov.Placement.Anchor != nil {
+					tmp := *ov.Placement.Anchor
+					cp = &tmp
+				}
+				provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
+					OverlayID:                   ov.OverlayID,
+					Revision:                    ov.Revision,
+					SlotOrdinal:                 ov.SlotOrdinal,
+					ResolvedKind:                PlacementAfterMessage,
+					ResolvedAnchor:              cp,
+					InjectedIdentity:            overlayInjectedIdentity(ov),
+					InjectedAuthority:           "legacy",
+					InjectedLegacyIsInstruction: boolPtr(false),
+					InjectedLegacyIndex:         intPtr(idxInMsgs),
+					InjectedTrajectoryIndex:     instrLen + idxInMsgs,
+				})
 			}
 		}
 	}
@@ -534,37 +588,12 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	out := lipapi.CloneCall(call)
 	out.Instructions = finalInstr
 	out.Messages = finalMsgs
-	// Ensure we don't leave Items nil vs empty confusion: CloneCall already handled.
 
 	if err := out.Validate(); err != nil {
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
-	provenanceLegacy := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
-	for _, ov := range stable {
-		provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
-			OverlayID:        ov.OverlayID,
-			Revision:         ov.Revision,
-			SlotOrdinal:      ov.SlotOrdinal,
-			ResolvedKind:     PlacementStablePrefix,
-			ResolvedAnchor:   nil,
-			InjectedIdentity: overlayInjectedIdentity(ov),
-		})
-	}
-	for _, r := range resolvedAnchors {
-		var cp *MessageAnchor
-		if r.ov.Placement.Anchor != nil {
-			tmp := *r.ov.Placement.Anchor
-			cp = &tmp
-		}
-		provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
-			OverlayID:        r.ov.OverlayID,
-			Revision:         r.ov.Revision,
-			SlotOrdinal:      r.ov.SlotOrdinal,
-			ResolvedKind:     PlacementAfterMessage,
-			ResolvedAnchor:   cp,
-			InjectedIdentity: overlayInjectedIdentity(r.ov),
-		})
-	}
+	// Stable already in provenanceLegacy, but we added stable above; ensure all stable added.
+	// The above already added stable; no extra stable loop needed.
 	sort.Slice(provenanceLegacy, func(i, j int) bool { return provenanceLegacy[i].SlotOrdinal < provenanceLegacy[j].SlotOrdinal })
 	evidence := &ProjectionEvidence{
 		FilteredCount: filteredCount,
@@ -680,4 +709,17 @@ func resolveAnchorLegacy(instr []lipapi.Message, msgs []lipapi.Message, anchor M
 		}
 	}
 	return false, -1, false, nil
+}
+
+// FilterNeverBackend returns a deep clone of call with all never_backend messages removed
+// (including dangling item_reference cleanup) but without injecting steering.
+// It is used to derive the filtered baseline for placement-aware reassertion.
+func FilterNeverBackend(call lipapi.Call, snap Snapshot) (lipapi.Call, error) {
+	filteredSnap := Snapshot{
+		StateRevision: snap.StateRevision,
+		NeverBackend:  snap.NeverBackend,
+		Steering:      nil,
+	}
+	out, _, err := Project(call, filteredSnap)
+	return out, err
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -73,6 +74,10 @@ type recvTurnFactsInput struct {
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+
+	conversationSnapshot         conversationview.Snapshot
+	conversationProvenance       []conversationview.OverlayProvenance
+	conversationFilteredBaseline lipapi.Call
 }
 
 // recvTurnFacts is the request-lifetime authority for facts needed after stream
@@ -108,26 +113,33 @@ type recvTurnFacts struct {
 	billingIdentityStamped bool
 	billingCallID          billing.BillingCallID
 	billingCallState       *billingCallState
+
+	conversationSnapshot         conversationview.Snapshot
+	conversationProvenance       []conversationview.OverlayProvenance
+	conversationFilteredBaseline lipapi.Call
 }
 
 func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
 	return newRecvTurnFacts(ctx, recvTurnFactsInput{
-		baseline:               f.call,
-		traceID:                f.traceID,
-		aLegID:                 f.aLegID,
-		secureTurn:             f.secureTurn,
-		secureTurnOK:           f.secureTurnOK,
-		billingCallID:          f.billingCallID,
-		billingCallState:       f.billingState,
-		billingAccountID:       f.accountID,
-		billingCustomerPricing: f.pricing,
-		billingChargePolicy:    f.chargePolicy,
-		billingIdentityStamped: f.identityStamped,
-		requestAuth:            f.requestAuth,
-		routePrefs:             slices.Clone(f.routePrefs),
-		recvViews:              f.recvViews,
-		recvViewsOK:            true,
-		metering:               f.metering,
+		baseline:                     f.call,
+		traceID:                      f.traceID,
+		aLegID:                       f.aLegID,
+		secureTurn:                   f.secureTurn,
+		secureTurnOK:                 f.secureTurnOK,
+		billingCallID:                f.billingCallID,
+		billingCallState:             f.billingState,
+		billingAccountID:             f.accountID,
+		billingCustomerPricing:       f.pricing,
+		billingChargePolicy:          f.chargePolicy,
+		billingIdentityStamped:       f.identityStamped,
+		requestAuth:                  f.requestAuth,
+		routePrefs:                   slices.Clone(f.routePrefs),
+		recvViews:                    f.recvViews,
+		recvViewsOK:                  true,
+		metering:                     f.metering,
+		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
+		conversationProvenance:       slices.Clone(f.conversationProvenance),
+		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
 	})
 }
 
@@ -136,6 +148,9 @@ func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts 
 	f.baseline = lipapi.CloneCall(in.baseline)
 	f.recvViews = cloneRecvViews(in.recvViews)
 	f.routePrefs = slices.Clone(in.routePrefs)
+	f.conversationSnapshot = cloneSnapshot(in.conversationSnapshot)
+	f.conversationProvenance = slices.Clone(in.conversationProvenance)
+	f.conversationFilteredBaseline = lipapi.CloneCall(in.conversationFilteredBaseline)
 	if f.billingCallState == nil {
 		if f.billingCallID == "" {
 			if callID, err := billing.NewBillingCallID(); err == nil {

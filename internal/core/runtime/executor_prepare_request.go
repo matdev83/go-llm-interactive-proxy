@@ -44,9 +44,10 @@ type preparedRequest struct {
 	// Task 3.2: frozen snapshot taken once after authoritative A-leg resolution,
 	// carried through every B-leg attempt; projection evidence is bounded
 	// content-free (counts/revisions/placement, no plaintext).
-	conversationSnapshot conversationview.Snapshot
-	conversationEvidence *conversationview.ProjectionEvidence
-	conversationSummary  conversationProjectionSummary
+	conversationSnapshot         conversationview.Snapshot
+	conversationEvidence         *conversationview.ProjectionEvidence
+	conversationSummary          conversationProjectionSummary
+	conversationFilteredBaseline *lipapi.Call
 	// Task 3.3: generic two-phase local-turn stage. When isLocal true,
 	// localStream is the finite canonical response, merged snapshot already
 	// contains source+reply tags, and no billing/route/B-leg must run.
@@ -64,14 +65,33 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		prep.recvTurnFacts.billingCallState = prep.billingCallState
 	}
 	if prep.aLegID == "" && prep.identity != nil {
+		var prov []conversationview.OverlayProvenance
+		if prep.conversationEvidence != nil {
+			prov = prep.conversationEvidence.Provenance
+		} else if prep.identity != nil && prep.identity.conversationEvidence != nil {
+			prov = prep.identity.conversationEvidence.Provenance
+		}
+		snap := prep.conversationSnapshot
+		if snap.StateRevision == 0 && prep.identity != nil && prep.identity.convSnapshotSet {
+			snap = prep.identity.conversationSnapshot
+		}
+		var filtered lipapi.Call
+		if prep.conversationFilteredBaseline != nil {
+			filtered = lipapi.CloneCall(*prep.conversationFilteredBaseline)
+		} else if prep.identity != nil && prep.identity.conversationFilteredBaseline != nil {
+			filtered = lipapi.CloneCall(*prep.identity.conversationFilteredBaseline)
+		}
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
-			baseline:         *prep.call,
-			traceID:          prep.identity.traceID,
-			aLegID:           prep.identity.aLeg.ALegID,
-			secureTurn:       prep.identity.secureTurn,
-			secureTurnOK:     prep.identity.secureTurnOK,
-			billingCallID:    prep.billingCallID,
-			billingCallState: prep.billingCallState,
+			baseline:                     *prep.call,
+			traceID:                      prep.identity.traceID,
+			aLegID:                       prep.identity.aLeg.ALegID,
+			secureTurn:                   prep.identity.secureTurn,
+			secureTurnOK:                 prep.identity.secureTurnOK,
+			billingCallID:                prep.billingCallID,
+			billingCallState:             prep.billingCallState,
+			conversationSnapshot:         cloneSnapshot(snap),
+			conversationProvenance:       slices.Clone(prov),
+			conversationFilteredBaseline: lipapi.CloneCall(filtered),
 		})
 	}
 }
@@ -128,6 +148,10 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		pr.conversationSnapshot = ibt.conversationSnapshot
 		pr.conversationEvidence = ibt.conversationEvidence
 		pr.conversationSummary = ibt.conversationSummary
+		if ibt.conversationFilteredBaseline != nil {
+			fb := lipapi.CloneCall(*ibt.conversationFilteredBaseline)
+			pr.conversationFilteredBaseline = &fb
+		}
 	}
 	if pr.identity.ingressCall == nil {
 		ing := lipapi.CloneCall(*workingCall)
@@ -143,6 +167,10 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		pr.conversationEvidence = ibt.conversationEvidence
 		pr.conversationSnapshot = ibt.conversationSnapshot
 		pr.conversationSummary = ibt.conversationSummary
+		if ibt.conversationFilteredBaseline != nil {
+			fb := lipapi.CloneCall(*ibt.conversationFilteredBaseline)
+			pr.conversationFilteredBaseline = &fb
+		}
 	}
 
 	// Task 3.3: generic two-phase local-turn stage. Frozen ordered handler list
@@ -212,30 +240,45 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	boundCat, boundCatOK := modelcatalog.BoundViewFromContext(prepCtx)
 	nativeResolver, _ := routing.NativeModelResolverFromContext(prepCtx)
 	modelViewID, modelViewIDOK := modelview.FromContext(prepCtx)
+	var prov []conversationview.OverlayProvenance
+	if pr.conversationEvidence != nil {
+		prov = pr.conversationEvidence.Provenance
+	} else if ibt.conversationEvidence != nil {
+		prov = ibt.conversationEvidence.Provenance
+	}
+	var filtered lipapi.Call
+	if pr.conversationFilteredBaseline != nil {
+		filtered = lipapi.CloneCall(*pr.conversationFilteredBaseline)
+	} else if ibt.conversationFilteredBaseline != nil {
+		filtered = lipapi.CloneCall(*ibt.conversationFilteredBaseline)
+	}
 	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, recvTurnFactsInput{
-		baseline:               *workingCall,
-		traceID:                ibt.traceID,
-		aLegID:                 ibt.aLeg.ALegID,
-		recvViews:              recvViews,
-		recvViewsOK:            recvViewsOK,
-		routePrefs:             slices.Clone(execctx.RouteCandidatePreferences(prepCtx)),
-		secureTurn:             ibt.secureTurn,
-		secureTurnOK:           ibt.secureTurnOK,
-		boundRegistry:          boundReg,
-		boundRegistryOK:        boundRegOK,
-		boundCatalog:           boundCat,
-		boundCatalogOK:         boundCatOK,
-		nativeResolver:         nativeResolver,
-		modelViewID:            modelViewID,
-		modelViewIDOK:          modelViewIDOK,
-		metering:               meteringHolderFrom(prepCtx),
-		requestAuth:            requestAuthorityFrom(prepCtx),
-		billingAccountID:       pr.billingExposure.AccountID,
-		billingCustomerPricing: pr.billingExposure.PricingRef,
-		billingChargePolicy:    pr.billingExposure.ChargePolicyRef,
-		billingIdentityStamped: pr.billingIdentityStamped,
-		billingCallID:          pr.billingCallID,
-		billingCallState:       pr.billingCallState,
+		baseline:                     *workingCall,
+		traceID:                      ibt.traceID,
+		aLegID:                       ibt.aLeg.ALegID,
+		recvViews:                    recvViews,
+		recvViewsOK:                  recvViewsOK,
+		routePrefs:                   slices.Clone(execctx.RouteCandidatePreferences(prepCtx)),
+		secureTurn:                   ibt.secureTurn,
+		secureTurnOK:                 ibt.secureTurnOK,
+		boundRegistry:                boundReg,
+		boundRegistryOK:              boundRegOK,
+		boundCatalog:                 boundCat,
+		boundCatalogOK:               boundCatOK,
+		nativeResolver:               nativeResolver,
+		modelViewID:                  modelViewID,
+		modelViewIDOK:                modelViewIDOK,
+		metering:                     meteringHolderFrom(prepCtx),
+		requestAuth:                  requestAuthorityFrom(prepCtx),
+		billingAccountID:             pr.billingExposure.AccountID,
+		billingCustomerPricing:       pr.billingExposure.PricingRef,
+		billingChargePolicy:          pr.billingExposure.ChargePolicyRef,
+		billingIdentityStamped:       pr.billingIdentityStamped,
+		billingCallID:                pr.billingCallID,
+		billingCallState:             pr.billingCallState,
+		conversationSnapshot:         cloneSnapshot(pr.conversationSnapshot),
+		conversationProvenance:       slices.Clone(prov),
+		conversationFilteredBaseline: lipapi.CloneCall(filtered),
 	})
 	return pr, prepCtx, guard.Close, nil
 }
@@ -262,10 +305,11 @@ type identityBoundTurn struct {
 	secureTurnOK bool
 	preSession   session.SessionView
 	// Task 3.2 frozen view carried from 3.1 seam.
-	conversationSnapshot conversationview.Snapshot
-	conversationEvidence *conversationview.ProjectionEvidence
-	conversationSummary  conversationProjectionSummary
-	convSnapshotSet      bool
+	conversationSnapshot         conversationview.Snapshot
+	conversationEvidence         *conversationview.ProjectionEvidence
+	conversationSummary          conversationProjectionSummary
+	conversationFilteredBaseline *lipapi.Call
+	convSnapshotSet              bool
 }
 
 func newIdentityBoundTurn(traceID string, call *lipapi.Call, principal execview.PrincipalView, scope scope.PrincipalScopeView, hasPrincipal bool, workspace lipworkspace.WorkspaceView, aLeg b2bua.ALegRecord, routeAuth routeAuthoritySnapshot, secureTurn execctx.SecureSessionTurn, secureTurnOK bool, preSession session.SessionView) (*identityBoundTurn, error) {
