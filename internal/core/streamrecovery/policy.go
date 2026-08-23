@@ -10,20 +10,22 @@ import (
 )
 
 type Config struct {
-	Enabled          bool
-	IdleTimeout      time.Duration
-	GracePeriod      time.Duration
-	EmitWarning      bool
-	PostOutputPolicy string
+	Enabled                     bool
+	IdleTimeout                 time.Duration
+	GracePeriod                 time.Duration
+	EmitWarning                 bool
+	PostOutputPolicy            string
+	AllowPostOutputContinuation bool
 }
 
 type DecisionKind string
 
 const (
-	DecisionPassThrough      DecisionKind = "pass_through"
-	DecisionRecoverPreOutput DecisionKind = "recover_pre_output"
-	DecisionFinishPostOutput DecisionKind = "finish_post_output"
-	DecisionSurfaceFailure   DecisionKind = "surface_failure"
+	DecisionPassThrough        DecisionKind = "pass_through"
+	DecisionRecoverPreOutput   DecisionKind = "recover_pre_output"
+	DecisionFinishPostOutput   DecisionKind = "finish_post_output"
+	DecisionSurfaceFailure     DecisionKind = "surface_failure"
+	DecisionContinuePostOutput DecisionKind = "continue_post_output"
 )
 
 type Decision struct {
@@ -77,11 +79,17 @@ func (p *Policy) DecideEOF(err error, now time.Time) Decision {
 			return Decision{Kind: DecisionSurfaceFailure, Err: err}
 		}
 		if p.clientCommitted {
+			if p.cfg.AllowPostOutputContinuation {
+				return Decision{Kind: DecisionContinuePostOutput, Err: err, Reason: "upstream error after client output"}
+			}
 			return p.finishPostOutput("upstream error after client output")
 		}
 		return Decision{Kind: DecisionRecoverPreOutput, Err: lipapi.RecoverablePreOutputError(err), Reason: "upstream error before response_finished"}
 	}
 	if p.clientCommitted {
+		if p.cfg.AllowPostOutputContinuation {
+			return Decision{Kind: DecisionContinuePostOutput, Err: io.EOF, Reason: "upstream EOF before response_finished"}
+		}
 		return p.finishPostOutput("upstream EOF before response_finished")
 	}
 	_ = now
@@ -97,6 +105,9 @@ func (p *Policy) DecideIdle(now time.Time) Decision {
 		return Decision{Kind: DecisionPassThrough}
 	}
 	if p.clientCommitted {
+		if p.cfg.AllowPostOutputContinuation {
+			return Decision{Kind: DecisionContinuePostOutput, Reason: "upstream idle timeout after client output"}
+		}
 		return p.finishPostOutput("upstream idle timeout after client output")
 	}
 	return Decision{Kind: DecisionRecoverPreOutput, Err: lipapi.RecoverablePreOutputError(context.DeadlineExceeded), Reason: "upstream idle timeout before response_finished"}

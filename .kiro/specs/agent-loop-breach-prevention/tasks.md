@@ -48,7 +48,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: `go test ./internal/core/stopguard/...`_
 
 - [ ] 3. Extend stream-recovery decisions for guard-owned post-output continuation
-  - [ ] 3.1 Add failing `streamrecovery` policy tests for continuation-eligible post-output interruptions
+  - [x] 3.1 Add failing `streamrecovery` policy tests for continuation-eligible post-output interruptions
     - Preserve current behavior when the Agent Loop Guard path is not requested: post-output EOF/idle/error still follows existing configured `finish` behavior.
     - Add a typed policy outcome or higher-level mode that reports post-output interruption as continuation-eligible without producing a synthetic final response.
     - Prove pre-output recovery, cancellation, already-finished responses, warning behavior, and output-commit tracking remain unchanged.
@@ -56,7 +56,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 1.1–1.5, 2.2, 3.1–3.5, 4.1, 9.5, 12.5–12.7_
     - _Depends on: 1.3_
     - _Validation: `go test ./internal/core/streamrecovery/...`_
-  - [ ] 3.2 Implement the narrow post-output continuation signal
+  - [x] 3.2 Implement the narrow post-output continuation signal
     - Extend `streamrecovery` only enough for runtime to distinguish “finish post-output” from “higher-level guard may continue from committed trajectory.”
     - Do not add semantic verifier, continuation store, provider routing, or terminal mutation to `streamrecovery`.
     - Keep current default/config compatibility when guard disabled.
