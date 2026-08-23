@@ -27,21 +27,31 @@ type SurrogateSegment struct {
 }
 
 // ReasoningSurrogate is the validated optional replacement for semantic-text placements.
+// SemanticDigest is the SHA-256 of the canonical semantic-text payload that was
+// compressed; EgressPolicyHash is the hash of the egress policy version that
+// authorized submission. Both are immutable correlation digests verified by
+// AttachSurrogate CAS. A zero SemanticDigest is invalid (real artifacts always
+// have content) and Attach rejects it as a conflict.
 type ReasoningSurrogate struct {
-	OriginalDigest [32]byte
-	PolicyRevision string
-	Sanitization   string
-	Segments       []SurrogateSegment
-	Bytes          int
+	OriginalDigest   [32]byte
+	PolicyRevision   string
+	Sanitization     string
+	Segments         []SurrogateSegment
+	Bytes            int
+	SemanticDigest   [32]byte
+	EgressPolicyHash [32]byte
 }
 
 // PendingCompression tracks a reservation awaiting background result.
+// SemanticDigest is the SHA-256 of the source semantic text; EgressPolicyHash
+// identifies the egress policy revision that authorized the pending work.
+// Both are recorded at Reserve and immutable via Bind; Attach verifies they
+// match. Zero SemanticDigest is invalid and Attach rejects it as a
+// conflict (real artifacts have content). Zero EgressPolicyHash is allowed
+// but CAS-checked — a mismatch still yields a conflict.
 type PendingCompression struct {
-	JobID          auxiliary.JobID
-	OriginalDigest [32]byte
-	// SemanticDigest and EgressPolicyHash are reserved for correlation CAS
-	// validated starting task 2.4 (egress/policy seam). Until then they are
-	// zero-filled and not checked in Bind/Attach.
+	JobID            auxiliary.JobID
+	OriginalDigest   [32]byte
 	SemanticDigest   [32]byte
 	EgressPolicyHash [32]byte
 	CreatedAt        time.Time
@@ -107,7 +117,7 @@ func IsNotFoundError(err error) bool { return errors.Is(err, ErrCompressionNotFo
 // CompressionStore extends TurnStore with optional-state operations.
 type CompressionStore interface {
 	TurnStore
-	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string) (string, error)
+	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error)
 	BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error
 	AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
 	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string) error
@@ -125,7 +135,7 @@ type compressionEntry struct {
 	originalDigest [32]byte
 }
 
-func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string) (string, error) {
+func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -184,10 +194,12 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	entry.policyRevision = policyRevision
 	entry.reservationID = reservationID
 	entry.pending = &PendingCompression{
-		OriginalDigest: originalDigest,
-		CreatedAt:      now,
-		PolicyRevision: policyRevision,
-		ReservationID:  reservationID,
+		OriginalDigest:   originalDigest,
+		SemanticDigest:   semanticDigest,
+		EgressPolicyHash: egressPolicyHash,
+		CreatedAt:        now,
+		PolicyRevision:   policyRevision,
+		ReservationID:    reservationID,
 	}
 	if s.pendingPerSession == nil {
 		s.pendingPerSession = make(map[string]int)
@@ -286,6 +298,22 @@ func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, partition Session
 	}
 	if entry.pending.PolicyRevision != clone.PolicyRevision {
 		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	}
+	// Correlation-digest CAS: SemanticDigest and EgressPolicyHash must match
+	// the pending reservation. Zero semantic digest is invalid (real artifact
+	// always has content) and is rejected as a conflict.
+	var zeroDigest [32]byte
+	if clone.SemanticDigest == zeroDigest {
+		return fmt.Errorf("%w: zero semantic digest", ErrCompressionConflict)
+	}
+	if entry.pending.SemanticDigest == zeroDigest {
+		return fmt.Errorf("%w: zero semantic digest", ErrCompressionConflict)
+	}
+	if entry.pending.SemanticDigest != clone.SemanticDigest {
+		return fmt.Errorf("%w: semantic digest mismatch", ErrCompressionConflict)
+	}
+	if entry.pending.EgressPolicyHash != clone.EgressPolicyHash {
+		return fmt.Errorf("%w: egress policy hash mismatch", ErrCompressionConflict)
 	}
 	// oldBytes is the existing surrogate size for this artifact (replacement path).
 	// By construction oldBytes <= cur session/total counters.

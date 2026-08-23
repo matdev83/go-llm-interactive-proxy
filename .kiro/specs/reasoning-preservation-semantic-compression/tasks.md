@@ -94,7 +94,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: `go test -count=1 ./pkg/lipsdk/auxiliary ./internal/core/auxreq`; race-focused scheduler tests_
   - _Requirements: 6, 11, 13_
 
-- [ ] 2.4 Extend the reasoning-preservation store with non-destructive optional-state reservation
+- [x] 2.4 Extend the reasoning-preservation store with non-destructive optional-state reservation
   - Add internal compression reservation/pending/surrogate operations with artifact ID + original digest + policy-revision CAS checks.
   - Enforce per-session and feature-instance aggregate pending limits before provider submission can occur.
   - Keep optional accounting separate from authoritative `ReasoningBytes` FIFO/TTL budgets.
