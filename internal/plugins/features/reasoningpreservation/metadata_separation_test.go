@@ -24,14 +24,16 @@ func TestMetadataSeparation_ControlPlaneNotInModelMessages(t *testing.T) {
 	principal := reasoningpreservation.NewEgressPrincipalView("principal-sensitive-999")
 	_ = principal
 
-	req := reasoningpreservation.BuildCompressorAuxRequest(reasoningpreservation.CompressorAuxRequestParams{
+	req, err := reasoningpreservation.BuildCompressorAuxRequest(reasoningpreservation.CompressorAuxRequestParams{
 		Route:               route,
 		ParentTraceID:       traceID,
 		ParentALegID:        aLegID,
 		ParentBLegID:        bLegID,
 		ParentBranchBinding: branch,
 		Segments:            sanitized,
+		MaxOutputTokens:     1024,
 	})
+	require.NoError(t, err)
 	// envelope retains control-plane
 	assert.Equal(t, "reasoning_preservation_compressor", req.Role)
 	assert.Equal(t, "private", req.Visibility)
@@ -80,13 +82,15 @@ func TestMetadataSeparation_ControlPlaneNotInModelMessages(t *testing.T) {
 func TestMetadataSeparation_EnvelopeRetainsButPromptClean(t *testing.T) {
 	t.Parallel()
 	segs := []reasoningpreservation.CompressorInputSegment{{Index: 0, Text: "clean"}}
-	req := reasoningpreservation.BuildCompressorAuxRequest(reasoningpreservation.CompressorAuxRequestParams{
-		Route:         "route-x",
-		ParentTraceID: "trace-1",
-		ParentALegID:  "aleg-1",
-		ParentBLegID:  "bleg-1",
-		Segments:      segs,
+	req, err := reasoningpreservation.BuildCompressorAuxRequest(reasoningpreservation.CompressorAuxRequestParams{
+		Route:           "route-x",
+		ParentTraceID:   "trace-1",
+		ParentALegID:    "aleg-1",
+		ParentBLegID:    "bleg-1",
+		Segments:        segs,
+		MaxOutputTokens: 1024,
 	})
+	require.NoError(t, err)
 	// envelope fields
 	assert.Equal(t, "reasoning_preservation_compressor", req.Role)
 	// prompt inspection: Call.Messages serialized must not contain envelope values

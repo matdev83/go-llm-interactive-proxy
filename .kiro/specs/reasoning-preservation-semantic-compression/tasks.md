@@ -133,7 +133,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: preparation/privacy tests_
   - _Requirements: 1, 2, 7, 8_
 
-- [ ] 3.3 Build one detached no-tools auxiliary compressor request per artifact
+- [x] 3.3 Build one detached no-tools auxiliary compressor request per artifact
   - Require explicit configured route, private/detached execution, bounded output tokens, and `reasoning-output-preservation` disabled on the child.
   - Carry role/visibility/parent lineage in the trusted auxiliary envelope and rely on existing cloned principal/scope execution context for billing; keep these out of `Call.Messages`.
   - Treat source segment JSON as untrusted quoted data and require strict versioned output schema.
