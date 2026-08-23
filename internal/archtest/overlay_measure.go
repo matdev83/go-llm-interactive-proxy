@@ -14,8 +14,8 @@ const GenericCompatibleBackendOverlayMax = 946
 
 // BillingHostCompositionOverlayMax is the measured billing-host-composition overlay
 // ratchet (production files selected by path, excluding connector and generic-compatible
-// overlays). Keep 25 lines of ratchet headroom over the measured 310-line overlay.
-const BillingHostCompositionOverlayMax = 335
+// overlays). Keep 25 lines of ratchet headroom over the measured 340-line overlay.
+const BillingHostCompositionOverlayMax = 365
 
 // AtomicOwnedResourceLifecycleOverlayMax is the measured atomic-owned-resource-lifecycle
 // overlay ratchet (the new private process-ownership and generation-loop primitive

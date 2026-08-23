@@ -1,143 +1,88 @@
 package openresponses
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"unicode/utf8"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 )
 
-// validateJSONStrict checks for valid UTF-8, duplicate object keys, maximum JSON depth, and trailing data.
-func validateJSONStrict(data []byte, maxDepth int) error {
-	if !utf8.Valid(data) {
+// validateJSONStrictWithLimits translates the protocol limits into the shared
+// structural profile. Protocol-specific item/schema limits remain validated by
+// their owning decoder after this generic pass.
+func validateJSONStrictWithLimits(data []byte, configured Limits) error {
+	defaults := DefaultLimits()
+	if configured == (Limits{}) {
+		configured = defaults
+	}
+	if configured.MaxRequestSizeBytes <= 0 {
+		configured.MaxRequestSizeBytes = defaults.MaxRequestSizeBytes
+	}
+	if configured.MaxItemDepth <= 0 {
+		configured.MaxItemDepth = defaults.MaxItemDepth
+	}
+
+	shape := jsonshape.RequestEnvelopeLimits()
+	shape.MaxBytes = int64(configured.MaxRequestSizeBytes)
+	shape.MaxDepth = configured.MaxItemDepth
+	shape.RejectDuplicateNames = true
+	_, err := jsonshape.Preflight(data, shape)
+	if err == nil {
+		return nil
+	}
+	return mapStrictJSONError(err)
+}
+
+func mapStrictJSONError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var shapeErr *jsonshape.Error
+	if !errors.As(err, &shapeErr) {
+		return fmt.Errorf("%w: invalid JSON", ErrDecodeFailed)
+	}
+	switch shapeErr.Kind {
+	case jsonshape.KindTooLarge:
+		return &LimitExceededError{
+			Param:   "request_size",
+			Limit:   shapeErr.Limit,
+			Actual:  shapeErr.Value,
+			Message: "request payload size exceeds limit",
+			Err:     ErrLimitExceeded,
+		}
+	case jsonshape.KindTooDeep:
+		return &LimitExceededError{
+			Param:   "item_depth",
+			Limit:   shapeErr.Limit,
+			Actual:  shapeErr.Value,
+			Message: fmt.Sprintf("JSON depth %d exceeds limit %d", shapeErr.Value, shapeErr.Limit),
+			Err:     ErrLimitExceeded,
+		}
+	case jsonshape.KindTooManyTokens, jsonshape.KindTooManyItems,
+		jsonshape.KindStringTooLong, jsonshape.KindKeyTooLong, jsonshape.KindNumberTooLong:
+		return &LimitExceededError{
+			Param:   "request_shape",
+			Limit:   shapeErr.Limit,
+			Actual:  shapeErr.Value,
+			Message: "request JSON shape exceeds limit",
+			Err:     ErrLimitExceeded,
+		}
+	case jsonshape.KindCanceled:
+		return fmt.Errorf("%w: request canceled", ErrDecodeFailed)
+	case jsonshape.KindDuplicateName:
+		return fmt.Errorf("%w: duplicate key", ErrDecodeFailed)
+	case jsonshape.KindInvalidUTF8:
 		return fmt.Errorf("%w: invalid UTF-8 encoding", ErrDecodeFailed)
-	}
-
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-
-	type stateKind int
-	const (
-		stateObject stateKind = iota
-		stateArray
-	)
-
-	type frame struct {
-		kind         stateKind
-		seenKeys     map[string]bool
-		expectingKey bool
-	}
-
-	var stack []frame
-	depth := 0
-	hasReadRoot := false
-
-	for {
-		t, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("%w: %w", ErrDecodeFailed, err)
-		}
-
-		if hasReadRoot && len(stack) == 0 {
+	case jsonshape.KindMalformed:
+		switch shapeErr.Reason {
+		case jsonshape.MalformedTrailingData, jsonshape.MalformedMultipleValues:
 			return ErrTrailingData
+		case jsonshape.MalformedIncomplete:
+			return fmt.Errorf("%w: unclosed JSON structure", ErrDecodeFailed)
+		default:
+			return fmt.Errorf("%w: malformed JSON", ErrDecodeFailed)
 		}
-
-		switch v := t.(type) {
-		case json.Delim:
-			switch v {
-			case '{':
-				depth++
-				if depth > maxDepth {
-					return fmt.Errorf("%w: JSON depth %d exceeds limit %d", ErrDecodeFailed, depth, maxDepth)
-				}
-				if len(stack) > 0 && stack[len(stack)-1].kind == stateObject {
-					top := &stack[len(stack)-1]
-					if top.expectingKey {
-						return fmt.Errorf("%w: expected object key, got '{'", ErrDecodeFailed)
-					}
-				}
-				stack = append(stack, frame{
-					kind:         stateObject,
-					seenKeys:     make(map[string]bool),
-					expectingKey: true,
-				})
-			case '}':
-				if len(stack) == 0 || stack[len(stack)-1].kind != stateObject {
-					return fmt.Errorf("%w: unexpected '}'", ErrDecodeFailed)
-				}
-				stack = stack[:len(stack)-1]
-				depth--
-				if len(stack) == 0 {
-					hasReadRoot = true
-				} else if stack[len(stack)-1].kind == stateObject {
-					stack[len(stack)-1].expectingKey = true
-				}
-			case '[':
-				depth++
-				if depth > maxDepth {
-					return fmt.Errorf("%w: JSON depth %d exceeds limit %d", ErrDecodeFailed, depth, maxDepth)
-				}
-				if len(stack) > 0 && stack[len(stack)-1].kind == stateObject {
-					top := &stack[len(stack)-1]
-					if top.expectingKey {
-						return fmt.Errorf("%w: expected object key, got '['", ErrDecodeFailed)
-					}
-				}
-				stack = append(stack, frame{
-					kind: stateArray,
-				})
-			case ']':
-				if len(stack) == 0 || stack[len(stack)-1].kind != stateArray {
-					return fmt.Errorf("%w: unexpected ']'", ErrDecodeFailed)
-				}
-				stack = stack[:len(stack)-1]
-				depth--
-				if len(stack) == 0 {
-					hasReadRoot = true
-				} else if stack[len(stack)-1].kind == stateObject {
-					stack[len(stack)-1].expectingKey = true
-				}
-			}
-		case string:
-			if len(stack) > 0 && stack[len(stack)-1].kind == stateObject {
-				top := &stack[len(stack)-1]
-				if top.expectingKey {
-					if top.seenKeys[v] {
-						return fmt.Errorf("%w: duplicate key %q", ErrDecodeFailed, v)
-					}
-					top.seenKeys[v] = true
-					top.expectingKey = false
-				} else {
-					top.expectingKey = true
-				}
-			} else if len(stack) == 0 {
-				hasReadRoot = true
-			}
-		default: // bool, number, null
-			if len(stack) > 0 && stack[len(stack)-1].kind == stateObject {
-				top := &stack[len(stack)-1]
-				if top.expectingKey {
-					return fmt.Errorf("%w: expected object key, got value", ErrDecodeFailed)
-				}
-				top.expectingKey = true
-			} else if len(stack) == 0 {
-				hasReadRoot = true
-			}
-		}
+	default:
+		return fmt.Errorf("%w: malformed JSON", ErrDecodeFailed)
 	}
-
-	if len(stack) > 0 {
-		return fmt.Errorf("%w: unclosed JSON structure", ErrDecodeFailed)
-	}
-
-	if dec.More() {
-		return ErrTrailingData
-	}
-
-	return nil
 }

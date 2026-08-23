@@ -23,14 +23,28 @@ const (
 	KindCanceled      Kind = "canceled"
 )
 
+// MalformedReason identifies the stable structural reason for malformed JSON.
+type MalformedReason string
+
+const (
+	MalformedEmpty             MalformedReason = "empty"
+	MalformedSyntax            MalformedReason = "syntax"
+	MalformedMultipleValues    MalformedReason = "multiple_values"
+	MalformedUnexpectedClosing MalformedReason = "unexpected_closing"
+	MalformedIncomplete        MalformedReason = "incomplete"
+	MalformedTrailingData      MalformedReason = "trailing_data"
+	MalformedObjectValue       MalformedReason = "object_value_without_key"
+)
+
 // Error is a typed JSON shape guard failure. Msg must never include payload,
 // keys, or values from the scanned input.
 type Error struct {
-	Kind  Kind
-	Limit int
-	Value int
-	Msg   string
-	cause error
+	Kind   Kind
+	Reason MalformedReason
+	Limit  int
+	Value  int
+	Msg    string
+	cause  error
 }
 
 func (e *Error) Error() string {

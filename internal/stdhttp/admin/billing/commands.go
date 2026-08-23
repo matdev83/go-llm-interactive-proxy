@@ -1,13 +1,13 @@
 package billing
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	corebilling "github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/jsonbody"
 )
 
 type commandRequest struct {
@@ -188,12 +188,21 @@ func requireService(w http.ResponseWriter, available bool, code string) bool {
 	return available
 }
 
+const defaultCommandMaxBodyBytes int64 = 64 << 10
+
 func decodeCommandJSON(w http.ResponseWriter, r *http.Request, dest any) bool {
-	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_command"})
-		return false
+	err := jsonbody.Decode(w, r, dest, jsonbody.Policy{
+		MaxBytes: defaultCommandMaxBodyBytes,
+	})
+	if err == nil {
+		return true
 	}
-	return true
+	status, code := http.StatusBadRequest, "invalid_command"
+	if errors.Is(err, jsonbody.ErrTooLarge) {
+		status, code = http.StatusRequestEntityTooLarge, "request_too_large"
+	}
+	writeJSON(w, status, map[string]string{"error": code})
+	return false
 }
 
 func writeCommandError(w http.ResponseWriter, err error) {

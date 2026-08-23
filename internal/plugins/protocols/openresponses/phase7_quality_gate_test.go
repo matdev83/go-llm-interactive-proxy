@@ -53,6 +53,44 @@ func TestQualityGate_DecodeRequestInvalidInputForms(t *testing.T) {
 	}
 }
 
+func TestQualityGate_ValidateJSONStrictUsesConfiguredLimits(t *testing.T) {
+	t.Parallel()
+
+	limits := DefaultLimits()
+	limits.MaxRequestSizeBytes = 4
+	if err := validateJSONStrictWithLimits([]byte(`{"a":1}`), limits); err == nil {
+		t.Fatal("expected configured request-size limit")
+	} else {
+		var limitErr *LimitExceededError
+		if !errors.As(err, &limitErr) || limitErr.Param != "request_size" {
+			t.Fatalf("error=%v, want request_size LimitExceededError", err)
+		}
+	}
+
+	limits = DefaultLimits()
+	limits.MaxItemDepth = 1
+	if err := validateJSONStrictWithLimits([]byte(`{"nested":{"value":1}}`), limits); err == nil {
+		t.Fatal("expected configured depth limit")
+	} else if !strings.Contains(err.Error(), "exceeds limit 1") {
+		t.Fatalf("error=%v, want configured depth", err)
+	}
+}
+
+func TestQualityGate_ValidateJSONStrictDoesNotLeakDuplicateMemberNames(t *testing.T) {
+	t.Parallel()
+	const secretKey = "secret_member_name"
+	err := validateJSONStrictWithLimits([]byte(`{"`+secretKey+`":1,"`+secretKey+`":2}`), Limits{MaxItemDepth: 64})
+	if err == nil {
+		t.Fatal("expected duplicate member error")
+	}
+	if strings.Contains(err.Error(), secretKey) {
+		t.Fatalf("duplicate member name leaked in error: %v", err)
+	}
+	if !errors.Is(err, ErrDecodeFailed) {
+		t.Fatalf("error=%v does not wrap ErrDecodeFailed", err)
+	}
+}
+
 func TestQualityGate_ValidateJSONStrictBranches(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -74,7 +112,7 @@ func TestQualityGate_ValidateJSONStrictBranches(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateJSONStrict([]byte(tc.json), 64)
+			err := validateJSONStrictWithLimits([]byte(tc.json), Limits{MaxItemDepth: 64})
 			if tc.want == "" {
 				if err != nil {
 					t.Fatalf("expected valid JSON, got error %v", err)

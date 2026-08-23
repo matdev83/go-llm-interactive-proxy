@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/jsonbody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -132,18 +133,14 @@ func NewHandler(opts Options) http.Handler {
 		}
 
 		var req CountRequest
-		body := r.Body
-		if maxBodyBytes > 0 {
-			body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-		}
-		dec := json.NewDecoder(body)
-		if err := dec.Decode(&req); err != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
+		if err := jsonbody.DecodeIgnoringCancellation(w, r, &req, jsonbody.Policy{
+			MaxBytes: maxBodyBytes,
+		}); err != nil {
+			if errors.Is(err, jsonbody.ErrTooLarge) {
 				writeError(w, http.StatusRequestEntityTooLarge, "request_too_large")
-				return
+			} else {
+				writeError(w, http.StatusBadRequest, "invalid_json")
 			}
-			writeError(w, http.StatusBadRequest, "invalid_json")
 			return
 		}
 

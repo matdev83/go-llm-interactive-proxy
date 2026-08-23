@@ -40,7 +40,7 @@ func DecodeRequest(data []byte, configured ...Limits) (*WireResponseParam, lipap
 	}
 
 	// Perform strict JSON validation for UTF-8, duplicate keys, depth, and trailing data.
-	if err := validateJSONStrict(data, limits.MaxItemDepth); err != nil {
+	if err := validateJSONStrictWithLimits(data, limits); err != nil {
 		return nil, lipapi.Call{}, err
 	}
 

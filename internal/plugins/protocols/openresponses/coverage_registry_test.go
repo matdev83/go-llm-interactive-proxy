@@ -153,17 +153,17 @@ func TestAdditionalCoverageEdgeCases(t *testing.T) {
 
 	t.Run("ValidateJSONStrict_DepthAndErrors", func(t *testing.T) {
 		deepJSON := []byte(`{"a":{"b":{"c":1}}}`)
-		if err := validateJSONStrict(deepJSON, 2); err == nil {
+		if err := validateJSONStrictWithLimits(deepJSON, Limits{MaxItemDepth: 2}); err == nil {
 			t.Error("expected error for JSON exceeding depth")
 		}
 
 		unclosed := []byte(`{"a": 1`)
-		if err := validateJSONStrict(unclosed, 10); err == nil {
+		if err := validateJSONStrictWithLimits(unclosed, Limits{MaxItemDepth: 10}); err == nil {
 			t.Error("expected error for unclosed JSON")
 		}
 
 		invalidKey := []byte(`{123: "val"}`)
-		if err := validateJSONStrict(invalidKey, 10); err == nil {
+		if err := validateJSONStrictWithLimits(invalidKey, Limits{MaxItemDepth: 10}); err == nil {
 			t.Error("expected error for invalid key")
 		}
 	})

@@ -64,6 +64,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
 - `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal.
 - `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports and routing-override admin mounts are composition-gated.
+- `internal/jsonbody/` — Bounded HTTP JSON decode policy for standard/admin adapters: byte cap, request-envelope shape preflight, exactly-one-document admission. Consumers: `internal/stdhttp/admin/billing`, `keepwarm`, `tokenaccounting`.
 - `internal/providerprofiles/` — Declarative compatible-provider catalog (`lip.provider-profile/v1`); composition compiles profiles onto protocol-family adapters. Do not grow a new in-process backend package per compatible vendor.
 
 ### 3. Official Frontend Plugins (`internal/plugins/frontends/`)
