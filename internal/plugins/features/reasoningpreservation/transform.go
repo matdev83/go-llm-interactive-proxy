@@ -279,10 +279,20 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 			} else {
 				viewDecisions = selectReasoningViews(ctx, t.cfg.Compression, cs, t.svc, partition, candidates, meta.ReplaySupport, meta)
 			}
-			// Thread view decisions to next immutable consumer stage instead of discard.
-			// Default identity consumer does nothing (shadow); 6.2 injects ephemeral builder.
-			// In shadow mode force identity regardless of injected consumer.
-			if t.cfg.Compression.Enabled && t.cfg.Compression.Mode != CompressionShadow {
+			// 6.2 ephemeral surrogate restoration view without mutating stored originals.
+			// ACTIVE builds defensive ephemeral candidates; Shadow remains identity.
+			var ephemeralCandidates []restoreCandidate
+			if t.cfg.Compression.Enabled && t.cfg.Compression.Mode == CompressionActive {
+				// Build ephemeral candidates defensively for ViewSurrogate only.
+				getSur := func(id string) (*ReasoningSurrogate, bool) {
+					st, ok, err := cs.GetCompressionState(ctx, partition, id)
+					if err != nil || !ok || st.Surrogate == nil {
+						return nil, false
+					}
+					return st.Surrogate, true
+				}
+				ephemeralCandidates = BuildEphemeralCandidates(candidates, viewDecisions, getSur)
+				// Consumer seam remains immutable; ACTIVE may have distinct consumer but still identity for call.
 				if t.viewConsumerStage != nil {
 					if out := t.viewConsumerStage(ctx, call, viewDecisions); out != nil {
 						call = out
@@ -294,8 +304,14 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 					_ = t.viewConsumerStage // keep seam wired but force identity for shadow
 				}
 				_ = viewDecisions
+				ephemeralCandidates = nil
 			}
 			// Restore using same classified/candidates without reclassifying.
+			// When ACTIVE, use ephemeral candidates (defensive copies with surrogate text).
+			restoreCandidates := candidates
+			if ephemeralCandidates != nil {
+				restoreCandidates = ephemeralCandidates
+			}
 			if t.cfg.Action == ActionObserve {
 				// Observe never mutates; reuse classified for outcomes.
 				resTmp = RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}
@@ -310,7 +326,7 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 					Artifacts:         arts,
 					ReplaySupport:     meta.ReplaySupport,
 					Eligible:          true,
-				}, classified, candidates)
+				}, classified, restoreCandidates)
 				if rerr != nil {
 					return request.AttemptDecision{}, rerr
 				}

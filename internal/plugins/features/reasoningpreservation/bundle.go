@@ -57,6 +57,14 @@ func FeatureBundleWithPartsAndCompression(cfg Config, svc CompressionServices, p
 		}
 	}
 	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, policy, stage, tel)
+	// 6.1 view stage + 6.2 ephemeral consumer wiring.
+	// View stage is always identity (policy-aware); consumer is active only when Mode==Active, shadow otherwise.
+	xform.viewStage = identityReasoningViewStage
+	if cfg.Compression.Enabled && cfg.Compression.Mode == CompressionActive {
+		xform.viewConsumerStage = EphemeralViewConsumerForMode(CompressionActive)
+	} else {
+		xform.viewConsumerStage = identityReasoningViewConsumerStage
+	}
 	hook := BuildPostAppendHookWithTelemetry(cfg, store, svc, tel)
 	obs := NewStreamObserverFactoryWithPostAppendHook(cfg, store, hook, tel)
 	b := lipfeature.FeatureBundle{

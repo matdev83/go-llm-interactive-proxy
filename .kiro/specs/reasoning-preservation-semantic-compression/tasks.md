@@ -247,7 +247,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: destination capability matrix fixtures_
   - _Requirements: 1, 2, 12_
 
-- [ ] 6.2 Build an ephemeral surrogate restoration view without mutating stored originals
+- [x] 6.2 Build an ephemeral surrogate restoration view without mutating stored originals
   - Copy original placements and replace only validated semantic-text `Reasoning.Text` fields.
   - Preserve `BeforeNonReasoningPart`, dialect, exact/signed/opaque parts, tool IDs/order, ordinary assistant text, files/images, and all non-reasoning structure.
   - Ambiguous placement/correlation => original fallback.
