@@ -15,12 +15,35 @@ import (
 
 const sessionConcurrencyGuard = time.Second
 
+// verifyNoGoroutineLeak snapshots current goroutines once, then polls
+// goleak.Find until the teardown settles or a 5s deadline passes. gRPC conn
+// teardown spawns short-lived addrConn/CallbackSerializer goroutines after
+// the snapshot, and goleak's built-in retry window is too short on loaded CI
+// runners. The assertion is unchanged: goroutines missing from the snapshot
+// after the deadline still fail; only the settle patience grows.
+func verifyNoGoroutineLeak(t *testing.T) {
+	t.Helper()
+	ignore := goleak.IgnoreCurrent()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := goleak.Find(ignore); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			goleak.VerifyNone(t, ignore)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // TestSession_CrossGenerationExecuteSerializesOnOneSession characterizes the
 // existing Session lifecycle lock that a pooled Session would share across
 // retained old-generation and new-generation execution.
+//
+//nolint:paralleltest // goleak VerifyNone conflicts with parallel tests
 func TestSession_CrossGenerationExecuteSerializesOnOneSession(t *testing.T) {
-	t.Parallel()
-	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
+	t.Cleanup(func() { verifyNoGoroutineLeak(t) })
 
 	session, plugin := newCrossGenerationSession(t)
 
@@ -69,9 +92,10 @@ func TestSession_CrossGenerationExecuteSerializesOnOneSession(t *testing.T) {
 // TestSession_CrossGenerationMetadataOverlapsHeldExecute characterizes the
 // existing standard-host contract: server-side instance leases permit the
 // metadata and auxiliary RPCs to overlap an active Execute on one Session.
+//
+//nolint:paralleltest // goleak VerifyNone conflicts with parallel tests
 func TestSession_CrossGenerationMetadataOverlapsHeldExecute(t *testing.T) {
-	t.Parallel()
-	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
+	t.Cleanup(func() { verifyNoGoroutineLeak(t) })
 
 	session, plugin := newCrossGenerationSession(t)
 
@@ -137,9 +161,10 @@ func TestSession_CrossGenerationMetadataOverlapsHeldExecute(t *testing.T) {
 // TestSession_CrossGenerationCloseSerializesWithExecute characterizes the
 // lifecycle guarantee that Close cannot tear down the transport below an
 // active Execute.
+//
+//nolint:paralleltest // goleak VerifyNone conflicts with parallel tests
 func TestSession_CrossGenerationCloseSerializesWithExecute(t *testing.T) {
-	t.Parallel()
-	t.Cleanup(func() { goleak.VerifyNone(t, goleak.IgnoreCurrent()) })
+	t.Cleanup(func() { verifyNoGoroutineLeak(t) })
 
 	session, plugin := newCrossGenerationSession(t)
 
