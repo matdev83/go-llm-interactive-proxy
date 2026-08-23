@@ -19,10 +19,25 @@ const PluginID = "agent_loop_guard"
 // Visibility for the auxiliary verifier request.
 const Visibility = "private"
 
+// VerifyObservation reports verifier usage and latency for accounting/observability.
+// It is passed to AdapterConfig.Observer exactly once per Verify call.
+type VerifyObservation struct {
+	Latency       time.Duration
+	InputTokens   int
+	OutputTokens  int
+	TotalTokens   int
+	CostNanoUnits int64
+	Err           error
+}
+
 // AdapterConfig holds verifier adapter construction parameters.
 type AdapterConfig struct {
 	Role    string
 	Timeout time.Duration
+	// Observer, if non-nil, is invoked exactly once per Verify call with
+	// latency and usage from the auxiliary Collect. It must be fast and
+	// non-blocking; the verifier does not wait for observer work.
+	Observer func(VerifyObservation)
 }
 
 // Adapter implements stopguard.Verifier via an auxiliary client.
@@ -44,13 +59,21 @@ func NewAdapter(client auxiliary.Client, cfg AdapterConfig) *Adapter {
 
 // Verify runs the semantic completion check with bounded instruction/evidence.
 func (a *Adapter) Verify(ctx context.Context, evidence stopguard.Evidence) (stopguard.Verdict, error) {
+	var obs VerifyObservation
+	defer func() {
+		if a.cfg.Observer != nil {
+			a.cfg.Observer(obs)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
+		obs.Err = err
 		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, err
 	}
 	// Bounded deadline.
 	dctx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
 	defer cancel()
 	if err := dctx.Err(); err != nil {
+		obs.Err = err
 		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, err
 	}
 
@@ -83,16 +106,26 @@ func (a *Adapter) Verify(ctx context.Context, evidence stopguard.Evidence) (stop
 		req.ParentALegID = lineage.ALegID(ctx)
 	}
 
+	start := time.Now()
 	collected, err := a.client.Collect(dctx, req)
+	obs.Latency = time.Since(start)
 	if err != nil {
+		obs.Err = err
 		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, err
 	}
+	obs.InputTokens = collected.InputTokens
+	obs.OutputTokens = collected.OutputTokens
+	obs.TotalTokens = collected.TotalTokens
+	obs.CostNanoUnits = collected.CostNanoUnits
 	text := strings.TrimSpace(collected.Text.String())
 	if text == "" {
-		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, fmt.Errorf("verifier returned empty output")
+		perr := fmt.Errorf("verifier returned empty output")
+		obs.Err = perr
+		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, perr
 	}
 	v, perr := parseVerdict(text)
 	if perr != nil {
+		obs.Err = perr
 		return stopguard.Verdict{Kind: stopguard.VerdictUncertain}, perr
 	}
 	// Apply conservative normalization and bounds already in parse; also run through

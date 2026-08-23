@@ -80,7 +80,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 5.1–5.7, 7.1–7.6, 12.1–12.4_
     - _Depends on: 4.1_
     - _Validation: verifier prompt/evidence unit tests including realistic fixed fixtures_
-  - [ ] 4.3 Implement auxiliary verifier execution and structured result parsing
+  - [x] 4.3 Implement auxiliary verifier execution and structured result parsing
     - Use existing `auxreq` client/runtime path and current internal scope/lineage/accounting behavior.
     - Propagate only bounded verifier reason/remaining objective to recovery; do not surface verifier chain-of-thought.
     - Record verifier usage/latency through existing observability/accounting seams.
