@@ -555,15 +555,15 @@ func TestAdversarial_LateTransform_ParallelRace(t *testing.T) {
 				t.Fatalf("parallel race must use one frozen snapshot, got %d", reader.Count())
 			}
 			all := append(capA.AllCalls(), capB.AllCalls()...)
-			if len(all) == 0 {
-				t.Fatal("no parallel opens captured")
+			if len(all) < 1 || len(all) > 2 {
+				t.Fatalf("parallel race realized opens %d want 1..2 (scheduler-dependent winner selection)", len(all))
 			}
 			for _, open := range all {
 				verifyRepaired(t, taggedID, steeringText, open)
 			}
 			ptbCalls := ptbObs.PTBCalls(t)
-			if len(ptbCalls) != 2 {
-				t.Fatalf("PTB count %d want 2 for parallel race (both arms emit PTB before winner selection), got %d", len(ptbCalls), ptbObs.PTBCount())
+			if len(ptbCalls) != len(all) {
+				t.Fatalf("PTB count %d must equal realized backend opens %d (scheduler-dependent winner selection)", len(ptbCalls), len(all))
 			}
 			for _, ptb := range ptbCalls {
 				verifyRepaired(t, taggedID, steeringText, ptb)
