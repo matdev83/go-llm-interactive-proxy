@@ -67,7 +67,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/b2bua/... ./internal/core/conversationview/...`_
   - _Requirements: 2.1-2.12, 3.1-3.7, 9.11-9.17, 13.3, 13.8_
 
-- [ ] 2.3 Implement Bun SQLite/PostgreSQL persistence
+- [x] 2.3 Implement Bun SQLite/PostgreSQL persistence
   - Add additive A-leg-owned migration(s) for exclusion identities, steering overlay payload/anchor/slot/revision state, and coherent state revision as needed.
   - Implement Reader/Tagger/Steering semantics using existing A-leg row-lock/transaction patterns with deterministic ordering and atomic bounds enforcement.
   - Add SQLite restart/delete/recreate/no-op/revision tests and PostgreSQL-gated parity/concurrency tests.
