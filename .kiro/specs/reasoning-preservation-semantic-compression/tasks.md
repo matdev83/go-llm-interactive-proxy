@@ -151,7 +151,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: oversized raw-response tests including syntactically valid tail beyond limit_
   - _Requirements: 3, 10_
 
-- [ ] 3.5 Implement strict decoder, surrogate validation, and savings policy
+- [x] 3.5 Implement strict decoder, surrogate validation, and savings policy
   - Strict-decode schema version/indexes/text; reject unknown fields, duplicates, missing indexes, invalid controls/UTF-8, empty required text, and malformed output.
   - Enforce decoded `max_surrogate_bytes`, minimum saved bytes, minimum ratio, and strict smaller-than-source behavior.
   - Return typed content-free outcomes and never claim mathematical semantic equivalence.
