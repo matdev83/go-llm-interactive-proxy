@@ -59,7 +59,7 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 12593},
+	{Tree: "internal/infra/runtimebundle", Max: 12616},
 	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 562},
@@ -99,10 +99,11 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content provenance (D14 request-local provenance for final reassertion); measured 87281, bump to 87306 with 25 headroom.
 	// Non-forwardable conversation content memory A-leg conversation-view state (B2BUA MemoryStore capability + extracted contract suite with tightenings); measured 88729, bump to 88754 with 25 headroom.
 	// Non-forwardable conversation content Bun SQLite/PostgreSQL persistence (A-leg-owned migrations + deterministic Bun adapter + SQLite/PG contract tests); measured 89658, bump to 89683 with 25 headroom.
-	{Dir: "internal/core", Max: 89683},
+	// Non-forwardable conversation content sdkadapter services relocation (capability-resolving helpers moved from runtimebundle to sdkadapter, deterministic fail-closed FromStore/Services); measured 89919 (core) / 12591 (runtimebundle), bump to 89944/12616 with 25 headroom.
+	{Dir: "internal/core", Max: 89944},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12593},
+	{Dir: "internal/infra/runtimebundle", Max: 12616},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 562},
 }
