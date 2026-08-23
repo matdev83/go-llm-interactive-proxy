@@ -96,7 +96,8 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content semantic identity/anchor contract adds internal/core/conversationview; measured 85751, bump to 85776 with 25 headroom.
 	// Non-forwardable conversation content snapshot/store contract (Reader/Tagger/SteeringStore + ReferenceStore) adds store value objects and contract suite; measured 86586, bump to 86611 with 25 headroom.
 	// Non-forwardable conversation content projection/placement/cache-prefix invariants (pure deterministic Project + ResolveAfterIngressTailAnchor); measured 87176, bump to 87201 with 25 headroom.
-	{Dir: "internal/core", Max: 87201},
+	// Non-forwardable conversation content provenance (D14 request-local provenance for final reassertion); measured 87281, bump to 87306 with 25 headroom.
+	{Dir: "internal/core", Max: 87306},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12593},

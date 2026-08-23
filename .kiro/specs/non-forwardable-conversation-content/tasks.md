@@ -47,7 +47,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 ## 2. Implement the Minimal Domain and Persistence
 
-- [ ] 2.1 Implement semantic identity and pure projection
+- [x] 2.1 Implement semantic identity and pure projection
   - Implement `internal/core/conversationview` v1 semantic identity/occurrence helpers with no frontend/provider imports.
   - Implement pure exclusion, in-call dependency cleanup, stable-prefix/fixed-anchor injection, deterministic slot ordering, and anchor policies.
   - Validate resulting calls and return typed fail-closed projection errors; never silently move steering to current tail.

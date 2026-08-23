@@ -13,11 +13,47 @@ type FallbackEvidence struct {
 	Anchor    MessageAnchor `json:"anchor"`
 }
 
+// OverlayProvenance is deterministic request-local provenance for one injected overlay.
+// It is derived solely from Snapshot + input call and is used by a later final-reassertion
+// stage to recognize/rebuild/remove projection-owned steering instances without string heuristics.
+// It does not affect MessageIdentityOf values or model-visible content.
+type OverlayProvenance struct {
+	OverlayID        string          `json:"overlay_id"`
+	Revision         uint64          `json:"revision"`
+	SlotOrdinal      uint64          `json:"slot_ordinal"`
+	ResolvedKind     PlacementKind   `json:"resolved_kind"`
+	ResolvedAnchor   *MessageAnchor  `json:"resolved_anchor,omitempty"`
+	InjectedIdentity MessageIdentity `json:"injected_identity"`
+}
+
+// MatchesMessage reports whether msg is the projection-owned copy for this provenance entry
+// by semantic identity comparison. It is pure and uses no string-marker heuristics.
+func (p OverlayProvenance) MatchesMessage(msg lipapi.Message) bool {
+	id, err := MessageIdentityOf(msg)
+	if err != nil {
+		return false
+	}
+	return id == p.InjectedIdentity
+}
+
+// MatchesItem reports whether item is the projection-owned copy for this provenance entry.
+func (p OverlayProvenance) MatchesItem(item lipapi.Item) bool {
+	if item.Kind != lipapi.ItemKindMessage {
+		return false
+	}
+	id, err := ItemIdentityOf(item)
+	if err != nil {
+		return false
+	}
+	return id == p.InjectedIdentity
+}
+
 // ProjectionEvidence captures bounded diagnostics for a successful projection.
 type ProjectionEvidence struct {
-	FilteredCount int                `json:"filtered_count"`
-	InjectedCount int                `json:"injected_count"`
-	Fallbacks     []FallbackEvidence `json:"fallbacks,omitempty"`
+	FilteredCount int                 `json:"filtered_count"`
+	InjectedCount int                 `json:"injected_count"`
+	Fallbacks     []FallbackEvidence  `json:"fallbacks,omitempty"`
+	Provenance    []OverlayProvenance `json:"provenance,omitempty"`
 }
 
 // Project derives the backend-effective call from call and snap.
@@ -316,10 +352,41 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	if err := out.Validate(); err != nil {
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
+	// Deterministic provenance: derived solely from Snapshot + input.
+	provenance := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
+	for _, ov := range stable {
+		// Stable includes fallback overlays whose resolved kind is stable_prefix.
+		provenance = append(provenance, OverlayProvenance{
+			OverlayID:        ov.OverlayID,
+			Revision:         ov.Revision,
+			SlotOrdinal:      ov.SlotOrdinal,
+			ResolvedKind:     PlacementStablePrefix,
+			ResolvedAnchor:   nil,
+			InjectedIdentity: overlayInjectedIdentity(ov),
+		})
+	}
+	for _, r := range resolvedAnchors {
+		anchorCopy := r.ov.Placement.Anchor
+		var cp *MessageAnchor
+		if anchorCopy != nil {
+			tmp := *anchorCopy
+			cp = &tmp
+		}
+		provenance = append(provenance, OverlayProvenance{
+			OverlayID:        r.ov.OverlayID,
+			Revision:         r.ov.Revision,
+			SlotOrdinal:      r.ov.SlotOrdinal,
+			ResolvedKind:     PlacementAfterMessage,
+			ResolvedAnchor:   cp,
+			InjectedIdentity: overlayInjectedIdentity(r.ov),
+		})
+	}
+	sort.Slice(provenance, func(i, j int) bool { return provenance[i].SlotOrdinal < provenance[j].SlotOrdinal })
 	evidence := &ProjectionEvidence{
 		FilteredCount: filteredCount,
 		InjectedCount: len(stable) + len(resolvedAnchors),
 		Fallbacks:     fallbacks,
+		Provenance:    provenance,
 	}
 	return out, evidence, nil
 }
@@ -472,10 +539,38 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	if err := out.Validate(); err != nil {
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
+	provenanceLegacy := make([]OverlayProvenance, 0, len(stable)+len(resolvedAnchors))
+	for _, ov := range stable {
+		provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
+			OverlayID:        ov.OverlayID,
+			Revision:         ov.Revision,
+			SlotOrdinal:      ov.SlotOrdinal,
+			ResolvedKind:     PlacementStablePrefix,
+			ResolvedAnchor:   nil,
+			InjectedIdentity: overlayInjectedIdentity(ov),
+		})
+	}
+	for _, r := range resolvedAnchors {
+		var cp *MessageAnchor
+		if r.ov.Placement.Anchor != nil {
+			tmp := *r.ov.Placement.Anchor
+			cp = &tmp
+		}
+		provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
+			OverlayID:        r.ov.OverlayID,
+			Revision:         r.ov.Revision,
+			SlotOrdinal:      r.ov.SlotOrdinal,
+			ResolvedKind:     PlacementAfterMessage,
+			ResolvedAnchor:   cp,
+			InjectedIdentity: overlayInjectedIdentity(r.ov),
+		})
+	}
+	sort.Slice(provenanceLegacy, func(i, j int) bool { return provenanceLegacy[i].SlotOrdinal < provenanceLegacy[j].SlotOrdinal })
 	evidence := &ProjectionEvidence{
 		FilteredCount: filteredCount,
 		InjectedCount: len(stable) + len(resolvedAnchors),
 		Fallbacks:     fallbacks,
+		Provenance:    provenanceLegacy,
 	}
 	return out, evidence, nil
 }
@@ -526,6 +621,16 @@ func steeringOverlayToMessage(ov SteeringOverlay) lipapi.Message {
 		Role:  role,
 		Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: text}},
 	}
+}
+
+func overlayInjectedIdentity(ov SteeringOverlay) MessageIdentity {
+	msg := steeringOverlayToMessage(ov)
+	id, err := MessageIdentityOf(msg)
+	if err != nil {
+		// Overlay validation ensures valid role/text; panic on invariant breach.
+		panic(fmt.Sprintf("conversationview: overlay %s identity: %v", ov.OverlayID, err))
+	}
+	return id
 }
 
 func resolveAnchorInItems(items []lipapi.Item, anchor MessageAnchor) (int, bool, error) {
