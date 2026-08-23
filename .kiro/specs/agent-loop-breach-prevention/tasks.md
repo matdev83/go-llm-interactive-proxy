@@ -89,7 +89,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: focused verifier tests plus auxiliary package tests_
 
 - [ ] 5. Build safe continuation materialization and conditional internal recovery instruction
-  - [ ] 5.1 (P) Add failing continuation-safety tests
+  - [x] 5.1 (P) Add failing continuation-safety tests
     - Preserve already committed assistant output without duplication.
     - Preserve completed tool call + matching result exactly once and prohibit re-execution solely due to transport interruption.
     - Reject incomplete tool arguments and unsupported opaque/provider state unless a normalized native-resume capability proves safe.
@@ -97,14 +97,14 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 4.1–4.6, 9.1–9.6, 10.2–10.4, 12.6–12.7_
     - _Depends on: 1.3_
     - _Validation: `go test ./internal/core/continuation/... ./pkg/lipsdk/continuation/...` plus focused runtime helper tests_
-  - [ ] 5.2 Add failing tests for the conditional hidden recovery instruction
+  - [x] 5.2 Add failing tests for the conditional hidden recovery instruction
     - Assert the instruction says it is automated, not a new user request/approval/scope expansion.
     - Assert it tells a completed worker to end, an unfinished worker to resume only existing work, and a user-dependent worker not to infer an answer/permission.
     - Assert it carries bounded recovery reason/objective/attempt facts and is absent from A-side user-authored transcript/output.
     - _Requirements: 6.1–6.7, 7.2–7.4, 12.2–12.4_
     - _Depends on: 4.2 verifier contract_
     - _Validation: focused prompt/control-content tests_
-  - [ ] 5.3 Implement safe canonical continuation construction
+  - [x] 5.3 Implement safe canonical continuation construction
     - Reuse continuation records/materialization and existing lineage rather than reconstructing from frontend bytes.
     - Build a new B-side continuation leg from the last safe canonical point; do not classify it as retry/replacement.
     - Use strongest legal internal/control role available; if a backend requires user-role content, retain internal/non-forwarded provenance and non-authorizing wording.
