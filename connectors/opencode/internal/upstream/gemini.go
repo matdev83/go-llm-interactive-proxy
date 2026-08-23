@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,7 +26,7 @@ type anthropicSSEStream struct {
 func newAnthropicSSEStream(resp *http.Response) lipapi.EventStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
-	sc.Buffer(buf, 1024*1024)
+	sc.Buffer(buf, maxSSEFrameLineBytes)
 	return &anthropicSSEStream{resp: resp, sc: sc}
 }
 
@@ -44,20 +45,13 @@ func (s *anthropicSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			s.pending = s.pending[1:]
 			return ev, nil
 		}
-		if !s.sc.Scan() {
-			if err := s.sc.Err(); err != nil {
-				return lipapi.Event{}, err
+		data, err := nextSSEDataFrame(s.sc)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return lipapi.Event{}, io.EOF
 			}
-			return lipapi.Event{}, io.EOF
+			return lipapi.Event{}, err
 		}
-		line := strings.TrimSpace(s.sc.Text())
-		if line == "" || strings.HasPrefix(line, "event:") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" {
 			continue
 		}
@@ -68,7 +62,10 @@ func (s *anthropicSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				Text string `json:"text"`
 			} `json:"delta"`
 		}
-		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		if err := decodeSSEFrame([]byte(data), &payload); err != nil {
+			if errors.Is(err, errSSEFrameTooLarge) {
+				return lipapi.Event{}, err
+			}
 			continue
 		}
 		if payload.Type == "content_block_delta" && payload.Delta.Text != "" {
@@ -148,7 +145,7 @@ func geminiRequestBody(call lipapi.Call) ([]byte, error) {
 
 func newGeminiJSONStream(resp *http.Response) (lipapi.EventStream, error) {
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readNonStreamResponse(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -159,19 +156,27 @@ func newGeminiJSONStream(resp *http.Response) (lipapi.EventStream, error) {
 	return newSliceStream([]lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: text}}), nil
 }
 
+type geminiPayload struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
+}
+
 func geminiTextFromJSON(raw []byte) (string, error) {
-	var payload struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
+	var payload geminiPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return "", fmt.Errorf("opencode gemini decode: %w", err)
 	}
+	return geminiText(payload)
+}
+
+// geminiText extracts the first non-empty text part; the non-stream and SSE
+// paths share it so both materialize through the same payload shape.
+func geminiText(payload geminiPayload) (string, error) {
 	for _, cand := range payload.Candidates {
 		for _, part := range cand.Content.Parts {
 			if part.Text != "" {
@@ -192,7 +197,7 @@ type geminiSSEStream struct {
 func newGeminiSSEStream(resp *http.Response) lipapi.EventStream {
 	sc := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
-	sc.Buffer(buf, 1024*1024)
+	sc.Buffer(buf, maxSSEFrameLineBytes)
 	return &geminiSSEStream{resp: resp, sc: sc}
 }
 
@@ -206,21 +211,24 @@ func (s *geminiSSEStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if err := ctx.Err(); err != nil {
 			return lipapi.Event{}, err
 		}
-		if !s.sc.Scan() {
-			if err := s.sc.Err(); err != nil {
-				return lipapi.Event{}, err
+		data, err := nextSSEDataFrame(s.sc)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return lipapi.Event{}, io.EOF
 			}
-			return lipapi.Event{}, io.EOF
+			return lipapi.Event{}, err
 		}
-		line := strings.TrimSpace(s.sc.Text())
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" {
 			continue
 		}
-		text, err := geminiTextFromJSON([]byte(data))
+		var payload geminiPayload
+		if err := decodeSSEFrame([]byte(data), &payload); err != nil {
+			if errors.Is(err, errSSEFrameTooLarge) {
+				return lipapi.Event{}, err
+			}
+			continue
+		}
+		text, err := geminiText(payload)
 		if err != nil || text == "" {
 			continue
 		}

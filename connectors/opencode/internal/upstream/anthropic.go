@@ -65,7 +65,7 @@ func anthropicRequestBody(call lipapi.Call, model string) ([]byte, error) {
 
 func newAnthropicJSONStream(resp *http.Response) (lipapi.EventStream, error) {
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readNonStreamResponse(resp.Body)
 	if err != nil {
 		return nil, err
 	}

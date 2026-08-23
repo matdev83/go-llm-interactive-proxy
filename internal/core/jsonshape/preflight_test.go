@@ -97,6 +97,36 @@ func TestPreflightMalformedAndRoots(t *testing.T) {
 	}
 }
 
+func TestPreflightMalformedReasons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		data       string
+		wantReason jsonshape.MalformedReason
+	}{
+		{name: "empty", data: " \n\t ", wantReason: jsonshape.MalformedEmpty},
+		{name: "non-JSON whitespace", data: "\u00a0", wantReason: jsonshape.MalformedSyntax},
+		{name: "syntax", data: `nope`, wantReason: jsonshape.MalformedSyntax},
+		{name: "multiple values", data: `{}{}`, wantReason: jsonshape.MalformedMultipleValues},
+		{name: "incomplete", data: `{"a":1`, wantReason: jsonshape.MalformedIncomplete},
+	}
+	// MalformedUnexpectedClosing, MalformedTrailingData, and MalformedObjectValue
+	// are defensive guards: encoding/json rejects the inputs that would reach
+	// them (mismatched/trailing delimiters) before the token loop observes them.
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := jsonshape.Preflight([]byte(tt.data), jsonshape.Limits{})
+			var shapeErr *jsonshape.Error
+			if !errors.As(err, &shapeErr) || shapeErr.Kind != jsonshape.KindMalformed || shapeErr.Reason != tt.wantReason {
+				t.Fatalf("error=%v, want KindMalformed reason %q", err, tt.wantReason)
+			}
+		})
+	}
+}
+
 func TestPreflightDuplicateNames(t *testing.T) {
 	t.Parallel()
 

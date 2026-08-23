@@ -73,3 +73,15 @@ func TestDecodeBoundedAcceptsWrappedEOF(t *testing.T) {
 		t.Fatalf("code=%d", w.Code)
 	}
 }
+
+func TestDecodeBoundedAcceptsWhitespaceBody(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest(http.MethodPost, "/disable", strings.NewReader(" \n\t "))
+	w := httptest.NewRecorder()
+	if err := decodeBounded(w, r, 8); err != nil {
+		t.Fatalf("whitespace body should remain compatible with empty body: %v", err)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d", w.Code)
+	}
+}

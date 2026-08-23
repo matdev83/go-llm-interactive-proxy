@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -32,7 +31,7 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 		return result, &Error{Kind: KindInvalidUTF8, Msg: "invalid UTF-8"}
 	}
 	if whitespaceOnly(data) {
-		return result, &Error{Kind: KindMalformed, Msg: "empty JSON body"}
+		return result, &Error{Kind: KindMalformed, Reason: MalformedEmpty, Msg: "empty JSON body"}
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -49,7 +48,7 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return result, &Error{Kind: KindMalformed, Msg: "malformed JSON"}
+			return result, &Error{Kind: KindMalformed, Reason: MalformedSyntax, Msg: "malformed JSON"}
 		}
 		result.Tokens++
 		if result.Tokens > limits.MaxTokens {
@@ -62,7 +61,7 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 				if len(frames) == 0 {
 					rootValues++
 					if rootValues > 1 {
-						return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
+						return result, &Error{Kind: KindMalformed, Reason: MalformedMultipleValues, Msg: "multiple JSON values"}
 					}
 				} else if err := countValue(&frames, limits); err != nil {
 					return result, err
@@ -76,7 +75,7 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 				if len(frames) == 0 {
 					rootValues++
 					if rootValues > 1 {
-						return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
+						return result, &Error{Kind: KindMalformed, Reason: MalformedMultipleValues, Msg: "multiple JSON values"}
 					}
 				} else if err := countValue(&frames, limits); err != nil {
 					return result, err
@@ -88,12 +87,12 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 				result.MaxDepth = max(result.MaxDepth, len(frames))
 			case '}':
 				if len(frames) == 0 || !frames[len(frames)-1].object {
-					return result, &Error{Kind: KindMalformed, Msg: "unexpected closing delimiter"}
+					return result, &Error{Kind: KindMalformed, Reason: MalformedUnexpectedClosing, Msg: "unexpected closing delimiter"}
 				}
 				frames = frames[:len(frames)-1]
 			case ']':
 				if len(frames) == 0 || frames[len(frames)-1].object {
-					return result, &Error{Kind: KindMalformed, Msg: "unexpected closing delimiter"}
+					return result, &Error{Kind: KindMalformed, Reason: MalformedUnexpectedClosing, Msg: "unexpected closing delimiter"}
 				}
 				frames = frames[:len(frames)-1]
 			}
@@ -103,7 +102,7 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 		if len(frames) == 0 {
 			rootValues++
 			if rootValues > 1 {
-				return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
+				return result, &Error{Kind: KindMalformed, Reason: MalformedMultipleValues, Msg: "multiple JSON values"}
 			}
 		}
 		if err := inspectScalar(tok, &frames, limits); err != nil {
@@ -112,13 +111,13 @@ func PreflightWithContext(ctx context.Context, data []byte, limits Limits) (Resu
 	}
 
 	if rootValues == 0 {
-		return result, &Error{Kind: KindMalformed, Msg: "empty JSON body"}
+		return result, &Error{Kind: KindMalformed, Reason: MalformedEmpty, Msg: "empty JSON body"}
 	}
 	if len(frames) != 0 {
-		return result, &Error{Kind: KindMalformed, Msg: "incomplete JSON body"}
+		return result, &Error{Kind: KindMalformed, Reason: MalformedIncomplete, Msg: "incomplete JSON body"}
 	}
 	if hasTrailingNonWhitespace(data[dec.InputOffset():]) {
-		return result, &Error{Kind: KindMalformed, Msg: "trailing data after JSON value"}
+		return result, &Error{Kind: KindMalformed, Reason: MalformedTrailingData, Msg: "trailing data after JSON value"}
 	}
 	return result, nil
 }
@@ -190,7 +189,7 @@ func countValue(frames *[]frame, limits Limits) error {
 	current := &(*frames)[len(*frames)-1]
 	if current.object {
 		if !current.expectKey {
-			return &Error{Kind: KindMalformed, Msg: "object value without key"}
+			return &Error{Kind: KindMalformed, Reason: MalformedObjectValue, Msg: "object value without key"}
 		}
 		current.expectKey = false
 		return nil
@@ -203,29 +202,23 @@ func countValue(frames *[]frame, limits Limits) error {
 }
 
 func whitespaceOnly(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+		default:
 			return false
 		}
-		if !unicode.IsSpace(r) {
-			return false
-		}
-		data = data[size:]
 	}
 	return true
 }
 
 func hasTrailingNonWhitespace(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+		default:
 			return true
 		}
-		if !unicode.IsSpace(r) {
-			return true
-		}
-		data = data[size:]
 	}
 	return false
 }

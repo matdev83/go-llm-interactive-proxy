@@ -153,6 +153,37 @@ func TestBillingCommandsIgnoreBalanceAndSettlementFieldsOnCreate(t *testing.T) {
 	}
 }
 
+func TestBillingCommandsRejectTrailingAndOversizedCommandBodies(t *testing.T) {
+	t.Parallel()
+
+	t.Run("trailing document", func(t *testing.T) {
+		t.Parallel()
+		provisioner := &recordingProvisioner{}
+		rec := postJSON(NewHandler(Options{Commands: provisioner}), "/account", `{"account_id":"acct","currency":"USD","mode":"prepaid"}{}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
+		}
+		assertJSONError(t, rec, "invalid_command")
+		if len(provisioner.created) != 0 {
+			t.Fatalf("created=%d want 0", len(provisioner.created))
+		}
+	})
+
+	t.Run("oversized", func(t *testing.T) {
+		t.Parallel()
+		provisioner := &recordingProvisioner{}
+		body := `{"account_id":"` + strings.Repeat("a", int(defaultCommandMaxBodyBytes)) + `"}`
+		rec := postJSON(NewHandler(Options{Commands: provisioner}), "/account", body)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status=%d want 413 body=%s", rec.Code, rec.Body.String())
+		}
+		assertJSONError(t, rec, "request_too_large")
+		if len(provisioner.created) != 0 {
+			t.Fatalf("created=%d want 0", len(provisioner.created))
+		}
+	})
+}
+
 func TestBillingCommandsCreateConflictAndInvalidJSON(t *testing.T) {
 	t.Parallel()
 	t.Run("identity conflict", func(t *testing.T) {

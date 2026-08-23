@@ -96,6 +96,20 @@ func TestErrorMapping_TableDriven(t *testing.T) {
 			expectedClassification: ClassificationPayloadTooLarge,
 		},
 		{
+			name:                   "LimitExceededError_ItemDepth",
+			inputErr:               &LimitExceededError{Param: "item_depth", Limit: 16, Actual: 17, Message: "item nesting depth exceeds limit", Err: ErrLimitExceeded},
+			expectedStatus:         400,
+			expectedType:           "invalid_request_error",
+			expectedClassification: ClassificationInvalidRequest,
+		},
+		{
+			name:                   "LimitExceededError_RequestShape",
+			inputErr:               &LimitExceededError{Param: "request_shape", Limit: 100000, Actual: 100001, Message: "request JSON shape exceeds limit", Err: ErrLimitExceeded},
+			expectedStatus:         400,
+			expectedType:           "invalid_request_error",
+			expectedClassification: ClassificationInvalidRequest,
+		},
+		{
 			name:                   "LimitExceededError_ItemCount",
 			inputErr:               &LimitExceededError{Param: "item_count", Limit: 10, Actual: 20, Message: "item count limit exceeded", Err: ErrLimitExceeded},
 			expectedStatus:         400,

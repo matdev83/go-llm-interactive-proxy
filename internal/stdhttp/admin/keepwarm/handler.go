@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
 	core "github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/jsonbody"
 )
 
 type Service interface {
@@ -109,16 +109,14 @@ func NewHandler(opts Options) http.Handler {
 }
 
 func decodeBounded(w http.ResponseWriter, r *http.Request, max int64) error {
-	if r.Body == nil {
-		return nil
-	}
-	var body request
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, max))
-	if err := dec.Decode(&body); err != nil && !errors.Is(err, context.Canceled) {
-		if !errors.Is(err, io.EOF) {
+	if err := jsonbody.Decode(w, r, &request{}, jsonbody.Policy{
+		MaxBytes:   max,
+		AllowEmpty: true,
+	}); err != nil {
+		if !errors.Is(err, context.Canceled) {
 			writeError(w, http.StatusBadRequest, "invalid_json")
-			return err
 		}
+		return err
 	}
 	return nil
 }

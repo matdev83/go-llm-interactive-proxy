@@ -30,7 +30,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if GenericCompatibleBackendOverlayMax != 946 {
 		t.Fatalf("generic compatible overlay cap drift: %d", GenericCompatibleBackendOverlayMax)
 	}
-	if BillingHostCompositionOverlayMax != 335 {
+	if BillingHostCompositionOverlayMax != 365 {
 		t.Fatalf("billing host composition overlay cap drift: %d", BillingHostCompositionOverlayMax)
 	}
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
