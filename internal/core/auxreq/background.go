@@ -326,6 +326,7 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 	}
 	if id, ok := s.byKey[key]; ok {
 		s.mu.Unlock()
+		safeInvokeOnCoalesced(opts.OnCoalesced, true)
 		return id, nil
 	}
 	s.mu.Unlock()
@@ -376,8 +377,29 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 	id, admitted, err := s.publishJob(job)
 	if admitted {
 		releaseOnFailure = false
+		safeInvokeOnCoalesced(opts.OnCoalesced, false)
+	} else if err == nil && id != "" {
+		safeInvokeOnCoalesced(opts.OnCoalesced, true)
+	}
+	if errors.Is(err, ErrQueueFull) {
+		err = fmt.Errorf("%w: %w", auxiliary.ErrQueueSaturated, err)
+	} else if err != nil && !errors.Is(err, auxiliary.ErrQueueSaturated) && !errors.Is(err, ErrSchedulerClosed) && !errors.Is(err, auxiliary.ErrNotConfigured) && !errors.Is(err, ErrInvalidCoalesceKey) && !errors.Is(err, lipapi.ErrInvalidCall) && !errors.Is(err, lipapi.ErrNilContext) {
+		// Preserve typed taxonomy for unknown submit failures; wrap with ErrSubmitFailed.
+		err = fmt.Errorf("%w: %w", auxiliary.ErrSubmitFailed, err)
 	}
 	return id, err
+}
+
+// safeInvokeOnCoalesced invokes the optional coalescing observer outside any lock
+// and recovers from panics so an SDK consumer cannot crash the scheduler.
+func safeInvokeOnCoalesced(fn func(bool), coalesced bool) {
+	if fn == nil {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	fn(coalesced)
 }
 
 func (s *BackgroundScheduler) publishJob(job *backgroundJob) (auxiliary.JobID, bool, error) {
@@ -400,7 +422,7 @@ func (s *BackgroundScheduler) publishJob(job *backgroundJob) (auxiliary.JobID, b
 		if s.byKey[job.key] == job.id {
 			delete(s.byKey, job.key)
 		}
-		return "", false, ErrQueueFull
+		return "", false, fmt.Errorf("%w: %w", auxiliary.ErrQueueSaturated, ErrQueueFull)
 	}
 }
 

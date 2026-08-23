@@ -80,8 +80,40 @@ type PostReservationStage func(ctx context.Context, res ReservationResult) error
 // If reservation succeeds (OutcomeReserved) and next is non-nil, it invokes next with
 // the ReservationResult; non-reserved outcomes never call next; next errors are fail-open.
 func NewCompressionReservationHook(cfg Config, store CompressionStore, next PostReservationStage) PostAppendHook {
+	return NewCompressionReservationHookWithTelemetry(cfg, store, next, nil)
+}
+
+// NewCompressionReservationHookWithTelemetry is the telemetry-aware reservation hook.
+// It records content-free outcomes: below_threshold, ineligible, budget_exceeded (per-session/total)
+// and reservation reserved, without emitting reasoning text or IDs.
+func NewCompressionReservationHookWithTelemetry(cfg Config, store CompressionStore, next PostReservationStage, tel *Telemetry) PostAppendHook {
 	return func(ctx context.Context, corr PostAppendCorrelation) error {
 		res := TryReserveCompression(ctx, cfg, store, corr)
+		if tel != nil && cfg.Compression.Enabled {
+			switch res.Outcome {
+			case ReservationSkippedBelowThreshold:
+				tel.RecordShadowMeasurement(OutcomeBelowThreshold, corr.SourceBytes, 0, 0, 0, 0)
+			case ReservationSkippedIneligible:
+				tel.RecordShadowMeasurement(OutcomeCompIneligible, corr.SourceBytes, 0, 0, 0, 0)
+			case ReservationBudgetExceeded:
+				// Distinguish per-session vs total via error kind if available.
+				if be, ok := res.Err.(*BudgetError); ok {
+					switch be.Kind {
+					case BudgetPendingPerSession:
+						tel.RecordShadowMeasurement(OutcomeBudgetPendingPerSession, corr.SourceBytes, 0, 0, 0, 0)
+					case BudgetPendingTotal:
+						tel.RecordShadowMeasurement(OutcomeBudgetPendingTotal, corr.SourceBytes, 0, 0, 0, 0)
+					default:
+						tel.RecordShadowMeasurement(OutcomeReservationBudgetExceeded, corr.SourceBytes, 0, 0, 0, 0)
+					}
+				} else {
+					tel.RecordShadowMeasurement(OutcomeReservationBudgetExceeded, corr.SourceBytes, 0, 0, 0, 0)
+				}
+			case ReservationReserved:
+				// Reservation success is not directly a submitted outcome; submit stage will emit submitted.
+				// Still record eligible reservation for observability if needed (no content).
+			}
+		}
 		if res.Outcome == ReservationReserved && next != nil {
 			_ = next(ctx, res)
 		}
@@ -93,6 +125,11 @@ func NewCompressionReservationHook(cfg Config, store CompressionStore, next Post
 // Chain is reserve -> egress -> submit (4.4). Hook is nil when compression disabled
 // to preserve disabled-mode byte equivalency.
 func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) PostAppendHook {
+	return BuildPostAppendHookWithTelemetry(cfg, store, svc, nil)
+}
+
+// BuildPostAppendHookWithTelemetry is the telemetry-aware chain builder.
+func BuildPostAppendHookWithTelemetry(cfg Config, store TurnStore, svc CompressionServices, tel *Telemetry) PostAppendHook {
 	if !cfg.Compression.Enabled {
 		return nil
 	}
@@ -103,9 +140,9 @@ func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) P
 	if err := svc.validateFor(cfg); err != nil {
 		return nil
 	}
-	submitStage := NewPostEgressSubmitStage(cfg, cs, svc)
-	egressStage := NewPostReservationEgressStage(cfg, cs, svc, submitStage)
-	return NewCompressionReservationHook(cfg, cs, egressStage)
+	submitStage := NewPostEgressSubmitStageWithTelemetry(cfg, cs, svc, tel)
+	egressStage := NewPostReservationEgressStageWithTelemetry(cfg, cs, svc, submitStage, tel)
+	return NewCompressionReservationHookWithTelemetry(cfg, cs, egressStage, tel)
 }
 
 // BuildPostAppendHookWithNext allows tests and future stages to inject the next stage for chaining.

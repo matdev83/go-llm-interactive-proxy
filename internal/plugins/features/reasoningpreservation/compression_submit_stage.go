@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -45,6 +46,15 @@ func compressionCoalesceKey(pr PreparedReservation) string {
 // treated as invalid and clears. Incurred accepted work remains
 // accounting-owned (Forget does not cancel billing).
 func NewPostEgressSubmitStage(cfg Config, store CompressionStore, svc CompressionServices) PostEgressStage {
+	return NewPostEgressSubmitStageWithTelemetry(cfg, store, svc, nil)
+}
+
+// NewPostEgressSubmitStageWithTelemetry is the telemetry-aware submit stage.
+// It records content-free queue/submit outcomes: submitted, coalesced, queue_saturated, submit_failed.
+// Admission denial is asynchronous via PollFailed, not a synchronous SubmitCollect error today;
+// OutcomeAdmissionDenied is reserved for future synchronous credit screening but currently never emitted here.
+// No reasoning text or IDs are emitted.
+func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, svc CompressionServices, tel *Telemetry) PostEgressStage {
 	return func(ctx context.Context, pr PreparedReservation) error {
 		if store == nil {
 			return nil
@@ -79,18 +89,33 @@ func NewPostEgressSubmitStage(cfg Config, store CompressionStore, svc Compressio
 			return nil
 		}
 		coalesceKey := compressionCoalesceKey(pr)
+		var coalesced bool
 		opts := auxiliary.SubmitOptions{
 			Timeout:     cfg.Compression.Timeout,
 			CoalesceKey: coalesceKey,
+			OnCoalesced: func(c bool) { coalesced = c },
 		}
 		submitCtx := context.WithoutCancel(ctx)
 		submitCtx = scope.WithScope(submitCtx, pr.Reservation.Correlation.Scope)
 		jobID, err := svc.Client.SubmitCollect(submitCtx, req, opts)
 		if err != nil {
+			if tel != nil && cfg.Compression.Enabled {
+				// Synchronous queue saturation is the only admission signal today;
+				// admission denial via ErrAdmissionDenied is reserved for future synchronous
+				// credit screening and currently surfaces asynchronously as PollFailed.
+				if errors.Is(err, auxiliary.ErrQueueSaturated) {
+					tel.RecordShadowMeasurement(OutcomeQueueSaturated, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
+				} else {
+					tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
+				}
+			}
 			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		if jobID == "" {
+			if tel != nil && cfg.Compression.Enabled {
+				tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
+			}
 			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
@@ -101,6 +126,13 @@ func NewPostEgressSubmitStage(cfg Config, store CompressionStore, svc Compressio
 			}
 			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
+		}
+		if tel != nil && cfg.Compression.Enabled {
+			if coalesced {
+				tel.RecordShadowMeasurement(OutcomeCoalesced, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
+			} else {
+				tel.RecordShadowMeasurement(OutcomeSubmitted, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
+			}
 		}
 		return nil
 	}

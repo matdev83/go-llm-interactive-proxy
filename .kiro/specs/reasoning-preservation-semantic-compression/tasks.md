@@ -227,7 +227,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: stale/CAS/multi-session aggregate/race tests_
   - _Requirements: 5, 10, 11_
 
-- [ ] 5.4 Complete shadow-only observability and value evidence
+- [x] 5.4 Complete shadow-only observability and value evidence
   - Record eligible, privacy, reservation, queue, poll, raw-size, decode, savings, aggregate-budget, and shadow-ready outcomes without content.
   - Always restore original reasoning in shadow mode.
   - Add deterministic metrics/evaluation fixture for hypothetical savings and additional auxiliary cost.

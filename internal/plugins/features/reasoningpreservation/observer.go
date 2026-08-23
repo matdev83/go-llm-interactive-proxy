@@ -313,7 +313,42 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	var corr PostAppendCorrelation
 	var hasCorr bool
 	if o.factory.cfg.Compression.Enabled && o.factory.postAppendHook != nil {
-		if segs := ExtractSemanticSegments(art.Reasoning); len(segs) > 0 {
+		segs := ExtractSemanticSegments(art.Reasoning)
+		if len(segs) == 0 {
+			if o.factory.tel != nil {
+				hasExact := false
+				for _, pr := range art.Reasoning {
+					if ClassifyReasoningPart(pr.Part) == ReplayExactRequired {
+						hasExact = true
+						break
+					}
+				}
+				if hasExact {
+					o.factory.tel.RecordShadowMeasurement(OutcomeExact, 0, 0, 0, 0, 0)
+				} else {
+					o.factory.tel.RecordShadowMeasurement(OutcomeCompIneligible, 0, 0, 0, 0, 0)
+				}
+			}
+		} else {
+			if o.factory.tel != nil {
+				srcAll := 0
+				for _, s := range segs {
+					srcAll += len(s.Text)
+				}
+				// Eligible but may be below threshold; reservation stage will emit below_threshold if needed.
+				// Mixed exact+semantic: eligible wins for flow, but also record exact for taxonomy completeness.
+				o.factory.tel.RecordShadowMeasurement(OutcomeEligible, srcAll, 0, 0, 0, 0)
+				hasExact := false
+				for _, pr := range art.Reasoning {
+					if ClassifyReasoningPart(pr.Part) == ReplayExactRequired {
+						hasExact = true
+						break
+					}
+				}
+				if hasExact {
+					o.factory.tel.RecordShadowMeasurement(OutcomeExact, 0, 0, 0, 0, 0)
+				}
+			}
 			semDigest := computeSemanticDigest(art.Reasoning)
 			egressHash := computeEgressPolicyRefHash(o.factory.cfg.Compression.EgressPolicyRef)
 			srcBytes := 0

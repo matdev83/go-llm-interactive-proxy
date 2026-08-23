@@ -57,6 +57,12 @@ func ComputeEgressPolicyHash(decision CompressionEgressDecision, route string) [
 // policy decision; policy may request redact but cannot inject arbitrary
 // sanitizer authority.
 func NewPostReservationEgressStage(cfg Config, store CompressionStore, svc CompressionServices, next PostEgressStage) PostReservationStage {
+	return NewPostReservationEgressStageWithTelemetry(cfg, store, svc, next, nil)
+}
+
+// NewPostReservationEgressStageWithTelemetry is the telemetry-aware egress stage.
+// It records content-free privacy outcomes (allow/redact/deny/missing-policy) without content.
+func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionStore, svc CompressionServices, next PostEgressStage, tel *Telemetry) PostReservationStage {
 	return func(ctx context.Context, res ReservationResult) error {
 		if !res.IsReserved() {
 			return nil
@@ -95,6 +101,20 @@ func NewPostReservationEgressStage(cfg Config, store CompressionStore, svc Compr
 						dec.Sanitizer = svc.Sanitizer
 					}
 				}
+			}
+		}
+		if tel != nil && cfg.Compression.Enabled {
+			// Content-free privacy telemetry before provider work.
+			if dec.Action == EgressDeny {
+				if dec.PolicyVersion == "missing-policy" {
+					tel.RecordShadowMeasurement(OutcomeEgressMissingPolicy, res.Correlation.SourceBytes, 0, 0, 0, 0)
+				} else {
+					tel.RecordShadowMeasurement(OutcomeEgressDeny, res.Correlation.SourceBytes, 0, 0, 0, 0)
+				}
+			} else if dec.Action == EgressRedactThenAllow {
+				tel.RecordShadowMeasurement(OutcomeEgressRedact, res.Correlation.SourceBytes, 0, 0, 0, 0)
+			} else if dec.Action == EgressAllow {
+				tel.RecordShadowMeasurement(OutcomeEgressAllow, res.Correlation.SourceBytes, 0, 0, 0, 0)
 			}
 		}
 		if dec.Action == EgressDeny {

@@ -214,12 +214,27 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		// success decode, attempt attach
 		err = store.AttachSurrogate(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID, cand.JobID, sur)
 		if err != nil {
-			// distinguish budget vs stale
+			// distinguish budget vs stale — budget exhaustion is distinct from stale/CAS.
 			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				if errors.Is(err, ErrCompressionBudgetExceeded) {
-					tel.RecordCompressionMeasurement(OutcomeStale, rawCount, sur.Bytes, 0)
+					if be, ok := err.(*BudgetError); ok {
+						switch be.Kind {
+						case BudgetSurrogatePerTurn:
+							tel.RecordShadowMeasurement(OutcomeBudgetSurrogatePerTurn, sourceBytes, rawCount, sur.Bytes, 0, 0)
+						case BudgetSurrogatePerSession:
+							tel.RecordShadowMeasurement(OutcomeBudgetSurrogatePerSession, sourceBytes, rawCount, sur.Bytes, 0, 0)
+						case BudgetSurrogateTotal:
+							tel.RecordShadowMeasurement(OutcomeBudgetSurrogateTotal, sourceBytes, rawCount, sur.Bytes, 0, 0)
+						case BudgetPendingPerSession, BudgetPendingTotal:
+							tel.RecordShadowMeasurement(OutcomeReservationBudgetExceeded, sourceBytes, rawCount, sur.Bytes, 0, 0)
+						default:
+							tel.RecordShadowMeasurement(OutcomeReservationBudgetExceeded, sourceBytes, rawCount, sur.Bytes, 0, 0)
+						}
+					} else {
+						tel.RecordShadowMeasurement(OutcomeReservationBudgetExceeded, sourceBytes, rawCount, sur.Bytes, 0, 0)
+					}
 				} else if errors.Is(err, ErrCompressionConflict) {
 					tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
 				} else {

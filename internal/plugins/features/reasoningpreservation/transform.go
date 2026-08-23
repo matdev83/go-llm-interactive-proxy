@@ -165,10 +165,37 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 				}
 			}
 			pollRes = pollOnceWithCandidates(ctx, cs, partition, pollCandidates, t.svc)
+			// Record content-free poll taxonomy before guard.
+			if t.tel != nil && t.cfg.Compression.Enabled {
+				switch pollRes.Kind {
+				case PollKindPending:
+					t.tel.RecordShadowMeasurement(OutcomePollPending, 0, 0, 0, 0, 0)
+				case PollKindCompleted:
+					t.tel.RecordShadowMeasurement(OutcomePollCompleted, 0, 0, 0, 0, 0)
+				case PollKindFailed:
+					t.tel.RecordShadowMeasurement(OutcomePollFailed, 0, 0, 0, 0, 0)
+				case PollKindNotFound:
+					t.tel.RecordShadowMeasurement(OutcomePollNotFound, 0, 0, 0, 0, 0)
+				case PollKindUnavailable:
+					t.tel.RecordShadowMeasurement(OutcomePollUnavailable, 0, 0, 0, 0, 0)
+				case PollKindPollError:
+					t.tel.RecordShadowMeasurement(OutcomePollError, 0, 0, 0, 0, 0)
+				case PollKindNoPending:
+					// no_pending is not a poll state per se; no telemetry needed (implicit original fallback)
+				}
+			}
 			// 5.2 chain: single poll -> raw guard without double poll/decode; adoption carries bounded raw for 5.3 local handling.
 			adoption := handlePollAndGuardRaw(ctx, t.cfg, cs, t.svc, t.tel, pollRes, call)
 			if t.adoptionStage != nil {
 				adoption = t.adoptionStage(ctx, adoption)
+			}
+			// Shadow ALWAYS originals: record original_fallback only when a pending compression existed (poll/adoption non-none).
+			if t.tel != nil && t.cfg.Compression.Enabled && t.cfg.Compression.Mode == CompressionShadow {
+				if pollRes.Kind != PollKindNoPending && pollRes.Kind != "" {
+					t.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+				} else if adoption.Outcome != AdoptionOutcomeNone {
+					t.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+				}
 			}
 			// adoption is local to this attempt; shadow keeps call unchanged.
 			// Telemetry for raw guard already recorded; bounded_raw ready for 5.3 decode locally.
