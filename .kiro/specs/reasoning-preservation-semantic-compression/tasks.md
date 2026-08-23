@@ -189,7 +189,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: privacy integration tests_
   - _Requirements: 7, 8_
 
-- [ ] 4.4 Submit and bind background job without waiting
+- [x] 4.4 Submit and bind background job without waiting
   - Submit through generation-bound `BackgroundClient` only after original append, reservation, egress approval, and bounded request construction.
   - Bind returned JobID with CAS; on submit failure clear reservation; on post-submit bind failure Forget when safe while retaining billable usage.
   - Keep shadow mode behavior: backend-visible replay remains original regardless of job state.

@@ -866,7 +866,8 @@ func TestObserverBundle_Egress_Redact_Promoted_Sanitized_NoProviderCall(t *testi
 	assert.Equal(t, 1, cs.CompressionStats().TotalPending)
 	_ = snap[0].Reasoning[0].Part.Reasoning.Text
 	assert.Equal(t, sensitive, snap[0].Reasoning[0].Part.Reasoning.Text, "original authoritative must remain unredacted")
-	assert.Equal(t, 0, countingClient.SubmitCount(), "no provider call yet (stage 4.3 boundary)")
+	assert.Equal(t, 1, countingClient.SubmitCount(), "submit must occur after egress (4.4)")
+	assert.NotEmpty(t, state.Pending.JobID, "JobID must be bound after successful submit")
 }
 
 func TestObserverBundle_Egress_Allow_Promoted_NoProviderCall(t *testing.T) {
@@ -909,5 +910,6 @@ func TestObserverBundle_Egress_Allow_Promoted_NoProviderCall(t *testing.T) {
 	assert.True(t, state.Pending.PolicyHashAuthoritative)
 	assert.Equal(t, 0, trustedSan.calls, "allow must not invoke sanitizer")
 	assert.Equal(t, 1, cs.CompressionStats().TotalPending)
-	assert.Equal(t, 0, countingClient.SubmitCount())
+	assert.Equal(t, 1, countingClient.SubmitCount(), "submit must occur after egress (4.4)")
+	assert.NotEmpty(t, state.Pending.JobID, "JobID must be bound after successful submit")
 }

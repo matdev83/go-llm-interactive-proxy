@@ -90,9 +90,8 @@ func NewCompressionReservationHook(cfg Config, store CompressionStore, next Post
 }
 
 // BuildPostAppendHook constructs the composable post-append hook chain rooted in compression.
-// For task 4.2 it contains only reservation; 4.3 extends it with egress decision/redaction
-// before request construction. Future stages (4.4 submit/bind) will extend further.
-// Hook is nil when compression disabled to preserve disabled-mode byte equivalency.
+// Chain is reserve -> egress -> submit (4.4). Hook is nil when compression disabled
+// to preserve disabled-mode byte equivalency.
 func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) PostAppendHook {
 	if !cfg.Compression.Enabled {
 		return nil
@@ -104,7 +103,8 @@ func BuildPostAppendHook(cfg Config, store TurnStore, svc CompressionServices) P
 	if err := svc.validateFor(cfg); err != nil {
 		return nil
 	}
-	egressStage := NewPostReservationEgressStage(cfg, cs, svc, nil)
+	submitStage := NewPostEgressSubmitStage(cfg, cs, svc)
+	egressStage := NewPostReservationEgressStage(cfg, cs, svc, submitStage)
 	return NewCompressionReservationHook(cfg, cs, egressStage)
 }
 

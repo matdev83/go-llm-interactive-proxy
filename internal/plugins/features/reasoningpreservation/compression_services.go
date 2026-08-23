@@ -2,6 +2,7 @@ package reasoningpreservation
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
@@ -31,20 +32,33 @@ type CompressionServices struct {
 	Sanitizer TrustedTextSanitizer
 }
 
+func isNilCapability(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
+
 func (s CompressionServices) validateFor(cfg Config) error {
 	if !cfg.Compression.Enabled {
 		return nil
 	}
-	if s.Client == nil {
+	if isNilCapability(s.Client) {
 		return fmt.Errorf("%s: compression enabled requires BackgroundClient", ID)
 	}
-	if s.Poller == nil {
+	if isNilCapability(s.Poller) {
 		return fmt.Errorf("%s: compression enabled requires BackgroundPoller", ID)
 	}
-	if s.EgressPolicy == nil {
+	if isNilCapability(s.EgressPolicy) {
 		return fmt.Errorf("%s: compression enabled requires EgressPolicy", ID)
 	}
-	if s.Sanitizer == nil {
+	if isNilCapability(s.Sanitizer) {
 		return fmt.Errorf("%s: compression enabled requires TrustedTextSanitizer", ID)
 	}
 	return nil
