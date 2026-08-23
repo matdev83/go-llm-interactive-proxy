@@ -85,7 +85,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: config unit/fuzz/example-config tests_
   - _Requirements: 3, 7, 10_
 
-- [ ] 2.3 Add a source-compatible optional background poll capability
+- [x] 2.3 Add a source-compatible optional background poll capability
   - Define `BackgroundPoller`/`PollResult`/state types separately from historical `BackgroundClient`; do not add a required Poll method to the existing interface.
   - Implement non-blocking Poll on the process-owned scheduler with defensive copies and existing cleanup semantics.
   - Keep Await/Forget behavior unchanged and add compile-time assertions for scheduler capabilities.
