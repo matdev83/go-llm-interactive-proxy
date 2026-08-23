@@ -57,7 +57,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/conversationview/...`_
   - _Requirements: 1.1-1.10, 5.3-5.9, 9.5-9.8, 10.1-10.9_
 
-- [ ] 2.2 Implement memory A-leg conversation-view state
+- [x] 2.2 Implement memory A-leg conversation-view state
   - Extend `b2bua.MemoryStore` with the focused optional conversation-view capability under its existing A-leg lock/lifecycle.
   - Implement one coherent deep-copy Snapshot plus atomic tag batch and steering Put/replace/deactivate with state/overlay revisions and slot allocation.
   - Enforce all count/byte limits and A-leg deletion/eviction semantics without widening `b2bua.Store`.

@@ -339,6 +339,54 @@ type Store interface {
 	SteeringStore
 }
 
+// AsStore reports whether v implements the optional conversation-view store capability.
+// It also recognizes providers that expose the capability via
+// ConversationViewStore() Store (e.g., b2bua.MemoryStore) to avoid widening
+// the base continuity Store while working around Snapshot name collision
+// with routeoverride.
+func AsStore(v any) (Store, bool) {
+	if s, ok := v.(Store); ok {
+		return s, true
+	}
+	if p, ok := v.(interface{ ConversationViewStore() Store }); ok {
+		return p.ConversationViewStore(), true
+	}
+	return nil, false
+}
+
+// AsReader reports whether v implements the optional conversation-view reader capability.
+func AsReader(v any) (Reader, bool) {
+	if r, ok := v.(Reader); ok {
+		return r, true
+	}
+	if p, ok := v.(interface{ ConversationViewStore() Store }); ok {
+		return p.ConversationViewStore(), true
+	}
+	return nil, false
+}
+
+// AsTagger reports whether v implements the optional conversation-view tagger capability.
+func AsTagger(v any) (Tagger, bool) {
+	if t, ok := v.(Tagger); ok {
+		return t, true
+	}
+	if p, ok := v.(interface{ ConversationViewStore() Store }); ok {
+		return p.ConversationViewStore(), true
+	}
+	return nil, false
+}
+
+// AsSteeringStore reports whether v implements the optional steering store capability.
+func AsSteeringStore(v any) (SteeringStore, bool) {
+	if s, ok := v.(SteeringStore); ok {
+		return s, true
+	}
+	if p, ok := v.(interface{ ConversationViewStore() Store }); ok {
+		return p.ConversationViewStore(), true
+	}
+	return nil, false
+}
+
 // ReferenceStore is an in-memory Store used to pin contract semantics.
 type ReferenceStore struct {
 	mu   sync.RWMutex
