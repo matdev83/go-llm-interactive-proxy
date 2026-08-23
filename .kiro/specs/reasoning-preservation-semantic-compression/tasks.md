@@ -45,7 +45,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: `go test -count=1 ./pkg/lipsdk/auxiliary ./internal/core/auxreq`_
   - _Requirements: 6, 11, 13_
 
-- [ ] 1.4 Freeze optional-state per-session and aggregate memory safety
+- [x] 1.4 Freeze optional-state per-session and aggregate memory safety
   - Add RED store tests for pending/session, pending/feature-instance, surrogate/turn, surrogate/session, and surrogate/feature-instance bounds.
   - Add multi-session tests proving aggregate exhaustion rejects optional state rather than evicting an authoritative original.
   - Prove delete/expiry/original eviction/stale cleanup decrement aggregate counters exactly once under concurrency.

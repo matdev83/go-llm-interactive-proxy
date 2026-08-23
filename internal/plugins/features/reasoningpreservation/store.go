@@ -44,12 +44,20 @@ type StoreOptions struct {
 	MaxReasoningBytesPerTurn int
 	MaxSessionBytes          int
 	Now                      func() time.Time
+	CompressionLimits        CompressionLimits
 }
 
 type memoryTurnStore struct {
 	opts StoreOptions
 	mu   sync.Mutex
 	by   map[string][]TurnArtifact
+	// optional compression state (bounded, separate budgets)
+	compBy                   map[string]map[string]*compressionEntry
+	pendingPerSession        map[string]int
+	surrogateBytesPerSession map[string]int
+	totalPending             int
+	totalSurrogateBytes      int
+	reservationSeq           uint64
 }
 
 func NewMemoryTurnStore(opts StoreOptions) (TurnStore, error) {
@@ -59,9 +67,15 @@ func NewMemoryTurnStore(opts StoreOptions) (TurnStore, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.CompressionLimits.MaxPendingPerSession < 0 || opts.CompressionLimits.MaxPendingTotal < 0 || opts.CompressionLimits.MaxSurrogateBytesPerTurn < 0 || opts.CompressionLimits.MaxSurrogateBytesPerSession < 0 || opts.CompressionLimits.MaxSurrogateBytesTotal < 0 {
+		return nil, fmt.Errorf("%s: invalid compression limits", ID)
+	}
 	return &memoryTurnStore{
-		opts: opts,
-		by:   make(map[string][]TurnArtifact),
+		opts:                     opts,
+		by:                       make(map[string][]TurnArtifact),
+		compBy:                   make(map[string]map[string]*compressionEntry),
+		pendingPerSession:        make(map[string]int),
+		surrogateBytesPerSession: make(map[string]int),
 	}, nil
 }
 
@@ -94,6 +108,7 @@ func (s *memoryTurnStore) Append(ctx context.Context, partition SessionPartition
 		evicted, list = list[0], list[1:]
 		sum.EvictedTurns++
 		sum.EvictedBytes += max(0, evicted.ReasoningBytes)
+		s.clearOptionalLocked(key, evicted.ID)
 		clearArtifact(&evicted)
 	}
 	sessionBytes := sessionBytesOf(list)
@@ -103,6 +118,7 @@ func (s *memoryTurnStore) Append(ctx context.Context, partition SessionPartition
 		sum.EvictedTurns++
 		sum.EvictedBytes += max(0, evicted.ReasoningBytes)
 		sessionBytes -= max(0, evicted.ReasoningBytes)
+		s.clearOptionalLocked(key, evicted.ID)
 		clearArtifact(&evicted)
 	}
 	if sessionBytes+copied.ReasoningBytes > s.opts.MaxSessionBytes {
@@ -157,6 +173,7 @@ func (s *memoryTurnStore) Delete(ctx context.Context, partition SessionPartition
 	kept := list[:0]
 	for i := range list {
 		if _, drop := want[list[i].ID]; drop {
+			s.clearOptionalLocked(key, list[i].ID)
 			clearArtifact(&list[i])
 			continue
 		}
@@ -180,6 +197,7 @@ func (s *memoryTurnStore) expireLocked(key string, now time.Time, sum EvictionSu
 		if now.Sub(list[i].CreatedAt) >= s.opts.TTL {
 			sum.ExpiredTurns++
 			sum.ExpiredBytes += max(0, list[i].ReasoningBytes)
+			s.clearOptionalLocked(key, list[i].ID)
 			clearArtifact(&list[i])
 			continue
 		}
@@ -191,6 +209,50 @@ func (s *memoryTurnStore) expireLocked(key string, now time.Time, sum EvictionSu
 	}
 	s.by[key] = kept
 	return sum
+}
+
+func (s *memoryTurnStore) clearOptionalLocked(sessionKey, artifactID string) {
+	m, ok := s.compBy[sessionKey]
+	if !ok {
+		return
+	}
+	entry, ok := m[artifactID]
+	if !ok {
+		return
+	}
+	if entry.pending != nil {
+		if c := s.pendingPerSession[sessionKey]; c > 0 {
+			s.pendingPerSession[sessionKey] = c - 1
+			if s.pendingPerSession[sessionKey] == 0 {
+				delete(s.pendingPerSession, sessionKey)
+			}
+		}
+		if s.totalPending > 0 {
+			s.totalPending--
+		}
+	}
+	if entry.surrogate != nil {
+		b := entry.surrogate.Bytes
+		if c := s.surrogateBytesPerSession[sessionKey]; c >= b {
+			nc := c - b
+			if nc == 0 {
+				delete(s.surrogateBytesPerSession, sessionKey)
+			} else {
+				s.surrogateBytesPerSession[sessionKey] = nc
+			}
+		} else {
+			delete(s.surrogateBytesPerSession, sessionKey)
+		}
+		if s.totalSurrogateBytes >= b {
+			s.totalSurrogateBytes -= b
+		} else {
+			s.totalSurrogateBytes = 0
+		}
+	}
+	delete(m, artifactID)
+	if len(m) == 0 {
+		delete(s.compBy, sessionKey)
+	}
 }
 
 func sessionBytesOf(list []TurnArtifact) int {
