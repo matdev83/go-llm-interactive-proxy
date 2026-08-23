@@ -16,6 +16,7 @@ type AttemptTransform struct {
 	id        string
 	order     int
 	companion CompanionPolicy
+	svc       CompressionServices
 }
 
 func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *AttemptTransform {
@@ -38,6 +39,18 @@ func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *Attemp
 func NewAttemptTransformWithCompanionPolicy(cfg Config, store TurnStore, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
 	t := NewAttemptTransform(cfg, store, tel...)
 	t.companion = policy
+	return t
+}
+
+func NewAttemptTransformWithServices(cfg Config, store TurnStore, svc CompressionServices, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	t.svc = svc
+	return t
+}
+
+func NewAttemptTransformWithCompanionPolicyAndServices(cfg Config, store TurnStore, svc CompressionServices, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransformWithCompanionPolicy(cfg, store, policy, tel...)
+	t.svc = svc
 	return t
 }
 
@@ -75,6 +88,81 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	arts, err := t.store.Snapshot(ctx, partition)
 	if err != nil {
 		return t.stateErrorDecision()
+	}
+	// One-shot non-blocking poll for matching restorable artifact with pending bound JobID.
+	// Shares single ClassifyAssistantTurns via collectRestoreCandidates to avoid double Classify.
+	// Poll is immutable-construction via CompressionServices; no cross-attempt state.
+	// Completed candidate is captured locally and passed to placeholder for 5.2.
+	if t.cfg.Compression.Enabled {
+		if cs, ok := t.store.(CompressionStore); ok {
+			// Shared classification for both poll and restore.
+			classified, candidates, cerr := collectRestoreCandidates(call, arts, meta.ReplaySupport)
+			var pollRes CompressionPollAttemptResult
+			var resTmp RestoreResult
+			var rerr error
+			if cerr != nil {
+				// Classification/validation error is state error for restore, poll-local error for poll.
+				pollRes = CompressionPollAttemptResult{Kind: PollKindPollError, Err: cerr}
+				_ = handleCompletedPollCandidate(ctx, pollRes, call)
+				resTmp, rerr = applyStateErrorPolicy(t.cfg.OnStateError)
+				t.recordRestoreOutcome(resTmp)
+				if rerr != nil {
+					return request.AttemptDecision{}, rerr
+				}
+				if resTmp.Exclude {
+					reason := resTmp.ReasonCode
+					if reason == "" {
+						reason = "unrepresentable_replay"
+					}
+					return request.AttemptDecision{Kind: request.AttemptExcludeCandidate, ReasonCode: reason}, nil
+				}
+				if t.companion.AfterRestore != nil {
+					t.companion.AfterRestore(ctx, call, meta, MatchResult{Kind: match.Kind, RuleID: match.RuleID}, resTmp)
+				}
+				return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+			}
+			// Poll only supported missing candidates.
+			var pollCandidates []restoreCandidate
+			for _, c := range candidates {
+				if !c.Unsupported {
+					pollCandidates = append(pollCandidates, c)
+				}
+			}
+			pollRes = pollOnceWithCandidates(ctx, cs, partition, pollCandidates, t.svc)
+			_ = handleCompletedPollCandidate(ctx, pollRes, call)
+			// Restore using same classified/candidates without reclassifying.
+			if t.cfg.Action == ActionObserve {
+				// Observe never mutates; reuse classified for outcomes.
+				resTmp = RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}
+			} else if t.cfg.Action != ActionRestore {
+				return request.AttemptDecision{}, fmt.Errorf("%s: unknown action %q", ID, t.cfg.Action)
+			} else {
+				resTmp, rerr = restoreWithCandidates(RestoreInput{
+					Action:            t.cfg.Action,
+					OnUnrepresentable: t.cfg.OnUnrepresentable,
+					OnStateError:      t.cfg.OnStateError,
+					Call:              call,
+					Artifacts:         arts,
+					ReplaySupport:     meta.ReplaySupport,
+					Eligible:          true,
+				}, classified, candidates)
+				if rerr != nil {
+					return request.AttemptDecision{}, rerr
+				}
+			}
+			t.recordRestoreOutcome(resTmp)
+			if resTmp.Exclude {
+				reason := resTmp.ReasonCode
+				if reason == "" {
+					reason = "unrepresentable_replay"
+				}
+				return request.AttemptDecision{Kind: request.AttemptExcludeCandidate, ReasonCode: reason}, nil
+			}
+			if t.companion.AfterRestore != nil {
+				t.companion.AfterRestore(ctx, call, meta, match, resTmp)
+			}
+			return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+		}
 	}
 	res, err := RestoreMissingReasoning(RestoreInput{
 		Action:            t.cfg.Action,

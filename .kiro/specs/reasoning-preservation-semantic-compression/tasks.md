@@ -200,7 +200,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 ## 5. Adopt Completed Results Non-Blocking While Still Replaying Originals
 
-- [ ] 5.1 Add one-shot non-blocking poll to the matching attempt path
+- [x] 5.1 Add one-shot non-blocking poll to the matching attempt path
   - For matching artifacts with pending state, use optional `BackgroundPoller` once; never Await or busy-wait.
   - Pending/unavailable poll capability => original for this attempt; failed/not-found => clear optional pending state safely.
   - Keep compression poll/store errors separate from authoritative `on_state_error=reject` behavior.

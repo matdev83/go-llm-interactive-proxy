@@ -44,78 +44,43 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		}
 		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
-	if err := validateArtifacts(artifacts); err != nil {
-		return applyStateErrorPolicy(in.OnStateError)
-	}
-	classified, err := ClassifyAssistantTurns(in.Call.Messages, artifacts)
-	if err != nil {
-		return applyStateErrorPolicy(in.OnStateError)
-	}
 	if in.Action != ActionRestore {
 		return RestoreResult{}, fmt.Errorf("%s: unknown action %q", ID, in.Action)
 	}
+	classified, candidates, err := collectRestoreCandidates(in.Call, artifacts, in.ReplaySupport)
+	if err != nil {
+		return applyStateErrorPolicy(in.OnStateError)
+	}
+	return restoreWithCandidates(in, classified, candidates)
+}
 
-	byID := make(map[string]TurnArtifact, len(artifacts))
-	for _, a := range artifacts {
-		byID[a.ID] = a
-	}
-
-	type pending struct {
-		msgIndex int
-		art      TurnArtifact
-	}
-	var toRestore []pending
-	restoredIDs := map[string]struct{}{}
-	assistantIdx := 0
-	for i, m := range in.Call.Messages {
-		if m.Role != lipapi.RoleAssistant {
-			continue
-		}
-		if assistantIdx >= len(classified) {
-			return applyStateErrorPolicy(in.OnStateError)
-		}
-		c := classified[assistantIdx]
-		assistantIdx++
-		if c.Classification != ClassMissing {
-			continue
-		}
-		art, ok := byID[c.ArtifactID]
-		if !ok {
-			return applyStateErrorPolicy(in.OnStateError)
-		}
-		toRestore = append(toRestore, pending{msgIndex: i, art: art})
-	}
-	if len(toRestore) == 0 {
+func restoreWithCandidates(in RestoreInput, classified []ClassifiedTurn, candidates []restoreCandidate) (RestoreResult, error) {
+	if len(candidates) == 0 {
 		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
-
-	supported := dialectSet(in.ReplaySupport.Dialects)
-	for _, p := range toRestore {
-		for _, pr := range p.art.Reasoning {
-			d := lipapi.NormalizeReasoningDialect(pr.Part.Reasoning.Dialect)
-			if _, ok := supported[d]; !ok {
-				res, err := applyUnrepresentablePolicy(in.OnUnrepresentable)
-				if res.ReasonCode != "" && len(res.Outcomes) == 0 {
-					res.Outcomes = []SafeOutcome{OutcomeUnrepresentable}
-				}
-				return res, err
+	for _, c := range candidates {
+		if c.Unsupported {
+			res, err := applyUnrepresentablePolicy(in.OnUnrepresentable)
+			if res.ReasonCode != "" && len(res.Outcomes) == 0 {
+				res.Outcomes = []SafeOutcome{OutcomeUnrepresentable}
 			}
+			return res, err
 		}
 	}
-
 	work := lipapi.CloneCall(*in.Call)
 	restoredCount := 0
 	restoredBytes := 0
-	for _, p := range toRestore {
-		msg := work.Messages[p.msgIndex]
-		newParts, bytes, err := insertPlacements(msg.Parts, p.art.Reasoning)
+	restoredIDs := map[string]struct{}{}
+	for _, c := range candidates {
+		msg := work.Messages[c.MsgIndex]
+		newParts, bytes, err := insertPlacements(msg.Parts, c.Artifact.Reasoning)
 		if err != nil {
 			return applyStateErrorPolicy(in.OnStateError)
 		}
-		work.Messages[p.msgIndex].Parts = newParts
+		work.Messages[c.MsgIndex].Parts = newParts
 		restoredCount++
 		restoredBytes += bytes
-		restoredIDs[p.art.ID] = struct{}{}
+		restoredIDs[c.Artifact.ID] = struct{}{}
 	}
 	if err := work.Validate(); err != nil {
 		return applyStateErrorPolicy(in.OnStateError)
