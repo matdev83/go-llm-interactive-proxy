@@ -114,7 +114,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: continuation/runtime helper tests_
 
 - [ ] 6. Integrate the provisional terminal gate into logical request orchestration
-  - [ ] 6.1 Add failing runtime tests for terminal holdback and exactly-once ownership
+  - [x] 6.1 Add failing runtime tests for terminal holdback and exactly-once ownership
     - Candidate clean terminal must not reach A-side before guard decision.
     - Swallowed B-attempt settles exactly once while A-side request stays open.
     - Final `ALLOW_STOP`, `NEEDS_USER`, `BLOCKED`, `UNCERTAIN`, cancellation, and exhaustion terminalize A-side exactly once.
