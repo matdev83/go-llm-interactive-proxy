@@ -25,7 +25,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/conversationview/... ./internal/core/b2bua/...`_
   - _Requirements: 2.1-2.12, 3.1-3.7, 9.2-9.3, 9.11-9.17, 13.8_
 
-- [ ] 1.3 Freeze projection, placement, and cache-prefix invariants
+- [x] 1.3 Freeze projection, placement, and cache-prefix invariants
   - Add RED tests for exclusion-first/injection-second projection under legacy and item authority, dependency cleanup, validation, and exact-once steering.
   - Pin `stable_prefix` and `after_ingress_tail`→fixed semantic anchor resolution, including rejection of unsafe/non-forwardable anchors.
   - Across at least three append-only turns, prove unchanged steering produces an exact-prefix normalized model-visible trajectory and never follows the moving tail.

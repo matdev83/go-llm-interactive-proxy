@@ -62,4 +62,16 @@ var (
 
 	// ErrRevisionExhausted is returned when a revision counter would overflow.
 	ErrRevisionExhausted = errors.New("conversationview: revision exhausted")
+
+	// ErrAnchorMissing is returned when a required fixed anchor cannot be resolved.
+	ErrAnchorMissing = errors.New("conversationview: anchor missing")
+
+	// ErrProjectionFailed is returned when projection cannot produce a valid backend call.
+	ErrProjectionFailed = errors.New("conversationview: projection failed")
+
+	// ErrTerminalUserNotFound is returned when no terminal forwardable user message exists.
+	ErrTerminalUserNotFound = errors.New("conversationview: terminal forwardable user message not found")
+
+	// ErrTerminalNotUser is returned when the terminal forwardable message is not a user message.
+	ErrTerminalNotUser = errors.New("conversationview: terminal forwardable message is not user")
 )
