@@ -298,3 +298,14 @@ _Requirements: 1.10, 2.1–2.10, 11.6–11.12_
 _Design: D16–D18_
 
 _Validation: tranche 2 ends with a materially simpler request-to-attempt state topology and no hidden expansion into unrelated architecture work._
+
+## Completion Status
+
+- [x] All implementation tasks completed and verified on `origin/main` @ `b763a772`
+- [x] Task completion gate satisfied: every checkbox is `[x]` — this spec uses heading form (no checkbox list, 0/0 mechanical). Completion evidenced by typed pipeline implementation, deleted state-bag topology, and arch ratchets in main.
+- [x] Implementation PR(s) merged:
+  - PR #416 `refactor(runtime): simplify request attempt pipeline state` - head `7c03443996ce437d307ec71fa184ae7d1bb02f4d` merged as `4b6c40b39ec6d2d3939676f046883288e1a04572` on 2026-08-20T20:52:09Z - https://github.com/matdev83/go-llm-interactive-proxy/pull/416
+  - PR #423 `fix(runtime): close post-transfer assemble ownership gap (specs 378/379 P1)` - head `4553bd2a7a8e3ec6dfb733d948a66d3d79b286d2` merged as `75bafd4d131d216af24775413901f20c7ff4394e` on 2026-08-21T09:36:11Z - https://github.com/matdev83/go-llm-interactive-proxy/pull/423
+- [x] Required focused tests and architecture gates pass on merged baseline (see PR CI)
+- [x] No successor-only removals falsely marked complete; successor scope documented as deferred (see spec project_description)
+- [x] `spec.json` updated: `phase=completed`, `completed=true`, `ready_for_implementation=false`, `updated_at=2026-08-23T22:00:00+02:00`
