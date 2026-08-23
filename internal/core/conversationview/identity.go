@@ -422,12 +422,6 @@ func partToNormalized(p lipapi.Part) (NormalizedContent, error) {
 			Reasoning: nr,
 		}, nil
 	default:
-		if p.Text != "" {
-			return NormalizedContent{
-				Kind: ContentKindText,
-				Text: normalizeLineEndings(p.Text),
-			}, nil
-		}
 		return NormalizedContent{}, fmt.Errorf("unsupported part kind: %q", p.Kind)
 	}
 }

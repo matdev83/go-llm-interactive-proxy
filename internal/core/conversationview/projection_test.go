@@ -1,6 +1,7 @@
 package conversationview_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -733,6 +734,88 @@ func TestProject_Deterministic_NonForwardableAnchorRejection(t *testing.T) {
 	require.Error(t, err)
 	// error must be typed
 	assert.True(t, strings.Contains(err.Error(), "terminal") || strings.Contains(err.Error(), "user") || err != nil)
+}
+
+func TestResolveAfterIngressTailAnchor_ExcludedTerminalUserRejectsNoFallback(t *testing.T) {
+	t.Parallel()
+	t.Run("legacy excluded terminal user rejects never falls back to previous user", func(t *testing.T) {
+		t.Parallel()
+		u1 := textMessage(lipapi.RoleUser, "first user")
+		u2 := textMessage(lipapi.RoleUser, "second excluded")
+		id2 := mustIdentityForMsg(t, u2)
+		// Tag terminal u2 as never_backend.
+		snap := snapshotWithTagsAndOverlays([]conversationview.Tag{{Identity: id2, Reason: "test_reason"}}, nil)
+		call := lipapi.Call{
+			Instructions: []lipapi.Message{textMessage(lipapi.RoleSystem, "sys")},
+			Messages:     []lipapi.Message{u1, u2},
+		}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+		// Must not leak plaintext, but must not fall back to u1.
+		assert.False(t, strings.Contains(err.Error(), "second excluded"), "error must not leak plaintext")
+		assert.False(t, strings.Contains(err.Error(), "first user"), "error must not leak plaintext")
+		// Explicitly verify that if it had fallen back, anchor would be u1 – ensure rejection not fallback.
+		anchorU1 := mustIdentityForMsg(t, u1)
+		assert.NotContains(t, err.Error(), string(anchorU1), "error must not contain identity fallback hint")
+		// Verify that a non-excluded terminal would succeed and yield u2, proving test would catch fallback.
+		snapClean := snapshotWithTagsAndOverlays(nil, nil)
+		anchor, err2 := conversationview.ResolveAfterIngressTailAnchor(call, snapClean)
+		require.NoError(t, err2)
+		assert.Equal(t, id2, anchor.Identity, "clean snapshot should resolve to terminal u2")
+		// Occurrence should be 1 over filtered trajectory (no exclusion).
+		assert.Equal(t, uint32(1), anchor.Occurrence)
+	})
+	t.Run("item authority excluded terminal user rejects never falls back to previous user", func(t *testing.T) {
+		t.Parallel()
+		u1 := textItem(lipapi.RoleUser, "u1", "first user")
+		u2 := textItem(lipapi.RoleUser, "u2", "second excluded")
+		id2 := mustIdentityForItem(t, u2)
+		snap := snapshotWithTagsAndOverlays([]conversationview.Tag{{Identity: id2, Reason: "test_reason"}}, nil)
+		call := lipapi.Call{Items: []lipapi.Item{u1, u2}}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+		assert.False(t, strings.Contains(err.Error(), "second excluded"))
+		assert.False(t, strings.Contains(err.Error(), "first user"))
+		// Clean snapshot should resolve to u2.
+		snapClean := snapshotWithTagsAndOverlays(nil, nil)
+		anchor, err2 := conversationview.ResolveAfterIngressTailAnchor(call, snapClean)
+		require.NoError(t, err2)
+		assert.Equal(t, id2, anchor.Identity)
+		assert.Equal(t, uint32(1), anchor.Occurrence)
+	})
+	t.Run("legacy excluded terminal with duplicate occurrence does not fall back to earlier duplicate", func(t *testing.T) {
+		t.Parallel()
+		dupText := "duplicate text"
+		d1 := textMessage(lipapi.RoleUser, dupText)
+		d2 := textMessage(lipapi.RoleUser, dupText)
+		// Both messages have identical identity due to same role+text.
+		idDup := mustIdentityForMsg(t, d1)
+		// Tag the terminal duplicate (occurrence 2) as never_backend – should reject, not return occurrence 1.
+		snap := snapshotWithTagsAndOverlays([]conversationview.Tag{{Identity: idDup, Reason: "test_reason"}}, nil)
+		// Note: tagging by identity will mark both duplicates as never_backend in exclusion set (since identity same),
+		// but spec says we check terminal identity – it is excluded, so reject.
+		call := lipapi.Call{
+			Instructions: []lipapi.Message{textMessage(lipapi.RoleSystem, "sys")},
+			Messages:     []lipapi.Message{d1, d2},
+		}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+	})
+	t.Run("item authority excluded terminal with non-message items interleaved", func(t *testing.T) {
+		t.Parallel()
+		u1 := textItem(lipapi.RoleUser, "u1", "first user")
+		toolCall := lipapi.Item{Kind: lipapi.ItemKindToolCall, ID: "tc1", ToolCall: &lipapi.ToolCallItem{CallID: "c1", Name: "t", Arguments: json.RawMessage(`{}`)}}
+		u2 := textItem(lipapi.RoleUser, "u2", "second excluded")
+		id2 := mustIdentityForItem(t, u2)
+		snap := snapshotWithTagsAndOverlays([]conversationview.Tag{{Identity: id2, Reason: "test_reason"}}, nil)
+		call := lipapi.Call{Items: []lipapi.Item{u1, toolCall, u2}}
+		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+	})
 }
 
 // Helper to silence unused import warning for fmt if not used elsewhere – we use fmt in test helpers above.

@@ -331,6 +331,61 @@ func TestWriter_Put_AfterIngressTailRejections(t *testing.T) {
 	})
 }
 
+func TestWriter_Put_AfterIngressTailExcludedTerminalNoFallback(t *testing.T) {
+	t.Parallel()
+	store := conversationview.NewReferenceStore()
+	ctx := context.Background()
+	t.Run("legacy excluded terminal with earlier user must reject not fallback", func(t *testing.T) {
+		t.Parallel()
+		aLeg := "a_excluded_fallback_legacy"
+		require.NoError(t, store.CreateALeg(ctx, aLeg))
+		u1 := textMessage(lipapi.RoleUser, "first user")
+		u2 := textMessage(lipapi.RoleUser, "second excluded")
+		id2, _ := conversationview.MessageIdentityOf(u2)
+		call := lipapi.Call{
+			Instructions: []lipapi.Message{textMessage(lipapi.RoleSystem, "sys")},
+			Messages:     []lipapi.Message{u1, u2},
+		}
+		snap := conversationview.Snapshot{NeverBackend: []conversationview.Tag{{Identity: id2, Reason: "r"}}}
+		resolver := func(context.Context) (lipapi.Call, conversationview.Snapshot, error) { return call, snap, nil }
+		w, _ := sdkadapter.NewWriter(store, aLeg, resolver)
+		_, err := w.Put(ctx, steering.PutRequest{
+			OverlayID:           "ov-fallback-test",
+			Message:             steering.Message{Role: lipapi.RoleSystem, Text: "steering"},
+			Placement:           steering.AfterIngressTail,
+			AnchorMissingPolicy: steering.FailClosed,
+			Reason:              "r",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+		assert.False(t, strings.Contains(err.Error(), "second excluded"))
+		// No mutation.
+		s, _ := store.Snapshot(ctx, aLeg)
+		assert.Empty(t, s.Steering)
+	})
+	t.Run("item authority excluded terminal with earlier user must reject", func(t *testing.T) {
+		t.Parallel()
+		aLeg := "a_excluded_fallback_item"
+		require.NoError(t, store.CreateALeg(ctx, aLeg))
+		u1 := textItem(lipapi.RoleUser, "u1", "first user")
+		u2 := textItem(lipapi.RoleUser, "u2", "second excluded")
+		id2, _ := conversationview.ItemIdentityOf(u2)
+		call := lipapi.Call{Items: []lipapi.Item{u1, u2}}
+		snap := conversationview.Snapshot{NeverBackend: []conversationview.Tag{{Identity: id2, Reason: "r"}}}
+		resolver := func(context.Context) (lipapi.Call, conversationview.Snapshot, error) { return call, snap, nil }
+		w, _ := sdkadapter.NewWriter(store, aLeg, resolver)
+		_, err := w.Put(ctx, steering.PutRequest{
+			OverlayID:           "ov-fallback-item",
+			Message:             steering.Message{Role: lipapi.RoleSystem, Text: "steering"},
+			Placement:           steering.AfterIngressTail,
+			AnchorMissingPolicy: steering.FailClosed,
+			Reason:              "r",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, conversationview.ErrTerminalUserNotFound)
+	})
+}
+
 func TestWriter_Put_StateMappingAndErrorMapping(t *testing.T) {
 	t.Parallel()
 	store := conversationview.NewReferenceStore()

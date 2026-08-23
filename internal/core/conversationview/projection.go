@@ -92,12 +92,36 @@ func Project(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvidence,
 // ResolveAfterIngressTailAnchor resolves the terminal forwardable user message
 // in call (filtered by snap exclusions) to a MessageAnchor.
 // It rejects if the terminal message is absent, not user, or not safe.
+// It first establishes the concrete original terminal complete message boundary
+// and rejects if that terminal's identity is in snapshot exclusions (never falls
+// back to an earlier forwardable user).
 func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnchor, error) {
 	exclusion := make(map[MessageIdentity]struct{}, len(snap.NeverBackend))
 	for _, t := range snap.NeverBackend {
 		exclusion[t.Identity] = struct{}{}
 	}
 	if call.HasItemAuthority() {
+		// Establish concrete terminal message boundary before filtering.
+		var terminal *lipapi.Item
+		for i := len(call.Items) - 1; i >= 0; i-- {
+			if call.Items[i].Kind == lipapi.ItemKindMessage {
+				terminal = &call.Items[i]
+				break
+			}
+		}
+		if terminal == nil {
+			return MessageAnchor{}, fmt.Errorf("%w: no forwardable message", ErrTerminalUserNotFound)
+		}
+		termID, err := ItemIdentityOf(*terminal)
+		if err != nil {
+			return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
+		}
+		if _, excluded := exclusion[termID]; excluded {
+			return MessageAnchor{}, fmt.Errorf("%w: terminal message is never_backend", ErrTerminalUserNotFound)
+		}
+		if terminal.Role != lipapi.RoleUser {
+			return MessageAnchor{}, fmt.Errorf("%w: terminal is %q", ErrTerminalNotUser, terminal.Role)
+		}
 		// Build forwardable message items.
 		var fwd []lipapi.Item
 		for _, it := range call.Items {
@@ -147,7 +171,22 @@ func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnch
 		}
 		return anchor, nil
 	}
-	// Legacy authority.
+	// Legacy authority: establish concrete terminal boundary over original trajectory.
+	origCombined := append(append([]lipapi.Message(nil), call.Instructions...), call.Messages...)
+	if len(origCombined) == 0 {
+		return MessageAnchor{}, fmt.Errorf("%w: empty forwardable trajectory", ErrTerminalUserNotFound)
+	}
+	origLast := origCombined[len(origCombined)-1]
+	origID, err := MessageIdentityOf(origLast)
+	if err != nil {
+		return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
+	}
+	if _, excluded := exclusion[origID]; excluded {
+		return MessageAnchor{}, fmt.Errorf("%w: terminal message is never_backend", ErrTerminalUserNotFound)
+	}
+	if origLast.Role != lipapi.RoleUser {
+		return MessageAnchor{}, fmt.Errorf("%w: terminal is %q", ErrTerminalNotUser, origLast.Role)
+	}
 	var fwdInstr []lipapi.Message
 	var fwdMsgs []lipapi.Message
 	for _, m := range call.Instructions {

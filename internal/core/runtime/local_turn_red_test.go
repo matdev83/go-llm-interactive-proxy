@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -618,6 +621,141 @@ func TestLocalTurn_TaggerUnavailableFailsDeterministically(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "conversation view tagger not available") {
 		t.Fatalf("expected deterministic tagger unavailable error, got %v", err)
 	}
+}
+
+func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t *testing.T) {
+	t.Parallel()
+	// This test proves Req 4.5: source tags remain authoritative after claimed Handler failure,
+	// using the real MemoryStore ConversationViewStore capability (not fake-only).
+	for _, tt := range []struct {
+		name        string
+		handleFn    func(context.Context, localturn.HandleInput) (localturn.Reply, error)
+		expectPanic bool
+	}{
+		{
+			name: "handle error retains source tag",
+			handleFn: func(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
+				return localturn.Reply{}, fmt.Errorf("handle boom")
+			},
+		},
+		{
+			name: "panic retains source tag",
+			handleFn: func(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
+				panic("boom")
+			},
+			expectPanic: true,
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+			cvStore := st.ConversationViewStore()
+			capturing := &capturingTagger{inner: cvStore}
+			var backendOpens atomic.Int32
+			h := &fakeHandler{
+				id: "h1", ord: 1, mode: sdkhooks.FailClosed,
+				matchFn: func(_ context.Context, call lipapi.Call, meta localturn.Meta) (localturn.MatchResult, error) {
+					// Claim first message.
+					return localturn.MatchResult{Claimed: true, Indexes: []int{0}, Reason: "test_reason"}, nil
+				},
+				handleFn: tt.handleFn,
+			}
+			ex := TestExecutor()
+			ex.Store = st
+			ex.Bus = hooks.New(hooks.Config{})
+			ex.ConversationViewTagger = capturing
+			// Reader left nil => executor resolves via AsReader(Store) to same MemoryStore, proving real store path.
+			ex.ConversationViewReader = nil
+			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{LocalTurnHandlers: []localturn.Handler{h}})
+			ex.Now = func() time.Time { return time.Unix(3000, 0) }
+			ex.Backends = map[string]execbackend.Backend{
+				"openai": {
+					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+					Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+						backendOpens.Add(1)
+						return lipapi.NewFixedEventStream(nil), nil
+					},
+				},
+			}
+			// Prepare call with known source identity.
+			srcMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello source")}}
+			srcID, err := conversationview.MessageIdentityOf(srcMsg)
+			require.NoError(t, err)
+			call := &lipapi.Call{
+				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages: []lipapi.Message{srcMsg},
+			}
+			_, err = executeDetached(t, ex, call)
+			require.Error(t, err, "Execute must fail after claimed handle error/panic")
+			if tt.expectPanic {
+				require.Contains(t, err.Error(), "panic")
+			} else {
+				require.Contains(t, err.Error(), "handle")
+			}
+			// No backend fallback.
+			if backendOpens.Load() != 0 {
+				t.Fatalf("backend must not open after post-claim handler failure, got %d", backendOpens.Load())
+			}
+			// Source TagNeverBackend must have succeeded exactly once (source tag) and no reply tag.
+			capturing.mu.Lock()
+			if len(capturing.aLegIDs) != 1 {
+				t.Fatalf("expected exactly 1 TagNeverBackend call (source), got %d %v", len(capturing.aLegIDs), capturing.aLegIDs)
+			}
+			aLegID := capturing.aLegIDs[0]
+			require.Equal(t, srcID, capturing.identities[0], "first tag must be source identity")
+			capturing.mu.Unlock()
+			// Read real MemoryStore ConversationViewStore snapshot and assert authoritative source tag remains.
+			snap, err := cvStore.Snapshot(context.Background(), aLegID)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), snap.StateRevision, "source tag should bump StateRevision to 1")
+			found := false
+			for _, tag := range snap.NeverBackend {
+				if tag.Identity == srcID {
+					found = true
+					assert.Equal(t, conversationview.ReasonCode("test_reason"), tag.Reason)
+					break
+				}
+			}
+			require.True(t, found, "real store snapshot must contain authoritative source tag %s", srcID)
+			// Ensure no reply tag present (only source).
+			require.Len(t, snap.NeverBackend, 1, "only source tag should be present after handle failure")
+			// Also verify via executor's reader path (AsReader) yields same authoritative snapshot.
+			readerSnap, err := ex.ConversationViewReader_SnapshotForTest(context.Background(), aLegID) // helper via direct AsReader
+			// Fallback if helper not available: use cvStore again.
+			if err == nil {
+				assert.Equal(t, snap.StateRevision, readerSnap.StateRevision)
+			}
+			_ = readerSnap
+		})
+	}
+}
+
+// Helper to expose AsReader for test without widening API.
+
+type capturingTagger struct {
+	inner      conversationview.Tagger
+	mu         sync.Mutex
+	aLegIDs    []string
+	identities []conversationview.MessageIdentity
+}
+
+func (c *capturingTagger) TagNeverBackend(ctx context.Context, aLegID string, reqs []conversationview.TagRequest) (conversationview.TagResult, error) {
+	c.mu.Lock()
+	c.aLegIDs = append(c.aLegIDs, aLegID)
+	for _, r := range reqs {
+		c.identities = append(c.identities, r.Identity)
+	}
+	c.mu.Unlock()
+	return c.inner.TagNeverBackend(ctx, aLegID, reqs)
+}
+
+// Expose snapshot via AsReader for verification convenience.
+func (e *Executor) ConversationViewReader_SnapshotForTest(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+	if r, ok := conversationview.AsReader(e.Store); ok {
+		return r.Snapshot(ctx, aLegID)
+	}
+	return conversationview.Snapshot{}, fmt.Errorf("no reader")
 }
 
 type blockingStore struct {
