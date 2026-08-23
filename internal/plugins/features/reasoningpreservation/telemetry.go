@@ -10,13 +10,14 @@ import (
 // Telemetry accumulates content-safe aggregate outcome counters for one feature instance.
 type Telemetry struct {
 	outcomes sync.Map // SafeOutcome -> *atomic.Int64
+	bytes    sync.Map // SafeOutcome -> *atomic.Int64 total raw bytes (content-free counts)
 }
 
 func NewTelemetry() *Telemetry {
 	return &Telemetry{}
 }
 
-func (t *Telemetry) Record(outcome SafeOutcome, _ map[string]int) {
+func (t *Telemetry) Record(outcome SafeOutcome, counts map[string]int) {
 	if t == nil || !isKnownOutcome(outcome) {
 		return
 	}
@@ -26,6 +27,34 @@ func (t *Telemetry) Record(outcome SafeOutcome, _ map[string]int) {
 		return
 	}
 	n.Add(1)
+	if counts != nil {
+		if b, ok := counts["bytes"]; ok && b > 0 {
+			// Bound bytes to prevent unbounded aggregation from malformed counts; cap per-record to hard ceiling.
+			if b > HardRawOutputCeiling {
+				b = HardRawOutputCeiling
+			}
+			vb, _ := t.bytes.LoadOrStore(outcome, &atomic.Int64{})
+			if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
+				nb.Add(int64(b))
+			}
+		}
+	}
+}
+
+// RecordCompression records a compression-safe outcome with content-free byte count.
+// It is a minimal wrapper over Record that keeps call sites explicit and bounded.
+func (t *Telemetry) RecordCompression(outcome SafeOutcome, rawBytes int) {
+	if t == nil || !isKnownOutcome(outcome) {
+		return
+	}
+	m := map[string]int{"count": 1}
+	if rawBytes > 0 {
+		if rawBytes > HardRawOutputCeiling {
+			rawBytes = HardRawOutputCeiling
+		}
+		m["bytes"] = rawBytes
+	}
+	t.Record(outcome, m)
 }
 
 func (t *Telemetry) Snapshot() map[SafeOutcome]int64 {
@@ -34,6 +63,29 @@ func (t *Telemetry) Snapshot() map[SafeOutcome]int64 {
 		return out
 	}
 	t.outcomes.Range(func(key, value any) bool {
+		o, ok := key.(SafeOutcome)
+		if !ok {
+			return true
+		}
+		n, ok := value.(*atomic.Int64)
+		if !ok || n == nil {
+			return true
+		}
+		if c := n.Load(); c > 0 {
+			out[o] = c
+		}
+		return true
+	})
+	return out
+}
+
+// BytesSnapshot returns aggregate raw bytes per outcome (content-free, bounded).
+func (t *Telemetry) BytesSnapshot() map[SafeOutcome]int64 {
+	out := make(map[SafeOutcome]int64)
+	if t == nil {
+		return out
+	}
+	t.bytes.Range(func(key, value any) bool {
 		o, ok := key.(SafeOutcome)
 		if !ok {
 			return true

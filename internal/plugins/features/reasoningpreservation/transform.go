@@ -10,13 +10,14 @@ import (
 )
 
 type AttemptTransform struct {
-	cfg       Config
-	store     TurnStore
-	tel       *Telemetry
-	id        string
-	order     int
-	companion CompanionPolicy
-	svc       CompressionServices
+	cfg           Config
+	store         TurnStore
+	tel           *Telemetry
+	id            string
+	order         int
+	companion     CompanionPolicy
+	svc           CompressionServices
+	adoptionStage CompletedAdoptionStage
 }
 
 func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *AttemptTransform {
@@ -28,12 +29,23 @@ func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *Attemp
 		t = NewTelemetry()
 	}
 	return &AttemptTransform{
-		cfg:   cfg,
-		store: store,
-		tel:   t,
-		id:    ID + "-transform",
-		order: 0,
+		cfg:           cfg,
+		store:         store,
+		tel:           t,
+		id:            ID + "-transform",
+		order:         0,
+		adoptionStage: identityAdoptionStage,
 	}
+}
+
+// NewAttemptTransformWithAdoptionStage creates a transform with an explicit adoption stage.
+// The stage is immutable; if nil, identity is used. Task 5.3 will inject the decoder stage.
+func NewAttemptTransformWithAdoptionStage(cfg Config, store TurnStore, stage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransform(cfg, store, tel...)
+	if stage != nil {
+		t.adoptionStage = stage
+	}
+	return t
 }
 
 func NewAttemptTransformWithCompanionPolicy(cfg Config, store TurnStore, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
@@ -51,6 +63,24 @@ func NewAttemptTransformWithServices(cfg Config, store TurnStore, svc Compressio
 func NewAttemptTransformWithCompanionPolicyAndServices(cfg Config, store TurnStore, svc CompressionServices, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
 	t := NewAttemptTransformWithCompanionPolicy(cfg, store, policy, tel...)
 	t.svc = svc
+	return t
+}
+
+// NewAttemptTransformWithServicesAndStage creates a transform with explicit services and adoption stage immutably.
+func NewAttemptTransformWithServicesAndStage(cfg Config, store TurnStore, svc CompressionServices, stage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransformWithServices(cfg, store, svc, tel...)
+	if stage != nil {
+		t.adoptionStage = stage
+	}
+	return t
+}
+
+// NewAttemptTransformWithCompanionPolicyServicesAndStage is the full composition for bundle wiring.
+func NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg Config, store TurnStore, svc CompressionServices, policy CompanionPolicy, stage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
+	t := NewAttemptTransformWithCompanionPolicyAndServices(cfg, store, svc, policy, tel...)
+	if stage != nil {
+		t.adoptionStage = stage
+	}
 	return t
 }
 
@@ -103,7 +133,13 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 			if cerr != nil {
 				// Classification/validation error is state error for restore, poll-local error for poll.
 				pollRes = CompressionPollAttemptResult{Kind: PollKindPollError, Err: cerr}
-				_ = handleCompletedPollCandidate(ctx, pollRes, call)
+				adoption := handleCompletedPollCandidate(ctx, t.cfg, cs, t.svc, t.tel, pollRes, call)
+				if t.adoptionStage != nil {
+					adoption = t.adoptionStage(ctx, adoption)
+				}
+				if adoption.Outcome != AdoptionOutcomeNone {
+					// poll-local error adoption, call unchanged
+				}
 				resTmp, rerr = applyStateErrorPolicy(t.cfg.OnStateError)
 				t.recordRestoreOutcome(resTmp)
 				if rerr != nil {
@@ -129,7 +165,18 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 				}
 			}
 			pollRes = pollOnceWithCandidates(ctx, cs, partition, pollCandidates, t.svc)
-			_ = handleCompletedPollCandidate(ctx, pollRes, call)
+			// 5.2 chain: single poll -> raw guard without double poll/decode; adoption carries bounded raw for 5.3 local handling.
+			adoption := handlePollAndGuardRaw(ctx, t.cfg, cs, t.svc, t.tel, pollRes, call)
+			if t.adoptionStage != nil {
+				adoption = t.adoptionStage(ctx, adoption)
+			}
+			// adoption is local to this attempt; shadow keeps call unchanged.
+			// Telemetry for raw guard already recorded; bounded_raw ready for 5.3 decode locally.
+			if adoption.Outcome == AdoptionOutcomeBoundedRaw {
+				// pass bounded raw to next stage via local adoption; no Forget yet (deferred to 5.3)
+			} else if adoption.Outcome != AdoptionOutcomeNone {
+				// rejection already cleared pending and forgotten once, content-free telemetry recorded
+			}
 			// Restore using same classified/candidates without reclassifying.
 			if t.cfg.Action == ActionObserve {
 				// Observe never mutates; reuse classified for outcomes.

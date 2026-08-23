@@ -209,7 +209,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: pending/failure/not-found/poll-unavailable tests_
   - _Requirements: 6, 11_
 
-- [ ] 5.2 Apply raw byte guard before parser invocation
+- [x] 5.2 Apply raw byte guard before parser invocation
   - Feed completed `Collected` through the bounded raw extractor; reject `raw_oversize` before strict JSON decoding.
   - Record only safe byte counts/outcomes.
   - Forget terminal result after completion handling according to scheduler semantics.

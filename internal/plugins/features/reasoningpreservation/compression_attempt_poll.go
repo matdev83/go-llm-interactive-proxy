@@ -3,6 +3,7 @@ package reasoningpreservation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -357,13 +358,120 @@ func cloneContentPartDeep(in lipapi.ContentPart) lipapi.ContentPart {
 	return out
 }
 
-// handleCompletedPollCandidate is the 5.2 placeholder. In 5.1 it returns call
-// unchanged (shadow). 5.2 will extend to apply raw guard / surrogate without repoll.
-// Capturing result locally avoids cross-attempt mutable state.
-func handleCompletedPollCandidate(_ context.Context, res CompressionPollAttemptResult, call *lipapi.Call) *lipapi.Call {
+// AdoptionOutcome is a typed content-free outcome for the raw guard stage (5.2).
+type AdoptionOutcome string
+
+const (
+	AdoptionOutcomeNone              AdoptionOutcome = "none"
+	AdoptionOutcomeBoundedRaw        AdoptionOutcome = "bounded_raw"
+	AdoptionOutcomeRawOversize       AdoptionOutcome = "raw_oversize"
+	AdoptionOutcomeRawInvalidChannel AdoptionOutcome = "raw_invalid_channel"
+	AdoptionOutcomeRawInvalidLimit   AdoptionOutcome = "raw_invalid_limit"
+)
+
+// AdoptionResult carries bounded raw bytes for the next stage (5.3) or a rejection outcome.
+// It is typed, content-free, and holds only byte counts, not raw reasoning text.
+// BoundedRaw is non-nil only for AdoptionOutcomeBoundedRaw.
+type AdoptionResult struct {
+	Outcome      AdoptionOutcome
+	Candidate    *CompletedPollCandidate
+	BoundedRaw   []byte
+	RawByteCount int
+	Err          error
+}
+
+// handleCompletedPollCandidate implements the raw byte guard before parser invocation (5.2).
+// It feeds Candidate.Collected through ExtractBoundedRaw using cfg.Compression.MaxOutputBytes
+// BEFORE DecodeSurrogate (decode is 5.3). For raw_oversize / non-text / invalid channel it
+// clears the expected reservation and forgets the JobID once, records a content-free outcome
+// via telemetry if safe, and returns a rejection result with original fallback semantics.
+// For bounded raw success it returns the bounded bytes for the next local stage without
+// forgetting (Forget is deferred to 5.3 after decode/attach). It never re-polls or decodes.
+func handleCompletedPollCandidate(ctx context.Context, cfg Config, cs CompressionStore, svc CompressionServices, tel *Telemetry, res CompressionPollAttemptResult, call *lipapi.Call) AdoptionResult {
 	if res.Kind != PollKindCompleted || res.Candidate == nil {
-		return call
+		return AdoptionResult{Outcome: AdoptionOutcomeNone}
 	}
-	// Shadow: do not mutate call; candidate is typed and defensively cloned for next stage.
-	return call
+	cand := res.Candidate
+	maxBytes := cfg.Compression.MaxOutputBytes
+	// When compression is disabled MaxOutputBytes is zero; treat as invalid limit and reject content-free.
+	if maxBytes <= 0 {
+		// content-free error, no string payload
+		err := fmt.Errorf("%w: max_output_bytes %d must be > 0", ErrRawInvalidLimit, maxBytes)
+		if cs != nil {
+			_ = cs.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+		}
+		if !isNilCapability(svc.Client) {
+			svc.Client.Forget(cand.JobID)
+		}
+		if tel != nil {
+			// Record only content-free outcome; byte count is the attempted size without exposing content.
+			tel.RecordCompression(OutcomeRawInvalidLimit, cand.Collected.Text.Len())
+		}
+		return AdoptionResult{Outcome: AdoptionOutcomeRawInvalidLimit, Candidate: cand, RawByteCount: cand.Collected.Text.Len(), Err: err}
+	}
+	raw, err := ExtractBoundedRaw(cand.Collected, maxBytes)
+	if err != nil {
+		var outcome AdoptionOutcome
+		switch {
+		case errors.Is(err, ErrRawOversize):
+			outcome = AdoptionOutcomeRawOversize
+		case errors.Is(err, ErrRawInvalidChannel):
+			outcome = AdoptionOutcomeRawInvalidChannel
+		case errors.Is(err, ErrRawInvalidLimit):
+			outcome = AdoptionOutcomeRawInvalidLimit
+		default:
+			outcome = AdoptionOutcomeRawInvalidChannel
+		}
+		// Clear expected reservation and forget once, as required for rejection paths.
+		if cs != nil {
+			_ = cs.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+		}
+		if !isNilCapability(svc.Client) {
+			svc.Client.Forget(cand.JobID)
+		}
+		// Record only content-free outcome and byte count via telemetry if safe.
+		if tel != nil {
+			var telOutcome SafeOutcome
+			switch outcome {
+			case AdoptionOutcomeRawOversize:
+				telOutcome = OutcomeRawOversize
+			case AdoptionOutcomeRawInvalidChannel:
+				telOutcome = OutcomeRawInvalidChannel
+			case AdoptionOutcomeRawInvalidLimit:
+				telOutcome = OutcomeRawInvalidLimit
+			default:
+				telOutcome = OutcomeRawInvalidChannel
+			}
+			tel.RecordCompression(telOutcome, cand.Collected.Text.Len())
+		}
+		// Ensure error is content-free (ExtractBoundedRaw already is) and wrap with typed sentinel for errors.Is.
+		wrapped := fmt.Errorf("%w", err)
+		// Do not include raw text length details beyond what Extract already provides; callers check errors.Is.
+		_ = call // shadow: do not mutate call
+		return AdoptionResult{Outcome: outcome, Candidate: cand, RawByteCount: cand.Collected.Text.Len(), Err: wrapped}
+	}
+	// Success: bounded raw, do not clear/forget yet (deferred to 5.3 after decode/attach).
+	// Pass raw to next local stage; no double poll/decode.
+	if tel != nil {
+		tel.RecordCompression(OutcomeBoundedRaw, len(raw))
+	}
+	_ = call // shadow: keep original for this attempt
+	return AdoptionResult{Outcome: AdoptionOutcomeBoundedRaw, Candidate: cand, BoundedRaw: raw, RawByteCount: len(raw)}
+}
+
+// CompletedAdoptionStage is a composable hook for the adoption chain (5.2 -> 5.3 -> ...).
+// It receives the raw-guard AdoptionResult and returns the (possibly) transformed result.
+// The transform holds this stage immutably; default is identity. Task 5.3 will inject the
+// decoder/attach stage via constructor. No cross-attempt state is stored.
+type CompletedAdoptionStage func(context.Context, AdoptionResult) AdoptionResult
+
+// identityAdoptionStage is the default stage that leaves the raw-guard result unchanged.
+// It is retained locally and used when no explicit stage is injected.
+func identityAdoptionStage(_ context.Context, r AdoptionResult) AdoptionResult { return r }
+
+// handlePollAndGuardRaw is a local chain helper that ensures poll is performed once and
+// raw extraction is applied exactly once per attempt without double poll/decode.
+// It is used by AttemptTransform to keep 5.2 and 5.3 on the same attempt's candidate.
+func handlePollAndGuardRaw(ctx context.Context, cfg Config, cs CompressionStore, svc CompressionServices, tel *Telemetry, pollRes CompressionPollAttemptResult, call *lipapi.Call) AdoptionResult {
+	return handleCompletedPollCandidate(ctx, cfg, cs, svc, tel, pollRes, call)
 }

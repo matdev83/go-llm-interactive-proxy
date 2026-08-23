@@ -10,33 +10,41 @@ import (
 type SafeOutcome string
 
 const (
-	OutcomeObserved        SafeOutcome = "observed"
-	OutcomePreserved       SafeOutcome = "preserved"
-	OutcomeMissing         SafeOutcome = "missing"
-	OutcomeRestored        SafeOutcome = "restored"
-	OutcomeAmbiguous       SafeOutcome = "ambiguous"
-	OutcomeConflicting     SafeOutcome = "conflicting"
-	OutcomeUnmatched       SafeOutcome = "unmatched"
-	OutcomeUnrepresentable SafeOutcome = "unrepresentable"
-	OutcomeStateError      SafeOutcome = "state_error"
-	OutcomeEvicted         SafeOutcome = "evicted"
-	OutcomeOversize        SafeOutcome = "oversize"
+	OutcomeObserved          SafeOutcome = "observed"
+	OutcomePreserved         SafeOutcome = "preserved"
+	OutcomeMissing           SafeOutcome = "missing"
+	OutcomeRestored          SafeOutcome = "restored"
+	OutcomeAmbiguous         SafeOutcome = "ambiguous"
+	OutcomeConflicting       SafeOutcome = "conflicting"
+	OutcomeUnmatched         SafeOutcome = "unmatched"
+	OutcomeUnrepresentable   SafeOutcome = "unrepresentable"
+	OutcomeStateError        SafeOutcome = "state_error"
+	OutcomeEvicted           SafeOutcome = "evicted"
+	OutcomeOversize          SafeOutcome = "oversize"
+	OutcomeBoundedRaw        SafeOutcome = "bounded_raw"
+	OutcomeRawOversize       SafeOutcome = "raw_oversize"
+	OutcomeRawInvalidChannel SafeOutcome = "raw_invalid_channel"
+	OutcomeRawInvalidLimit   SafeOutcome = "raw_invalid_limit"
 )
 
 var safeCountKeys = map[string]struct{}{
-	"count":           {},
-	"bytes":           {},
-	"restored":        {},
-	"observed":        {},
-	"preserved":       {},
-	"missing":         {},
-	"ambiguous":       {},
-	"conflicting":     {},
-	"unmatched":       {},
-	"unrepresentable": {},
-	"state_error":     {},
-	"evicted":         {},
-	"oversize":        {},
+	"count":               {},
+	"bytes":               {},
+	"restored":            {},
+	"observed":            {},
+	"preserved":           {},
+	"missing":             {},
+	"ambiguous":           {},
+	"conflicting":         {},
+	"unmatched":           {},
+	"unrepresentable":     {},
+	"state_error":         {},
+	"evicted":             {},
+	"oversize":            {},
+	"bounded_raw":         {},
+	"raw_oversize":        {},
+	"raw_invalid_channel": {},
+	"raw_invalid_limit":   {},
 }
 
 func FormatSafeDiagnostic(outcome SafeOutcome, ruleID string, counts map[string]int) (string, error) {
@@ -74,7 +82,8 @@ func isKnownOutcome(o SafeOutcome) bool {
 	switch o {
 	case OutcomeObserved, OutcomePreserved, OutcomeMissing, OutcomeRestored,
 		OutcomeAmbiguous, OutcomeConflicting, OutcomeUnmatched,
-		OutcomeUnrepresentable, OutcomeStateError, OutcomeEvicted, OutcomeOversize:
+		OutcomeUnrepresentable, OutcomeStateError, OutcomeEvicted, OutcomeOversize,
+		OutcomeBoundedRaw, OutcomeRawOversize, OutcomeRawInvalidChannel, OutcomeRawInvalidLimit:
 		return true
 	default:
 		return false
