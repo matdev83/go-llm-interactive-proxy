@@ -74,11 +74,6 @@ func (NopObserver) OnAnchorFallback(string, AnchorMissingPolicy)             {}
 func (NopObserver) OnAnchorFailure(AnchorMissingPolicy)                      {}
 func (NopObserver) OnSteeringMutation(CacheDiscontinuityKind, PlacementKind) {}
 
-// safeObserver returns n if non-nil else NopObserver. (legacy helper, now panic-isolated via SafeObserver)
-func safeObserver(o Observer) Observer {
-	return SafeObserver(o)
-}
-
 // SafeObserver returns a panic-isolated wrapper. Nil returns NopObserver.
 // All Observer callbacks are recovered so no observer panic can affect request or mutation.
 func SafeObserver(o Observer) Observer {

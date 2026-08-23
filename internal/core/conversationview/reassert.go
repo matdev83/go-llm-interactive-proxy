@@ -386,29 +386,6 @@ func reassertRemoveProvenanceItems(items []lipapi.Item, provenance []OverlayProv
 	return out
 }
 
-func findNearestItemWithIdentity(items []lipapi.Item, target MessageIdentity, hint int) int {
-	best := -1
-	bestDist := 1 << 30
-	for i, it := range items {
-		if it.Kind != lipapi.ItemKindMessage {
-			continue
-		}
-		id, err := ItemIdentityOf(it)
-		if err != nil || id != target {
-			continue
-		}
-		dist := i - hint
-		if dist < 0 {
-			dist = -dist
-		}
-		if dist < bestDist {
-			bestDist = dist
-			best = i
-		}
-	}
-	return best
-}
-
 func reassertRemoveProvenanceLegacy(instr, msgs []lipapi.Message, provenance []OverlayProvenance, filtered lipapi.Call, hasFiltered bool) ([]lipapi.Message, []lipapi.Message) {
 	if len(provenance) == 0 {
 		return instr, msgs
@@ -560,26 +537,6 @@ func reassertRemoveProvenanceLegacy(instr, msgs []lipapi.Message, provenance []O
 	return newInstr, newMsgs
 }
 
-func findNearestMessageWithIdentity(combined []lipapi.Message, target MessageIdentity, hint int) int {
-	best := -1
-	bestDist := 1 << 30
-	for i, m := range combined {
-		id, err := MessageIdentityOf(m)
-		if err != nil || id != target {
-			continue
-		}
-		dist := i - hint
-		if dist < 0 {
-			dist = -dist
-		}
-		if dist < bestDist {
-			bestDist = dist
-			best = i
-		}
-	}
-	return best
-}
-
 func checkRemainingProvIdentitiesItems(items []lipapi.Item, provenance []OverlayProvenance, filtered lipapi.Call) error {
 	provCount := make(map[MessageIdentity]int)
 	for _, p := range provenance {
@@ -673,99 +630,41 @@ func removeExtraProvIdentitiesItems(items []lipapi.Item, provenance []OverlayPro
 	if len(extraToRemove) == 0 {
 		return items
 	}
-	// Remove extra from the end (tail duplicates) to preserve early legitimate
-	out := make([]lipapi.Item, 0, len(items))
-	// Count seen per identity from start, keep first exp occurrences, remove extra last ones
-	seen := make(map[MessageIdentity]int)
-	// First pass to know total per identity, we will keep first exp, remove last extra
-	// Approach: iterate from start, keep until we have kept exp, then skip extra.
-	// But we need to know which occurrences are legitimate vs duplicate. Keep earliest exp occurrences.
+	// Remove last extra per identity (keep earliest legitimate, remove tail duplicates).
+	totalPerID := make(map[MessageIdentity]int)
+	for _, it := range items {
+		if it.Kind == lipapi.ItemKindMessage {
+			if id, err := ItemIdentityOf(it); err == nil {
+				if _, ok := provSet[id]; ok {
+					totalPerID[id]++
+				}
+			}
+		}
+	}
+	_ = totalPerID
+	keep := filteredCount
+	out2 := make([]lipapi.Item, 0, len(items))
+	seen2 := make(map[MessageIdentity]int)
 	for _, it := range items {
 		if it.Kind != lipapi.ItemKindMessage {
-			out = append(out, it)
+			out2 = append(out2, it)
 			continue
 		}
 		id, err := ItemIdentityOf(it)
 		if err != nil {
-			out = append(out, it)
+			out2 = append(out2, it)
 			continue
 		}
-		if extra, ok := extraToRemove[id]; ok && extra > 0 {
-			// Need to decide to keep or remove this occurrence.
-			// Keep first filteredCount[id] occurrences, remove last extra.
-			if seen[id] < filteredCount[id] {
-				// This occurrence corresponds to legitimate user, keep
-				seen[id]++
-				out = append(out, it)
-			} else {
-				// This is extra beyond legitimate, check if we still need to remove
-				// Count how many extra we have already removed
-				// We track seen beyond legitimate
-				if seen[id]-filteredCount[id] < extraToRemove[id]-(remainingCount[id]-filteredCount[id]-extraToRemove[id]) {
-					// Actually simpler: remove this extra if we have not yet removed enough
-					// We have extraToRemove[id] many to remove, so skip this one
-					extraToRemove[id]--
-					// skip
-					seen[id]++
-					continue
-				}
-				out = append(out, it)
-				seen[id]++
+		if _, ok := provSet[id]; ok {
+			if seen2[id] < keep[id] {
+				out2 = append(out2, it)
 			}
+			seen2[id]++
 		} else {
-			out = append(out, it)
-			if _, ok := provSet[id]; ok {
-				seen[id]++
-			}
+			out2 = append(out2, it)
 		}
 	}
-	// The above logic is complex; simpler: remove last extra occurrences
-	// Recompute by scanning from end
-	if len(extraToRemove) > 0 {
-		// Rebuild by removing last extra per identity
-		// Count total per identity
-		totalPerID := make(map[MessageIdentity]int)
-		for _, it := range items {
-			if it.Kind == lipapi.ItemKindMessage {
-				if id, err := ItemIdentityOf(it); err == nil {
-					if _, ok := provSet[id]; ok {
-						totalPerID[id]++
-					}
-				}
-			}
-		}
-		// Determine how many to keep per identity = filteredCount
-		keep := filteredCount
-		out2 := make([]lipapi.Item, 0, len(items))
-		seen2 := make(map[MessageIdentity]int)
-		for _, it := range items {
-			if it.Kind != lipapi.ItemKindMessage {
-				out2 = append(out2, it)
-				continue
-			}
-			id, err := ItemIdentityOf(it)
-			if err != nil {
-				out2 = append(out2, it)
-				continue
-			}
-			if _, ok := provSet[id]; ok {
-				if seen2[id] < keep[id] {
-					out2 = append(out2, it)
-				} else {
-					// This is extra beyond legitimate, check if we have already kept enough?
-					// If totalPerID[id] > keep[id], then this extra should be removed.
-					// We have extra = totalPerID[id] - keep[id] many to remove.
-					// We are iterating in order, so the first keep[id] are kept, rest removed.
-					// This keeps earliest legitimate, removes tail duplicates.
-				}
-				seen2[id]++
-			} else {
-				out2 = append(out2, it)
-			}
-		}
-		return out2
-	}
-	return out
+	return out2
 }
 
 func checkRemainingProvIdentitiesLegacy(instr, msgs []lipapi.Message, provenance []OverlayProvenance, filtered lipapi.Call) error {
@@ -1075,13 +974,4 @@ func VerifyAdaptationPreservesProjection(reasserted, adapted lipapi.Call, snap S
 		}
 	}
 	return nil
-}
-
-func findProvenanceByIdentity(provenance []OverlayProvenance, id MessageIdentity) (OverlayProvenance, bool) {
-	for _, p := range provenance {
-		if p.InjectedIdentity == id {
-			return p, true
-		}
-	}
-	return OverlayProvenance{}, false
 }

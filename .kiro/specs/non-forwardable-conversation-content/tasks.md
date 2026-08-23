@@ -193,7 +193,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: focused diagnostics/security tests_
   - _Requirements: 9.18-9.19, 12.1-12.9, 13.16_
 
-- [ ] 5.3 Add performance/race/architecture certification
+- [x] 5.3 Add performance/race/architecture certification
   - Benchmark/profile no-state fast path and bounded worst cases (4096 exclusion identities, 64 overlays/256 KiB) and confirm no per-candidate I/O.
   - Run concurrent mutation/snapshot/runtime tests under race detector and verify no watcher/background cleanup/service-locator pattern was introduced.
   - Add architecture gates proving core imports no provider/frontends, base/public continuity stores remain unchanged, and provider cache policy/`PromptCacheKey` was not moved into conversation-view core.
