@@ -8,8 +8,8 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 
 ---
 
-- [ ] 1. Add guard configuration and pure policy domain with failing unit tests
-  - [ ] 1.1 (P) Add failing configuration tests for the opt-in Agent Loop Guard surface
+- [x] 1. Add guard configuration and pure policy domain with failing unit tests
+  - [x] 1.1 (P) Add failing configuration tests for the opt-in Agent Loop Guard surface
     - Cover default disabled behavior, verifier role, 4s-equivalent timeout default, semantic continuation cap, no-progress limit, and explicit-completion policy. Prove that enabling the guard verifies every eligible clean normal stop unless a stronger canonical exclusion applies.
     - Reject invalid enum values and non-positive enabled bounds using current config validation conventions.
     - Prove existing `stream_recovery_*` defaults/settings are unchanged and no duplicate transport retry knobs are introduced.
@@ -17,14 +17,14 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 1.1, 1.5, 3.1, 8.1, 8.2, 12.8_
     - _Depends on: none_
     - _Validation: `go test ./internal/core/config/...`_
-  - [ ] 1.2 (P) Create `internal/core/stopguard` policy tests and domain types
+  - [x] 1.2 (P) Create `internal/core/stopguard` policy tests and domain types
     - Table-test canonical causes, verifier verdict normalization, pure action decisions, explicit-completion policy, and conservative unknown/uncertain handling before implementation.
     - Require non-empty concrete `RemainingObjective` for actionable `CONTINUE`; normalize verifier error/malformed/unknown verdict to allowed stop.
     - Keep package free of backend/provider/auxiliary/runtime I/O dependencies.
     - _Requirements: 2.1–2.5, 5.1–5.7, 6.6–6.7, 7.1–7.6_
     - _Depends on: none_
     - _Validation: `go test ./internal/core/stopguard/...`_
-  - [ ] 1.3 Implement minimal Agent Loop Guard config and pure decision policy
+  - [x] 1.3 Implement minimal Agent Loop Guard config and pure decision policy
     - Add flat snake_case config fields/accessors/defaults consistent with existing config package.
     - Implement cause/verdict/action vocabulary and decision invariants proven by 1.1/1.2.
     - Keep `UNCERTAIN -> ALLOW_STOP` fixed in v1 rather than configurable.
@@ -269,3 +269,10 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 ## Task-Plan Review Verdict
 
 **GO.** Every requirement has implementation and validation coverage. The critical ownership convergence happens in Task 6 after independent policy/transport/verifier/continuation contracts exist. Parallel tasks are limited to non-overlapping packages or test seams. No task requires production code outside the feature's declared boundaries, no task assumes the unimplemented non-forwardable steering feature, and no task introduces post-commit replay/failover.
+
+## Implementation Notes
+
+- Group 1 (1.1-1.3) was executed as one RED->GREEN cycle with a single commit: make quality-checks runs go vet, which type-checks test files, so compile-level RED tests cannot be committed as their own revision without bypassing hooks. RED evidence (undefined stopguard/config symbols) was captured via CLI before implementation.
+- ALG YAML uses the repo's nested-block convention (gent_loop_guard: with snake_case leaves, mirroring stream_recovery:), not flat document-root keys; tasks.md 1.3's "consistent with existing config package" governs.
+- New internal/core/stopguard requires doc.go (archtest TestCorePackagesHaveDocGo) and an internal/core line-budget ratchet bump in internal/archtest/budgets.go with justification comment; configreload inventory + typed comparator registration is mandatory for any new top-level config section.
+- kiro-impl ran in manual mode: the sub-agent dispatch channel returned empty results twice, so implementation/review execute in main context per skill fallback.

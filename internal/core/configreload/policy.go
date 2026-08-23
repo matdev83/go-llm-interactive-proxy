@@ -72,6 +72,7 @@ func Classify(active, candidate *config.Config) ([]SafeChange, error) {
 	classifyHTTPClient(active, candidate, reload)
 	classifyHTTPHeaders(active, candidate, reload)
 	classifyStreamRecovery(active, candidate, reload)
+	classifyAgentLoopGuard(active, candidate, reload)
 	classifyHooks(active, candidate, reload)
 	classifyInterleaved(active, candidate, reload)
 	classifyModelAliases(active, candidate, reload)
@@ -249,6 +250,24 @@ func classifyStreamRecovery(active, candidate *config.Config, reload noteFn) {
 		reload("stream_recovery.auto_resume.emit_warning")
 	}
 	diffStr(reload, "stream_recovery.auto_resume.keepalive_interval", a.KeepaliveInterval, c.KeepaliveInterval)
+}
+
+func classifyAgentLoopGuard(active, candidate *config.Config, reload noteFn) {
+	a, c := active.AgentLoopGuard, candidate.AgentLoopGuard
+	if a.Enabled != c.Enabled {
+		reload("agent_loop_guard.enabled")
+	}
+	diffStr(reload, "agent_loop_guard.verifier_role", a.VerifierRole, c.VerifierRole)
+	if a.VerifierTimeoutSeconds != c.VerifierTimeoutSeconds {
+		reload("agent_loop_guard.verifier_timeout_seconds")
+	}
+	if a.MaxSemanticContinuations != c.MaxSemanticContinuations {
+		reload("agent_loop_guard.max_semantic_continuations")
+	}
+	if a.NoProgressLimit != c.NoProgressLimit {
+		reload("agent_loop_guard.no_progress_limit")
+	}
+	diffStr(reload, "agent_loop_guard.explicit_completion_policy", a.ExplicitCompletionPolicy, c.ExplicitCompletionPolicy)
 }
 
 func classifyHooks(active, candidate *config.Config, reload noteFn) {

@@ -122,7 +122,8 @@ var LineBudgets = []LineBudget{
 	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
 	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
-	{Dir: "internal/core", Max: 92796},
+	// Agent Loop Guard spec group 1 (agent-loop-breach-prevention): pure stopguard policy package plus opt-in config/reload surface; measured 93177, bump to 93202 with 25 headroom.
+	{Dir: "internal/core", Max: 93202},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12746},

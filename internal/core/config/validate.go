@@ -95,6 +95,9 @@ func Validate(cfg *Config) error {
 	if err := validateInterleaved(cfg); err != nil {
 		return err
 	}
+	if err := validateAgentLoopGuard(cfg); err != nil {
+		return err
+	}
 	if err := validateRoutingAffinity(cfg); err != nil {
 		return err
 	}

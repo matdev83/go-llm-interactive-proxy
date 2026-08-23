@@ -37,7 +37,7 @@ func RequiredTopLevelPaths() []string {
 	return []string{
 		"server", "access", "auth", "logging", "diagnostics", "observability",
 		"http_client", "http_headers", "database", "routing", "continuity", "secure_session",
-		"stream_recovery", "hooks", "accounting", "interleaved", "plugins",
+		"stream_recovery", "agent_loop_guard", "hooks", "accounting", "interleaved", "plugins",
 		"model_aliases", "model_catalog", "model_inventory",
 		"control_plane", "metering", "identity", "prompt_cache",
 	}
@@ -101,6 +101,7 @@ var inventoryTable = []FieldClass{
 	{Path: "continuity", Disposition: DispositionStartupOnly, SecretBearing: true, Notes: "store type/path/DSN process-owned"},
 	{Path: "secure_session", Disposition: DispositionMixed, SecretBearing: true, Notes: "store/DSN/fingerprint startup-only; policy reloadable"},
 	{Path: "stream_recovery", Disposition: DispositionReloadable, Notes: "request/stream policy; CLI/env overrides fixed"},
+	{Path: "agent_loop_guard", Disposition: DispositionReloadable, Notes: "request-plane provisional-terminal policy; per-request budget state is request-scoped"},
 	{Path: "hooks", Disposition: DispositionReloadable, Notes: "request-plane hook policy"},
 	{Path: "accounting", Disposition: DispositionMixed, SecretBearing: true, Notes: "store topology startup-only; pricing/preflight reloadable"},
 	{Path: "interleaved", Disposition: DispositionReloadable, Notes: "request-plane thinking policy"},
