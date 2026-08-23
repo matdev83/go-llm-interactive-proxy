@@ -104,7 +104,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: store unit/race tests_
   - _Requirements: 4, 5_
 
-- [ ] 2.5 Introduce explicit feature-internal compression services/composition
+- [x] 2.5 Introduce explicit feature-internal compression services/composition
   - Bind generation-local `BackgroundClient`, optional `BackgroundPoller`, and trusted compression egress/sanitizer policy into reasoning-preservation construction without a global service locator.
   - Validate enabled compression has the required poll/egress capabilities; disabled mode requires none.
   - Do not widen provider APIs or `response.Services` merely for convenience unless implementation evidence proves unavoidable.
