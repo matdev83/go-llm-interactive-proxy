@@ -80,6 +80,10 @@ type Evidence struct {
 	ExplicitCompletion  bool
 	ContinuationLineage ContinuationRef
 	RecoveryAttempt     int
+	ParentTraceID       string
+	ParentALegID        string
+	ParentBLegID        string
+	ParentBranchBinding string
 }
 
 // Verifier is the consumer-owned semantic completion boundary.

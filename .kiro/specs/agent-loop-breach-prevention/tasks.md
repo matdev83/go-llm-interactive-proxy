@@ -65,7 +65,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: `go test ./internal/core/streamrecovery/...`_
 
 - [ ] 4. Build the auxiliary semantic completion verifier
-  - [ ] 4.1 (P) Write verifier-adapter contract tests with a fake auxiliary client
+  - [x] 4.1 (P) Write verifier-adapter contract tests with a fake auxiliary client
     - Assert internal/detached request, parent trace/A-leg/B-leg/branch lineage, dedicated role, and Agent Loop Guard recursion suppression.
     - Assert bounded deadline and strict structured parsing for `ALLOW_STOP`, `CONTINUE`, `NEEDS_USER`, `BLOCKED`, `UNCERTAIN`.
     - Timeout, transport error, malformed output, unknown verdict, and `CONTINUE` without concrete remaining objective must normalize conservatively.
@@ -73,7 +73,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 5.1–5.7, 7.1, 8.2, 8.5, 11.2–11.5, 12.8_
     - _Depends on: 1.3_
     - _Validation: focused verifier adapter tests_
-  - [ ] 4.2 Define the bounded evidence projector and conservative verifier prompt
+  - [x] 4.2 Define the bounded evidence projector and conservative verifier prompt
     - Project current/recent user objective, candidate assistant output, relevant canonical tool/action state, explicit completion fact, continuation lineage, and attempt count without creating a second transcript store.
     - Encode negative examples/rules for completed answers, optional “I can also…”, user-owned “Next steps”, direct questions, and quoted future-action language.
     - Encode positive rule for first-person immediate in-scope commitments not evidenced as executed.

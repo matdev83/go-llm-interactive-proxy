@@ -124,7 +124,8 @@ var LineBudgets = []LineBudget{
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
 	// Agent Loop Guard spec group 1 (agent-loop-breach-prevention): pure stopguard policy package plus opt-in config/reload surface; measured 93177, bump to 93202 with 25 headroom.
 	// Agent Loop Guard spec task 2.2 (agent-loop-breach-prevention): bounded progress fingerprint and tracker in stopguard; measured 93360, bump to 93385 with 25 headroom.
-	{Dir: "internal/core", Max: 93385},
+	// Agent Loop Guard spec task 4.2 (agent-loop-breach-prevention): bounded evidence projector and conservative verifier prompt in stopguardverify; measured 93889, bump to 93914 with 25 headroom.
+	{Dir: "internal/core", Max: 93914},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12746},
