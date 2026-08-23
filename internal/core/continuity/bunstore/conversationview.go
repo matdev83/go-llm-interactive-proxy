@@ -207,11 +207,13 @@ func (m *conversationViewStore) PutSteering(ctx context.Context, aLegID string, 
 					return err
 				}
 				out = conversationview.SteeringState{
-					OverlayID:     existing.OverlayID,
-					Revision:      existing.Revision,
-					SlotOrdinal:   existing.SlotOrdinal,
-					Active:        true,
-					StateRevision: uint64(rev),
+					OverlayID:                   existing.OverlayID,
+					Revision:                    existing.Revision,
+					SlotOrdinal:                 existing.SlotOrdinal,
+					Active:                      true,
+					StateRevision:               uint64(rev),
+					CacheDiscontinuityKind:      conversationview.CacheDiscontinuityNone,
+					CacheDiscontinuityPlacement: "",
 				}
 				return nil
 			}
@@ -276,12 +278,18 @@ func (m *conversationViewStore) PutSteering(ctx context.Context, aLegID string, 
 			if err := m.touchALegTx(ctx, tx, aLegID); err != nil {
 				return err
 			}
+			kind := conversationview.CacheDiscontinuityReplace
+			if placementChanged {
+				kind = conversationview.CacheDiscontinuityMove
+			}
 			out = conversationview.SteeringState{
-				OverlayID:     req.OverlayID,
-				Revision:      newRev,
-				SlotOrdinal:   newSlot,
-				Active:        true,
-				StateRevision: uint64(rev),
+				OverlayID:                   req.OverlayID,
+				Revision:                    newRev,
+				SlotOrdinal:                 newSlot,
+				Active:                      true,
+				StateRevision:               uint64(rev),
+				CacheDiscontinuityKind:      kind,
+				CacheDiscontinuityPlacement: req.Placement.Kind,
 			}
 			_ = nowUnix
 			return nil
@@ -330,11 +338,13 @@ func (m *conversationViewStore) PutSteering(ctx context.Context, aLegID string, 
 			return err
 		}
 		out = conversationview.SteeringState{
-			OverlayID:     ov.OverlayID,
-			Revision:      ov.Revision,
-			SlotOrdinal:   ov.SlotOrdinal,
-			Active:        true,
-			StateRevision: uint64(rev),
+			OverlayID:                   ov.OverlayID,
+			Revision:                    ov.Revision,
+			SlotOrdinal:                 ov.SlotOrdinal,
+			Active:                      true,
+			StateRevision:               uint64(rev),
+			CacheDiscontinuityKind:      conversationview.CacheDiscontinuityCreate,
+			CacheDiscontinuityPlacement: req.Placement.Kind,
 		}
 		_ = nowUnix
 		return nil
@@ -386,11 +396,13 @@ func (m *conversationViewStore) DeactivateSteering(ctx context.Context, aLegID s
 				return err
 			}
 			out = conversationview.SteeringState{
-				OverlayID:     existing.OverlayID,
-				Revision:      existing.Revision,
-				SlotOrdinal:   existing.SlotOrdinal,
-				Active:        false,
-				StateRevision: uint64(rev),
+				OverlayID:                   existing.OverlayID,
+				Revision:                    existing.Revision,
+				SlotOrdinal:                 existing.SlotOrdinal,
+				Active:                      false,
+				StateRevision:               uint64(rev),
+				CacheDiscontinuityKind:      conversationview.CacheDiscontinuityNone,
+				CacheDiscontinuityPlacement: "",
 			}
 			return nil
 		}
@@ -422,11 +434,13 @@ func (m *conversationViewStore) DeactivateSteering(ctx context.Context, aLegID s
 			return err
 		}
 		out = conversationview.SteeringState{
-			OverlayID:     updated.OverlayID,
-			Revision:      updated.Revision,
-			SlotOrdinal:   updated.SlotOrdinal,
-			Active:        false,
-			StateRevision: uint64(rev),
+			OverlayID:                   updated.OverlayID,
+			Revision:                    updated.Revision,
+			SlotOrdinal:                 updated.SlotOrdinal,
+			Active:                      false,
+			StateRevision:               uint64(rev),
+			CacheDiscontinuityKind:      conversationview.CacheDiscontinuityDeactivate,
+			CacheDiscontinuityPlacement: existing.Placement.Kind,
 		}
 		return nil
 	})

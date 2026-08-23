@@ -108,7 +108,8 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content Task 4.1 final conversation-view reassertion at shared candidate-open choke point (pure Reassert with provenance, frozen snapshot/provenance, no store read, PTB from reasserted call, candidate adaptation integrity, fail-closed anchor); measured 90833, bump to 90858 with 25 headroom.
 	// Non-forwardable conversation content Task 4.1 precision fixes (placement-aware provenance with Injected* indices, FilterNeverBackend helper, filtered baseline frozen, per-identity extra handling, full VerifyAdaptationPreservesProjection with never_backend/order/placement); measured 91661, bump to 91686 with 25 headroom.
 	// Non-forwardable conversation content Task 4.1 adversarial harden (item_reference cleanup, same-slice collision fail-closed, provenance without synthetic ID scan, insertion-shift handling); measured 91760, bump to 91785 with 25 headroom.
-	{Dir: "internal/core", Max: 91785},
+	// Non-forwardable conversation content Task 4.3 cache regression (bounded CacheDiscontinuityKind/Placement in SteeringState for create/replace/move/deactivate, MemoryStore/Bun parity, stable_prefix and fixed activation ordering U_N,STEER,A_N,U_N+1 across 3 turns, moving-tail negative, anchor fallback/fail_closed); measured 91840, bump to 91865 with 25 headroom.
+	{Dir: "internal/core", Max: 91865},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12616},

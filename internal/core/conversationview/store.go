@@ -301,6 +301,27 @@ func (r PutSteeringRequest) Validate() error {
 	return nil
 }
 
+// CacheDiscontinuityKind is the bounded cache-discontinuity operation recorded for steering mutations.
+// It classifies explicit prefix discontinuities per Req 10.6 and is content-free (no plaintext, no digests).
+type CacheDiscontinuityKind string
+
+const (
+	CacheDiscontinuityNone       CacheDiscontinuityKind = ""
+	CacheDiscontinuityCreate     CacheDiscontinuityKind = "create"
+	CacheDiscontinuityReplace    CacheDiscontinuityKind = "replace"
+	CacheDiscontinuityMove       CacheDiscontinuityKind = "move"
+	CacheDiscontinuityDeactivate CacheDiscontinuityKind = "deactivate"
+)
+
+func (k CacheDiscontinuityKind) Validate() error {
+	switch k {
+	case CacheDiscontinuityNone, CacheDiscontinuityCreate, CacheDiscontinuityReplace, CacheDiscontinuityMove, CacheDiscontinuityDeactivate:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown discontinuity %q", ErrInvalidSteeringRequest, k)
+	}
+}
+
 // SteeringState is the post-mutation steering summary.
 type SteeringState struct {
 	OverlayID     string `json:"overlay_id"`
@@ -308,6 +329,11 @@ type SteeringState struct {
 	SlotOrdinal   uint64 `json:"slot_ordinal"`
 	Active        bool   `json:"active"`
 	StateRevision uint64 `json:"state_revision"`
+	// CacheDiscontinuity is the bounded discontinuity diagnostic for this mutation per Req 10.6.
+	// It is content-free and placement-bounded; no OverlayID/plaintext/digest appears as a label value.
+	// For no-op mutations it is CacheDiscontinuityNone and placement is empty.
+	CacheDiscontinuityKind      CacheDiscontinuityKind `json:"cache_discontinuity_kind,omitempty"`
+	CacheDiscontinuityPlacement PlacementKind          `json:"cache_discontinuity_placement,omitempty"`
 }
 
 // Snapshot is the coherent per-turn conversation view.
@@ -629,11 +655,13 @@ func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req Put
 		if overlaysEqual(*existing, candidate) {
 			// No-op: do not bump revision or StateRevision.
 			return SteeringState{
-				OverlayID:     existing.OverlayID,
-				Revision:      existing.Revision,
-				SlotOrdinal:   existing.SlotOrdinal,
-				Active:        true,
-				StateRevision: lv.revision,
+				OverlayID:                   existing.OverlayID,
+				Revision:                    existing.Revision,
+				SlotOrdinal:                 existing.SlotOrdinal,
+				Active:                      true,
+				StateRevision:               lv.revision,
+				CacheDiscontinuityKind:      CacheDiscontinuityNone,
+				CacheDiscontinuityPlacement: "",
 			}, nil
 		}
 		// Determine if placement change.
@@ -696,12 +724,18 @@ func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req Put
 		}
 		lv.steering[req.OverlayID] = updated
 		lv.revision++
+		kind := CacheDiscontinuityReplace
+		if placementChanged {
+			kind = CacheDiscontinuityMove
+		}
 		return SteeringState{
-			OverlayID:     updated.OverlayID,
-			Revision:      updated.Revision,
-			SlotOrdinal:   updated.SlotOrdinal,
-			Active:        true,
-			StateRevision: lv.revision,
+			OverlayID:                   updated.OverlayID,
+			Revision:                    updated.Revision,
+			SlotOrdinal:                 updated.SlotOrdinal,
+			Active:                      true,
+			StateRevision:               lv.revision,
+			CacheDiscontinuityKind:      kind,
+			CacheDiscontinuityPlacement: req.Placement.Kind,
 		}, nil
 	}
 	// New overlay creation.
@@ -748,11 +782,13 @@ func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req Put
 	lv.steering[req.OverlayID] = ov
 	lv.revision++
 	return SteeringState{
-		OverlayID:     ov.OverlayID,
-		Revision:      ov.Revision,
-		SlotOrdinal:   ov.SlotOrdinal,
-		Active:        true,
-		StateRevision: lv.revision,
+		OverlayID:                   ov.OverlayID,
+		Revision:                    ov.Revision,
+		SlotOrdinal:                 ov.SlotOrdinal,
+		Active:                      true,
+		StateRevision:               lv.revision,
+		CacheDiscontinuityKind:      CacheDiscontinuityCreate,
+		CacheDiscontinuityPlacement: req.Placement.Kind,
 	}, nil
 }
 
@@ -780,11 +816,13 @@ func (s *ReferenceStore) DeactivateSteering(ctx context.Context, aLegID string, 
 	if !existing.Active {
 		// No-op deactivation: stable revision.
 		return SteeringState{
-			OverlayID:     existing.OverlayID,
-			Revision:      existing.Revision,
-			SlotOrdinal:   existing.SlotOrdinal,
-			Active:        false,
-			StateRevision: lv.revision,
+			OverlayID:                   existing.OverlayID,
+			Revision:                    existing.Revision,
+			SlotOrdinal:                 existing.SlotOrdinal,
+			Active:                      false,
+			StateRevision:               lv.revision,
+			CacheDiscontinuityKind:      CacheDiscontinuityNone,
+			CacheDiscontinuityPlacement: "",
 		}, nil
 	}
 	if existing.Revision == 1<<64-1 || lv.revision == 1<<64-1 {
@@ -810,11 +848,13 @@ func (s *ReferenceStore) DeactivateSteering(ctx context.Context, aLegID string, 
 	lv.steering[overlayID] = updated
 	lv.revision++
 	return SteeringState{
-		OverlayID:     updated.OverlayID,
-		Revision:      updated.Revision,
-		SlotOrdinal:   updated.SlotOrdinal,
-		Active:        false,
-		StateRevision: lv.revision,
+		OverlayID:                   updated.OverlayID,
+		Revision:                    updated.Revision,
+		SlotOrdinal:                 updated.SlotOrdinal,
+		Active:                      false,
+		StateRevision:               lv.revision,
+		CacheDiscontinuityKind:      CacheDiscontinuityDeactivate,
+		CacheDiscontinuityPlacement: existing.Placement.Kind,
 	}, nil
 }
 

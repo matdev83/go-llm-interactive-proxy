@@ -186,11 +186,13 @@ func (m *memoryConversationViewStore) PutSteering(ctx context.Context, aLegID st
 		if overlaysEqualForMemory(existing, candidate) {
 			st.record.LastSeenAt = now
 			return conversationview.SteeringState{
-				OverlayID:     existing.OverlayID,
-				Revision:      existing.Revision,
-				SlotOrdinal:   existing.SlotOrdinal,
-				Active:        true,
-				StateRevision: view.Revision,
+				OverlayID:                   existing.OverlayID,
+				Revision:                    existing.Revision,
+				SlotOrdinal:                 existing.SlotOrdinal,
+				Active:                      true,
+				StateRevision:               view.Revision,
+				CacheDiscontinuityKind:      conversationview.CacheDiscontinuityNone,
+				CacheDiscontinuityPlacement: "",
 			}, nil
 		}
 		placementChanged := existing.Placement.Kind != req.Placement.Kind
@@ -250,12 +252,18 @@ func (m *memoryConversationViewStore) PutSteering(ctx context.Context, aLegID st
 		view.Steering[req.OverlayID] = updated
 		view.Revision++
 		st.record.LastSeenAt = now
+		kind := conversationview.CacheDiscontinuityReplace
+		if placementChanged {
+			kind = conversationview.CacheDiscontinuityMove
+		}
 		return conversationview.SteeringState{
-			OverlayID:     updated.OverlayID,
-			Revision:      updated.Revision,
-			SlotOrdinal:   updated.SlotOrdinal,
-			Active:        true,
-			StateRevision: view.Revision,
+			OverlayID:                   updated.OverlayID,
+			Revision:                    updated.Revision,
+			SlotOrdinal:                 updated.SlotOrdinal,
+			Active:                      true,
+			StateRevision:               view.Revision,
+			CacheDiscontinuityKind:      kind,
+			CacheDiscontinuityPlacement: req.Placement.Kind,
 		}, nil
 	}
 	// New overlay creation.
@@ -303,11 +311,13 @@ func (m *memoryConversationViewStore) PutSteering(ctx context.Context, aLegID st
 	view.Revision++
 	st.record.LastSeenAt = now
 	return conversationview.SteeringState{
-		OverlayID:     ov.OverlayID,
-		Revision:      ov.Revision,
-		SlotOrdinal:   ov.SlotOrdinal,
-		Active:        true,
-		StateRevision: view.Revision,
+		OverlayID:                   ov.OverlayID,
+		Revision:                    ov.Revision,
+		SlotOrdinal:                 ov.SlotOrdinal,
+		Active:                      true,
+		StateRevision:               view.Revision,
+		CacheDiscontinuityKind:      conversationview.CacheDiscontinuityCreate,
+		CacheDiscontinuityPlacement: req.Placement.Kind,
 	}, nil
 }
 
@@ -353,11 +363,13 @@ func (m *memoryConversationViewStore) DeactivateSteering(ctx context.Context, aL
 	if !existing.Active {
 		st.record.LastSeenAt = now
 		return conversationview.SteeringState{
-			OverlayID:     existing.OverlayID,
-			Revision:      existing.Revision,
-			SlotOrdinal:   existing.SlotOrdinal,
-			Active:        false,
-			StateRevision: view.Revision,
+			OverlayID:                   existing.OverlayID,
+			Revision:                    existing.Revision,
+			SlotOrdinal:                 existing.SlotOrdinal,
+			Active:                      false,
+			StateRevision:               view.Revision,
+			CacheDiscontinuityKind:      conversationview.CacheDiscontinuityNone,
+			CacheDiscontinuityPlacement: "",
 		}, nil
 	}
 	if existing.Revision == 1<<64-1 || view.Revision == 1<<64-1 {
@@ -384,11 +396,13 @@ func (m *memoryConversationViewStore) DeactivateSteering(ctx context.Context, aL
 	view.Revision++
 	st.record.LastSeenAt = now
 	return conversationview.SteeringState{
-		OverlayID:     updated.OverlayID,
-		Revision:      updated.Revision,
-		SlotOrdinal:   updated.SlotOrdinal,
-		Active:        false,
-		StateRevision: view.Revision,
+		OverlayID:                   updated.OverlayID,
+		Revision:                    updated.Revision,
+		SlotOrdinal:                 updated.SlotOrdinal,
+		Active:                      false,
+		StateRevision:               view.Revision,
+		CacheDiscontinuityKind:      conversationview.CacheDiscontinuityDeactivate,
+		CacheDiscontinuityPlacement: existing.Placement.Kind,
 	}, nil
 }
 
