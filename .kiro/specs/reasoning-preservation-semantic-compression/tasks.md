@@ -294,7 +294,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: privacy/security architecture tests_
   - _Requirements: 7, 8, 13_
 
-- [ ] 7.3 Certify aggregate memory, concurrency, reload, and shutdown
+- [x] 7.3 Certify aggregate memory, concurrency, reload, and shutdown
   - Run race/goleak tests for multi-session reservations, Poll-vs-Finish/Forget/expiry, stale completion, counter updates, generation reload, scheduler shutdown, and original eviction.
   - Prove feature-instance pending/surrogate totals never exceed configured caps and return to correct values after cleanup.
   - Confirm no lock is held across policy/provider calls and no feature-owned poll goroutine exists.
