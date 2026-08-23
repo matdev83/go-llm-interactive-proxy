@@ -203,7 +203,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: targeted benchmarks; `go test -race`; `go test ./internal/archtest/...`; `make quality-checks`_
   - _Requirements: 10.10-10.14, 13.1-13.6, 13.15-13.18_
 
-- [ ] 5.4 Update producer and architecture documentation, then run final quality gates
+- [x] 5.4 Update producer and architecture documentation, then run final quality gates
   - Document both visibility directions, local-turn causal tagging, trusted steering Put/Deactivate, fixed activation anchor, cache discontinuities, anchor fallback, and whole-message limits.
   - Document explicitly that interactive commands, Quality Verifier logic and quota-notification policy are separate consumers and require no core projection redesign.
   - Run deterministic unit/contract suites, SQLite tests, PostgreSQL-gated parity where available, architecture checks and targeted race tests; record any environment-gated skips.
