@@ -54,7 +54,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: reasoning-preservation store tests with deterministic clock plus race test_
   - _Requirements: 3, 5, 13_
 
-- [ ] 1.5 Freeze ordinary-text privacy and raw-result allocation boundaries
+- [x] 1.5 Freeze ordinary-text privacy and raw-result allocation boundaries
   - Add RED tests showing semantic-text classification does not imply egress approval; cover allow/redact/deny/missing-policy/route-policy-mismatch.
   - Prove required redaction occurs before input budgeting and provider submission, and no unredacted sensitive source reaches the fake compressor.
   - Add oversized raw-response tests where JSON would be valid only beyond `max_output_bytes`; prove rejection occurs before JSON decode/materialization beyond the bound.
@@ -325,3 +325,8 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 ## Completion Gate
 
 Implementation is complete only when all 32 tasks are green, exact/native continuity remains unchanged, `BackgroundClient` historical source compatibility is proven, ordinary reasoning egress is policy-controlled, raw responses are byte-bounded before decode, optional state is bounded both per session and across the feature instance, shadow evidence exists, and active semantic replay remains an explicit operator opt-in.
+
+## Implementation Notes
+
+- 1.4: Surrogate attach across policy revisions is REPLACEMENT with delta accounting (`cur-oldBytes+new`) on per-session and instance counters; `PendingCompression.SemanticDigest`/`EgressPolicyHash` correlation CAS is reserved for task 2.4.
+- Host note: `go test -race` cannot run on this Windows worktree (cgo toolchain limitation); concurrency coverage is deterministic channels/sync + goleak, matching steering's Windows race skip.
