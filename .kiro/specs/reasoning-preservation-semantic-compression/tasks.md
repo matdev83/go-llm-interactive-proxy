@@ -75,7 +75,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: classifier table/fuzz tests_
   - _Requirements: 1, 2_
 
-- [ ] 2.2 Implement nested compression configuration and hard validation
+- [x] 2.2 Implement nested compression configuration and hard validation
   - Add disabled-by-default `compression` config with explicit `route`, shadow/active mode, timeout/input/output/surrogate/savings bounds, per-session optional limits, feature-instance aggregate limits, and egress policy configuration/reference.
   - Add distinct `max_output_bytes` raw-response bound; do not conflate it with `max_output_tokens` or `max_surrogate_bytes`.
   - Validate aggregate >= corresponding local limits, hard ceilings, ratio policy, explicit route, and default shadow mode.

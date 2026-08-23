@@ -31,13 +31,14 @@ type StateConfig struct {
 }
 
 type Config struct {
-	Action            string       `yaml:"action"`
-	UseBuiltinCatalog bool         `yaml:"use_builtin_catalog"`
-	Rules             []RuleConfig `yaml:"rules"`
-	OnAmbiguous       string       `yaml:"on_ambiguous"`
-	OnUnrepresentable string       `yaml:"on_unrepresentable"`
-	OnStateError      string       `yaml:"on_state_error"`
-	State             StateConfig  `yaml:"state"`
+	Action            string            `yaml:"action"`
+	UseBuiltinCatalog bool              `yaml:"use_builtin_catalog"`
+	Rules             []RuleConfig      `yaml:"rules"`
+	OnAmbiguous       string            `yaml:"on_ambiguous"`
+	OnUnrepresentable string            `yaml:"on_unrepresentable"`
+	OnStateError      string            `yaml:"on_state_error"`
+	State             StateConfig       `yaml:"state"`
+	Compression       CompressionConfig `yaml:"compression"`
 }
 
 func DecodeConfig(n yaml.Node) (Config, error) {
@@ -75,7 +76,7 @@ func rejectUnknownConfigKeys(root yaml.Node) error {
 	for i := 0; i < len(root.Content); i += 2 {
 		k := root.Content[i].Value
 		switch k {
-		case "action", "use_builtin_catalog", "rules", "on_ambiguous", "on_unrepresentable", "on_state_error", "state":
+		case "action", "use_builtin_catalog", "rules", "on_ambiguous", "on_unrepresentable", "on_state_error", "state", "compression":
 		default:
 			return fmt.Errorf("%s: unknown config key %q", ID, k)
 		}
@@ -86,6 +87,11 @@ func rejectUnknownConfigKeys(root yaml.Node) error {
 		}
 		if k == "state" {
 			if err := rejectUnknownStateKeys(root.Content[i+1]); err != nil {
+				return err
+			}
+		}
+		if k == "compression" {
+			if err := rejectUnknownCompressionKeys(root.Content[i+1]); err != nil {
 				return err
 			}
 		}
@@ -179,6 +185,11 @@ func validateConfig(cfg Config) (Config, error) {
 	if cfg.State.MaxSessionBytes <= 0 {
 		return Config{}, fmt.Errorf("%s: state.max_session_bytes must be > 0", ID)
 	}
+	cc, err := validateCompressionConfig(cfg.Compression)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Compression = cc
 	seen := make(map[string]struct{}, len(cfg.Rules))
 	for i := range cfg.Rules {
 		r := &cfg.Rules[i]
