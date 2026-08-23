@@ -201,6 +201,13 @@ func (c boundBackgroundClient) Forget(id auxiliary.JobID) {
 	}
 }
 
+func (c boundBackgroundClient) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
+	if c.scheduler == nil {
+		return auxiliary.PollResult{}, ErrSchedulerClosed
+	}
+	return c.scheduler.Poll(ctx, id)
+}
+
 func (s *BackgroundScheduler) worker() {
 	defer s.wg.Done()
 	for {
@@ -491,6 +498,47 @@ func (s *BackgroundScheduler) Await(ctx context.Context, id auxiliary.JobID) (ou
 	}
 	cloneCollectedInto(&out, job.result)
 	return out, nil
+}
+
+// Poll inspects a background job without blocking. It distinguishes pending,
+// completed, failed, and not-found/expired states, clones completed results
+// defensively, and does not consume or forget the job.
+func (s *BackgroundScheduler) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
+	if s == nil {
+		return auxiliary.PollResult{}, ErrSchedulerClosed
+	}
+	if ctx == nil {
+		return auxiliary.PollResult{}, lipapi.ErrNilContext
+	}
+	if err := ctx.Err(); err != nil {
+		return auxiliary.PollResult{}, err
+	}
+	if strings.TrimSpace(string(id)) == "" {
+		return auxiliary.PollResult{}, ErrInvalidJobID
+	}
+	s.mu.Lock()
+	s.cleanupLocked(s.now())
+	job, ok := s.jobs[id]
+	if !ok {
+		s.mu.Unlock()
+		return auxiliary.PollResult{State: auxiliary.PollNotFound}, nil
+	}
+	finished := job.finished
+	jobErr := job.err
+	resultPtr := job.result
+	s.mu.Unlock()
+	if !finished {
+		return auxiliary.PollResult{State: auxiliary.PollPending}, nil
+	}
+	if jobErr != nil {
+		return auxiliary.PollResult{State: auxiliary.PollFailed, Err: jobErr}, nil
+	}
+	if resultPtr == nil {
+		return auxiliary.PollResult{State: auxiliary.PollFailed, Err: errors.New("auxreq: completed job has no result")}, nil
+	}
+	var collected lipapi.Collected
+	cloneCollectedInto(&collected, resultPtr)
+	return auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: collected}, nil
 }
 
 // Forget removes a result (or prevents a pending result from being retained)
@@ -811,4 +859,6 @@ func cloneRaw(in json.RawMessage) json.RawMessage {
 var (
 	_ auxiliary.BackgroundClient = (*BackgroundScheduler)(nil)
 	_ auxiliary.BackgroundClient = boundBackgroundClient{}
+	_ auxiliary.BackgroundPoller = (*BackgroundScheduler)(nil)
+	_ auxiliary.BackgroundPoller = boundBackgroundClient{}
 )

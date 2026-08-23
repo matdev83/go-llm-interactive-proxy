@@ -36,7 +36,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: focused reasoning-preservation observer/runtime tests_
   - _Requirements: 4_
 
-- [ ] 1.3 Freeze exported `BackgroundClient` source compatibility and optional poll semantics
+- [x] 1.3 Freeze exported `BackgroundClient` source compatibility and optional poll semantics
   - Add a compile/source-compatibility fixture implementing only historical `SubmitCollect`, `Await`, and `Forget`; it must continue to satisfy `auxiliary.BackgroundClient` after this work.
   - Add RED contract tests for a separate optional `BackgroundPoller` capability with pending/completed/failed/not-found states and no blocking.
   - Cover Poll races with completion, Forget, expiry, and shutdown without changing Await semantics.
