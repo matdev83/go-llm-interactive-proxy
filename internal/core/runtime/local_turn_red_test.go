@@ -721,12 +721,9 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			// Ensure no reply tag present (only source).
 			require.Len(t, snap.NeverBackend, 1, "only source tag should be present after handle failure")
 			// Also verify via executor's reader path (AsReader) yields same authoritative snapshot.
-			readerSnap, err := ex.ConversationViewReader_SnapshotForTest(context.Background(), aLegID) // helper via direct AsReader
-			// Fallback if helper not available: use cvStore again.
-			if err == nil {
-				assert.Equal(t, snap.StateRevision, readerSnap.StateRevision)
-			}
-			_ = readerSnap
+			readerSnap, err := conversationViewSnapshotForTest(context.Background(), ex, aLegID)
+			require.NoError(t, err)
+			assert.Equal(t, snap.StateRevision, readerSnap.StateRevision)
 		})
 	}
 }
@@ -751,7 +748,7 @@ func (c *capturingTagger) TagNeverBackend(ctx context.Context, aLegID string, re
 }
 
 // Expose snapshot via AsReader for verification convenience.
-func (e *Executor) ConversationViewReader_SnapshotForTest(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+func conversationViewSnapshotForTest(ctx context.Context, e *Executor, aLegID string) (conversationview.Snapshot, error) {
 	if r, ok := conversationview.AsReader(e.Store); ok {
 		return r.Snapshot(ctx, aLegID)
 	}
