@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -29,8 +30,10 @@ type Bundle struct {
 	Reload              *ReloadProm
 	Keepwarm            *KeepwarmProm
 	GeoIP               *GeoIPProm
+	ConversationView    *ConversationViewProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
+	conversationSink    conversationview.Observer
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
@@ -52,6 +55,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	reload := RegisterReloadProm(r)
 	keepwarm := RegisterKeepwarmProm(r)
 	geoip := RegisterGeoIPProm(r)
+	cv := RegisterConversationViewProm(r)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -67,8 +71,10 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		Reload:              reload,
 		Keepwarm:            keepwarm,
 		GeoIP:               geoip,
+		ConversationView:    cv,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
+		conversationSink:    NewConversationViewSink(cv),
 	}
 }
 
@@ -118,6 +124,14 @@ func (b *Bundle) TokenAccountingObservabilitySink() *TokenAccountingPromSink {
 		return nil
 	}
 	return b.tokenAccountingSink
+}
+
+// ConversationViewObserver returns a bounded conversation-view observer (nil when metrics disabled).
+func (b *Bundle) ConversationViewObserver() conversationview.Observer {
+	if b == nil {
+		return nil
+	}
+	return b.conversationSink
 }
 
 var _ interface {

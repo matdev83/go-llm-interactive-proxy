@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
@@ -100,6 +101,9 @@ func (e *Executor) snapshotAndProject(ctx context.Context, aLegID string, call l
 	}
 	snap, err := reader.Snapshot(ctx, aLegID)
 	if err != nil {
+		if obs := e.conversationViewObserver(); obs != nil {
+			conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageEarly)
+		}
 		return conversationview.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view snapshot: %w", err)
 	}
 	// Fast path: empty snapshot must remain identity-preserving (no clone)
@@ -109,8 +113,32 @@ func (e *Executor) snapshotAndProject(ctx context.Context, aLegID string, call l
 	}
 	out, ev, err := conversationview.Project(call, snap)
 	if err != nil {
+		if obs := e.conversationViewObserver(); obs != nil {
+			safe := conversationview.SafeObserver(obs)
+			safe.OnProjectionFailure(conversationview.StageEarly)
+			if errors.Is(err, conversationview.ErrAnchorMissing) || errors.Is(err, conversationview.ErrAnchorNotFound) {
+				safe.OnAnchorFailure(conversationview.AnchorFailClosed)
+			}
+		}
 		return conversationview.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view projection: %w", err)
+	}
+	// Emit bounded diagnostics via narrow observer seam.
+	if obs := e.conversationViewObserver(); obs != nil {
+		safe := conversationview.SafeObserver(obs)
+		summary := conversationview.NewProjectionSummary(snap, ev)
+		safe.OnProjection(conversationview.StageEarly, summary)
+		for range ev.Fallbacks {
+			safe.OnAnchorFallback(conversationview.StageEarly, conversationview.AnchorStablePrefixFallback)
+		}
 	}
 	// Evidence already bounded: counts, revisions, placement classes, no plaintext
 	return snap, ev, out, nil
+}
+
+// conversationViewObserver returns the optional narrow observer (nil is no-op).
+func (e *Executor) conversationViewObserver() conversationview.Observer {
+	if e == nil {
+		return nil
+	}
+	return e.ConversationViewObserver
 }

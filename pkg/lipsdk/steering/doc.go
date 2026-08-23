@@ -7,4 +7,9 @@
 // client frontends. Each overlay carries a bounded stable OverlayID, bounded
 // reason, bounded model-visible message payload (role+text, ≤64KiB), placement
 // and anchor-missing policy. No client/data-plane transport API is provided.
+//
+// Hidden steering is sent to the remote provider/model and may be quoted in
+// output. It is a transport/session visibility property, not a secrecy or
+// credential channel: producers must not place secrets, tokens, or credentials
+// in overlay text. Diagnostics are content-free (no plaintext/digest/OverlayID).
 package steering

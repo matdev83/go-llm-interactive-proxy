@@ -528,6 +528,13 @@ func (e *Executor) openAttemptTx(
 	if len(tx.reqFacts.conversationSnapshot.NeverBackend) > 0 || len(tx.reqFacts.conversationSnapshot.Steering) > 0 || len(tx.reqFacts.conversationProvenance) > 0 {
 		reasserted, reEv, rerr := conversationview.Reassert(openCall, tx.reqFacts.conversationSnapshot, tx.reqFacts.conversationProvenance, tx.reqFacts.conversationFilteredBaseline)
 		if rerr != nil {
+			if obs := e.conversationViewObserver(); obs != nil {
+				safe := conversationview.SafeObserver(obs)
+				safe.OnProjectionFailure(conversationview.StageFinal)
+				if errors.Is(rerr, conversationview.ErrAnchorMissing) || errors.Is(rerr, conversationview.ErrAnchorNotFound) {
+					safe.OnAnchorFailure(conversationview.AnchorFailClosed)
+				}
+			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 			return fmt.Errorf("executor: conversation view reassert: %w", rerr)
 		}
@@ -536,6 +543,16 @@ func (e *Executor) openAttemptTx(
 			reassertProvenance = reEv.Provenance
 		} else {
 			reassertProvenance = tx.reqFacts.conversationProvenance
+		}
+		if obs := e.conversationViewObserver(); obs != nil {
+			safe := conversationview.SafeObserver(obs)
+			summary := conversationview.NewProjectionSummary(tx.reqFacts.conversationSnapshot, reEv)
+			safe.OnProjection(conversationview.StageFinal, summary)
+			if reEv != nil {
+				for range reEv.Fallbacks {
+					safe.OnAnchorFallback(conversationview.StageFinal, conversationview.AnchorStablePrefixFallback)
+				}
+			}
 		}
 	} else {
 		reassertProvenance = tx.reqFacts.conversationProvenance
@@ -623,6 +640,9 @@ func (e *Executor) openAttemptTx(
 			provForVerify = tx.reqFacts.conversationProvenance
 		}
 		if verr := conversationview.VerifyAdaptationPreservesProjection(openCall, adaptedCall, tx.reqFacts.conversationSnapshot, provForVerify); verr != nil {
+			if obs := e.conversationViewObserver(); obs != nil {
+				conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageFinal)
+			}
 			tx.rollbackSimple(ctx, sdkterminal.CommandPreBackendDenial, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, nil, "")
 			return fmt.Errorf("executor: conversation view adaptation integrity: %w", verr)
 		}

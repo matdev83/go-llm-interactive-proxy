@@ -199,6 +199,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		obsRT.Metrics = in.Observability.Bundle.ExecutorSink()
 		obsRT.ExtensionMetrics = in.Observability.Bundle.ExtensionStageSink()
 		obsRT.SecretGuardDecisionMetrics = in.Observability.Bundle.SecretGuardDecisionSink()
+		obsRT.ConversationViewObserver = in.Observability.Bundle.ConversationViewObserver()
 		securityRT.SecureSessionMetrics = in.Observability.Bundle.SecureSessionMetricsSink()
 		if tokenAccounting != nil && tokenAccounting.Observability != nil {
 			tokenAccounting.Observability.SetSink(in.Observability.Bundle.TokenAccountingObservabilitySink())

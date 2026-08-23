@@ -25,6 +25,7 @@ type Writer struct {
 	store    conversationview.SteeringStore
 	aLegID   string
 	resolver TrajectoryResolver
+	observer conversationview.Observer
 }
 
 var _ steering.Writer = (*Writer)(nil)
@@ -33,6 +34,14 @@ var _ steering.Writer = (*Writer)(nil)
 // store and aLegID are required. resolver may be nil if the caller never uses
 // after_ingress_tail; Put with after_ingress_tail and nil resolver fails closed.
 func NewWriter(store conversationview.SteeringStore, aLegID string, resolver TrajectoryResolver) (*Writer, error) {
+	return NewWriterWithObserver(store, aLegID, resolver, nil)
+}
+
+// NewWriterWithObserver constructs a Writer with an optional narrow observer for
+// bounded steering mutation/cache-discontinuity diagnostics. The observer receives
+// only bounded enums (operation, placement), never OverlayID/ALegID/digest/plaintext.
+// Nil observer is a no-op.
+func NewWriterWithObserver(store conversationview.SteeringStore, aLegID string, resolver TrajectoryResolver, observer conversationview.Observer) (*Writer, error) {
 	if store == nil {
 		return nil, fmt.Errorf("sdkadapter: steering store is required")
 	}
@@ -43,7 +52,7 @@ func NewWriter(store conversationview.SteeringStore, aLegID string, resolver Tra
 	if len(trimmed) > conversationview.MaxALegIDBytes {
 		return nil, fmt.Errorf("sdkadapter: a-leg id exceeds %d bytes", conversationview.MaxALegIDBytes)
 	}
-	return &Writer{store: store, aLegID: trimmed, resolver: resolver}, nil
+	return &Writer{store: store, aLegID: trimmed, resolver: resolver, observer: observer}, nil
 }
 
 // Put validates the SDK PutRequest, resolves placement (stable_prefix passes
@@ -109,6 +118,11 @@ func (w *Writer) Put(ctx context.Context, req steering.PutRequest) (steering.Sta
 	if err != nil {
 		return steering.State{}, fmt.Errorf("sdkadapter: put steering: %w", err)
 	}
+	if st.CacheDiscontinuityKind != conversationview.CacheDiscontinuityNone {
+		if w.observer != nil {
+			conversationview.SafeObserver(w.observer).OnSteeringMutation(st.CacheDiscontinuityKind, st.CacheDiscontinuityPlacement)
+		}
+	}
 	return steering.State{
 		OverlayID:   steering.OverlayID(st.OverlayID),
 		Revision:    st.Revision,
@@ -126,6 +140,11 @@ func (w *Writer) Deactivate(ctx context.Context, id steering.OverlayID) (steerin
 	st, err := w.store.DeactivateSteering(ctx, w.aLegID, string(id))
 	if err != nil {
 		return steering.State{}, fmt.Errorf("sdkadapter: deactivate steering: %w", err)
+	}
+	if st.CacheDiscontinuityKind != conversationview.CacheDiscontinuityNone {
+		if w.observer != nil {
+			conversationview.SafeObserver(w.observer).OnSteeringMutation(st.CacheDiscontinuityKind, st.CacheDiscontinuityPlacement)
+		}
 	}
 	return steering.State{
 		OverlayID:   steering.OverlayID(st.OverlayID),

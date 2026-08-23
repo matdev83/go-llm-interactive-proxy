@@ -183,7 +183,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: focused OpenResponses/runtime/Bun suites_
   - _Requirements: 2.4-2.10, 9.8-9.10, 11.1-11.7, 13.14_
 
-- [ ] 5.2 Add bounded diagnostics and security/privacy guards
+- [x] 5.2 Add bounded diagnostics and security/privacy guards
   - Add content-free metrics/log events for filtering, steering injection/mutation revisions, anchor fallback/failure, projection failure and cache discontinuity.
   - Enforce bounded reason/source codes and prohibit steering/message plaintext or raw digests as high-cardinality labels.
   - Document/test that hidden steering is visible to the remote model/provider and must not carry credentials/secrets.

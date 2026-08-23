@@ -187,6 +187,9 @@ type ObservabilityRuntime struct {
 	RouteTrace                 *diag.RouteTraceBuffer
 	PolicyDiagnosticsEnabled   bool
 	CompletionBufferLimits     completion.BufferLimits
+	// ConversationViewObserver is optional narrow diagnostics for bounded conversation-view
+	// projection/anchor/steering metrics. Nil is no-op. Labels are bounded enums only (placement, operation, policy, stage).
+	ConversationViewObserver conversationview.Observer
 }
 
 // ExtensionRuntime carries the hook bus and frozen per-build extension snapshot.

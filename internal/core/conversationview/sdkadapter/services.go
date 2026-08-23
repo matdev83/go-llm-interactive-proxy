@@ -24,11 +24,18 @@ func NewNonforwardableRegistrarFromStore(v any) (nonforwardable.Registrar, error
 // v and constructs a writer bound to aLegID. It fails deterministically if the
 // capability is unavailable.
 func NewSteeringWriterFromStore(v any, aLegID string, resolver TrajectoryResolver) (steering.Writer, error) {
+	return NewSteeringWriterFromStoreWithObserver(v, aLegID, resolver, nil)
+}
+
+// NewSteeringWriterFromStoreWithObserver is like NewSteeringWriterFromStore but with an optional
+// narrow observer for bounded steering mutation/cache-discontinuity diagnostics.
+// The observer receives only bounded enums (operation, placement), never OverlayID/ALegID/digest/plaintext.
+func NewSteeringWriterFromStoreWithObserver(v any, aLegID string, resolver TrajectoryResolver, observer conversationview.Observer) (steering.Writer, error) {
 	st, ok := conversationview.AsSteeringStore(v)
 	if !ok || st == nil {
 		return nil, fmt.Errorf("sdkadapter: conversation-view steering capability not available")
 	}
-	return NewWriter(st, aLegID, resolver)
+	return NewWriterWithObserver(st, aLegID, resolver, observer)
 }
 
 // NewConversationViewServices is a convenience helper that resolves both
@@ -36,6 +43,12 @@ func NewSteeringWriterFromStore(v any, aLegID string, resolver TrajectoryResolve
 // deterministic errors if either capability is unavailable. Callers that only
 // need one capability should use the more narrow constructors above.
 func NewConversationViewServices(v any, writerALegID string, resolver TrajectoryResolver) (nonforwardable.Registrar, steering.Writer, error) {
+	return NewConversationViewServicesWithObserver(v, writerALegID, resolver, nil)
+}
+
+// NewConversationViewServicesWithObserver is like NewConversationViewServices but with an optional
+// narrow observer for steering mutation diagnostics wired to the writer.
+func NewConversationViewServicesWithObserver(v any, writerALegID string, resolver TrajectoryResolver, observer conversationview.Observer) (nonforwardable.Registrar, steering.Writer, error) {
 	tagger, ok := conversationview.AsTagger(v)
 	if !ok || tagger == nil {
 		return nil, nil, fmt.Errorf("sdkadapter: conversation-view tagger capability not available")
@@ -48,7 +61,7 @@ func NewConversationViewServices(v any, writerALegID string, resolver Trajectory
 	if err != nil {
 		return nil, nil, err
 	}
-	wr, err := NewWriter(st, writerALegID, resolver)
+	wr, err := NewWriterWithObserver(st, writerALegID, resolver, observer)
 	if err != nil {
 		return nil, nil, err
 	}
