@@ -32,14 +32,14 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 1.1, 1.2_
     - _Validation: `go test ./internal/core/config/... ./internal/core/stopguard/...`_
 
-- [ ] 2. Add bounded semantic progress tracking
-  - [ ] 2.1 (P) Write failing no-progress/budget tests in `internal/core/stopguard`
+- [x] 2. Add bounded semantic progress tracking
+  - [x] 2.1 (P) Write failing no-progress/budget tests in `internal/core/stopguard`
     - Cover materially equivalent final answer, same tool+normalized args+same error/result cycle, same verdict/objective without new canonical progress, new-progress behavior, immutable max-attempt budget, and cancellation/exhaustion terminal action.
     - Ensure volatile IDs/timestamps alone cannot defeat repetition detection.
     - _Requirements: 8.1, 8.3, 8.4, 8.6, 12.9_
     - _Depends on: 1.2 domain vocabulary_
     - _Validation: `go test ./internal/core/stopguard/...`_
-  - [ ] 2.2 Implement bounded progress fingerprint/tracker
+  - [x] 2.2 Implement bounded progress fingerprint/tracker
     - Build deterministic bounded digests from canonical output/tool/result/continuation/verdict facts.
     - Enforce no-progress threshold and total semantic continuation cap separately.
     - Do not retain raw prompt/tool payloads solely for guard fingerprinting when stable hashes/facts suffice.
