@@ -91,11 +91,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if p != nil {
 					attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
 				}
-				if !terminal.isInterleavedThinker() {
-					terminal.finishResponse(p, attempt)
-				} else {
-					clearAttemptToolState(p, attempt)
-				}
+				terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "dispatch_gated")
 			}
 			attempt.accounting.observeClientEvent(p.nowTime(), ev)
 			if recovery != nil && recovery.recoverPolicy != nil {
@@ -144,12 +140,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
 			p.commitSuccessfulTurn(facts, attempt, terminal.committed())
-			if !terminal.isInterleavedThinker() {
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-			} else {
-				clearAttemptToolState(p, attempt)
-			}
+			terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "dispatch_nongated")
 			out, _, err := p.observeClientFacing(ctx, ev, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishAfterRemember: true})
 			if err != nil {
 				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
@@ -322,12 +313,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), emitErr)
 		}
 		if emitErr == nil && ev.Kind == lipapi.EventResponseFinished {
-			if !terminal.isInterleavedThinker() {
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-			} else {
-				clearAttemptToolState(p, attempt)
-			}
+			terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "recovery_drain")
 		}
 		if emitErr == nil && lipapi.OutputCommitted(out) {
 			terminal.markOutputCommittedForAttempt(out, attempt, recovery)
@@ -385,11 +371,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
 					}, facts.attemptDiagAttrs(attempt))
 				}
-				if !terminal.isInterleavedThinker() {
-					terminal.finishResponse(p, attempt)
-				} else {
-					clearAttemptToolState(p, attempt)
-				}
+				terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "gate_drain")
 			}
 			attempt.accounting.observeClientEvent(p.nowTime(), ev)
 			pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)

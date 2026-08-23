@@ -78,6 +78,8 @@ type turnTerminal struct {
 	emitFrontendEgress      func(context.Context, string, lipapi.Event) (metering.Fact, bool)
 	meteringRecorderPresent bool
 	emitBackendEgress       func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
+
+	loopGuard *loopguardRuntime
 }
 
 func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
@@ -101,6 +103,7 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
 	t.meteringRecorderPresent = e.MeteringRecorder != nil
 	t.emitBackendEgress = e.emitBackendEgressMeteringFact
+	t.loopGuard = e.LoopGuard
 }
 
 func (t *turnTerminal) nowTime() time.Time {

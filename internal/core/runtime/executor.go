@@ -42,6 +42,8 @@ type Executor struct {
 	InterleavedRuntime
 	CompactionRuntime
 
+	LoopGuard *loopguardRuntime
+
 	lifecycleMu     sync.Mutex
 	rngOnce         sync.Once
 	lockedRand      routing.Rng

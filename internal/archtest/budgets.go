@@ -127,7 +127,8 @@ var LineBudgets = []LineBudget{
 	// Agent Loop Guard spec task 4.2 (agent-loop-breach-prevention): bounded evidence projector and conservative verifier prompt in stopguardverify; measured 93889, bump to 93914 with 25 headroom.
 	// Agent Loop Guard spec task 5.3 (agent-loop-breach-prevention): continuationsafety evaluate + recovery instruction; measured 94275, bump to 94300 with 25 headroom.
 	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): request-level stopgate orchestration; measured 94723, bump to 94748 with 25 headroom.
-	{Dir: "internal/core", Max: 94748},
+	// Agent Loop Guard spec task 6.2 phase 2 (agent-loop-breach-prevention): runtime recv loop guard gate wiring; measured 94847, bump to 94872 with 25 headroom.
+	{Dir: "internal/core", Max: 94872},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12746},
