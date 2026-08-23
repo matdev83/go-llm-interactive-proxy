@@ -35,7 +35,7 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
   - _Validation: `go test ./internal/core/conversationview/...`_
   - _Requirements: 5.3-5.7, 9.4-9.8, 10.1-10.9, 10.12_
 
-- [ ] 1.4 Freeze SDK producer and local-turn contracts
+- [x] 1.4 Freeze SDK producer and local-turn contracts
   - Add RED compile/validation tests for `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, and `pkg/lipsdk/localturn`.
   - Require bounded steering ID/message/placement/reason/policy types and trusted writer Put/Deactivate semantics without a client transport API.
   - Require local-turn Match to claim only complete normalized source messages and Handle to return bounded assistant text rather than arbitrary streams.
@@ -217,3 +217,4 @@ No task implements interactive commands, Quality Verifier policy, quota-notifica
 
 - Any task adding non-test Go lines under `internal/core` must bump the `internal/core` ratchet in `internal/archtest/budgets.go` (`LineBudgets`, measured+25) with one rationale comment in the existing chronological style; `go test ./internal/archtest/...` is a required per-task gate alongside the focused package tests (caught after 1.1 review; reviewer missed it, controller verification caught it).
 - Task 2.2/2.3 store work must: extract the conversationview contract suite into a reusable driver taking port constructors (currently hardwired to `*ReferenceStore` in `storecontract_test.go`), run it against Memory/Bun adapters, and prefer unexporting `GetOverlay` (or gating it for tests) so the narrow Reader/Tagger/SteeringStore surface stays canonical. Tighten `TestContract_ConcurrentSmoke` to exact count and add an aggregate-cap replace-overflow assertion when touching that suite.
+- SDK follow-ups from 1.4 review (apply when tasks 2.4/3.3 touch these packages): remove or wire the dead `validateHandlerID` in `pkg/lipsdk/localturn/types.go`; decide whether to unify typed-nil (`localturn.IsNilHandler`) vs `== nil` checks across `pkg/lipsdk/feature/bundle.go` ordered lists; consider sentinel-wrapped errors for SDK validation if typed classification becomes necessary (currently plain `fmt.Errorf`, tests use `require.Error`).
