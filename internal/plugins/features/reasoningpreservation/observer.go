@@ -414,12 +414,27 @@ func (o *streamObserver) captureExactReasoningPartLocked(src *lipapi.ReasoningPa
 		return nil
 	}
 	cloned := &lipapi.ReasoningPart{
-		Dialect:   src.Dialect,
-		Text:      src.Text,
-		Signature: src.Signature,
+		Dialect:                 src.Dialect,
+		Text:                    src.Text,
+		Signature:               src.Signature,
+		Summary:                 append(json.RawMessage(nil), src.Summary...),
+		SummaryPresent:          src.SummaryPresent,
+		Content:                 append(json.RawMessage(nil), src.Content...),
+		ContentPresent:          src.ContentPresent,
+		EncryptedContent:        append(json.RawMessage(nil), src.EncryptedContent...),
+		EncryptedContentPresent: src.EncryptedContentPresent,
 	}
 	if src.Opaque != nil {
 		cloned.Opaque = append(json.RawMessage(nil), src.Opaque...)
+	}
+	if len(cloned.Summary) == 0 && !src.SummaryPresent {
+		cloned.Summary = nil
+	}
+	if len(cloned.Content) == 0 && !src.ContentPresent {
+		cloned.Content = nil
+	}
+	if len(cloned.EncryptedContent) == 0 && !src.EncryptedContentPresent {
+		cloned.EncryptedContent = nil
 	}
 	probe := lipapi.Event{Kind: lipapi.EventReasoningPart, Reasoning: cloned}
 	if err := lipapi.ValidateEventEnvelope(&probe); err != nil {

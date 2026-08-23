@@ -265,7 +265,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: shadow-vs-active behavior tests_
   - _Requirements: 3, 11, 12, 13_
 
-- [ ] 6.4 Verify standard Codex/native companion behavior remains exact
+- [x] 6.4 Verify standard Codex/native companion behavior remains exact
   - Run current Codex reasoning-preservation/native-compaction companion tests with compression enabled in shadow/active configurations.
   - Prove exact/native markers, encrypted items, checkpoint flow, and provider-only accounting are unchanged and never compressor input.
   - Add architecture guard if implementation accidentally couples semantic compression into Codex-specific native logic.
