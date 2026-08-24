@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -287,14 +288,7 @@ func TestHiddenRecoveryInstructionNeverPersistedAsUserAuthored(t *testing.T) {
 	if len(checkedRoles) == 0 {
 		t.Fatalf("no Role declarations found in agent_loop_guard_continuation.go")
 	}
-	foundDeveloper := false
-	for _, r := range checkedRoles {
-		if r == "RoleDeveloper" {
-			foundDeveloper = true
-			break
-		}
-	}
-	if !foundDeveloper {
+	if !slices.Contains(checkedRoles, "RoleDeveloper") {
 		t.Fatalf("agent_loop_guard_continuation.go must explicitly use RoleDeveloper for hidden recovery instructions, found %v", checkedRoles)
 	}
 }

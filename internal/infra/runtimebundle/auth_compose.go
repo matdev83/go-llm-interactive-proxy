@@ -30,29 +30,18 @@ func localAPIKeyRecordsForAuth(rec []config.AuthLocalAPIKeyRecord) []coreauth.Lo
 
 func mergeAuthErrorRenderersByFrontend(reg *pluginreg.Registry, opts *BuildOptions) map[string]httpauth.AuthErrorRenderer {
 	out := make(map[string]httpauth.AuthErrorRenderer)
-	if reg != nil {
-		for k, v := range reg.AuthErrorRenderers() {
-			if v == nil {
-				continue
+	copyRenderers := func(m map[string]httpauth.AuthErrorRenderer) {
+		for k, v := range m {
+			if v != nil && strings.TrimSpace(k) != "" {
+				out[strings.ToLower(strings.TrimSpace(k))] = v
 			}
-			kk := strings.ToLower(strings.TrimSpace(k))
-			if kk == "" {
-				continue
-			}
-			out[kk] = v
 		}
 	}
+	if reg != nil {
+		copyRenderers(reg.AuthErrorRenderers())
+	}
 	if opts != nil {
-		for k, v := range opts.Auth.AuthErrorRenderersByFrontend {
-			if v == nil {
-				continue
-			}
-			kk := strings.ToLower(strings.TrimSpace(k))
-			if kk == "" {
-				continue
-			}
-			out[kk] = v
-		}
+		copyRenderers(opts.Auth.AuthErrorRenderersByFrontend)
 	}
 	if len(out) == 0 {
 		return nil

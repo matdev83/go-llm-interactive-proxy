@@ -25,7 +25,6 @@ func buildGuardTailState(p *responsePipeline, attempt *attemptSession) continuat
 		events := p.seenEventsCopy()
 		var textBuilder strings.Builder
 		toolCalls := make(map[string]*lipapi.Item)
-		var callOrder []string
 		var completedCalls []lipapi.Item
 		var completedResults []lipapi.Item
 		for _, ev := range events {
@@ -36,9 +35,6 @@ func buildGuardTailState(p *responsePipeline, attempt *attemptSession) continuat
 				id := ev.ToolCallID
 				if id == "" {
 					continue
-				}
-				if _, exists := toolCalls[id]; !exists {
-					callOrder = append(callOrder, id)
 				}
 				toolCalls[id] = &lipapi.Item{Kind: lipapi.ItemKindToolCall, Status: lipapi.ItemStatusCompleted, ToolCall: &lipapi.ToolCallItem{CallID: id, Name: ev.ToolName}}
 			case lipapi.EventToolCallArgsDelta:
@@ -260,7 +256,7 @@ func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts request
 	return outcome
 }
 
-func (t *turnTerminal) tryPostOutputContinuation(s *retryRecvStream, ctx context.Context, attempt *attemptSession, cause stopguard.Cause, reason string) bool {
+func (t *turnTerminal) tryPostOutputContinuation(ctx context.Context, s *retryRecvStream, attempt *attemptSession, cause stopguard.Cause, reason string) bool {
 	if s == nil || attempt == nil {
 		return false
 	}
@@ -271,7 +267,7 @@ func (t *turnTerminal) tryPostOutputContinuation(s *retryRecvStream, ctx context
 	if outcome.Action != stopguard.ActionContinueLeg || outcome.HoldReleased {
 		return false
 	}
-	return t.tryGuardContinuation(s, ctx, attempt, outcome)
+	return t.tryGuardContinuation(ctx, s, attempt, outcome)
 }
 
 const postOutputInterruptionReason = "post_output_interruption"
@@ -296,7 +292,7 @@ func (t *turnTerminal) settlePostOutputInterruptedBAttempt(ctx context.Context, 
 	})
 }
 
-func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Context, attempt *attemptSession, outcome stopgate.Outcome) bool {
+func (t *turnTerminal) tryGuardContinuation(ctx context.Context, s *retryRecvStream, attempt *attemptSession, outcome stopgate.Outcome) bool {
 	if t == nil || s == nil || s.responsePipeline == nil {
 		return false
 	}
@@ -306,7 +302,6 @@ func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Cont
 	if ctx.Err() != nil {
 		return false
 	}
-	// fmt.Printf("tryGuardContinuation attempt %v outcome %+v\n", attempt.bleg.BLegID, outcome)
 	tail := buildGuardTailState(s.responsePipeline, attempt)
 	prior := buildGuardPrior(s)
 	bounds := lipcont.DefaultBounds()
@@ -379,7 +374,7 @@ func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Cont
 	if ctx.Err() != nil {
 		return false
 	}
-	openRes, openErr := t.openGuardContinuationLeg(s, ctx, attempt, newBaseline)
+	openRes, openErr := t.openGuardContinuationLeg(ctx, s, attempt, newBaseline)
 	if openErr != nil || !openRes.opened || openRes.ready == nil {
 		return false
 	}
@@ -402,7 +397,7 @@ func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Cont
 	return true
 }
 
-func (t *turnTerminal) openGuardContinuationLeg(s *retryRecvStream, ctx context.Context, priorAttempt *attemptSession, newBaseline lipapi.Call) (replacementOpenResult, error) {
+func (t *turnTerminal) openGuardContinuationLeg(ctx context.Context, s *retryRecvStream, priorAttempt *attemptSession, newBaseline lipapi.Call) (replacementOpenResult, error) {
 	if s == nil || s.recovery == nil || s.recovery.opener == nil {
 		return replacementOpenResult{}, context.Canceled
 	}

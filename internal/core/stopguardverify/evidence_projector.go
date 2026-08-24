@@ -233,12 +233,12 @@ func projectTrajectorySummary(items []lipapi.Item) string {
 				h := sha256.Sum256([]byte(it.ToolResult.Output))
 				digest = fmt.Sprintf(" output_sha256:%s", hex.EncodeToString(h[:8]))
 			} else if len(it.ToolResult.Parts) > 0 {
-				var joined string
+				var sb strings.Builder
 				for _, cp := range it.ToolResult.Parts {
-					joined += cp.Text
+					sb.WriteString(cp.Text)
 				}
-				if joined != "" {
-					h := sha256.Sum256([]byte(joined))
+				if sb.Len() > 0 {
+					h := sha256.Sum256([]byte(sb.String()))
 					digest = fmt.Sprintf(" output_sha256:%s", hex.EncodeToString(h[:8]))
 				}
 			}

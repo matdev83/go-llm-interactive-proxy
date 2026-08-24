@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -301,13 +302,13 @@ func TestAgentLoopGuard_IntegrationScenario7_PreOutputEOF_ExistingRecoveryNoInte
 	assert.Equal(t, int32(2), opens.Load(), "pre-output recovery must open B2")
 	assert.Equal(t, 1, countTerminal(events), "must have exactly one final EventResponseFinished")
 
-	var gotText string
+	var gotText strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			gotText += ev.Delta
+			gotText.WriteString(ev.Delta)
 		}
 	}
-	assert.Equal(t, "recovered response", gotText)
+	assert.Equal(t, "recovered response", gotText.String())
 }
 
 // Scenario 8: post-output EOF after text -> no replay/duplicate; safe continuation when supported.
@@ -323,7 +324,7 @@ func TestAgentLoopGuard_IntegrationScenario8_PostOutputEOF_NoReplaySafeContinuat
 	ex.Rand = routing.NewSeededRng(100)
 	ex.StreamRecovery = streamrecovery.Config{
 		Enabled:                     true,
-		IdleTimeout:                 5 * time.Millisecond,
+		IdleTimeout:                 500 * time.Millisecond,
 		GracePeriod:                 0,
 		AllowPostOutputContinuation: true,
 	}
@@ -374,13 +375,13 @@ func TestAgentLoopGuard_IntegrationScenario8_PostOutputEOF_NoReplaySafeContinuat
 	assert.Equal(t, int32(2), opens.Load())
 	assert.Equal(t, 1, countTerminal(events))
 
-	var fullText string
+	var fullText strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			fullText += ev.Delta
+			fullText.WriteString(ev.Delta)
 		}
 	}
-	assert.Equal(t, "hello world", fullText, "must stitch continuous text without duplicating 'hello'")
+	assert.Equal(t, "hello world", fullText.String(), "must stitch continuous text without duplicating 'hello'")
 }
 
 // Scenario 9: post-output EOF after completed tool+matching result -> continue without tool re-execution.

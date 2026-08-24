@@ -76,9 +76,11 @@ func (s *guardContinuationEventStream) Recv(ctx context.Context) (lipapi.Event, 
 	s.idx++
 	return ev, nil
 }
+
 func (s *guardContinuationEventStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
 }
+
 func (s *guardContinuationEventStream) Close() error { return nil }
 
 // --- Per-request Gate factory isolation ---
@@ -105,7 +107,7 @@ func TestGuardContinuation_PerRequestGateIsolation_Concurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		// Exhaust rs1: 3 continues then forward
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			ev, err := testRecvOne(context.Background(), rs1, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "raw"})
 			if err != nil {
 				errCh <- err

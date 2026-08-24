@@ -53,11 +53,13 @@ func buildLoopGuardFactory(eff config.EffectiveAgentLoopGuardConfig, client auxi
 	})
 }
 
+type debugLogger interface {
+	DebugContext(context.Context, string, ...any)
+}
+
 // newLoopGuardObserver creates a production observer that forwards honest telemetry.
 // If no observability sink exists, it is a no-op for success and logs errors at debug.
-func newLoopGuardObserver(log interface {
-	DebugContext(context.Context, string, ...any)
-}) loopGuardObserver {
+func newLoopGuardObserver(log debugLogger) loopGuardObserver {
 	return func(obs stopguardverify.VerifyObservation) {
 		// Honest: Latency is measured by adapter (>=0), usage from Collected, Err as observed.
 		// No fabricated values. Success and failure both forwarded.

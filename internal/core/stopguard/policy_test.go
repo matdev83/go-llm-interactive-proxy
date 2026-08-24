@@ -19,7 +19,7 @@ func assistantItem(text string) lipapi.Item {
 	return lipapi.Item{
 		Kind:    lipapi.ItemKindMessage,
 		Role:    lipapi.RoleAssistant,
-		Content: []lipapi.ContentPart{lipapi.ContentPart{Text: text}},
+		Content: []lipapi.ContentPart{{Text: text}},
 	}
 }
 

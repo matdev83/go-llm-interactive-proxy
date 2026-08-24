@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -80,17 +81,18 @@ func TestAgentLoopGuard_PostOutput_VisibleTextThenEOF_NoRetryOneContinuationLega
 	if terms != 1 {
 		t.Fatalf("must have exactly one final EventResponseFinished (got %d, events=%v)", terms, events)
 	}
-	var gotText string
+	var gotText strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			gotText += ev.Delta
+			gotText.WriteString(ev.Delta)
 		}
 	}
-	if gotText != "hello"+b2Text {
-		t.Fatalf("committed text must be emitted once with B2 continuation (got %q want %q)", gotText, "hello"+b2Text)
+	textStr := gotText.String()
+	if textStr != "hello"+b2Text {
+		t.Fatalf("committed text must be emitted once with B2 continuation (got %q want %q)", textStr, "hello"+b2Text)
 	}
-	if gotText == "hellohello"+b2Text {
-		t.Fatalf("duplicate committed text detected %q", gotText)
+	if textStr == "hellohello"+b2Text {
+		t.Fatalf("duplicate committed text detected %q", textStr)
 	}
 	leg, err := store.FetchALeg(context.Background(), call.Session.ALegID)
 	if err != nil {
@@ -205,9 +207,11 @@ func (s *blockingIdleStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	<-ctx.Done()
 	return lipapi.Event{}, ctx.Err()
 }
+
 func (s *blockingIdleStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
 }
+
 func (s *blockingIdleStream) Close() error { return nil }
 
 func execSetupGuardContinuationOpenerWithCapture(t *testing.T, rs *retryRecvStream, events []lipapi.Event, outIsRetry **bool, outMode **openMode) {
@@ -317,14 +321,14 @@ func TestAgentLoopGuard_PostOutput_CompletedToolPlusResultThenEOF_ContinuesWitho
 	if terms != 1 {
 		t.Fatalf("must have exactly one final terminal (got %d)", terms)
 	}
-	var gotText string
+	var gotText strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			gotText += ev.Delta
+			gotText.WriteString(ev.Delta)
 		}
 	}
-	if gotText != "after-tool continued" {
-		t.Fatalf("text after tool continuation got %q want %q", gotText, "after-tool continued")
+	if gotText.String() != "after-tool continued" {
+		t.Fatalf("text after tool continuation got %q want %q", gotText.String(), "after-tool continued")
 	}
 	leg, _ := store.FetchALeg(context.Background(), call.Session.ALegID)
 	atts, _ := store.LoadAttempts(context.Background(), leg.ALegID)

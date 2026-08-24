@@ -237,10 +237,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if in.CompactionScheduler != nil {
 		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
+
 	var execHolder *runtime.Executor
 	auxClientForGuard := auxreq.NewClient(func() auxreq.ExecutorRunner { return execHolder })
-	effGuard := cfg.EffectiveAgentLoopGuard()
-	loopGuardFactory := buildLoopGuardFactory(effGuard, auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
+	loopGuardFactory := buildLoopGuardFactory(cfg.EffectiveAgentLoopGuard(), auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
 
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{

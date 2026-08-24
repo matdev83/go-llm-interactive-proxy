@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -40,16 +39,13 @@ func setupGuardedStream(t *testing.T, verifier stopguard.Verifier, guardEnabled 
 		t.Fatal(err)
 	}
 	ex.Store = store
-	fv, isFake := verifier.(*fakeGuardVerifier)
+	fv, _ := verifier.(*fakeGuardVerifier)
 	if guardEnabled {
 		if verifier == nil {
 			fv = &fakeGuardVerifier{verdict: stopguard.Verdict{Kind: stopguard.VerdictAllowStop}}
 			verifier = fv
 		}
 		ex.LoopGuardFactory = newLoopGuardFactoryForTest(verifier)
-		if isFake && fv != nil {
-			// already set
-		}
 	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -169,16 +165,12 @@ func TestAgentLoopGuard_Enabled_Continue_Withheld(t *testing.T) {
 	if ev.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("first Recv kind=%q want response_finished (controlled fallback)", ev.Kind)
 	}
-	// Verify B-attempt outcome is swallowed, not success
-	if attempt.terminal != nil && attempt.terminal.Owner() != nil {
-		// No direct outcome check here, but record count ensures exactly-once
-	}
 	// no panic and subsequent Recv terminates cleanly (EOF)
 	_, err = rs.Recv(context.Background())
 	if err == nil {
 		// gate-drain or recovery may have pending state; allow EOF or response_finished
 		// but must not panic and must eventually reach EOF
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			_, err = rs.Recv(context.Background())
 			if errors.Is(err, io.EOF) {
 				break
@@ -231,15 +223,14 @@ func TestAgentLoopGuard_Race_RecvClose_NoDoublePublish(t *testing.T) {
 	}
 	testStoreInner(rs2, inner2)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		_, _ = rs2.Recv(context.Background())
 	}()
 	<-inner2.recvEntered
 	_ = rs2.Close()
-	wg.Wait()
+	<-done
 	// finished should be exactly once, no panic
 	if !rs2.terminal.finished() {
 		t.Fatal("expected finished after race")

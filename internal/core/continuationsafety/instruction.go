@@ -85,9 +85,9 @@ func BuildRecoveryInstruction(in RecoveryInput) string {
 	b.WriteString("\n")
 	b.WriteString("If the next step requires user input, permission, approval, or a choice, do not assume it; end normally so the user can respond.\n")
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("Recovery reason: %s\n", reason))
-	b.WriteString(fmt.Sprintf("Remaining objective: %s\n", objective))
-	b.WriteString(fmt.Sprintf("Attempt %d/%d\n", attempt, maxAttempts))
+	fmt.Fprintf(&b, "Recovery reason: %s\n", reason)
+	fmt.Fprintf(&b, "Remaining objective: %s\n", objective)
+	fmt.Fprintf(&b, "Attempt %d/%d\n", attempt, maxAttempts)
 	b.WriteString("</automated-recovery>")
 	return b.String()
 }

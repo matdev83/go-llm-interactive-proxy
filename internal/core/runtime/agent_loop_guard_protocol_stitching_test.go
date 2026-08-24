@@ -208,16 +208,10 @@ func TestAgentLoopGuard_ProtocolStitching_NonStreamingCollection(t *testing.T) {
 	if ev.Kind != lipapi.EventTextDelta || ev.Delta != " world" {
 		t.Fatalf("expected B2 stitched text, got %q %q", ev.Kind, ev.Delta)
 	}
-	if _, err := rs.Recv(context.Background()); err != nil {
-		if err != io.EOF {
-			_ = err
-		}
-	}
+	_, _ = rs.Recv(context.Background())
 	// Ensure final terminal was reached
 	if !rs.terminal.finished() {
-		if _, err := rs.Recv(context.Background()); err != nil && err != io.EOF {
-			// ignore
-		}
+		_, _ = rs.Recv(context.Background())
 	}
 	// Non-streaming via Collect over combined stitched canonical stream
 	stitched := []lipapi.Event{
@@ -360,6 +354,7 @@ func setupGuardedStreamWithOperation(t *testing.T, verifier stopguard.Verifier, 
 }
 
 func setupGuardedStreamWithSelector(t *testing.T, verifier stopguard.Verifier, guardEnabled bool, selector string) (*Executor, *retryRecvStream, *fakeGuardVerifier) {
+	t.Helper()
 	op := lipapi.OperationOpenAIChatCompletions
 	if strings.HasPrefix(selector, "unsupported") {
 		op = lipapi.Operation("")

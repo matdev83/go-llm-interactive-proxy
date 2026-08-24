@@ -167,7 +167,6 @@ func TestSemanticStopRegression_JSONFixtures(t *testing.T) {
 	require.NotEmpty(t, fixtures, "must have fixtures in dataset")
 
 	for _, fix := range fixtures {
-		fix := fix
 		t.Run(fix.ID, func(t *testing.T) {
 			t.Parallel()
 

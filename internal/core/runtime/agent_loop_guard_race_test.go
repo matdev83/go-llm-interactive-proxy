@@ -25,7 +25,7 @@ import (
 func TestAgentLoopGuard_Race_SwallowedBLeg_AtomicTerminalization(t *testing.T) {
 	t.Parallel()
 
-	for iter := 0; iter < 100; iter++ {
+	for iter := range 100 {
 		sess := newAttemptSession(attemptSessionInput{
 			bleg:      b2bua.BLegRecord{BLegID: "b-race-1", Seq: 1},
 			cand:      routing.AttemptCandidate{Key: "openai:gpt-4", Primary: routing.Primary{Backend: "openai", Model: "gpt-4"}},
@@ -38,12 +38,13 @@ func TestAgentLoopGuard_Race_SwallowedBLeg_AtomicTerminalization(t *testing.T) {
 		var wg sync.WaitGroup
 		start := make(chan struct{})
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			intent := IntentSwallowedFailure
-			if i%3 == 1 {
+			switch i % 3 {
+			case 1:
 				intent = IntentCancellation
-			} else if i%3 == 2 {
+			case 2:
 				intent = IntentSurfacedFailure
 			}
 			go func(intent attemptTerminalIntent) {
@@ -80,27 +81,28 @@ func TestAgentLoopGuard_Race_SwallowedBLeg_AtomicTerminalization(t *testing.T) {
 func TestAgentLoopGuard_Race_FinalALeg_AtomicPublication(t *testing.T) {
 	t.Parallel()
 
-	for iter := 0; iter < 100; iter++ {
+	for iter := range 100 {
 		term := newTurnTerminal()
 		const numGoroutines = 20
 		var wins atomic.Int64
-		var wg sync.WaitGroup
 		start := make(chan struct{})
+		done := make(chan struct{}, numGoroutines)
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
+		for range numGoroutines {
 			go func() {
-				defer wg.Done()
 				<-start
 				// Race markFinished
 				if term.markFinished() {
 					wins.Add(1)
 				}
+				done <- struct{}{}
 			}()
 		}
 
 		close(start)
-		wg.Wait()
+		for range numGoroutines {
+			<-done
+		}
 
 		if got := wins.Load(); got != 1 {
 			t.Fatalf("iteration %d: exactly 1 markFinished must succeed, got %d", iter, got)
@@ -117,7 +119,7 @@ func TestAgentLoopGuard_Race_FinalALeg_AtomicPublication(t *testing.T) {
 func TestAgentLoopGuard_Race_ContinuationLegCompletion_Vs_CancelClose(t *testing.T) {
 	t.Parallel()
 
-	for iter := 0; iter < 50; iter++ {
+	for range 50 {
 		fv := &fakeGuardVerifier{
 			verdict: stopguard.Verdict{
 				Kind:               stopguard.VerdictContinue,
@@ -135,27 +137,26 @@ func TestAgentLoopGuard_Race_ContinuationLegCompletion_Vs_CancelClose(t *testing
 
 		ctx, cancel := context.WithCancel(context.Background())
 		start := make(chan struct{})
-		var wg sync.WaitGroup
+		done := make(chan struct{}, 2)
 
 		// Goroutine 1: Recv first event (triggers guard continuation)
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			<-start
 			_, _ = testRecvOne(ctx, rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "raw_backend_finish"})
+			done <- struct{}{}
 		}()
 
 		// Goroutine 2: Cancel context or close stream concurrently
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			<-start
 			cancel()
 			_ = rs.Close()
+			done <- struct{}{}
 		}()
 
 		close(start)
-		wg.Wait()
+		<-done
+		<-done
 
 		// Stream must not deadlock and terminal must settle
 		cancel()
@@ -167,7 +168,7 @@ func TestAgentLoopGuard_Race_ContinuationLegCompletion_Vs_CancelClose(t *testing
 func TestAgentLoopGuard_Race_VerifierCompletion_Vs_ClientCancelClose(t *testing.T) {
 	t.Parallel()
 
-	for iter := 0; iter < 50; iter++ {
+	for iter := range 50 {
 		entered := make(chan struct{}, 1)
 		block := make(chan struct{})
 		fv := &fakeGuardVerifierWithBlock{

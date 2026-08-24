@@ -208,7 +208,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 2.3, 4.1, 6.5, 9.1–9.6, 10.3_
     - _Depends on: 6.3, 7.2, 8.3_
     - _Validation: architecture tests + targeted `go test -race`_
-  - [ ] 10.3 Run whole-repository quality gates and repair only scope-related regressions
+  - [x] 10.3 Run whole-repository quality gates and repair only scope-related regressions
     - Execute `go test ./...`, relevant targeted race suite, `make quality-checks`, `make test`, and `make qa` according to current project steering/CI capabilities.
     - Confirm disabled-mode compatibility, no duplicate transport knobs, no provisional A terminal leakage, and no provider-specific guard policy in core.
     - _Requirements: 1.1–1.5, 9.1–9.6, 10.1–10.5, 12.10_
@@ -289,3 +289,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 9.2 emits bounded candidate, verdict, action, breaker, and replay-suppression telemetry through runtime structured logs, carries honest verifier usage/latency and lineage, and keeps stopgate pure with no conversational payloads in telemetry attributes.
 - 10.1 adds 18 deterministic semantic-stop fixtures and all 16 design integration scenarios across positive unfinished work, critical false-positive boundaries, verifier uncertainty, transport safety, cancellation, no-progress, budgets, explicit completion, and unsupported continuation.
 - 10.2 ratchets stopguard purity and zero-I/O imports, semantic continuation non-retry call paths, hidden Developer-control isolation, and exactly-once B/A terminal ownership under deterministic repeated and race-enabled tests.
+- 10.3 converges the architecture shrinkage gate with a locked Agent Loop Guard composition overlay plus behavior-preserving scope deduplication, restores cross-frontend OpenResponses compatibility, and passes `go test ./...`, `make quality-checks`, `make test`, and `make qa`; Windows race remains environment-limited while deterministic race tests pass.

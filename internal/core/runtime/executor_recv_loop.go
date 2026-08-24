@@ -93,7 +93,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
 					held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 					if held {
-						if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+						if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 							return lipapi.Event{}, true, nil
 						}
 						fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_gated", outcome.Reason)
@@ -150,7 +150,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
 				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 				if held {
-					if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 						return lipapi.Event{}, true, nil
 					}
 					fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_nongated", outcome.Reason)
@@ -261,7 +261,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.endALeg(aLegEndBase)
 					return lipapi.Event{}, false, ctx.Err()
 				}
-				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(s, ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
+				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
 					return lipapi.Event{}, true, nil
 				}
 				if terminal.isLoopGuardEnabled() {
@@ -344,7 +344,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.endALeg(aLegEndBase)
 					return lipapi.Event{}, false, ctx.Err()
 				}
-				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(s, ctx, attempt, stopguard.CauseIdlePostCommit, dec.reason) {
+				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseIdlePostCommit, dec.reason) {
 					return lipapi.Event{}, true, nil
 				}
 				if terminal.isLoopGuardEnabled() {
@@ -419,7 +419,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.endALeg(aLegEndBase)
 					return lipapi.Event{}, false, ctx.Err()
 				}
-				if s != nil && terminal.tryPostOutputContinuation(s, ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
+				if s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
 					return lipapi.Event{}, true, nil
 				}
 				terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason)
@@ -503,7 +503,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
 			held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 			if held {
-				if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+				if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 					return lipapi.Event{}, nil
 				}
 				terminal.settleSwallowedBAttempt(ctx, attempt)
@@ -573,7 +573,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
 				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 				if held {
-					if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 						continue
 					}
 					terminal.settleSwallowedBAttempt(ctx, attempt)

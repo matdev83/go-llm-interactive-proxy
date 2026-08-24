@@ -860,7 +860,7 @@ func TestAgentLoopGuard_Telemetry_LineageAndAttributableAccounting(t *testing.T)
 
 	fv := &fakeGuardVerifier{verdict: stopguard.Verdict{Kind: stopguard.VerdictAllowStop, Reason: "complete"}}
 	ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
-	ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond, GracePeriod: 0, EmitWarning: true, AllowPostOutputContinuation: true}
+	ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 500 * time.Millisecond, GracePeriod: 0, EmitWarning: true, AllowPostOutputContinuation: true}
 
 	var opens atomic.Int32
 	ex.Backends = map[string]execbackend.Backend{
@@ -1206,14 +1206,14 @@ func TestAgentLoopGuard_Telemetry_OperatorVisibilityNotFabricatedATurns(t *testi
 	}
 
 	// 3. Output from B1 and B2 was combined seamlessly for the A-side.
-	var fullText string
+	var fullText strings.Builder
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventTextDelta {
-			fullText += ev.Delta
+			fullText.WriteString(ev.Delta)
 		}
 	}
-	if fullText != "Step 1 done. Step 2 done." {
-		t.Fatalf("combined text = %q, want %q", fullText, "Step 1 done. Step 2 done.")
+	if fullText.String() != "Step 1 done. Step 2 done." {
+		t.Fatalf("combined text = %q, want %q", fullText.String(), "Step 1 done. Step 2 done.")
 	}
 
 	// 4. Verify no synthetic user message or recovery instruction was exposed in A-side stream events.

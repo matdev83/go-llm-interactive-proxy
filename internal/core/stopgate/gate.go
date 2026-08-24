@@ -206,9 +206,8 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 		// Surface the evaluated outcome indirectly for progress correlation even
 		// on immediate actions: not required to record, but keep evaluation side-effect free.
 		_ = evalRes
-		attemptNum := 1
 		g.mu.Lock()
-		attemptNum = g.continuationCount + 1
+		attemptNum := g.continuationCount + 1
 		g.mu.Unlock()
 		return Outcome{
 			Action:             act,
@@ -399,10 +398,7 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 	g.mu.Unlock()
 	g.holdReleased.Store(true)
 
-	reason := string(normalized.Kind)
-	if reason == "" {
-		reason = string(stopguard.VerdictUncertain)
-	}
+	var reason string
 	switch normalized.Kind {
 	case stopguard.VerdictAllowStop:
 		reason = "allow_stop: forward terminal"
@@ -413,10 +409,12 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 	case stopguard.VerdictUncertain:
 		reason = "uncertain: forward terminal"
 	case stopguard.VerdictContinue:
-		// Should not happen because continue would have been handled above; normalized continue implies forward due to budget etc., keep uncertain phrasing.
-		reason = "uncertain: forward terminal"
+		reason = "continue: non-progress fallback forward terminal"
 	default:
-		reason = "uncertain: forward terminal"
+		reason = string(normalized.Kind)
+		if reason == "" {
+			reason = string(stopguard.VerdictUncertain)
+		}
 	}
 	if isCancel {
 		reason = "cancelled: forward terminal"

@@ -253,7 +253,6 @@ func TestGate_NonSemanticCauses_NoVerifierSpend(t *testing.T) {
 		{"empty_retry_eligible", stopguard.Candidate{Cause: stopguard.CauseEmptyNormalEnd, EmptyRetryEligible: true}, stopguard.ActionDelegatePreOutputRecovery, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fv := &fakeVerifier{verdict: stopguard.Verdict{Kind: stopguard.VerdictContinue, RemainingObjective: "should not be used"}}
@@ -427,7 +426,7 @@ func TestGate_Race_SingleHoldReleasedPublication(t *testing.T) {
 	// First goroutine establishes CONTINUE (no hold release), remaining race to get latched forward_terminal
 	startCh := make(chan struct{})
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			<-startCh
@@ -487,7 +486,6 @@ func TestGate_Race_CancelCloseNormalFinish_VerifierCompletion_SingleOwner(t *tes
 	start := make(chan struct{})
 	wg.Add(len(cases))
 	for _, tc := range cases {
-		tc := tc
 		go func() {
 			defer wg.Done()
 			<-start
@@ -534,7 +532,6 @@ func TestGate_FinalTerminalizes_ExactlyOnce_AcrossVerdictsAndExhaustion(t *testi
 		{Kind: stopguard.VerdictUncertain},
 	}
 	for _, v := range verdicts {
-		v := v
 		t.Run(string(v.Kind), func(t *testing.T) {
 			t.Parallel()
 			fv := &fakeVerifier{verdict: v}
