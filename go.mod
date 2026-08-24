@@ -5,13 +5,13 @@ go 1.26.6
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/anthropics/anthropic-sdk-go v1.62.0
-	github.com/aws/aws-sdk-go-v2 v1.43.4
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.16
-	github.com/aws/aws-sdk-go-v2/config v1.32.35
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.34
-	github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1
-	github.com/aws/smithy-go v1.27.6
+	github.com/aws/aws-sdk-go-v2 v1.43.7
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.18
+	github.com/aws/aws-sdk-go-v2/config v1.32.38
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.37
+	github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.7
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.4
+	github.com/aws/smithy-go v1.27.8
 	github.com/gorilla/websocket v1.5.3
 	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/openai/openai-go/v3 v3.50.0
@@ -37,8 +37,8 @@ require (
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.48.0
 	google.golang.org/genai v1.67.0
-	google.golang.org/grpc v1.83.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/grpc v1.83.1
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
 )
@@ -47,16 +47,16 @@ require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.18.2 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.35 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.35 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.35 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.36 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.15 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.35 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.5.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.33.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.45.4 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.38 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.38 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.38 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.39 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.17 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.38 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.5.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.33.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.45.7 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
