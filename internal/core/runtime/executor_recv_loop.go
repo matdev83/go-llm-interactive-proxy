@@ -153,6 +153,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 						return lipapi.Event{}, true, nil
 					}
+					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+						return lipapi.Event{}, false, err
+					}
 					fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_nongated", outcome.Reason)
 					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
 					if recovery != nil && recovery.recoverPolicy != nil {
@@ -164,6 +168,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						return lipapi.Event{}, false, err
 					}
 					return out, false, nil
+				}
+				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+					return lipapi.Event{}, false, err
 				}
 			}
 			recording := p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
@@ -265,6 +273,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, true, nil
 				}
 				if terminal.isLoopGuardEnabled() {
+					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+						return lipapi.Event{}, false, err
+					}
 					terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason)
 					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
 					pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
@@ -348,6 +360,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, true, nil
 				}
 				if terminal.isLoopGuardEnabled() {
+					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+						return lipapi.Event{}, false, err
+					}
 					terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseIdlePostCommit, dec.reason)
 					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
 					pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
@@ -422,6 +438,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
 					return lipapi.Event{}, true, nil
 				}
+				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+					return lipapi.Event{}, false, err
+				}
 				terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason)
 				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
 				pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
@@ -490,6 +510,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				if !terminal.finished() {
 					terminal.finishResponse(p, attempt)
 				}
+				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
 				return lipapi.Event{}, err
 			}
 			if ok {
@@ -505,6 +526,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if held {
 				if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 					return lipapi.Event{}, nil
+				}
+				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+					return lipapi.Event{}, err
 				}
 				terminal.settleSwallowedBAttempt(ctx, attempt)
 				if terminal.log != nil {
@@ -528,6 +553,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.markOutputCommittedForAttempt(out, attempt, recovery)
 				}
 				return out, emitErr
+			}
+			if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+				return lipapi.Event{}, err
 			}
 		}
 		out, recording, emitErr := p.observeClientFacing(ctx, ev, responseEventInput{
@@ -576,6 +605,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
 						continue
 					}
+					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+						return lipapi.Event{}, err
+					}
 					terminal.settleSwallowedBAttempt(ctx, attempt)
 					if terminal.log != nil {
 						terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "gate_drain", "reason", boundGuardReason(outcome.Reason+" "+guardContinuationPendingReason))
@@ -595,6 +628,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						terminal.markOutputCommittedForAttempt(out, attempt, recovery)
 					}
 					return out, emitErr
+				}
+				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
+					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
+					return lipapi.Event{}, err
 				}
 			}
 			// A gate-drain finish is finalized through the same centralized chokepoint as the other

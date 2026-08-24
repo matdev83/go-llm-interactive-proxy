@@ -221,7 +221,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 6.8–6.10, 6.15, 12.11, 12.12, 12.15_
     - _Depends on: 10.3_
     - _Validation: `go test ./internal/core/runtime/... ./internal/core/conversationview/...`_
-  - [ ] 11.2 Implement steering writer integration in continuation orchestration and eliminate duplicate authority
+  - [x] 11.2 Implement steering writer integration in continuation orchestration and eliminate duplicate authority
     - Construct `steering.Writer` explicitly with authoritative A-leg ID and trajectory resolver (`sdkadapter.NewWriter`).
     - Implement `TrajectoryResolver` returning the accepted user ingress request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus current committed snapshot.
     - On actionable `CONTINUE`, register/update overlay via `Writer.Put` with fixed `OverlayID("alg-rec")` and freeze Snapshot N+1 for hidden model turn B2 before opening attempt.
@@ -230,7 +230,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 6.8–6.10, 6.17, 12.11, 12.16_
     - _Depends on: 11.1_
     - _Validation: `go test ./internal/core/runtime/...`_
-  - [ ] 11.3 (P) Add failing tests and implementation for exact-once reassertion, overlay lifecycle, and stale cleanup
+  - [x] 11.3 (P) Add failing tests and implementation for exact-once reassertion, overlay lifecycle, and stale cleanup
     - Test and wire `conversationview.Reassert` using `OverlayProvenance` and `FilteredBaseline` before backend `Open` to prevent duplicate or dropped steering after attempt shaping.
     - Test and implement explicit deactivation via `steering.Writer.Deactivate(ctx, "alg-rec")` on final A terminal publication, cancellation, budget exhaustion, or leg open failure.
     - Test and implement deterministic stale-overlay cleanup on external turn ingress via `Deactivate(ctx, "alg-rec")` before snapshot freeze, treating `ErrOverlayNotFound` or inactive as no-op success and failing closed if cleanup cannot commit.

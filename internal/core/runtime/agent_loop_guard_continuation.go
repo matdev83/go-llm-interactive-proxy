@@ -6,12 +6,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuationsafety"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopgate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -329,6 +332,8 @@ func (t *turnTerminal) tryGuardContinuation(ctx context.Context, s *retryRecvStr
 		return false
 	default:
 	}
+
+	// 1. Settle B1 attempt exactly once as swallowed failure
 	res := attempt.TerminalizeAttempt(ctx, IntentSwallowedFailure, attemptEvidence{
 		Command:       sdkterminal.CommandSwallowedAttempt,
 		LegOutcome:    billing.LegOutcomeSwallowed,
@@ -343,67 +348,163 @@ func (t *turnTerminal) tryGuardContinuation(ctx context.Context, s *retryRecvStr
 		return false
 	}
 	if ctx.Err() != nil || t.finished() || (t.hasALeg() && t.aLegErr() != nil) {
+		_ = t.deactivateGuardOverlay(ctx, s.facts.aLegID)
 		return false
 	}
-	t.guardHidden = instr
+
+	// Update continuation record tracking
 	t.guardPriorRecord.PreviousID = prior.Record.ID
 	t.guardPriorRecord.ChainDepth = safetyRes.Facts.ChainDepth + 1
 	t.guardPriorRecord.MaterializedBytes = safetyRes.Facts.MaterializedBytes
 	if len(safetyRes.SafeMaterializedItems) > 0 {
 		t.guardPriorRecord.OutputItems = lipcont.CloneItems(safetyRes.SafeMaterializedItems)
 	}
+
 	if s.recovery == nil || s.recovery.opener == nil {
+		_ = t.deactivateGuardOverlay(ctx, s.facts.aLegID)
 		return false
 	}
-	origBaseline := s.facts.baseline
-	newBaseline := lipapi.CloneCall(origBaseline)
-	// Preserve single-authority invariant: baseline may use legacy Messages or new Items, not both.
-	if len(origBaseline.Messages) > 0 && len(origBaseline.Items) == 0 {
-		newBaseline.Messages = append(newBaseline.Messages, lipapi.Message{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{lipapi.TextPart(instr)}})
-	} else {
-		hiddenItem := lipapi.Item{
-			Kind:    lipapi.ItemKindMessage,
-			Role:    lipapi.RoleDeveloper,
-			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: instr}},
+
+	// 2. Put overlay commit via canonical sdkadapter.Writer / pkg/lipsdk/steering
+	aLegID := s.facts.aLegID
+	steeringStore := t.steeringStore
+	if steeringStore == nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+
+	resolver := func(rctx context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+		snap := s.facts.conversationSnapshot
+		if snap.StateRevision == 0 && t.conversationReader != nil {
+			if s, err := t.conversationReader.Snapshot(rctx, aLegID); err == nil {
+				snap = s
+			}
 		}
-		newBaseline.Items = append(newBaseline.Items, hiddenItem)
+		ingress := s.facts.ingressCall
+		if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
+			ingress = s.facts.baseline
+		}
+		return ingress, snap, nil
 	}
-	savedFacts := s.facts
-	s.facts.baseline = newBaseline
-	defer func() { s.facts.baseline = savedFacts.baseline }()
+
+	writer, err := sdkadapter.NewWriterWithObserver(steeringStore, aLegID, resolver, t.conversationObserver)
+	if err != nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+
+	putReq := steering.PutRequest{
+		OverlayID: "alg-rec",
+		Message: steering.Message{
+			Role: lipapi.RoleDeveloper,
+			Text: instr,
+		},
+		Placement:           steering.AfterIngressTail,
+		AnchorMissingPolicy: steering.FailClosed,
+		Reason:              steering.ReasonCode("loop_guard_recovery"),
+	}
+
+	_, putErr := writer.Put(ctx, putReq)
+	if putErr != nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+
+	// 3. Read / Freeze Snapshot N+1
+	reader := t.conversationReader
+	if reader == nil {
+		if r, ok := conversationview.AsReader(steeringStore); ok {
+			reader = r
+		}
+	}
+	if reader == nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+	snapN1, err := reader.Snapshot(ctx, aLegID)
+	if err != nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+
+	// 4. Project accepted ingress/continuation trajectory under Snapshot N+1
+	ingress := s.facts.ingressCall
+	if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
+		ingress = s.facts.baseline
+	}
+	projectedBaseline, projEv, err := conversationview.Project(ingress, snapN1)
+	if err != nil {
+		if obs := t.conversationObserver; obs != nil {
+			conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageEarly)
+		}
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+	filteredBaseline, err := conversationview.FilterNeverBackend(ingress, snapN1)
+	if err != nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
+		return false
+	}
+
+	// 5. Carry Snapshot N+1 / provenance / filtered baseline into continuation leg facts
+	newFacts := s.facts.clone()
+	newFacts.baseline = projectedBaseline
+	newFacts.conversationSnapshot = snapN1
+	if projEv != nil {
+		newFacts.conversationProvenance = projEv.Provenance
+	}
+	newFacts.conversationFilteredBaseline = filteredBaseline
+	newFacts.ingressCall = s.facts.ingressCall
+
 	if ctx.Err() != nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
 		return false
 	}
-	openRes, openErr := t.openGuardContinuationLeg(ctx, s, attempt, newBaseline)
+
+	// 6. Open continuation leg with newFacts (isRetryPath = false for normal semantic admission)
+	openRes, openErr := t.openGuardContinuationLeg(ctx, s, attempt, newFacts)
 	if openErr != nil || !openRes.opened || openRes.ready == nil {
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
 		return false
 	}
+
 	ready := openRes.ready
 	if ready.state != readyStatePrepared {
-		if err := ready.Prepare(ctx, s.facts, s.responsePipeline, t.committed()); err != nil {
+		if err := ready.Prepare(ctx, newFacts, s.responsePipeline, t.committed()); err != nil {
 			ready.Dispose(ctx, err)
+			_ = t.deactivateGuardOverlay(ctx, aLegID)
 			return false
 		}
 	}
 	if ctx.Err() != nil || t.finished() || (t.hasALeg() && t.aLegErr() != nil) {
 		ready.Dispose(ctx, context.Canceled)
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
 		return false
 	}
 	_, published := s.attempt.swapIfOpen(ready)
 	if !published {
 		ready.Dispose(ctx, context.Canceled)
+		_ = t.deactivateGuardOverlay(ctx, aLegID)
 		return false
 	}
+
+	// Successfully published continuation leg: update s.facts conversationview state while preserving ingress baseline
+	s.facts.conversationSnapshot = snapN1
+	if projEv != nil {
+		s.facts.conversationProvenance = projEv.Provenance
+	}
+	s.facts.conversationFilteredBaseline = filteredBaseline
+
 	return true
 }
 
-func (t *turnTerminal) openGuardContinuationLeg(ctx context.Context, s *retryRecvStream, priorAttempt *attemptSession, newBaseline lipapi.Call) (replacementOpenResult, error) {
+func (t *turnTerminal) openGuardContinuationLeg(ctx context.Context, s *retryRecvStream, priorAttempt *attemptSession, facts recvTurnFacts) (replacementOpenResult, error) {
 	if s == nil || s.recovery == nil || s.recovery.opener == nil {
 		return replacementOpenResult{}, context.Canceled
 	}
 	req := replacementOpenRequest{
-		facts:       s.facts.terminalFacts(),
-		pinnedFacts: s.facts,
+		facts:       facts.terminalFacts(),
+		pinnedFacts: facts,
 		recovery:    s.recovery.openSnapshot(),
 		prior:       priorAttemptOutcome{attempt: priorAttempt, retired: true},
 		isRetryPath: false,

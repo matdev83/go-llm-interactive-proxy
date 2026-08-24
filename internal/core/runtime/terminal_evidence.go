@@ -35,6 +35,7 @@ type requestTerminalFacts struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
 }
 
 // attemptTerminalEvidence is a value snapshot of the current B-leg identity.
@@ -86,6 +87,7 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
 		conversationProvenance:       slices.Clone(f.conversationProvenance),
 		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
+		ingressCall:                  lipapi.CloneCall(f.ingressCall),
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -93,6 +94,10 @@ type turnTerminal struct {
 	// true for known stitchable frontends. Tests may set it to false to prove
 	// a clean final without raw frame concatenation.
 	supportsContinuation bool
+
+	steeringStore        conversationview.SteeringStore
+	conversationReader   conversationview.Reader
+	conversationObserver conversationview.Observer
 }
 
 // guardHiddenInstruction exposes hidden instruction for tests via terminal.
@@ -101,6 +106,22 @@ func (t *turnTerminal) guardHiddenInstruction() string {
 		return ""
 	}
 	return t.guardHidden
+}
+
+func (t *turnTerminal) deactivateGuardOverlay(ctx context.Context, aLegID string) error {
+	if t == nil || t.steeringStore == nil || aLegID == "" {
+		return nil
+	}
+	deactCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
+	defer cancel()
+	_, err := t.steeringStore.DeactivateSteering(deactCtx, aLegID, "alg-rec")
+	if err != nil {
+		if errors.Is(err, conversationview.ErrOverlayNotFound) || errors.Is(err, conversationview.ErrALegNotFound) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
@@ -124,6 +145,9 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
 	t.meteringRecorderPresent = e.MeteringRecorder != nil
 	t.emitBackendEgress = e.emitBackendEgressMeteringFact
+	t.steeringStore = e.conversationViewSteeringStore()
+	t.conversationReader = e.conversationViewReader()
+	t.conversationObserver = e.conversationViewObserver()
 }
 
 func (t *turnTerminal) nowTime() time.Time {
@@ -162,6 +186,9 @@ func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
 	if parent != nil {
 		terminal.aLegEndAuthority = parent.aLegEndAuthority
 		terminal.supportsContinuation = parent.supportsContinuation
+		terminal.steeringStore = parent.steeringStore
+		terminal.conversationReader = parent.conversationReader
+		terminal.conversationObserver = parent.conversationObserver
 	}
 	return terminal
 }
@@ -294,6 +321,15 @@ func (t *turnTerminal) settleOrReleaseRequestAuthority(ctx context.Context, p *r
 }
 
 func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) {
+	deactErr := t.deactivateGuardOverlay(ctx, request.aLegID)
+	if deactErr != nil {
+		if evidence.Err == nil {
+			evidence.Err = deactErr
+		}
+		if cmd == sdkterminal.CommandNormalFinish {
+			cmd = sdkterminal.CommandPartialError
+		}
+	}
 	if attempt != nil {
 		attempt.TerminalizeAttempt(ctx, intent, evidence)
 	}
@@ -301,7 +337,7 @@ func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Comm
 		t.settleOrReleaseRequestAuthority(cctx, p, request)
 		t.handoffBillingTurn(cctx, request, cmd)
 		t.finishResponse(p, attempt)
-		return nil
+		return deactErr
 	})
 	if !t.finished() {
 		t.finishResponse(p, attempt)
@@ -366,6 +402,7 @@ func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFa
 	if t == nil || p == nil || t.finished() {
 		return
 	}
+	t.deactivateGuardOverlay(ctx, request.aLegID)
 	snapshot := p.accumulatorSnapshot()
 	ev := t.makeBaseEvidence(request, attempt, p, &snapshot)
 	ev.Command = sdkterminal.CommandClose

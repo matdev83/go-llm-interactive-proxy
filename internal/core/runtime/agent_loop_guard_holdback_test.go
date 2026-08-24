@@ -261,6 +261,10 @@ func setupGuardedStreamForHoldback(t *testing.T, verifier stopguard.Verifier, gu
 		}
 		ex.LoopGuardFactory = newLoopGuardFactoryForTest(verifier)
 	}
+	aLeg, err := store.CreateALeg(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -270,10 +274,10 @@ func setupGuardedStreamForHoldback(t *testing.T, verifier stopguard.Verifier, gu
 				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 			},
-			aLegID:  "a-hold-1",
+			aLegID:  aLeg.ALegID,
 			traceID: "trace-hold-1",
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-hold-1", Seq: 1}, routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-hold-1", Seq: 1, ALegID: aLeg.ALegID}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),

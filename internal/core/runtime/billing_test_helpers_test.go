@@ -190,6 +190,11 @@ func testRecvTurnFacts(f recvTurnFacts) recvTurnFacts {
 	if f.billingCallState == nil {
 		f.billingCallState = newBillingCallState(f.billingCallID)
 	}
+	if len(f.ingressCall.Items) == 0 && len(f.ingressCall.Messages) == 0 {
+		if len(f.baseline.Items) > 0 || len(f.baseline.Messages) > 0 {
+			f.ingressCall = lipapi.CloneCall(f.baseline)
+		}
+	}
 	return f
 }
 

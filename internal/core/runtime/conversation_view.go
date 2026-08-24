@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -38,6 +39,18 @@ func (e *Executor) conversationViewTagger() conversationview.Tagger {
 	}
 	if t, ok := conversationview.AsTagger(e.Store); ok {
 		return t
+	}
+	return nil
+}
+
+// conversationViewSteeringStore returns the optional narrow steering store.
+// Resolves via conversationview.AsSteeringStore(Store).
+func (e *Executor) conversationViewSteeringStore() conversationview.SteeringStore {
+	if e == nil {
+		return nil
+	}
+	if s, ok := conversationview.AsSteeringStore(e.Store); ok {
+		return s
 	}
 	return nil
 }
@@ -105,6 +118,38 @@ func (e *Executor) snapshotAndProject(ctx context.Context, aLegID string, call l
 			conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageEarly)
 		}
 		return conversationview.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view snapshot: %w", err)
+	}
+
+	// External non-detached ingress stale cleanup (Finding 5 / Req 6.14, 12.14):
+	// Inspect the snapshot for active "alg-rec" overlay. Deactivate ONLY when active.
+	if !execctx.IsSuppressedPluginID(ctx, "agent_loop_guard") {
+		hasActiveAlgRec := false
+		for _, ov := range snap.Steering {
+			if ov.OverlayID == "alg-rec" && ov.Active {
+				hasActiveAlgRec = true
+				break
+			}
+		}
+		if hasActiveAlgRec {
+			steeringStore := e.conversationViewSteeringStore()
+			if steeringStore != nil {
+				_, derr := steeringStore.DeactivateSteering(ctx, aLegID, "alg-rec")
+				if derr != nil && !errors.Is(derr, conversationview.ErrOverlayNotFound) && !errors.Is(derr, conversationview.ErrALegNotFound) {
+					if obs := e.conversationViewObserver(); obs != nil {
+						conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageEarly)
+					}
+					return conversationview.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: deactivate stale recovery steering: %w", derr)
+				}
+				// Re-read snapshot after deactivation so projection uses clean snapshot
+				snap, err = reader.Snapshot(ctx, aLegID)
+				if err != nil {
+					if obs := e.conversationViewObserver(); obs != nil {
+						conversationview.SafeObserver(obs).OnProjectionFailure(conversationview.StageEarly)
+					}
+					return conversationview.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view snapshot after stale cleanup: %w", err)
+				}
+			}
+		}
 	}
 	// Fast path: empty snapshot must remain identity-preserving (no clone)
 	// to keep no-op evidence EffectNone and avoid spurious canonical diff.

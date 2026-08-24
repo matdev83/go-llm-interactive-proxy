@@ -152,8 +152,18 @@ func TestGuardContinuation_PerRequestGateIsolation_Concurrent(t *testing.T) {
 	// No extra direct gate check needed after Recv latch.
 }
 
-func newGuardedStreamForFactory(t *testing.T, ex *Executor, traceID, aLegID, bLegID string) *retryRecvStream {
+func newGuardedStreamForFactory(t *testing.T, ex *Executor, traceID, aLegKey, bLegID string) *retryRecvStream {
 	t.Helper()
+	var aLegID string
+	if ex != nil && ex.Store != nil {
+		aLeg, err := ex.Store.CreateALeg(context.Background(), aLegKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		aLegID = aLeg.ALegID
+	} else {
+		aLegID = aLegKey
+	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -166,7 +176,7 @@ func newGuardedStreamForFactory(t *testing.T, ex *Executor, traceID, aLegID, bLe
 			aLegID:  aLegID,
 			traceID: traceID,
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: bLegID, Seq: 1}, routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: bLegID, Seq: 1, ALegID: aLegID}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),
@@ -249,9 +259,6 @@ func TestGuardContinuation_ContinueSafe_MaterializesAndOpensB2_NoIntermediateTer
 	}
 	if ev.Kind != lipapi.EventTextDelta || ev.Delta != "continued output" {
 		t.Fatalf("expected B2 text, got kind %q delta %q", ev.Kind, ev.Delta)
-	}
-	if rs.terminal.guardHidden == "" || !contains(rs.terminal.guardHidden, "<automated-recovery>") {
-		t.Fatalf("hidden instruction missing, got %q", rs.terminal.guardHidden)
 	}
 	ev2, err := rs.Recv(context.Background())
 	if err != nil {

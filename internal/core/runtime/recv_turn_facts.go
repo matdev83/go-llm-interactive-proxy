@@ -78,6 +78,7 @@ type recvTurnFactsInput struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
 }
 
 // recvTurnFacts is the request-lifetime authority for facts needed after stream
@@ -117,6 +118,7 @@ type recvTurnFacts struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
 }
 
 func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
@@ -140,12 +142,18 @@ func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts
 		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
 		conversationProvenance:       slices.Clone(f.conversationProvenance),
 		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
+		ingressCall:                  lipapi.CloneCall(f.ingressCall),
 	})
 }
 
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {
 	f := recvTurnFacts(in)
 	f.baseline = lipapi.CloneCall(in.baseline)
+	if len(in.ingressCall.Items) > 0 || len(in.ingressCall.Messages) > 0 {
+		f.ingressCall = lipapi.CloneCall(in.ingressCall)
+	} else {
+		f.ingressCall = lipapi.CloneCall(in.baseline)
+	}
 	f.recvViews = cloneRecvViews(in.recvViews)
 	f.routePrefs = slices.Clone(in.routePrefs)
 	f.conversationSnapshot = cloneSnapshot(in.conversationSnapshot)

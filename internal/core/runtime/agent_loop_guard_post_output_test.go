@@ -122,6 +122,10 @@ func TestAgentLoopGuard_PostOutput_IdleDeterministic_NoRetryOneContinuationLegal
 	ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond, GracePeriod: 0, EmitWarning: true, AllowPostOutputContinuation: true}
 	fv := &fakeGuardVerifier{verdict: stopguard.Verdict{Kind: stopguard.VerdictAllowStop, Reason: "complete"}}
 	ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+	aLeg, err := store.CreateALeg(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -131,10 +135,10 @@ func TestAgentLoopGuard_PostOutput_IdleDeterministic_NoRetryOneContinuationLegal
 				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 			},
-			aLegID:  "a-idle-1",
+			aLegID:  aLeg.ALegID,
 			traceID: "trace-idle-1",
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-idle-1", Seq: 1}, routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-idle-1", Seq: 1, ALegID: aLeg.ALegID}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),
@@ -660,6 +664,10 @@ func TestAgentLoopGuard_PostOutput_EOF_RetryRecvStream_GuardContinuationIsNotRet
 	ex.Store = store
 	ex.StreamRecovery = streamrecovery.Config{Enabled: true, AllowPostOutputContinuation: true}
 	ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+	aLeg, err := store.CreateALeg(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
@@ -669,10 +677,10 @@ func TestAgentLoopGuard_PostOutput_EOF_RetryRecvStream_GuardContinuationIsNotRet
 				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 			},
-			aLegID:  "a-eof-retry",
+			aLegID:  aLeg.ALegID,
 			traceID: "trace-eof-retry",
 		}),
-		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-eof-retry", Seq: 1}, routing.AttemptCandidate{
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-eof-retry", Seq: 1, ALegID: aLeg.ALegID}, routing.AttemptCandidate{
 			Key:     "openai:gpt-4",
 			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
 		}, authorityLifecycle{}),

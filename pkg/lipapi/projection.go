@@ -147,6 +147,7 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 		return LegacyProjectionResult{}, projectionErr(ProjectionReasonOpaqueExtension, "SemanticExtensions", "semantic residual has no legacy projection authority")
 	}
 	var instructions, messages []Message
+	inLeadingInstructions := true
 	for i, item := range call.Items {
 		field := fmt.Sprintf("Items[%d]", i)
 		if err := checkItemLegacyRepresentable(item, field, target); err != nil {
@@ -160,13 +161,14 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 				return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedContent, field, err.Error())
 			}
 			msg.Parts = parts
-			switch item.Role {
-			case RoleSystem, RoleDeveloper:
+			if inLeadingInstructions && (item.Role == RoleSystem || item.Role == RoleDeveloper) {
 				instructions = append(instructions, msg)
-			default:
+			} else {
+				inLeadingInstructions = false
 				messages = append(messages, msg)
 			}
 		case ItemKindToolCall:
+			inLeadingInstructions = false
 			if item.ToolCall == nil {
 				return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedItemKind, field, "missing tool call payload")
 			}
@@ -178,6 +180,7 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 			}
 			messages = append(messages, Message{Role: RoleAssistant, Parts: []Part{part}})
 		case ItemKindToolResult:
+			inLeadingInstructions = false
 			if item.ToolResult == nil {
 				return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedItemKind, field, "missing tool result payload")
 			}
@@ -187,6 +190,7 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 			}
 			messages = append(messages, Message{Role: RoleTool, Parts: parts})
 		case ItemKindReasoning:
+			inLeadingInstructions = false
 			if item.Reasoning == nil || item.Reasoning.Reasoning == nil {
 				return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedItemKind, field, "missing reasoning payload")
 			}
@@ -195,6 +199,7 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 				Parts: []Part{{Kind: PartReasoning, Reasoning: cloneReasoningPart(item.Reasoning.Reasoning)}},
 			})
 		default:
+			inLeadingInstructions = false
 			return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedItemKind, field, string(item.Kind))
 		}
 	}

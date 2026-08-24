@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuationsafety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -739,10 +740,601 @@ func TestAgentLoopGuard_Steering_CandidateCapabilityRejectionAndReassert(t *test
 		}
 		bindTestRuntimeOwners(rs, ex)
 
-		// On current production: candidate capability check is not performed for steering -> RED.
-		// When implemented, opening continuation with candidate that cannot support steering must fail admission.
+		// Trigger B1 finish -> verifier returns CONTINUE -> tryGuardContinuation attempts to open unsupported candidate -> candidate admission fails -> deactivates overlay -> returns fallback
+		_, err = testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+		require.NoError(t, err)
+
 		cvStore := memStore.ConversationViewStore()
 		snap, _ := cvStore.Snapshot(context.Background(), aLegRec.ALegID)
-		require.Len(t, snap.Steering, 1, "actionable CONTINUE must register steering overlay before opening candidate attempt")
+		assert.Empty(t, snap.Steering, "overlay must be deactivated on candidate open failure")
 	})
+}
+
+// Point 2b: Pre-existing active overlay before ALG Put is preserved and projected exact-once (no duplication).
+// Requirements: 6.9, 6.10, 12.11.
+func TestAgentLoopGuard_Steering_ExistingActiveOverlayBeforeAlgPut(t *testing.T) {
+	t.Parallel()
+
+	memStore, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	aLegRec, err := memStore.CreateALeg(ctx, "existing-overlay-key")
+	require.NoError(t, err)
+	aLegID := aLegRec.ALegID
+
+	cvStore := memStore.ConversationViewStore()
+
+	// Seed pre-existing active steering overlay before turn begins
+	_, err = cvStore.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+		OverlayID: "existing-guide",
+		Message: conversationview.StoredMessageV1{
+			Role: lipapi.RoleDeveloper,
+			Text: "Pre-existing system guidance",
+		},
+		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
+		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+		Reason:              "system_guide",
+	})
+	require.NoError(t, err)
+
+	userMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user query")}}
+	ingressCall := lipapi.Call{
+		ID:         "ingress-call-with-guide",
+		Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Messages:   []lipapi.Message{userMsg},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+	}
+
+	fv := &fakeGuardVerifier{
+		verdict: stopguard.Verdict{
+			Kind:               stopguard.VerdictContinue,
+			RemainingObjective: "finish computation",
+			Reason:             "uncompleted",
+		},
+	}
+
+	ex := TestExecutor()
+	ex.Store = memStore
+	ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+
+	rs := &retryRecvStream{
+		terminal: newTurnTerminal(),
+		facts: testRecvTurnFacts(recvTurnFacts{
+			baseline:    lipapi.CloneCall(ingressCall),
+			ingressCall: lipapi.CloneCall(ingressCall),
+			aLegID:      aLegID,
+			traceID:     "trace-existing-overlay",
+		}),
+		attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-exist-1", Seq: 1}, routing.AttemptCandidate{
+			Key:     "openai:gpt-4",
+			Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+		}, authorityLifecycle{}),
+		responsePipeline: &responsePipeline{},
+	}
+	bindTestRuntimeOwners(rs, ex)
+
+	var b2ReceivedCall lipapi.Call
+	if rs.recovery == nil {
+		rs.recovery = &recoveryController{}
+	}
+	rs.recovery.opener = func(octx context.Context, req replacementOpenRequest) (replacementOpenResult, error) {
+		b2ReceivedCall = req.facts.call
+		blegID := "b-exist-2"
+		seq := 2
+		bleg := b2bua.BLegRecord{BLegID: blegID, Seq: seq, ALegID: rs.facts.aLegID}
+		cand := routing.AttemptCandidate{Key: "openai:gpt-4", Primary: routing.Primary{Backend: "openai", Model: "gpt-4"}}
+		stream := &guardContinuationEventStream{events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "b2 response"},
+			{Kind: lipapi.EventResponseFinished, FinishReason: "stop"},
+		}}
+		sess := newAttemptSession(attemptSessionInput{
+			inner:            stream,
+			bleg:             bleg,
+			cand:             cand,
+			authority:        authorityLifecycle{},
+			aScope:           rs.terminal.aLegScope(),
+			traceID:          rs.facts.traceID,
+			billingCallID:    rs.facts.billingCallID,
+			billingCallState: rs.facts.billingCallState,
+		})
+		ready := newReadyAttempt(sess, pendingSelectionEffects{})
+		ready.state = readyStatePrepared
+		return replacementOpenResult{opened: true, ready: ready, bleg: bleg, cand: cand}, nil
+	}
+
+	// Trigger B1 finish -> verifier triggers CONTINUE -> ALG Put adds "alg-rec"
+	ev, err := testRecvOne(ctx, rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+	require.NoError(t, err)
+	assert.Equal(t, lipapi.EventTextDelta, ev.Kind)
+	assert.Equal(t, "b2 response", ev.Delta)
+
+	// Verify Snapshot N+1 has both overlays
+	snap, err := cvStore.Snapshot(ctx, aLegID)
+	require.NoError(t, err)
+	require.Len(t, snap.Steering, 2, "Snapshot N+1 must contain both existing-guide and alg-rec")
+
+	// Verify B2 received call has both overlays projected exactly once (no duplicates)
+	guideCount := 0
+	algRecCount := 0
+	for _, m := range b2ReceivedCall.Messages {
+		if m.Role == lipapi.RoleDeveloper && strings.Contains(m.Parts[0].Text, "Pre-existing system guidance") {
+			guideCount++
+		}
+		if m.Role == lipapi.RoleDeveloper && strings.Contains(m.Parts[0].Text, "<automated-recovery>") {
+			algRecCount++
+		}
+	}
+	for _, m := range b2ReceivedCall.Instructions {
+		if m.Role == lipapi.RoleDeveloper && strings.Contains(m.Parts[0].Text, "Pre-existing system guidance") {
+			guideCount++
+		}
+		if m.Role == lipapi.RoleDeveloper && strings.Contains(m.Parts[0].Text, "<automated-recovery>") {
+			algRecCount++
+		}
+	}
+	assert.Equal(t, 1, guideCount, "pre-existing overlay must be injected exactly once in B2 call")
+	assert.Equal(t, 1, algRecCount, "alg-rec overlay must be injected exactly once in B2 call")
+}
+
+// Point 3b: Fail-closed deactivation error handling when steering store returns real error.
+// Requirements: 6.13, 12.13.
+func TestAgentLoopGuard_Steering_DeactivationErrorHandling_FailClosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("allow_stop_deactivation_failure_fails_closed", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		aLegRec, err := store.CreateALeg(context.Background(), "deact-fail-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		failingStore := &failingDeactivateStore{
+			Store:    store.ConversationViewStore(),
+			deactErr: errors.New("durable store disk error during deactivation"),
+		}
+
+		fv := &fakeGuardVerifier{
+			verdict: stopguard.Verdict{Kind: stopguard.VerdictAllowStop, Reason: "done"},
+		}
+		ex := TestExecutor()
+		ex.Store = store
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+
+		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "deact-fail-call",
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+				aLegID:  aLegID,
+				traceID: "trace-deact-fail",
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-deact-1", Seq: 1}, routing.AttemptCandidate{
+				Key:     "openai:gpt-4",
+				Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+			}, authorityLifecycle{}),
+			responsePipeline: &responsePipeline{},
+		}
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.steeringStore = failingStore
+
+		// On ALLOW_STOP, terminalizeTurn attempts deactivateGuardOverlay; failingStore returns real store error.
+		// Runtime must fail closed (return partial error).
+		_, err = testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+		require.Error(t, err, "deactivation failure on ALLOW_STOP must fail closed")
+		assert.Contains(t, err.Error(), "durable store disk error")
+	})
+
+	t.Run("unhandled_hold_deactivation_failure_fails_closed", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		aLegRec, err := store.CreateALeg(context.Background(), "deact-fail-unhandled-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		failingStore := &failingDeactivateStore{
+			Store:    store.ConversationViewStore(),
+			deactErr: errors.New("store deactivation timeout"),
+		}
+
+		fv := &fakeGuardVerifier{
+			verdict: stopguard.Verdict{Kind: stopguard.VerdictContinue, RemainingObjective: "work", Reason: "cont"},
+		}
+		ex := TestExecutor()
+		ex.Store = store
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+
+		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "deact-fail-unhandled-call",
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+				aLegID:  aLegID,
+				traceID: "trace-deact-fail-unhandled",
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-deact-unhandled-1", Seq: 1}, routing.AttemptCandidate{
+				Key:     "openai:gpt-4",
+				Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+			}, authorityLifecycle{}),
+			responsePipeline: &responsePipeline{},
+		}
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.steeringStore = failingStore
+
+		// Opener is nil -> unhandled hold -> deactivates overlay -> store returns real error -> fails closed
+		_, err = testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+		require.Error(t, err, "deactivation failure on unhandled hold must fail closed")
+		assert.Contains(t, err.Error(), "store deactivation timeout")
+	})
+}
+
+// Point 8: Failure ordering when Put / Snapshot / Project / Open fails:
+// B1 remains swallowed, overlay is not active, controlled failure to A-side, no B2.
+func TestAgentLoopGuard_Steering_FailureOrdering(t *testing.T) {
+	t.Parallel()
+
+	t.Run("put_failure_swallows_b1_and_returns_controlled_fallback", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		aLegRec, err := store.CreateALeg(context.Background(), "fail-put-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		failingStore := &failingPutStore{
+			Store:  store.ConversationViewStore(),
+			putErr: errors.New("store put failed"),
+		}
+
+		fv := &fakeGuardVerifier{
+			verdict: stopguard.Verdict{Kind: stopguard.VerdictContinue, RemainingObjective: "work", Reason: "cont"},
+		}
+		ex := TestExecutor()
+		ex.Store = store
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+
+		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "fail-put-call",
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+				aLegID:  aLegID,
+				traceID: "trace-fail-put",
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-fail-put-1", Seq: 1}, routing.AttemptCandidate{
+				Key:     "openai:gpt-4",
+				Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+			}, authorityLifecycle{}),
+			responsePipeline: &responsePipeline{},
+		}
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.steeringStore = failingStore
+		execSetupGuardContinuationOpener(t, rs, []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "b2"}})
+
+		// B1 finish -> Put fails -> B1 is swallowed -> controlled fallback emitted to A-side -> overlay not active
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+		require.NoError(t, err)
+		assert.Equal(t, lipapi.EventResponseFinished, ev.Kind)
+		assert.Equal(t, guardContinuationPendingReason, ev.FinishReason)
+
+		snap, err := store.ConversationViewStore().Snapshot(context.Background(), aLegID)
+		require.NoError(t, err)
+		assert.Empty(t, snap.Steering, "overlay must not be active after Put failure")
+	})
+
+	t.Run("snapshot_failure_swallows_b1_and_deactivates_overlay", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		aLegRec, err := store.CreateALeg(context.Background(), "fail-snap-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		failingReader := &failingSnapshotReaderStore{
+			Store:   store.ConversationViewStore(),
+			snapErr: errors.New("snapshot query timeout"),
+		}
+
+		fv := &fakeGuardVerifier{
+			verdict: stopguard.Verdict{Kind: stopguard.VerdictContinue, RemainingObjective: "work", Reason: "cont"},
+		}
+		ex := TestExecutor()
+		ex.Store = store
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
+
+		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "fail-snap-call",
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+				aLegID:  aLegID,
+				traceID: "trace-fail-snap",
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-fail-snap-1", Seq: 1}, routing.AttemptCandidate{
+				Key:     "openai:gpt-4",
+				Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+			}, authorityLifecycle{}),
+			responsePipeline: &responsePipeline{},
+		}
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.conversationReader = failingReader
+		execSetupGuardContinuationOpener(t, rs, []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "b2"}})
+
+		// B1 finish -> Snapshot fails -> B1 swallowed -> overlay deactivated -> controlled fallback to A-side
+		ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "stop"})
+		require.NoError(t, err)
+		assert.Equal(t, lipapi.EventResponseFinished, ev.Kind)
+		assert.Equal(t, guardContinuationPendingReason, ev.FinishReason)
+
+		snap, err := store.ConversationViewStore().Snapshot(context.Background(), aLegID)
+		require.NoError(t, err)
+		assert.Empty(t, snap.Steering, "overlay must be deactivated after snapshot failure")
+	})
+}
+
+// Point 5: Exact Stale Ingress Cleanup call counts and isolation.
+// Requirements: 6.14, 12.14.
+func TestAgentLoopGuard_Steering_StaleCleanupCallCountsAndIsolation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("active_alg_rec_triggers_exactly_one_deactivate_call", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		ctx := context.Background()
+		aLegRec, err := store.CreateALeg(ctx, "count-active-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		// Put active alg-rec overlay
+		_, err = store.ConversationViewStore().PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+			OverlayID:           "alg-rec",
+			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleDeveloper, Text: "stale instruction"},
+			Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
+			AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+			Reason:              "loop_guard_recovery",
+		})
+		require.NoError(t, err)
+
+		countingStore := &countingSteeringStore{
+			Store: store.ConversationViewStore(),
+		}
+
+		ex := TestExecutor()
+		ex.Store = &delegatingStoreWithCV{MemoryStore: store, cvStore: countingStore}
+		ex.Bus = hooks.New(hooks.Config{})
+		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
+
+		call := &lipapi.Call{
+			Session:  lipapi.SessionRef{ALegID: aLegID},
+			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("fresh turn")}}},
+		}
+
+		pr, _, cleanup, err := ex.prepareRequest(execDetachedCtx(ctx), call)
+		require.NoError(t, err)
+		defer cleanup()
+
+		assert.Equal(t, 1, countingStore.deactivateCalls, "active alg-rec must trigger exactly 1 DeactivateSteering call")
+		assert.Empty(t, pr.conversationSnapshot.Steering, "snapshot must be clean")
+	})
+
+	t.Run("absent_alg_rec_triggers_zero_deactivate_calls", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		ctx := context.Background()
+		aLegRec, err := store.CreateALeg(ctx, "count-absent-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		countingStore := &countingSteeringStore{
+			Store: store.ConversationViewStore(),
+		}
+
+		ex := TestExecutor()
+		ex.Store = &delegatingStoreWithCV{MemoryStore: store, cvStore: countingStore}
+		ex.Bus = hooks.New(hooks.Config{})
+		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
+
+		call := &lipapi.Call{
+			Session:  lipapi.SessionRef{ALegID: aLegID},
+			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("fresh turn")}}},
+		}
+
+		pr, _, cleanup, err := ex.prepareRequest(execDetachedCtx(ctx), call)
+		require.NoError(t, err)
+		defer cleanup()
+
+		assert.Equal(t, 0, countingStore.deactivateCalls, "absent alg-rec must trigger 0 DeactivateSteering calls")
+		assert.Empty(t, pr.conversationSnapshot.Steering)
+	})
+
+	t.Run("detached_verifier_session_does_not_cleanup_stale_overlay", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		ctx := context.Background()
+		aLegRec, err := store.CreateALeg(ctx, "count-verifier-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		// Put active alg-rec overlay
+		_, err = store.ConversationViewStore().PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+			OverlayID:           "alg-rec",
+			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleDeveloper, Text: "recovery instruction"},
+			Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
+			AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+			Reason:              "loop_guard_recovery",
+		})
+		require.NoError(t, err)
+
+		countingStore := &countingSteeringStore{
+			Store: store.ConversationViewStore(),
+		}
+
+		ex := TestExecutor()
+		ex.Store = &delegatingStoreWithCV{MemoryStore: store, cvStore: countingStore}
+		ex.Bus = hooks.New(hooks.Config{})
+		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
+
+		// Suppressed plugin simulates detached verifier turn
+		suppressedCtx := execctx.WithSuppressedPluginIDs(ctx, []string{"agent_loop_guard"})
+		suppressedCtx = execctx.WithDetachedSession(suppressedCtx, execctx.DetachedSession{ParentALegID: aLegID})
+
+		call := &lipapi.Call{
+			Session:  lipapi.SessionRef{ALegID: aLegID},
+			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("verifier prompt")}}},
+		}
+
+		_, _, cleanup, err := ex.prepareRequest(suppressedCtx, call)
+		require.NoError(t, err)
+		defer cleanup()
+
+		assert.Equal(t, 0, countingStore.deactivateCalls, "detached verifier session must not clean stale overlay")
+	})
+
+	t.Run("deactivate_error_on_stale_cleanup_fails_closed", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		ctx := context.Background()
+		aLegRec, err := store.CreateALeg(ctx, "fail-stale-deact-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		// Put active alg-rec overlay
+		_, err = store.ConversationViewStore().PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+			OverlayID:           "alg-rec",
+			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleDeveloper, Text: "stale instruction"},
+			Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix},
+			AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+			Reason:              "loop_guard_recovery",
+		})
+		require.NoError(t, err)
+
+		failingStore := &failingDeactivateStore{
+			Store:    store.ConversationViewStore(),
+			deactErr: errors.New("store deactivation failure on ingress"),
+		}
+
+		ex := TestExecutor()
+		ex.Store = &delegatingStoreWithCV{MemoryStore: store, cvStore: failingStore}
+		ex.Bus = hooks.New(hooks.Config{})
+		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
+
+		call := &lipapi.Call{
+			Session:  lipapi.SessionRef{ALegID: aLegID},
+			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("fresh turn")}}},
+		}
+
+		_, _, cleanup, err := ex.prepareRequest(execDetachedCtx(ctx), call)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		require.Error(t, err, "stale cleanup deactivation failure must fail closed")
+		assert.Contains(t, err.Error(), "store deactivation failure on ingress")
+	})
+}
+
+// Test helper stores for deterministic failure testing
+
+type failingDeactivateStore struct {
+	conversationview.Store
+	deactErr error
+}
+
+func (f *failingDeactivateStore) DeactivateSteering(ctx context.Context, aLegID string, overlayID string) (conversationview.SteeringState, error) {
+	if f.deactErr != nil {
+		return conversationview.SteeringState{}, f.deactErr
+	}
+	return f.Store.DeactivateSteering(ctx, aLegID, overlayID)
+}
+
+type failingPutStore struct {
+	conversationview.Store
+	putErr error
+}
+
+func (f *failingPutStore) PutSteering(ctx context.Context, aLegID string, req conversationview.PutSteeringRequest) (conversationview.SteeringState, error) {
+	if f.putErr != nil {
+		return conversationview.SteeringState{}, f.putErr
+	}
+	return f.Store.PutSteering(ctx, aLegID, req)
+}
+
+type failingSnapshotReaderStore struct {
+	conversationview.Store
+	snapErr error
+}
+
+func (f *failingSnapshotReaderStore) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+	if f.snapErr != nil {
+		return conversationview.Snapshot{}, f.snapErr
+	}
+	return f.Store.Snapshot(ctx, aLegID)
+}
+
+type countingSteeringStore struct {
+	conversationview.Store
+	deactivateCalls int
+}
+
+func (c *countingSteeringStore) DeactivateSteering(ctx context.Context, aLegID string, overlayID string) (conversationview.SteeringState, error) {
+	c.deactivateCalls++
+	return c.Store.DeactivateSteering(ctx, aLegID, overlayID)
+}
+
+type delegatingStoreWithCV struct {
+	*b2bua.MemoryStore
+	cvStore conversationview.Store
+}
+
+func (d *delegatingStoreWithCV) ConversationViewStore() conversationview.Store {
+	return d.cvStore
+}
+
+func (d *delegatingStoreWithCV) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
+	return d.cvStore.Snapshot(ctx, aLegID)
+}
+
+func (d *delegatingStoreWithCV) PutSteering(ctx context.Context, aLegID string, req conversationview.PutSteeringRequest) (conversationview.SteeringState, error) {
+	return d.cvStore.PutSteering(ctx, aLegID, req)
+}
+
+func (d *delegatingStoreWithCV) DeactivateSteering(ctx context.Context, aLegID string, overlayID string) (conversationview.SteeringState, error) {
+	return d.cvStore.DeactivateSteering(ctx, aLegID, overlayID)
+}
+
+func (d *delegatingStoreWithCV) TagNeverBackend(ctx context.Context, aLegID string, tags []conversationview.TagRequest) (conversationview.TagResult, error) {
+	return d.cvStore.TagNeverBackend(ctx, aLegID, tags)
 }
