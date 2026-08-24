@@ -326,6 +326,14 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
 
 Implementation is complete only when all 32 tasks are green, exact/native continuity remains unchanged, `BackgroundClient` historical source compatibility is proven, ordinary reasoning egress is policy-controlled, raw responses are byte-bounded before decode, optional state is bounded both per session and across the feature instance, shadow evidence exists, and active semantic replay remains an explicit operator opt-in.
 
+## Completion Status
+
+- [x] All 32 implementation tasks completed.
+- [x] Implementation merged through PR #444 at `2e822c166118fd02831b42538d8411770a09af96`.
+- [x] Required GitHub checks passed, including QA, CodeQL, cross-platform tests, security, coverage, and Linux race detection.
+- [x] Merged `main` verification passed for reasoning preservation, public runtime, auxiliary SDK architecture, `cmd/lipstd` build, and CLI startup.
+- [x] Active semantic replay remains explicit and non-default; deferred v1 follow-ups remain documented in `design.md`.
+
 ## Implementation Notes
 
 - 1.4: Surrogate attach across policy revisions is REPLACEMENT with delta accounting (`cur-oldBytes+new`) on per-session and instance counters; `PendingCompression.SemanticDigest`/`EgressPolicyHash` correlation CAS is reserved for task 2.4.
