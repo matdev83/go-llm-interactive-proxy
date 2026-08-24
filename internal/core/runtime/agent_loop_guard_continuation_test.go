@@ -425,8 +425,11 @@ func TestGuardContinuation_Unsafe_DoesNotOpenB2(t *testing.T) {
 	if ev.Delta == "should not appear" {
 		t.Fatal("B2 opened for unsafe")
 	}
-	if rs.terminal.guardHidden != "" {
-		t.Fatalf("unsafe must not inject hidden, got %q", rs.terminal.guardHidden)
+	if rs.terminal.conversationReader != nil && rs.facts.aLegID != "" {
+		snap, err := rs.terminal.conversationReader.Snapshot(context.Background(), rs.facts.aLegID)
+		if err == nil && len(snap.Steering) > 0 {
+			t.Fatalf("unsafe must not register steering overlay, got %d overlays", len(snap.Steering))
+		}
 	}
 	if !rs.terminal.finished() {
 		t.Fatal("must be finished after unsafe")
@@ -620,8 +623,11 @@ func TestGuardContinuation_DisabledParityUnchanged(t *testing.T) {
 	if !rs.terminal.finished() {
 		t.Fatal("finished")
 	}
-	if rs.terminal.guardHidden != "" {
-		t.Fatal("disabled must not inject")
+	if rs.terminal.conversationReader != nil && rs.facts.aLegID != "" {
+		snap, err := rs.terminal.conversationReader.Snapshot(context.Background(), rs.facts.aLegID)
+		if err == nil && len(snap.Steering) > 0 {
+			t.Fatal("disabled must not register steering overlay")
+		}
 	}
 }
 

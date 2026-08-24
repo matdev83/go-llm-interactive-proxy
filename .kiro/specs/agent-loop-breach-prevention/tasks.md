@@ -237,7 +237,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 6.11, 6.13, 6.14, 12.12–12.14_
     - _Depends on: 11.2_
     - _Validation: `go test ./internal/core/runtime/... ./internal/core/conversationview/...`_
-  - [ ] 11.4 Add failing tests and implementation for candidate capability rejection and transcript isolation
+  - [x] 11.4 Add failing tests and implementation for candidate capability rejection and transcript isolation
     - Test that backend candidates unable to represent required steering role or placement are rejected via standard candidate adaptation without silent dropping or relocation.
     - Test that registered steering overlays never appear in A-side client streams or frontend `ContinuationRecord` transcripts.
     - _Requirements: 6.12, 6.16, 10.1–10.4, 12.10, 12.12_

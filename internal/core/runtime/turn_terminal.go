@@ -83,8 +83,7 @@ type turnTerminal struct {
 
 	loopGuard *LoopGuard
 
-	// guard continuation per-request state (hidden, not forwarded to pipeline).
-	guardHidden      string
+	// guard continuation per-request state (lineage tracking).
 	guardPriorRecord lipcont.ContinuationRecord
 	guardPriorOK     bool
 
@@ -98,14 +97,6 @@ type turnTerminal struct {
 	steeringStore        conversationview.SteeringStore
 	conversationReader   conversationview.Reader
 	conversationObserver conversationview.Observer
-}
-
-// guardHiddenInstruction exposes hidden instruction for tests via terminal.
-func (t *turnTerminal) guardHiddenInstruction() string {
-	if t == nil {
-		return ""
-	}
-	return t.guardHidden
 }
 
 func (t *turnTerminal) deactivateGuardOverlay(ctx context.Context, aLegID string) error {

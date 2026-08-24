@@ -589,8 +589,18 @@ func TestAgentLoopGuard_PostOutput_CancellationPreventsContinuation(t *testing.T
 				if !errors.Is(recvErr, context.Canceled) && !rs.terminal.finished() {
 					t.Fatalf("cancellation must terminalize A-side, recvErr=%v finished=%v", recvErr, rs.terminal.finished())
 				}
-				if rs.terminal.guardHidden != "" && ev.Delta == " should-not-appear" {
-					t.Fatalf("hidden should not leak on cancel")
+				if rs.responsePipeline != nil && strings.Contains(rs.responsePipeline.releasedOutputText(), "<automated-recovery>") {
+					t.Fatalf("hidden recovery instruction leaked into released output on cancel")
+				}
+				if rs.terminal.conversationReader != nil && rs.facts.aLegID != "" {
+					snap, err := rs.terminal.conversationReader.Snapshot(context.Background(), rs.facts.aLegID)
+					if err == nil {
+						for _, ov := range snap.Steering {
+							if ov.Active && strings.Contains(ov.Message.Text, "<automated-recovery>") {
+								t.Fatalf("hidden recovery overlay must be deactivated on cancel")
+							}
+						}
+					}
 				}
 				_ = capB
 				_ = capM

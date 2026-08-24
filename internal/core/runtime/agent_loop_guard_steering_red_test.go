@@ -249,9 +249,14 @@ func TestAgentLoopGuard_Steering_TranscriptAndContinuationRecordIsolation(t *tes
 		}
 	}
 
-	// 3. Verify turnTerminal does NOT store legacy guardHidden string.
-	// On current production: t.guardHidden is populated directly -> RED.
-	assert.Empty(t, rs.terminal.guardHiddenInstruction(), "turnTerminal must not retain legacy guardHidden string")
+	// 3. Verify canonical conversation-view steering store is the single authority for hidden recovery.
+	cvStore, ok := conversationview.AsStore(ex.Store)
+	require.True(t, ok, "store must implement conversationview.Store")
+	snap, err := cvStore.Snapshot(context.Background(), aLegRec.ALegID)
+	require.NoError(t, err)
+	require.Len(t, snap.Steering, 1, "recovery steering must exist in canonical SteeringStore")
+	assert.Equal(t, "alg-rec", snap.Steering[0].OverlayID)
+	assert.True(t, snap.Steering[0].Active)
 
 	// 4. Verify baseline call was not directly mutated with hidden recovery message.
 	for _, m := range rs.facts.baseline.Messages {

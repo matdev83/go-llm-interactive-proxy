@@ -15,16 +15,15 @@ import (
 // (Task 11.1 Point 9, Requirements 6.17, 12.16).
 //
 // This test asserts that:
-// 1. turnTerminal struct in internal/core/runtime/turn_terminal.go does not contain
-//    the legacy guardHidden field (conversation-view steering must be single authority).
-// 2. internal/core/runtime/agent_loop_guard_continuation.go does not perform direct
-//    slice append to Call.Messages or Call.Items (newBaseline.Messages/Items = append(...)).
-// 3. internal/core/runtime/agent_loop_guard_continuation.go imports and uses canonical
-//    steering (pkg/lipsdk/steering or internal/core/conversationview).
+//  1. turnTerminal struct in internal/core/runtime/turn_terminal.go does not contain
+//     the legacy guardHidden field (conversation-view steering must be single authority).
+//  2. internal/core/runtime/agent_loop_guard_continuation.go does not perform direct
+//     slice append to Call.Messages or Call.Items (newBaseline.Messages/Items = append(...)).
+//  3. internal/core/runtime/agent_loop_guard_continuation.go imports and uses canonical
+//     steering (pkg/lipsdk/steering or internal/core/conversationview).
 //
-// In current production (Point 3 / Task 11.1), legacy direct appends and guardHidden
-// are still present, so this test fails behaviorally (RED). It will turn GREEN
-// upon completion of Task 11.2/11.5 remediation.
+// This architecture ratchet enforces single-authority conversation-view
+// steering integration (Task 11.4 / 11.5, Requirements 6.17, 12.16).
 func TestAgentLoopGuard_SteeringArchitecture_NoDirectAppendOrGuardHidden(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
