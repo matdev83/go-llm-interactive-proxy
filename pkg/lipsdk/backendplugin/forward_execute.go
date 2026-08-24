@@ -68,22 +68,22 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 
 func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {
 
-	var closeOnce sync.Once
-	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
-	defer closeManaged()
-
 	// Initial accounting evidence created while opening is sent before any canonical frames.
 	if err := forwardAccountingEvidence(sequencer, ms); err != nil {
 		return err
 	}
 
-	handshakeNegotiated := true
+	handshakeNegotiated := false
 	if ns, ok := stream.(OptionalNegotiatedStream); ok {
 		handshakeNegotiated = CancellationHandshakeNegotiated(ns.Negotiation())
 	}
 	if !handshakeNegotiated {
 		return forwardLegacyExecute(stream, sequencer, ms)
 	}
+
+	var closeOnce sync.Once
+	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
+	defer closeManaged()
 
 	streamCtx := stream.Context()
 	execCtx, execCancel := context.WithCancel(streamCtx)
@@ -256,9 +256,28 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 					return
 				}
 				if streamCtx.Err() != nil {
+					_ = sequencer.Send(ServerFrame{
+						Kind:     ServerFrameTerminal,
+						Terminal: &Terminal{Status: TerminalCancelled},
+					})
 					execCancel()
 					return
 				}
+				// Non-cancellation upstream error: ensure terminal is sent before
+				// unblocking the control reader via host CloseSend. Use a constant
+				// non-sensitive bounded error for the public protocol; the original
+				// error is preserved only as the internal return value.
+				_ = sequencer.Send(ServerFrame{
+					Kind: ServerFrameTerminal,
+					Terminal: &Terminal{
+						Status: TerminalFailure,
+						Error: &PluginError{
+							Code:      ErrorCodeInternal,
+							Message:   "upstream execution failed",
+							Retryable: false,
+						},
+					},
+				})
 				recordExecErr(recvErr)
 				execCancel()
 				return

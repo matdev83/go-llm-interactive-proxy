@@ -280,6 +280,9 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 			closePump()
 			return sendErr
 		}
+		if terminal {
+			_ = gs.CloseSend()
+		}
 	}
 }
 

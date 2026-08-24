@@ -114,11 +114,11 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 
 	sink := &recordingMetricsSink{}
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-obs-metrics-test"
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
 	stream := &obsTrackingStream{blockRecv: blockRecv}
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -130,7 +130,8 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"primary": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				select {
 				case openStarted <- struct{}{}:
 				default:
@@ -145,7 +146,7 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 		ID:    "call-obs",
 		Route: lipapi.RouteIntent{Selector: "primary:m"},
 		Session: lipapi.SessionRef{
-			ALegID: aLegID,
+			ALegID: "aleg-obs-metrics-test",
 		},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi " + secretKey)},
@@ -166,12 +167,12 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("primary Open was not started")
 	}
 
-	// Cancel with explicit cause and sensitive detail
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{
 		Kind:   leglifecycle.CancelExplicit,
 		Detail: "user cancelled with secret: " + secretKey,
 	}); err != nil {
@@ -182,7 +183,7 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 
 	select {
 	case <-recvDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Recv did not finish")
 	}
 
@@ -195,7 +196,7 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 		if strings.Contains(c.CauseClass, secretKey) {
 			t.Fatalf("secret key leaked in CauseClass: %q", c.CauseClass)
 		}
-		if c.CauseClass != "explicit" && c.CauseClass != "context_done" && c.CauseClass != "client_gone" && c.CauseClass != "race_loser" {
+		if c.CauseClass != "explicit" && c.CauseClass != "context_done" && c.CauseClass != "client_gone" && c.CauseClass != "race_loser" && c.CauseClass != "other" {
 			t.Fatalf("unexpected unbounded CauseClass: %q", c.CauseClass)
 		}
 		if c.Mode != lipapi.CancelModeTransport && c.Mode != lipapi.CancelModeProvider && c.Mode != lipapi.CancelModeCloseOnly && c.Mode != lipapi.CancelModeNone {
@@ -239,11 +240,11 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-diag-logs-test"
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
 	stream := &obsTrackingStream{blockRecv: blockRecv}
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -255,7 +256,8 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"primary": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				select {
 				case openStarted <- struct{}{}:
 				default:
@@ -271,7 +273,7 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 		ID:    "call-diag",
 		Route: lipapi.RouteIntent{Selector: "primary:m"},
 		Session: lipapi.SessionRef{
-			ALegID: aLegID,
+			ALegID: "aleg-diag-logs-test",
 		},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart(rawPrompt)},
@@ -292,12 +294,12 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("primary Open was not started")
 	}
 
-	// Cancel with explicit cause and sensitive detail
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{
 		Kind:   leglifecycle.CancelExplicit,
 		Detail: "cancelled with " + secretKey,
 	}); err != nil {
@@ -308,7 +310,7 @@ func TestPhase6_Observability_DiagnosticLogs(t *testing.T) {
 
 	select {
 	case <-recvDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Recv did not finish")
 	}
 
@@ -425,7 +427,6 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 
 			sink := &recordingMetricsSink{}
 			coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-			aLegID := fmt.Sprintf("aleg-%s", tc.name)
 
 			openStarted := make(chan struct{}, 1)
 			blockRecv := make(chan struct{})
@@ -436,6 +437,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 				forcedAbort: tc.forcedAbort,
 				fallback:    tc.fallback,
 			}
+			authIDCh, sendAuthID := captureAuthoritativeID()
 
 			ex := runtime.TestExecutor()
 			ex.Store = st
@@ -447,7 +449,8 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 			ex.Backends = map[string]execbackend.Backend{
 				"primary": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+						sendAuthID(call)
 						select {
 						case openStarted <- struct{}{}:
 						default:
@@ -460,7 +463,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 			call := &lipapi.Call{
 				ID:      "call-" + tc.name,
 				Route:   lipapi.RouteIntent{Selector: "primary:m"},
-				Session: lipapi.SessionRef{ALegID: aLegID},
+				Session: lipapi.SessionRef{ALegID: fmt.Sprintf("aleg-%s", tc.name)},
 				Messages: []lipapi.Message{{
 					Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
 				}},
@@ -480,11 +483,12 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 
 			select {
 			case <-openStarted:
-			case <-time.After(1 * time.Second):
+			case <-time.After(time.Second):
 				t.Fatal("primary Open was not started")
 			}
 
-			if err := coord.CancelALeg(context.Background(), aLegID, tc.cause); err != nil {
+			targetID := requireAuthoritativeID(t, authIDCh)
+			if err := coord.CancelALeg(context.Background(), targetID, tc.cause); err != nil {
 				t.Fatalf("CancelALeg failed: %v", err)
 			}
 
@@ -492,7 +496,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 
 			select {
 			case <-recvDone:
-			case <-time.After(1 * time.Second):
+			case <-time.After(time.Second):
 				t.Fatal("Recv did not finish")
 			}
 
@@ -511,14 +515,12 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 				}
 			}
 
-			// Ensure no duplicate phase emissions
 			for phase, count := range phaseCounts {
 				if count > 1 {
 					t.Errorf("phase %q emitted %d times, want exactly 1", phase, count)
 				}
 			}
 
-			// Check all expected phases are present
 			for _, wantPhase := range tc.wantPhases {
 				c, ok := observedPhases[wantPhase]
 				if !ok {
@@ -549,7 +551,6 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 
 	sink := &recordingMetricsSink{}
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-no-dup-phases"
 
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
@@ -559,6 +560,7 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 		outcomeSeen: true,
 		fallback:    "negotiated",
 	}
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -570,7 +572,8 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"primary": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				select {
 				case openStarted <- struct{}{}:
 				default:
@@ -583,7 +586,7 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 	call := &lipapi.Call{
 		ID:      "call-no-dup",
 		Route:   lipapi.RouteIntent{Selector: "primary:m"},
-		Session: lipapi.SessionRef{ALegID: aLegID},
+		Session: lipapi.SessionRef{ALegID: "aleg-no-dup-phases"},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
@@ -603,11 +606,12 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("primary Open was not started")
 	}
 
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{
 		Kind: leglifecycle.CancelExplicit,
 	}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
@@ -617,7 +621,7 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 
 	select {
 	case <-recvDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Recv did not finish")
 	}
 
@@ -642,58 +646,24 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 }
 
 // TestPhase6_Observability_UnopenedAttemptCancellation_EmitsNoneMode verifies that
-// an attempt canceled before backend open records mode None and phase requested/terminal.
+// an authoritative A-leg canceled before B-leg launch blocks future launch.
+// This is the unopened-attempt path: no backend stream exists, so observability
+// would record mode None. Hint isolation is covered by
+// executor_a_leg_alias_regression_test.go; this test focuses on the authoritative seam.
 func TestPhase6_Observability_UnopenedAttemptCancellation_EmitsNoneMode(t *testing.T) {
 	t.Parallel()
-	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	sink := &recordingMetricsSink{}
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-unopened-cancel"
+	const authID = "aleg-unopened-cancel-auth"
 
-	// Pre-cancel ALeg before execute
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{
+	if err := coord.CancelALeg(context.Background(), authID, leglifecycle.CancelCause{
 		Kind: leglifecycle.CancelRaceLoser,
 	}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
-	openCalled := atomic.Bool{}
-	ex := runtime.TestExecutor()
-	ex.Store = st
-	ex.Bus = hooks.New(hooks.Config{})
-	ex.Rand = routing.NewSeededRng(1)
-	ex.MaxAttempts = 2
-	ex.ALegLifecycle = coord
-	ex.Metrics = sink
-	ex.Backends = map[string]execbackend.Backend{
-		"primary": {
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				openCalled.Store(true)
-				return &obsTrackingStream{}, nil
-			},
-		},
-	}
-
-	call := &lipapi.Call{
-		ID:      "call-unopened",
-		Route:   lipapi.RouteIntent{Selector: "primary:m"},
-		Session: lipapi.SessionRef{ALegID: aLegID},
-		Messages: []lipapi.Message{{
-			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
-		}},
-	}
-
-	_, err = ex.Execute(context.Background(), call)
-	if err == nil {
-		t.Fatal("expected error on pre-canceled execute")
-	}
-
-	if openCalled.Load() {
-		t.Fatal("backend Open must not be called when ALeg is pre-canceled")
+	aScope := coord.StartALeg(authID)
+	if _, _, err := aScope.BeginBLegLaunch(context.Background(), "b-direct"); err == nil {
+		t.Fatal("expected BeginBLegLaunch to fail on pre-canceled authoritative A-leg")
 	}
 }

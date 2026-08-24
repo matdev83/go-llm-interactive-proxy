@@ -19,7 +19,10 @@ func New() *Service { return &Service{} }
 
 func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, error) {
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: 0, PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorCancellationHandshake, PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureCancellationHandshake},
+		},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKind, DisplayName: "Command Code (OpenAI)", Description: "Command Code OpenAI-compatible chat completions backend",
 			CredentialMode: backendplugin.CredentialModeStatic, AccessScope: backendplugin.AccessScopeAny,

@@ -66,7 +66,7 @@ func TestPhase6_OpenCancel_NoRecoverableFailover_Serial(t *testing.T) {
 	}
 
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-cancel-open-test"
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	var badOpens, okOpens atomic.Int64
 	openStarted := make(chan struct{}, 1)
@@ -80,7 +80,8 @@ func TestPhase6_OpenCancel_NoRecoverableFailover_Serial(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"bad": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(ctx context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				badOpens.Add(1)
 				select {
 				case openStarted <- struct{}{}:
@@ -107,7 +108,7 @@ func TestPhase6_OpenCancel_NoRecoverableFailover_Serial(t *testing.T) {
 		ID:    "call-1",
 		Route: lipapi.RouteIntent{Selector: "bad:m|ok:m"},
 		Session: lipapi.SessionRef{
-			ALegID: aLegID,
+			ALegID: "aleg-cancel-open-test",
 		},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
@@ -128,18 +129,18 @@ func TestPhase6_OpenCancel_NoRecoverableFailover_Serial(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("bad Open was not started")
 	}
 
-	// Explicitly cancel A-leg while Open is in-flight
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
 	select {
 	case err = <-execDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Execute did not finish after cancel")
 	}
 
@@ -147,7 +148,6 @@ func TestPhase6_OpenCancel_NoRecoverableFailover_Serial(t *testing.T) {
 		t.Fatal("expected error on canceled execution, got nil")
 	}
 
-	// Crucial: "ok" backend MUST NOT be opened as a failover/replacement!
 	if okOpens.Load() != 0 {
 		t.Fatalf("expected 0 opens for 'ok' backend after cancellation, got %d", okOpens.Load())
 	}
@@ -166,7 +166,7 @@ func TestPhase6_RecvCancel_NoRecoverableFailover_Serial(t *testing.T) {
 	}
 
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-cancel-recv-test"
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	var badOpens, okOpens atomic.Int64
 	openStarted := make(chan struct{}, 1)
@@ -186,7 +186,8 @@ func TestPhase6_RecvCancel_NoRecoverableFailover_Serial(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"bad": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				badOpens.Add(1)
 				select {
 				case openStarted <- struct{}{}:
@@ -212,7 +213,7 @@ func TestPhase6_RecvCancel_NoRecoverableFailover_Serial(t *testing.T) {
 		ID:    "call-2",
 		Route: lipapi.RouteIntent{Selector: "bad:m|ok:m"},
 		Session: lipapi.SessionRef{
-			ALegID: aLegID,
+			ALegID: "aleg-cancel-recv-test",
 		},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
@@ -233,21 +234,20 @@ func TestPhase6_RecvCancel_NoRecoverableFailover_Serial(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("bad Open was not started")
 	}
 
-	// Cancel A-leg
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
-	// Unblock stream recv
 	close(blockRecv)
 
 	select {
 	case err = <-recvDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Recv did not finish after cancel")
 	}
 
@@ -255,7 +255,6 @@ func TestPhase6_RecvCancel_NoRecoverableFailover_Serial(t *testing.T) {
 		t.Fatal("expected cancellation error, got nil")
 	}
 
-	// Must NOT open 'ok' failover backend
 	if okOpens.Load() != 0 {
 		t.Fatalf("expected 0 opens for 'ok' backend, got %d", okOpens.Load())
 	}
@@ -271,7 +270,7 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 	}
 
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 50 * time.Millisecond})
-	aLegID := "aleg-parallel-cancel-test"
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	var p1Opens, p2Opens, fallbackOpens atomic.Int64
 	p1Started := make(chan struct{}, 1)
@@ -291,7 +290,8 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 	ex.Backends = map[string]execbackend.Backend{
 		"p1": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				p1Opens.Add(1)
 				select {
 				case p1Started <- struct{}{}:
@@ -302,7 +302,8 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 		},
 		"p2": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				p2Opens.Add(1)
 				select {
 				case p2Started <- struct{}{}:
@@ -328,7 +329,7 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 		ID:    "call-3",
 		Route: lipapi.RouteIntent{Selector: "p1:m!p2:m|fallback:m"},
 		Session: lipapi.SessionRef{
-			ALegID: aLegID,
+			ALegID: "aleg-parallel-cancel-test",
 		},
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")},
@@ -349,27 +350,27 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 
 	select {
 	case <-p1Started:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("p1 Open was not started")
 	}
 	select {
 	case <-p2Started:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("p2 Open was not started")
 	}
 
-	// Cancel A-leg
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	// Drain the authoritative ID capture; only one value is buffered, ensure at least one was captured.
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
-	// Unblock streams
 	close(blockP1)
 	close(blockP2)
 
 	select {
 	case err = <-execDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Execute did not complete after cancel")
 	}
 
@@ -377,7 +378,12 @@ func TestPhase6_ParallelRace_Cancel_NoFailoverOrNewBLegs(t *testing.T) {
 		t.Fatal("expected cancellation error on parallel race, got nil")
 	}
 
-	// Must NOT open fallback backend after parallel group was canceled
+	if p1Opens.Load() != 1 {
+		t.Fatalf("expected 1 open for 'p1' parallel arm, got %d", p1Opens.Load())
+	}
+	if p2Opens.Load() != 1 {
+		t.Fatalf("expected 1 open for 'p2' parallel arm, got %d", p2Opens.Load())
+	}
 	if fallbackOpens.Load() != 0 {
 		t.Fatalf("expected 0 fallback opens, got %d", fallbackOpens.Load())
 	}
@@ -438,7 +444,6 @@ func TestPhase6_PostCommit_CancelPreservesNoRetry(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = stream.Close() })
 
-	// First event should be ResponseStarted / TextDelta
 	var committedSeen bool
 	for {
 		ev, err := stream.Recv(context.Background())
@@ -527,16 +532,15 @@ func TestPhase6_RequestContextCancel_NoRecoverableFailover(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("bad Open was not started")
 	}
 
-	// Cancel the request context
 	reqCancel()
 
 	select {
 	case err = <-execDone:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Execute did not finish after request context cancellation")
 	}
 
@@ -617,7 +621,7 @@ func TestPhase6_DeadlineExpired_NoRecoverableFailover(t *testing.T) {
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("bad Open was not started")
 	}
 
@@ -645,7 +649,7 @@ func TestPhase6_ParallelRace_LoserCancellation_NotRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var p1Opens, p2Opens, p2RetryOpens atomic.Int64
+	var p2RetryOpens atomic.Int64
 	p1Stream := &phase6MatrixStream{
 		events: []lipapi.Event{
 			{Kind: lipapi.EventResponseStarted},
@@ -665,14 +669,12 @@ func TestPhase6_ParallelRace_LoserCancellation_NotRetried(t *testing.T) {
 		"p1": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				p1Opens.Add(1)
 				return p1Stream, nil
 			},
 		},
 		"p2": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				p2Opens.Add(1)
 				return p2Stream, nil
 			},
 		},

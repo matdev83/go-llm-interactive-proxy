@@ -81,13 +81,31 @@ func (c *channelExecuteStream) Send(frame backendplugin.ServerFrame) error {
 	return nil
 }
 
+type negotiatedChannelWrapper struct {
+	*channelExecuteStream
+	neg backendplugin.Negotiation
+}
+
+func (n *negotiatedChannelWrapper) Negotiation() backendplugin.Negotiation { return n.neg }
+
+func newNegotiatedChannelExecuteStream(ctx context.Context) *negotiatedChannelWrapper {
+	return &negotiatedChannelWrapper{
+		channelExecuteStream: newChannelExecuteStream(ctx),
+		neg: backendplugin.Negotiation{
+			Compatible:      true,
+			NegotiatedMinor: backendplugin.ProtocolMinorCancellationHandshake,
+			EnabledFeatures: []string{backendplugin.FeatureCancellationHandshake},
+		},
+	}
+}
+
 func TestRED_ForwardExecute_PostStartCancelFrameNotConsumed(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	stream := newChannelExecuteStream(ctx)
+	stream := newNegotiatedChannelExecuteStream(ctx)
 	stream.inFrames <- validStartFrame(t)
 
 	ms := &activeCancelTrackingManaged{

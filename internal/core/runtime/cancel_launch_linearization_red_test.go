@@ -47,11 +47,13 @@ func TestRED_CancelLinearization_DelayedParallelArmLaunchesAfterALegCancel(t *te
 	primaryOpenEntered := make(chan struct{})
 	var hedgedOpenCalls atomic.Int64
 	hedgedOpenStarted := make(chan struct{})
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex.Backends = map[string]execbackend.Backend{
 		"primary": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				close(primaryOpenEntered)
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -60,6 +62,7 @@ func TestRED_CancelLinearization_DelayedParallelArmLaunchesAfterALegCancel(t *te
 		"hedged": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				hedgedOpenCalls.Add(1)
 				select {
 				case hedgedOpenStarted <- struct{}{}:
@@ -72,26 +75,23 @@ func TestRED_CancelLinearization_DelayedParallelArmLaunchesAfterALegCancel(t *te
 	ex.Rand = routing.NewSeededRng(1)
 
 	call := parallelCall("[handicap=1]primary:model!hedged:model")
-	aLegID := "aleg-lin-1"
-	call.Session.ALegID = aLegID
+	call.Session.ALegID = "aleg-lin-1"
 
 	go func() {
 		_, _ = ex.Execute(context.Background(), call)
 	}()
 
-	// Wait until primary arm has entered Open
 	select {
 	case <-primaryOpenEntered:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("primary Open was not entered")
 	}
 
-	// Cancel A-leg explicitly
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
-	// Wait briefly: without launch permit barrier, parallel worker or hedged branch still calls hedged Open
 	time.Sleep(50 * time.Millisecond)
 
 	if got := hedgedOpenCalls.Load(); got > 0 {
@@ -99,40 +99,17 @@ func TestRED_CancelLinearization_DelayedParallelArmLaunchesAfterALegCancel(t *te
 	}
 }
 
-func TestRED_CancelLinearization_CancelVsSerialOpenInterleavedWindow(t *testing.T) {
+func TestRED_CancelLinearization_AuthoritativePreCancelBlocksLaunch(t *testing.T) {
 	t.Parallel()
 
-	st := parallelStore(t)
-	ex := runtime.TestExecutor()
-	ex.Store = st
-	ex.Bus = hooks.New(hooks.Config{})
 	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
-	ex.ALegLifecycle = coord
-
-	var openCalls atomic.Int64
-	ex.Backends = map[string]execbackend.Backend{
-		"serial-b": {
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				openCalls.Add(1)
-				return &openTrackingStream{}, nil
-			},
-		},
-	}
-
-	aLegID := "aleg-lin-2"
-	call := parallelCall("serial-b:model")
-	call.Session.ALegID = aLegID
-
-	// Cancel A-leg BEFORE execute runs
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	const authID = "auth-lin-2"
+	if err := coord.CancelALeg(context.Background(), authID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
-
-	_, _ = ex.Execute(context.Background(), call)
-
-	if got := openCalls.Load(); got > 0 {
-		t.Fatalf("serial path invoked Backend.Open %d times after explicit A-leg cancel won", got)
+	aScope := coord.StartALeg(authID)
+	if _, _, err := aScope.BeginBLegLaunch(context.Background(), "b-test"); err == nil {
+		t.Fatal("expected BeginBLegLaunch to fail on pre-canceled authoritative A-leg")
 	}
 }
 
@@ -148,11 +125,13 @@ func TestRED_CancelLinearization_CancelDuringBlockedOpenDoesNotReachContext(t *t
 
 	openStarted := make(chan struct{})
 	var openCtxDone atomic.Bool
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex.Backends = map[string]execbackend.Backend{
 		"block-b": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				close(openStarted)
 				select {
 				case <-ctx.Done():
@@ -165,9 +144,8 @@ func TestRED_CancelLinearization_CancelDuringBlockedOpenDoesNotReachContext(t *t
 		},
 	}
 
-	aLegID := "aleg-lin-3"
 	call := parallelCall("block-b:model")
-	call.Session.ALegID = aLegID
+	call.Session.ALegID = "aleg-lin-3"
 
 	go func() {
 		_, _ = ex.Execute(context.Background(), call)
@@ -175,18 +153,17 @@ func TestRED_CancelLinearization_CancelDuringBlockedOpenDoesNotReachContext(t *t
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Backend.Open was not started")
 	}
 
-	// Cancel A-leg while Open is blocked
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
 	time.Sleep(50 * time.Millisecond)
 
-	// In current code, aScope has no launch context registered for in-flight Open, so openCtx is not canceled!
 	if !openCtxDone.Load() {
 		t.Fatal("openCtx was not canceled during in-flight Backend.Open when A-leg was canceled")
 	}
@@ -205,11 +182,13 @@ func TestCharacterization_CancelLinearization_LateOpenReturnsAfterCancelSettledO
 	openStarted := make(chan struct{})
 	unblockOpen := make(chan struct{})
 	stream := &openTrackingStream{}
+	authIDCh, sendAuthID := captureAuthoritativeID()
 
 	ex.Backends = map[string]execbackend.Backend{
 		"late-b": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				sendAuthID(call)
 				close(openStarted)
 				<-unblockOpen
 				return stream, nil
@@ -217,9 +196,8 @@ func TestCharacterization_CancelLinearization_LateOpenReturnsAfterCancelSettledO
 		},
 	}
 
-	aLegID := "aleg-lin-4"
 	call := parallelCall("late-b:model")
-	call.Session.ALegID = aLegID
+	call.Session.ALegID = "aleg-lin-4"
 
 	streamCh := make(chan lipapi.EventStream, 1)
 	errCh := make(chan error, 1)
@@ -231,34 +209,30 @@ func TestCharacterization_CancelLinearization_LateOpenReturnsAfterCancelSettledO
 
 	select {
 	case <-openStarted:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Backend.Open was not started")
 	}
 
-	// Cancel A-leg while Open is blocked
-	if err := coord.CancelALeg(context.Background(), aLegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+	targetID := requireAuthoritativeID(t, authIDCh)
+	if err := coord.CancelALeg(context.Background(), targetID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
 		t.Fatalf("CancelALeg failed: %v", err)
 	}
 
-	// Now unblock Open so it returns a stream late
 	close(unblockOpen)
 
-	// Wait for Execute to complete
 	select {
 	case s := <-streamCh:
 		err := <-errCh
 		if err == nil && s != nil {
-			// If stream was returned, collecting should fail or be canceled
 			_, colErr := lipapi.Collect(context.Background(), s)
 			if colErr == nil {
 				t.Fatal("late open stream was unexpectedly published and collectible")
 			}
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Execute did not complete after late open unblocked")
 	}
 
-	// Stream should have been canceled/closed exactly once
 	if stream.cancelCalls.Load() == 0 && stream.closeCalls.Load() == 0 {
 		t.Fatal("late returned stream was never terminalized")
 	}

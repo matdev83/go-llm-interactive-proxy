@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,41 +137,19 @@ func (c *Coordinator) ensureALegsLocked() {
 	}
 }
 
-func (c *Coordinator) StartALeg(id string, aliases ...string) *ALeg {
+func (c *Coordinator) StartALeg(id string) *ALeg {
 	if c == nil {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ensureALegsLocked()
-
-	var existing *ALeg
 	if a := c.alegs[id]; a != nil {
-		existing = a
-	} else {
-		for _, alias := range aliases {
-			alias = strings.TrimSpace(alias)
-			if alias != "" {
-				if a := c.alegs[alias]; a != nil {
-					existing = a
-					break
-				}
-			}
-		}
+		return a
 	}
-
-	if existing == nil {
-		existing = &ALeg{id: id, coordinator: c, launches: map[string]launchEntry{}, blegs: map[string]BLegAttempt{}}
-	}
-
-	c.alegs[id] = existing
-	for _, alias := range aliases {
-		alias = strings.TrimSpace(alias)
-		if alias != "" {
-			c.alegs[alias] = existing
-		}
-	}
-	return existing
+	a := &ALeg{id: id, coordinator: c, launches: map[string]launchEntry{}, blegs: map[string]BLegAttempt{}}
+	c.alegs[id] = a
+	return a
 }
 
 func (c *Coordinator) CancelALeg(ctx context.Context, id string, cause CancelCause) error {
@@ -195,15 +172,7 @@ func (c *Coordinator) EndALeg(id string) {
 		return
 	}
 	c.mu.Lock()
-	a := c.alegs[id]
 	delete(c.alegs, id)
-	if a != nil {
-		for k, v := range c.alegs {
-			if v == a {
-				delete(c.alegs, k)
-			}
-		}
-	}
 	c.mu.Unlock()
 }
 

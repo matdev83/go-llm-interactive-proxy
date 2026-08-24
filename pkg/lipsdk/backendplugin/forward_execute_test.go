@@ -508,13 +508,31 @@ func (m *trackingManagedWithDeadline) Cancel(ctx context.Context, cause lipapi.C
 	return lipapi.CancelResult{Mode: mode}
 }
 
+type negotiatedInBandStream struct {
+	*channelExecuteStream
+	neg backendplugin.Negotiation
+}
+
+func (n *negotiatedInBandStream) Negotiation() backendplugin.Negotiation { return n.neg }
+
+func newNegotiatedInBandStream(ctx context.Context) *negotiatedInBandStream {
+	return &negotiatedInBandStream{
+		channelExecuteStream: newChannelExecuteStream(ctx),
+		neg: backendplugin.Negotiation{
+			Compatible:      true,
+			NegotiatedMinor: backendplugin.ProtocolMinorCancellationHandshake,
+			EnabledFeatures: []string{backendplugin.FeatureCancellationHandshake},
+		},
+	}
+}
+
 func TestForwardExecute_InBandCancel_SequencingAndMode(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream := newChannelExecuteStream(ctx)
+	stream := newNegotiatedInBandStream(ctx)
 	stream.inFrames <- validStartFrame(t)
 
 	ms := &trackingManagedWithDeadline{
@@ -599,7 +617,7 @@ func TestForwardExecute_InBandCancel_DeadlineCalculation(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), streamDeadline)
 	defer cancel()
 
-	stream := newChannelExecuteStream(ctx)
+	stream := newNegotiatedInBandStream(ctx)
 	stream.inFrames <- validStartFrame(t)
 
 	cancelDeadline := time.Now().Add(500 * time.Millisecond)
@@ -687,7 +705,7 @@ func TestForwardExecute_InBandCancel_Idempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream := newChannelExecuteStream(ctx)
+	stream := newNegotiatedInBandStream(ctx)
 	stream.inFrames <- validStartFrame(t)
 
 	ms := &trackingManagedWithDeadline{
