@@ -225,6 +225,17 @@ func (m *conversationViewStore) PutSteering(ctx context.Context, aLegID string, 
 					placementChanged = true
 				}
 			}
+			// Registration invariant (Req 9.7): a newly bound after_message anchor must not be
+			// never_backend at this atomic persistence point (prevents resolve/tag/persist TOCTOU).
+			if conversationview.RegistersNewAfterMessageAnchor(req, true, placementChanged) {
+				tagSet, terr := m.loadTagSetTx(ctx, tx, aLegID)
+				if terr != nil {
+					return terr
+				}
+				if _, excluded := tagSet[req.Placement.Anchor.Identity]; excluded {
+					return conversationview.ErrSteeringAnchorExcluded
+				}
+			}
 			// Compute caps excluding current overlay if active.
 			activeCount, totalBytes, err := m.loadActiveStatsTx(ctx, tx, aLegID)
 			if err != nil {
@@ -295,6 +306,16 @@ func (m *conversationViewStore) PutSteering(ctx context.Context, aLegID string, 
 			return nil
 		}
 		// New overlay creation.
+		// Registration invariant (Req 9.7): see exists-branch comment above.
+		if conversationview.RegistersNewAfterMessageAnchor(req, false, true) {
+			tagSet, terr := m.loadTagSetTx(ctx, tx, aLegID)
+			if terr != nil {
+				return terr
+			}
+			if _, excluded := tagSet[req.Placement.Anchor.Identity]; excluded {
+				return conversationview.ErrSteeringAnchorExcluded
+			}
+		}
 		activeCount, totalBytes, err := m.loadActiveStatsTx(ctx, tx, aLegID)
 		if err != nil {
 			return err
