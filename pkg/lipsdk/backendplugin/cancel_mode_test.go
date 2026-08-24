@@ -52,6 +52,7 @@ func TestCancelOutcome_ProtoConversion(t *testing.T) {
 
 	for _, tc := range modes {
 		t.Run(string(tc.sdkMode), func(t *testing.T) {
+			t.Parallel()
 			outcome := &backendplugin.CancelOutcome{
 				Acknowledged: true,
 				Detail:       "test-detail",

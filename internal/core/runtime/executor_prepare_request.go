@@ -153,12 +153,13 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 			pr.conversationFilteredBaseline = &fb
 		}
 	}
-	if pr.identity.ingressCall == nil {
+	switch pr.identity.ingressCall {
+	case nil:
 		ing := lipapi.CloneCall(*workingCall)
 		pr.identity.ingressCall = &ing
 		bk := lipapi.CloneCall(*workingCall)
 		pr.call = &bk
-	} else if pr.identity.ingressCall == pr.call {
+	case pr.call:
 		bk := lipapi.CloneCall(*pr.call)
 		pr.call = &bk
 	}

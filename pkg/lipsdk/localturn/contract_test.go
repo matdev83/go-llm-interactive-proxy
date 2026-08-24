@@ -26,6 +26,7 @@ func (h stubHandler) FailureMode() hooks.FailureMode { return h.mode }
 func (h stubHandler) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h stubHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "hello"}, nil
 }
@@ -62,7 +63,6 @@ func TestReasonCode_Validation(t *testing.T) {
 		{"max", localturn.ReasonCode(strings.Repeat("a", 64)), false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.in.Validate()
@@ -97,7 +97,6 @@ func TestMatchResult_Validation(t *testing.T) {
 		{"claimed valid multiple", localturn.MatchResult{Claimed: true, Indexes: []int{0, 2}, Reason: "ok_reason"}, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.in.Validate(meta)
@@ -137,7 +136,6 @@ func TestReply_Validation(t *testing.T) {
 		{"max", localturn.Reply{Text: strings.Repeat("a", 64*1024)}, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.in.Validate()
@@ -164,7 +162,7 @@ func TestReply_BoundedAssistantTextNotStream(t *testing.T) {
 	require.NoError(t, reply.Validate())
 	require.LessOrEqual(t, len(reply.Text), 64*1024)
 	// Reply must not be an EventStream; ensure type is Reply
-	var _ localturn.Reply = reply
+	_ = reply
 }
 
 func TestLocalTurn_NoClientTransportAPI(t *testing.T) {
@@ -226,6 +224,7 @@ func (h *stubHandlerPtr) FailureMode() hooks.FailureMode { return hooks.FailOpen
 func (h *stubHandlerPtr) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h *stubHandlerPtr) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "hi"}, nil
 }

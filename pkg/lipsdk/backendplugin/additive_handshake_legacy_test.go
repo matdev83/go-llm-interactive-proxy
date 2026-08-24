@@ -40,6 +40,7 @@ func (c *legacyChannelStream) Close() error {
 	c.closeOnce.Do(func() { close(c.inFrames) })
 	return nil
 }
+
 func (c *legacyChannelStream) Recv() (backendplugin.ClientFrame, error) {
 	if n := c.recvCount.Add(1); n == 2 {
 		c.secondOnce.Do(func() { close(c.secondRecvCh) })
@@ -54,12 +55,14 @@ func (c *legacyChannelStream) Recv() (backendplugin.ClientFrame, error) {
 		return backendplugin.ClientFrame{}, c.ctx.Err()
 	}
 }
+
 func (c *legacyChannelStream) Send(frame backendplugin.ServerFrame) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, frame)
 	return nil
 }
+
 func (c *legacyChannelStream) sentFrames() []backendplugin.ServerFrame {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,6 +90,7 @@ func (n *negotiatedChannelStream) Context() context.Context               { retu
 func (n *negotiatedChannelStream) Recv() (backendplugin.ClientFrame, error) {
 	return n.legacyChannelStream.Recv()
 }
+
 func (n *negotiatedChannelStream) Send(frame backendplugin.ServerFrame) error {
 	return n.legacyChannelStream.Send(frame)
 }

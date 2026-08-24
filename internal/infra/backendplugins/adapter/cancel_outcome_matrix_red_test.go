@@ -288,7 +288,11 @@ func TestRED_Adapter_CancelOutcome_Matrix(t *testing.T) {
 		res1 := ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelExplicit})
 		_ = res1
 
-		if !ms.(*managedStream).terminalSeen.Load() {
+		managed, ok := ms.(*managedStream)
+		if !ok {
+			t.Fatalf("unexpected stream type %T", ms)
+		}
+		if !managed.terminalSeen.Load() {
 			t.Fatal("expected terminalSeen to be true")
 		}
 

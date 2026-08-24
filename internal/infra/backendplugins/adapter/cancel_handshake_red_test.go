@@ -786,12 +786,12 @@ func TestAdapter_CloseCancelIdempotency(t *testing.T) {
 
 	// Multiple concurrent Close() calls
 	closeDone := make(chan error, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			closeDone <- ms.Close()
 		}()
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if err := <-closeDone; err != nil {
 			t.Fatalf("concurrent Close failed: %v", err)
 		}

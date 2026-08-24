@@ -205,7 +205,7 @@ func extractDeltaFromSSE(t *testing.T, body string) string {
 	t.Helper()
 	// Body contains lines like: data: {"type":"response.output_text.delta","delta":"local-contract-..."}
 	// Extract first delta field that equals reply prefix.
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data:") {
 			continue

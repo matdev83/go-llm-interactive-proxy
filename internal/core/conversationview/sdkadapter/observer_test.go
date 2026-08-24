@@ -28,6 +28,7 @@ func (r *recordingObserver) OnSteeringMutation(k conversationview.CacheDiscontin
 }
 
 func TestWriter_Observer_WiresCacheDiscontinuity(t *testing.T) {
+	t.Parallel()
 	store := conversationview.NewReferenceStore()
 	ctx := context.Background()
 	aLegID := "a-leg-obs-test"
@@ -40,8 +41,7 @@ func TestWriter_Observer_WiresCacheDiscontinuity(t *testing.T) {
 		t.Fatalf("NewWriterWithObserver: %v", err)
 	}
 	// Create stable_prefix overlay -> should emit create/stable_prefix
-	st := steering.State{}
-	st, err = w.Put(ctx, steering.PutRequest{
+	st, err := w.Put(ctx, steering.PutRequest{
 		OverlayID:           "ov1",
 		Message:             steering.Message{Role: lipapi.RoleSystem, Text: "steer one"},
 		Placement:           steering.StablePrefix,
@@ -105,6 +105,7 @@ func TestWriter_Observer_WiresCacheDiscontinuity(t *testing.T) {
 }
 
 func TestWriter_NilObserver_NoPanic(t *testing.T) {
+	t.Parallel()
 	store := conversationview.NewReferenceStore()
 	ctx := context.Background()
 	aLegID := "a-leg-nil-obs"
@@ -123,6 +124,7 @@ func TestWriter_NilObserver_NoPanic(t *testing.T) {
 }
 
 func TestWriter_Observer_PanicIsolated(t *testing.T) {
+	t.Parallel()
 	store := conversationview.NewReferenceStore()
 	ctx := context.Background()
 	aLegID := "a-leg-panic-obs"

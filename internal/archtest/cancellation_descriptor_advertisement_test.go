@@ -41,7 +41,6 @@ func TestArch_CancellationHandshake_DescriptorAdvertisement(t *testing.T) {
 	root := repoRoot(t)
 
 	for _, rel := range eligibleDescriptorServices {
-		rel := rel
 		t.Run(rel, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(root, filepath.FromSlash(rel))
@@ -62,7 +61,6 @@ func TestArch_CancellationHandshake_DescriptorAdvertisement(t *testing.T) {
 	}
 
 	for _, rel := range excludedDescriptorServices {
-		rel := rel
 		t.Run("excluded/"+rel, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(root, filepath.FromSlash(rel))

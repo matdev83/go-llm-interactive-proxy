@@ -157,6 +157,7 @@ func (s *errorForwardingRedService) Describe(_ context.Context) (backendplugin.P
 		Factories: []backendplugin.FactoryDescriptor{{Kind: "fake", StaticCapabilities: backendplugin.CapabilitySummary{Streaming: true}}},
 	}, nil
 }
+
 func (s *errorForwardingRedService) Configure(_ context.Context, req backendplugin.ConfigureRequest) (backendplugin.ConfiguredInstance, error) {
 	return &errorForwardingRedInstance{err: s.upstreamErr}, nil
 }
@@ -168,9 +169,11 @@ type errorForwardingRedInstance struct {
 func (f *errorForwardingRedInstance) Resolve(_ context.Context, _ *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{EvidenceSource: "red-err-fake", Capabilities: backendplugin.CapabilitySummary{Streaming: true}}, nil
 }
+
 func (f *errorForwardingRedInstance) ListModels(_ context.Context, _ uint32) (backendplugin.ListModelsResponse, error) {
 	return backendplugin.ListModelsResponse{}, nil
 }
+
 func (f *errorForwardingRedInstance) Execute(stream backendplugin.ExecuteStream) error {
 	return backendplugin.ForwardExecute(stream, func(_ context.Context, _ backendplugin.Invocation, _ lipapi.Call) (lipapi.ManagedEventStream, error) {
 		return &errorRedUpstream{err: f.err}, nil
@@ -224,6 +227,7 @@ func (s *failingSendRedClientStream) Recv() (backendplugin.ClientFrame, error) {
 	s.pos++
 	return f, nil
 }
+
 func (s *failingSendRedClientStream) Send(frame backendplugin.ServerFrame) error {
 	if !s.failed {
 		s.failed = true
@@ -232,6 +236,7 @@ func (s *failingSendRedClientStream) Send(frame backendplugin.ServerFrame) error
 	s.out = append(s.out, frame)
 	return nil
 }
+
 func (s *failingSendRedClientStream) Close() error {
 	s.ensureCloseCh()
 	select {

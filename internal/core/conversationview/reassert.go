@@ -899,7 +899,8 @@ func VerifyAdaptationPreservesProjection(reasserted, adapted lipapi.Call, snap S
 			return fmt.Errorf("%w: steering order mismatch at position %d: expected %s got %s", ErrProjectionFailed, i, p.InjectedIdentity, f.id)
 		}
 		// Verify placement matches provenance ResolvedKind/Anchor
-		if p.ResolvedKind == PlacementStablePrefix {
+		switch p.ResolvedKind {
+		case PlacementStablePrefix:
 			// Should be in stable prefix region
 			if reasserted.HasItemAuthority() {
 				if f.itemIdx < 0 {
@@ -916,7 +917,7 @@ func VerifyAdaptationPreservesProjection(reasserted, adapted lipapi.Call, snap S
 					return fmt.Errorf("%w: stable_prefix steering should be in instructions, got messages", ErrProjectionFailed)
 				}
 			}
-		} else if p.ResolvedKind == PlacementAfterMessage {
+		case PlacementAfterMessage:
 			// Should be immediately after its anchor
 			if p.ResolvedAnchor == nil {
 				return fmt.Errorf("%w: after_message missing anchor", ErrProjectionFailed)
@@ -938,11 +939,6 @@ func VerifyAdaptationPreservesProjection(reasserted, adapted lipapi.Call, snap S
 				}
 			}
 			if !foundAnchor {
-				if p.ResolvedAnchor != nil {
-					// Check if fallback was expected (stable_prefix_fallback)
-					// If anchor missing and policy is fallback, then placement should be stable_prefix, not after_message
-					// But provenance ResolvedKind for fallback is stable_prefix, so this branch not taken
-				}
 				return fmt.Errorf("%w: anchor %s not found in adapted call", ErrProjectionFailed, p.ResolvedAnchor.String())
 			}
 			// Steering should be at anchorIdx+1 plus offset for SlotOrdinal among same anchor

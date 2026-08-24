@@ -114,6 +114,7 @@ func (h *orderingLocalHandler) Match(ctx context.Context, call lipapi.Call, meta
 	*h.order = append(*h.order, "local-match")
 	return localturn.MatchResult{Claimed: false}, nil
 }
+
 func (h *orderingLocalHandler) Handle(ctx context.Context, input localturn.HandleInput) (localturn.Reply, error) {
 	*h.order = append(*h.order, "local-handle")
 	return localturn.Reply{Text: "hi"}, nil

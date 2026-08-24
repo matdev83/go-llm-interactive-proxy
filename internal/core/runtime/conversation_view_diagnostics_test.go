@@ -28,16 +28,20 @@ func (r *diagRecordingObserver) OnProjection(stage string, summary conversationv
 		summary conversationview.ProjectionSummary
 	}{stage, summary})
 }
+
 func (r *diagRecordingObserver) OnProjectionFailure(stage string) {
 	r.failures = append(r.failures, stage)
 }
+
 func (r *diagRecordingObserver) OnAnchorFallback(stage string, p conversationview.AnchorMissingPolicy) {
 	_ = stage
 	r.fallbacks = append(r.fallbacks, p)
 }
+
 func (r *diagRecordingObserver) OnAnchorFailure(p conversationview.AnchorMissingPolicy) {
 	r.anchorFails = append(r.anchorFails, p)
 }
+
 func (r *diagRecordingObserver) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationview.PlacementKind) {
 	r.muts = append(r.muts, struct {
 		kind      conversationview.CacheDiscontinuityKind
@@ -259,9 +263,11 @@ func (panickingDiagObserver) OnProjectionFailure(string) { panic("panic failure"
 func (panickingDiagObserver) OnAnchorFallback(string, conversationview.AnchorMissingPolicy) {
 	panic("panic fallback")
 }
+
 func (panickingDiagObserver) OnAnchorFailure(conversationview.AnchorMissingPolicy) {
 	panic("panic anchor")
 }
+
 func (panickingDiagObserver) OnSteeringMutation(conversationview.CacheDiscontinuityKind, conversationview.PlacementKind) {
 	panic("panic mut")
 }

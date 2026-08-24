@@ -23,7 +23,7 @@ func TestPhase5_MultipleUniqueDedupeKeysAggregate(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -166,7 +166,7 @@ func TestPhase5_DuplicateAcrossNormalAndTerminalDrain(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -314,7 +314,7 @@ func TestPhase5_DrainBeforeDuringAfterCancel(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -431,7 +431,7 @@ func TestPhase5_DrainFailureBestEffort(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -488,7 +488,7 @@ func TestPhase5_FinalizerCostAugmentation(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -655,7 +655,7 @@ func TestPhase5_ParallelLoserWithSidebandEvidence(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()

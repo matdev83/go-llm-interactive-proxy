@@ -5,11 +5,9 @@ import (
 )
 
 func TestObserver_BoundedLabels(t *testing.T) {
+	t.Parallel()
 	// Verify that Observer interface only uses bounded enums.
-	var obs Observer = NopObserver{}
-	if obs == nil {
-		t.Fatal("nop observer nil")
-	}
+	var _ Observer = NopObserver{}
 	// Ensure cache discontinuity kinds are bounded set.
 	validKinds := map[CacheDiscontinuityKind]bool{
 		CacheDiscontinuityNone: true, CacheDiscontinuityCreate: true, CacheDiscontinuityReplace: true, CacheDiscontinuityMove: true, CacheDiscontinuityDeactivate: true,
@@ -56,6 +54,7 @@ func TestObserver_BoundedLabels(t *testing.T) {
 }
 
 func TestObserver_NopIsNoOp(t *testing.T) {
+	t.Parallel()
 	var obs Observer = NopObserver{}
 	obs.OnProjection(StageEarly, ProjectionSummary{})
 	obs.OnProjectionFailure(StageEarly)
@@ -65,6 +64,7 @@ func TestObserver_NopIsNoOp(t *testing.T) {
 }
 
 func TestObserver_PanicIsolated(t *testing.T) {
+	t.Parallel()
 	panicking := panickingObserver{}
 	safe := SafeObserver(panicking)
 	// Each callback must not panic caller.
@@ -85,6 +85,7 @@ func (panickingObserver) OnAnchorFailure(AnchorMissingPolicy)                   
 func (panickingObserver) OnSteeringMutation(CacheDiscontinuityKind, PlacementKind) { panic("mut") }
 
 func TestProjectionSummary_BoundedCounts(t *testing.T) {
+	t.Parallel()
 	snap := Snapshot{StateRevision: 42}
 	// Build snapshot with 2 active overlays.
 	ov1 := SteeringOverlay{OverlayID: "o1", Revision: 2, SlotOrdinal: 1, Active: true, Placement: StoredPlacement{Kind: PlacementStablePrefix}, Reason: "r1", Message: StoredMessageV1{Role: "system", Text: "hello"}}

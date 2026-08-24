@@ -121,7 +121,6 @@ func TestRegistrar_TagMessages_Validation(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := reg.TagMessages(ctx, tc.aLeg, tc.msgs, tc.reason)
@@ -187,7 +186,7 @@ func TestRegistrar_TagMessages_ErrorMapping(t *testing.T) {
 	require.NoError(t, store.CreateALeg(ctx, aLeg))
 	// Fill to cap
 	batch := make([]nonforwardable.MessageRef, conversationview.MaxNeverBackendTags)
-	for i := 0; i < conversationview.MaxNeverBackendTags; i++ {
+	for i := range conversationview.MaxNeverBackendTags {
 		batch[i] = nonforwardable.MessageRef{Identity: string(mustIdentity(1000 + i))}
 	}
 	require.NoError(t, reg.TagMessages(ctx, nonforwardable.ALegRef{ID: aLeg}, batch, "r"))

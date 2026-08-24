@@ -34,6 +34,7 @@ func (h task51LocalHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks
 func (h task51LocalHandler) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h task51LocalHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "ok"}, nil
 }
@@ -49,6 +50,7 @@ func (c *task51TrafficCapture) OnObservation(_ context.Context, ev traffic.Obser
 	c.mu.Unlock()
 	return nil
 }
+
 func (c *task51TrafficCapture) byLeg(leg traffic.Leg) []traffic.Observation {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -84,6 +86,7 @@ func (c *task51CaptureBackend) Backend() execbackend.Backend {
 		},
 	}
 }
+
 func (c *task51CaptureBackend) lastCall() (lipapi.Call, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -287,7 +290,7 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	hasPTBTagged := false
 	for _, raw := range ptbs {
 		var c lipapi.Call
-		json.Unmarshal(raw.Body, &c)
+		_ = json.Unmarshal(raw.Body, &c)
 		for _, m := range c.Messages {
 			if id, _ := conversationview.MessageIdentityOf(m); id == taggedID {
 				hasPTBTagged = true

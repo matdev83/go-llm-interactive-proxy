@@ -231,7 +231,7 @@ func buildAdversarySnapshotAfterMessage(policy conversationview.AnchorMissingPol
 		AnchorMissingPolicy: policy, Reason: "test",
 	}
 	snap := conversationview.Snapshot{StateRevision: 2, NeverBackend: []conversationview.Tag{{Identity: taggedID, Reason: "test"}}, Steering: []conversationview.SteeringOverlay{overlay}}
-	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, taggedMsg, lipapi.Message{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a1")}}, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
+	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, taggedMsg, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a1")}}, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
 	baseline, ev, _ := conversationview.Project(clientCall, snap)
 	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
 	return snap, taggedMsg, user1, overlay.Message.Text, ev.Provenance, baseline, filtered
@@ -265,6 +265,7 @@ func newCaptureBackend() *captureBackend {
 		streamEvents: []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}, {Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished}},
 	}
 }
+
 func (c *captureBackend) Backend() execbackend.Backend {
 	return execbackend.Backend{
 		Caps: c.caps,
@@ -280,6 +281,7 @@ func (c *captureBackend) Backend() execbackend.Backend {
 		},
 	}
 }
+
 func (c *captureBackend) LastCall() (lipapi.Call, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -288,6 +290,7 @@ func (c *captureBackend) LastCall() (lipapi.Call, bool) {
 	}
 	return lipapi.CloneCall(c.openCalls[len(c.openCalls)-1]), true
 }
+
 func (c *captureBackend) AllCalls() []lipapi.Call {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -312,11 +315,13 @@ func (o *ptbCaptureObserver) OnObservation(_ context.Context, ev traffic.Observa
 	}
 	return nil
 }
+
 func (o *ptbCaptureObserver) PTBCount() int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return len(o.observations)
 }
+
 func (o *ptbCaptureObserver) PTBCalls(t *testing.T) []lipapi.Call {
 	t.Helper()
 	o.mu.Lock()
@@ -385,7 +390,6 @@ func TestAdversarial_LateTransform_InitialOpen(t *testing.T) {
 	taggedID, _ := conversationview.MessageIdentityOf(taggedMsg)
 	adversaries := []adversaryKind{adversaryReintroduceDelete, adversaryReintroduceDuplicate, adversaryReintroduceMove}
 	for _, adv := range adversaries {
-		adv := adv
 		t.Run(string(adv), func(t *testing.T) {
 			t.Parallel()
 			hook := &adversaryHook{tagged: taggedMsg, taggedID: taggedID, steeringText: steeringText, kind: adv}
@@ -413,8 +417,7 @@ func TestAdversarial_LateTransform_InitialOpen(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Execute failed: %v", err)
 			}
-			if _, err := lipapi.Collect(context.Background(), stream); err != nil && !errors.Is(err, io.EOF) {
-			}
+			_, _ = lipapi.Collect(context.Background(), stream)
 			_ = stream.Close()
 			if reader.Count() != 1 {
 				t.Fatalf("expected exactly 1 snapshot per logical turn, got %d", reader.Count())
@@ -436,8 +439,8 @@ func TestAdversarial_LateTransform_InitialOpen(t *testing.T) {
 			}
 			verifyRepaired(t, taggedID, steeringText, ptbCalls[0])
 			// PTB must equal Open semantics (same filtered/steering).
-			if ptbCalls[0].Instructions[0].Parts[0].Text != open.Instructions[0].Parts[0].Text && len(open.Instructions) > 0 {
-				// Not strict equality, but count and presence already verified – ensure PTB not missing steering.
+			if open.Instructions[0].Parts[0].Text != ptbCalls[0].Instructions[0].Parts[0].Text {
+				t.Fatalf("PTB steering text mismatch: %s vs %s", ptbCalls[0].Instructions[0].Parts[0].Text, open.Instructions[0].Parts[0].Text)
 			}
 		})
 	}
@@ -514,7 +517,6 @@ func TestAdversarial_LateTransform_ParallelRace(t *testing.T) {
 	taggedID, _ := conversationview.MessageIdentityOf(taggedMsg)
 	adversaries := []adversaryKind{adversaryReintroduceDelete, adversaryReintroduceDuplicate, adversaryReintroduceMove}
 	for _, adv := range adversaries {
-		adv := adv
 		t.Run(string(adv), func(t *testing.T) {
 			t.Parallel()
 			hook := &adversaryHook{tagged: taggedMsg, taggedID: taggedID, steeringText: steeringText, kind: adv}
@@ -670,6 +672,7 @@ func (d *delayedStreamForTTFT) Recv(ctx context.Context) (lipapi.Event, error) {
 	d.idx++
 	return ev, nil
 }
+
 func (d *delayedStreamForTTFT) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
 }
@@ -758,6 +761,7 @@ func adversarialThinkerStream(memo string) lipapi.ManagedEventStream {
 		{Kind: lipapi.EventResponseFinished},
 	})
 }
+
 func adversarialExecutorStream(text string) lipapi.ManagedEventStream {
 	return lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
@@ -766,6 +770,7 @@ func adversarialExecutorStream(text string) lipapi.ManagedEventStream {
 		{Kind: lipapi.EventResponseFinished},
 	})
 }
+
 func adversarialBackend(caps lipapi.BackendCaps, capture func(lipapi.Call), stream func() lipapi.ManagedEventStream) *execbackend.Backend {
 	return &execbackend.Backend{
 		Caps: caps,
@@ -928,7 +933,6 @@ func TestAdversarial_AnchorMissing_FallbackAndFailClosed(t *testing.T) {
 		{name: "fallback", policy: conversationview.AnchorStablePrefixFallback, kind: adversaryAnchorRemoveFallback, shouldFail: false},
 		{name: "fail_closed", policy: conversationview.AnchorFailClosed, kind: adversaryAnchorRemoveFailClosed, shouldFail: true},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			snap, taggedMsg, anchorMsg, steeringText, _, _, _ := buildAdversarySnapshotAfterMessage(tc.policy)

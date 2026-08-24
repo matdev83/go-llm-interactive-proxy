@@ -23,6 +23,7 @@ func (h ltHandler) FailureMode() hooks.FailureMode { return hooks.FailOpen }
 func (h ltHandler) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h ltHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "ok"}, nil
 }
@@ -38,6 +39,7 @@ func (h *ptrLTHandler) FailureMode() hooks.FailureMode { return hooks.FailOpen }
 func (h *ptrLTHandler) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h *ptrLTHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "ok"}, nil
 }

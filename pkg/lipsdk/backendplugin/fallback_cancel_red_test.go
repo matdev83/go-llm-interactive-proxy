@@ -44,6 +44,7 @@ func (m *blockingCancelManaged) Cancel(ctx context.Context, cause lipapi.CancelC
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace and inspects NumGoroutine
 func TestForwardExecute_FallbackCancel_BoundedGraceAndNonBlocking(t *testing.T) {
 	restore := backendplugin.SetFallbackCancelGraceForTest(200 * time.Millisecond)
 	t.Cleanup(restore)
@@ -109,6 +110,7 @@ func TestForwardExecute_FallbackCancel_BoundedGraceAndNonBlocking(t *testing.T) 
 	}
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestForwardExecute_Legacy_FallbackCancel_BoundedGrace(t *testing.T) {
 	restore := backendplugin.SetFallbackCancelGraceForTest(200 * time.Millisecond)
 	t.Cleanup(restore)
@@ -147,6 +149,7 @@ func TestForwardExecute_Legacy_FallbackCancel_BoundedGrace(t *testing.T) {
 	waitUntil(t, time.Second, func() bool { return ms.cancelCtxExpired.Load() })
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestForwardExecute_FallbackCancel_ControlReaderDisconnect(t *testing.T) {
 	restore := backendplugin.SetFallbackCancelGraceForTest(200 * time.Millisecond)
 	t.Cleanup(restore)

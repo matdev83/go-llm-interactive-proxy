@@ -18,12 +18,15 @@ import (
 func cacheSys(text string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: text}}}
 }
+
 func cacheUser(text string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: text}}}
 }
+
 func cacheAssistant(text string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: text}}}
 }
+
 func cacheTraj(call lipapi.Call) []string {
 	var out []string
 	if call.HasItemAuthority() {
@@ -51,6 +54,7 @@ func cacheTraj(call lipapi.Call) []string {
 	}
 	return out
 }
+
 func cacheIsPrefix(prefix, full []string) bool {
 	if len(prefix) > len(full) {
 		return false

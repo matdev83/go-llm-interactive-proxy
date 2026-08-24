@@ -103,7 +103,7 @@ func TestReassert_Pure_DuplicateAndMove(t *testing.T) {
 		AnchorMissingPolicy: conversationview.AnchorFailClosed, Reason: "r",
 	}
 	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
-	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, lipapi.Message{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a1")}}, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
+	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("a1")}}, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
 	baseline, ev, _ := conversationview.Project(clientCall, snap)
 	// Late duplicate: duplicate steering at tail
 	late := lipapi.CloneCall(baseline)
@@ -177,9 +177,9 @@ func TestReassert_FailClosed_AnchorMissing(t *testing.T) {
 	}
 	snap := conversationview.Snapshot{StateRevision: 1, Steering: []conversationview.SteeringOverlay{overlay}}
 	// Call without anchor (user1 missing due to truncation)
-	call := lipapi.Call{Instructions: []lipapi.Message{lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("other")}}}}
+	call := lipapi.Call{Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("other")}}}}
 
-	_, ev, _ := conversationview.Project(lipapi.Call{Instructions: []lipapi.Message{lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{user1}}, snap)
+	_, ev, _ := conversationview.Project(lipapi.Call{Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}}, Messages: []lipapi.Message{user1}}, snap)
 	// Reassert with missing anchor should fail
 	filteredFail, _ := conversationview.FilterNeverBackend(call, snap)
 	_, _, err := conversationview.Reassert(call, snap, ev.Provenance, filteredFail)
@@ -356,7 +356,7 @@ func TestReassert_VerifyAdaptation_FullProjection(t *testing.T) {
 	tagged := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("tagged-verify")}}
 	taggedID, _ := conversationview.MessageIdentityOf(tagged)
 	snap.NeverBackend = []conversationview.Tag{{Identity: taggedID, Reason: "r"}}
-	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, tagged, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
+	clientCall := lipapi.Call{Instructions: []lipapi.Message{sys}, Messages: []lipapi.Message{user1, tagged, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user2")}}}}
 	baseline, ev, _ := conversationview.Project(clientCall, snap)
 	filtered, _ := conversationview.FilterNeverBackend(clientCall, snap)
 	reasserted, _, _ := conversationview.Reassert(baseline, snap, ev.Provenance, filtered)
@@ -408,11 +408,15 @@ func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 	cleanupTmp()
 	taggedMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("local-tagged-runtime")}}
 	taggedID, _ := conversationview.MessageIdentityOf(taggedMsg)
-	cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: taggedID, Reason: "test"}})
-	cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: taggedID, Reason: "test"}}); err != nil {
+		t.Fatalf("TagNeverBackend: %v", err)
+	}
+	if _, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-runtime", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "runtime-steering"},
 		Placement: conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix}, AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
-	})
+	}); err != nil {
+		t.Fatalf("PutSteering: %v", err)
+	}
 	snap, _ := cv.Snapshot(ctx, aLegID)
 	// counting reader that returns that snap but counts calls
 	var count atomic.Int32
@@ -531,6 +535,7 @@ func (r *reintroduceAndDeleteTransform) Order() int { return 0 }
 func (r *reintroduceAndDeleteTransform) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailClosed
 }
+
 func (r *reintroduceAndDeleteTransform) Handle(ctx context.Context, call *lipapi.Call, meta request.RequestMeta, svc request.Services) error {
 	// Reintroduce tagged at tail
 	call.Messages = append(call.Messages, r.tagged)
@@ -560,5 +565,7 @@ type ptbCapture struct {
 }
 
 // Ensure imports used
-var _ = coretraffic.PortBundleFromSnapshot
-var _ = sdktraffic.LegPTB
+var (
+	_ = coretraffic.PortBundleFromSnapshot
+	_ = sdktraffic.LegPTB
+)

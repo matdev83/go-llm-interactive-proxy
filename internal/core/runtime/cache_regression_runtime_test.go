@@ -25,12 +25,15 @@ import (
 func rtCacheSys(t string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: t}}}
 }
+
 func rtCacheUser(t string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: t}}}
 }
+
 func rtCacheAssistant(t string) lipapi.Message {
 	return lipapi.Message{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: t}}}
 }
+
 func rtCacheTraj(call lipapi.Call) []string {
 	var out []string
 	if call.HasItemAuthority() {
@@ -58,6 +61,7 @@ func rtCacheTraj(call lipapi.Call) []string {
 	}
 	return out
 }
+
 func rtIsPrefix(prefix, full []string) bool {
 	if len(prefix) > len(full) {
 		return false
@@ -492,6 +496,7 @@ func mustSnap(t *testing.T, cv conversationview.Store, aLeg string) conversation
 	require.NoError(t, err)
 	return snap
 }
+
 func mustProj(t *testing.T, call lipapi.Call, snap conversationview.Snapshot) lipapi.Call {
 	t.Helper()
 	proj, _, err := conversationview.Project(call, snap)

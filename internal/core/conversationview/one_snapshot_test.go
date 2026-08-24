@@ -41,7 +41,7 @@ func TestOneSnapshotNoPerCandidateIO(t *testing.T) {
 
 	// Simulate 5 parallel candidate arms (failover, TTFT, interleaved) – each reasserts using frozen snapshot/provenance,
 	// with zero additional Snapshot calls (no per-candidate I/O).
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		// Late transform mutates candidate: duplicate steering tail (simulated by appending)
 		mutated := lipapi.CloneCall(projected)
 		// Reassert must restore without reading store.
@@ -52,7 +52,7 @@ func TestOneSnapshotNoPerCandidateIO(t *testing.T) {
 		require.Equal(t, int64(1), reader.count.Load(), "per-candidate must not read Snapshot")
 	}
 	// Also verify that multiple turns each do exactly one snapshot (not zero, not two).
-	for iter := 0; iter < 3; iter++ {
+	for range 3 {
 		reader2 := &oneSnapshotReader{snap: snap}
 		_, err := reader2.Snapshot(context.Background(), "a-leg-iter")
 		require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestOneSnapshotNoPerCandidateIO_4096Tags(t *testing.T) {
 	_, _, err := conversationview.Project(base, s)
 	require.NoError(t, err)
 	// Reassert with same snapshot multiple times must not trigger additional reads.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		late := lipapi.CloneCall(base)
 		_, _, err := conversationview.Reassert(late, s, nil, lipapi.Call{})
 		require.NoError(t, err)

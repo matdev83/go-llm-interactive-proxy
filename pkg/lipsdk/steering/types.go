@@ -33,7 +33,7 @@ func (id OverlayID) Validate() error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("steering: overlay id must be ascii")
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("steering: invalid character %q in overlay id", ch)
 		}
 	}
@@ -56,7 +56,7 @@ func (r ReasonCode) Validate() error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("steering: reason code must be ascii")
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("steering: invalid character %q in reason code", ch)
 		}
 	}

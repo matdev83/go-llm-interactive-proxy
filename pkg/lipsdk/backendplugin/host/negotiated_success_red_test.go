@@ -118,9 +118,11 @@ type forwardingRedInstance struct{}
 func (f *forwardingRedInstance) Resolve(_ context.Context, _ *string) (backendplugin.ResolvedProfile, error) {
 	return backendplugin.ResolvedProfile{EvidenceSource: "red-fake", Capabilities: backendplugin.CapabilitySummary{Streaming: true}}, nil
 }
+
 func (f *forwardingRedInstance) ListModels(_ context.Context, _ uint32) (backendplugin.ListModelsResponse, error) {
 	return backendplugin.ListModelsResponse{}, nil
 }
+
 func (f *forwardingRedInstance) Execute(stream backendplugin.ExecuteStream) error {
 	return backendplugin.ForwardExecute(stream, func(_ context.Context, _ backendplugin.Invocation, _ lipapi.Call) (lipapi.ManagedEventStream, error) {
 		return &redUpstream{events: []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "red-hi"}}}, nil
@@ -175,10 +177,12 @@ func (s *redClientStream) Recv() (backendplugin.ClientFrame, error) {
 	s.pos++
 	return f, nil
 }
+
 func (s *redClientStream) Send(frame backendplugin.ServerFrame) error {
 	s.out = append(s.out, frame)
 	return nil
 }
+
 func (s *redClientStream) Close() error {
 	s.ensureCloseCh()
 	select {

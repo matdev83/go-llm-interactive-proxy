@@ -101,6 +101,7 @@ func TestCancel_ProviderVsTransport(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unacknowledged returns none", func(t *testing.T) {
+		t.Parallel()
 		fake := &testkit.FakeService{Mode: testkit.ModeBlockedCancel}
 		neg := backendplugin.Negotiation{
 			Compatible:      true,
@@ -132,6 +133,7 @@ func TestCancel_ProviderVsTransport(t *testing.T) {
 	})
 
 	t.Run("reported provider outcome returns provider", func(t *testing.T) {
+		t.Parallel()
 		inst := &fakeProviderCancelInstance{}
 		neg := backendplugin.Negotiation{
 			Compatible:      true,

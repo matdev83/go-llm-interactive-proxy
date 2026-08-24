@@ -63,6 +63,7 @@ func TestMessageIdentity_FormatAndParsing(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			id := conversationview.MessageIdentity(tc.raw)
 			if tc.wantValid {
 				require.NoError(t, id.Validate())
@@ -233,6 +234,7 @@ func TestMessageIdentity_LegacyAndItemAuthorityEquivalence(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			legacyID, err := conversationview.MessageIdentityOf(tc.legacy)
 			require.NoError(t, err)
 			require.True(t, legacyID.IsValid(), "legacy identity must be valid v1 identity")
@@ -330,6 +332,7 @@ func TestMessageIdentity_LineEndingNormalization(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			crlfID, err := conversationview.MessageIdentityOf(tc.crlfMsg)
 			require.NoError(t, err)
 
@@ -414,6 +417,7 @@ func TestMessageIdentity_StructuredJSONCanonicalization(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			msg1 := lipapi.Message{
 				Role: lipapi.RoleUser,
 				Parts: []lipapi.Part{
@@ -640,6 +644,7 @@ func TestMessageIdentity_NegativesAndRejection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := conversationview.ItemIdentityOf(tc.item)
 			require.Error(t, err)
 			if tc.wantErrIs != nil {

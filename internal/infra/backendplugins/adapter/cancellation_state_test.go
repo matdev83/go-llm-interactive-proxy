@@ -119,7 +119,6 @@ func TestCancelState_Request_FirstVsRepeatAndDeadlineMinMerge(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var cs cancelState

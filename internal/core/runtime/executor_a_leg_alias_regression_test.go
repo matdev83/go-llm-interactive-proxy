@@ -26,6 +26,7 @@ func (r *aliasRecordingBLeg) Cancel(_ context.Context, cause leglifecycle.Cancel
 	r.calls = append(r.calls, "cancel:"+string(cause.Kind))
 	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeProvider}
 }
+
 func (r *aliasRecordingBLeg) Close() error {
 	r.calls = append(r.calls, "close")
 	return nil

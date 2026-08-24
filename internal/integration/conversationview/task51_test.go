@@ -46,6 +46,7 @@ func (c *trafficCapture) OnObservation(_ context.Context, ev traffic.Observation
 	c.mu.Unlock()
 	return nil
 }
+
 func (c *trafficCapture) byLeg(leg traffic.Leg) []traffic.Observation {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -59,6 +60,7 @@ func (c *trafficCapture) byLeg(leg traffic.Leg) []traffic.Observation {
 	}
 	return out
 }
+
 func (c *trafficCapture) bodies(leg traffic.Leg) [][]byte {
 	var out [][]byte
 	for _, o := range c.byLeg(leg) {
@@ -88,6 +90,7 @@ func (c *captureBackend) Backend() execbackend.Backend {
 		},
 	}
 }
+
 func (c *captureBackend) lastCall() (lipapi.Call, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -96,6 +99,7 @@ func (c *captureBackend) lastCall() (lipapi.Call, bool) {
 	}
 	return lipapi.CloneCall(c.calls[len(c.calls)-1]), true
 }
+
 func (c *captureBackend) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -450,12 +454,16 @@ func TestTask51_LegacyFullHistory_RealExecutor(t *testing.T) {
 	sourceID, _ := conversationview.MessageIdentityOf(sourceMsg)
 	replyID, _ := conversationview.MessageIdentityOf(replyMsg)
 	cv := b2Store.ConversationViewStore()
-	cv.TagNeverBackend(context.Background(), pinned, []conversationview.TagRequest{{Identity: sourceID, Reason: "test_local"}, {Identity: replyID, Reason: "test_local"}})
+	if _, err := cv.TagNeverBackend(context.Background(), pinned, []conversationview.TagRequest{{Identity: sourceID, Reason: "test_local"}, {Identity: replyID, Reason: "test_local"}}); err != nil {
+		t.Fatalf("TagNeverBackend: %v", err)
+	}
 	steeringText := "hidden-steering-legacy-51"
-	cv.PutSteering(context.Background(), pinned, conversationview.PutSteeringRequest{
+	if _, err := cv.PutSteering(context.Background(), pinned, conversationview.PutSteeringRequest{
 		OverlayID: "ov-legacy-51", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: steeringText},
 		Placement: conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix}, AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "test",
-	})
+	}); err != nil {
+		t.Fatalf("PutSteering: %v", err)
+	}
 	ex.ConversationViewReader = &pinnedReader{store: b2Store, pinned: pinned}
 	backendCap := &captureBackend{}
 	ex.Backends = map[string]execbackend.Backend{"openai": backendCap.Backend()}
@@ -485,7 +493,7 @@ func TestTask51_LegacyFullHistory_RealExecutor(t *testing.T) {
 	hasCTPSteering := false
 	for _, raw := range ctp {
 		var c lipapi.Call
-		json.Unmarshal(raw, &c)
+		_ = json.Unmarshal(raw, &c)
 		for _, m := range c.Messages {
 			if id, _ := conversationview.MessageIdentityOf(m); id == sourceID || id == replyID {
 				hasCTPTagged = true
@@ -512,7 +520,7 @@ func TestTask51_LegacyFullHistory_RealExecutor(t *testing.T) {
 	hasPTBSteering := false
 	for _, raw := range ptb {
 		var c lipapi.Call
-		json.Unmarshal(raw, &c)
+		_ = json.Unmarshal(raw, &c)
 		for _, m := range c.Messages {
 			if id, _ := conversationview.MessageIdentityOf(m); id == sourceID || id == replyID {
 				hasPTBTagged = true

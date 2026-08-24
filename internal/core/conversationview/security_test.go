@@ -8,6 +8,7 @@ import (
 )
 
 func TestSecurity_NoClientVisibilitySurface(t *testing.T) {
+	t.Parallel()
 	// lipapi.Call must not have client-authoritative visibility field.
 	call := lipapi.Call{}
 	// If a field like Visibility or NonForwardable existed, this would compile.
@@ -21,6 +22,7 @@ func TestSecurity_NoClientVisibilitySurface(t *testing.T) {
 }
 
 func TestSecurity_ReasonCode_Bounded(t *testing.T) {
+	t.Parallel()
 	invalid := []string{
 		"secret token",          // space
 		"Bearer xyz",            // space
@@ -44,6 +46,7 @@ func TestSecurity_ReasonCode_Bounded(t *testing.T) {
 }
 
 func TestSecurity_NoPlaintextInErrors(t *testing.T) {
+	t.Parallel()
 	// PutSteering error must not echo plaintext.
 	req := PutSteeringRequest{
 		OverlayID:           "ov1",
@@ -62,6 +65,7 @@ func TestSecurity_NoPlaintextInErrors(t *testing.T) {
 }
 
 func TestSecurity_SteeringNotSecretChannel_DocCheck(t *testing.T) {
+	t.Parallel()
 	// This test documents the invariant: steering text is model-visible, not secrecy.
 	// Ensure that metrics observer never receives plaintext (checked via observer test).
 	// Here we assert that StoredMessageV1 validation does not accept empty but accepts normal text,

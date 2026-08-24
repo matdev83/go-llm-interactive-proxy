@@ -55,7 +55,7 @@ func TestRED_TerminalSideband_FinalizerUnsupportedLosesBufferedSideband(t *testi
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -123,7 +123,7 @@ func TestRED_TerminalSideband_FinalizerFailureLosesBufferedSideband(t *testing.T
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -189,7 +189,7 @@ func TestRED_TerminalSideband_DuplicateDedupeKeysDeduped(t *testing.T) {
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -260,7 +260,7 @@ func TestCharacterization_TerminalSideband_FinalizerSuccessTakesPrecedence(t *te
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
@@ -331,7 +331,7 @@ func TestCharacterization_TerminalSideband_NoEvidenceLeavesUnavailable(t *testin
 	var mu sync.Mutex
 
 	ex := TestExecutor()
-	ex.BillingRuntime.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
+	ex.BillingLegObserver = BillingLegObserverFunc(func(_ context.Context, record billing.CallLegUsageRecord) {
 		mu.Lock()
 		recordedLegs = append(recordedLegs, record)
 		mu.Unlock()
