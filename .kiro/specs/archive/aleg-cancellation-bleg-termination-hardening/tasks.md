@@ -288,3 +288,13 @@
 - **No hidden prerequisite**: PR #428 is already merged on `main` and is revalidated by task 1.1 rather than treated as future work.
 - **Dependency graph**: acyclic; no task depends on a later phase except explicitly parallel independent work after its prerequisites.
 - **Scope boundary**: all production changes are attributable to requirements 2–9; Phase 1/7/8 exists to prove and preserve those contracts rather than invent functionality.
+
+## Completion Status
+
+- [x] All 28 tasks complete through exact branch SHA 54e2293a5169ac462d692f33e05cb2a1145abad4 (commits e74ac220, 54e2293a)
+- [x] Integration validation GO; 10/10 sections; no boundary violations/blocked tasks
+- [x] make test, quality-checks, test-unit, parity-checks pass
+- [x] Negotiated/legacy connector cells and Phase 8 external Codex/OpenCode smoke tests pass
+- [x] Windows race unavailable due CGO; Linux CI owns race
+- [x] No successor-only work claimed; #394/#426 independent scope
+- [x] This archive is intentionally included in the same implementation changeset/PR under user override, so merged-main SHA is pending PR delivery
