@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"sync"
@@ -311,7 +312,7 @@ func computeCancelDeadline(ctx context.Context, cancelTimeout time.Duration) (ti
 	return effectiveDeadline, effectiveDeadline.UnixMilli()
 }
 
-func cancelModeToLipapi(mode backendplugin.CancelMode, ack bool) lipapi.CancelMode {
+func cancelModeToLipapi(mode backendplugin.CancelMode, _ bool) lipapi.CancelMode {
 	switch mode {
 	case backendplugin.CancelModeProvider:
 		return lipapi.CancelModeProvider
@@ -322,11 +323,20 @@ func cancelModeToLipapi(mode backendplugin.CancelMode, ack bool) lipapi.CancelMo
 	case backendplugin.CancelModeNone:
 		return lipapi.CancelModeNone
 	default:
-		if ack {
-			return lipapi.CancelModeProvider
-		}
-		return lipapi.CancelModeTransport
+		return lipapi.CancelModeNone
 	}
+}
+
+func outcomeCancelResult(prog CancellationProgress) lipapi.CancelResult {
+	res := lipapi.CancelResult{Mode: cancelModeToLipapi(prog.OutcomeMode, prog.OutcomeAcknowledged)}
+	if !prog.OutcomeAcknowledged {
+		if prog.OutcomeDetail != "" {
+			res.Err = fmt.Errorf("backend plugin cancel failed: %s", prog.OutcomeDetail)
+		} else {
+			res.Err = errors.New("backend plugin cancel failed")
+		}
+	}
+	return res
 }
 
 func (s *managedStream) Close() error {
@@ -350,7 +360,7 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 	if s.terminalSeen.Load() {
 		prog := s.CancellationProgress()
 		if prog.OutcomeSeen {
-			return lipapi.CancelResult{Mode: cancelModeToLipapi(prog.OutcomeMode, prog.OutcomeAcknowledged)}
+			return outcomeCancelResult(prog)
 		}
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
@@ -462,9 +472,9 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport}
 	}
 	if prog.OutcomeSeen {
-		return lipapi.CancelResult{Mode: cancelModeToLipapi(prog.OutcomeMode, prog.OutcomeAcknowledged)}
+		return outcomeCancelResult(prog)
 	}
-	return lipapi.CancelResult{Mode: lipapi.CancelModeTransport}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 }
 
 func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {

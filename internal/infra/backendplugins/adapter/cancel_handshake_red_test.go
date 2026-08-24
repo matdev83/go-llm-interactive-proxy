@@ -488,8 +488,8 @@ func TestAdapter_Cancel_TerminalWithoutOutcome(t *testing.T) {
 	defer func() { _ = ms.Close() }()
 
 	res := ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelExplicit})
-	if res.Mode != lipapi.CancelModeTransport {
-		t.Fatalf("res.Mode = %v, want CancelModeTransport", res.Mode)
+	if res.Mode != lipapi.CancelModeNone {
+		t.Fatalf("res.Mode = %v, want CancelModeNone", res.Mode)
 	}
 
 	prog := ms.(*managedStream).CancellationProgress()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
+
+const maxCancelOutcomeDetailLen = 256
+
+func sanitizeCancelOutcomeDetail(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) > maxCancelOutcomeDetailLen {
+		return string(runes[:maxCancelOutcomeDetailLen])
+	}
+	return string(runes)
+}
 
 var fallbackCancelGrace = 2 * time.Second
 
@@ -190,12 +205,12 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 
 					if handshakeNegotiated {
 						outcome := &CancelOutcome{
-							Acknowledged: true,
+							Acknowledged: res.Err == nil,
 							Reason:       frame.CancelReason,
 							Mode:         res.Mode,
 						}
 						if res.Err != nil && outcome.Detail == "" {
-							outcome.Detail = res.Err.Error()
+							outcome.Detail = sanitizeCancelOutcomeDetail(res.Err.Error())
 						}
 						_ = sequencer.Send(ServerFrame{
 							Kind:          ServerFrameCancelOutcome,

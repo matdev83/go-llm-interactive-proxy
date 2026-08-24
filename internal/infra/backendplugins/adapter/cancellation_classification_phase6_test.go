@@ -127,7 +127,7 @@ func TestPhase6_ExecuteFailureCanceled_ToClassifiedError_NotRetryable(t *testing
 // rather than retryable transport death.
 func TestPhase6_ForcedAbort_ClassifiedAsCanceledNotTransportDeath(t *testing.T) {
 	t.Parallel()
-	fake := &testkit.FakeService{Mode: testkit.ModeBlockedCancel}
+	fake := &testkit.FakeService{Mode: testkit.ModeSlowOutput, SlowWait: 1 * time.Second}
 	neg := backendplugin.Negotiation{
 		Compatible:      true,
 		NegotiatedMinor: backendplugin.ProtocolMinorCancellationHandshake,

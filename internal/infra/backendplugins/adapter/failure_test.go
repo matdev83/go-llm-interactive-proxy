@@ -100,7 +100,7 @@ func (f *fakeProviderCancelInstance) Execute(stream backendplugin.ExecuteStream)
 func TestCancel_ProviderVsTransport(t *testing.T) {
 	t.Parallel()
 
-	t.Run("unacknowledged returns transport", func(t *testing.T) {
+	t.Run("unacknowledged returns none", func(t *testing.T) {
 		fake := &testkit.FakeService{Mode: testkit.ModeBlockedCancel}
 		neg := backendplugin.Negotiation{
 			Compatible:      true,
@@ -126,8 +126,8 @@ func TestCancel_ProviderVsTransport(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = stream.Close(); cancel() })
 		res := stream.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelExplicit})
-		if res.Mode != lipapi.CancelModeTransport {
-			t.Fatalf("res.Mode = %v, want %v", res.Mode, lipapi.CancelModeTransport)
+		if res.Mode != lipapi.CancelModeNone {
+			t.Fatalf("res.Mode = %v, want %v", res.Mode, lipapi.CancelModeNone)
 		}
 	})
 
