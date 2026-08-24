@@ -1,57 +1,59 @@
 # HANDOFF — kiro-impl run: agent-loop-breach-prevention
 
-Read this fully before resuming `/kiro-impl agent-loop-breach-prevention`. It encodes every binding decision, known issue, and process mechanic from the implementation session that produced commits `201b6729..28a8aa58`.
+Read this fully before resuming `/kiro-impl agent-loop-breach-prevention`. It encodes every binding decision, known issue, and process mechanic from the implementation session.
 
 ## Mission
 
-Autonomous kiro-impl execution of the approved spec `.kiro/specs/agent-loop-breach-prevention/` (requirements/design/tasks all approved; phase `ready-for-implementation`). Branch: `feat/agent-loop-breach-prevention` (dedicated worktree, do NOT create another). Spec artifacts live beside this file; steering is `.kiro/steering/*` plus root/`.kiro/AGENTS.md`.
+Autonomous kiro-impl execution of the approved spec `.kiro/specs/agent-loop-breach-prevention/` (requirements/design/tasks all approved; phase `tasks-generated` with remediation pending). Branch: `feat/agent-loop-breach-prevention` (dedicated worktree, do NOT create another). Spec artifacts live beside this file; steering is `.kiro/steering/*` plus root/`.kiro/AGENTS.md`.
 
 ## Progress ledger
 
-Completed (marked `[x]` in tasks.md): **1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 6.1**.
-In progress: **6.2** — phase 1 (`stopgate` package) committed; phase 2 (runtime wiring of finish chokepoints) committed; REMAINING for 6.2 completion: composition wiring (runtimebundle -> Executor.LoopGuard injection from `EffectiveAgentLoopGuard()`), end-to-end holdback assertions at runtime level, resolving the known issue below.
-Pending: 6.3, 7.1, 7.2, 8.1, 8.2, 8.3, 9.1, 9.2, 10.1, 10.2, 10.3.
-
-Commits (oldest first): `201b6729` config+stopguard policy; `00d04374` progress tracker; `a2aed482` streamrecovery continuation signal; `fcfb5e41` stopguardverify adapter/projector/instruction; `4b42eb6a` verifier observer seam; `6b1b3030` continuationsafety; `665859f3` stopgate package; `28a8aa58` runtime holdback wiring.
-
-## KNOWN ISSUE — fix FIRST in 6.3 (Req 9.1)
-
-On the guard-ENABLED path, withholding `finishResponse` can cause the same backend `response_finished` to be replayed through recovery drains and re-recorded via `recordAttemptLogged` (implementer observed 2 settlement logs on authority+dispatch paths). Requirement 9.1 demands exactly-once attempt settlement. Before opening any continuation leg: deduplicate by attempt terminal CAS state so a replayed finish cannot re-settle. Guard-DISABLED path verified unchanged (full `internal/core/runtime` suite green). Also recorded in tasks.md Implementation Notes.
+- Completed (marked `[x]` in tasks.md): **Tasks 1.1 through 10.3** (all foundational policy, progress tracking, stream-recovery continuation, auxiliary verification, continuation safety, request orchestration, post-output transport continuation, explicit completion, observability, and regression suites).
+- Pending remediation: **Task 11** (Remediate canonical PR435 conversation-view steering integration):
+  - 11.1 (P) Add failing unit & contract tests for steering writer registration, anchor resolution, and snapshot isolation.
+  - 11.2 Implement steering writer integration in continuation orchestration and eliminate duplicate authority.
+  - 11.3 (P) Add failing tests and implementation for exact-once reassertion, overlay lifecycle, and stale cleanup.
+  - 11.4 Add failing tests and implementation for candidate capability rejection and transcript isolation.
+  - 11.5 Converge full regression, race, and architecture ratchets.
 
 ## Binding architecture decisions (do not relitigate)
 
-1. **Package map**: `internal/core/stopguard` = PURE policy (cause/verdict/action vocab, NormalizeVerdict, Decide/DecideWithVerdict, ProgressTracker; imports only lipapi/stdlib; NO I/O ever — task 10.2 archtest enforces). `internal/core/stopgate` = request-level Gate composing policy+tracker+continuationsafety; runtime consults it via `Executor.LoopGuard *loopguardRuntime` (nil = disabled fast path). `internal/core/stopguardverify` = auxreq-backed Verifier adapter + evidence projector + six-rule instruction + strict JSON verdict parser (must stay OUTSIDE stopguard because of the no-aux-I/O ratchet). `internal/core/continuationsafety` = pure continuation-safety Evaluate + BuildRecoveryInstruction/BoundRecoveryText.
-2. **Config shape**: nested block `agent_loop_guard:` with snake_case leaves (mirrors `stream_recovery:`), NOT flat root keys despite design table wording; tasks.md 1.3 "consistent with existing config package" governs. New top-level sections MUST be registered in `internal/core/configreload/inventory.go` (+ typed comparator in `policy.go`, DispositionReloadable chosen) or `TestUnclassifiedTopLevelField_StructuralGuardFails` fails.
-3. **Verifier request constants**: Visibility `"private"`, `auxiliary.SessionModeDetached`, `DisablePlugins: []string{PluginID}` with `PluginID="agent_loop_guard"`; lineage fields on `stopguard.Evidence{ParentTraceID, ParentALegID, ParentBLegID, ParentBranchBinding}` copied verbatim into auxiliary.Request, ctx fallback via `lineage.TraceID/ALegID`. Never derive B-leg from ToolState.PendingToolCallID (rejected as semantically wrong).
-4. **Budget semantics (Req 8.1)**: config `MaxSemanticContinuations=N` means N hidden legs. Implemented as: FIRST actionable CONTINUE seeds tracker baseline AND opens leg #1 (baseline consumes tracker slot 1), every later CONTINUE consumes one slot; therefore `NewProgressTracker(N+1, noProgressLimit)` in gate.New. Two fixtures were corrected to this model (budget fixture: cont x3 then latched terminal at cfg=3); race/no-progress fixtures validate as-is. Tracker pins exhaustion AT its cap inclusive (Nth record terminals).
-5. **Continuation lineage**: new leg's `PreviousID = prior.ID` (NOT prior.PreviousID) — repo precedent `pkg/lipsdk/continuation/materialize.go:190-193` walks `cur = rec.PreviousID`; linking to prior.PreviousID would orphan the interrupted leg from trajectory materialization (violates Req 4.2). Three RED fixtures were corrected accordingly; implementation comment cites the precedent.
-6. **Telemetry honesty**: no fabricated values — an implementer's `Latency=1ns if 0` floor was removed; tests assert `>= 0`.
-7. **streamrecovery extension**: `Config.AllowPostOutputContinuation bool` + `DecisionContinuePostOutput`; mode-gated conversion of post-commit EOF/generic-error/idle branches; cancellation still SurfaceFailure; default path byte-for-byte unchanged; sole production consumer (`runtimebundle/build_executor.go`) uses keyed literals, flag defaults false.
-
-## Runtime integration facts (for 6.2 completion / 6.3 / 7.x)
-
-- Finish chokepoints wrapped via `finishResponseGuarded` (file `internal/core/runtime/agent_loop_guard_gate.go`): dispatch_gated (~recv_loop:94), dispatch_nongated (:146), recovery_drain (:315), gate_drain (:373). Out-of-scope sites left untouched: finalizeResponseFinishedAuthority error fallbacks, handleEOF (:203), early ctx cancel (:292), interleaved_stream abort handoff, terminalizeTurn fallback.
-- `turnTerminal` owns request truth: `commitment`/`completion` atomics, `markCommitted/markFinished/finishResponse/endALeg(aLegEndMode)`; attempts settle via `attempt.TerminalizeAttempt` / `terminalizeWithEvidence`; `terminalizeGateReplacement` is precedent for pre-request-final claims.
-- Interim contract until 6.3: gate Action==continue_leg => finish withheld, client still sees controlled finish with reason `guard_continuation_pending_6_3` (conservative allow-stop fallback). 6.3 replaces this with real hidden B-leg opening through normal admission (route/billing/authority) using `continuationsafety.Evaluate` + `BuildRecoveryInstruction`, keeping A-side stream open per design "Protocol-Safe A-Side Stitching".
-- Post-output interruption (7.x): consume `DecisionContinuePostOutput` from streamrecovery (set `AllowPostOutputContinuation=true` when guard enabled during composition), classify cause via stopguard (`CauseTransportEOFPostCommit`/`CauseIdlePostCommit` + `SafeCanonicalContinuation` fact), never replay committed output/side effects (Transport Recovery Matrix in design).
+1. **Package map**:
+   - `internal/core/stopguard`: PURE policy (cause/verdict/action vocab, NormalizeVerdict, Decide/DecideWithVerdict, ProgressTracker; imports only lipapi/stdlib; NO I/O ever — task 10.2 archtest enforces).
+   - `internal/core/stopgate`: request-level Gate composing policy+tracker+continuationsafety; runtime consults it via `Executor.LoopGuard *loopguardRuntime` (nil = disabled fast path).
+   - `internal/core/stopguardverify`: auxreq-backed Verifier adapter + evidence projector + six-rule instruction + strict JSON verdict parser (stays OUTSIDE stopguard because of the no-aux-I/O ratchet).
+   - `internal/core/continuationsafety`: pure continuation-safety Evaluate + BuildRecoveryInstruction/BoundRecoveryText.
+   - `pkg/lipsdk/steering` & `internal/core/conversationview`: canonical merged PR #435 infrastructure for hidden steering overlays, anchor resolution, turn snapshot isolation, projection, and reassertion.
+2. **Canonical PR435 Steering Integration (SUPERSEDES outdated "future non-forwardable" note)**:
+   - Direct appending to `Call.Messages` or `Call.Items` in `internal/core/runtime/agent_loop_guard_continuation.go` and ad-hoc hidden fields (`turnTerminal.guardHidden`) are temporary implementation artifacts that MUST be removed.
+   - `conversationview` steering overlays are the single authoritative mechanism for hidden recovery instructions.
+   - Construction: `sdkadapter.NewWriter(store, aLegID, resolver)` binds authoritative A-leg scope and trajectory resolver. The resolver must return the accepted user ingress call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus current committed snapshot, preserving the terminal forwardable user message boundary required by `ResolveAfterIngressTailAnchor`.
+   - Lifecycle: On actionable `CONTINUE`, runtime settles B1, formats instruction via `continuationsafety.BuildRecoveryInstruction`, registers overlay via `steering.Writer.Put` with fixed `OverlayID("alg-rec")` within the authoritative A-leg scope, `RoleDeveloper`, `AfterIngressTail`, `FailClosed`, and reason `loop_guard_recovery`. Runtime authority guarantees single active logical request per A-leg, preventing concurrent active ALG overlays.
+   - Anchor resolution: `AfterIngressTail` resolves to fixed `MessageAnchor` on the terminal forwardable user message from accepted ingress trajectory; fails closed if user anchor is missing or excluded.
+   - Snapshot sequencing: freeze Snapshot N+1 for hidden model turn B2 after overlay registration; all candidate arms/attempts of turn B2 share this snapshot. Never mutate already frozen turn snapshots.
+   - Late transform reassertion: `conversationview.Reassert` using `OverlayProvenance` and `FilteredBaseline` guarantees exact-once steering injection before backend `Open`.
+   - Deactivation: `steering.Writer.Deactivate(ctx, "alg-rec")` is called on final A terminal publication, cancellation, budget exhaustion, or leg open failure.
+   - Stale cleanup: on subsequent external turn ingress, deterministically call `Deactivate(ctx, "alg-rec")` before taking the turn's initial snapshot; `ErrOverlayNotFound` or already inactive is treated as no-op success, while real persistence error fails closed.
+3. **Config shape**: nested block `agent_loop_guard:` with snake_case leaves (mirrors `stream_recovery:`). Registered in `internal/core/configreload/inventory.go` with typed comparator in `policy.go` (DispositionReloadable).
+4. **Verifier request constants**: Visibility `"private"`, `auxiliary.SessionModeDetached`, `DisablePlugins: []string{PluginID}` with `PluginID="agent_loop_guard"`.
+5. **Budget semantics (Req 8.1)**: config `MaxSemanticContinuations=N` means N hidden legs. Tracker pins exhaustion at its cap inclusive.
+6. **Continuation lineage**: new leg's `PreviousID = prior.ID` (walks lineage correctly).
+7. **Telemetry honesty**: no fabricated values; bounded metric labels only.
+8. **streamrecovery extension**: `Config.AllowPostOutputContinuation bool` + `DecisionContinuePostOutput`.
 
 ## Process mechanics that worked (follow them)
 
-- TDD cadence: capture CLI RED output BEFORE implementing; merged per-group RED->GREEN->single-commit cycles are REQUIRED because `make quality-checks` runs `go vet` which compiles test files — compile-level RED tests cannot be committed standalone without bypassing hooks (forbidden).
-- Subagent channel: flaky at session start (empty results twice -> manual mode for group 1), reliable afterwards. ALWAYS independently verify implementer claims; caught: budgets.go history-line REPLACEMENT (must be append-only), fabricated latency floor, contradictory fixtures papered over with conditional logic, wrong field mappings. Parse only exact `- STATUS:` / `- VERDICT:` lines.
-- Archtest gates hit repeatedly: `TestCorePackagesHaveDocGo` (every internal/core/* needs doc.go), `TestLineComplexityBudgets` (internal/core ratchet in `internal/archtest/budgets.go` — bump by appending a dated history comment line `measured N, bump to N+25`; current Max 87122), configreload structural inventory (see decision 2).
-- Race: Windows TSAN fails to allocate (`make test-race` skips on Windows); targeted `go test -race` may fail with error code 87 here — not a code failure; Linux CI covers race. Mutex-guard shared state anyway (ProgressTracker/Gate pattern).
-- Transient `go clean -cache`/build-cache errors occurred once; retry clears them.
-- Human decision on record (tasks.md Implementation Notes + local git config `lip.allowLargeChange true`): the 100-modified-Go-files gate is authorized to be exceeded for this run; CI/PR still needs the `allow-large-change` label.
-- Verification bar per task: focused `-count=1` runs, full `internal/core/runtime` suite for runtime touches, `go test -run TestLineComplexityBudgets ./internal/archtest/`, gofmt/go vet, TODO grep. Final task 10.3 runs whole-repo gates (`make quality-checks`, `make test`, `make qa`).
-
-## Environment
-
-Windows/pwsh; Go toolchain 1.26.x pinned in go.mod; testify v1.11.1 + goleak available; forward-slash git pathspecs. Workdir `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-agent-loop-breach-prevention`. Only expected dirty file: `.kiro/specs/agent-loop-breach-prevention/spec.json` (pre-existing approval timestamps - preserve, never commit blindly alongside feature changes unless intended).
+- TDD cadence: capture CLI RED output BEFORE implementing; merged per-group RED->GREEN->single-commit cycles are REQUIRED because `make quality-checks` runs `go vet` which compiles test files.
+- Archtest gates: `TestCorePackagesHaveDocGo` (every internal/core/* needs doc.go), `TestLineComplexityBudgets` (bump by appending a dated history comment line in `internal/archtest/budgets.go`).
+- Race: Windows TSAN fails to allocate (`make test-race` skips on Windows); targeted `go test -race` may fail with error code 87 on Windows — Linux CI covers TSAN race. Mutex-guard shared state anyway.
+- Human decision on record: 100-modified-Go-files gate authorized to be exceeded for this run (`git config lip.allowLargeChange true`); PR requires `allow-large-change` label.
+- Human decision on record (2026-08-25): canonical conversation-view steering integration architecture is approved; Task 11 remediation authorized for immediate execution.
 
 ## Resume order
 
-1. 6.2 completion: fix known issue (attempt-settlement dedupe) -> composition wiring (runtimebundle builds `loopguardRuntime` from `EffectiveAgentLoopGuard()`: Enabled, Policy mapping trust/verify, caps, role/timeout into stopguardverify.AdapterConfig + Observer) -> runtime-level tests proving held candidate never reaches A-side before decision (Req 12.10) -> mark 6.2 `[x]`.
-2. 6.3: real continuation leg opening (hidden instruction injection per `BuildRecoveryInstruction`, admission through existing executor retry/open machinery, budget/progress state from Gate Outcome; recursion suppression via PluginID DisablePlugins + `SuppressVerification` fact for verifier legs).
-3. 7.x post-output interruption; 8.x explicit-completion capability + E2E protocol matrix (one legal A-side stream across hidden B-legs, non-streaming parity, unsupported-continuation clean fallback); 9.x telemetry through existing observability (bounded enums only); 10.1 regression fixtures (design "Testing Strategy" lists 16 integration scenarios verbatim), 10.2 archtest ratchets (stopguard purity, no retry/replacement classification, no hidden instruction as A-side content, exactly-once under race), 10.3 full gates.
-4. Then `/kiro-validate-impl agent-loop-breach-prevention` as GO/NO-GO gate; apply kiro-verify-completion before claiming feature success.
+1. Execute **Task 11.1**: Add failing unit & contract tests for `steering.Writer` registration, `AfterIngressTail` anchor resolution to `MessageAnchor`, `FailClosed` policy, turn snapshot N+1 freeze, and multi-store persistence (Memory, SQLite, PostgreSQL).
+2. Execute **Task 11.2**: Implement `steering.Writer` in continuation orchestration; eliminate direct `Call.Messages`/`Items` append and remove `turnTerminal.guardHidden`.
+3. Execute **Task 11.3**: Add failing tests and implement `conversationview.Reassert` (with `OverlayProvenance` and `FilteredBaseline`), explicit deactivation on terminal/cancel/exhaustion/open-failure, and stale-overlay cleanup on external turn ingress.
+4. Execute **Task 11.4**: Add failing tests and implement candidate capability rejection for unsupported role/placement and verify transcript isolation (absent from A stream and `ContinuationRecord`s).
+5. Execute **Task 11.5**: Converge full regression suite, multi-store persistence, deterministic race tests, architecture ratchets, and repository quality gates (`make quality-checks`, `make test`, `make qa`).
+6. Run `/kiro-validate-impl agent-loop-breach-prevention` as GO/NO-GO gate.

@@ -204,16 +204,51 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - Assert `internal/core/stopguard` has no provider adapter/SDK dependencies and no auxiliary/backend I/O.
     - Assert no post-output continuation path uses retry/replacement semantics.
     - Assert hidden recovery control content cannot be rendered/persisted as A-side user-authored content.
-    - Assert every swallowed B-leg and final A-leg terminalize once under race tests.
-    - _Requirements: 2.3, 4.1, 6.5, 9.1–9.6, 10.3_
-    - _Depends on: 6.3, 7.2, 8.3_
-    - _Validation: architecture tests + targeted `go test -race`_
-  - [x] 10.3 Run whole-repository quality gates and repair only scope-related regressions
+    - Assert every swallowed B-leg and final A-leg terminalize once under race te- [x] 10.3 Run whole-repository quality gates and repair only scope-related regressions
     - Execute `go test ./...`, relevant targeted race suite, `make quality-checks`, `make test`, and `make qa` according to current project steering/CI capabilities.
     - Confirm disabled-mode compatibility, no duplicate transport knobs, no provisional A terminal leakage, and no provider-specific guard policy in core.
     - _Requirements: 1.1–1.5, 9.1–9.6, 10.1–10.5, 12.10_
     - _Depends on: 10.1, 10.2, 9.2, 8.3_
     - _Validation: all listed repository quality gates_
+
+- [ ] 11. Remediate canonical PR435 conversation-view steering integration
+  - [ ] 11.1 (P) Add failing unit & contract tests for steering writer registration, anchor resolution, and snapshot isolation
+    - Test `steering.Writer` registration on actionable `CONTINUE` using fixed `OverlayID("alg-rec")` within authoritative A-leg scope, message role `RoleDeveloper`, placement `AfterIngressTail`, anchor missing policy `FailClosed`, and reason `loop_guard_recovery`.
+    - Test that `TrajectoryResolver` returns the accepted user ingress request call (`identityBoundTurn.ingressCall` or equivalent preserved ingress trajectory) plus committed snapshot, allowing `ResolveAfterIngressTailAnchor` to resolve `AfterIngressTail` to a fixed `MessageAnchor` on the terminal user message; assert that passing post-B1 calls ending in assistant output fails with `ErrTerminalNotUser`.
+    - Test that hidden continuation freezes a new turn snapshot (Snapshot N+1) and all candidate attempts of that turn share it without mutating already frozen snapshots.
+    - Test single-active-request A-leg runtime authority serialization invariant preventing concurrent active ALG overlays on the same A-leg.
+    - Test multi-backend persistence across Memory, SQLite, and PostgreSQL store implementations.
+    - _Requirements: 6.8–6.10, 6.15, 12.11, 12.12, 12.15_
+    - _Depends on: 10.3_
+    - _Validation: `go test ./internal/core/runtime/... ./internal/core/conversationview/...`_
+  - [ ] 11.2 Implement steering writer integration in continuation orchestration and eliminate duplicate authority
+    - Construct `steering.Writer` explicitly with authoritative A-leg ID and trajectory resolver (`sdkadapter.NewWriter`).
+    - Implement `TrajectoryResolver` returning the accepted user ingress request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus current committed snapshot.
+    - On actionable `CONTINUE`, register/update overlay via `Writer.Put` with fixed `OverlayID("alg-rec")` and freeze Snapshot N+1 for hidden model turn B2 before opening attempt.
+    - Remove direct append to `Call.Messages` and `Call.Items` in `internal/core/runtime/agent_loop_guard_continuation.go`.
+    - Eliminate `turnTerminal.guardHidden` and establish conversation-view steering as the single source of truth for hidden control content.
+    - _Requirements: 6.8–6.10, 6.17, 12.11, 12.16_
+    - _Depends on: 11.1_
+    - _Validation: `go test ./internal/core/runtime/...`_
+  - [ ] 11.3 (P) Add failing tests and implementation for exact-once reassertion, overlay lifecycle, and stale cleanup
+    - Test and wire `conversationview.Reassert` using `OverlayProvenance` and `FilteredBaseline` before backend `Open` to prevent duplicate or dropped steering after attempt shaping.
+    - Test and implement explicit deactivation via `steering.Writer.Deactivate(ctx, "alg-rec")` on final A terminal publication, cancellation, budget exhaustion, or leg open failure.
+    - Test and implement deterministic stale-overlay cleanup on external turn ingress via `Deactivate(ctx, "alg-rec")` before snapshot freeze, treating `ErrOverlayNotFound` or inactive as no-op success and failing closed if cleanup cannot commit.
+    - _Requirements: 6.11, 6.13, 6.14, 12.12–12.14_
+    - _Depends on: 11.2_
+    - _Validation: `go test ./internal/core/runtime/... ./internal/core/conversationview/...`_
+  - [ ] 11.4 Add failing tests and implementation for candidate capability rejection and transcript isolation
+    - Test that backend candidates unable to represent required steering role or placement are rejected via standard candidate adaptation without silent dropping or relocation.
+    - Test that registered steering overlays never appear in A-side client streams or frontend `ContinuationRecord` transcripts.
+    - _Requirements: 6.12, 6.16, 10.1–10.4, 12.10, 12.12_
+    - _Depends on: 11.3_
+    - _Validation: `go test ./internal/core/runtime/... ./internal/plugins/frontends/...`_
+  - [ ] 11.5 Converge full regression, race, and architecture ratchets
+    - Architecture ratchet: assert zero direct append to `Call.Messages`/`Items` in continuation logic, zero reliance on `turnTerminal.guardHidden`, and single authority for hidden control content.
+    - Run full regression suite, multi-store persistence tests (Memory, SQLite, PostgreSQL), deterministic race tests, and repository quality gates (`make quality-checks`, `make test`, `make qa`).
+    - _Requirements: 1.1–1.5, 6.8–6.17, 9.1–9.6, 10.1–10.5, 12.1–12.16_
+    - _Depends on: 11.1, 11.2, 11.3, 11.4_
+    - _Validation: all listed quality gates and architecture ratchets_
 
 ## Dependency Graph
 
@@ -238,6 +273,8 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 
 10.2 depends on 6.3, 7.2, 8.3
 10.3 depends on 10.1, 10.2, 9.2, 8.3
+
+10.3 ──> 11.1 ──> 11.2 ──> 11.3 ──> 11.4 ──> 11.5
 ```
 
 ## Parallel Execution Waves
@@ -248,32 +285,33 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - **Wave 4:** runtime integration 6.x is the convergence point; avoid parallel edits to the same runtime orchestration files.
 - **Wave 5:** post-output recovery 7.x and protocol E2E 8.2/8.3 can split after 6.3, with coordination around any shared runtime/canonical files.
 - **Wave 6:** observability wiring and final regression/architecture gates converge after functional paths stabilize.
+- **Wave 7 (Remediation):** 11.1 (steering writer/snapshot tests) -> 11.2 (runtime writer wiring & direct append removal) -> 11.3 (reassertion, deactivation, stale cleanup) -> 11.4 (capability rejection & transcript isolation) -> 11.5 (full regression, race, and architecture convergence).
 
 ## Requirement Coverage Matrix
 
 | Requirement | Tasks |
 |---|---|
-| 1 | 1.1, 1.3, 3.1, 6.1–6.2, 8.2, 10.3 |
-| 2 | 1.2–1.3, 6.2, 10.2 |
-| 3 | 1.1, 3.1–3.2, 6.2, 7.2 |
-| 4 | 3.1–3.2, 5.1, 5.3, 7.1–7.2, 10.2 |
-| 5 | 1.2–1.3, 4.1–4.3, 6.1–6.3, 8.1, 10.1 |
-| 6 | 1.2, 5.2–5.3, 6.3, 10.1–10.2 |
-| 7 | 1.2, 4.2, 5.2, 10.1 |
-| 8 | 2.1–2.2, 4.1–4.3, 6.1, 6.3, 10.1 |
-| 9 | 5.1, 5.3, 6.1–6.3, 7.1–7.2, 9.1–9.2, 10.2–10.3 |
-| 10 | 5.1, 5.3, 7.1, 8.1–8.3, 10.2–10.3 |
-| 11 | 2.2, 4.1–4.3, 9.1–9.2 |
-| 12 | 2.1, 3.1, 4.2, 5.1–5.2, 6.1, 7.1, 8.2, 10.1–10.3 |
+| 1 | 1.1, 1.3, 3.1, 6.1–6.2, 8.2, 10.3, 11.5 |
+| 2 | 1.2–1.3, 6.2, 10.2, 11.5 |
+| 3 | 1.1, 3.1–3.2, 6.2, 7.2, 11.5 |
+| 4 | 3.1–3.2, 5.1, 5.3, 7.1–7.2, 10.2, 11.5 |
+| 5 | 1.2–1.3, 4.1–4.3, 6.1–6.3, 8.1, 10.1, 11.5 |
+| 6 | 1.2, 5.2–5.3, 6.3, 10.1–10.2, 11.1–11.5 |
+| 7 | 1.2, 4.2, 5.2, 10.1, 11.5 |
+| 8 | 2.1–2.2, 4.1–4.3, 6.1, 6.3, 10.1, 11.5 |
+| 9 | 5.1, 5.3, 6.1–6.3, 7.1–7.2, 9.1–9.2, 10.2–10.3, 11.1–11.5 |
+| 10 | 5.1, 5.3, 7.1, 8.1–8.3, 10.2–10.3, 11.4, 11.5 |
+| 11 | 2.2, 4.1–4.3, 9.1–9.2, 11.5 |
+| 12 | 2.1, 3.1, 4.2, 5.1–5.2, 6.1, 7.1, 8.2, 10.1–10.3, 11.1–11.5 |
 
 ## Task-Plan Review Verdict
 
-**GO.** Every requirement has implementation and validation coverage. The critical ownership convergence happens in Task 6 after independent policy/transport/verifier/continuation contracts exist. Parallel tasks are limited to non-overlapping packages or test seams. No task requires production code outside the feature's declared boundaries, no task assumes the unimplemented non-forwardable steering feature, and no task introduces post-commit replay/failover.
+**GO for Task 11 Implementation (Remediation Pending).** Every requirement has implementation and validation coverage. Group 11 specifies the remediation of PR #435 canonical conversation-view steering integration, replacing ad-hoc direct `Call` append and `guardHidden` with `pkg/lipsdk/steering.Writer` and `internal/core/conversationview`. Point 2 review findings (fixed `steering.OverlayID("alg-rec")` within A-leg scope, TrajectoryResolver user ingress call requirement, and deterministic stale overlay cleanup without prefix queries) have been resolved in the specification. Human approval for the integration architecture has been given, authorizing immediate execution of Task 11.
 
 ## Implementation Notes
 
 - Group 1 (1.1-1.3) was executed as one RED->GREEN cycle with a single commit: make quality-checks runs go vet, which type-checks test files, so compile-level RED tests cannot be committed as their own revision without bypassing hooks. RED evidence (undefined stopguard/config symbols) was captured via CLI before implementation.
-- ALG YAML uses the repo's nested-block convention (gent_loop_guard: with snake_case leaves, mirroring stream_recovery:), not flat document-root keys; tasks.md 1.3's "consistent with existing config package" governs.
+- ALG YAML uses the repo's nested-block convention ( gent_loop_guard: with snake_case leaves, mirroring stream_recovery:), not flat document-root keys; tasks.md 1.3's "consistent with existing config package" governs.
 - New internal/core/stopguard requires doc.go (archtest TestCorePackagesHaveDocGo) and an internal/core line-budget ratchet bump in internal/archtest/budgets.go with justification comment; configreload inventory + typed comparator registration is mandatory for any new top-level config section.
 - kiro-impl ran in manual mode: the sub-agent dispatch channel returned empty results twice, so implementation/review execute in main context per skill fallback.
 - HUMAN DECISION (2026-08-24, repo owner): the 100-modified-Go-files source-change gate is authorized to be exceeded for this feature's implementation run given its broad cross-cutting scope. Local override enabled via git config lip.allowLargeChange true; CI/PR still requires the allow-large-change label per repo policy.
@@ -290,3 +328,5 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 10.1 adds 18 deterministic semantic-stop fixtures and all 16 design integration scenarios across positive unfinished work, critical false-positive boundaries, verifier uncertainty, transport safety, cancellation, no-progress, budgets, explicit completion, and unsupported continuation.
 - 10.2 ratchets stopguard purity and zero-I/O imports, semantic continuation non-retry call paths, hidden Developer-control isolation, and exactly-once B/A terminal ownership under deterministic repeated and race-enabled tests.
 - 10.3 converges the architecture shrinkage gate with a locked Agent Loop Guard composition overlay plus behavior-preserving scope deduplication, restores cross-frontend OpenResponses compatibility, and passes `go test ./...`, `make quality-checks`, `make test`, and `make qa`; Windows race remains environment-limited while deterministic race tests pass.
+- HUMAN DECISION (2026-08-25, repo owner): the canonical conversation-view steering integration architecture (merged PR #435 `b763a772`) is approved as the single authority for hidden control content. Direct append to `Call.Messages`/`Items` and `turnTerminal.guardHidden` must be migrated to `pkg/lipsdk/steering.Writer` and `internal/core/conversationview`. Remediation is tracked in Task 11 and authorized for immediate TDD execution.
+- REVIEW RESOLUTION (2026-08-25, Point 2 findings): resolved all three implementation-readiness findings in spec: (1) bound fixed `steering.OverlayID("alg-rec")` within authoritative A-leg scope, relying on single-active-request A-leg authority for serialization; (2) specified that `TrajectoryResolver` must return the accepted user ingress request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus committed snapshot to satisfy `ResolveAfterIngressTailAnchor`'s terminal user message requirement; (3) specified deterministic stale-overlay cleanup on external turn ingress via `Deactivate(ctx, "alg-rec")` with `ErrOverlayNotFound`/inactive as no-op success and persistence error failing closed, avoiding unapproved pattern query APIs. Specification validation verdict updated to GO for Task 11 implementation.

@@ -48,9 +48,12 @@ Repository steering requires the universal `frontend -> canonical -> backend` ar
 
 **Constraint:** continuation output must be stitched at canonical event/item level. Concatenating raw SSE/provider frames across attempts would violate protocol legality and provider neutrality.
 
-### Related non-forwardable content work
+### Canonical non-forwardable conversation-view infrastructure (PR #435)
 
-A separate Kiro specification for non-forwardable conversation content exists, but its runtime API is not a current dependency that #426 can assume. Agent Loop Guard therefore must be implementable with current internal auxiliary/canonical request machinery. Its hidden recovery instruction must never be surfaced to A-side as user-authored content; future steering/non-forwardable infrastructure may later provide a cleaner representation without blocking this feature.
+Merged PR #435 (`b763a772`, `non-forwardable-conversation-content`) is the prerequisite and authoritative source of truth for hidden control content and conversation-view projection. Its infrastructure (`pkg/lipsdk/steering.Writer`, `steering.PutRequest`, and `internal/core/conversationview`) provides durable A-leg snapshot isolation, fixed `MessageAnchor` placement via `AfterIngressTail`, fail-closed anchor policies, multi-backend persistence (Memory/SQLite/PostgreSQL), and late-transform reassertion (`conversationview.Reassert`).
+
+Agent Loop Guard uses this canonical infrastructure exclusively: on actionable `CONTINUE`, the recovery instruction is registered as a steering overlay before freezing a new turn snapshot (Snapshot N+1) for the hidden continuation leg. Direct `Call.Messages`/`Items` append and secondary hidden authorities (such as `turnTerminal.guardHidden`) are superseded and eliminated.
+
 
 ## External Prior Art
 
@@ -164,7 +167,7 @@ The initial feature concept was strengthened in four places:
 3. **Verifier uncertainty is allow-stop.** Requirement 5 makes timeout/error/malformed/uncertain outcomes end normally, because a false-positive continuation can create unauthorized work or side effects.
 4. **Hidden recovery is not user intent.** Requirement 6 makes the continuation instruction conditional, non-forwarded, and explicitly non-authorizing; a bare `Please continue` is prohibited by behavior rather than merely discouraged in design.
 
-The repaired requirements pass the EARS/testability gate and do not depend on the future non-forwardable-content implementation.
+The repaired requirements pass the EARS/testability gate and incorporate merged PR #435 conversation-view steering as the canonical infrastructure for hidden control content.
 
 ## Selected Design Decisions
 
@@ -225,7 +228,7 @@ Re-run brownfield/design validation if implementation changes any of these facts
 - `terminal.Owner` request/attempt ownership semantics change;
 - auxiliary requests no longer support internal role/visibility, lineage, or plugin suppression;
 - continuation lineage/materialization contracts change materially;
-- a canonical non-forwardable steering API lands and supersedes hidden recovery injection;
+- the canonical `pkg/lipsdk/steering` or `internal/core/conversationview` contracts change materially;
 - frontend protocol identity/item correlation rules change;
 - billing/B2BUA/authority semantics for hidden continuation legs change;
 - a standard explicit completion contract becomes universal across supported frontends.

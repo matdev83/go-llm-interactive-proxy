@@ -18,6 +18,7 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 - safe post-output continuation from retained canonical trajectory without replaying committed work;
 - separate semantic verification of eligible clean terminal candidates;
 - conditional internal continuation instructions that preserve existing user intent and authority;
+- canonical registration, placement, snapshot isolation, reassertion, and deactivation of hidden recovery instructions using merged PR #435 conversation-view steering infrastructure (`pkg/lipsdk/steering.Writer` and `internal/core/conversationview`);
 - bounded continuation, progress detection, recursion prevention, terminal accounting, and observability;
 - protocol-neutral behavior across supported frontends/backends.
 
@@ -29,7 +30,7 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 - inferring user permission, approval, choices, or authorization from a recovery event;
 - requiring every frontend agent to adopt an explicit completion tool;
 - redesigning billing, routing, B2BUA, continuation persistence, or extension architecture;
-- implementing the separate non-forwardable conversation-content specification as a prerequisite.
+- implementing the underlying conversation-view store and projection engine (already merged in PR #435 `b763a772`).
 
 ## Requirements
 
@@ -138,6 +139,26 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 6.6. **When** the verifier identifies a remaining objective, the proxy shall not treat suggestions, optional improvements, future possibilities, offers of help, or tasks assigned to the user as sufficient evidence of required unfinished work.
 
 6.7. **When** a recovery event occurs, it shall not grant authority for a tool action that the existing user request and current policy did not already authorize.
+
+6.8. **When** an actionable semantic continuation is authorized, the proxy shall register/update the automated recovery instruction via `pkg/lipsdk/steering.Writer` (`steering.PutRequest`), using the fixed request-scoped `OverlayID` (`steering.OverlayID("alg-rec")`) within the authoritative A-leg scope, message role `RoleDeveloper` (or valid canonical steering role), placement `AfterIngressTail`, anchor missing policy `FailClosed`, and a bounded diagnostic reason code. The proxy shall rely on existing single-active-request A-leg authority to serialize logical requests and prevent simultaneous active recovery overlays on the same A-leg.
+
+6.9. **When** the steering writer processes `AfterIngressTail` placement, the trajectory resolver shall supply the accepted user ingress request call (`identityBoundTurn.ingressCall` or equivalent preserved ingress trajectory) plus current committed snapshot, and the proxy shall resolve it to a fixed `MessageAnchor` identifying the terminal forwardable user message from that accepted ingress trajectory. If the terminal forwardable user message is absent, not a user role, or snapshot-excluded, the proxy shall fail closed before backend execution.
+
+6.10. **When** a hidden semantic continuation leg is prepared, the proxy shall freeze a new conversation-view snapshot (snapshot N+1) after steering registration; all candidate arms and attempts of that hidden model turn shall share the same frozen snapshot, and the proxy shall not mutate an already frozen turn snapshot.
+
+6.11. **When** backend attempt transforms or candidate shaping execute, the proxy shall reassert the frozen conversation-view snapshot via `conversationview.Reassert` using `OverlayProvenance` and `FilteredBaseline` prior to opening the backend attempt, ensuring each active overlay is injected exactly once and cannot be duplicated, displaced, or silently dropped.
+
+6.12. **While** a steering overlay is registered for hidden recovery, the proxy shall not expose it to the A-side client stream, client-facing frontends, or frontend `ContinuationRecord` transcripts.
+
+6.13. **When** a logical request executes multiple continuation attempts, the proxy shall reuse the fixed `OverlayID` (`"alg-rec"`) within the authoritative A-leg scope (updating only if instruction content changes) and shall explicitly deactivate the overlay via `steering.Writer.Deactivate` before final A-side terminal publication, client cancellation, continuation exhaustion, or leg open failure.
+
+6.14. **When** a subsequent externally initiated turn begins on the A-leg, the proxy shall deterministically clean up any lingering or stale recovery steering overlay by deactivating `OverlayID("alg-rec")` before freezing the new turn's initial snapshot. If the overlay is not found or already inactive, cleanup shall succeed as a no-op; if a persistence error occurs, the proxy shall fail closed before snapshot freeze or backend open.
+
+6.15. **Where** conversation-view persistence is configured using in-memory, SQLite, or PostgreSQL backends, the steering overlay lifecycle (put, resolve, project, reassert, deactivate, clean) shall behave identically and reliably.
+
+6.16. **If** a backend candidate cannot represent the required canonical steering role or placement, the proxy shall reject that candidate through standard candidate adaptation and selection rather than silently dropping or relocating the steering overlay.
+
+6.17. **Where** Agent Loop Guard coordinates hidden recovery, steering visibility, persistence, placement, reinjection, and deactivation shall be exclusively owned by the conversation-view steering subsystem (`pkg/lipsdk/steering` / `internal/core/conversationview`), and the proxy shall not use direct `Call.Messages`/`Items` append or secondary hidden authorities (such as `turnTerminal.guardHidden`).
 
 ### Requirement 7: Verification Evidence and False-Positive Resistance
 
@@ -250,3 +271,15 @@ The feature is brownfield. Existing Go-LIP streaming, transport recovery, contin
 12.9. **When** repeated recovery produces no canonical progress or reaches its maximum semantic continuation budget, the proxy shall emit exactly one final terminal/error outcome.
 
 12.10. **When** any supported frontend protocol is exercised end-to-end, no provisional backend terminal shall become observable as the final A-side terminal before the guard has reached its final allow/abort decision.
+
+12.11. **When** an actionable semantic continuation is authorized, the proxy shall register the recovery instruction via `steering.Writer.Put` with fixed `OverlayID("alg-rec")` within the authoritative A-leg scope, `AfterIngressTail` resolving via the accepted user ingress request call (`identityBoundTurn.ingressCall`) to a fixed `MessageAnchor` on the terminal forwardable user message, and `FailClosed` policy, rejecting execution if the anchor cannot be resolved.
+
+12.12. **When** a hidden continuation turn executes, the proxy shall freeze a new turn snapshot, reassert active steering overlays exactly once across late attempt transforms via `conversationview.Reassert` (with `OverlayProvenance` and `FilteredBaseline`), and verify steering is absent from A-side output and frontend `ContinuationRecord`s.
+
+12.13. **When** a logical request completes, cancels, exhausts its continuation budget, or fails to open a continuation leg, the proxy shall explicitly deactivate the recovery overlay via `steering.Writer.Deactivate(ctx, "alg-rec")` before final terminal publication.
+
+12.14. **When** an external turn is received following a restart or previous request, the proxy shall deterministically clean up any stale recovery overlay by calling `Deactivate(ctx, "alg-rec")` on the A-leg before freezing the turn snapshot, treating `ErrOverlayNotFound` or already inactive as no-op success and failing closed if a persistence error occurs.
+
+12.15. **When** conversation-view persistence is exercised across in-memory, SQLite, and PostgreSQL store implementations, the full recovery steering overlay lifecycle (put, resolve, project, reassert, deactivate, clean) shall pass all conformance tests identically.
+
+12.16. **When** architecture ratchets are evaluated, the proxy shall verify zero direct appending to `Call.Messages`/`Items` in continuation logic, zero reliance on `turnTerminal.guardHidden`, and complete convergence on conversation-view steering as the single authority for hidden control content.

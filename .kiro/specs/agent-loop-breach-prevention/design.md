@@ -17,6 +17,7 @@ Therefore only a high-confidence `CONTINUE` verdict with a concrete, already req
 - Recover safely after committed output without replaying committed content or tool side effects.
 - Verify eligible clean normal stops independently of the worker model's own finish marker.
 - Keep recovery strictly within existing user intent and authority.
+- Manage hidden recovery instruction lifecycle exclusively via canonical conversation-view steering overlays (`pkg/lipsdk/steering` and `internal/core/conversationview`).
 - Preserve streaming-first behavior and canonical protocol legality.
 - Maintain exactly-once request/attempt terminalization, B2BUA lineage, billing, authority, and observability.
 - Bound latency, token/cost exposure, and repeated no-progress continuation.
@@ -29,7 +30,7 @@ Therefore only a high-confidence `CONTINUE` verdict with a concrete, already req
 - Synthesizing user answers, permissions, choices, credentials, or approvals.
 - Requiring explicit completion tools from all frontends.
 - Replacing continuation storage, B2BUA, billing, routing, terminal ownership, or stream-recovery domains.
-- Implementing the separate non-forwardable-conversation-content specification.
+- Implementing the underlying conversation-view store and projection engine (already merged in PR #435 `b763a772`).
 
 ## Boundary Commitments
 
@@ -38,16 +39,18 @@ Therefore only a high-confidence `CONTINUE` verdict with a concrete, already req
 - the request-level provisional-terminal decision boundary;
 - canonical guard cause/evidence/action vocabulary;
 - semantic completion-verifier contract and conservative verdict semantics;
-- conditional hidden recovery instruction contract;
+- conditional hidden recovery instruction generation and formatting;
+- steering overlay lifecycle coordination (`Put` on `CONTINUE`, turn snapshot freeze, deactivation on terminal/cancel/exhaustion/open-failure, and stale cleanup on external turn ingress);
 - semantic continuation budget/no-progress policy;
 - runtime orchestration that keeps one logical A-side response open across safe hidden B-side continuation legs;
 - the extension of post-output stream-recovery outcomes needed to signal continuation eligibility instead of forced synthetic finish;
 - guard-specific configuration and observability;
-- acceptance/regression tests for false stop and false continuation behavior.
+- acceptance/regression tests for false stop, false continuation, and conversation-view steering integration behavior.
 
 ### Out of Boundary
 
 - transport retry/backoff/failover algorithms already owned by stream/recovery/routing;
+- conversation-view store engine, snapshot projection, and reassertion mechanics (owned by `internal/core/conversationview`);
 - provider adapter stop parsing except where normalized facts are missing;
 - billing/authority/B2BUA business rules;
 - frontend protocol rendering internals beyond using their existing canonical contract;
@@ -58,6 +61,7 @@ Therefore only a high-confidence `CONTINUE` verdict with a concrete, already req
 ### Allowed Dependencies
 
 - canonical request/response/tool event model;
+- `pkg/lipsdk/steering` and `internal/core/conversationview` (PR #435 canonical steering/view infrastructure);
 - `internal/core/streamrecovery`;
 - `internal/core/continuation` and `pkg/lipsdk/continuation`;
 - `internal/core/auxreq` and `pkg/lipsdk/auxiliary`;
@@ -249,11 +253,68 @@ This small action vocabulary prevents `stopguard` from becoming a second runtime
 | Progress tracker | `internal/core/stopguard` | Fingerprint material progress and enforce semantic budgets | 8, 12 | canonical trajectory digest |
 | Transport recovery policy | existing `internal/core/streamrecovery` | Continue owning EOF/idle/pre-output replay decisions; expose post-output continuation eligibility | 2–4 | existing stream state |
 | Semantic verifier adapter | core runtime adapter using `auxreq` | Run small internal completion check and parse structured verdict | 5–7, 11 | auxiliary client, canonical evidence |
-| Continuation builder | existing continuation/runtime seam | Preserve canonical trajectory/lineage and construct next safe B-leg | 4, 6, 9, 10 | continuation store/materializer |
-| Request orchestration gate | existing core runtime | Hold candidate logical terminal, settle B-attempt, decide verifier/recovery, keep A request open | 1, 3–10, 12 | stopguard, streamrecovery, terminal |
+| Continuation safety & recovery instruction | `internal/core/continuationsafety` | Evaluate post-output trajectory safety and build bounded `<automated-recovery>` instructions | 4, 6, 12 | canonical items, bounds |
+| Conversation view steering port | `pkg/lipsdk/steering.Writer` / `internal/core/conversationview` | Authoritative storage, anchor resolution (`AfterIngressTail` -> `MessageAnchor`), snapshot creation, projection, reassertion, deactivation, and stale cleanup across Memory/SQLite/PostgreSQL | 6, 12 | conversationview store, A-leg resolver |
+| Request orchestration gate | existing core runtime | Hold candidate logical terminal, settle B-attempt, orchestrate verifier/recovery, freeze turn snapshots, keep A request open | 1, 3–10, 12 | stopguard, streamrecovery, steering.Writer, terminal |
 | Terminal owners | existing terminal/runtime | Remain exactly-once attempt/request terminal authority | 9 | CAS owners, settlement |
 | Frontend canonical renderer | existing adapters | Render one legal logical response from canonical event stream | 10, 12 | canonical events |
 | Telemetry hooks | existing observability paths | Record causes/verdicts/attempts/latency without content | 11 | metrics/tracing/accounting |
+
+### Authority Map
+
+To guarantee architectural integrity and prevent duplicate authorities, responsibilities are partitioned strictly across domains:
+
+```mermaid
+flowchart TD
+    subgraph AgentLoopGuardDomain["Agent Loop Guard Domain (stopguard, stopgate, stopguardverify)"]
+        G_EVAL["Evaluate Terminal Candidate"]
+        G_VERIFY["Auxiliary Completion Verifier & Verdict Parsing"]
+        G_BUDGET["Progress Tracker & Semantic Budget (immutable cap)"]
+        G_INSTR["Build Recovery Instruction (continuationsafety)"]
+    end
+
+    subgraph ConversationViewDomain["Conversation View Domain (pkg/lipsdk/steering, internal/core/conversationview)"]
+        CV_PUT["Writer.Put(req) -> Stored Placement & Anchor Resolution"]
+        CV_SNAP["Freeze Turn Snapshot N+1"]
+        CV_PROJ["Project(call, snap) -> Backend-Effective Call"]
+        CV_REASSERT["Reassert(call, snap, prov, filtered) -> Late Transform Guarantee"]
+        CV_DEACT["Writer.Deactivate(id) / Stale Overlay Cleanup"]
+    end
+
+    subgraph RuntimeDomain["Runtime Orchestration Domain (internal/core/runtime)"]
+        RT_SETTLE["Settle Interrupted B-Attempt Exactly Once"]
+        RT_ADMIT["Admit B2 Continuation Leg (Routing, Billing, Authority)"]
+        RT_STITCH["Stitch One Continuous A-Side Stream"]
+        RT_FINAL["Claim Single Final A-Side Terminal"]
+    end
+
+    G_EVAL -->|Clean Stop| G_VERIFY
+    G_VERIFY -->|CONTINUE Verdict| G_INSTR
+    G_INSTR -->|Bounded Text| CV_PUT
+    CV_PUT -->|Resolved Anchor| CV_SNAP
+    CV_SNAP -->|Snapshot N+1| RT_ADMIT
+    RT_ADMIT -->|Attempt Shaping| CV_REASSERT
+    CV_REASSERT -->|Exact-Once Steering Call| RT_STITCH
+    RT_STITCH -->|Final Stop / Exhaustion / Cancel| CV_DEACT
+    CV_DEACT --> RT_FINAL
+```
+
+#### Domain Responsibility Boundaries
+
+1. **Agent Loop Guard (`internal/core/stopguard`, `internal/core/stopgate`, `internal/core/continuationsafety`)**:
+   - Owns terminal candidate classification, completion verifier execution, verdict normalization, progress fingerprinting, and recovery prompt formatting (`<automated-recovery>`).
+   - Owns NO persistence, NO projection, NO message injection, NO direct `Call.Messages`/`Items` mutations, and NO I/O.
+2. **Conversation View & Steering (`pkg/lipsdk/steering`, `internal/core/conversationview`)**:
+   - Sole authority for hidden steering overlay persistence (in-memory, SQLite, PostgreSQL), visibility isolation (never backend to A-side), anchor resolution (`AfterIngressTail` -> fixed `MessageAnchor` on terminal user ingress message), snapshot creation, deterministic projection, candidate reassertion (`Reassert` via `OverlayProvenance`), overlay deactivation, and stale overlay cleanup.
+   - Prohibits client frontend visibility or registration.
+3. **Runtime Orchestration (`internal/core/runtime`, `turnTerminal`)**:
+   - Binds authoritative A-leg scope and trajectory resolver to `steering.Writer` via `sdkadapter.NewWriter(store, aLegID, resolver)`. The trajectory resolver supplies the accepted user ingress request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus committed snapshot, preserving the terminal user message boundary.
+   - On actionable `CONTINUE`: settles swallowed attempt B1, calls `steering.Writer.Put` with fixed `OverlayID("alg-rec")`, freezes new conversation-view snapshot N+1 for hidden model turn B2, carries snapshot/provenance/filtered baseline to B2 admission, executes `Reassert` before backend `Open`, and keeps the single logical A-side response open. Runtime single-active-request authority serializes requests on the same A-leg, preventing concurrent active ALG overlays.
+   - On final terminal, cancellation, budget exhaustion, or open failure: executes `steering.Writer.Deactivate(ctx, "alg-rec")`.
+   - On external turn ingress: deterministically cleans up any stale recovery overlay via `Deactivate(ctx, "alg-rec")` before freezing the new turn snapshot; `ErrOverlayNotFound` or inactive is treated as no-op success, and real persistence error fails closed.
+4. **Single Authority Invariant**:
+   - Direct append to `Call.Messages` or `Call.Items` is strictly prohibited.
+   - Secondary hidden authorities (e.g. `turnTerminal.guardHidden`) are removed.
 
 ### `internal/core/stopguard`
 
@@ -323,7 +384,7 @@ The worker model does not see raw verifier chain-of-thought; only the bounded re
 
 ### Conditional Hidden Recovery Instruction
 
-The continuation message is a control instruction, not a fabricated user follow-up. Its semantics are normative even if exact formatting evolves:
+The continuation message is an internal control instruction, not a fabricated user follow-up. Its semantics are normative even if exact formatting evolves:
 
 ```text
 <automated-recovery>
@@ -346,14 +407,26 @@ Attempt [current]/[maximum]
 </automated-recovery>
 ```
 
-Delivery rules:
+#### Canonical Steering Registration
 
-- prefer the strongest internal/system/developer control channel the canonical/backend contract legally supports;
-- if a backend contract requires a user-role content item for continuation, mark it as internal/non-forwarded in proxy state and include the explicit “not user intent/approval” wording;
-- never echo it to the A-side or persist it as a user-authored conversation turn;
-- it must not alter authorization semantics.
+Recovery instructions are managed exclusively through the canonical conversation-view steering port (`pkg/lipsdk/steering.Writer`):
 
-This is deliberately different from an unconditional `Please continue.`.
+- **Writer construction**: explicitly constructed with authoritative A-leg scope and trajectory resolver via `sdkadapter.NewWriter(store, aLegID, resolver)`.
+- **TrajectoryResolver contract**: The injected `TrajectoryResolver` MUST return the accepted USER INGRESS request call (`identityBoundTurn.ingressCall` or equivalent preserved ingress trajectory) plus current committed snapshot, NOT the post-B1 call ending in assistant output. This is strictly required because `ResolveAfterIngressTailAnchor` validates that the final complete message boundary in the trajectory is a `RoleUser` message (`ErrTerminalNotUser` is returned if the terminal message is assistant-authored). Anchoring after the ingress tail semantically positions the recovery instruction directly following the user's prompt turn prior to model execution.
+- **Registration request**:
+  ```go
+  req := steering.PutRequest{
+      OverlayID:           steering.OverlayID("alg-rec"),
+      Message:             steering.Message{Role: lipapi.RoleDeveloper, Text: instr},
+      Placement:           steering.AfterIngressTail,
+      AnchorMissingPolicy: steering.FailClosed,
+      Reason:              steering.ReasonCode("loop_guard_recovery"),
+  }
+  ```
+- **Overlay ID binding**: Fixed identifier `steering.OverlayID("alg-rec")` within the authoritative A-leg scope. The underlying `SteeringStore` already partitions records by `aLegID`. Appending raw `aLegID` is invalid because `OverlayID` is bounded to 128 ASCII chars while `aLegID` can be up to 256 arbitrary bytes. Runtime request authority guarantees at most one active logical request per A-leg, preventing concurrent active ALG overlays. Raw A-leg IDs are never hashed or logged unnecessarily.
+- **Anchor resolution**: `ResolveAfterIngressTailAnchor` resolves `AfterIngressTail` at `Put` time to a fixed `MessageAnchor` identifying the terminal forwardable user message from the accepted user ingress trajectory.
+- **Fail closed**: if the terminal forwardable user message is absent, not user role, or snapshot-excluded, `FailClosed` policy aborts the continuation before backend execution.
+- **Client isolation**: steering overlays are never echoed to the A-side stream, never exposed to client frontends, and never entered into frontend `ContinuationRecord` transcripts.
 
 ## State and Lifecycle
 
@@ -390,27 +463,89 @@ sequenceDiagram
     participant B1 as Backend B-leg 1
     participant T as Attempt terminal owner
     participant V as Auxiliary verifier
-    participant C as Continuation store
+    participant SW as steering.Writer
+    participant CV as conversationview
     participant B2 as Backend B-leg 2
 
     B1-->>R: assistant output
     R-->>A: canonical non-terminal output
     B1-->>R: clean terminal candidate
-    R->>T: settle B1 exactly once
+    R->>T: settle B1 as swallowed failure
     R->>V: verify bounded evidence
     V-->>R: CONTINUE + remaining objective
-    R->>C: preserve/materialize lineage
-    R->>B2: internal conditional continuation
+    R->>SW: Put("alg-rec", RoleDeveloper, AfterIngressTail, FailClosed)
+    SW->>CV: resolve AfterIngressTail -> fixed MessageAnchor
+    CV-->>SW: overlay committed (revision R)
+    R->>CV: freeze new turn snapshot N+1
+    CV-->>R: Snapshot S2
+    R->>B2: admit continuation leg with Snapshot S2
+    R->>CV: Reassert(call, snap, prov, filtered)
+    CV-->>R: projected call with exact-once steering
     B2-->>R: additional canonical output
-    R-->>A: additional legal output
+    R-->>A: additional legal output (steering absent)
     B2-->>R: clean terminal candidate
     R->>T: settle B2 exactly once
     R->>V: verify
     V-->>R: ALLOW_STOP
+    R->>SW: Deactivate("alg-rec")
+    SW->>CV: overlay deactivated
     R-->>A: one final terminal
 ```
 
 There is no A-side terminal between B1 and B2.
+
+### Snapshot Linearization and Turn Isolation
+
+Each hidden semantic continuation represents a new internal model turn within the logical request:
+
+1. **Turn 1 (Initial Ingress Turn)**: Runs with Snapshot $S_1$ frozen at request ingress. If attempt B1 finishes prematurely with a clean stop, B1 settles.
+2. **Turn 2 (Hidden Continuation Turn)**: On `CONTINUE`, the runtime formats the bounded recovery instruction, calls `steering.Writer.Put`, and then freezes Snapshot $S_2$ (Snapshot $N+1$). Turn 2 executes using Snapshot $S_2$.
+3. **Turn-Level Snapshot Invariant**: All candidate arms, routes, and retry attempts of Turn 2 share the exact same frozen Snapshot $S_2$. Already frozen snapshots ($S_1, S_2$) are immutable and must never be mutated.
+4. **Late Attempt Reassertion**: Prior to opening any backend attempt for Turn 2, `conversationview.Reassert` restores the exact conversation view using `OverlayProvenance` and `FilteredBaseline`, guaranteeing that late candidate shaping or adapter transforms cannot duplicate, reposition, or discard the required steering overlay.
+
+### Overlay Identity and Lifecycle Strategy
+
+1. **Identity Strategy**: The runtime binds to the fixed request-scoped `OverlayID` (`steering.OverlayID("alg-rec")`) within the authoritative A-leg scope. The underlying `SteeringStore` partitions all overlay state per A-leg (`legs[aLegID].steering[overlayID]`), making A-leg ID prefixing redundant. Furthermore, prefixing raw A-leg IDs is invalid because `OverlayID` is bounded to 128 ASCII chars while `aLegID` can be up to 256 arbitrary bytes.
+2. **Single-Active-Request Serialization Invariant**: Existing runtime request authority enforces that at most one active logical request executes on a given A-leg at any time. This invariant ensures that concurrent logical requests on the same A-leg cannot produce simultaneous active ALG recovery overlays. Raw A-leg IDs are never hashed or logged unnecessarily.
+3. **Idempotent Updates**: If multiple continuation attempts occur within the same logical request (up to `MaxSemanticContinuations`), the runtime reuses the same fixed `OverlayID("alg-rec")`. `Writer.Put` updates the overlay revision only if the formatted instruction text changes; if identical, `Put` is a semantic no-op.
+4. **Deactivation Points**: The recovery overlay is deactivated via `steering.Writer.Deactivate(ctx, "alg-rec")`:
+   - when the logical request finishes with a normal terminal (`ALLOW_STOP`, `NEEDS_USER`, `BLOCKED`, `UNCERTAIN`);
+   - when the client cancels the request;
+   - when semantic continuation attempts are exhausted or circuit-broken;
+   - when a continuation leg fails to open or pass admission.
+5. **Absence from Lineage**: Deactivation ensures the overlay does not persist into subsequent user turns, preventing recovery instructions from polluting ongoing conversation history.
+
+### Stale Overlay Cleanup on External Turn Ingress
+
+If the server crashes, restarts, or terminates uncleanly during an active continuation leg, a recovery steering overlay could remain active in durable persistence (SQLite or PostgreSQL).
+
+To guarantee that a stale recovery overlay never leaks into a subsequent user conversation turn:
+- **Deterministic Cleanup Algorithm**: `SteeringStore` intentionally provides no prefix or pattern query API. Because the fixed ID `steering.OverlayID("alg-rec")` is used, on external turn ingress before freezing the initial turn snapshot, the runtime deterministically calls `Deactivate(ctx, "alg-rec")` (or checks `Snapshot.Steering` for active `"alg-rec"` before deactivation).
+- **Idempotent / No-op Success**: If `Deactivate` returns `conversationview.ErrOverlayNotFound` or the overlay is already inactive, it is treated as a clean no-op success.
+- **Fail Closed**: If `Deactivate` (or store persistence) encounters a real storage or database error, the new turn fails closed before taking its initial snapshot or contacting a backend.
+
+### Failure Matrix and Candidate Rejection
+
+| Failure Scenario | Guard / Steering Behavior | Outcome |
+|---|---|---|
+| Anchor missing / deleted (`AfterIngressTail`) | `FailClosed` policy triggers | Aborts continuation leg; emits controlled final failure/terminal |
+| Candidate backend cannot represent `RoleDeveloper` | Candidate rejected via capability check | Fails candidate pre-open; attempts alternate candidate or fails closed |
+| Candidate backend cannot represent required placement | Candidate rejected via capability check | Fails candidate pre-open; never silently drops or relocates steering |
+| Steering store I/O error (`Put` / `Deactivate`) | `Writer` returns wrapped error | Fails closed before backend `Open` |
+| Stale overlay cleanup failure on external turn | Ingress hook fails | Fails closed before new turn snapshot |
+| Verifier timeout / parse error | `UNCERTAIN` verdict | Releases held terminal without continuation |
+
+### Dependency Direction and Composition Seams
+
+The architecture follows strict hexagonal dependency rules:
+- `internal/core/stopguard` is a pure policy package (zero I/O, stdlib/lipapi only).
+- `internal/core/continuationsafety` evaluates trajectory safety and formats instruction text.
+- `internal/core/runtime` orchestrates the request lifecycle, constructing `steering.Writer` via `internal/core/conversationview/sdkadapter.NewWriter` and invoking `conversationview.Reassert`.
+- `turnTerminal` coordinates terminal holds and deactivates overlays on terminalization without owning ad-hoc hidden fields.
+
+### Explicit Prohibition on Direct `Call` Append
+
+Direct appending of recovery instructions to `Call.Messages` or `Call.Items` (and reliance on secondary hidden fields such as `turnTerminal.guardHidden`) is explicitly prohibited. All hidden control content must be registered as a durable conversation-view steering overlay and injected solely through canonical snapshot projection and reassertion.
 
 ### Verifier Failure Sequence
 
@@ -658,14 +793,55 @@ Cover at minimum:
 15. trusted explicit completion → semantic verifier skipped/relaxed per policy.
 16. unsupported A-side continuation capability → clean final fallback, no malformed stream.
 
+### Unit: Conversation-View Steering Integration
+
+Prove:
+
+- `steering.Writer.Put` registers recovery instruction with fixed `OverlayID("alg-rec")` within authoritative A-leg scope, `RoleDeveloper`, `AfterIngressTail`, `FailClosed`, and `loop_guard_recovery` reason;
+- `TrajectoryResolver` supplies the accepted user ingress request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus current committed snapshot;
+- `ResolveAfterIngressTailAnchor` resolves `AfterIngressTail` to a fixed `MessageAnchor` for the terminal forwardable user message from the ingress trajectory, rejecting post-B1 calls ending in assistant output;
+- `FailClosed` policy aborts continuation before backend if terminal user anchor is missing or excluded;
+- hidden continuation freezes a new turn snapshot (Snapshot N+1), and all candidate attempts of that turn share it without snapshot mutation;
+- `conversationview.Reassert` with `OverlayProvenance` and `FilteredBaseline` ensures exact-once steering injection after attempt shaping;
+- `steering.Writer.Deactivate(ctx, "alg-rec")` is called on final A terminal, cancellation, budget exhaustion, or open failure;
+- stale recovery overlays are deterministically cleaned up via `Deactivate(ctx, "alg-rec")` on subsequent external turn ingress before taking the turn snapshot, treating `ErrOverlayNotFound` or already inactive as no-op success and failing closed if a persistence error occurs;
+- runtime single-active-request authority serializes logical requests and prevents simultaneous active ALG recovery overlays on the same A-leg;
+- steering lifecycle behaves identically across Memory, SQLite, and PostgreSQL store implementations;
+- candidates with unsupported role/placement capabilities are rejected via standard candidate adaptation without silent dropping or relocation.
+
+### Integration / Runtime
+
+Cover at minimum:
+
+1. `“Let me run the tests next.”` + clean stop + no test action → verifier `CONTINUE`, no A terminal, `steering.Writer.Put` with `OverlayID("alg-rec")`, snapshot N+1 frozen, continuation executes.
+2. `“Done; tests pass.”` + clean stop → `ALLOW_STOP`, `steering.Writer.Deactivate(ctx, "alg-rec")`, one A terminal.
+3. complete summary + optional “Next steps” assigned to user → no continuation.
+4. `“Would you like me to do X?”` → `NEEDS_USER`, no synthesized approval.
+5. complete answer + `“I can also…”` → no continuation.
+6. quoted `“I’ll continue”` → quotation alone does not continue.
+7. pre-output EOF → existing recovery, no intermediate A terminal.
+8. post-output EOF after text → no replay/duplicate; safe continuation when supported.
+9. post-output EOF after completed tool+matching result → continue without tool re-execution.
+10. EOF mid-tool args → no guessed execution/replay.
+11. client cancel while verifier or continuation active → cancel wins; overlay deactivated; no hidden continuation.
+12. verifier timeout/error → held terminal released; overlay deactivated.
+13. repeated identical final output → no-progress breaker, overlay deactivated, and exactly one terminal.
+14. maximum semantic continuation budget → overlay deactivated, exactly one terminal/error.
+15. trusted explicit completion → semantic verifier skipped/relaxed per policy.
+16. unsupported A-side continuation capability → clean final fallback, no malformed stream.
+17. candidate backend cannot represent steering role/placement → candidate rejected pre-open; fail closed if no alternate candidate.
+18. restart/reload with persistent store → stale recovery overlay cleaned up deterministically via `Deactivate(ctx, "alg-rec")` before next external turn snapshot.
+
 ### Race and Architecture Tests
 
 - race verifier/terminal/cancel/close paths under `go test -race` for focused packages;
 - assert no provisional terminal is rendered before final decision;
 - assert one logical A terminal maximum;
 - assert every B-leg settled once;
+- assert zero direct append to `Call.Messages`/`Call.Items` in continuation logic;
+- assert `turnTerminal.guardHidden` is removed and conversation-view steering is the single hidden-content authority;
 - assert no core provider imports/checks are added to `stopguard`;
-- assert no hidden recovery instruction becomes A-side user content;
+- assert no hidden recovery instruction becomes A-side user content or enters frontend `ContinuationRecord`s;
 - assert no post-output action is classified as retry/replacement.
 
 ### Quality Gates
@@ -691,27 +867,31 @@ Use the repository's current targeted race package set if the broad race command
 | 3 | `streamrecovery`; Transport Recovery Matrix |
 | 4 | Transport Recovery Matrix; Safe Continuation Construction; Terminal Ownership |
 | 5 | Verifier Verdict; Auxiliary Completion Verifier; Semantic Candidate Scope |
-| 6 | Conditional Hidden Recovery Instruction; Terminal/Authority Ownership |
+| 6 | Authority Map; Conditional Hidden Recovery Instruction; Steering Registration; Snapshot Linearization; Overlay Lifecycle |
 | 7 | Guard Evidence; Verifier Instruction Contract; Testing Strategy |
 | 8 | Progress and Circuit Breaking; State/Lifecycle |
-| 9 | Attempt vs Logical Terminal Sequence; Terminal/Billing/Authority Ownership |
-| 10 | Protocol-Safe A-Side Stitching; Safe Continuation Construction |
+| 9 | Attempt vs Logical Terminal Sequence; Terminal/Billing/Authority Ownership; Single Authority Invariant |
+| 10 | Protocol-Safe A-Side Stitching; Candidate Capability Rejection; Transcript Isolation |
 | 11 | Observability; Auxiliary Verifier |
-| 12 | Testing Strategy; Race and Architecture Tests |
+| 12 | Testing Strategy; Integration Scenarios; Race and Architecture Tests |
 
 ## Brownfield Design Validation
 
-### Validation Verdict: GO
+### Validation Verdict: GO for Task 11 Implementation (Remediation Pending)
 
-The design fits current Go-LIP boundaries and preserves the repository's critical post-commit invariant. It introduces one narrow pure policy package and composes existing runtime owners instead of creating a parallel retry/orchestration subsystem.
+The design builds on the merged PR #435 (`b763a772`, `non-forwardable-conversation-content`) conversation-view steering infrastructure. The prior completed GO status is invalidated pending the execution of Task 11 (Remediation of Canonical PR435 Conversation-View Integration). Point 2 design review findings have been resolved in the specification, establishing an honest **GO for Task 11 implementation**. Human approval of this integration architecture is recorded, authorizing execution of Task 11.
 
-### Repairs Applied During Validation
+### Self-Contained Review: Critical Issues & Applied Resolutions
 
-1. **Removed duplicate transport retry controls from Agent Loop Guard.** Existing `stream_recovery_*` and routing/recovery policy remain authoritative.
-2. **Kept `terminal.Owner` semantics intact.** The guard executes before logical `normal_finish`; hidden B-attempts settle independently rather than undoing terminal state.
-3. **Separated post-output continuation from retry/replacement.** The design creates a new continuation B-leg from retained canonical trajectory and never replays committed output.
-4. **Removed dependency on future non-forwardable steering implementation.** Current auxiliary/internal canonical mechanisms are sufficient; future steering can replace the representation without changing guard semantics.
-5. **Made uncertainty non-configurable in v1.** `UNCERTAIN -> ALLOW_STOP` is a fixed safety invariant to prevent deployments from accidentally turning verifier failures into autonomous work.
-6. **Made the worker recovery prompt conditional.** Even a `CONTINUE` verdict cannot be translated into an unconditional “Please continue”; the worker is explicitly instructed to stop if the task is complete or needs user input.
-
-No requirement defect remained after these repairs; downstream task planning is implementation-ready.
+1. **Issue 1: Bounded OverlayID binding and A-leg scope serialization.**
+   - *Risk*: Appending raw `aLegID` to `OverlayID` exceeds the 128-byte ASCII limit when `aLegID` is up to 256 bytes or contains arbitrary characters, and is redundant since `SteeringStore` already scopes overlays per A-leg.
+   - *Resolution*: Bind to fixed `steering.OverlayID("alg-rec")` within the authoritative A-leg scope. Rely on existing single-active-request A-leg runtime authority to serialize logical requests on the same A-leg, preventing concurrent active ALG recovery overlays without unnecessary hashing or logging of raw A-leg IDs.
+2. **Issue 2: TrajectoryResolver trajectory boundary vs post-B1 assistant output.**
+   - *Risk*: If `TrajectoryResolver` returned the post-B1 call ending in assistant output, `ResolveAfterIngressTailAnchor` would reject it with `ErrTerminalNotUser` because `after_ingress_tail` placement strictly requires the terminal complete message to be a user message.
+   - *Resolution*: Explicitly require `TrajectoryResolver` to return the accepted USER INGRESS request call (`identityBoundTurn.ingressCall` / preserved ingress trajectory) plus current committed snapshot, accurately anchoring recovery instructions directly after the user ingress prompt boundary before model execution.
+3. **Issue 3: Stale overlay cleanup discovery without pattern query APIs.**
+   - *Risk*: `SteeringStore` exposes no prefix or pattern query API, so attempting prefix scans on external turn ingress would require inventing unapproved APIs or fail.
+   - *Resolution*: Because a fixed `steering.OverlayID("alg-rec")` is bound per A-leg, external turn ingress deterministically calls `Deactivate(ctx, "alg-rec")` (or checks `Snapshot.Steering` for active `"alg-rec"`). `ErrOverlayNotFound` or already inactive is treated as a clean no-op success, while real persistence/store failures fail closed before taking the new turn snapshot.
+4. **Issue 4: Dual-authority conflict between direct `Call` append and `conversationview`.**
+   - *Risk*: Appending recovery instructions directly to `Call.Messages`/`Items` in continuation logic while also using `guardHidden` in `turnTerminal` creates conflicting sources of truth, bypassing conversation-view projection, anchor validation, and reassertion.
+   - *Resolution*: Eliminate direct `Call.Messages`/`Items` appending and `turnTerminal.guardHidden` entirely. Establish `conversationview` steering overlays as the sole authority for visibility, persistence, placement, reinjection, and deactivation of hidden control content.
