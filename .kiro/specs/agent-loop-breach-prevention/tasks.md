@@ -47,7 +47,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 2.1_
     - _Validation: `go test ./internal/core/stopguard/...`_
 
-- [ ] 3. Extend stream-recovery decisions for guard-owned post-output continuation
+- [x] 3. Extend stream-recovery decisions for guard-owned post-output continuation
   - [x] 3.1 Add failing `streamrecovery` policy tests for continuation-eligible post-output interruptions
     - Preserve current behavior when the Agent Loop Guard path is not requested: post-output EOF/idle/error still follows existing configured `finish` behavior.
     - Add a typed policy outcome or higher-level mode that reports post-output interruption as continuation-eligible without producing a synthetic final response.
@@ -64,7 +64,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 3.1_
     - _Validation: `go test ./internal/core/streamrecovery/...`_
 
-- [ ] 4. Build the auxiliary semantic completion verifier
+- [x] 4. Build the auxiliary semantic completion verifier
   - [x] 4.1 (P) Write verifier-adapter contract tests with a fake auxiliary client
     - Assert internal/detached request, parent trace/A-leg/B-leg/branch lineage, dedicated role, and Agent Loop Guard recursion suppression.
     - Assert bounded deadline and strict structured parsing for `ALLOW_STOP`, `CONTINUE`, `NEEDS_USER`, `BLOCKED`, `UNCERTAIN`.
@@ -88,7 +88,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 4.2_
     - _Validation: focused verifier tests plus auxiliary package tests_
 
-- [ ] 5. Build safe continuation materialization and conditional internal recovery instruction
+- [x] 5. Build safe continuation materialization and conditional internal recovery instruction
   - [x] 5.1 (P) Add failing continuation-safety tests
     - Preserve already committed assistant output without duplication.
     - Preserve completed tool call + matching result exactly once and prohibit re-execution solely due to transport interruption.
@@ -113,7 +113,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 5.1, 5.2_
     - _Validation: continuation/runtime helper tests_
 
-- [ ] 6. Integrate the provisional terminal gate into logical request orchestration
+- [x] 6. Integrate the provisional terminal gate into logical request orchestration
   - [x] 6.1 Add failing runtime tests for terminal holdback and exactly-once ownership
     - Candidate clean terminal must not reach A-side before guard decision.
     - Swallowed B-attempt settles exactly once while A-side request stays open.
@@ -137,7 +137,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 2.2, 6.2_
     - _Validation: focused runtime/stopguard integration tests_
 
-- [ ] 7. Implement post-output transport continuation without replay or side-effect duplication
+- [x] 7. Implement post-output transport continuation without replay or side-effect duplication
   - [x] 7.1 Add failing runtime integration tests for post-output EOF/idle cases
     - Visible text then EOF: never reopen as a retry of the original attempt; no duplicate text.
     - Completed tool call + matching result then interruption: continue after retained result; assert tool side effect executes once.
@@ -155,7 +155,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 7.1_
     - _Validation: focused runtime/streamrecovery tests_
 
-- [ ] 8. Preserve frontend/protocol legality and explicit completion semantics
+- [x] 8. Preserve frontend/protocol legality and explicit completion semantics
   - [x] 8.1 (P) Add normalized explicit-completion evidence tests for known frontend capability paths
     - Consume a canonical capability/fact rather than hard-code provider/frontend tool names into `stopguard`.
     - `trust` skips semantic continuation for clean explicit completion; `verify` passes strong evidence to verifier.
@@ -178,7 +178,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 8.1, 8.2 failing tests_
     - _Validation: focused protocol/conformance tests_
 
-- [ ] 9. Add bounded observability and accounting assertions
+- [x] 9. Add bounded observability and accounting assertions
   - [x] 9.1 (P) Add telemetry tests for guard cause/verdict/action/continuation/no-progress paths
     - Use bounded enums/codes only; prohibit prompt text, assistant text, tool arguments, verifier reason/objective, or recovery prompt as metric labels.
     - Preserve existing trace/A-leg/B-leg lineage and auxiliary verifier usage accounting.
@@ -192,7 +192,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 4.3, 6.3, 7.2, 9.1_
     - _Validation: focused observability + billing/B2BUA tests_
 
-- [ ] 10. Close the full regression, race, and architecture matrix
+- [x] 10. Close the full regression, race, and architecture matrix
   - [x] 10.1 Add realistic semantic-stop regression fixtures
     - Positive unfinished cases: immediate promised action, cut-off actionable response, supported reasoning/thinking-only evidence where canonical.
     - Critical negative cases: complete answer, “Done; tests pass,” user-directed question, user-owned “Next steps,” optional improvements, “I can also…”, quoted “I’ll continue,” refusal/filter.
