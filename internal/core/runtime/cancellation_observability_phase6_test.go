@@ -23,46 +23,35 @@ import (
 
 type recordingMetricsSink struct {
 	mu            sync.Mutex
-	cancellations []recordedCancellation
-}
-
-type recordedCancellation struct {
-	CauseClass string
-	Mode       lipapi.CancelMode
-	Phase      string
-	Fallback   string
+	cancellations []runtime.CancellationObservation
 }
 
 func (s *recordingMetricsSink) OnAttemptRecorded(outcome lipapi.AttemptOutcome, backend string) {}
 func (s *recordingMetricsSink) OnBackendOpenDuration(backend string, seconds float64)           {}
 func (s *recordingMetricsSink) OnTransportNegotiation(operation lipapi.Operation, mode lipapi.TransportMode, outcome string) {
 }
-func (s *recordingMetricsSink) OnCancellation(causeClass string, mode lipapi.CancelMode, phase string, fallback string) {
+
+func (s *recordingMetricsSink) OnCancellation(obs runtime.CancellationObservation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cancellations = append(s.cancellations, recordedCancellation{
-		CauseClass: causeClass,
-		Mode:       mode,
-		Phase:      phase,
-		Fallback:   fallback,
-	})
+	s.cancellations = append(s.cancellations, obs)
 }
 
-func (s *recordingMetricsSink) snapshot() []recordedCancellation {
+func (s *recordingMetricsSink) snapshot() []runtime.CancellationObservation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]recordedCancellation(nil), s.cancellations...)
+	return append([]runtime.CancellationObservation(nil), s.cancellations...)
 }
 
 type obsTrackingStream struct {
-	blockRecv   chan struct{}
-	cancelCalls atomic.Int32
-	closeCalls  atomic.Int32
-	mode        lipapi.CancelMode
-	cancelErr   error
-	outcomeSeen bool
-	forcedAbort bool
-	fallback    string
+	blockRecv           chan struct{}
+	cancelCalls         atomic.Int32
+	closeCalls          atomic.Int32
+	mode                lipapi.CancelMode
+	cancelErr           error
+	outcomeSeen         bool
+	forcedAbort         bool
+	handshakeNegotiated bool
 }
 
 func (s *obsTrackingStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -90,19 +79,45 @@ func (s *obsTrackingStream) Close() error {
 	return nil
 }
 
-func (s *obsTrackingStream) OutcomeSeen() bool {
+func (s *obsTrackingStream) CancellationOutcomeSeen() bool {
 	return s.outcomeSeen
 }
 
-func (s *obsTrackingStream) ForcedAbort() bool {
+func (s *obsTrackingStream) CancellationForcedAbort() bool {
 	return s.forcedAbort
 }
 
-func (s *obsTrackingStream) CancellationFallback() string {
-	if s.fallback != "" {
-		return s.fallback
+func (s *obsTrackingStream) CancellationHandshakeNegotiated() bool {
+	return s.handshakeNegotiated
+}
+
+type nonProbeTrackingStream struct {
+	blockRecv chan struct{}
+	mode      lipapi.CancelMode
+	cancelErr error
+}
+
+func (s *nonProbeTrackingStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.blockRecv != nil {
+		select {
+		case <-s.blockRecv:
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		}
 	}
-	return "none"
+	return lipapi.Event{}, io.EOF
+}
+
+func (s *nonProbeTrackingStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	mode := s.mode
+	if mode == "" {
+		mode = lipapi.CancelModeTransport
+	}
+	return lipapi.CancelResult{Mode: mode, Err: s.cancelErr}
+}
+
+func (s *nonProbeTrackingStream) Close() error {
+	return nil
 }
 
 func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
@@ -193,19 +208,19 @@ func TestPhase6_Runtime_EmitsBoundedCancellationMetrics(t *testing.T) {
 	}
 
 	for _, c := range cancels {
-		if strings.Contains(c.CauseClass, secretKey) {
+		if strings.Contains(string(c.CauseClass), secretKey) {
 			t.Fatalf("secret key leaked in CauseClass: %q", c.CauseClass)
 		}
-		if c.CauseClass != "explicit" && c.CauseClass != "context_done" && c.CauseClass != "client_gone" && c.CauseClass != "race_loser" && c.CauseClass != "other" {
+		if c.CauseClass != runtime.CancellationCauseExplicit && c.CauseClass != runtime.CancellationCauseContextDone && c.CauseClass != runtime.CancellationCauseClientGone && c.CauseClass != runtime.CancellationCauseRaceLoser && c.CauseClass != runtime.CancellationCauseOther {
 			t.Fatalf("unexpected unbounded CauseClass: %q", c.CauseClass)
 		}
-		if c.Mode != lipapi.CancelModeTransport && c.Mode != lipapi.CancelModeProvider && c.Mode != lipapi.CancelModeCloseOnly && c.Mode != lipapi.CancelModeNone {
+		if c.Mode != runtime.CancellationModeTransport && c.Mode != runtime.CancellationModeProvider && c.Mode != runtime.CancellationModeCloseOnly && c.Mode != runtime.CancellationModeNone {
 			t.Fatalf("unexpected unbounded Mode: %q", c.Mode)
 		}
-		if c.Phase != "terminal" && c.Phase != "outcome" && c.Phase != "requested" && c.Phase != "forced" {
+		if c.Phase != runtime.CancellationPhaseTerminal && c.Phase != runtime.CancellationPhaseOutcome && c.Phase != runtime.CancellationPhaseRequested && c.Phase != runtime.CancellationPhaseForced {
 			t.Fatalf("unexpected unbounded Phase: %q", c.Phase)
 		}
-		if c.Fallback != "negotiated" && c.Fallback != "legacy" && c.Fallback != "none" {
+		if c.Fallback != runtime.CancellationFallbackNegotiated && c.Fallback != runtime.CancellationFallbackLegacy && c.Fallback != runtime.CancellationFallbackNone {
 			t.Fatalf("unexpected unbounded Fallback: %q", c.Fallback)
 		}
 	}
@@ -342,78 +357,89 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		streamMode       lipapi.CancelMode
-		outcomeSeen      bool
-		forcedAbort      bool
-		fallback         string
-		cause            lipapi.CancelCause
-		wantCauseClass   string
-		wantTerminalMode lipapi.CancelMode
-		wantFallback     string
-		wantPhases       []string
+		name                string
+		useNonProbeStream   bool
+		streamMode          lipapi.CancelMode
+		outcomeSeen         bool
+		forcedAbort         bool
+		handshakeNegotiated bool
+		cause               lipapi.CancelCause
+		wantCauseClass      runtime.CancellationCauseClass
+		wantTerminalMode    runtime.CancellationModeClass
+		wantFallback        runtime.CancellationFallback
+		wantPhases          []runtime.CancellationPhase
 	}{
 		{
-			name:             "provider_mode_explicit_negotiated",
-			streamMode:       lipapi.CancelModeProvider,
-			outcomeSeen:      true,
-			fallback:         "negotiated",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "user cancelled"},
-			wantCauseClass:   "explicit",
-			wantTerminalMode: lipapi.CancelModeProvider,
-			wantFallback:     "negotiated",
-			wantPhases:       []string{"requested", "outcome", "terminal"},
+			name:                "provider_mode_explicit_negotiated",
+			streamMode:          lipapi.CancelModeProvider,
+			outcomeSeen:         true,
+			handshakeNegotiated: true,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "user cancelled"},
+			wantCauseClass:      runtime.CancellationCauseExplicit,
+			wantTerminalMode:    runtime.CancellationModeProvider,
+			wantFallback:        runtime.CancellationFallbackNegotiated,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseOutcome, runtime.CancellationPhaseTerminal},
 		},
 		{
-			name:             "transport_mode_client_gone_legacy",
-			streamMode:       lipapi.CancelModeTransport,
-			fallback:         "legacy",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelClientGone, Detail: "client disconnected"},
-			wantCauseClass:   "client_gone",
-			wantTerminalMode: lipapi.CancelModeTransport,
-			wantFallback:     "legacy",
-			wantPhases:       []string{"requested", "terminal"},
+			name:                "transport_mode_client_gone_legacy",
+			streamMode:          lipapi.CancelModeTransport,
+			handshakeNegotiated: false,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelClientGone, Detail: "client disconnected"},
+			wantCauseClass:      runtime.CancellationCauseClientGone,
+			wantTerminalMode:    runtime.CancellationModeTransport,
+			wantFallback:        runtime.CancellationFallbackLegacy,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseTerminal},
 		},
 		{
-			name:             "close_only_mode_context_done",
-			streamMode:       lipapi.CancelModeCloseOnly,
-			fallback:         "none",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "deadline expired"},
-			wantCauseClass:   "context_done",
-			wantTerminalMode: lipapi.CancelModeCloseOnly,
-			wantFallback:     "none",
-			wantPhases:       []string{"requested", "terminal"},
+			name:                "close_only_mode_context_done",
+			streamMode:          lipapi.CancelModeCloseOnly,
+			handshakeNegotiated: false,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "deadline expired"},
+			wantCauseClass:      runtime.CancellationCauseContextDone,
+			wantTerminalMode:    runtime.CancellationModeCloseOnly,
+			wantFallback:        runtime.CancellationFallbackLegacy,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseTerminal},
 		},
 		{
-			name:             "forced_abort_mode_explicit",
-			streamMode:       lipapi.CancelModeTransport,
-			forcedAbort:      true,
-			fallback:         "negotiated",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "forced stop"},
-			wantCauseClass:   "explicit",
-			wantTerminalMode: lipapi.CancelModeTransport,
-			wantFallback:     "negotiated",
-			wantPhases:       []string{"requested", "forced", "terminal"},
+			name:                "forced_abort_mode_explicit",
+			streamMode:          lipapi.CancelModeTransport,
+			forcedAbort:         true,
+			handshakeNegotiated: true,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "forced stop"},
+			wantCauseClass:      runtime.CancellationCauseExplicit,
+			wantTerminalMode:    runtime.CancellationModeTransport,
+			wantFallback:        runtime.CancellationFallbackNegotiated,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseForced, runtime.CancellationPhaseTerminal},
 		},
 		{
-			name:             "race_loser_cause_transport",
-			streamMode:       lipapi.CancelModeTransport,
-			fallback:         "none",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelRaceLoser, Detail: "parallel arm lost"},
-			wantCauseClass:   "race_loser",
-			wantTerminalMode: lipapi.CancelModeTransport,
-			wantFallback:     "none",
-			wantPhases:       []string{"requested", "terminal"},
+			name:                "race_loser_cause_transport",
+			streamMode:          lipapi.CancelModeTransport,
+			handshakeNegotiated: false,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelRaceLoser, Detail: "parallel arm lost"},
+			wantCauseClass:      runtime.CancellationCauseRaceLoser,
+			wantTerminalMode:    runtime.CancellationModeTransport,
+			wantFallback:        runtime.CancellationFallbackLegacy,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseTerminal},
 		},
 		{
-			name:             "unknown_cause_maps_to_other",
-			streamMode:       lipapi.CancelModeTransport,
-			fallback:         "none",
-			cause:            lipapi.CancelCause{Kind: lipapi.CancelKind("arbitrary_unknown_kind"), Detail: "unknown reason"},
-			wantCauseClass:   "other",
-			wantTerminalMode: lipapi.CancelModeTransport,
-			wantFallback:     "none",
-			wantPhases:       []string{"requested", "terminal"},
+			name:                "unknown_cause_maps_to_other",
+			streamMode:          lipapi.CancelModeTransport,
+			handshakeNegotiated: false,
+			cause:               lipapi.CancelCause{Kind: lipapi.CancelKind("arbitrary_unknown_kind"), Detail: "unknown reason"},
+			wantCauseClass:      runtime.CancellationCauseOther,
+			wantTerminalMode:    runtime.CancellationModeTransport,
+			wantFallback:        runtime.CancellationFallbackLegacy,
+			wantPhases:          []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseTerminal},
+		},
+		{
+			name:              "non_probe_stream_fallback_none",
+			useNonProbeStream: true,
+			streamMode:        lipapi.CancelModeTransport,
+			cause:             lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "user cancelled"},
+			wantCauseClass:    runtime.CancellationCauseExplicit,
+			wantTerminalMode:  runtime.CancellationModeTransport,
+			wantFallback:      runtime.CancellationFallbackNone,
+			wantPhases:        []runtime.CancellationPhase{runtime.CancellationPhaseRequested, runtime.CancellationPhaseTerminal},
 		},
 	}
 
@@ -430,12 +456,20 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 
 			openStarted := make(chan struct{}, 1)
 			blockRecv := make(chan struct{})
-			stream := &obsTrackingStream{
-				blockRecv:   blockRecv,
-				mode:        tc.streamMode,
-				outcomeSeen: tc.outcomeSeen,
-				forcedAbort: tc.forcedAbort,
-				fallback:    tc.fallback,
+			var testStream lipapi.ManagedEventStream
+			if tc.useNonProbeStream {
+				testStream = &nonProbeTrackingStream{
+					blockRecv: blockRecv,
+					mode:      tc.streamMode,
+				}
+			} else {
+				testStream = &obsTrackingStream{
+					blockRecv:           blockRecv,
+					mode:                tc.streamMode,
+					outcomeSeen:         tc.outcomeSeen,
+					forcedAbort:         tc.forcedAbort,
+					handshakeNegotiated: tc.handshakeNegotiated,
+				}
 			}
 			authIDCh, sendAuthID := captureAuthoritativeID()
 
@@ -455,7 +489,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 						case openStarted <- struct{}{}:
 						default:
 						}
-						return stream, nil
+						return testStream, nil
 					},
 				},
 			}
@@ -505,8 +539,8 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 				t.Fatal("expected cancellation metrics recorded on sink")
 			}
 
-			observedPhases := make(map[string]recordedCancellation)
-			phaseCounts := make(map[string]int)
+			observedPhases := make(map[runtime.CancellationPhase]runtime.CancellationObservation)
+			phaseCounts := make(map[runtime.CancellationPhase]int)
 			for _, c := range cancels {
 				phaseCounts[c.Phase]++
 				observedPhases[c.Phase] = c
@@ -527,7 +561,7 @@ func TestPhase6_Observability_ActualModesAndCauses_TableDriven(t *testing.T) {
 					t.Errorf("expected phase %q was not observed in %v", wantPhase, cancels)
 					continue
 				}
-				if wantPhase == "terminal" {
+				if wantPhase == runtime.CancellationPhaseTerminal {
 					if c.Mode != tc.wantTerminalMode {
 						t.Errorf("terminal phase got Mode %q, want %q", c.Mode, tc.wantTerminalMode)
 					}
@@ -555,10 +589,10 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 	openStarted := make(chan struct{}, 1)
 	blockRecv := make(chan struct{})
 	stream := &obsTrackingStream{
-		blockRecv:   blockRecv,
-		mode:        lipapi.CancelModeProvider,
-		outcomeSeen: true,
-		fallback:    "negotiated",
+		blockRecv:           blockRecv,
+		mode:                lipapi.CancelModeProvider,
+		outcomeSeen:         true,
+		handshakeNegotiated: true,
 	}
 	authIDCh, sendAuthID := captureAuthoritativeID()
 
@@ -626,22 +660,22 @@ func TestPhase6_Observability_NoDuplicatePhaseEvents(t *testing.T) {
 	}
 
 	cancels := sink.snapshot()
-	phaseCounts := make(map[string]int)
+	phaseCounts := make(map[runtime.CancellationPhase]int)
 	for _, c := range cancels {
 		phaseCounts[c.Phase]++
 	}
 
-	if phaseCounts["requested"] != 1 {
-		t.Errorf("requested phase count = %d, want 1", phaseCounts["requested"])
+	if phaseCounts[runtime.CancellationPhaseRequested] != 1 {
+		t.Errorf("requested phase count = %d, want 1", phaseCounts[runtime.CancellationPhaseRequested])
 	}
-	if phaseCounts["outcome"] != 1 {
-		t.Errorf("outcome phase count = %d, want 1", phaseCounts["outcome"])
+	if phaseCounts[runtime.CancellationPhaseOutcome] != 1 {
+		t.Errorf("outcome phase count = %d, want 1", phaseCounts[runtime.CancellationPhaseOutcome])
 	}
-	if phaseCounts["terminal"] != 1 {
-		t.Errorf("terminal phase count = %d, want 1", phaseCounts["terminal"])
+	if phaseCounts[runtime.CancellationPhaseTerminal] != 1 {
+		t.Errorf("terminal phase count = %d, want 1", phaseCounts[runtime.CancellationPhaseTerminal])
 	}
-	if phaseCounts["forced"] != 0 {
-		t.Errorf("forced phase count = %d, want 0", phaseCounts["forced"])
+	if phaseCounts[runtime.CancellationPhaseForced] != 0 {
+		t.Errorf("forced phase count = %d, want 0", phaseCounts[runtime.CancellationPhaseForced])
 	}
 }
 

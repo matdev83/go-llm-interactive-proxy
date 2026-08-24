@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -38,9 +37,9 @@ type OpenManagedStream func(ctx context.Context, inv Invocation, call lipapi.Cal
 // and coordinates bidirectional execution:
 //   - exactly one client-control reader owns ExecuteStream.Recv after START;
 //   - exactly one upstream reader owns ManagedEventStream.Recv;
-//   - exactly one sequencer/sender owns server-frame Sequence assignment and ExecuteStream.Send;
+//   - the calling goroutine acts as coordinator and is the sole sender through frameSequencer;
 //   - in-band CANCEL is consumed against the active upstream stream, calling upstream.Cancel
-//     with effective deadline and emitting a sequenced CancelOutcome with actual mode;
+//     with effective deadline and emitting a sequenced CancelOutcome before the cancelled terminal;
 //   - CLOSE_INPUT remains distinct from CANCEL (no upstream cancellation);
 //   - all goroutines cleanly terminate and join when execution completes.
 func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
@@ -80,15 +79,6 @@ func ForwardExecute(stream ExecuteStream, open OpenManagedStream) error {
 	if ms == nil {
 		return fmt.Errorf("backendplugin: open returned nil stream")
 	}
-	return forwardActiveExecute(stream, sequencer, ms)
-}
-
-func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {
-
-	// Initial accounting evidence created while opening is sent before any canonical frames.
-	if err := forwardAccountingEvidence(sequencer, ms); err != nil {
-		return err
-	}
 
 	handshakeNegotiated := false
 	if ns, ok := stream.(OptionalNegotiatedStream); ok {
@@ -97,254 +87,7 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 	if !handshakeNegotiated {
 		return forwardLegacyExecute(stream, sequencer, ms)
 	}
-
-	var closeOnce sync.Once
-	closeManaged := func() { closeOnce.Do(func() { _ = ms.Close() }) }
-	defer closeManaged()
-
-	streamCtx := stream.Context()
-	execCtx, execCancel := context.WithCancel(streamCtx)
-	defer execCancel()
-
-	var closerDone chan struct{}
-	if closer, ok := stream.(OptionalExecuteStreamCloser); ok {
-		closerDone = make(chan struct{})
-		go func() {
-			defer close(closerDone)
-			<-execCtx.Done()
-			_ = closer.Close()
-		}()
-	}
-
-	var canceled atomic.Bool
-	var cancelOnce sync.Once
-	cancelOutcomeDone := make(chan struct{})
-	var execErrMu sync.Mutex
-	var execErr error
-
-	recordExecErr := func(err error) {
-		execErrMu.Lock()
-		defer execErrMu.Unlock()
-		if execErr == nil {
-			execErr = err
-		}
-	}
-
-	var wg sync.WaitGroup
-	var cancelWG sync.WaitGroup
-	controlDone := make(chan struct{})
-	upstreamDone := make(chan struct{})
-
-	triggerFallbackCancel := func() {
-		cancelOnce.Do(func() {
-			canceled.Store(true)
-			cancelWG.Add(1)
-			go func() {
-				defer cancelWG.Done()
-				defer close(cancelOutcomeDone)
-				cancelCtx, cancelFn := fallbackCancelContext(streamCtx)
-				defer cancelFn()
-				_ = ms.Cancel(cancelCtx, lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
-				closeManaged()
-			}()
-		})
-	}
-
-	// 1. Context watcher: observes external stream context cancellation and drives fallback cancel.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case <-streamCtx.Done():
-			triggerFallbackCancel()
-			execCancel()
-		case <-execCtx.Done():
-		}
-	}()
-
-	// 2. Client-control reader: owns ExecuteStream.Recv post-START.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(controlDone)
-		for {
-			select {
-			case <-execCtx.Done():
-				return
-			default:
-			}
-
-			frame, recvErr := stream.Recv()
-			if recvErr != nil {
-				if !canceled.Load() && execCtx.Err() == nil && streamCtx.Err() != nil {
-					triggerFallbackCancel()
-				}
-				return
-			}
-
-			switch frame.Kind {
-			case ClientFrameCancel:
-				cancelOnce.Do(func() {
-					canceled.Store(true)
-
-					cancelCtx := context.Background()
-					var cancelFn context.CancelFunc = func() {}
-					if frame.CancelDeadlineUnixMS > 0 {
-						d := time.UnixMilli(frame.CancelDeadlineUnixMS)
-						if streamDeadline, ok := streamCtx.Deadline(); ok && streamDeadline.Before(d) {
-							d = streamDeadline
-						}
-						cancelCtx, cancelFn = context.WithDeadline(cancelCtx, d)
-					} else if streamDeadline, ok := streamCtx.Deadline(); ok {
-						cancelCtx, cancelFn = context.WithDeadline(cancelCtx, streamDeadline)
-					}
-					defer cancelFn()
-
-					cause := CancelCauseFromCancelReason(frame.CancelReason)
-					res := ms.Cancel(cancelCtx, cause)
-
-					if handshakeNegotiated {
-						outcome := &CancelOutcome{
-							Acknowledged: res.Err == nil,
-							Reason:       frame.CancelReason,
-							Mode:         res.Mode,
-						}
-						if res.Err != nil && outcome.Detail == "" {
-							outcome.Detail = sanitizeCancelOutcomeDetail(res.Err.Error())
-						}
-						_ = sequencer.Send(ServerFrame{
-							Kind:          ServerFrameCancelOutcome,
-							CancelOutcome: outcome,
-						})
-					}
-					close(cancelOutcomeDone)
-				})
-			case ClientFrameCloseInput:
-				// CLOSE_INPUT remains distinct from CANCEL: do not cancel upstream.
-			default:
-			}
-		}
-	}()
-
-	// 3. Upstream reader: owns ManagedEventStream.Recv.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(upstreamDone)
-		for {
-			select {
-			case <-execCtx.Done():
-				return
-			default:
-			}
-
-			ev, recvErr := ms.Recv(execCtx)
-			if errors.Is(recvErr, io.EOF) {
-				_ = forwardAccountingEvidence(sequencer, ms)
-				if !canceled.Load() {
-					_ = forwardPromptCacheObservations(sequencer, ms)
-					_ = sequencer.Send(ServerFrame{
-						Kind:     ServerFrameTerminal,
-						Terminal: &Terminal{Status: TerminalSuccess},
-					})
-				} else {
-					if handshakeNegotiated {
-						select {
-						case <-cancelOutcomeDone:
-						case <-time.After(100 * time.Millisecond):
-						}
-					}
-					_ = sequencer.Send(ServerFrame{
-						Kind:     ServerFrameTerminal,
-						Terminal: &Terminal{Status: TerminalCancelled},
-					})
-				}
-				execCancel()
-				return
-			}
-
-			if recvErr != nil {
-				_ = forwardAccountingEvidence(sequencer, ms)
-				if canceled.Load() || errors.Is(recvErr, context.Canceled) {
-					if canceled.Load() && handshakeNegotiated {
-						select {
-						case <-cancelOutcomeDone:
-						case <-time.After(100 * time.Millisecond):
-						}
-					}
-					_ = sequencer.Send(ServerFrame{
-						Kind:     ServerFrameTerminal,
-						Terminal: &Terminal{Status: TerminalCancelled},
-					})
-					execCancel()
-					return
-				}
-				if streamCtx.Err() != nil {
-					_ = sequencer.Send(ServerFrame{
-						Kind:     ServerFrameTerminal,
-						Terminal: &Terminal{Status: TerminalCancelled},
-					})
-					execCancel()
-					return
-				}
-				// Non-cancellation upstream error: ensure terminal is sent before
-				// unblocking the control reader via host CloseSend. Use a constant
-				// non-sensitive bounded error for the public protocol; the original
-				// error is preserved only as the internal return value.
-				_ = sequencer.Send(ServerFrame{
-					Kind: ServerFrameTerminal,
-					Terminal: &Terminal{
-						Status: TerminalFailure,
-						Error: &PluginError{
-							Code:      ErrorCodeInternal,
-							Message:   "upstream execution failed",
-							Retryable: false,
-						},
-					},
-				})
-				recordExecErr(recvErr)
-				execCancel()
-				return
-			}
-
-			_ = forwardAccountingEvidence(sequencer, ms)
-			if sendErr := sequencer.Send(ServerFrame{
-				Kind:  ServerFrameEvent,
-				Event: CanonicalEventFromLipapi(ev),
-			}); sendErr != nil {
-				execCancel()
-				return
-			}
-		}
-	}()
-
-	<-upstreamDone
-	execCancel()
-	if closerDone != nil {
-		<-closerDone
-	}
-	if closerDone != nil {
-		<-controlDone
-	}
-	wg.Wait()
-	cancelWG.Wait()
-	closeManaged()
-
-	if sequencer.Err() != nil {
-		return sequencer.Err()
-	}
-	execErrMu.Lock()
-	if execErr != nil {
-		err := execErr
-		execErrMu.Unlock()
-		return err
-	}
-	execErrMu.Unlock()
-
-	if streamCtx.Err() != nil {
-		return streamCtx.Err()
-	}
-	return nil
+	return forwardActiveExecute(stream, sequencer, ms)
 }
 
 func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms lipapi.ManagedEventStream) error {
@@ -417,16 +160,14 @@ func CancelCauseFromCancelReason(reason CancelReason) lipapi.CancelCause {
 func fallbackCancelContext(streamCtx context.Context) (context.Context, context.CancelFunc) {
 	grace := fallbackCancelGrace
 	if d, ok := streamCtx.Deadline(); ok {
-		if remaining := time.Until(d); remaining < grace {
-			grace = remaining
-			if grace < 0 {
-				grace = 0
-			}
-		}
+		grace = max(0, min(grace, time.Until(d)))
 	}
 	return context.WithTimeout(context.WithoutCancel(streamCtx), grace)
 }
 
+// frameSequencer coordinates server-frame sequence assignment and ExecuteStream.Send.
+// In the negotiated active execution path, the coordinator is the sole sender;
+// the mutex is retained for defense-in-depth and legacy stream support.
 type frameSequencer struct {
 	mu           sync.Mutex
 	stream       ExecuteStream

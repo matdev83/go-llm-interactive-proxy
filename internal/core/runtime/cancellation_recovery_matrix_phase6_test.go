@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -705,16 +706,17 @@ func TestPhase6_ParallelRace_LoserCancellation_NotRetried(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	var textReceived string
+	var b strings.Builder
 	for {
 		ev, rErr := stream.Recv(context.Background())
 		if rErr != nil {
 			break
 		}
 		if ev.Kind == lipapi.EventTextDelta {
-			textReceived += ev.Delta
+			b.WriteString(ev.Delta)
 		}
 	}
+	textReceived := b.String()
 
 	close(p2Block)
 

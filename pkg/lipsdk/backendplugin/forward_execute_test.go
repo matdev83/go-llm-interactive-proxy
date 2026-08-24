@@ -13,6 +13,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
+	"go.uber.org/goleak"
 )
 
 func TestForwardExecute_ForwardsEventsVerbatim(t *testing.T) {
@@ -736,5 +737,349 @@ func TestForwardExecute_InBandCancel_Idempotent(t *testing.T) {
 
 	if calls := ms.cancelCalled.Load(); calls != 1 {
 		t.Fatalf("ms.Cancel called %d times, want exactly 1", calls)
+	}
+}
+
+type delayedCancelBlockingManaged struct {
+	events        []lipapi.Event
+	eventIdx      int
+	mu            sync.Mutex
+	cancelCalled  atomic.Int32
+	cancelCause   lipapi.CancelCause
+	cancelEntered chan struct{}
+	releaseCancel chan struct{}
+}
+
+func newDelayedCancelBlockingManaged(events []lipapi.Event, releaseCancel chan struct{}) *delayedCancelBlockingManaged {
+	return &delayedCancelBlockingManaged{
+		events:        events,
+		cancelEntered: make(chan struct{}),
+		releaseCancel: releaseCancel,
+	}
+}
+
+func (m *delayedCancelBlockingManaged) Recv(ctx context.Context) (lipapi.Event, error) {
+	m.mu.Lock()
+	if m.eventIdx < len(m.events) {
+		ev := m.events[m.eventIdx]
+		m.eventIdx++
+		m.mu.Unlock()
+		return ev, nil
+	}
+	m.mu.Unlock()
+
+	select {
+	case <-m.cancelEntered:
+		return lipapi.Event{}, context.Canceled
+	case <-ctx.Done():
+		return lipapi.Event{}, ctx.Err()
+	}
+}
+
+func (m *delayedCancelBlockingManaged) Close() error { return nil }
+
+func (m *delayedCancelBlockingManaged) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	m.cancelCalled.Add(1)
+	m.cancelCause = cause
+	close(m.cancelEntered)
+	select {
+	case <-m.releaseCancel:
+	case <-ctx.Done():
+	}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+}
+
+// TestForwardExecute_InBandCancel_OutcomeDroppedWhenCancelExceedsGraceWait pins the contract
+// that CancelOutcome must precede TerminalCancelled by construction.
+// In the current implementation, if the physical Cancel call blocks longer than the 100ms
+// grace period in the upstream reader, the upstream reader emits ServerFrameTerminal first,
+// causing the sequencer to drop the subsequently emitted ServerFrameCancelOutcome frame.
+// The test uses an implementation-neutral release strategy (polling for a Terminal up to ~1200ms
+// before unblocking Cancel) so that it deterministically fails on the current race-prone code
+// and deterministically passes once refactored to single-sender ordering by construction.
+func TestForwardExecute_InBandCancel_OutcomeDroppedWhenCancelExceedsGraceWait(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	stream := newNegotiatedInBandStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	releaseCancel := make(chan struct{})
+	ms := newDelayedCancelBlockingManaged([]lipapi.Event{
+		{Kind: lipapi.EventTextDelta, Delta: "chunk"},
+	}, releaseCancel)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		stream.mu.Lock()
+		defer stream.mu.Unlock()
+		return len(stream.sent) >= 2 // Accepted + Event
+	})
+
+	stream.inFrames <- backendplugin.ClientFrame{
+		Kind:         backendplugin.ClientFrameCancel,
+		InstanceID:   "contract",
+		CancelReason: backendplugin.CancelReasonClient,
+	}
+
+	// Release strategy: poll up to ~1200ms for a ServerFrameTerminal to appear in the outbox;
+	// regardless of whether it appeared, release the Cancel block so execution can finish.
+	terminalPollDeadline := time.Now().Add(1200 * time.Millisecond)
+	for time.Now().Before(terminalPollDeadline) {
+		stream.mu.Lock()
+		hasTerminal := false
+		for _, f := range stream.sent {
+			if f.Kind == backendplugin.ServerFrameTerminal {
+				hasTerminal = true
+				break
+			}
+		}
+		stream.mu.Unlock()
+		if hasTerminal {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Release physical Cancel completion regardless of whether terminal appeared.
+	close(releaseCancel)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ForwardExecute returned unexpected error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ForwardExecute did not return within 5s after releasing cancel")
+	}
+
+	stream.mu.Lock()
+	sent := append([]backendplugin.ServerFrame(nil), stream.sent...)
+	stream.mu.Unlock()
+
+	var terminalFrames []backendplugin.ServerFrame
+	var outcomeFrames []backendplugin.ServerFrame
+	terminalIdx := -1
+	outcomeIdx := -1
+
+	for i, f := range sent {
+		switch f.Kind {
+		case backendplugin.ServerFrameTerminal:
+			terminalFrames = append(terminalFrames, f)
+			if terminalIdx == -1 {
+				terminalIdx = i
+			}
+		case backendplugin.ServerFrameCancelOutcome:
+			outcomeFrames = append(outcomeFrames, f)
+			if outcomeIdx == -1 {
+				outcomeIdx = i
+			}
+		}
+	}
+
+	// Assertion 1: Exactly one ServerFrameTerminal in the entire outbox.
+	if len(terminalFrames) != 1 {
+		t.Errorf("got %d ServerFrameTerminal frames, want exactly 1; outbox=%+v", len(terminalFrames), sent)
+	} else if terminalFrames[0].Terminal == nil || terminalFrames[0].Terminal.Status != backendplugin.TerminalCancelled {
+		t.Errorf("terminal status=%v, want %v", terminalFrames[0].Terminal, backendplugin.TerminalCancelled)
+	}
+
+	// Assertion 2: Exactly one ServerFrameCancelOutcome present in the outbox.
+	if len(outcomeFrames) != 1 {
+		t.Errorf("got %d ServerFrameCancelOutcome frames, want exactly 1; outbox=%+v", len(outcomeFrames), sent)
+	}
+
+	// Assertion 3: The CancelOutcome appears EARLIER in the outbox than the Terminal.
+	if outcomeIdx == -1 || terminalIdx == -1 || outcomeIdx >= terminalIdx {
+		t.Errorf("CancelOutcome index (%d) must be earlier than Terminal index (%d); outbox=%+v", outcomeIdx, terminalIdx, sent)
+	}
+
+	// Assertion 4: ms.Cancel was called exactly once; cause detail maps from reason "client".
+	if got := ms.cancelCalled.Load(); got != 1 {
+		t.Errorf("ms.Cancel called %d times, want exactly 1", got)
+	}
+	if got := ms.cancelCause.Detail; got != "client" {
+		t.Errorf("cancel cause detail=%q, want %q", got, "client")
+	}
+}
+
+func TestForwardExecute_Active_TerminalSuccess_ExactlyOneTerminalAndNoFrameAfterTerminal(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newNegotiatedInBandStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	events := []lipapi.Event{
+		{Kind: lipapi.EventTextDelta, Delta: "hello"},
+		{Kind: lipapi.EventResponseFinished},
+	}
+	ms := &scriptedManaged{events: events}
+
+	err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return ms, nil
+	})
+	if err != nil {
+		t.Fatalf("ForwardExecute: %v", err)
+	}
+
+	stream.mu.Lock()
+	sent := append([]backendplugin.ServerFrame(nil), stream.sent...)
+	stream.mu.Unlock()
+
+	if len(sent) < 3 {
+		t.Fatalf("expected at least 3 frames (Accepted, Event, Terminal), got %d: %+v", len(sent), sent)
+	}
+
+	var terminalCount int
+	terminalIdx := -1
+	for i, f := range sent {
+		if f.Kind == backendplugin.ServerFrameTerminal {
+			terminalCount++
+			terminalIdx = i
+		}
+	}
+
+	if terminalCount != 1 {
+		t.Fatalf("got %d terminal frames, want exactly 1", terminalCount)
+	}
+	if terminalIdx != len(sent)-1 {
+		t.Fatalf("terminal frame at index %d is not the final frame (total frames: %d)", terminalIdx, len(sent))
+	}
+	if sent[terminalIdx].Terminal == nil || sent[terminalIdx].Terminal.Status != backendplugin.TerminalSuccess {
+		t.Fatalf("terminal status = %+v, want TerminalSuccess", sent[terminalIdx].Terminal)
+	}
+}
+
+//nolint:paralleltest // serial by design: goleak must not observe goroutines from sibling parallel tests
+func TestForwardExecute_Active_InBandCancel_Goleak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newNegotiatedInBandStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	ms := &trackingManagedWithDeadline{
+		unblocked:  make(chan struct{}),
+		cancelMode: lipapi.CancelModeProvider,
+		events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "chunk"},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		stream.mu.Lock()
+		defer stream.mu.Unlock()
+		return len(stream.sent) >= 2
+	})
+
+	stream.inFrames <- backendplugin.ClientFrame{
+		Kind:         backendplugin.ClientFrameCancel,
+		CancelReason: backendplugin.CancelReasonClient,
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ForwardExecute returned unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ForwardExecute timed out after in-band cancel")
+	}
+}
+
+//nolint:paralleltest // serial by design: goleak must not observe goroutines from sibling parallel tests
+func TestForwardExecute_Active_UpstreamError_Goleak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newNegotiatedInBandStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	upstreamErr := errors.New("upstream failure for leak test")
+	ms := &scriptedManaged{
+		events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "partial"},
+		},
+		err: upstreamErr,
+	}
+
+	err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return ms, nil
+	})
+	if !errors.Is(err, upstreamErr) {
+		t.Fatalf("ForwardExecute returned %v, want %v", err, upstreamErr)
+	}
+}
+
+func TestForwardExecute_Active_UpstreamErrorWithoutCancel_EmitsTerminalFailureAndReturnsOriginalError(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newNegotiatedInBandStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	sentinelErr := errors.New("provider network failure")
+	ms := &scriptedManaged{
+		events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "part1"},
+		},
+		err: sentinelErr,
+	}
+
+	err := backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+		return ms, nil
+	})
+
+	if !errors.Is(err, sentinelErr) {
+		t.Fatalf("ForwardExecute returned err=%v, want %v", err, sentinelErr)
+	}
+
+	stream.mu.Lock()
+	sent := append([]backendplugin.ServerFrame(nil), stream.sent...)
+	stream.mu.Unlock()
+
+	var terminalFrames []backendplugin.ServerFrame
+	for _, f := range sent {
+		if f.Kind == backendplugin.ServerFrameCancelOutcome {
+			t.Fatalf("unexpected CancelOutcome on non-cancellation upstream error: %+v", f)
+		}
+		if f.Kind == backendplugin.ServerFrameTerminal {
+			terminalFrames = append(terminalFrames, f)
+		}
+	}
+
+	if len(terminalFrames) != 1 {
+		t.Fatalf("got %d terminal frames, want exactly 1; frames=%+v", len(terminalFrames), sent)
+	}
+	term := terminalFrames[0].Terminal
+	if term == nil || term.Status != backendplugin.TerminalFailure {
+		t.Fatalf("terminal status = %+v, want TerminalFailure", term)
+	}
+	if term.Error == nil || term.Error.Code != backendplugin.ErrorCodeInternal {
+		t.Fatalf("terminal error = %+v, want Code=%v", term.Error, backendplugin.ErrorCodeInternal)
 	}
 }

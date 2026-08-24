@@ -107,6 +107,7 @@ func TestRunner_StreamMode(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // serial: certifies deterministic drain-before-Wait process teardown ordering
 func TestRunner_DrainOrderInvariant(t *testing.T) {
 	// Drain-order invariant: proves capture goroutines complete BEFORE cmd.Wait() resolves.
 	// We call waitForProcess directly with a synthetic drains WaitGroup.

@@ -269,20 +269,16 @@ func fail(result Result, kind Kind, err error) Result {
 // On deadline expiration or cancellation, the process adapter is killed and stdout/stderr pipes are
 // closed immediately to unblock pending read operations and prevent capture stalls during teardown.
 func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, result Result, drains *sync.WaitGroup, stdout, stderr io.ReadCloser, started time.Time, timeout time.Duration) Result {
-	type waitResult struct {
-		err error
-	}
-	waitDone := make(chan waitResult, 1)
+	waitDone := make(chan error, 1)
 	go func() {
 		if drains != nil {
 			drains.Wait()
 		}
-		waitDone <- waitResult{err: cmd.Wait()}
+		waitDone <- cmd.Wait()
 	}()
 	var waitErr error
 	select {
-	case res := <-waitDone:
-		waitErr = res.err
+	case waitErr = <-waitDone:
 	case <-ctx.Done():
 		result.Kind = DeadlineExceeded
 		result.Err = ctx.Err()
@@ -294,8 +290,7 @@ func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, 
 		if stderr != nil {
 			_ = stderr.Close()
 		}
-		res := <-waitDone
-		waitErr = res.err
+		waitErr = <-waitDone
 	}
 	if stdout != nil {
 		_ = stdout.Close()

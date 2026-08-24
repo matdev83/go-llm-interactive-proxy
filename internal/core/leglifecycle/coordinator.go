@@ -378,7 +378,6 @@ func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt
 		cause.Kind = CancelContextDone
 	}
 	ctx := parent
-	cancel := func() {}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -387,22 +386,14 @@ func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt
 		effectiveTimeout = DefaultCancelTimeout
 	}
 	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < effectiveTimeout {
-			if remaining <= 0 {
-				effectiveTimeout = 0
-			} else {
-				effectiveTimeout = remaining
-			}
-		}
+		effectiveTimeout = min(effectiveTimeout, max(0, time.Until(deadline)))
 	}
+	var cancel context.CancelFunc
 	if effectiveTimeout > 0 {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), effectiveTimeout)
 	} else {
-		var canceledCtx context.Context
-		canceledCtx, cancel = context.WithCancel(context.WithoutCancel(ctx))
+		ctx, cancel = context.WithCancel(context.WithoutCancel(ctx))
 		cancel()
-		ctx = canceledCtx
 	}
 	defer cancel()
 	var cleanupErr error

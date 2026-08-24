@@ -362,59 +362,14 @@ func (e *Executor) tryOpenParallelGroup(
 				memoUpdate:  evalOutcome.shapeRes.MemoUpdate,
 			})
 			ready.setDefaultEvidence(authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed)
-			if tx.launchPermit != nil {
-				commitRes, commitErr := tx.launchPermit.Commit(ready.lifecycleHandle())
-				tx.registered = true
-				tx.launchPermit = nil
-				if commitRes.Canceled {
-					cause := commitRes.Cause
-					if cause.Kind == "" {
-						cause = leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
-					}
-					ready.cancelViaLifecycle(armCtx, cause)
-					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
-						cand:    entry.cand,
-						failErr: leglifecycle.ErrALegCanceled,
-						bleg:    tx.bleg,
-						delta:   parallelFailureDeltaFromHistory(localHist),
-					}, nil, nil)
-					return
-				}
-				if commitErr != nil {
-					ready.Dispose(armCtx, commitErr)
-					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
-						cand:    entry.cand,
-						failErr: commitErr,
-						bleg:    tx.bleg,
-						delta:   parallelFailureDeltaFromHistory(localHist),
-					}, nil, nil)
-					return
-				}
-				if err := armCtx.Err(); err != nil {
-					ready.cancelViaLifecycle(armCtx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
-					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
-						cand:    entry.cand,
-						failErr: err,
-						bleg:    tx.bleg,
-						delta:   parallelFailureDeltaFromHistory(localHist),
-					}, nil, nil)
-					return
-				}
-			} else if workerReqFacts.aScope != nil {
-				if err := workerReqFacts.aScope.RegisterBLeg(armCtx, leglifecycle.BLegHandle{
-					ID:      tx.bleg.BLegID,
-					Attempt: ready.lifecycleHandle(),
-				}); err != nil {
-					ready.Dispose(armCtx, err)
-					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
-						cand:    entry.cand,
-						failErr: err,
-						bleg:    tx.bleg,
-						delta:   parallelFailureDeltaFromHistory(localHist),
-					}, nil, nil)
-					return
-				}
-				tx.registered = true
+			if err := tx.commitLaunchOrRegister(armCtx, ready, workerReqFacts.aScope); err != nil {
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
+					cand:    entry.cand,
+					failErr: err,
+					bleg:    tx.bleg,
+					delta:   parallelFailureDeltaFromHistory(localHist),
+				}, nil, nil)
+				return
 			}
 
 			armLeg := &parallelLeg{

@@ -67,18 +67,6 @@ func runGuarded(name string, errorsList *[]error, fn func()) {
 // attemptSession is the owner of one opened B-leg. Every field in this type
 // has the same lifetime as the backend attempt and is discarded on replacement.
 // The inner lock protects only the backend stream pointer; callers snapshot it
-type cancellationOutcomeReporter interface {
-	OutcomeSeen() bool
-}
-
-type cancellationForcedReporter interface {
-	ForcedAbort() bool
-}
-
-type cancellationFallbackReporter interface {
-	CancellationFallback() string
-}
-
 // and perform Cancel/Close without holding this lock.
 type attemptSession struct {
 	innerMu            sync.Mutex
@@ -112,7 +100,7 @@ type attemptSession struct {
 	promptCacheController promptcache.Controller
 	finalStreamObs        *extensions.FinalStreamObservationSession
 	recordAttemptLoggedFn func(context.Context, recordAttemptParams, diag.AttrOpts)
-	recordCancellationFn  func(causeClass string, mode lipapi.CancelMode, phase string, fallback string)
+	recordCancellationFn  func(obs CancellationObservation)
 
 	emitBackendEgressFn func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
 	appendBillingLegFn  func(context.Context, b2bua.BLegRecord, routing.Primary, time.Time, time.Time, billing.LegOutcome)
@@ -137,76 +125,6 @@ func (a *attemptSession) claimBillingLegRecord() bool {
 	}
 	a.billingLegRecorded = true
 	return true
-}
-
-const maxAttemptAccumulatedUsage = 1024
-
-func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
-	if a == nil {
-		return false
-	}
-	key := strings.TrimSpace(ev.Accounting.DedupeKey)
-	if key == "" {
-		return false
-	}
-	a.usageMu.Lock()
-	defer a.usageMu.Unlock()
-	if a.internalUsageKeys == nil {
-		a.internalUsageKeys = make(map[string]struct{})
-	}
-	if _, exists := a.internalUsageKeys[key]; exists {
-		return false
-	}
-	a.internalUsageKeys[key] = struct{}{}
-	if len(a.accumulatedUsage) < maxAttemptAccumulatedUsage {
-		a.accumulatedUsage = append(a.accumulatedUsage, ev)
-	}
-	return true
-}
-
-func (a *attemptSession) recordUsageEvidence(ev lipapi.Event) {
-	if a == nil || ev.Kind == "" {
-		return
-	}
-	if !a.rememberUsageEvidenceOnce(ev) {
-		return
-	}
-	a.accounting.observeUsage(ev)
-}
-
-func (a *attemptSession) aggregatedUsageEvidence() lipapi.Event {
-	if a == nil {
-		return lipapi.Event{}
-	}
-	a.usageMu.Lock()
-	if len(a.accumulatedUsage) == 0 {
-		a.usageMu.Unlock()
-		return lipapi.Event{}
-	}
-	events := append([]lipapi.Event(nil), a.accumulatedUsage...)
-	a.usageMu.Unlock()
-	return authorityUsageEvent(events)
-}
-
-func (a *attemptSession) drainStreamUsageEvidence(inner lipapi.ManagedEventStream) {
-	if a == nil || inner == nil {
-		return
-	}
-	source, ok := inner.(lipapi.UsageEvidenceSource)
-	if !ok {
-		return
-	}
-	_ = safety.Call(safety.BoundaryBackend, "backend_stream_drain_usage", func() error {
-		for _, ev := range source.DrainUsageEvidence() {
-			if ev.Kind != lipapi.EventUsageDelta {
-				continue
-			}
-			if a.rememberUsageEvidenceOnce(ev) {
-				a.accounting.observeUsage(ev)
-			}
-		}
-		return nil
-	})
 }
 
 type attemptSessionInput struct {
@@ -254,9 +172,9 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 	}
 }
 
-func (a *attemptSession) recordCancellation(causeClass string, mode lipapi.CancelMode, phase string, fallback string) {
+func (a *attemptSession) recordCancellation(obs CancellationObservation) {
 	if a != nil && a.recordCancellationFn != nil {
-		a.recordCancellationFn(causeClass, mode, phase, fallback)
+		a.recordCancellationFn(obs)
 	}
 }
 
@@ -329,29 +247,30 @@ type attemptLifecycleHandle struct {
 	session *attemptSession
 }
 
-func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+func (a *attemptSession) terminalizeForCancel(ctx context.Context, cause lipapi.CancelCause, cmd sdkterminal.Command, relKind authorityapp.ReleaseKind, legOutcome billing.LegOutcome) attemptTerminalResult {
 	if a == nil {
-		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+		return attemptTerminalResult{Cancellation: lipapi.CancelResult{Mode: lipapi.CancelModeNone}}
 	}
 	intent := IntentCancellation
-	cmd := a.defaultCommand
 	if cmd == "" {
-		cmd = sdkterminal.CommandCancel
+		cmd = a.defaultCommand
+		if cmd == "" {
+			cmd = sdkterminal.CommandCancel
+		}
 	}
-	relKind := a.releaseKind
-	legOutcome := a.defaultLegOutcome
+	if relKind == "" {
+		relKind = a.releaseKind
+	}
 	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
+		legOutcome = a.defaultLegOutcome
+		if legOutcome == "" {
+			legOutcome = billing.LegOutcomeCanceled
+		}
 	}
-	if cause.Kind == lipapi.CancelRaceLoser || a.defaultCommand == sdkterminal.CommandParallelLoser {
-		intent = IntentParallelLoser
-		relKind = authorityapp.ReleaseKindLosing
-		cmd = sdkterminal.CommandParallelLoser
-		legOutcome = billing.LegOutcomeFailed
-	} else if a.defaultCommand == sdkterminal.CommandBackendOpenFailure {
-		intent = IntentSwallowedFailure
-		relKind = authorityapp.ReleaseKindSwallowed
-		cmd = sdkterminal.CommandBackendOpenFailure
+	if cause.Kind == lipapi.CancelRaceLoser || cmd == sdkterminal.CommandParallelLoser {
+		intent, relKind, cmd, legOutcome = IntentParallelLoser, authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed
+	} else if cmd == sdkterminal.CommandBackendOpenFailure {
+		intent, relKind, cmd = IntentSwallowedFailure, authorityapp.ReleaseKindSwallowed, sdkterminal.CommandBackendOpenFailure
 		if (ctx != nil && ctx.Err() != nil) || cause.Kind == lipapi.CancelContextDone {
 			legOutcome = billing.LegOutcomeCanceled
 		} else {
@@ -362,7 +281,7 @@ func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.Ca
 	if detail == "" {
 		detail = string(cause.Kind)
 	}
-	termRes := a.TerminalizeAttempt(ctx, intent, attemptEvidence{
+	return a.TerminalizeAttempt(ctx, intent, attemptEvidence{
 		Command:       cmd,
 		ReleaseKind:   relKind,
 		CancelCause:   &cause,
@@ -375,21 +294,30 @@ func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.Ca
 		ALegID:        a.bleg.ALegID,
 		StartedAt:     a.accounting.requestStartedAt,
 	})
-	return termRes.Cancellation
 }
 
-func (a *attemptSession) closeViaLifecycle() error {
+func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	return a.terminalizeForCancel(ctx, cause, a.defaultCommand, a.releaseKind, a.defaultLegOutcome).Cancellation
+}
+
+func (a *attemptSession) terminalizeForClose(cmd sdkterminal.Command, relKind authorityapp.ReleaseKind, legOutcome billing.LegOutcome) {
 	if a == nil {
-		return nil
+		return
 	}
-	cmd := a.defaultCommand
 	if cmd == "" {
-		cmd = sdkterminal.CommandClose
+		cmd = a.defaultCommand
+		if cmd == "" {
+			cmd = sdkterminal.CommandClose
+		}
 	}
-	relKind := a.releaseKind
-	legOutcome := a.defaultLegOutcome
+	if relKind == "" {
+		relKind = a.releaseKind
+	}
 	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
+		legOutcome = a.defaultLegOutcome
+		if legOutcome == "" {
+			legOutcome = billing.LegOutcomeCanceled
+		}
 	}
 	a.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
 		Command:       cmd,
@@ -403,6 +331,10 @@ func (a *attemptSession) closeViaLifecycle() error {
 		ALegID:        a.bleg.ALegID,
 		StartedAt:     a.accounting.requestStartedAt,
 	})
+}
+
+func (a *attemptSession) closeViaLifecycle() error {
+	a.terminalizeForClose(a.defaultCommand, a.releaseKind, a.defaultLegOutcome)
 	return nil
 }
 
@@ -912,13 +844,8 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 		}
 		sess := r.boundSess
 		r.mu.Unlock()
-		if sess != nil {
-			sess.innerMu.Lock()
-			cr := sess.cancelResult
-			sess.innerMu.Unlock()
-			if cr.Mode != "" {
-				return cr
-			}
+		if cr, ok := storedCancelResult(sess); ok {
+			return cr
 		}
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
@@ -954,13 +881,8 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 		}
 		sess := r.boundSess
 		r.mu.Unlock()
-		if sess != nil {
-			sess.innerMu.Lock()
-			cr := sess.cancelResult
-			sess.innerMu.Unlock()
-			if cr.Mode != "" {
-				return cr
-			}
+		if cr, ok := storedCancelResult(sess); ok {
+			return cr
 		}
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
@@ -991,49 +913,7 @@ func (r *readyAttempt) terminalizeSessionForCancel(
 	relKind authorityapp.ReleaseKind,
 	legOutcome billing.LegOutcome,
 ) attemptTerminalResult {
-	intent := IntentCancellation
-	if cmd == "" {
-		cmd = sess.defaultCommand
-		if cmd == "" {
-			cmd = sdkterminal.CommandCancel
-		}
-	}
-	if relKind == "" {
-		relKind = sess.releaseKind
-	}
-	if legOutcome == "" {
-		legOutcome = sess.defaultLegOutcome
-		if legOutcome == "" {
-			legOutcome = billing.LegOutcomeCanceled
-		}
-	}
-	if cause.Kind == lipapi.CancelRaceLoser || cmd == sdkterminal.CommandParallelLoser {
-		intent, relKind, cmd, legOutcome = IntentParallelLoser, authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed
-	} else if cmd == sdkterminal.CommandBackendOpenFailure {
-		intent, relKind, cmd = IntentSwallowedFailure, authorityapp.ReleaseKindSwallowed, sdkterminal.CommandBackendOpenFailure
-		if (ctx != nil && ctx.Err() != nil) || cause.Kind == lipapi.CancelContextDone {
-			legOutcome = billing.LegOutcomeCanceled
-		} else {
-			legOutcome = billing.LegOutcomeFailed
-		}
-	}
-	detail := cause.Detail
-	if detail == "" {
-		detail = string(cause.Kind)
-	}
-	return sess.TerminalizeAttempt(ctx, intent, attemptEvidence{
-		Command:       cmd,
-		ReleaseKind:   relKind,
-		CancelCause:   &cause,
-		LegOutcome:    legOutcome,
-		ObsOutcome:    response.OutcomeCancelled,
-		RecordOutcome: lipapi.AttemptCancelled,
-		RecordReason:  detail,
-		BillingReason: detail,
-		TraceID:       sess.traceID,
-		ALegID:        sess.bleg.ALegID,
-		StartedAt:     sess.accounting.requestStartedAt,
-	})
+	return sess.terminalizeForCancel(ctx, cause, cmd, relKind, legOutcome)
 }
 
 func (r *readyAttempt) closeViaLifecycle() error {
@@ -1108,33 +988,7 @@ func (r *readyAttempt) terminalizeSessionForClose(
 	relKind authorityapp.ReleaseKind,
 	legOutcome billing.LegOutcome,
 ) {
-	if cmd == "" {
-		cmd = sess.defaultCommand
-		if cmd == "" {
-			cmd = sdkterminal.CommandClose
-		}
-	}
-	if relKind == "" {
-		relKind = sess.releaseKind
-	}
-	if legOutcome == "" {
-		legOutcome = sess.defaultLegOutcome
-		if legOutcome == "" {
-			legOutcome = billing.LegOutcomeCanceled
-		}
-	}
-	sess.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
-		Command:       cmd,
-		ReleaseKind:   relKind,
-		LegOutcome:    legOutcome,
-		ObsOutcome:    response.OutcomeClosed,
-		RecordOutcome: lipapi.AttemptCancelled,
-		RecordReason:  "aleg close",
-		BillingReason: "aleg close",
-		TraceID:       sess.traceID,
-		ALegID:        sess.bleg.ALegID,
-		StartedAt:     sess.accounting.requestStartedAt,
-	})
+	sess.terminalizeForClose(cmd, relKind, legOutcome)
 }
 
 func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTerminalIntent, evidence attemptEvidence) {
@@ -1449,41 +1303,8 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		innerStream := a.takeInner()
 
 		var cancelRes lipapi.CancelResult
-		isCancel := (intent == IntentCancellation ||
-			intent == IntentTimeout ||
-			intent == IntentParallelLoser ||
-			(evidence.CancelCause != nil && evidence.CancelCause.Kind != "") ||
-			(a.pendingCancelCause != nil && a.pendingCancelCause.Kind != "") ||
-			evidence.RecordOutcome == lipapi.AttemptCancelled ||
-			errors.Is(evidence.Err, context.Canceled) ||
-			errors.Is(cctx.Err(), context.Canceled) ||
-			errors.Is(ctx.Err(), context.Canceled))
-
-		var cause lipapi.CancelCause
-		if evidence.CancelCause != nil && evidence.CancelCause.Kind != "" {
-			cause = *evidence.CancelCause
-		} else if a.pendingCancelCause != nil && a.pendingCancelCause.Kind != "" {
-			cause = *a.pendingCancelCause
-		} else if intent == IntentParallelLoser {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelRaceLoser, Detail: "parallel race loser"}
-		} else if intent == IntentTimeout {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "timeout"}
-		} else if intent == IntentCancellation {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelClientGone}
-		} else if errors.Is(evidence.Err, context.Canceled) || errors.Is(cctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone}
-		} else if evidence.Err != nil {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: evidence.Err.Error()}
-		} else if evidence.RecordReason != "" {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: evidence.RecordReason}
-		}
-		if isCancel && cause.Kind == "" {
-			cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone}
-		}
-
-		if isCancel {
-			a.recordCancellation(boundedCauseKind(cause.Kind), lipapi.CancelModeNone, "requested", "none")
-		}
+		contextsCanceled := errors.Is(evidence.Err, context.Canceled) || errors.Is(cctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		isCancel, cause := deriveAttemptCancellation(intent, evidence, a.pendingCancelCause, contextsCanceled)
 
 		// 2. Cancel/close when intent requires.
 		if innerStream != nil && !a.streamDisposed {
@@ -1504,56 +1325,8 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				})
 				cancel()
 
-				actualMode := cancelRes.Mode
-				if actualMode == "" {
-					actualMode = lipapi.CancelModeNone
-				}
-
-				fallback := "none"
-				if fbRep, ok := innerStream.(cancellationFallbackReporter); ok {
-					fallback = fbRep.CancellationFallback()
-				} else if actualMode == lipapi.CancelModeTransport && (cause.Kind == lipapi.CancelExplicit || cause.Kind == lipapi.CancelClientGone) {
-					fallback = "legacy"
-				} else if actualMode == lipapi.CancelModeProvider {
-					fallback = "negotiated"
-				}
-
-				if isCancel {
-					if outRep, ok := innerStream.(cancellationOutcomeReporter); ok && outRep.OutcomeSeen() {
-						a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "outcome", fallback)
-					} else if actualMode == lipapi.CancelModeProvider {
-						a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "outcome", fallback)
-					}
-
-					if forcedRep, ok := innerStream.(cancellationForcedReporter); ok && forcedRep.ForcedAbort() {
-						a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "forced", fallback)
-					} else if errors.Is(cancelRes.Err, context.DeadlineExceeded) {
-						a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "forced", fallback)
-					}
-
-					a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "terminal", fallback)
-				}
-
-				if a.finalStreamObs != nil && a.finalStreamObs.Log != nil {
-					traceID, aLegID := strings.TrimSpace(evidence.TraceID), strings.TrimSpace(evidence.ALegID)
-					if traceID == "" {
-						traceID = strings.TrimSpace(a.traceID)
-					}
-					if aLegID == "" {
-						aLegID = strings.TrimSpace(a.bleg.ALegID)
-					}
-					logCtx := diag.EnsureCallDiag(cctx, traceID, aLegID)
-					diag.LogDecision(logCtx, a.finalStreamObs.Log, "attempt_canceled",
-						diag.AttrOpts{CallID: traceID, BLegID: a.bleg.BLegID},
-						slog.String("cause_class", boundedCauseKind(cause.Kind)),
-						slog.String("cancel_mode", boundedCancelMode(actualMode)),
-						slog.String("phase", "terminal"),
-						slog.String("fallback", fallback),
-						slog.String("backend", a.cand.Primary.Backend),
-						slog.String("model", a.cand.Primary.Model),
-					)
-				}
-
+				termObs := a.recordCancellationTelemetry(cause, cancelRes, innerStream, isCancel)
+				a.logAttemptCanceled(cctx, evidence, termObs)
 				a.drainStreamUsageEvidence(innerStream)
 			}
 			if err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
@@ -1586,28 +1359,8 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 
 			a.drainStreamUsageEvidence(innerStream)
 		} else if isCancel {
-			actualMode := lipapi.CancelModeNone
-			fallback := "none"
-			a.recordCancellation(boundedCauseKind(cause.Kind), actualMode, "terminal", fallback)
-			if a.finalStreamObs != nil && a.finalStreamObs.Log != nil {
-				traceID, aLegID := strings.TrimSpace(evidence.TraceID), strings.TrimSpace(evidence.ALegID)
-				if traceID == "" {
-					traceID = strings.TrimSpace(a.traceID)
-				}
-				if aLegID == "" {
-					aLegID = strings.TrimSpace(a.bleg.ALegID)
-				}
-				logCtx := diag.EnsureCallDiag(cctx, traceID, aLegID)
-				diag.LogDecision(logCtx, a.finalStreamObs.Log, "attempt_canceled",
-					diag.AttrOpts{CallID: traceID, BLegID: a.bleg.BLegID},
-					slog.String("cause_class", boundedCauseKind(cause.Kind)),
-					slog.String("cancel_mode", boundedCancelMode(actualMode)),
-					slog.String("phase", "terminal"),
-					slog.String("fallback", fallback),
-					slog.String("backend", a.cand.Primary.Backend),
-					slog.String("model", a.cand.Primary.Model),
-				)
-			}
+			termObs := a.recordCancellationTelemetry(cause, cancelRes, nil, isCancel)
+			a.logAttemptCanceled(cctx, evidence, termObs)
 		} else if innerStream != nil {
 			a.drainStreamUsageEvidence(innerStream)
 		}
@@ -1680,14 +1433,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		// 5. Finalize/release attempt authority.
 		if a.authority.control != nil && !a.authority.Settled() {
 			runGuarded("authority finalize", &errorsList, func() {
-				usage := evidence.Usage
-				if usage.Kind == "" || (!usage.UsagePresence.Any() && !usage.CostPresent) {
-					if acc := a.aggregatedUsageEvidence(); acc.Kind != "" {
-						usage = acc
-					} else {
-						usage = emptyOperatorUsageShell()
-					}
-				}
+				usage := a.usageOrAccumulated(evidence.Usage)
 				switch intent {
 				case IntentSuccess:
 					_ = a.authority.Settle(cctx, authorityapp.SettlementKindFinal, usage, false)
@@ -1746,14 +1492,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if intent == IntentSuccess {
 					surfaced = metering.SurfacedYes
 				}
-				usage := evidence.Usage
-				if usage.Kind == "" || (!usage.UsagePresence.Any() && !usage.CostPresent) {
-					if acc := a.aggregatedUsageEvidence(); acc.Kind != "" {
-						usage = acc
-					} else {
-						usage = emptyOperatorUsageShell()
-					}
-				}
+				usage := a.usageOrAccumulated(evidence.Usage)
 				a.emitBackendEgressFn(cctx, a.bleg.BLegID, outcomeMeter, surfaced, usage)
 			})
 		}
@@ -1823,20 +1562,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if cmd == sdkterminal.CommandNormalFinish || evidence.Committed {
 					surfaced = billing.SurfacedYes
 				}
-				streamEv := evidence.StreamFallback
-				if streamEv.Kind == "" {
-					streamEv = evidence.Usage
-				}
-				if accumulatedEv := a.aggregatedUsageEvidence(); accumulatedEv.Kind != "" {
-					if streamEv.Kind == "" || (!streamEv.UsagePresence.Any() && !streamEv.CostPresent) {
-						streamEv = accumulatedEv
-					} else if !streamEv.CostPresent && accumulatedEv.CostPresent {
-						streamEv.CostPresent, streamEv.CostNanoUnits, streamEv.Currency = true, accumulatedEv.CostNanoUnits, accumulatedEv.Currency
-					}
-				}
-				if streamEv.Kind == "" {
-					streamEv = emptyOperatorUsageShell()
-				}
+				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
 				finalizeReason := "record_leg"
 				if evidence.BillingReason != "" {
 					finalizeReason = evidence.BillingReason
@@ -2007,39 +1733,5 @@ func mapCommandToLegOutcome(cmd sdkterminal.Command) billing.LegOutcome {
 		return billing.LegOutcomeCanceled
 	default:
 		return billing.LegOutcomeFailed
-	}
-}
-
-func boundedCauseKind(kind lipapi.CancelKind) string {
-	switch kind {
-	case lipapi.CancelExplicit:
-		return "explicit"
-	case lipapi.CancelClientGone:
-		return "client_gone"
-	case lipapi.CancelContextDone:
-		return "context_done"
-	case lipapi.CancelRaceLoser:
-		return "race_loser"
-	case "":
-		return "none"
-	default:
-		return "other"
-	}
-}
-
-func boundedCancelMode(mode lipapi.CancelMode) string {
-	switch mode {
-	case lipapi.CancelModeNone:
-		return "none"
-	case lipapi.CancelModeProvider:
-		return "provider"
-	case lipapi.CancelModeTransport:
-		return "transport"
-	case lipapi.CancelModeCloseOnly:
-		return "close_only"
-	case "":
-		return "none"
-	default:
-		return "other"
 	}
 }

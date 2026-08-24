@@ -135,57 +135,36 @@ func Negotiate(host, plugin ProtocolOffer) (Negotiation, error) {
 	return base, nil
 }
 
+// featureMinorRequirements lists negotiated features from newest to oldest;
+// validation walks this order so error precedence stays deterministic.
+var featureMinorRequirements = []struct {
+	name  string
+	minor uint32
+}{
+	{FeatureCancellationHandshake, ProtocolMinorCancellationHandshake},
+	{FeaturePromptCacheResidency, ProtocolMinorPromptCacheResidency},
+	{FeatureSemanticExtensions, ProtocolMinorSemanticExtensions},
+}
+
 func featureMinimumMinor(name string) (uint32, bool) {
-	switch name {
-	case FeatureSemanticExtensions:
-		return ProtocolMinorSemanticExtensions, true
-	case FeaturePromptCacheResidency:
-		return ProtocolMinorPromptCacheResidency, true
-	case FeatureCancellationHandshake:
-		return ProtocolMinorCancellationHandshake, true
-	default:
-		return 0, false
+	for _, req := range featureMinorRequirements {
+		if req.name == name {
+			return req.minor, true
+		}
 	}
+	return 0, false
 }
 
 func validateFeatureMinorRequirements(host, plugin map[string]Feature, minor uint32) error {
-	if minor >= ProtocolMinorCancellationHandshake {
-		return nil
-	}
-	for name, feature := range host {
-		if name == FeatureCancellationHandshake && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorCancellationHandshake)
+	for _, req := range featureMinorRequirements {
+		if minor >= req.minor {
+			return nil
 		}
-	}
-	for name, feature := range plugin {
-		if name == FeatureCancellationHandshake && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorCancellationHandshake)
+		if f, ok := host[req.name]; ok && f.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, req.name, req.minor)
 		}
-	}
-	if minor >= ProtocolMinorPromptCacheResidency {
-		return nil
-	}
-	for name, feature := range host {
-		if name == FeaturePromptCacheResidency && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorPromptCacheResidency)
-		}
-	}
-	for name, feature := range plugin {
-		if name == FeaturePromptCacheResidency && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorPromptCacheResidency)
-		}
-	}
-	if minor >= ProtocolMinorSemanticExtensions {
-		return nil
-	}
-	for name, feature := range host {
-		if name == FeatureSemanticExtensions && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorSemanticExtensions)
-		}
-	}
-	for name, feature := range plugin {
-		if name == FeatureSemanticExtensions && feature.Required {
-			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorSemanticExtensions)
+		if f, ok := plugin[req.name]; ok && f.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, req.name, req.minor)
 		}
 	}
 	return nil

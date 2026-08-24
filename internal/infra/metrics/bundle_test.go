@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -43,7 +44,12 @@ func TestNewBundle_executorSink(t *testing.T) {
 	sink.OnAttemptRecorded(lipapi.AttemptSuccess, "bedrock")
 	sink.OnBackendOpenDuration("bedrock", 0.42)
 	sink.OnTransportNegotiation(lipapi.OperationOpenAIChatCompletions, lipapi.TransportModeStreaming, "accept")
-	sink.OnCancellation("explicit", lipapi.CancelModeProvider, "outcome", "negotiated")
+	sink.OnCancellation(runtime.CancellationObservation{
+		CauseClass: runtime.CancellationCauseExplicit,
+		Mode:       runtime.CancellationModeProvider,
+		Phase:      runtime.CancellationPhaseOutcome,
+		Fallback:   runtime.CancellationFallbackNegotiated,
+	})
 	mfs, err := b.Registry.Gather()
 	if err != nil {
 		t.Fatal(err)

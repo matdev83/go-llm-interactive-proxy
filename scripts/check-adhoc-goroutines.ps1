@@ -82,6 +82,9 @@ $allowed = @(
     # ForwardExecute: one bounded cancel watcher per plugin Execute stream, disarmed
     # via stopWatch when the pump returns (review finding M3 remediation).
     "pkg/lipsdk/backendplugin/forward_execute.go"
+    # forwardActiveExecute: reader pumps and optional stream closer / cancel worker
+    # coordinated and joined by ForwardExecute (spec aleg-cancellation-bleg-termination-hardening).
+    "pkg/lipsdk/backendplugin/forward_execute_active.go"
     # OpenResponses WS transport: per-session read pump + pinger owned and joined
     # by WSSession.Run before it returns (spec openresponses Task 6.1).
     "internal/plugins/frontends/openresponses/websocket_upgrade.go"

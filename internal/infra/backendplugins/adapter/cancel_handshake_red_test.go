@@ -76,7 +76,10 @@ func TestRED_Adapter_CancelDeadlineNotPropagated(t *testing.T) {
 
 	_ = ms.Cancel(cancelCtx, lipapi.CancelCause{Kind: lipapi.CancelExplicit})
 
-	stream := ms.(*managedStream)
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
 	// Read the start frame first
 	<-stream.hostFrames
 
@@ -142,7 +145,10 @@ func TestRED_Adapter_CancelReturnsImmediatelyWithoutWaitingForOutcomeOrTerminal(
 	// Call Cancel while connector has not terminated yet
 	res := ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelExplicit})
 
-	stream := ms.(*managedStream)
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
 	if !stream.terminalSeen.Load() {
 		t.Fatalf("Cancel returned %v before connector reached terminal or cancel outcome", res)
 	}
@@ -293,7 +299,11 @@ func TestAdapter_CancelGraceTimeoutForcesTransportCancel(t *testing.T) {
 		t.Fatal("active Execute context was not force-cancelled after grace timeout")
 	}
 
-	prog := ms.(*managedStream).CancellationProgress()
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
+	prog := stream.CancellationProgress()
 	if !prog.ForcedAbort {
 		t.Fatal("expected ForcedAbort to be true after grace timeout")
 	}
@@ -357,7 +367,10 @@ func TestAdapter_LegacyCancelDoesNotSendCancelFrame(t *testing.T) {
 		t.Fatalf("legacy Cancel mode = %v, want CancelModeTransport", res.Mode)
 	}
 
-	stream := ms.(*managedStream)
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
 	// Only the START frame should be present in hostFrames
 	select {
 	case frame := <-stream.hostFrames:
@@ -431,7 +444,11 @@ func TestAdapter_Cancel_OutcomeBeforeTerminal(t *testing.T) {
 		t.Fatalf("res.Mode = %v, want CancelModeProvider", res.Mode)
 	}
 
-	prog := ms.(*managedStream).CancellationProgress()
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
+	prog := stream.CancellationProgress()
 	if !prog.OutcomeSeen || !prog.OutcomeAcknowledged || prog.OutcomeMode != backendplugin.CancelModeProvider {
 		t.Fatalf("unexpected progress: %+v", prog)
 	}
@@ -492,7 +509,11 @@ func TestAdapter_Cancel_TerminalWithoutOutcome(t *testing.T) {
 		t.Fatalf("res.Mode = %v, want CancelModeNone", res.Mode)
 	}
 
-	prog := ms.(*managedStream).CancellationProgress()
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
+	prog := stream.CancellationProgress()
 	if prog.OutcomeSeen {
 		t.Fatal("expected OutcomeSeen to be false")
 	}
@@ -653,7 +674,12 @@ func TestAdapter_Cancel_PoisonConnectorBoundedForce(t *testing.T) {
 	if !errors.Is(res.Err, context.DeadlineExceeded) {
 		t.Fatalf("expected context.DeadlineExceeded, got %v", res.Err)
 	}
-	if !ms.(*managedStream).CancellationProgress().ForcedAbort {
+	stream, ok := ms.(*managedStream)
+	if !ok {
+		t.Fatalf("ms is not *managedStream")
+	}
+	prog := stream.CancellationProgress()
+	if !prog.ForcedAbort {
 		t.Fatal("expected ForcedAbort to be true")
 	}
 }

@@ -60,71 +60,11 @@ func RegisterExecutorProm(reg prometheus.Registerer) *ExecutorProm {
 }
 
 // ObserveCancellation records a cancellation event with strictly bounded low-cardinality labels.
-func (m *ExecutorProm) ObserveCancellation(cause lipapi.CancelCause, mode lipapi.CancelMode, phase string, fallback string) {
+func (m *ExecutorProm) ObserveCancellation(obs runtime.CancellationObservation) {
 	if m == nil || m.cancellations == nil {
 		return
 	}
-	causeClass := boundedCauseClass(cause)
-	cancelMode := boundedCancelMode(mode)
-	cancelPhase := boundedCancelPhase(phase)
-	cancelFallback := boundedCancelFallback(fallback)
-	m.cancellations.WithLabelValues(causeClass, cancelMode, cancelPhase, cancelFallback).Inc()
-}
-
-func boundedCauseClass(cause lipapi.CancelCause) string {
-	switch cause.Kind {
-	case lipapi.CancelExplicit:
-		return "explicit"
-	case lipapi.CancelClientGone:
-		return "client_gone"
-	case lipapi.CancelContextDone:
-		return "context_done"
-	case lipapi.CancelRaceLoser:
-		return "race_loser"
-	case "":
-		return "none"
-	default:
-		return "other"
-	}
-}
-
-func boundedCancelMode(mode lipapi.CancelMode) string {
-	switch mode {
-	case lipapi.CancelModeNone:
-		return "none"
-	case lipapi.CancelModeProvider:
-		return "provider"
-	case lipapi.CancelModeTransport:
-		return "transport"
-	case lipapi.CancelModeCloseOnly:
-		return "close_only"
-	case "":
-		return "none"
-	default:
-		return "other"
-	}
-}
-
-func boundedCancelPhase(phase string) string {
-	switch phase {
-	case "requested", "outcome", "terminal", "forced":
-		return phase
-	case "":
-		return "none"
-	default:
-		return "other"
-	}
-}
-
-func boundedCancelFallback(fallback string) string {
-	switch fallback {
-	case "negotiated", "legacy", "none":
-		return fallback
-	case "":
-		return "none"
-	default:
-		return "other"
-	}
+	m.cancellations.WithLabelValues(string(obs.CauseClass), string(obs.Mode), string(obs.Phase), string(obs.Fallback)).Inc()
 }
 
 type executorPromSink struct {
@@ -184,9 +124,9 @@ func (s *executorPromSink) OnTransportNegotiation(operation lipapi.Operation, mo
 	s.p.transportDecisions.WithLabelValues(op, m, o).Inc()
 }
 
-func (s *executorPromSink) OnCancellation(causeClass string, mode lipapi.CancelMode, phase string, fallback string) {
+func (s *executorPromSink) OnCancellation(obs runtime.CancellationObservation) {
 	if s == nil || s.p == nil {
 		return
 	}
-	s.p.ObserveCancellation(lipapi.CancelCause{Kind: lipapi.CancelKind(causeClass)}, mode, phase, fallback)
+	s.p.ObserveCancellation(obs)
 }

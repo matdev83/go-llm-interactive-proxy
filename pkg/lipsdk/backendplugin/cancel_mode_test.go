@@ -138,6 +138,7 @@ func TestCancellationHandshakeNegotiated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := backendplugin.CancellationHandshakeNegotiated(tt.neg)
 			if got != tt.want {
 				t.Errorf("CancellationHandshakeNegotiated() = %v, want %v", got, tt.want)

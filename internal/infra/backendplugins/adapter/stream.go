@@ -3,7 +3,6 @@ package adapter
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 	"sync"
@@ -90,9 +89,7 @@ func openStream(
 			s.promptCacheMu.Unlock()
 		}
 		if err != nil {
-			s.cancelMu.Lock()
-			wasCanceled := s.cancelRequested || s.forcedAbort || s.closed.Load() || (s.ctx != nil && s.ctx.Err() != nil)
-			s.cancelMu.Unlock()
+			wasCanceled := s.cancelState.interrupted() || s.closed.Load() || (s.ctx != nil && s.ctx.Err() != nil)
 
 			var fe *ExecuteFailureError
 			if wasCanceled && !isProtocolSentinel(err) {
@@ -137,75 +134,48 @@ type CancellationProgress struct {
 }
 
 type managedStream struct {
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	opt                 Options
-	events              chan lipapi.Event
-	errCh               chan error
-	hostFrames          chan backendplugin.ClientFrame
-	done                chan struct{}
-	cancelMu            sync.Mutex
-	cancelRequested     bool
-	cancelCause         lipapi.CancelCause
-	cancelDeadline      time.Time
-	outcomeSeen         bool
-	outcomeAcknowledged bool
-	outcomeMode         backendplugin.CancelMode
-	outcomeReason       backendplugin.CancelReason
-	outcomeDetail       string
-	forcedAbort         bool
-	wg                  sync.WaitGroup
-	closeOnce           sync.Once
-	closed              atomic.Bool
-	outputCommitted     atomic.Bool
-	terminalSeen        atomic.Bool
-	invalidateOnce      sync.Once
-	validator           backendplugin.StreamValidator
-	stats               streamStats
-	maxFrame            int
-	mu                  sync.Mutex
-	recvErr             error
-	stderrBytes         int
-	usageMu             sync.Mutex
-	usageEvidence       []lipapi.Event
-	promptCacheMu       sync.Mutex
-	promptCacheBuffer   promptcache.ObservationBuffer
+	ctx               context.Context
+	cancel            context.CancelFunc
+	opt               Options
+	events            chan lipapi.Event
+	errCh             chan error
+	hostFrames        chan backendplugin.ClientFrame
+	done              chan struct{}
+	cancelState       cancelState
+	wg                sync.WaitGroup
+	closeOnce         sync.Once
+	closed            atomic.Bool
+	outputCommitted   atomic.Bool
+	terminalSeen      atomic.Bool
+	invalidateOnce    sync.Once
+	validator         backendplugin.StreamValidator
+	stats             streamStats
+	maxFrame          int
+	mu                sync.Mutex
+	recvErr           error
+	stderrBytes       int
+	usageMu           sync.Mutex
+	usageEvidence     []lipapi.Event
+	promptCacheMu     sync.Mutex
+	promptCacheBuffer promptcache.ObservationBuffer
 }
 
 func (s *managedStream) CancellationProgress() CancellationProgress {
-	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
-	return CancellationProgress{
-		Requested:           s.cancelRequested,
-		Cause:               s.cancelCause,
-		EffectiveDeadline:   s.cancelDeadline,
-		OutcomeSeen:         s.outcomeSeen,
-		OutcomeAcknowledged: s.outcomeAcknowledged,
-		OutcomeMode:         s.outcomeMode,
-		OutcomeReason:       s.outcomeReason,
-		OutcomeDetail:       s.outcomeDetail,
-		ForcedAbort:         s.forcedAbort,
-		TerminalSeen:        s.terminalSeen.Load(),
-	}
+	prog := s.cancelState.snapshot()
+	prog.TerminalSeen = s.terminalSeen.Load()
+	return prog
 }
 
-func (s *managedStream) OutcomeSeen() bool {
-	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
-	return s.outcomeSeen
+func (s *managedStream) CancellationOutcomeSeen() bool {
+	return s.cancelState.isOutcomeSeen()
 }
 
-func (s *managedStream) ForcedAbort() bool {
-	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
-	return s.forcedAbort
+func (s *managedStream) CancellationForcedAbort() bool {
+	return s.cancelState.forcedAbort()
 }
 
-func (s *managedStream) CancellationFallback() string {
-	if backendplugin.CancellationHandshakeNegotiated(s.opt.Negotiation) {
-		return "negotiated"
-	}
-	return "legacy"
+func (s *managedStream) CancellationHandshakeNegotiated() bool {
+	return backendplugin.CancellationHandshakeNegotiated(s.opt.Negotiation)
 }
 
 type streamStats struct {
@@ -291,54 +261,6 @@ func (s *managedStream) recvAfterEventsClosed() (lipapi.Event, error) {
 	return lipapi.Event{}, io.EOF
 }
 
-func computeCancelDeadline(ctx context.Context, cancelTimeout time.Duration) (time.Time, int64) {
-	now := time.Now()
-	var effectiveDeadline time.Time
-
-	if cancelTimeout <= 0 {
-		cancelTimeout = 2 * time.Second
-	}
-	effectiveDeadline = now.Add(cancelTimeout)
-
-	if ctxDeadline, ok := ctx.Deadline(); ok {
-		if effectiveDeadline.IsZero() || ctxDeadline.Before(effectiveDeadline) {
-			effectiveDeadline = ctxDeadline
-		}
-	}
-
-	if effectiveDeadline.IsZero() {
-		return time.Time{}, 0
-	}
-	return effectiveDeadline, effectiveDeadline.UnixMilli()
-}
-
-func cancelModeToLipapi(mode backendplugin.CancelMode, _ bool) lipapi.CancelMode {
-	switch mode {
-	case backendplugin.CancelModeProvider:
-		return lipapi.CancelModeProvider
-	case backendplugin.CancelModeTransport:
-		return lipapi.CancelModeTransport
-	case backendplugin.CancelModeCloseOnly:
-		return lipapi.CancelModeCloseOnly
-	case backendplugin.CancelModeNone:
-		return lipapi.CancelModeNone
-	default:
-		return lipapi.CancelModeNone
-	}
-}
-
-func outcomeCancelResult(prog CancellationProgress) lipapi.CancelResult {
-	res := lipapi.CancelResult{Mode: cancelModeToLipapi(prog.OutcomeMode, prog.OutcomeAcknowledged)}
-	if !prog.OutcomeAcknowledged {
-		if prog.OutcomeDetail != "" {
-			res.Err = fmt.Errorf("backend plugin cancel failed: %s", prog.OutcomeDetail)
-		} else {
-			res.Err = errors.New("backend plugin cancel failed")
-		}
-	}
-	return res
-}
-
 func (s *managedStream) Close() error {
 	s.closeOnce.Do(func() {
 		s.closed.Store(true)
@@ -358,44 +280,44 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 	}
 	if s.terminalSeen.Load() {
-		prog := s.CancellationProgress()
-		if prog.OutcomeSeen {
-			return outcomeCancelResult(prog)
-		}
-		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+		return s.cancelAfterTerminal()
 	}
-
 	if !backendplugin.CancellationHandshakeNegotiated(s.opt.Negotiation) {
-		s.cancelMu.Lock()
-		s.cancelRequested = true
-		s.cancelCause = cause
-		s.forcedAbort = true
-		s.cancelMu.Unlock()
-
-		s.cancel()
-		timeout := s.opt.CancelTimeout
-		if timeout <= 0 {
-			timeout = 500 * time.Millisecond
-		}
-		select {
-		case <-s.done:
-			return lipapi.CancelResult{Mode: lipapi.CancelModeTransport}
-		case <-ctx.Done():
-			return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: ctx.Err()}
-		case <-time.After(timeout):
-			return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: context.DeadlineExceeded}
-		}
+		return s.cancelLegacy(ctx, cause)
 	}
+	return s.cancelNegotiated(ctx, cause)
+}
 
+func (s *managedStream) cancelAfterTerminal() lipapi.CancelResult {
+	prog := s.CancellationProgress()
+	if prog.OutcomeSeen {
+		return outcomeCancelResult(prog)
+	}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+}
+
+func (s *managedStream) cancelLegacy(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	s.cancelState.request(cause, time.Time{})
+	s.cancelState.markForced()
+
+	s.cancel()
+	timeout := s.opt.CancelTimeout
+	if timeout <= 0 {
+		timeout = legacyCancelWaitFallback
+	}
+	select {
+	case <-s.done:
+		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport}
+	case <-ctx.Done():
+		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: ctx.Err()}
+	case <-time.After(timeout):
+		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: context.DeadlineExceeded}
+	}
+}
+
+func (s *managedStream) cancelNegotiated(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	effectiveDeadline, deadlineMS := computeCancelDeadline(ctx, s.opt.CancelTimeout)
-	s.cancelMu.Lock()
-	firstRequest := !s.cancelRequested
-	s.cancelRequested = true
-	s.cancelCause = cause
-	if firstRequest || s.cancelDeadline.IsZero() || (!effectiveDeadline.IsZero() && effectiveDeadline.Before(s.cancelDeadline)) {
-		s.cancelDeadline = effectiveDeadline
-	}
-	s.cancelMu.Unlock()
+	firstRequest := s.cancelState.request(cause, effectiveDeadline)
 
 	if firstRequest {
 		reason := backendplugin.CancelReasonHost
@@ -424,12 +346,7 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 		case <-s.done:
 		case <-s.ctx.Done():
 		case <-ctx.Done():
-			s.cancelMu.Lock()
-			s.forcedAbort = true
-			s.cancelMu.Unlock()
-			s.cancel()
-			<-s.done
-			return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: ctx.Err()}
+			return s.forceAbortAndWait(ctx.Err())
 		}
 	}
 
@@ -437,12 +354,7 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 	if !effectiveDeadline.IsZero() {
 		graceDuration := time.Until(effectiveDeadline)
 		if graceDuration <= 0 {
-			s.cancelMu.Lock()
-			s.forcedAbort = true
-			s.cancelMu.Unlock()
-			s.cancel()
-			<-s.done
-			return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: context.DeadlineExceeded}
+			return s.forceAbortAndWait(context.DeadlineExceeded)
 		}
 		timer := time.NewTimer(graceDuration)
 		defer timer.Stop()
@@ -452,19 +364,9 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 	select {
 	case <-s.done:
 	case <-ctx.Done():
-		s.cancelMu.Lock()
-		s.forcedAbort = true
-		s.cancelMu.Unlock()
-		s.cancel()
-		<-s.done
-		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: ctx.Err()}
+		return s.forceAbortAndWait(ctx.Err())
 	case <-timerChan:
-		s.cancelMu.Lock()
-		s.forcedAbort = true
-		s.cancelMu.Unlock()
-		s.cancel()
-		<-s.done
-		return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: context.DeadlineExceeded}
+		return s.forceAbortAndWait(context.DeadlineExceeded)
 	}
 
 	prog := s.CancellationProgress()
@@ -475,6 +377,13 @@ func (s *managedStream) Cancel(ctx context.Context, cause lipapi.CancelCause) li
 		return outcomeCancelResult(prog)
 	}
 	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+}
+
+func (s *managedStream) forceAbortAndWait(err error) lipapi.CancelResult {
+	s.cancelState.markForced()
+	s.cancel()
+	<-s.done
+	return lipapi.CancelResult{Mode: lipapi.CancelModeTransport, Err: err}
 }
 
 func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
@@ -502,13 +411,7 @@ func (s *managedStream) onPluginFrame(frame backendplugin.ServerFrame) error {
 		if frame.CancelOutcome == nil {
 			return ProtocolViolation(backendplugin.ErrInvalidFrame)
 		}
-		s.cancelMu.Lock()
-		s.outcomeSeen = true
-		s.outcomeAcknowledged = frame.CancelOutcome.Acknowledged
-		s.outcomeMode = frame.CancelOutcome.Mode
-		s.outcomeReason = frame.CancelOutcome.Reason
-		s.outcomeDetail = frame.CancelOutcome.Detail
-		s.cancelMu.Unlock()
+		s.cancelState.observeOutcome(frame.CancelOutcome)
 		return nil
 	case backendplugin.ServerFramePromptCacheObservation:
 		if !backendplugin.PromptCacheNegotiated(s.opt.Negotiation) {

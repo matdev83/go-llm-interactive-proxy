@@ -230,10 +230,7 @@ func (tx *attemptTx) rollback(ctx context.Context, cmd sdkterminal.Command, evid
 	if tx == nil || tx.completed {
 		return attemptTerminalResult{}
 	}
-	if tx.launchPermit != nil {
-		tx.launchPermit.Abort()
-		tx.launchPermit = nil
-	}
+	tx.abortLaunchPermit()
 	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
 		tx.budget.release()
 		tx.budgetAcquired = false
@@ -276,6 +273,62 @@ func (tx *attemptTx) recordFailure(ctx context.Context, outcome lipapi.AttemptOu
 		Reason:    reason,
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: tx.reqFacts.traceID, BLegID: tx.bleg.BLegID})
+}
+
+// abortLaunchPermit releases an uncommitted launch permit exactly once.
+func (tx *attemptTx) abortLaunchPermit() {
+	if tx == nil || tx.launchPermit == nil {
+		return
+	}
+	tx.launchPermit.Abort()
+	tx.launchPermit = nil
+}
+
+// commitLaunchOrRegister transfers a successful Open into A-leg authority:
+// committing the launch permit when present, else registering directly with
+// the A-leg scope. It terminalizes/disposes through the ready owner on every
+// failure disposition and returns the disposition error:
+//   - leglifecycle.ErrALegCanceled when the permit observed sticky cancellation;
+//   - the commit error, when registration-through-permit failed;
+//   - ctx.Err() when the context died between commit and use;
+//   - the RegisterBLeg error for direct A-leg scope registration.
+func (tx *attemptTx) commitLaunchOrRegister(ctx context.Context, ready *readyAttempt, aScope *leglifecycle.ALeg) error {
+	if tx == nil {
+		return nil
+	}
+	if tx.launchPermit != nil {
+		commitRes, commitErr := tx.launchPermit.Commit(ready.lifecycleHandle())
+		tx.registered = true
+		tx.launchPermit = nil
+		if commitRes.Canceled {
+			cause := commitRes.Cause
+			if cause.Kind == "" {
+				cause = leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+			}
+			ready.cancelViaLifecycle(ctx, cause)
+			return leglifecycle.ErrALegCanceled
+		}
+		if commitErr != nil {
+			ready.Dispose(ctx, commitErr)
+			return commitErr
+		}
+		if err := ctx.Err(); err != nil {
+			ready.cancelViaLifecycle(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
+			return err
+		}
+		return nil
+	}
+	if aScope != nil {
+		if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      tx.bleg.BLegID,
+			Attempt: ready.lifecycleHandle(),
+		}); err != nil {
+			ready.Dispose(ctx, err)
+			return err
+		}
+		tx.registered = true
+	}
+	return nil
 }
 
 func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route routeFacts, cand routing.AttemptCandidate, budget *attemptBudget, failures *candidateFailureHistory) (*attemptTx, error) {
@@ -716,10 +769,7 @@ func (e *Executor) openAttemptTx(
 	defer openSpan.End()
 	openStart := e.now()
 	if aerr := e.assertSecureSessionActiveBeforeOpen(openCtx); aerr != nil {
-		if tx.launchPermit != nil {
-			tx.launchPermit.Abort()
-			tx.launchPermit = nil
-		}
+		tx.abortLaunchPermit()
 		return aerr
 	}
 	tx.openStartedAt = openStart
@@ -737,10 +787,7 @@ func (e *Executor) openAttemptTx(
 	tx.stream = stream
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
-		if tx.launchPermit != nil {
-			tx.launchPermit.Abort()
-			tx.launchPermit = nil
-		}
+		tx.abortLaunchPermit()
 		var pe *safety.PanicError
 		if errors.As(err, &pe) {
 			err = mapBackendPanic(pe, false, c.Key)
@@ -973,36 +1020,12 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		memoUpdate:  nil,
 	})
 
-	if tx.launchPermit != nil {
-		commitRes, commitErr := tx.launchPermit.Commit(ready.lifecycleHandle())
-		tx.registered = true
-		tx.launchPermit = nil
-		if commitRes.Canceled {
-			cause := commitRes.Cause
-			if cause.Kind == "" {
-				cause = leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
-			}
-			ready.cancelViaLifecycle(ctx, cause)
+	if err := tx.commitLaunchOrRegister(ctx, ready, req.reqFacts.aScope); err != nil {
+		if errors.Is(err, leglifecycle.ErrALegCanceled) {
 			req.progress.excluded[plan.cand.Key] = struct{}{}
-			return openedAttempt{ready: nil, interleaved: req.interleaved}, leglifecycle.ErrALegCanceled
+			return openedAttempt{ready: nil, interleaved: req.interleaved}, err
 		}
-		if commitErr != nil {
-			ready.Dispose(ctx, commitErr)
-			return openedAttempt{interleaved: req.interleaved}, commitErr
-		}
-		if err := ctx.Err(); err != nil {
-			ready.cancelViaLifecycle(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
-			return openedAttempt{interleaved: req.interleaved}, err
-		}
-	} else if req.reqFacts.aScope != nil {
-		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      tx.bleg.BLegID,
-			Attempt: ready.lifecycleHandle(),
-		}); err != nil {
-			ready.Dispose(ctx, err)
-			return openedAttempt{interleaved: req.interleaved}, err
-		}
-		tx.registered = true
+		return openedAttempt{interleaved: req.interleaved}, err
 	}
 
 	interleaved := req.interleaved

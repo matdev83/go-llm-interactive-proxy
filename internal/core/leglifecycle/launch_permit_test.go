@@ -371,3 +371,56 @@ func TestLaunchPermit_StalePermitCommitDoesNotRemoveSuccessor(t *testing.T) {
 		t.Fatalf("handle2 should not have been called, got %v", got)
 	}
 }
+
+func TestLaunchPermit_CommitThenAbort_SettledOnce(t *testing.T) {
+	t.Parallel()
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
+	a := coord.StartALeg("a-commit-abort")
+
+	openCtx, permit, err := a.BeginBLegLaunch(context.Background(), "b-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle := &recordingBLeg{}
+	res, err := permit.Commit(handle)
+	if err != nil || res.Canceled {
+		t.Fatalf("commit error: %v, res: %+v", err, res)
+	}
+
+	// Calling Abort after Commit must be a no-op (settled once)
+	permit.Abort()
+
+	select {
+	case <-openCtx.Done():
+		t.Fatal("openCtx was canceled by Abort after Commit")
+	default:
+	}
+
+	// Cancel A-leg should still cancel the committed handle
+	cause := leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+	if err := a.Cancel(context.Background(), cause); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := handle.calls(), []string{"cancel:explicit", "close"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("handle calls = %v, want %v", got, want)
+	}
+}
+
+func TestLaunchPermit_NilReceiverSafety(t *testing.T) {
+	t.Parallel()
+
+	var nilPermit *leglifecycle.LaunchPermit
+	res, err := nilPermit.Commit(&recordingBLeg{})
+	if err != nil || res.Canceled {
+		t.Fatalf("nil permit Commit: res=%+v err=%v", res, err)
+	}
+	nilPermit.Abort() // should not panic
+
+	var nilALeg *leglifecycle.ALeg
+	ctx, permit, err := nilALeg.BeginBLegLaunch(context.Background(), "b-nil")
+	if err != nil || permit != nil || ctx == nil {
+		t.Fatalf("nil ALeg BeginBLegLaunch: ctx=%v permit=%v err=%v", ctx, permit, err)
+	}
+}
