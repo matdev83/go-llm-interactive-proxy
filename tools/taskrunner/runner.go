@@ -263,6 +263,11 @@ func fail(result Result, kind Kind, err error) Result {
 	return result
 }
 
+// waitForProcess coordinates process termination, output drain completion, and timeout handling.
+// The capture drain WaitGroup is awaited before cmd.Wait() to guarantee that all stdout/stderr
+// data in flight is fully copied into memory buffers before the process handles and pipes are torn down.
+// On deadline expiration or cancellation, the process adapter is killed and stdout/stderr pipes are
+// closed immediately to unblock pending read operations and prevent capture stalls during teardown.
 func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, result Result, drains *sync.WaitGroup, stdout, stderr io.ReadCloser, started time.Time, timeout time.Duration) Result {
 	type waitResult struct {
 		err error
