@@ -299,61 +299,70 @@
 - [x] No successor-only work claimed; #394/#426 independent scope
 - [x] This archive is intentionally included in the same implementation changeset/PR under user override, so merged-main SHA is pending PR delivery
 
+## Phase R Completion Status (review remediation)
+
+- [x] R.1–R.9 complete at branch commits 75eaf07e (remediation) and 7714a935 (repo-wide lint resolution)
+- [x] RED→GREEN ordering proof: TestForwardExecute_InBandCancel_OutcomeDroppedWhenCancelExceedsGraceWait failed on pre-refactor HEAD, passes after coordinator refactor
+- [x] internal/core non-test lines 92768 ≤ ceiling 92796; budgets.go unchanged
+- [x] Gates: go build/vet, make quality-checks, test-unit, test, parity-checks, lint (0 issues), qa all green
+- [x] Windows race unavailable (CGO); Linux CI owns race coverage
+
 ## Phase R — Review Remediation (Behavior-Preserving Quality Hardening)
 
 Post-implementation review found blocking maintainability regressions with no behavior change required. Requirements are unchanged; these tasks restructure implementation only. All Phase 1–8 contracts, ratchets, and invariants stay green throughout.
 
-- [ ] R.1 Add behavior-locking tests before restructuring
+- [x] R.1 Add behavior-locking tests before restructuring
   - Deterministic RED test proving negotiated `ForwardExecute` drops `CancelOutcome` when physical cancel blocks longer than the current 100ms wait (ordering must hold by construction, not timing).
   - Pin: exactly-one terminal, no frame after terminal, legacy emits no handshake frames, goroutine join/no-leak on all exit paths, cancel-before/after upstream termination, deadline composition.
   - Characterization tables for usage-evidence precedence and launch-permit dispositions ahead of Waves R.5–R.7.
   - _Boundary: test code only; no production change_
   - _Validation: new RED test fails on current HEAD for the intended reason; all other suites remain green_
 
-- [ ] R.2 Refactor negotiated `ForwardExecute` into a coordinator-owned single-sender flow
+- [x] R.2 Refactor negotiated `ForwardExecute` into a coordinator-owned single-sender flow
   - One control reader, one upstream reader, at most one bounded cancel worker; calling goroutine coordinates and is the sole server-frame sender via `frameSequencer`.
   - Delete both `time.After(100ms)` ordering races, `cancelOutcomeDone`, dead `handshakeNegotiated`/`Detail==""` checks, redundant join waits, duplicated cancelled-terminal literals.
   - Preserve: outcome-before-terminal by construction, graceful-then-force fallback, CLOSE_INPUT distinct from CANCEL, legacy path unchanged.
   - _Depends: R.1_
   - _Validation: RED test turns green; full backendplugin/host/contracttest suites green; no sleeps in production path_
 
-- [ ] R.3 Extract adapter cancellation state machine
+- [x] R.3 Extract adapter cancellation state machine
   - Move cancellation state/logic from `managedStream` into a focused `cancellation.go` state machine (`request/observeOutcome/markForced/snapshot`) and split `Cancel` into per-mode paths; delete repeated force-abort blocks.
   - Delete identity conversion `cancelModeToLipapi` (alias type) and its unused parameter; normalize empty mode once.
   - _Depends: R.2 (may proceed in parallel; same-package)_
   - _Validation: adapter cancellation matrix tests green; no duplicate force-abort sequences remain_
 
-- [ ] R.4 Unify cancellation progress seam and typed telemetry
+- [x] R.4 Unify cancellation progress seam and typed telemetry
   - Replace three fragmented probe interfaces in runtime with one consumer-owned telemetry interface implemented by the adapter; remove mode/cause-based fallback guessing.
   - Introduce typed bounded `CancellationObservation` (cause class, mode class, phase, fallback) constructed once in runtime; `MetricsSink.OnCancellation` takes it; delete duplicated bounders in runtime and metrics; stop enum→string→enum round trip.
   - Restore contiguous `attemptSession` doc comment.
   - _Depends: R.3_
   - _Validation: metrics cardinality/secret-safety tests green against typed observation; no stringly label sets duplicated across packages_
 
-- [ ] R.5 Decompose cancellation handling out of `TerminalizeAttempt`
+- [x] R.5 Decompose cancellation handling out of `TerminalizeAttempt`
   - Extract pure cause/intent derivation and one shared `attempt_canceled` diagnostics helper; add locked stored-result lookup helper for `readyAttempt.cancelViaLifecycle`.
   - Keep physical Cancel/Close inside the single terminal owner; preserve CAS/idempotent loser semantics.
   - _Depends: R.4_
   - _Validation: runtime cancellation observability suites green; no duplicated log block remains_
 
-- [ ] R.6 Centralize usage-evidence precedence
+- [x] R.6 Centralize usage-evidence precedence
   - Name the two precedence policies (`usageOrAccumulated`, cost-backfill augmentation) in an attempt evidence helper file; use them at authority settle, egress metering, terminal billing leg, and `recordBillingLegForAttempt`.
   - Preserve exactly-once terminal billing claim, finalizer precedence, bounds, dedupe.
   - _Depends: R.5_
   - _Validation: precedence characterization table green; terminal billing/evidence suites green_
 
-- [ ] R.7 Consolidate launch-permit commit/register orchestration
+- [x] R.7 Consolidate launch-permit commit/register orchestration
   - Extract `attemptTx.abortLaunchPermit` and `commitLaunchOrRegister`; reuse across serial and parallel open paths; table-test dispositions and exact Cancel/Close/Register counts.
   - _Depends: R.1_
   - _Validation: launch linearization + parallel race suites green_
 
-- [ ] R.8 Mechanical cleanups
+- [x] R.8 Mechanical cleanups
   - Table-drive feature-minor requirement validation; replace taskrunner single-field result struct with `chan error`; remove unreachable zero-deadline branches.
   - _Depends: R.2, R.3_
   - _Validation: protocol negotiation tests and taskrunner drain-ordering certification green_
 
-- [ ] R.9 Final gates and spec closure
+- [x] R.9 Final gates and spec closure
   - Run focused suites per wave plus `make quality-checks`, `make test-unit`, `make test`, `make parity-checks`, `make qa`; confirm line budgets do not increase because of this remediation.
   - Rearchive this spec with completion evidence.
   - _Depends: R.1–R.8_
   - _Validation: all gates green; no wire/ABI/public-contract diffs_
+
