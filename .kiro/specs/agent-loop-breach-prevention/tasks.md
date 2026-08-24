@@ -138,7 +138,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: focused runtime/stopguard integration tests_
 
 - [ ] 7. Implement post-output transport continuation without replay or side-effect duplication
-  - [ ] 7.1 Add failing runtime integration tests for post-output EOF/idle cases
+  - [x] 7.1 Add failing runtime integration tests for post-output EOF/idle cases
     - Visible text then EOF: never reopen as a retry of the original attempt; no duplicate text.
     - Completed tool call + matching result then interruption: continue after retained result; assert tool side effect executes once.
     - Incomplete tool args or unsafe opaque state: no execution/replay; one controlled final outcome.
@@ -280,3 +280,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 6.2-phase2 KNOWN ISSUE (fix first in 6.3): on the guarded path, withholding finishResponse can cause the same backend response_finished to be re-recorded via recordAttemptLogged on replay (implementer observed 2 settlement logs on authority+dispatch paths; >=1 accepted provisionally). Requirement 9.1 demands exactly-once attempt settlement - before opening continuation legs, deduplicate by attempt terminal CAS state. Guard-disabled path verified byte-for-byte unchanged (full runtime suite green).
 - 6.2 completion resolves the replay issue through the existing per-attempt terminal owner, records held attempts truthfully as swallowed, injects the production guard through ExecutorConfig, and emits only the controlled interim fallback; full runtime/runtimebundle suites and scope-related architecture gates passed. Full archtest still has the pre-existing branch-wide shrinkage shortfall tracked for final convergence.
 - 6.3 uses a per-logical-request LoopGuard factory, one immutable budget/progress gate across hidden legs, honest canonical prior evidence, Developer-role bounded recovery control, and a non-retry semantic continuation admission mode; production test stubs were removed and the focused/full runtime plus scope architecture gates passed.
+- 7.1 adds compile-safe RED runtime coverage for post-output EOF/idle, completed tool/result retention, unsafe partial/opaque state, cancellation, and disabled compatibility; task 7.2 must harden idle-path, no-retry, and retained-tool assertions while turning these behavioral failures GREEN.
