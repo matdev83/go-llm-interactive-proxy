@@ -10,9 +10,14 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConversationView_PostgresContract(t *testing.T) {
@@ -92,7 +97,6 @@ func TestConversationView_PostgresContract(t *testing.T) {
 		Spawn: func(fn func()) { go fn() },
 	})
 }
-
 func TestConversationView_PostgresSecondStoreSeesCommittedRevision(t *testing.T) {
 	runtimeDSN := testkit.SkipUnlessPostgres(t)
 	adminDSN, ok := testkit.PostgresAdminDSN()
@@ -176,4 +180,78 @@ func TestConversationView_PostgresSecondStoreSeesCommittedRevision(t *testing.T)
 	if len(snapFromS1.Steering) != 1 || snapFromS1.Steering[0].Message.Text != "from s2 pg" {
 		t.Fatalf("first view must observe second store commit: %+v", snapFromS1)
 	}
+}
+
+func TestConversationView_RecoverySteeringLifecycle_Postgres(t *testing.T) {
+	runtimeDSN := testkit.SkipUnlessPostgres(t)
+	adminDSN, ok := testkit.PostgresAdminDSN()
+	if !ok {
+		adminDSN = runtimeDSN
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+	defer cancel()
+	poolCfg, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 2})
+	require.NoError(t, err)
+	pool := db.PoolSettings{
+		MaxOpenConns:    poolCfg.MaxOpenConns,
+		MaxIdleConns:    poolCfg.MaxIdleConns,
+		ConnMaxLifetime: poolCfg.ConnMaxLifetime,
+		ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+	}
+	migrateDB, err := db.OpenPostgresBun(ctx, adminDSN, pool)
+	require.NoError(t, err)
+	migrated, err := NewWithContext(ctx, migrateDB)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = migrated.Close() })
+
+	openCtx, openCancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+	defer openCancel()
+	bunDB, err := db.OpenPostgresBun(openCtx, runtimeDSN, pool)
+	require.NoError(t, err)
+	s := &Store{db: bunDB}
+	t.Cleanup(func() { _ = s.Close() })
+	require.NoError(t, runContinuitySchemaMigrate(openCtx, bunDB))
+
+	aLegID := fmt.Sprintf("a_pg_rec_contract_%d", time.Now().UnixNano())
+	_, err = s.db.NewRaw(`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`, aLegID, "", int64(0), int64(0)).Exec(ctx)
+	require.NoError(t, err)
+
+	cv := s.ConversationViewStore()
+	reader, ok := conversationview.AsReader(cv)
+	require.True(t, ok)
+
+	userMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user initial prompt")}}
+	userCall := lipapi.Call{
+		Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}},
+		Messages:     []lipapi.Message{userMsg},
+	}
+
+	resolver := func(ctx context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+		snap, err := reader.Snapshot(ctx, aLegID)
+		if err != nil {
+			return lipapi.Call{}, conversationview.Snapshot{}, err
+		}
+		return userCall, snap, nil
+	}
+
+	writer, err := sdkadapter.NewWriter(cv, aLegID, resolver)
+	require.NoError(t, err)
+
+	st1, err := writer.Put(ctx, steering.PutRequest{
+		OverlayID: steering.OverlayID("alg-rec"),
+		Message: steering.Message{
+			Role: lipapi.RoleDeveloper,
+			Text: "<automated-recovery>Attempt 1/3: resume unfinished work</automated-recovery>",
+		},
+		Placement:           steering.AfterIngressTail,
+		AnchorMissingPolicy: steering.FailClosed,
+		Reason:              steering.ReasonCode("loop_guard_recovery"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), st1.Revision)
+	assert.Equal(t, uint64(1), st1.SlotOrdinal)
+
+	stDeact, err := writer.Deactivate(ctx, steering.OverlayID("alg-rec"))
+	require.NoError(t, err)
+	assert.False(t, stDeact.Active)
 }

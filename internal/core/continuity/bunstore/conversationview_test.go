@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/sdkadapter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
@@ -48,7 +50,6 @@ func newConversationViewDeps(t *testing.T) storecontract.Deps {
 		},
 	}
 }
-
 func TestConversationView_BunContract_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.Run(t, storecontract.Env{
@@ -387,4 +388,74 @@ func TestConversationView_ConcurrentTagSnapshot_SQLite(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err)
 	}
+}
+
+func TestConversationView_RecoverySteeringLifecycle_SQLite(t *testing.T) {
+	t.Parallel()
+	st, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	aLegID := "a_recovery_sqlite_12345678901234567890123456789012"
+	_, err := st.db.NewRaw(`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`, aLegID, "", int64(0), int64(0)).Exec(ctx)
+	require.NoError(t, err)
+	cv := st.ConversationViewStore()
+
+	reader, ok := conversationview.AsReader(cv)
+	require.True(t, ok)
+
+	userMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("user initial prompt")}}
+	userCall := lipapi.Call{
+		Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("sys")}}},
+		Messages:     []lipapi.Message{userMsg},
+	}
+
+	resolver := func(ctx context.Context) (lipapi.Call, conversationview.Snapshot, error) {
+		snap, err := reader.Snapshot(ctx, aLegID)
+		if err != nil {
+			return lipapi.Call{}, conversationview.Snapshot{}, err
+		}
+		return userCall, snap, nil
+	}
+
+	writer, err := sdkadapter.NewWriter(cv, aLegID, resolver)
+	require.NoError(t, err)
+
+	// 1. First Put
+	st1, err := writer.Put(ctx, steering.PutRequest{
+		OverlayID: steering.OverlayID("alg-rec"),
+		Message: steering.Message{
+			Role: lipapi.RoleDeveloper,
+			Text: "<automated-recovery>Attempt 1/3: resume unfinished work</automated-recovery>",
+		},
+		Placement:           steering.AfterIngressTail,
+		AnchorMissingPolicy: steering.FailClosed,
+		Reason:              steering.ReasonCode("loop_guard_recovery"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), st1.Revision)
+	assert.Equal(t, uint64(1), st1.SlotOrdinal)
+
+	// 2. Put update with same slot
+	st2, err := writer.Put(ctx, steering.PutRequest{
+		OverlayID: steering.OverlayID("alg-rec"),
+		Message: steering.Message{
+			Role: lipapi.RoleDeveloper,
+			Text: "<automated-recovery>Attempt 2/3: resume unfinished work</automated-recovery>",
+		},
+		Placement:           steering.AfterIngressTail,
+		AnchorMissingPolicy: steering.FailClosed,
+		Reason:              steering.ReasonCode("loop_guard_recovery"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, st1.SlotOrdinal, st2.SlotOrdinal)
+	assert.Equal(t, uint64(2), st2.Revision)
+
+	// 3. Deactivate
+	stDeact, err := writer.Deactivate(ctx, steering.OverlayID("alg-rec"))
+	require.NoError(t, err)
+	assert.False(t, stDeact.Active)
+
+	snap, err := reader.Snapshot(ctx, aLegID)
+	require.NoError(t, err)
+	assert.Empty(t, snap.Steering)
 }
