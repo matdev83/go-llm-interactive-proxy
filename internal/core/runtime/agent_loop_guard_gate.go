@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuationsafety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopgate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -143,18 +142,20 @@ func (t *turnTerminal) agentLoopGuardHoldCandidate(ctx context.Context, facts re
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	tail := buildGuardTailState(p, attempt)
 	candidate := stopguard.Candidate{
 		Cause:              stopguard.CauseNormalEnd,
 		OutputCommitted:    t.committed(),
-		ExplicitCompletion: false,
+		ExplicitCompletion: hasExplicitCompletionFromTail(tail),
 	}
 	tf := stopgate.TerminalFacts{
 		Candidate:            candidate,
-		Tail:                 continuationsafety.TailState{},
-		Prior:                continuationsafety.PriorSummary{},
-		Bounds:               lipcont.Bounds{},
+		Tail:                 tail,
+		Prior:                honestPriorForEvaluate(t, facts, p, attempt),
+		Bounds:               lipcont.DefaultBounds(),
 		SafeNativeResume:     false,
 		SuppressVerification: false,
+		SupportsContinuation: t.supportsContinuation,
 	}
 	outcome := t.loopGuard.gate.ObserveCandidate(ctx, tf)
 	if outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased {

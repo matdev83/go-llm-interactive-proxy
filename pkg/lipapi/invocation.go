@@ -9,6 +9,10 @@ const (
 	OperationOpenAIResponses Operation = "openai.responses"
 	// OperationOpenResponsesCreate identifies OpenResponses create requests.
 	OperationOpenResponsesCreate Operation = "openresponses.create"
+	// OperationAnthropicMessages identifies Anthropic Messages API requests.
+	OperationAnthropicMessages Operation = "anthropic.messages"
+	// OperationGeminiGenerateContent identifies Gemini generateContent requests.
+	OperationGeminiGenerateContent Operation = "gemini.generate_content"
 	// OperationContextCompaction identifies protocol-neutral context compaction.
 	OperationContextCompaction Operation = "context.compaction"
 )

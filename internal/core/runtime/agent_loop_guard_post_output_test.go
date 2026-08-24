@@ -59,8 +59,9 @@ func TestAgentLoopGuard_PostOutput_VisibleTextThenEOF_NoRetryOneContinuationLega
 		},
 	}
 	call := &lipapi.Call{
-		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("task")}}},
+		Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("task")}}},
 	}
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
@@ -123,9 +124,10 @@ func TestAgentLoopGuard_PostOutput_IdleDeterministic_NoRetryOneContinuationLegal
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
-				ID:       "idle-test",
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				ID:         "idle-test",
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 			},
 			aLegID:  "a-idle-1",
 			traceID: "trace-idle-1",
@@ -292,8 +294,9 @@ func TestAgentLoopGuard_PostOutput_CompletedToolPlusResultThenEOF_ContinuesWitho
 		},
 	}
 	call := &lipapi.Call{
-		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("use tool")}}},
+		Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("use tool")}}},
 	}
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
@@ -410,8 +413,9 @@ func TestAgentLoopGuard_PostOutput_UnsafeState_NoReplayOneTerminal(t *testing.T)
 				},
 			}
 			call := &lipapi.Call{
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("task")}}},
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("task")}}},
 			}
 			stream, err := ex.Execute(context.Background(), call)
 			if err != nil {
@@ -504,8 +508,9 @@ func TestAgentLoopGuard_PostOutput_CancellationPreventsContinuation(t *testing.T
 					},
 				}
 				call := &lipapi.Call{
-					Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-					Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 				}
 				stream, err := ex.Execute(ctx, call)
 				if err != nil {
@@ -539,9 +544,10 @@ func TestAgentLoopGuard_PostOutput_CancellationPreventsContinuation(t *testing.T
 					terminal: newTurnTerminal(),
 					facts: testRecvTurnFacts(recvTurnFacts{
 						baseline: lipapi.Call{
-							ID:       "cancel-during",
-							Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-							Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+							ID:         "cancel-during",
+							Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+							Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+							Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 						},
 						aLegID:  "a-cancel-2",
 						traceID: "trace-cancel-2",
@@ -614,8 +620,9 @@ func TestAgentLoopGuard_PostOutput_GuardDisabled_RetainsExistingFinishBehavior(t
 		},
 	}
 	call := &lipapi.Call{
-		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+		Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
 	}
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
@@ -653,9 +660,10 @@ func TestAgentLoopGuard_PostOutput_EOF_RetryRecvStream_GuardContinuationIsNotRet
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
-				ID:       "eof-isretry",
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				ID:         "eof-isretry",
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 			},
 			aLegID:  "a-eof-retry",
 			traceID: "trace-eof-retry",

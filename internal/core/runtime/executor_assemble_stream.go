@@ -17,6 +17,9 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	e := a.Executor
 	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
+	if prep.call != nil {
+		terminal.supportsContinuation = supportsContinuationForCall(*prep.call)
+	}
 	bindTurnTerminalRuntime(terminal, e)
 	// Per-logical-request LoopGuard: factory is sole production source, exactly one fresh Gate per assembled request; hidden legs reuse it via terminal.
 	if e.LoopGuardFactory != nil {

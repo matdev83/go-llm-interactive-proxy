@@ -265,9 +265,10 @@ func setupGuardedStreamForHoldback(t *testing.T, verifier stopguard.Verifier, gu
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
-				ID:       "holdback-test",
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				ID:         "holdback-test",
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 			},
 			aLegID:  "a-hold-1",
 			traceID: "trace-hold-1",

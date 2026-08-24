@@ -60,10 +60,11 @@ func (f *fakeAuxForWiring) Stream(_ context.Context, req auxiliary.Request) (lip
 
 func cleanTerminalFacts() stopgate.TerminalFacts {
 	return stopgate.TerminalFacts{
-		Candidate: stopguard.Candidate{Cause: stopguard.CauseNormalEnd, OutputCommitted: true},
-		Tail:      continuationsafety.TailState{},
-		Prior:     continuationsafety.PriorSummary{Record: lipcont.ContinuationRecord{ID: lipcont.ResponseID("resp-1")}},
-		Bounds:    lipcont.DefaultBounds(),
+		Candidate:            stopguard.Candidate{Cause: stopguard.CauseNormalEnd, OutputCommitted: true},
+		Tail:                 continuationsafety.TailState{},
+		Prior:                continuationsafety.PriorSummary{Record: lipcont.ContinuationRecord{ID: lipcont.ResponseID("resp-1")}},
+		Bounds:               lipcont.DefaultBounds(),
+		SupportsContinuation: true,
 	}
 }
 

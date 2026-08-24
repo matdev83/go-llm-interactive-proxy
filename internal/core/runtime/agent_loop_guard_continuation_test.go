@@ -156,9 +156,10 @@ func newGuardedStreamForFactory(t *testing.T, ex *Executor, traceID, aLegID, bLe
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
-				ID:       "guard-isolation-" + traceID,
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				ID:         "guard-isolation-" + traceID,
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 			},
 			aLegID:  aLegID,
 			traceID: traceID,
@@ -503,8 +504,9 @@ func TestGuardContinuation_BudgetImmutableAcrossProgress(t *testing.T) {
 			Tail: continuationsafety.TailState{
 				CommittedAssistantItems: []lipapi.Item{{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: text}}}},
 			},
-			Prior:  continuationsafety.PriorSummary{Record: lipcont.ContinuationRecord{ID: lipcont.ResponseID("r1")}},
-			Bounds: lipcont.DefaultBounds(),
+			Prior:                continuationsafety.PriorSummary{Record: lipcont.ContinuationRecord{ID: lipcont.ResponseID("r1")}},
+			Bounds:               lipcont.DefaultBounds(),
+			SupportsContinuation: true,
 		}
 	}
 	out1 := gate.ObserveCandidate(context.Background(), makeFacts("progress-1"))

@@ -94,8 +94,9 @@ func terminalFacts(candidate stopguard.Candidate) TerminalFacts {
 		Prior: continuationsafety.PriorSummary{
 			Record: lipcont.ContinuationRecord{ID: lipcont.ResponseID("resp-1")},
 		},
-		Bounds:           lipcont.DefaultBounds(),
-		SafeNativeResume: false,
+		Bounds:               lipcont.DefaultBounds(),
+		SafeNativeResume:     false,
+		SupportsContinuation: true,
 	}
 }
 

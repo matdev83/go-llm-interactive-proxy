@@ -61,6 +61,9 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 		return
 	}
 	installTestTurnTerminal(s)
+	if s.terminal != nil {
+		s.terminal.supportsContinuation = supportsContinuationForCall(s.facts.baseline)
+	}
 	deps := newResponsePipelineForExecutor(e)
 	if s.responsePipeline != nil {
 		deps.customer = s.responsePipeline.customer

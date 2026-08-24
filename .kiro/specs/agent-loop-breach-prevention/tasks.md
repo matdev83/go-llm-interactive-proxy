@@ -163,14 +163,14 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 5.7, 7.1, 10.3_
     - _Depends on: 1.3_
     - _Validation: relevant frontend/canonical capability tests_
-  - [ ] 8.2 Add end-to-end protocol tests for one logical A-side stream spanning hidden B-legs
+  - [x] 8.2 Add end-to-end protocol tests for one logical A-side stream spanning hidden B-legs
     - Assert no intermediate terminal leaks, canonical item ordering/tool correlation remains legal, and exactly one final terminal renders for supported streaming frontends.
     - Cover non-streaming collection over the same canonical stream.
     - Cover unsupported continuation capability with a clean final fallback rather than raw-frame concatenation.
     - _Requirements: 1.3–1.4, 10.1–10.5, 12.10_
     - _Depends on: 6.3, 7.2_
     - _Validation: relevant frontend/backend conformance and runtime E2E tests_
-  - [ ] 8.3 Implement any minimal canonical identity/capability plumbing exposed by 8.1/8.2
+  - [x] 8.3 Implement any minimal canonical identity/capability plumbing exposed by 8.1/8.2
     - Keep provider/frontend-specific translation at adapters; core consumes normalized facts only.
     - Do not add raw SSE/provider-frame stitching.
     - Prefer existing canonical response identity/item-index mapping; add narrow capability only where current contract cannot express continuation legality.
@@ -283,3 +283,5 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 7.1 adds compile-safe RED runtime coverage for post-output EOF/idle, completed tool/result retention, unsafe partial/opaque state, cancellation, and disabled compatibility; task 7.2 must harden idle-path, no-retry, and retained-tool assertions while turning these behavioral failures GREEN.
 - 7.2 consumes guard-enabled post-output recovery signals for EOF, idle, and generic errors; safe state opens a non-retry continuation leg, unsafe state finalizes once without replay, and hardened tests prove retained tool pairs, cancellation authority, disabled compatibility, and one legal A-side terminal.
 - 8.1 defines a conservative canonical explicit-completion fact from correlated completed `attempt_completion`/`attempt_complete` call-result pairs, proves the real OpenResponses decode path and stopgate trust/verify behavior, and leaves a compile-safe runtime RED seam for task 8.3.
+- HUMAN DECISION (2026-08-24, repo owner): execute 8.2 and 8.3 as one pragmatic TDD cycle because unsupported-continuation RED needs the normalized capability type introduced by 8.3; retain separate completion checkboxes and verify both task boundaries before one combined commit.
+- 8.2/8.3 use canonical Invocation operations to gate continuation legality conservatively, add Anthropic/Gemini operation identities, green the explicit-completion seam using real correlated tool results, and prove production B1-to-B2 stitching through live frontend wire handlers with one final terminal.

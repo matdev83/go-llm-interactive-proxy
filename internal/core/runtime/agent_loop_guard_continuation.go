@@ -40,17 +40,48 @@ func buildGuardTailState(p *responsePipeline, attempt *attemptSession) continuat
 				if _, exists := toolCalls[id]; !exists {
 					callOrder = append(callOrder, id)
 				}
-				toolCalls[id] = &lipapi.Item{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{CallID: id, Name: ev.ToolName}}
+				toolCalls[id] = &lipapi.Item{Kind: lipapi.ItemKindToolCall, Status: lipapi.ItemStatusCompleted, ToolCall: &lipapi.ToolCallItem{CallID: id, Name: ev.ToolName}}
 			case lipapi.EventToolCallArgsDelta:
 				// Incomplete args already handled via active map; no extra state needed.
 			case lipapi.EventToolCallFinished:
 				id := ev.ToolCallID
 				if it, ok := toolCalls[id]; ok {
+					it.Status = lipapi.ItemStatusCompleted
 					completedCalls = append(completedCalls, *it)
 					delete(toolCalls, id)
+				} else {
+					completedCalls = append(completedCalls, lipapi.Item{Kind: lipapi.ItemKindToolCall, Status: lipapi.ItemStatusCompleted, ToolCall: &lipapi.ToolCallItem{CallID: id}})
 				}
-				// Tool result is observed as separate event? Use same ID for result.
-				completedResults = append(completedResults, lipapi.Item{Kind: lipapi.ItemKindToolCall, ToolResult: &lipapi.ToolResultItem{CallID: id}})
+			case lipapi.EventItem:
+				if ev.Item != nil {
+					switch ev.Item.Kind {
+					case lipapi.ItemKindToolCall:
+						if ev.Item.ToolCall != nil && ev.Item.ToolCall.CallID != "" {
+							// Ordered-items tool call: preserve as completed if status indicates completed.
+							it := *ev.Item
+							if it.Status == "" {
+								it.Status = lipapi.ItemStatusCompleted
+							}
+							if it.Status == lipapi.ItemStatusCompleted {
+								completedCalls = append(completedCalls, it)
+							} else {
+								toolCalls[it.ToolCall.CallID] = &it
+							}
+						}
+					case lipapi.ItemKindToolResult:
+						if ev.Item.ToolResult != nil {
+							it := *ev.Item
+							if it.Status == "" {
+								it.Status = lipapi.ItemStatusCompleted
+							}
+							completedResults = append(completedResults, it)
+						}
+					case lipapi.ItemKindMessage:
+						for _, cp := range ev.Item.Content {
+							textBuilder.WriteString(cp.Text)
+						}
+					}
+				}
 			case lipapi.EventReasoningOpaqueDelta, lipapi.EventReasoningPart:
 				// Opaque thinking that cannot be resumed without native support.
 				tail.HasUnsupportedOpaqueState = true
@@ -75,6 +106,17 @@ func buildGuardTailState(p *responsePipeline, attempt *attemptSession) continuat
 		tail.HasIncompleteToolArgs = true
 	}
 	return tail
+}
+
+// hasExplicitCompletionFromTail reports whether tail contains a correlated
+// completed explicit completion signal using the authoritative canonical
+// lipapi.HasExplicitCompletion contract. Requires a completed ToolCall with a
+// known explicit name AND a matching completed ToolResult with same CallID.
+func hasExplicitCompletionFromTail(tail continuationsafety.TailState) bool {
+	items := make([]lipapi.Item, 0, len(tail.CompletedCalls)+len(tail.CompletedResults))
+	items = append(items, tail.CompletedCalls...)
+	items = append(items, tail.CompletedResults...)
+	return lipapi.HasExplicitCompletion(items)
 }
 
 func buildGuardPrior(s *retryRecvStream) continuationsafety.PriorSummary {
@@ -160,7 +202,7 @@ func (t *turnTerminal) agentLoopGuardEvaluate(ctx context.Context, facts request
 	candidate := stopguard.Candidate{
 		Cause:              stopguard.CauseNormalEnd,
 		OutputCommitted:    t.committed(),
-		ExplicitCompletion: false,
+		ExplicitCompletion: hasExplicitCompletionFromTail(tail),
 	}
 	tf := stopgate.TerminalFacts{
 		Candidate:            candidate,
@@ -169,10 +211,11 @@ func (t *turnTerminal) agentLoopGuardEvaluate(ctx context.Context, facts request
 		Bounds:               bounds,
 		SafeNativeResume:     false,
 		SuppressVerification: suppress,
+		SupportsContinuation: t.supportsContinuation,
 	}
 	out := t.loopGuard.gate.ObserveCandidate(ctx, tf)
 	// Debug
-	// fmt.Printf("agentLoopGuardEvaluate cause=%v committed=%v out=%v reason=%q\n", candidate.Cause, candidate.OutputCommitted, out.Action, out.Reason)
+	// fmt.Printf("agentLoopGuardEvaluate cause=%v committed=%v explicit=%v supported=%v out=%v reason=%q\n", candidate.Cause, candidate.OutputCommitted, candidate.ExplicitCompletion, tf.SupportsContinuation, out.Action, out.Reason)
 	return out
 }
 
@@ -194,7 +237,7 @@ func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts request
 		Cause:                     cause,
 		OutputCommitted:           true,
 		SafeCanonicalContinuation: safe,
-		ExplicitCompletion:        false,
+		ExplicitCompletion:        hasExplicitCompletionFromTail(tail),
 	}
 	tf := stopgate.TerminalFacts{
 		Candidate:            candidate,
@@ -203,6 +246,7 @@ func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts request
 		Bounds:               bounds,
 		SafeNativeResume:     false,
 		SuppressVerification: suppress,
+		SupportsContinuation: t.supportsContinuation,
 	}
 	outcome := t.loopGuard.gate.ObserveCandidate(ctx, tf)
 	// Preserve original transport reason for diagnostics while keeping outcome's reason.

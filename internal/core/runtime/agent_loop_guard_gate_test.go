@@ -55,9 +55,10 @@ func setupGuardedStream(t *testing.T, verifier stopguard.Verifier, guardEnabled 
 		terminal: newTurnTerminal(),
 		facts: testRecvTurnFacts(recvTurnFacts{
 			baseline: lipapi.Call{
-				ID:       "guard-gate-test",
-				Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
-				Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				ID:         "guard-gate-test",
+				Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+				Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
 			},
 			aLegID:  "a-guard-1",
 			traceID: "trace-guard-1",

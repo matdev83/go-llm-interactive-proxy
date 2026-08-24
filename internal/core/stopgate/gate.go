@@ -38,6 +38,13 @@ type TerminalFacts struct {
 	Bounds               lipcont.Bounds
 	SafeNativeResume     bool
 	SuppressVerification bool
+	// SupportsContinuation reports whether the current A-side frontend/backend
+	// combination can legally stitch a continuation leg onto the same logical
+	// response. False is conservative: actionable CONTINUE is downgraded to a
+	// single controlled final terminal without raw frame concatenation.
+	// Zero value (false) is treated as unsupported; runtime must set true for
+	// known stitchable frontends.
+	SupportsContinuation bool
 }
 
 // Outcome is the gate decision returned to runtime orchestration.
@@ -152,8 +159,17 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 	dec := stopguard.Decide(candidate, g.policy)
 	if !dec.Verify {
 		act := dec.Action
+		// Explicit unsupported capability downgrades continuation even when
+		// Decide says ContinueLeg. This is not unsafe tool state but a
+		// frontend legality fact; conservative default is to not stitch raw frames.
+		if act == stopguard.ActionContinueLeg && !facts.SupportsContinuation {
+			act = stopguard.ActionForwardTerminal
+		}
 		hold := holdForAction(act)
 		reason := reasonForImmediateAction(act, candidate, g.policy)
+		if act == stopguard.ActionForwardTerminal && !facts.SupportsContinuation && dec.Action == stopguard.ActionContinueLeg {
+			reason = "unsupported continuation: forward terminal"
+		}
 		if hold {
 			g.mu.Lock()
 			g.latched = true
@@ -256,6 +272,19 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 	}
 
 	if act == stopguard.ActionContinueLeg {
+		// Unsupported A-side stitching downgrades even verifier-authorized CONTINUE.
+		if !facts.SupportsContinuation {
+			g.mu.Lock()
+			g.latched = true
+			g.mu.Unlock()
+			g.holdReleased.Store(true)
+			return Outcome{
+				Action:             stopguard.ActionForwardTerminal,
+				HoldReleased:       true,
+				AttemptSettledOnce: true,
+				Reason:             "unsupported continuation: forward terminal",
+			}
+		}
 		// Requirement 8.1 caps HIDDEN continuation legs at
 		// MaxSemanticContinuations. The first actionable CONTINUE opens
 		// hidden leg #1: its fingerprint seeds the tracker baseline without

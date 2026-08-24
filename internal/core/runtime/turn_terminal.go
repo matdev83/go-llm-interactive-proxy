@@ -86,6 +86,13 @@ type turnTerminal struct {
 	guardHidden      string
 	guardPriorRecord lipcont.ContinuationRecord
 	guardPriorOK     bool
+
+	// supportsContinuation indicates whether the A-side frontend can legally
+	// stitch a continuation leg onto the same logical response. Zero value is
+	// false (conservative unsupported) but all production constructors set it to
+	// true for known stitchable frontends. Tests may set it to false to prove
+	// a clean final without raw frame concatenation.
+	supportsContinuation bool
 }
 
 // guardHiddenInstruction exposes hidden instruction for tests via terminal.
@@ -154,6 +161,7 @@ func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
 	terminal := &turnTerminal{request: newStreamTerminal(sdkterminal.ScopeRequest)}
 	if parent != nil {
 		terminal.aLegEndAuthority = parent.aLegEndAuthority
+		terminal.supportsContinuation = parent.supportsContinuation
 	}
 	return terminal
 }
