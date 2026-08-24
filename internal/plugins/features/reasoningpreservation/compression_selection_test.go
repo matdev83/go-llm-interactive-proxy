@@ -870,7 +870,7 @@ type capturingPolicy struct {
 }
 
 func (c *capturingPolicy) Decide(_ context.Context, in CompressionEgressInput) (CompressionEgressDecision, error) {
-	c.gotPrincipal = in.Principal.opaque
+	c.gotPrincipal = in.Principal.Scope().PrincipalID.String()
 	return CompressionEgressDecision{Action: EgressAllow, PolicyVersion: c.version}, nil
 }
 

@@ -77,7 +77,8 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 		route := cfg.Compression.Route
 		// Evaluate policy with explicit narrow inputs from trusted correlation.
 		// Do not trust sanitizer embedded in policy decision; use svc.Sanitizer.
-		principalView := NewEgressPrincipalView(res.Correlation.Scope.PrincipalID.String())
+		// Full scope is passed so external policies can enforce tenant/org/workspace/project/cost-center/policy-label restrictions.
+		principalView := NewEgressPrincipalScopeView(res.Correlation.Scope)
 		in := CompressionEgressInput{
 			Route:       route,
 			Purpose:     EgressPurposeReasoningSemanticCompression,

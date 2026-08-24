@@ -208,10 +208,9 @@ func TestBackgroundScheduler_MaxOutputBytes_LargerClampedByScheduler(t *testing.
 
 func TestBackgroundScheduler_MaxOutputBytes_AggregateMixTriggersPostEstimate(t *testing.T) {
 	t.Parallel()
-	// Each dimension below effective but combined above => post-estimate >effective.
+	// Each dimension below effective but combined above => aggregate limit should trigger early via CollectWithLimits.
 	// Text 300KiB + Reasoning 300KiB = 600KiB > 512KiB effective.
-	// ReasoningDelta check does NOT include Text length, so CollectWithLimits will pass,
-	// but estimateCollectedBytes will catch combined.
+	// Aggregate limit wraps lipapi.ErrCollectLimitExceeded and stops before buffering combined > cap.
 	evs := []lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
@@ -227,9 +226,51 @@ func TestBackgroundScheduler_MaxOutputBytes_AggregateMixTriggersPostEstimate(t *
 	require.Error(t, awaitErr)
 	require.ErrorIs(t, awaitErr, auxiliary.ErrResultTooLarge)
 	require.ErrorIs(t, awaitErr, auxreq.ErrResultTooLarge)
-	// Post-estimate path does NOT wrap lipapi.ErrCollectLimitExceeded.
+	require.ErrorIs(t, awaitErr, lipapi.ErrCollectLimitExceeded)
+	pr, err := pollResultTooLarge(t, s, id)
+	require.NoError(t, err)
+	require.Equal(t, auxiliary.PollFailed, pr.State)
+	require.ErrorIs(t, pr.Err, auxiliary.ErrResultTooLarge)
+	require.ErrorIs(t, pr.Err, lipapi.ErrCollectLimitExceeded)
+	// Ensure no combined allocation > cap: early stop, only a few Recvs (started, message, text, failing reasoning delta).
+	rc := cr.stream.RecvCount()
+	if rc > 5 {
+		t.Fatalf("aggregate early RecvCount=%d want <=5 (no 600KiB combined allocation)", rc)
+	}
+	if rc < 4 {
+		t.Fatalf("aggregate RecvCount=%d want >=4", rc)
+	}
+}
+
+// TestBackgroundScheduler_MaxOutputBytes_PostEstimateDefenseViaWarningsAndMedia verifies
+// the post-estimate defense remains for dimensions not covered by the additive aggregate
+// (warnings and assistant media refs are bounded separately and do not count toward aggregate payload).
+func TestBackgroundScheduler_MaxOutputBytes_PostEstimateDefenseViaWarningsAndMedia(t *testing.T) {
+	t.Parallel()
+	// Text 100KiB within effective 512KiB; warnings 300KiB*2 =600KiB cause estimateCollectedBytes ~700KiB >512,
+	// but aggregate limit does not count warnings/media, so CollectWithLimits passes and post-estimate catches it.
+	// This keeps the defense-in-depth path exercised.
+	largeWarning := chunk(300 << 10)
+	evs := []lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: chunk(100 << 10)},
+		{Kind: lipapi.EventWarning, WarningMessage: largeWarning},
+		{Kind: lipapi.EventWarning, WarningMessage: largeWarning},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://example.com/x.png", AssistantMIME: "image/png"},
+		{Kind: lipapi.EventResponseFinished},
+	}
+	cr := &countingRunner{events: evs}
+	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner { return cr }, auxreq.SchedulerConfig{MaxResultBytes: 8 << 20})
+	id, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "maxout-warn-media-aggregate-post", MaxOutputBytes: 512 << 10})
+	require.NoError(t, err)
+	awaitErr := awaitResultTooLarge(t, s, id)
+	require.Error(t, awaitErr)
+	require.ErrorIs(t, awaitErr, auxiliary.ErrResultTooLarge)
+	require.ErrorIs(t, awaitErr, auxreq.ErrResultTooLarge)
+	// Post-estimate path does NOT wrap lipapi.ErrCollectLimitExceeded (defense via estimateCollectedBytes).
 	if errors.Is(awaitErr, lipapi.ErrCollectLimitExceeded) {
-		t.Fatalf("aggregate post-estimate should NOT be ErrCollectLimitExceeded, got %v", awaitErr)
+		t.Fatalf("warnings/media post-estimate should NOT be ErrCollectLimitExceeded, got %v", awaitErr)
 	}
 	pr, err := pollResultTooLarge(t, s, id)
 	require.NoError(t, err)

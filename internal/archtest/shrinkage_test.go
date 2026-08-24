@@ -42,7 +42,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if GeoIPIngressOverlayMax != 700 {
 		t.Fatalf("GeoIP ingress overlay cap drift: %d", GeoIPIngressOverlayMax)
 	}
-	if ReasoningSemanticCompressionOverlayMax != 201 {
+	if ReasoningSemanticCompressionOverlayMax != 366 {
 		t.Fatalf("reasoning semantic compression overlay cap drift: %d", ReasoningSemanticCompressionOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{

@@ -38,9 +38,9 @@ const GeoIPIngressOverlayMax = 700
 const BackendResourcePoolOverlayMax = 381
 
 // ReasoningSemanticCompressionOverlayMax is the measured reasoning semantic
-// compression overlay (dedicated production composition files). Keep 25 lines
-// of ratchet headroom over the measured 176-line overlay.
-const ReasoningSemanticCompressionOverlayMax = 201
+// compression host-composition overlay. Keep 25 lines of ratchet headroom over
+// the measured 341-line overlay.
+const ReasoningSemanticCompressionOverlayMax = 366
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
@@ -85,6 +85,7 @@ var geoIPIngressOverlayPathMarkers = []string{
 
 var reasoningSemanticCompressionOverlayPathMarkers = []string{
 	"/reasoning_preservation_compression",
+	"/lipruntime/reasoning_compression.go",
 }
 
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new

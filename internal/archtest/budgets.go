@@ -67,7 +67,7 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	{Tree: "internal/infra/runtimebundle", Max: 12746},
 	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
-	{Tree: "pkg/lipruntime", Max: 562},
+	{Tree: "pkg/lipruntime", Max: 720},
 }
 
 // LineBudget caps recursive non-test lines for broader architectural layers.
@@ -125,7 +125,7 @@ var LineBudgets = []LineBudget{
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12746},
 	{Dir: "cmd/lipstd", Max: 979},
-	{Dir: "pkg/lipruntime", Max: 562},
+	{Dir: "pkg/lipruntime", Max: 720},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.

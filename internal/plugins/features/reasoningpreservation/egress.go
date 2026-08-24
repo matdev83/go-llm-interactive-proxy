@@ -1,6 +1,10 @@
 package reasoningpreservation
 
-import "context"
+import (
+	"context"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+)
 
 // EgressAction is the bounded egress decision.
 type EgressAction uint8
@@ -33,14 +37,29 @@ type TrustedTextSanitizer interface {
 }
 
 // EgressPrincipalView is an opaque minimal principal-scope view not interpreted by this package.
+// It holds the full scope.PrincipalScopeView for policy enforcement (tenant/org/workspace/project/cost-center/policy-labels)
+// but remains opaque to preservation internals. Call Scope() for a defensive clone.
 type EgressPrincipalView struct {
-	opaque string
+	view scope.PrincipalScopeView
 }
 
-// NewEgressPrincipalView constructs an opaque view.
+// NewEgressPrincipalView constructs an opaque view from a legacy principal ID string.
+// Compatibility is preserved by constructing a scope with Known PrincipalID.
 func NewEgressPrincipalView(opaque string) EgressPrincipalView {
-	return EgressPrincipalView{opaque: opaque}
+	return EgressPrincipalView{view: scope.PrincipalScopeView{PrincipalID: scope.Known(opaque)}}
 }
+
+// NewEgressPrincipalScopeView constructs a view from the full trusted scope.
+// The scope is defensively cloned on construction.
+func NewEgressPrincipalScopeView(v scope.PrincipalScopeView) EgressPrincipalView {
+	return EgressPrincipalView{view: v.Clone()}
+}
+
+// Scope returns a defensive clone of the underlying principal scope.
+func (v EgressPrincipalView) Scope() scope.PrincipalScopeView { return v.view.Clone() }
+
+// PrincipalID returns the string form of the principal ID (bounded accessor).
+func (v EgressPrincipalView) PrincipalID() string { return v.view.PrincipalID.String() }
 
 // CompressionEgressInput is the narrow egress policy input.
 type CompressionEgressInput struct {

@@ -265,11 +265,12 @@ func (s *BackgroundScheduler) run(job *backgroundJob) {
 		}
 		defaultLimits := lipapi.DefaultCollectLimits()
 		limits := lipapi.CollectLimits{
-			MaxTextBytes:           effective,
-			MaxReasoningBytes:      effective,
-			MaxToolArgsTotalBytes:  effective,
-			MaxWarnings:            defaultLimits.MaxWarnings,
-			MaxAssistantMediaParts: defaultLimits.MaxAssistantMediaParts,
+			MaxTextBytes:             effective,
+			MaxReasoningBytes:        effective,
+			MaxToolArgsTotalBytes:    effective,
+			MaxWarnings:              defaultLimits.MaxWarnings,
+			MaxAssistantMediaParts:   defaultLimits.MaxAssistantMediaParts,
+			MaxAggregatePayloadBytes: effective,
 		}
 		collectedValue, runErr = lipapi.CollectWithLimits(ctx, stream, limits)
 		if runErr != nil && errors.Is(runErr, lipapi.ErrCollectLimitExceeded) {

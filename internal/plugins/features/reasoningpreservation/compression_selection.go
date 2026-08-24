@@ -78,11 +78,12 @@ func currentPolicyForSelection(ctx context.Context, cfg CompressionConfig, svc C
 		principal = v
 	}
 	// Egress input is narrow, trusted control-plane only.
+	// Full scope is propagated so policies can enforce tenant/org/workspace/project/cost-center/policy-label restrictions.
 	in := CompressionEgressInput{
 		Route:       cfg.Route,
 		Purpose:     EgressPurposeReasoningSemanticCompression,
 		SourceClass: EgressSourceClassSemanticText,
-		Principal:   NewEgressPrincipalView(principal.PrincipalID.String()),
+		Principal:   NewEgressPrincipalScopeView(principal),
 	}
 	dec, decErr := svc.EgressPolicy.Decide(ctx, in)
 	if decErr != nil {
