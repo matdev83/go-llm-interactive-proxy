@@ -223,7 +223,6 @@ func (a *ALeg) BeginBLegLaunch(parent context.Context, bLegID string) (context.C
 	a.mu.Unlock()
 	return openCtx, &LaunchPermit{aLeg: a, bLegID: bLegID, entry: entry, cancel: cancel}, nil
 }
-
 func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
 	if a == nil {
 		return nil

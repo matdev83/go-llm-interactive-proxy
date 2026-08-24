@@ -247,7 +247,6 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	return rec, nil
 }
 
-
 // FetchALeg loads an A-leg by id (for clients that already hold ALegID).
 func (s *MemoryStore) FetchALeg(ctx context.Context, aLegID string) (ALegRecord, error) {
 	if err := ctx.Err(); err != nil {

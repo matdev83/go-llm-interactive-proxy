@@ -243,7 +243,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 6.12, 6.16, 10.1–10.4, 12.10, 12.12_
     - _Depends on: 11.3_
     - _Validation: `go test ./internal/core/runtime/... ./internal/plugins/frontends/...`_
-  - [ ] 11.5 Converge full regression, race, and architecture ratchets
+  - [x] 11.5 Converge full regression, race, and architecture ratchets
     - Architecture ratchet: assert zero direct append to `Call.Messages`/`Items` in continuation logic, zero reliance on `turnTerminal.guardHidden`, and single authority for hidden control content.
     - Run full regression suite, multi-store persistence tests (Memory, SQLite, PostgreSQL), deterministic race tests, and repository quality gates (`make quality-checks`, `make test`, `make qa`).
     - _Requirements: 1.1–1.5, 6.8–6.17, 9.1–9.6, 10.1–10.5, 12.1–12.16_
