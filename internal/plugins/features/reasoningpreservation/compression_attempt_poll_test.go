@@ -100,13 +100,13 @@ func setupPollPendingForFixture(t *testing.T, cs reasoningpreservation.Compressi
 	digest := art.Anchor
 	semDigest := sha256.Sum256([]byte("semantic-" + art.ID))
 	egHash := sha256.Sum256([]byte("v1"))
-	resID, err := cs.ReserveCompression(context.Background(), p, art.ID, digest, "v1", semDigest, egHash)
+	claim, err := cs.ReserveCompression(context.Background(), p, art.ID, digest, "v1", semDigest, egHash)
 	require.NoError(t, err)
 	newHash := sha256.Sum256([]byte("v1-route-purpose"))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, art.ID, resID, egHash, digest, "v1", semDigest, newHash, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, newHash, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	jobID := auxiliary.JobID("job-" + art.ID)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, art.ID, resID, jobID, digest, "v1"))
-	return jobID, resID
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, jobID))
+	return jobID, claim.ReservationID
 }
 
 var pollTestSupport = lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
@@ -249,11 +249,11 @@ func TestPollOnce_PollCountExactlyOne(t *testing.T) {
 	require.NoError(t, err)
 	sem2 := sha256.Sum256([]byte("semantic-art-2"))
 	eg2 := sha256.Sum256([]byte("v1"))
-	res2, err := cs.ReserveCompression(context.Background(), p, "art-2", secondArt.Anchor, "v1", sem2, eg2)
+	claim2, err := cs.ReserveCompression(context.Background(), p, "art-2", secondArt.Anchor, "v1", sem2, eg2)
 	require.NoError(t, err)
 	newHash2 := sha256.Sum256([]byte("v1-route-purpose"))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-2", res2, eg2, secondArt.Anchor, "v1", sem2, newHash2, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "art-2", res2, "job-art-2", secondArt.Anchor, "v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim2, eg2, sem2, newHash2, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim2, "job-art-2"))
 	snap, _ := cs.Snapshot(context.Background(), p)
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollPending}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
@@ -338,7 +338,7 @@ func TestTransform_PollPending_OriginalRemains(t *testing.T) {
 	jobID, _ := setupPollPendingForFixture(t, cs, p, arts[0])
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollPending}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-t-pending"},
@@ -361,7 +361,7 @@ func TestTransform_PollFailed_ClearsAndForgets(t *testing.T) {
 	setupPollPendingForFixture(t, cs, p, arts[0])
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollFailed, Err: errors.New("boom")}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-t-failed"},
@@ -385,7 +385,7 @@ func TestTransform_PollCompleted_ShadowOriginalRemains(t *testing.T) {
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-t-completed"},
@@ -408,7 +408,7 @@ func TestTransform_PollErrorDistinctFromStateError(t *testing.T) {
 	setupPollPendingForFixture(t, cs, p, arts[0])
 	pollerErr := &pollTestPoller{err: errors.New("poll operational error")}
 	svcErr := reasoningpreservation.CompressionServices{Client: pollerErr, Poller: pollerErr, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svcErr)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svcErr, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-t-err"},
@@ -417,7 +417,7 @@ func TestTransform_PollErrorDistinctFromStateError(t *testing.T) {
 	require.Equal(t, request.AttemptContinue, dec.Kind, "poll error must be compression-local")
 	require.True(t, callHasReasoning(call))
 	failStore := &pollSnapshotFailStore{}
-	xform2 := reasoningpreservation.NewAttemptTransformWithServices(cfg, failStore, svcErr)
+	xform2 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, failStore, svcErr, reasoningpreservation.CompanionPolicy{}, nil)
 	call2, _ := missingRestoreFixture(t)
 	dec2, err := xform2.HandleAttempt(context.Background(), &call2, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -451,7 +451,7 @@ func TestTransform_UnmatchedDoesNotPoll(t *testing.T) {
 	setupPollPendingForFixture(t, cs, p, arts[0])
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollPending}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "unmatched-be", Model: "unknown-model", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-t-unmatched"},
@@ -559,7 +559,7 @@ func TestPollAndRestore_UnaffectedByStateError_UnrepresentableSplit(t *testing.T
 	require.Equal(t, "unrepresentable_replay", resRestore.ReasonCode)
 }
 
-func TestCloneCollected_AllFieldsDefensive(t *testing.T) {
+func TestPollOnce_CompletedCarriesPollerPayload(t *testing.T) {
 	t.Parallel()
 	cfg := pollTestConfig(t)
 	cs := storeForSubmit(t, cfg)
@@ -629,34 +629,9 @@ func TestCloneCollected_AllFieldsDefensive(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindCompleted, res.Kind)
 	require.NotNil(t, res.Candidate)
-	// Mutate original poller's Collected after poll
-	c.Text.WriteString(" mutated")
-	c.Reasoning.WriteString(" mutated")
-	c.ToolArgs["tool-1"].WriteString(" mutated")
-	c.ToolNames["tool-1"] = "mutated"
-	c.ToolCallOrder[0] = "mutated"
-	c.Warnings[0] = "mutated"
-	c.AssistantMedia[0].Text = "mutated"
-	c.ReasoningParts[0].Text = "mutated"
-	c.ReasoningParts[0].Signature = "mutated"
-	c.ReasoningParts[0].Opaque[0] = 'X'
-	c.ReasoningParts[0].Summary[0] = 'X'
-	c.ReasoningParts[0].Content[0] = 'X'
-	c.ReasoningParts[0].EncryptedContent[0] = 'X'
-	c.TerminalError.Opaque[0] = 'X'
-	c.TerminalError.Reasoning.Text = "mutated"
-	c.TerminalError.Reasoning.Signature = "mutated"
-	c.TerminalError.Reasoning.Opaque[0] = 'X'
-	c.TerminalError.Reasoning.Summary[0] = 'X'
-	c.TerminalError.Reasoning.Content[0] = 'X'
-	c.TerminalError.Reasoning.EncryptedContent[0] = 'X'
-	c.TerminalError.Item.Content[0].Text = "mutated"
-	c.TerminalError.Item.Content[0].Annotation.Data[0] = 'X'
-	c.TerminalError.Item.ToolCall.Arguments[0] = 'X'
-	c.TerminalError.UsageScopes[0].InputTokens = 999
-	c.TerminalError.ErrorCode = "mutated"
-	c.TerminalError.ErrorMessage = "mutated"
-	// Candidate must be defensively cloned: none of the mutations should appear
+	// Candidate carries the poller's Collected as returned. Defensive copy is provided
+	// by the auxiliary.BackgroundPoller contract when State == PollCompleted, not by the
+	// plugin. Verify candidate reflects the original payload.
 	require.Equal(t, "orig text", res.Candidate.Collected.Text.String())
 	require.Equal(t, "orig reasoning", res.Candidate.Collected.Reasoning.String())
 	require.Equal(t, "args1", res.Candidate.Collected.ToolArgs["tool-1"].String())

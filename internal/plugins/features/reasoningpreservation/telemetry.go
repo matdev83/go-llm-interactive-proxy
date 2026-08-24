@@ -11,16 +11,30 @@ import (
 // Telemetry accumulates content-safe aggregate outcome counters for one feature instance.
 // All byte counters are content-free, outcome-whitelisted via isKnownOutcome, and
 // individually clamped to hard ceilings to prevent unbounded aggregation.
-// Concurrency: sync.Map + atomic.Int64 ensures lock-free per-outcome updates.
-// Per-outcome raw is stored once in rawBytes (dedicated); BytesSnapshot is an alias for backward compat and returns RawBytesSnapshot.
+// Concurrency: single registry keyed by SafeOutcome to *outcomeBuckets with
+// lock-free per-outcome atomic updates; accumulation is saturation-safe.
 type Telemetry struct {
-	outcomes     sync.Map // SafeOutcome -> *atomic.Int64 (count per outcome)
-	bytes        sync.Map // deprecated: retained for wire compat but no longer double-counted; BytesSnapshot aliases RawBytesSnapshot
-	rawBytes     sync.Map // SafeOutcome -> *atomic.Int64 dedicated raw bytes per outcome (bounded to HardRawOutputCeiling)
-	decodedBytes sync.Map // SafeOutcome -> *atomic.Int64 decoded surrogate bytes per outcome (bounded to HardCompressionMaxSurrogateBytes)
-	savedBytes   sync.Map // SafeOutcome -> *atomic.Int64 saved bytes per outcome (bounded to HardRawOutputCeiling)
-	sourceBytes  sync.Map // SafeOutcome -> *atomic.Int64 source bytes per outcome (bounded to HardRawOutputCeiling)
-	latencyNanos sync.Map // SafeOutcome -> *atomic.Int64 total latency nanos per outcome (bounded aggregation)
+	buckets sync.Map // SafeOutcome -> *outcomeBuckets
+}
+
+// outcomeBuckets holds per-outcome counters as independent atomics.
+type outcomeBuckets struct {
+	count        atomic.Int64
+	rawBytes     atomic.Int64
+	decodedBytes atomic.Int64
+	savedBytes   atomic.Int64
+	sourceBytes  atomic.Int64
+	latencyNanos atomic.Int64
+}
+
+// bucketView is a point-in-time copy of one outcome's counters.
+type bucketView struct {
+	count   int64
+	raw     int64
+	decoded int64
+	saved   int64
+	source  int64
+	latency int64
 }
 
 // CompressionMeasurements is a content-free snapshot of per-outcome byte measurements.
@@ -58,54 +72,93 @@ func NewTelemetry() *Telemetry {
 	return &Telemetry{}
 }
 
+// getBucket returns the bucket for outcome, creating if absent.
+func (t *Telemetry) getBucket(outcome SafeOutcome) *outcomeBuckets {
+	v, _ := t.buckets.LoadOrStore(outcome, &outcomeBuckets{})
+	b, ok := v.(*outcomeBuckets)
+	if ok && b != nil {
+		return b
+	}
+	// Defensive fallback on type mismatch.
+	nb := &outcomeBuckets{}
+	t.buckets.Store(outcome, nb)
+	return nb
+}
+
+// addSaturating adds delta to addr with saturation at MaxInt64/MinInt64.
+func addSaturating(addr *atomic.Int64, delta int64) {
+	if delta == 0 {
+		return
+	}
+	for {
+		cur := addr.Load()
+		next := saturatingAddInt64(cur, delta)
+		if addr.CompareAndSwap(cur, next) {
+			return
+		}
+	}
+}
+
+// views returns a point-in-time copy of all buckets; single registry Range site.
+func (t *Telemetry) views() map[SafeOutcome]bucketView {
+	out := make(map[SafeOutcome]bucketView)
+	if t == nil {
+		return out
+	}
+	t.buckets.Range(func(key, value any) bool {
+		o, ok := key.(SafeOutcome)
+		if !ok {
+			return true
+		}
+		b, ok := value.(*outcomeBuckets)
+		if !ok || b == nil {
+			return true
+		}
+		out[o] = bucketView{
+			count:   b.count.Load(),
+			raw:     b.rawBytes.Load(),
+			decoded: b.decodedBytes.Load(),
+			saved:   b.savedBytes.Load(),
+			source:  b.sourceBytes.Load(),
+			latency: b.latencyNanos.Load(),
+		}
+		return true
+	})
+	return out
+}
+
 func (t *Telemetry) Record(outcome SafeOutcome, counts map[string]int) {
 	if t == nil || !isKnownOutcome(outcome) {
 		return
 	}
-	v, _ := t.outcomes.LoadOrStore(outcome, &atomic.Int64{})
-	n, ok := v.(*atomic.Int64)
-	if !ok || n == nil {
-		return
-	}
-	n.Add(1)
+	b := t.getBucket(outcome)
+	addSaturating(&b.count, 1)
 	if counts != nil {
-		if b, ok := counts["bytes"]; ok && b > 0 {
-			if b > HardRawOutputCeiling {
-				b = HardRawOutputCeiling
+		if v, ok := counts["bytes"]; ok && v > 0 {
+			if v > HardRawOutputCeiling {
+				v = HardRawOutputCeiling
 			}
-			vb, _ := t.rawBytes.LoadOrStore(outcome, &atomic.Int64{})
-			if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-				nb.Add(int64(b))
-			}
+			addSaturating(&b.rawBytes, int64(v))
 		}
-		if b, ok := counts["sourceBytes"]; ok && b > 0 {
-			if b > HardRawOutputCeiling {
-				b = HardRawOutputCeiling
+		if v, ok := counts["sourceBytes"]; ok && v > 0 {
+			if v > HardRawOutputCeiling {
+				v = HardRawOutputCeiling
 			}
-			vb, _ := t.sourceBytes.LoadOrStore(outcome, &atomic.Int64{})
-			if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-				nb.Add(int64(b))
-			}
+			addSaturating(&b.sourceBytes, int64(v))
 		}
 	}
 }
 
 // RecordCompression records a compression-safe outcome with content-free byte count.
-// It records raw bytes once in the dedicated rawBytes map (single count, bounded to HardRawOutputCeiling).
+// It records raw bytes once in the dedicated rawBytes bucket (single count, bounded to HardRawOutputCeiling).
 // BytesSnapshot is an alias to RawBytesSnapshot for backward compat.
 // New code should prefer RecordCompressionMeasurement or RecordShadowMeasurement.
 func (t *Telemetry) RecordCompression(outcome SafeOutcome, rawBytes int) {
 	if t == nil || !isKnownOutcome(outcome) {
 		return
 	}
-	m := map[string]int{"count": 1}
-	if rawBytes > 0 {
-		if rawBytes > HardRawOutputCeiling {
-			rawBytes = HardRawOutputCeiling
-		}
-		m["bytes"] = rawBytes
-	}
-	t.Record(outcome, m)
+	// Delegate to measurement path to share clamping and saturation logic.
+	t.RecordCompressionMeasurement(outcome, rawBytes, 0, 0)
 }
 
 // RecordCompressionMeasurement records an outcome with explicit raw/decoded/saved bytes, each clamped.
@@ -115,43 +168,30 @@ func (t *Telemetry) RecordCompressionMeasurement(outcome SafeOutcome, rawBytes, 
 	if t == nil || !isKnownOutcome(outcome) {
 		return
 	}
-	v, _ := t.outcomes.LoadOrStore(outcome, &atomic.Int64{})
-	n, ok := v.(*atomic.Int64)
-	if !ok || n == nil {
-		return
-	}
-	n.Add(1)
+	b := t.getBucket(outcome)
+	addSaturating(&b.count, 1)
 	if rawBytes > 0 {
 		if rawBytes > HardRawOutputCeiling {
 			rawBytes = HardRawOutputCeiling
 		}
-		vb, _ := t.rawBytes.LoadOrStore(outcome, &atomic.Int64{})
-		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-			nb.Add(int64(rawBytes))
-		}
+		addSaturating(&b.rawBytes, int64(rawBytes))
 	}
 	if decodedBytes > 0 {
 		if decodedBytes > HardCompressionMaxSurrogateBytes {
 			decodedBytes = HardCompressionMaxSurrogateBytes
 		}
-		vb, _ := t.decodedBytes.LoadOrStore(outcome, &atomic.Int64{})
-		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-			nb.Add(int64(decodedBytes))
-		}
+		addSaturating(&b.decodedBytes, int64(decodedBytes))
 	}
 	if savedBytes > 0 {
 		if savedBytes > HardRawOutputCeiling {
 			savedBytes = HardRawOutputCeiling
 		}
-		vb, _ := t.savedBytes.LoadOrStore(outcome, &atomic.Int64{})
-		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-			nb.Add(int64(savedBytes))
-		}
+		addSaturating(&b.savedBytes, int64(savedBytes))
 	}
 }
 
 // RecordShadowMeasurement records a full shadow evaluation sample with source/raw/decoded/saved and latency.
-// All byte values are bounded; latency is bounded to 24h total per outcome aggregation to avoid overflow.
+// All byte values are bounded; latency is bounded to HardCompressionTimeout per sample.
 // No money calculation. Content-free via isKnownOutcome.
 func (t *Telemetry) RecordShadowMeasurement(outcome SafeOutcome, sourceBytes, rawBytes, decodedBytes, savedBytes int, latency time.Duration) {
 	if t == nil || !isKnownOutcome(outcome) {
@@ -162,20 +202,15 @@ func (t *Telemetry) RecordShadowMeasurement(outcome SafeOutcome, sourceBytes, ra
 		if sourceBytes > HardRawOutputCeiling {
 			sourceBytes = HardRawOutputCeiling
 		}
-		vb, _ := t.sourceBytes.LoadOrStore(outcome, &atomic.Int64{})
-		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-			nb.Add(int64(sourceBytes))
-		}
+		b := t.getBucket(outcome)
+		addSaturating(&b.sourceBytes, int64(sourceBytes))
 	}
 	if latency > 0 {
-		// Cap per-record latency to 30s (HardCompressionTimeout) to bound aggregation.
 		if latency > HardCompressionTimeout {
 			latency = HardCompressionTimeout
 		}
-		vb, _ := t.latencyNanos.LoadOrStore(outcome, &atomic.Int64{})
-		if nb, ok := vb.(*atomic.Int64); ok && nb != nil {
-			nb.Add(int64(latency))
-		}
+		b := t.getBucket(outcome)
+		addSaturating(&b.latencyNanos, int64(latency))
 	}
 }
 
@@ -184,20 +219,11 @@ func (t *Telemetry) Snapshot() map[SafeOutcome]int64 {
 	if t == nil {
 		return out
 	}
-	t.outcomes.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.count > 0 {
+			out[o] = v.count
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = c
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -212,20 +238,11 @@ func (t *Telemetry) RawBytesSnapshot() map[SafeOutcome]int64 {
 	if t == nil {
 		return out
 	}
-	t.rawBytes.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.raw > 0 {
+			out[o] = v.raw
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = c
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -235,20 +252,11 @@ func (t *Telemetry) DecodedBytesSnapshot() map[SafeOutcome]int64 {
 	if t == nil {
 		return out
 	}
-	t.decodedBytes.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.decoded > 0 {
+			out[o] = v.decoded
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = c
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -258,20 +266,11 @@ func (t *Telemetry) SavedBytesSnapshot() map[SafeOutcome]int64 {
 	if t == nil {
 		return out
 	}
-	t.savedBytes.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.saved > 0 {
+			out[o] = v.saved
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = c
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -281,20 +280,11 @@ func (t *Telemetry) SourceBytesSnapshot() map[SafeOutcome]int64 {
 	if t == nil {
 		return out
 	}
-	t.sourceBytes.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.source > 0 {
+			out[o] = v.source
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = c
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -304,20 +294,11 @@ func (t *Telemetry) LatencySnapshot() map[SafeOutcome]time.Duration {
 	if t == nil {
 		return out
 	}
-	t.latencyNanos.Range(func(key, value any) bool {
-		o, ok := key.(SafeOutcome)
-		if !ok {
-			return true
+	for o, v := range t.views() {
+		if v.latency > 0 {
+			out[o] = time.Duration(v.latency)
 		}
-		n, ok := value.(*atomic.Int64)
-		if !ok || n == nil {
-			return true
-		}
-		if c := n.Load(); c > 0 {
-			out[o] = time.Duration(c)
-		}
-		return true
-	})
+	}
 	return out
 }
 
@@ -331,11 +312,30 @@ func (t *Telemetry) CompressionMeasurementsSnapshot() CompressionMeasurements {
 			SavedBytes:   map[SafeOutcome]int64{},
 		}
 	}
+	vw := t.views()
+	counts := make(map[SafeOutcome]int64)
+	raw := make(map[SafeOutcome]int64)
+	dec := make(map[SafeOutcome]int64)
+	saved := make(map[SafeOutcome]int64)
+	for o, v := range vw {
+		if v.count > 0 {
+			counts[o] = v.count
+		}
+		if v.raw > 0 {
+			raw[o] = v.raw
+		}
+		if v.decoded > 0 {
+			dec[o] = v.decoded
+		}
+		if v.saved > 0 {
+			saved[o] = v.saved
+		}
+	}
 	return CompressionMeasurements{
-		Counts:       t.Snapshot(),
-		RawBytes:     t.RawBytesSnapshot(),
-		DecodedBytes: t.DecodedBytesSnapshot(),
-		SavedBytes:   t.SavedBytesSnapshot(),
+		Counts:       counts,
+		RawBytes:     raw,
+		DecodedBytes: dec,
+		SavedBytes:   saved,
 	}
 }
 
@@ -352,31 +352,41 @@ func (t *Telemetry) ShadowEvaluationSnapshot() ShadowEvaluation {
 			Latency:      map[SafeOutcome]time.Duration{},
 		}
 	}
-	counts := t.Snapshot()
-	src := t.SourceBytesSnapshot()
-	raw := t.RawBytesSnapshot()
-	dec := t.DecodedBytesSnapshot()
-	saved := t.SavedBytesSnapshot()
-	lat := t.LatencySnapshot()
+	vw := t.views()
+	counts := make(map[SafeOutcome]int64)
+	src := make(map[SafeOutcome]int64)
+	raw := make(map[SafeOutcome]int64)
+	dec := make(map[SafeOutcome]int64)
+	saved := make(map[SafeOutcome]int64)
+	lat := make(map[SafeOutcome]time.Duration)
 	var totalCount, totalSource, totalRaw, totalDecoded, totalSaved int64
 	var totalLatency time.Duration
-	for _, c := range counts {
-		totalCount = saturatingAddInt64(totalCount, c)
-	}
-	for _, v := range src {
-		totalSource = saturatingAddInt64(totalSource, v)
-	}
-	for _, v := range raw {
-		totalRaw = saturatingAddInt64(totalRaw, v)
-	}
-	for _, v := range dec {
-		totalDecoded = saturatingAddInt64(totalDecoded, v)
-	}
-	for _, v := range saved {
-		totalSaved = saturatingAddInt64(totalSaved, v)
-	}
-	for _, v := range lat {
-		totalLatency = saturatingAddDuration(totalLatency, v)
+	for o, v := range vw {
+		if v.count > 0 {
+			counts[o] = v.count
+			totalCount = saturatingAddInt64(totalCount, v.count)
+		}
+		if v.source > 0 {
+			src[o] = v.source
+			totalSource = saturatingAddInt64(totalSource, v.source)
+		}
+		if v.raw > 0 {
+			raw[o] = v.raw
+			totalRaw = saturatingAddInt64(totalRaw, v.raw)
+		}
+		if v.decoded > 0 {
+			dec[o] = v.decoded
+			totalDecoded = saturatingAddInt64(totalDecoded, v.decoded)
+		}
+		if v.saved > 0 {
+			saved[o] = v.saved
+			totalSaved = saturatingAddInt64(totalSaved, v.saved)
+		}
+		if v.latency > 0 {
+			d := time.Duration(v.latency)
+			lat[o] = d
+			totalLatency = saturatingAddDuration(totalLatency, d)
+		}
 	}
 	// Totals already saturating, ratios clamp 0..1.
 	var savingsRatio, compressionRatio float64

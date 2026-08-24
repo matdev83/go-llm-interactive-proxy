@@ -62,14 +62,14 @@ func TestReservation_TryReserve_SuccessVisible(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	assert.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
-	assert.NotEmpty(t, res.ReservationID)
+	assert.NotEmpty(t, res.Claim.ReservationID)
 	assert.True(t, res.IsReserved())
 	// pending visible via store
 	state, ok, err := cs.GetCompressionState(context.Background(), p, snap[0].ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NotNil(t, state.Pending)
-	assert.Equal(t, res.ReservationID, state.Pending.ReservationID)
+	assert.Equal(t, res.Claim.ReservationID, state.Pending.ReservationID)
 	assert.Equal(t, corr.SemanticDigest, state.Pending.SemanticDigest)
 	assert.Equal(t, corr.EgressPolicyRefHash, state.Pending.EgressPolicyHash)
 	stats := cs.CompressionStats()
@@ -97,7 +97,7 @@ func TestReservation_BelowThresholdNoReserve(t *testing.T) {
 	assert.True(t, corr.SourceBytes < cfg.Compression.MinSourceBytes, "source must be below threshold for test")
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	assert.Equal(t, reasoningpreservation.ReservationSkippedBelowThreshold, res.Outcome)
-	assert.Empty(t, res.ReservationID)
+	assert.Empty(t, res.Claim.ReservationID)
 	stats := cs.CompressionStats()
 	assert.Equal(t, 0, stats.TotalPending)
 	// no pending state
@@ -285,7 +285,8 @@ func TestReservation_ProvisionalHashThenUpdate(t *testing.T) {
 	assert.Equal(t, provisional, state.Pending.EgressPolicyHash, "provisional hash must be stored at reserve")
 	// Simulate authoritative decision in 4.3 with full CAS
 	authoritative := sha256.Sum256([]byte("authoritative-policy-v2"))
-	err := cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, provisional, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	claim := res.Claim
+	err := cs.UpdateReservationPolicyHash(context.Background(), claim, provisional, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.NoError(t, err)
 	state2, _, _ := cs.GetCompressionState(context.Background(), p, snap[0].ID)
 	require.NotNil(t, state2.Pending)
@@ -303,11 +304,11 @@ func TestReservation_ProvisionalHashThenUpdate(t *testing.T) {
 		Segments:            []reasoningpreservation.SurrogateSegment{{PlacementIndex: 0, Text: "sur", Bytes: 3}},
 		Bytes:               3,
 	}
-	err = cs.AttachSurrogate(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", surProvisional)
+	err = cs.AttachSurrogate(context.Background(), claim, "job-1", surProvisional)
 	assert.Error(t, err, "provisional hash after authoritative update must be rejected")
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	// Need to Bind first? Actually Attach requires pending with correct hash; let's bind then attach authoritative
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", corr.OriginalDigest, corr.PolicyRevision))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, "job-1"))
 	surAuth := reasoningpreservation.ReasoningSurrogate{
 		OriginalDigest:      corr.OriginalDigest,
 		PolicyRevision:      corr.PolicyRevision,
@@ -318,7 +319,7 @@ func TestReservation_ProvisionalHashThenUpdate(t *testing.T) {
 		Segments:            []reasoningpreservation.SurrogateSegment{{PlacementIndex: 0, Text: "sur", Bytes: 3}},
 		Bytes:               3,
 	}
-	require.NoError(t, cs.AttachSurrogate(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", surAuth))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim, "job-1", surAuth))
 }
 
 func TestReservation_ObserverIntegration_ReservationVisible(t *testing.T) {
@@ -410,9 +411,10 @@ func TestUpdate_StaleExpectedOldMismatchRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
+	claim := res.Claim
 	wrongOld := sha256.Sum256([]byte("wrong-old"))
 	authoritative := sha256.Sum256([]byte("authoritative"))
-	err := cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, wrongOld, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	err := cs.UpdateReservationPolicyHash(context.Background(), claim, wrongOld, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	state, _, _ := cs.GetCompressionState(context.Background(), p, snap[0].ID)
@@ -433,13 +435,21 @@ func TestUpdate_StaleDigestMismatchRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
+	claim := res.Claim
 	authoritative := sha256.Sum256([]byte("authoritative"))
 	wrongDigest := sha256.Sum256([]byte("wrong-digest"))
-	err := cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, wrongDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	wrongDigestClaim := reasoningpreservation.CompressionClaim{
+		Partition:      claim.Partition,
+		ArtifactID:     claim.ArtifactID,
+		ReservationID:  claim.ReservationID,
+		OriginalDigest: wrongDigest,
+		PolicyRevision: claim.PolicyRevision,
+	}
+	err := cs.UpdateReservationPolicyHash(context.Background(), wrongDigestClaim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	wrongSem := sha256.Sum256([]byte("wrong-sem"))
-	err = cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, wrongSem, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	err = cs.UpdateReservationPolicyHash(context.Background(), claim, corr.EgressPolicyRefHash, wrongSem, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 }
@@ -457,8 +467,10 @@ func TestUpdate_StalePolicyMismatchRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
+	claim := res.Claim
+	claim.PolicyRevision = "wrong-policy"
 	authoritative := sha256.Sum256([]byte("authoritative"))
-	err := cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, "wrong-policy", corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	err := cs.UpdateReservationPolicyHash(context.Background(), claim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 }
@@ -476,8 +488,9 @@ func TestUpdate_ZeroNewHashRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
+	claim := res.Claim
 	var zero [32]byte
-	err := cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, zero, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
+	err := cs.UpdateReservationPolicyHash(context.Background(), claim, corr.EgressPolicyRefHash, corr.SemanticDigest, zero, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route")))
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	state, _, _ := cs.GetCompressionState(context.Background(), p, snap[0].ID)
@@ -498,13 +511,14 @@ func TestBind_PrePromotionRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
-	err := cs.BindCompressionJob(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", corr.OriginalDigest, corr.PolicyRevision)
+	claim := res.Claim
+	err := cs.BindCompressionJob(context.Background(), claim, "job-1")
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	// after promotion should succeed
 	authoritative := sha256.Sum256([]byte("authoritative"))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", corr.OriginalDigest, corr.PolicyRevision))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, "job-1"))
 }
 
 func TestAttach_PrePromotionRejected(t *testing.T) {
@@ -520,8 +534,7 @@ func TestAttach_PrePromotionRejected(t *testing.T) {
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
-	// promote then bind to get to attach stage
-	authoritative := sha256.Sum256([]byte("authoritative"))
+	claim := res.Claim
 	// Attach without promotion should fail (still provisional)
 	sur := reasoningpreservation.ReasoningSurrogate{
 		OriginalDigest:      corr.OriginalDigest,
@@ -533,14 +546,15 @@ func TestAttach_PrePromotionRejected(t *testing.T) {
 		Segments:            []reasoningpreservation.SurrogateSegment{{PlacementIndex: 0, Text: "x", Bytes: 1}},
 		Bytes:               1,
 	}
-	err := cs.AttachSurrogate(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", sur)
+	err := cs.AttachSurrogate(context.Background(), claim, "job-1", sur)
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	// now promote and bind, then attach authoritative should succeed
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", corr.OriginalDigest, corr.PolicyRevision))
+	authoritative := sha256.Sum256([]byte("authoritative"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, "job-1"))
 	sur.EgressPolicyHash = authoritative
-	require.NoError(t, cs.AttachSurrogate(context.Background(), p, snap[0].ID, res.ReservationID, "job-1", sur))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim, "job-1", sur))
 }
 
 func TestReservation_Chaining_NextCalled(t *testing.T) {
@@ -558,7 +572,7 @@ func TestReservation_Chaining_NextCalled(t *testing.T) {
 	var gotID string
 	next := func(ctx context.Context, res reasoningpreservation.ReservationResult) error {
 		called = true
-		gotID = res.ReservationID
+		gotID = res.Claim.ReservationID
 		assert.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
 		return nil
 	}

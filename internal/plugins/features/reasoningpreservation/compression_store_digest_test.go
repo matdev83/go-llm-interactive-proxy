@@ -45,12 +45,12 @@ func TestCompression_DigestCAS(t *testing.T) {
 			// For zero-sem cases, reserve still stores correct digests; attach provides tc digests.
 			// For the success case, attach digests match reservation.
 			// For the zero-reservation path, we test separate case below.
-			res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, baseSem, baseEg)
-			require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, baseEg, d, policy, baseSem, baseEg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+			claim, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, baseSem, baseEg)
 			require.NoError(t, err)
-			require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
+			require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, baseEg, baseSem, baseEg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+			require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job1")))
 			sur := surrogateForWithDigests(d, policy, tc.surSem, tc.surEg, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
-			err = cs.AttachSurrogate(context.Background(), p, "t1", res, auxiliary.JobID("job1"), sur)
+			err = cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job1"), sur)
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.wantIsConf {
@@ -86,12 +86,12 @@ func TestCompression_ZeroReservedDigestRejectedAtAttach(t *testing.T) {
 	policy := "v1"
 	var zero [32]byte
 	eg := egressHashFor(policy)
-	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, zero, eg)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, eg, d, policy, zero, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	claim, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, zero, eg)
 	require.NoError(t, err, "reserve may accept zero but attach must reject")
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, zero, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job1")))
 	sur := surrogateForWithDigests(d, policy, zero, eg, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
-	err = cs.AttachSurrogate(context.Background(), p, "t1", res, auxiliary.JobID("job1"), sur)
+	err = cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job1"), sur)
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 }
@@ -106,9 +106,9 @@ func TestCompression_DigestDefensiveCopy(t *testing.T) {
 	policy := "v1"
 	sem := semanticDigestFor(policy)
 	eg := egressHashFor(policy)
-	res, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, sem, eg)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res, eg, d, policy, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	claim, err := cs.ReserveCompression(context.Background(), p, "t1", d, policy, sem, eg)
 	require.NoError(t, err)
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	// Pending defensive copy
 	state, ok, err := cs.GetCompressionState(context.Background(), p, "t1")
 	require.NoError(t, err)
@@ -126,9 +126,9 @@ func TestCompression_DigestDefensiveCopy(t *testing.T) {
 	assert.Equal(t, eg, state2.Pending.EgressPolicyHash, "pending egress hash defensive copy")
 
 	// also verify surrogate defensive copy after attach
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job1")))
 	sur := surrogateForWithDigests(d, policy, sem, eg, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hello", Bytes: 5})
-	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res, auxiliary.JobID("job1"), sur))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job1"), sur))
 	state3, ok, err := cs.GetCompressionState(context.Background(), p, "t1")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -154,21 +154,21 @@ func TestCompression_DigestWithReplacement(t *testing.T) {
 	// v1
 	sem1 := semanticDigestFor("v1")
 	eg1 := egressHashFor("v1")
-	res1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", sem1, eg1)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res1, eg1, d, "v1", sem1, eg1, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	claim1, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v1", sem1, eg1)
 	require.NoError(t, err)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), d, "v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim1, eg1, sem1, eg1, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim1, auxiliary.JobID("job1")))
 	sur1 := surrogateForWithDigests(d, "v1", sem1, eg1, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "0123456789", Bytes: 10})
-	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res1, auxiliary.JobID("job1"), sur1))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim1, auxiliary.JobID("job1"), sur1))
 	// v2 replacement
 	sem2 := semanticDigestFor("v2")
 	eg2 := egressHashFor("v2")
-	res2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", sem2, eg2)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "t1", res2, eg2, d, "v2", sem2, eg2, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	claim2, err := cs.ReserveCompression(context.Background(), p, "t1", d, "v2", sem2, eg2)
 	require.NoError(t, err)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), d, "v2"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim2, eg2, sem2, eg2, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim2, auxiliary.JobID("job2")))
 	sur2 := surrogateForWithDigests(d, "v2", sem2, eg2, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
-	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t1", res2, auxiliary.JobID("job2"), sur2))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim2, auxiliary.JobID("job2"), sur2))
 	state, ok, err := cs.GetCompressionState(context.Background(), p, "t1")
 	require.NoError(t, err)
 	require.True(t, ok)

@@ -397,22 +397,22 @@ func TestSelectReasoningView_SelectReasoningViewsHelper(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, err := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, err := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	if err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	if err := store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash); err != nil {
+	if err := store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	// Bind dummy job
-	if err := store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-1", snapArt.Anchor, cfg.EgressPolicyRef); err != nil {
+	if err := store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-1"); err != nil {
 		t.Fatalf("bind: %v", err)
 	}
 	// Build surrogate via valid helper
 	sur := validSurrogateFor(cfg, snapArt)
-	if err := store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-1", *sur); err != nil {
+	if err := store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-1", *sur); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 	// Build candidates as transform does: collectRestoreCandidates with a missing call
@@ -427,9 +427,7 @@ func TestSelectReasoningView_SelectReasoningViewsHelper(t *testing.T) {
 	if views == nil || views[snapArt.ID].Kind != ViewSurrogate {
 		t.Fatalf("helper should return surrogate, got %+v", views)
 	}
-	// Via stage seam
-	stage := identityReasoningViewStage
-	views2 := stage(context.Background(), cfg, store.(CompressionStore), svc, partition, candidates, lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, meta)
+	views2 := selectReasoningViews(context.Background(), cfg, store.(CompressionStore), svc, partition, candidates, lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, meta)
 	if views2[snapArt.ID].Kind != ViewSurrogate {
 		t.Fatalf("stage should return surrogate, got %+v", views2)
 	}
@@ -470,13 +468,13 @@ func TestSelectReasoningView_PolicyAllowSameHash(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-pol", snapArt.Anchor, cfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-pol")
 	sur2 := validSurrogateFor(cfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-pol", *sur2)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-pol", *sur2)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible")}}}}
 	_, candidates, _ := collectRestoreCandidates(&call, []TurnArtifact{snapArt}, supported)
 	svc := CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}
@@ -517,13 +515,13 @@ func TestSelectReasoningView_PolicyRotatedVersionDeny(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-deny", snapArt.Anchor, cfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-deny")
 	sur2 := validSurrogateFor(cfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-deny", *sur2)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-deny", *sur2)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible")}}}}
 	_, candidates, _ := collectRestoreCandidates(&call, []TurnArtifact{snapArt}, supported)
 	svcDeny := CompressionServices{EgressPolicy: fakeDenyPolicy{version: "v2"}, Sanitizer: fakeSan{}}
@@ -564,13 +562,13 @@ func TestSelectReasoningView_PolicyRedactionMismatch(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-redact", snapArt.Anchor, cfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-redact")
 	sur2 := validSurrogateFor(cfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-redact", *sur2)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-redact", *sur2)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible")}}}}
 	_, candidates, _ := collectRestoreCandidates(&call, []TurnArtifact{snapArt}, supported)
 	svc := CompressionServices{EgressPolicy: fakeRedactPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}
@@ -603,13 +601,13 @@ func TestSelectReasoningView_TrustedScopeFromContext(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-scope", snapArt.Anchor, cfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-scope")
 	sur2 := validSurrogateFor(cfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-scope", *sur2)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-scope", *sur2)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible")}}}}
 	supported := lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
 	_, candidates, _ := collectRestoreCandidates(&call, []TurnArtifact{snapArt}, supported)
@@ -668,13 +666,13 @@ func TestSelectReasoningView_PolicyCalledOnce(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-once", snapArt.Anchor, cfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-once")
 	sur := validSurrogateFor(cfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-once", *sur)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-once", *sur)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible")}}}}
 	supported := lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
 	_, candidates, _ := collectRestoreCandidates(&call, []TurnArtifact{snapArt}, supported)
@@ -721,26 +719,18 @@ func TestSelectReasoningView_ConsumerReceivesMapAndShadowDefault(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(compCfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: compCfg.EgressPolicyRef}, compCfg.Route)
 	routeHash := sha256.Sum256([]byte(compCfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-consumer", snapArt.Anchor, compCfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-consumer")
 	sur := validSurrogateFor(compCfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-consumer", *sur)
-	// Consumer that records decisions
-	var gotDecisions map[string]ReasoningViewResult
-	consumer := func(_ context.Context, call *lipapi.Call, decisions map[string]ReasoningViewResult) *lipapi.Call {
-		gotDecisions = decisions
-		return call
-	}
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-consumer", *sur)
 	svc := CompressionServices{EgressPolicy: fakeAllowPolicy{version: compCfg.EgressPolicyRef}, Sanitizer: fakeSan{}}
-	// Active mode would delegate to consumer; shadow must force identity
 	cfgShadow := cfg
 	cfgShadow.Compression.Mode = CompressionShadow
-	xformShadow := NewAttemptTransformWithViewStageViewConsumer(cfgShadow, store, identityReasoningViewStage, consumer, nil)
-	// Need to inject svc via WithServices? Use full constructor
-	xformShadow2 := &AttemptTransform{cfg: cfgShadow, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: consumer, svc: svc}
+	xformShadow := NewAttemptTransform(cfgShadow, store)
+	xformShadow2 := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgShadow, store, svc, CompanionPolicy{}, nil)
 	_ = xformShadow
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-consumer"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
@@ -748,27 +738,27 @@ func TestSelectReasoningView_ConsumerReceivesMapAndShadowDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handle shadow: %v", err)
 	}
-	// Shadow default: call unchanged (consumer not applied, but viewDecisions still computed for 6.2 seam - we verify consumer was not called with surrogate substitution)
-	// In shadow, our transform forces identity, so consumer should not be called; gotDecisions should be nil because we overwrote? Actually shadow path sets _ = viewDecisions but does not call consumer; we keep gotDecisions nil
-	if gotDecisions != nil {
-		t.Fatalf("shadow should not invoke consumer, got %v", gotDecisions)
+	for _, p := range call.Messages[0].Parts {
+		if p.Reasoning != nil && p.Reasoning.Text == "compressed" {
+			t.Fatalf("shadow must not use surrogate text")
+		}
 	}
-	// Active mode with consumer should receive map
 	cfgActive := cfg
 	cfgActive.Compression.Mode = CompressionActive
-	var gotActive map[string]ReasoningViewResult
-	consumerActive := func(_ context.Context, call *lipapi.Call, decisions map[string]ReasoningViewResult) *lipapi.Call {
-		gotActive = decisions
-		return call
-	}
-	xformActive := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: consumerActive, svc: svc}
+	xformActive := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgActive, store, svc, CompanionPolicy{}, nil)
 	call2 := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	_, err = xformActive.HandleAttempt(context.Background(), &call2, meta, request.Services{})
 	if err != nil {
 		t.Fatalf("handle active: %v", err)
 	}
-	if gotActive == nil || gotActive[snapArt.ID].Kind != ViewSurrogate {
-		t.Fatalf("active consumer should receive surrogate decisions, got %+v", gotActive)
+	found := false
+	for _, p := range call2.Messages[0].Parts {
+		if p.Reasoning != nil && p.Reasoning.Text == "compressed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("active should restore surrogate, got %+v", call2.Messages[0].Parts)
 	}
 	// call2 should still be call (consumer identity returns call); 6.2 would later modify but 6.1 shadow/active both keep call unchanged for now (consumer identity)
 	if len(call2.Messages[0].Parts) == 1 && call2.Messages[0].Parts[0].Text == "visible" {
@@ -817,16 +807,16 @@ func TestSelectReasoningView_TransformShadowAlwaysOriginal(t *testing.T) {
 	}
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(compCfg.EgressPolicyRef))
-	resID, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := store.(CompressionStore).ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: compCfg.EgressPolicyRef}, compCfg.Route)
 	routeHash := sha256.Sum256([]byte(compCfg.Route))
-	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, compCfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = store.(CompressionStore).BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-shadow", snapArt.Anchor, compCfg.EgressPolicyRef)
+	_ = store.(CompressionStore).UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = store.(CompressionStore).BindCompressionJob(context.Background(), claim, "job-shadow")
 	sur := validSurrogateFor(compCfg, snapArt)
-	_ = store.(CompressionStore).AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-shadow", *sur)
+	_ = store.(CompressionStore).AttachSurrogate(context.Background(), claim, "job-shadow", *sur)
 
 	// Now create transform in shadow mode (default) and ensure it does not substitute surrogate
-	xform := NewAttemptTransformWithServices(cfg, store, CompressionServices{}, nil)
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, CompressionServices{}, CompanionPolicy{}, nil)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{
 		BackendID: "be",

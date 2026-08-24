@@ -1,7 +1,6 @@
 package reasoningpreservation
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -171,30 +170,4 @@ func BuildEphemeralCandidates(cands []restoreCandidate, decisions map[string]Rea
 		out[i] = nc
 	}
 	return out
-}
-
-// activeEphemeralViewConsumerStage is the ACTIVE consumer that would be wired by the bundle.
-// It is identity for call mutation because ephemeral handling is done via artifact view;
-// it is distinct from shadow identity so bundle wiring can be verified.
-func activeEphemeralViewConsumerStage(_ context.Context, call *lipapi.Call, _ map[string]ReasoningViewResult) *lipapi.Call {
-	return call
-}
-
-// NewActiveEphemeralViewConsumer returns the active consumer stage.
-// It is wired only when Mode == Active; shadow uses identity.
-func NewActiveEphemeralViewConsumer() ReasoningViewConsumerStage {
-	return identityReasoningViewConsumerStage
-}
-
-// EphemeralViewConsumerForMode returns the correct consumer for the given mode.
-// Shadow => identity, Active => active (distinct but still identity for call).
-func EphemeralViewConsumerForMode(mode CompressionMode) ReasoningViewConsumerStage {
-	if mode == CompressionActive {
-		// Return a distinct function value so callers can detect active wiring
-		// while still being identity for call mutation (artifact view is separate).
-		return func(ctx context.Context, call *lipapi.Call, decisions map[string]ReasoningViewResult) *lipapi.Call {
-			return activeEphemeralViewConsumerStage(ctx, call, decisions)
-		}
-	}
-	return identityReasoningViewConsumerStage
 }

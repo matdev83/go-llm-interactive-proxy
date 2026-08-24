@@ -428,7 +428,7 @@ func TestClearCompression_StaleExpectedID_Conflict(t *testing.T) {
 	stats = cs.CompressionStats()
 	assert.Equal(t, 1, stats.TotalPending)
 	// correct clear should succeed
-	require.NoError(t, cs.ClearCompression(context.Background(), p, snap[0].ID, res1.ReservationID))
+	require.NoError(t, cs.ClearCompression(context.Background(), p, snap[0].ID, res1.Claim.ReservationID))
 	stats = cs.CompressionStats()
 	assert.Equal(t, 0, stats.TotalPending)
 	_, ok, _ = cs.GetCompressionState(context.Background(), p, snap[0].ID)
@@ -438,15 +438,15 @@ func TestClearCompression_StaleExpectedID_Conflict(t *testing.T) {
 	// need to re-append same ID? ID same but we already cleared pending, artifact still exists, can reserve again with new ID
 	res2 := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res2.Outcome)
-	require.NotEqual(t, res1.ReservationID, res2.ReservationID)
+	require.NotEqual(t, res1.Claim.ReservationID, res2.Claim.ReservationID)
 	// stale clear with old ID should not clear new pending
-	err = cs.ClearCompression(context.Background(), p, snap[0].ID, res1.ReservationID)
+	err = cs.ClearCompression(context.Background(), p, snap[0].ID, res1.Claim.ReservationID)
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	state, ok, _ = cs.GetCompressionState(context.Background(), p, snap[0].ID)
 	require.True(t, ok)
 	require.NotNil(t, state.Pending)
-	assert.Equal(t, res2.ReservationID, state.Pending.ReservationID, "new pending must remain")
+	assert.Equal(t, res2.Claim.ReservationID, state.Pending.ReservationID, "new pending must remain")
 	stats = cs.CompressionStats()
 	assert.Equal(t, 1, stats.TotalPending)
 	// original artifact still present
@@ -472,9 +472,9 @@ func TestEgressStage_StaleCAS_FailOpen(t *testing.T) {
 	staleCorr := res.Correlation
 	staleCorr.EgressPolicyRefHash = sha256.Sum256([]byte("stale-provisional"))
 	staleRes := reasoningpreservation.ReservationResult{
-		Outcome:       res.Outcome,
-		ReservationID: res.ReservationID,
-		Correlation:   staleCorr,
+		Outcome:     res.Outcome,
+		Claim:       res.Claim,
+		Correlation: staleCorr,
 	}
 	svc := reasoningpreservation.CompressionServices{
 		Client:       &fakeBackground{},
@@ -515,7 +515,7 @@ func TestEgressStage_StaleClear_NewPendingRemains(t *testing.T) {
 	// stale CAS path clears res1; verify via egress stage with stale hash
 	staleCorr := res1.Correlation
 	staleCorr.EgressPolicyRefHash = sha256.Sum256([]byte("stale"))
-	staleRes := reasoningpreservation.ReservationResult{Outcome: res1.Outcome, ReservationID: res1.ReservationID, Correlation: staleCorr}
+	staleRes := reasoningpreservation.ReservationResult{Outcome: res1.Outcome, Claim: res1.Claim, Correlation: staleCorr}
 	svc := reasoningpreservation.CompressionServices{Client: &fakeBackground{}, Poller: &fakeBackground{}, EgressPolicy: fakeAllowPolicy{version: "v1"}, Sanitizer: redactingSanitizer{}}
 	egressStage := reasoningpreservation.NewPostReservationEgressStage(cfg, cs, svc, nil)
 	require.NoError(t, egressStage(context.Background(), staleRes))
@@ -528,13 +528,13 @@ func TestEgressStage_StaleClear_NewPendingRemains(t *testing.T) {
 	stats = cs.CompressionStats()
 	assert.Equal(t, 1, stats.TotalPending)
 	// try stale clear of old res1 ID via direct CAS clear should not clear new pending
-	err = cs.ClearCompression(context.Background(), p, snap[0].ID, res1.ReservationID)
+	err = cs.ClearCompression(context.Background(), p, snap[0].ID, res1.Claim.ReservationID)
 	require.Error(t, err)
 	assert.True(t, reasoningpreservation.IsConflictError(err))
 	state, ok, _ := cs.GetCompressionState(context.Background(), p, snap[0].ID)
 	require.True(t, ok)
 	require.NotNil(t, state.Pending)
-	assert.Equal(t, res2.ReservationID, state.Pending.ReservationID)
+	assert.Equal(t, res2.Claim.ReservationID, state.Pending.ReservationID)
 	stats = cs.CompressionStats()
 	assert.Equal(t, 1, stats.TotalPending, "new pending must remain")
 }

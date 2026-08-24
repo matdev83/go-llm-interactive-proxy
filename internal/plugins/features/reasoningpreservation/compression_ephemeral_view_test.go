@@ -186,12 +186,12 @@ func TestBuildEphemeralArtifact_StoreSnapshotUnchangedAfterCallAndMutation(t *te
 	// Directly test BuildEphemeralArtifact defensive copy does not mutate store snapshot
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-store", snapArt.Anchor, cfg.EgressPolicyRef)
-	_ = cs.AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-store", *sur)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, "job-store")
+	_ = cs.AttachSurrogate(context.Background(), claim, "job-store", *sur)
 	// Now snapshot before ephemeral view
 	beforeSnap, _ := store.Snapshot(context.Background(), partition)
 	// Build ephemeral view via helper
@@ -223,7 +223,7 @@ func TestBuildEphemeralArtifact_StoreSnapshotUnchangedAfterCallAndMutation(t *te
 		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       cfg,
 	}
-	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgActive, store, CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}, CompanionPolicy{}, nil)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-store-unchanged"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 	_, err := xform.HandleAttempt(context.Background(), &call, meta, request.Services{})
@@ -350,12 +350,12 @@ func TestBuildEphemeralArtifact_MultiArtifactDecisions(t *testing.T) {
 	cs := store.(CompressionStore)
 	semDigest := computeSemanticDigest(snap1.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, snap1.ID, snap1.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, snap1.ID, snap1.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, snap1.ID, resID, egRefHash, snap1.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, snap1.ID, resID, "job-multi-1", snap1.Anchor, cfg.EgressPolicyRef)
-	_ = cs.AttachSurrogate(context.Background(), partition, snap1.ID, resID, "job-multi-1", *sur1)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, "job-multi-1")
+	_ = cs.AttachSurrogate(context.Background(), claim, "job-multi-1", *sur1)
 	// art2 remains without surrogate
 	decisions := map[string]ReasoningViewResult{
 		snap1.ID: {Kind: ViewSurrogate, Reason: "eligible"},
@@ -409,12 +409,12 @@ func TestBuildEphemeralArtifact_ToolsOrdinaryCallUnchanged(t *testing.T) {
 	cs := store.(CompressionStore)
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-tools", snapArt.Anchor, cfg.EgressPolicyRef)
-	_ = cs.AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-tools", *sur)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, "job-tools")
+	_ = cs.AttachSurrogate(context.Background(), claim, "job-tools", *sur)
 	// Build call with tools, files, media, ordinary text
 	toolDef := lipapi.ToolDef{Name: "my_tool", Description: "desc", Parameters: json.RawMessage(`{"type":"object"}`)}
 	// Call is missing reasoning, but has tools and visible text
@@ -428,7 +428,7 @@ func TestBuildEphemeralArtifact_ToolsOrdinaryCallUnchanged(t *testing.T) {
 		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
-	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgActive, store, CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}, CompanionPolicy{}, nil)
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-tools"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 	origTools := append([]lipapi.ToolDef(nil), call.Tools...)
 	origParts := append([]lipapi.Part(nil), call.Messages[0].Parts...)
@@ -525,19 +525,19 @@ func TestBuildEphemeralArtifact_Idempotence(t *testing.T) {
 	cs := store.(CompressionStore)
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-idem", snapArt.Anchor, cfg.EgressPolicyRef)
-	_ = cs.AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-idem", *sur2)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, "job-idem")
+	_ = cs.AttachSurrogate(context.Background(), claim, "job-idem", *sur2)
 	cfgActive := Config{
 		Action: ActionRestore, OnUnrepresentable: PolicyReject, OnStateError: PolicyLogSkip, OnAmbiguous: PolicyLogSkip,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
 		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
-	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgActive, store, CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}, CompanionPolicy{}, nil)
 	call1 := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-idem"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 	_, err := xform.HandleAttempt(context.Background(), &call1, meta, request.Services{})
@@ -596,19 +596,19 @@ func TestEphemeralView_ShadowAlwaysOriginal(t *testing.T) {
 	cs := store.(CompressionStore)
 	semDigest := computeSemanticDigest(snapArt.Reasoning)
 	egRefHash := sha256.Sum256([]byte(cfg.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, egRefHash)
 	authoritative := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.EgressPolicyRef}, cfg.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egRefHash, snapArt.Anchor, cfg.EgressPolicyRef, semDigest, authoritative, SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, snapArt.ID, resID, "job-shadow", snapArt.Anchor, cfg.EgressPolicyRef)
-	_ = cs.AttachSurrogate(context.Background(), partition, snapArt.ID, resID, "job-shadow", *sur)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egRefHash, semDigest, authoritative, SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, "job-shadow")
+	_ = cs.AttachSurrogate(context.Background(), claim, "job-shadow", *sur)
 	cfgShadow := Config{
 		Action: ActionRestore, OnUnrepresentable: PolicyReject, OnStateError: PolicyLogSkip, OnAmbiguous: PolicyLogSkip,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
 		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
-	xform := &AttemptTransform{cfg: cfgShadow, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionShadow), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfgShadow, store, CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}, CompanionPolicy{}, nil)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-shadow-ephemeral"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 	_, err := xform.HandleAttempt(context.Background(), &call, meta, request.Services{})

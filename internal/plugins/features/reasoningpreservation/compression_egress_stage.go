@@ -70,8 +70,8 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 		if store == nil {
 			return nil
 		}
-		if res.ReservationID == "" || res.Correlation.ArtifactID == "" {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+		if res.Claim.ReservationID == "" || res.Correlation.ArtifactID == "" {
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		route := cfg.Compression.Route
@@ -120,14 +120,14 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 			}
 		}
 		if dec.Action == EgressDeny {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		// Retrieve authoritative artifact safely via Snapshot lookup by partition/artifact ID.
 		// Never use text from correlation or model metadata.
 		snap, err := store.Snapshot(ctx, res.Correlation.Partition)
 		if err != nil {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		var artifact *TurnArtifact
@@ -138,7 +138,7 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 			}
 		}
 		if artifact == nil {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		// Prepare sanitized segments from authoritative artifact. Redaction occurs
@@ -146,7 +146,7 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 		// Enforce MaxInputBytes/Tokens after redaction.
 		segments, outcome, err := PrepareSemanticSegments(ctx, artifact.Reasoning, dec, cfg.Compression.MaxInputBytes, cfg.Compression.MaxInputTokens)
 		if err != nil || outcome != OutcomePrepared {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		// segments is sanitized, bounded, and contains only local index+text.
@@ -157,10 +157,10 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 		if dec.Action == EgressRedactThenAllow {
 			sanitization = SanitizationRedacted
 		}
-		// Full CAS promotion provisional -> authoritative.
-		err = store.UpdateReservationPolicyHash(ctx, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID, res.Correlation.EgressPolicyRefHash, res.Correlation.OriginalDigest, res.Correlation.PolicyRevision, res.Correlation.SemanticDigest, authoritativeHash, sanitization, routeHash)
+		// Full CAS promotion provisional -> authoritative using threaded claim verbatim.
+		err = store.UpdateReservationPolicyHash(ctx, res.Claim, res.Correlation.EgressPolicyRefHash, res.Correlation.SemanticDigest, authoritativeHash, sanitization, routeHash)
 		if err != nil {
-			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.ReservationID)
+			clearCompressionWithCleanup(ctx, store, res.Correlation.Partition, res.Correlation.ArtifactID, res.Claim.ReservationID)
 			return nil
 		}
 		if next != nil {

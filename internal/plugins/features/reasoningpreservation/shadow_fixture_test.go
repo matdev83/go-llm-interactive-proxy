@@ -121,13 +121,13 @@ func runDeterministicShadowRound(cfg Config, sourceText string, ratio float64) s
 	}
 	semDigest := sha256.Sum256([]byte("semantic-" + sourceText))
 	egHash := sha256.Sum256([]byte(cfg.Compression.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), p, art.ID, anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
-	if resID != "" {
+	claim, err := cs.ReserveCompression(context.Background(), p, art.ID, anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
+	if err == nil {
 		auth := ComputeEgressPolicyHash(CompressionEgressDecision{Action: EgressAllow, PolicyVersion: cfg.Compression.EgressPolicyRef}, cfg.Compression.Route)
 		routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
-		_ = cs.UpdateReservationPolicyHash(context.Background(), p, art.ID, resID, egHash, anchor, cfg.Compression.EgressPolicyRef, semDigest, auth, SanitizationNone, routeHash)
+		_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, auth, SanitizationNone, routeHash)
 		jobID := auxiliary.JobID("shadow-job-1")
-		_ = cs.BindCompressionJob(context.Background(), p, art.ID, resID, jobID, anchor, cfg.Compression.EgressPolicyRef)
+		_ = cs.BindCompressionJob(context.Background(), claim, jobID)
 		tel.RecordShadowMeasurement(OutcomeEligible, srcBytes, 0, 0, 0, 0)
 		tel.RecordShadowMeasurement(OutcomeEgressAllow, srcBytes, 0, 0, 0, 0)
 		tel.RecordShadowMeasurement(OutcomeSubmitted, srcBytes, 0, 0, 0, 0)
@@ -147,7 +147,7 @@ func runDeterministicShadowRound(cfg Config, sourceText string, ratio float64) s
 			AuthorizedRouteHash: routeHash,
 		}
 		sur, _, _ := DecodeSurrogate(raw, params)
-		_ = cs.AttachSurrogate(context.Background(), p, art.ID, resID, jobID, sur)
+		_ = cs.AttachSurrogate(context.Background(), claim, jobID, sur)
 		decBytes := sur.Bytes
 		saved := max(srcBytes-decBytes, 0)
 		tel.RecordShadowMeasurement(OutcomeSurrogateAttached, srcBytes, len(raw), decBytes, saved, 5*time.Millisecond)

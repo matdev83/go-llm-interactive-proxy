@@ -225,8 +225,8 @@ func TestCanceledCleanup_SubmitBindFailure_ClearsAndForgetOnceDespiteCanceledPar
 	cs := storeForSubmit(t, cfg)
 	p := reasoningpreservation.NewSessionPartition("sess-cancel-bind")
 	pr, snapArt := reservationForSubmit(t, cs, p, "art-cancel-bind", cfg, nil)
-	// tamper to cause bind failure
-	pr.Reservation.Correlation.OriginalDigest = sha256.Sum256([]byte("tampered"))
+	// tamper claim to cause bind failure
+	pr.Reservation.Claim.OriginalDigest = sha256.Sum256([]byte("tampered"))
 	fake := &submitStageFake{}
 	svc := reasoningpreservation.CompressionServices{Client: fake, Poller: fake, EgressPolicy: fakeAllowPolicy{version: "v1"}, Sanitizer: fakeSanitizer{}}
 	stage := reasoningpreservation.NewPostEgressSubmitStage(cfg, cs, svc)
@@ -419,7 +419,7 @@ func TestCanceledCleanup_ContextPreservesValuesAndDeadline(t *testing.T) {
 	// Also ensure deadline is not zero and was within 2s window
 	assert.Greater(t, deadline.Sub(time.Now().Add(-3*time.Second)), 0*time.Second)
 	assert.Equal(t, 1, capt.clearCalls)
-	assert.Equal(t, res.ReservationID, capt.capturedReservationID, "CAS reservation ID must be preserved")
+	assert.Equal(t, res.Claim.ReservationID, capt.capturedReservationID, "CAS reservation ID must be preserved")
 }
 
 // Test 6: blocking store respects timeout and does not hang
@@ -428,14 +428,14 @@ func TestCanceledCleanup_BlockingStoreRespectsTimeout(t *testing.T) {
 	cfg := egressCfgWithLimits(t, 4096, 4096)
 	cs := egressStoreForTest(t, cfg)
 	p := reasoningpreservation.NewSessionPartition("sess-blocking")
-	art := sensitiveArtifact("art-blocking", "payload", time.Unix(1_700_000_000, 0).UTC())
+	art := sensitiveArtifact("art-blocking", "eligible blocking payload long enough", time.Unix(1_700_000_000, 0).UTC())
 	_, err := cs.Append(context.Background(), p, art)
 	require.NoError(t, err)
 	snap, _ := cs.Snapshot(context.Background(), p)
 	corr := buildTestCorrelation(p, snap[0], cfg)
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
-	// Wrap with blocking store that would block 5s if not for timeout
+	// Blocking store with long delay
 	blocking := &blockingStore{CompressionStore: cs, delay: 5 * time.Second}
 	svc := reasoningpreservation.CompressionServices{
 		Client:       &fakeBackground{},
@@ -454,13 +454,13 @@ func TestCanceledCleanup_BlockingStoreRespectsTimeout(t *testing.T) {
 	// Even though store blocked, the egress stage should return quickly (fail-open)
 }
 
-// Ensure canceled parent does not affect original retained on stale clear mismatch
-func TestCanceledCleanup_StaleCASDoesNotDeleteReplacement(t *testing.T) {
+// Test 7: Stale cleanup does not overwrite newer pending
+func TestCanceledCleanup_StaleClearPreservesNewPending(t *testing.T) {
 	t.Parallel()
 	cfg := egressCfgWithLimits(t, 4096, 4096)
 	cs := egressStoreForTest(t, cfg)
-	p := reasoningpreservation.NewSessionPartition("sess-stale-cancel")
-	art := sensitiveArtifact("art-stale-cancel", "payload", time.Unix(1_700_000_000, 0).UTC())
+	p := reasoningpreservation.NewSessionPartition("sess-stale-cleanup-preserves")
+	art := sensitiveArtifact("art-stale", "eligible stale cleanup payload long enough", time.Unix(1_700_000_000, 0).UTC())
 	_, err := cs.Append(context.Background(), p, art)
 	require.NoError(t, err)
 	snap, _ := cs.Snapshot(context.Background(), p)
@@ -468,7 +468,7 @@ func TestCanceledCleanup_StaleCASDoesNotDeleteReplacement(t *testing.T) {
 	res1 := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res1.Outcome)
 	// Simulate stale replacement: clear res1 and reserve res2
-	require.NoError(t, cs.ClearCompression(context.Background(), p, snap[0].ID, res1.ReservationID))
+	require.NoError(t, cs.ClearCompression(context.Background(), p, snap[0].ID, res1.Claim.ReservationID))
 	corr2 := buildTestCorrelation(p, snap[0], cfg)
 	res2 := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr2)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res2.Outcome)
@@ -477,7 +477,7 @@ func TestCanceledCleanup_StaleCASDoesNotDeleteReplacement(t *testing.T) {
 	// Use non-deny to trigger CAS promotion failure path; easiest is stale provisional hash
 	staleCorr := res1.Correlation
 	staleCorr.EgressPolicyRefHash = sha256.Sum256([]byte("stale"))
-	staleRes := reasoningpreservation.ReservationResult{Outcome: res1.Outcome, ReservationID: res1.ReservationID, Correlation: staleCorr}
+	staleRes := reasoningpreservation.ReservationResult{Outcome: res1.Outcome, Claim: res1.Claim, Correlation: staleCorr}
 	svc := reasoningpreservation.CompressionServices{Client: &fakeBackground{}, Poller: &fakeBackground{}, EgressPolicy: fakeAllowPolicy{version: "v1"}, Sanitizer: redactingSanitizer{}}
 	egress := reasoningpreservation.NewPostReservationEgressStage(cfg, capt, svc, nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -487,7 +487,7 @@ func TestCanceledCleanup_StaleCASDoesNotDeleteReplacement(t *testing.T) {
 	st, ok, _ := cs.GetCompressionState(context.Background(), p, snap[0].ID)
 	require.True(t, ok)
 	require.NotNil(t, st.Pending)
-	assert.Equal(t, res2.ReservationID, st.Pending.ReservationID, "stale cleanup must not delete replacement")
+	assert.Equal(t, res2.Claim.ReservationID, st.Pending.ReservationID, "stale cleanup must not delete replacement")
 	stats := cs.CompressionStats()
 	assert.Equal(t, 1, stats.TotalPending)
 }

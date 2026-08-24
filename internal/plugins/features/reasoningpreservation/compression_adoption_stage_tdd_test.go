@@ -83,14 +83,14 @@ func setupAdoptionPendingCorrect(t *testing.T, cs reasoningpreservation.Compress
 	var semDigest [32]byte
 	copy(semDigest[:], h.Sum(nil))
 	egHash := sha256.Sum256([]byte(cfg.Compression.EgressPolicyRef))
-	resID, err := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
+	claim, err := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
 	require.NoError(t, err)
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: cfg.Compression.EgressPolicyRef}, cfg.Compression.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snapArt.ID, resID, egHash, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash))
 	jobID := auxiliary.JobID("job-" + snapArt.ID)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snapArt.ID, resID, jobID, snapArt.Anchor, cfg.Compression.EgressPolicyRef))
-	return jobID, resID
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, jobID))
+	return jobID, claim.ReservationID
 }
 
 func TestTDD_Adoption_SuccessAttach_StatsCorrelationShadow(t *testing.T) {
@@ -118,7 +118,7 @@ func TestTDD_Adoption_SuccessAttach_StatsCorrelationShadow(t *testing.T) {
 	// Reuse bundle's store? For this test we use our cs and tel, but need transform that uses decoder stage with our cs
 	// Create transform with decoder stage injected (as bundle does)
 	stage := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel)
-	xform := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc, stage, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, stage, tel)
 	// Need to ensure store has artifact and pending (cs already), and call is missing
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
 	// Use non-empty session partition matching p
@@ -192,7 +192,7 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 	poller1 := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c1}}
 	svc1 := reasoningpreservation.CompressionServices{Client: poller1, Poller: poller1, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
 	stage1 := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc1, tel)
-	xform1 := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc1, stage1, tel)
+	xform1 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc1, reasoningpreservation.CompanionPolicy{}, stage1, tel)
 	call1 := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
 	_, err := xform1.HandleAttempt(context.Background(), &call1, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -210,7 +210,7 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 	// Build adoption result manually via handlePollAndGuardRaw equivalent
 	// Simpler: call HandleAttempt again for same session - it will find no pending (since pending cleared), so no second decode, forget not called again, counters unchanged
 	callDup := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
-	xformDup := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svcDup, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svcDup, tel), tel)
+	xformDup := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svcDup, reasoningpreservation.CompanionPolicy{}, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svcDup, tel), tel)
 	_, err = xformDup.HandleAttempt(context.Background(), &callDup, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-adopt-stale1"},
@@ -231,7 +231,7 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 	poller2 := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c2}}
 	svc2 := reasoningpreservation.CompressionServices{Client: poller2, Poller: poller2, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
 	stage2 := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc2, tel)
-	xform2 := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc2, stage2, tel)
+	xform2 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc2, reasoningpreservation.CompanionPolicy{}, stage2, tel)
 	call2 := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
 	_, err = xform2.HandleAttempt(context.Background(), &call2, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -284,7 +284,7 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 			svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
 			tel2 := reasoningpreservation.NewTelemetry()
 			stage := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel2)
-			xf := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc, stage, tel2)
+			xf := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, stage, tel2)
 			call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
 			_, err := xf.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 				BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -320,7 +320,7 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 	pollerBad := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: cBad}}
 	svcBad := reasoningpreservation.CompressionServices{Client: pollerBad, Poller: pollerBad, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
 	stageBad := reasoningpreservation.NewDecoderAdoptionStage(cfg, wrapped, svcBad, tel)
-	xfBad := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, wrapped, svcBad, stageBad, tel)
+	xfBad := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, wrapped, svcBad, reasoningpreservation.CompanionPolicy{}, stageBad, tel)
 	callBad := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("visible answer")}}}}
 	_, err = xfBad.HandleAttempt(context.Background(), &callBad, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -391,13 +391,13 @@ func TestTDD_Adoption_RedactedObserverSubmitPollAdopt(t *testing.T) {
 	var semDigest [32]byte
 	copy(semDigest[:], h.Sum(nil))
 	egHash := sha256.Sum256([]byte(cfg.Compression.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
+	claim, _ := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
 	// Egress redact
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressRedactThenAllow, PolicyVersion: "v1"}, cfg.Compression.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snapArt.ID, resID, egHash, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, authoritative, reasoningpreservation.SanitizationRedacted, routeHash))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, authoritative, reasoningpreservation.SanitizationRedacted, routeHash))
 	jobID := auxiliary.JobID("job-" + snapArt.ID)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snapArt.ID, resID, jobID, snapArt.Anchor, cfg.Compression.EgressPolicyRef))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, jobID))
 	// Simulate sanitized source: after redact, text becomes without secret
 	sanitizedSegs := []string{strings.ReplaceAll(segs[0].Text, "secret", "REDACTED")}
 	_ = sanitizedSegs
@@ -410,7 +410,7 @@ func TestTDD_Adoption_RedactedObserverSubmitPollAdopt(t *testing.T) {
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: redactEgress{}, Sanitizer: redactSan{}}
 	stage := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel)
-	xform := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc, stage, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, stage, tel)
 	call := longCall()
 	_, err = xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{BackendID: "be", Model: "m", ReplaySupport: pollTestSupport, Session: session.SessionView{AuthoritativeSessionID: "sess-redacted"}}, request.Services{})
 	require.NoError(t, err)
@@ -445,7 +445,7 @@ func TestTDD_Adoption_ConcurrentAttachClearDeterministic(t *testing.T) {
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
 	stage := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel)
-	xform := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, cs, svc, stage, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, stage, tel)
 	// Run two concurrent HandleAttempt for same partition
 	done := make(chan struct{})
 	go func() {

@@ -62,16 +62,16 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 		if !pr.Reservation.IsReserved() {
 			return nil
 		}
-		if pr.Reservation.ReservationID == "" || pr.Reservation.Correlation.ArtifactID == "" {
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+		if pr.Reservation.Claim.ReservationID == "" || pr.Reservation.Correlation.ArtifactID == "" {
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		if len(pr.Segments) == 0 {
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		if isNilCapability(svc.Client) {
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		params := CompressorAuxRequestParams{
@@ -85,7 +85,7 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 		}
 		req, err := BuildCompressorAuxRequest(params)
 		if err != nil {
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		coalesceKey := compressionCoalesceKey(pr)
@@ -101,31 +101,30 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 		jobID, err := svc.Client.SubmitCollect(submitCtx, req, opts)
 		if err != nil {
 			if tel != nil && cfg.Compression.Enabled {
-				// Synchronous queue saturation is the only admission signal today;
-				// admission denial via ErrAdmissionDenied is reserved for future synchronous
-				// credit screening and currently surfaces asynchronously as PollFailed.
+				// Synchronous admission is only via the bounded background queue (ErrQueueSaturated);
+				// runner-side admission failures surface asynchronously via Await/Poll as PollFailed.
 				if errors.Is(err, auxiliary.ErrQueueSaturated) {
 					tel.RecordShadowMeasurement(OutcomeQueueSaturated, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
 				} else {
 					tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
 				}
 			}
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		if jobID == "" {
 			if tel != nil && cfg.Compression.Enabled {
 				tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
 			}
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
-		err = store.BindCompressionJob(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID, jobID, pr.Reservation.Correlation.OriginalDigest, pr.Reservation.Correlation.PolicyRevision)
+		err = store.BindCompressionJob(ctx, pr.Reservation.Claim, jobID)
 		if err != nil {
 			if !isNilCapability(svc.Client) {
 				svc.Client.Forget(jobID)
 			}
-			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.Claim.ReservationID)
 			return nil
 		}
 		if tel != nil && cfg.Compression.Enabled {

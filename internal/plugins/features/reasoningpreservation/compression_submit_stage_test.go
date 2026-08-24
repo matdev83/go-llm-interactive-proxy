@@ -157,7 +157,7 @@ func reservationForSubmit(t *testing.T, cs reasoningpreservation.CompressionStor
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
 	// egress promote
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"}, cfg.Compression.Route)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, id, res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), res.Claim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	// decide segments: use segs if provided else extract
 	useSegs := segs
 	if len(useSegs) == 0 {
@@ -167,7 +167,7 @@ func reservationForSubmit(t *testing.T, cs reasoningpreservation.CompressionStor
 		}
 	}
 	pr := reasoningpreservation.PreparedReservation{
-		Reservation:      reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: res.ReservationID, Correlation: corr},
+		Reservation:      res,
 		Segments:         useSegs,
 		Decision:         reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"},
 		EgressPolicyHash: authoritative,
@@ -268,7 +268,7 @@ func TestSubmitStage_SuccessfulBindState(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NotNil(t, state.Pending)
-	assert.Equal(t, pr.Reservation.ReservationID, state.Pending.ReservationID)
+	assert.Equal(t, pr.Reservation.Claim.ReservationID, state.Pending.ReservationID)
 	assert.Equal(t, fake.lastJob, state.Pending.JobID)
 	assert.True(t, state.Pending.PolicyHashAuthoritative)
 	assert.Equal(t, pr.EgressPolicyHash, state.Pending.EgressPolicyHash)
@@ -302,8 +302,8 @@ func TestSubmitStage_BindCASFailureForgetExactlyOnce(t *testing.T) {
 	cs := storeForSubmit(t, cfg)
 	p := reasoningpreservation.NewSessionPartition("sess-bind-cas")
 	pr, snapArt := reservationForSubmit(t, cs, p, "art-bind-cas", cfg, nil)
-	// tamper original digest to cause Bind failure
-	pr.Reservation.Correlation.OriginalDigest = sha256.Sum256([]byte("tampered"))
+	// tamper original digest in claim to cause Bind failure
+	pr.Reservation.Claim.OriginalDigest = sha256.Sum256([]byte("tampered"))
 	fake := &submitStageFake{}
 	svc := reasoningpreservation.CompressionServices{Client: fake, Poller: fake, EgressPolicy: fakeAllowPolicy{version: "v1"}, Sanitizer: fakeSanitizer{}}
 	stage := reasoningpreservation.NewPostEgressSubmitStage(cfg, cs, svc)
@@ -476,9 +476,9 @@ func TestSubmitStage_ScopeEqualsOriginatingClone(t *testing.T) {
 	res := reasoningpreservation.TryReserveCompression(context.Background(), cfg, cs, corr)
 	require.Equal(t, reasoningpreservation.ReservationReserved, res.Outcome)
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"}, cfg.Compression.Route)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, "art-scope", res.ReservationID, corr.EgressPolicyRefHash, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), res.Claim, corr.EgressPolicyRefHash, corr.SemanticDigest, authoritative, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	pr := reasoningpreservation.PreparedReservation{
-		Reservation:      reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: res.ReservationID, Correlation: corr},
+		Reservation:      res,
 		Segments:         []reasoningpreservation.CompressorInputSegment{{Index: 0, Text: longScopeText}},
 		Decision:         reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: "v1"},
 		EgressPolicyHash: authoritative,

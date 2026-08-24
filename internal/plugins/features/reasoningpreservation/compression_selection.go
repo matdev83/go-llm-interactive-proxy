@@ -16,22 +16,23 @@ type ReasoningViewResult struct {
 	Reason string
 }
 
-// ReasoningViewStage is the immutable selection stage seam for 6.1.
-// It is policy-aware, has no cross-attempt state, and is injected via constructor.
-// Stage evaluates current EgressPolicy once per artifact with trusted control-plane
-// input (Route/Purpose/Source/Principal) and threads the prepared hash/sanitization
-// into the pure SelectReasoningView. 6.2 may consume the local map or call pure again.
-type ReasoningViewStage func(ctx context.Context, cfg CompressionConfig, cs CompressionStore, svc CompressionServices, partition SessionPartition, candidates []restoreCandidate, support lipapi.ReasoningReplaySupport, meta request.AttemptMeta) map[string]ReasoningViewResult
-
-// selectReasoningViews is the private helper that implements the stage logic.
+// selectReasoningViews is the private helper that implements the selection logic.
 // It iterates restorable candidates, fetches the attached surrogate, evaluates
-// current EgressPolicy exactly once per artifact (bounded, no model content),
+// current EgressPolicy exactly once per invocation (bounded, no model content),
 // and runs the pure SelectReasoningViewWithCurrentPolicy. No mutation, no goroutines.
+// Policy decision is hoisted: eligible candidates are filtered first, then a single
+// immutable Decide result is applied to all.
 func selectReasoningViews(ctx context.Context, cfg CompressionConfig, cs CompressionStore, svc CompressionServices, partition SessionPartition, candidates []restoreCandidate, support lipapi.ReasoningReplaySupport, meta request.AttemptMeta) map[string]ReasoningViewResult {
 	if cs == nil || len(candidates) == 0 {
 		return nil
 	}
-	out := make(map[string]ReasoningViewResult, len(candidates))
+	type eligible struct {
+		artifactID     string
+		artifact       TurnArtifact
+		surrogate      *ReasoningSurrogate
+		classification Classification
+	}
+	var eligibles []eligible
 	for _, c := range candidates {
 		if c.Unsupported {
 			continue
@@ -40,21 +41,30 @@ func selectReasoningViews(ctx context.Context, cfg CompressionConfig, cs Compres
 		if err != nil || !ok || st.Surrogate == nil {
 			continue
 		}
-		// Policy-aware current check without model content and bounded latency.
-		// One synchronous Decide per artifact with trusted control-plane input.
-		curHash, curSan, curAction, curVersion, curErr := currentPolicyForSelection(ctx, cfg, svc, meta)
+		eligibles = append(eligibles, eligible{
+			artifactID:     c.ArtifactID,
+			artifact:       c.Artifact,
+			surrogate:      st.Surrogate,
+			classification: c.Classification,
+		})
+	}
+	if len(eligibles) == 0 {
+		return nil
+	}
+	// Evaluate policy once for the whole attempt with trusted control-plane input.
+	curHash, curSan, curAction, curVersion, curErr := currentPolicyForSelection(ctx, cfg, svc, meta)
+	out := make(map[string]ReasoningViewResult, len(eligibles))
+	for _, e := range eligibles {
 		if curErr != nil || curVersion == "" || curAction == EgressDeny {
-			out[c.ArtifactID] = ReasoningViewResult{Kind: ViewOriginal, Reason: "policy_no_longer_permits"}
+			out[e.artifactID] = ReasoningViewResult{Kind: ViewOriginal, Reason: "policy_no_longer_permits"}
 			continue
 		}
-		// Prepare current hash/sanitization for pure check.
-		// Only Allow/Redact are considered; Deny already handled.
 		if curAction != EgressAllow && curAction != EgressRedactThenAllow {
-			out[c.ArtifactID] = ReasoningViewResult{Kind: ViewOriginal, Reason: "policy_no_longer_permits"}
+			out[e.artifactID] = ReasoningViewResult{Kind: ViewOriginal, Reason: "policy_no_longer_permits"}
 			continue
 		}
-		kind, reason := SelectReasoningViewWithCurrentPolicy(cfg, c.Artifact, st.Surrogate, support, c.Classification, &curHash, &curSan)
-		out[c.ArtifactID] = ReasoningViewResult{Kind: kind, Reason: reason}
+		kind, reason := SelectReasoningViewWithCurrentPolicy(cfg, e.artifact, e.surrogate, support, e.classification, &curHash, &curSan)
+		out[e.artifactID] = ReasoningViewResult{Kind: kind, Reason: reason}
 	}
 	if len(out) == 0 {
 		return nil
@@ -101,21 +111,6 @@ func currentPolicyForSelection(ctx context.Context, cfg CompressionConfig, svc C
 	}
 	h := ComputeEgressPolicyHash(dec, cfg.Route)
 	return h, san, dec.Action, dec.PolicyVersion, nil
-}
-
-// identityReasoningViewStage is the default stage that delegates to selectReasoningViews.
-func identityReasoningViewStage(ctx context.Context, cfg CompressionConfig, cs CompressionStore, svc CompressionServices, partition SessionPartition, candidates []restoreCandidate, support lipapi.ReasoningReplaySupport, meta request.AttemptMeta) map[string]ReasoningViewResult {
-	return selectReasoningViews(ctx, cfg, cs, svc, partition, candidates, support, meta)
-}
-
-// ReasoningViewConsumerStage is the immutable consumer seam for 6.1 decisions.
-// Default identity does nothing (shadow); 6.2 injects ephemeral builder that
-// would replace only validated semantic-text Reasoning.Text fields.
-// It has no cross-attempt state; call is defensively cloned by consumer if needed.
-type ReasoningViewConsumerStage func(ctx context.Context, call *lipapi.Call, decisions map[string]ReasoningViewResult) *lipapi.Call
-
-func identityReasoningViewConsumerStage(_ context.Context, call *lipapi.Call, _ map[string]ReasoningViewResult) *lipapi.Call {
-	return call
 }
 
 // ViewKind is the pure selection decision before any mutation.

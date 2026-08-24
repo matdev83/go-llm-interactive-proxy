@@ -135,13 +135,24 @@ func IsConflictError(err error) bool { return errors.Is(err, ErrCompressionConfl
 // IsNotFoundError reports whether err is a not-found.
 func IsNotFoundError(err error) bool { return errors.Is(err, ErrCompressionNotFound) }
 
+// CompressionClaim identifies one in-flight compression reservation with value semantics.
+// Passed as an untrusted input by value to CompressionStore mutation operations;
+// the store fully validates all fields against its internal authoritative records.
+type CompressionClaim struct {
+	Partition      SessionPartition
+	ArtifactID     string
+	ReservationID  string
+	OriginalDigest [32]byte
+	PolicyRevision string
+}
+
 // CompressionStore extends TurnStore with optional-state operations.
 type CompressionStore interface {
 	TurnStore
-	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error)
-	UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error
-	BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error
-	AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
+	ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (CompressionClaim, error)
+	UpdateReservationPolicyHash(ctx context.Context, claim CompressionClaim, expectedOldHash [32]byte, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error
+	BindCompressionJob(ctx context.Context, claim CompressionClaim, jobID auxiliary.JobID) error
+	AttachSurrogate(ctx context.Context, claim CompressionClaim, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error
 	ClearCompression(ctx context.Context, partition SessionPartition, artifactID string, expectedReservationID string) error
 	GetCompressionState(ctx context.Context, partition SessionPartition, artifactID string) (CompressionState, bool, error)
 	CompressionStats() CompressionStats
@@ -149,20 +160,64 @@ type CompressionStore interface {
 
 var _ CompressionStore = (*memoryTurnStore)(nil)
 
-type compressionEntry struct {
-	pending        *PendingCompression
+// compressionClaim is the immutable CAS correlation created at ReserveCompression
+// and verified by every subsequent mutation.
+type compressionClaim struct {
 	reservationID  string
-	policyRevision string
-	surrogate      *ReasoningSurrogate
 	originalDigest [32]byte
+	policyRevision string
 }
 
-func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (string, error) {
+type compressionEntry struct {
+	pending   *PendingCompression
+	surrogate *ReasoningSurrogate
+	claim     compressionClaim
+}
+
+// artifactExistsLocked reports whether artifactID exists in session key.
+// Caller must hold s.mu.
+func (s *memoryTurnStore) artifactExistsLocked(key, artifactID string) bool {
+	for i := range s.by[key] {
+		if s.by[key][i].ID == artifactID {
+			return true
+		}
+	}
+	return false
+}
+
+// claimLocked validates and returns the pending entry for artifactID.
+// Caller must hold s.mu. Errors wrap ErrCompressionConflict with exact legacy messages.
+func (s *memoryTurnStore) claimLocked(key, artifactID, reservationID string) (*compressionEntry, error) {
+	m, ok := s.compBy[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	}
+	entry, ok := m[artifactID]
+	if !ok || entry.pending == nil {
+		return nil, fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	}
+	if entry.claim.reservationID != reservationID {
+		return nil, fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
+	}
+	return entry, nil
+}
+
+func validateCompressionClaim(entry *compressionEntry, claim CompressionClaim) error {
+	if entry.claim.originalDigest != claim.OriginalDigest {
+		return fmt.Errorf("%w: digest mismatch", ErrCompressionConflict)
+	}
+	if entry.claim.policyRevision != claim.PolicyRevision {
+		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	}
+	return nil
+}
+
+func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition SessionPartition, artifactID string, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, egressPolicyHash [32]byte) (CompressionClaim, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return CompressionClaim{}, err
 	}
 	if artifactID == "" || policyRevision == "" {
-		return "", fmt.Errorf("%w: missing id or policy", ErrCompressionConflict)
+		return CompressionClaim{}, fmt.Errorf("%w: missing id or policy", ErrCompressionConflict)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,34 +225,26 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	now := s.opts.Now()
 	// expire expired originals first to free counters
 	_ = s.expireLocked(key, now, EvictionSummary{})
-	list := s.by[key]
-	found := false
-	for i := range list {
-		if list[i].ID == artifactID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return "", fmt.Errorf("%w: artifact %q not found", ErrCompressionNotFound, artifactID)
+	if !s.artifactExistsLocked(key, artifactID) {
+		return CompressionClaim{}, fmt.Errorf("%w: artifact %q not found", ErrCompressionNotFound, artifactID)
 	}
 	// check existing optional state
 	if m, ok := s.compBy[key]; ok {
 		if e, ok := m[artifactID]; ok {
 			if e.pending != nil {
-				return "", fmt.Errorf("%w: pending already exists for %q", ErrCompressionConflict, artifactID)
+				return CompressionClaim{}, fmt.Errorf("%w: pending already exists for %q", ErrCompressionConflict, artifactID)
 			}
 			if e.surrogate != nil && e.surrogate.PolicyRevision == policyRevision {
-				return "", fmt.Errorf("%w: surrogate already exists for %q policy %q", ErrCompressionConflict, artifactID, policyRevision)
+				return CompressionClaim{}, fmt.Errorf("%w: surrogate already exists for %q policy %q", ErrCompressionConflict, artifactID, policyRevision)
 			}
 		}
 	}
 	// per-session pending
 	if s.opts.CompressionLimits.MaxPendingPerSession > 0 && s.pendingPerSession[key] >= s.opts.CompressionLimits.MaxPendingPerSession {
-		return "", &BudgetError{Kind: BudgetPendingPerSession, Limit: s.opts.CompressionLimits.MaxPendingPerSession, Current: s.pendingPerSession[key]}
+		return CompressionClaim{}, &BudgetError{Kind: BudgetPendingPerSession, Limit: s.opts.CompressionLimits.MaxPendingPerSession, Current: s.pendingPerSession[key]}
 	}
 	if s.opts.CompressionLimits.MaxPendingTotal > 0 && s.totalPending >= s.opts.CompressionLimits.MaxPendingTotal {
-		return "", &BudgetError{Kind: BudgetPendingTotal, Limit: s.opts.CompressionLimits.MaxPendingTotal, Current: s.totalPending}
+		return CompressionClaim{}, &BudgetError{Kind: BudgetPendingTotal, Limit: s.opts.CompressionLimits.MaxPendingTotal, Current: s.totalPending}
 	}
 	s.reservationSeq++
 	reservationID := fmt.Sprintf("res-%d", s.reservationSeq)
@@ -212,9 +259,11 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 		entry = &compressionEntry{}
 		s.compBy[key][artifactID] = entry
 	}
-	entry.originalDigest = originalDigest
-	entry.policyRevision = policyRevision
-	entry.reservationID = reservationID
+	entry.claim = compressionClaim{
+		reservationID:  reservationID,
+		originalDigest: originalDigest,
+		policyRevision: policyRevision,
+	}
 	entry.pending = &PendingCompression{
 		OriginalDigest:          originalDigest,
 		SemanticDigest:          semanticDigest,
@@ -229,14 +278,20 @@ func (s *memoryTurnStore) ReserveCompression(ctx context.Context, partition Sess
 	}
 	s.pendingPerSession[key]++
 	s.totalPending++
-	return reservationID, nil
+	return CompressionClaim{
+		Partition:      partition,
+		ArtifactID:     artifactID,
+		ReservationID:  reservationID,
+		OriginalDigest: originalDigest,
+		PolicyRevision: policyRevision,
+	}, nil
 }
 
-func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, expectedOldHash [32]byte, originalDigest [32]byte, policyRevision string, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error {
+func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, claim CompressionClaim, expectedOldHash [32]byte, semanticDigest [32]byte, newHash [32]byte, sanitization string, routeHash [32]byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if artifactID == "" || reservationID == "" || policyRevision == "" {
+	if claim.ArtifactID == "" || claim.ReservationID == "" || claim.PolicyRevision == "" {
 		return fmt.Errorf("%w: missing update fields", ErrCompressionConflict)
 	}
 	if !isValidSanitization(sanitization) {
@@ -251,26 +306,16 @@ func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, parti
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := partition.key()
-	m, ok := s.compBy[key]
-	if !ok {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
-	}
-	entry, ok := m[artifactID]
-	if !ok || entry.pending == nil {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
-	}
-	if entry.reservationID != reservationID || entry.pending.ReservationID != reservationID {
-		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
+	key := claim.Partition.key()
+	entry, err := s.claimLocked(key, claim.ArtifactID, claim.ReservationID)
+	if err != nil {
+		return err
 	}
 	if entry.pending.EgressPolicyHash != expectedOldHash {
 		return fmt.Errorf("%w: expected old hash mismatch", ErrCompressionConflict)
 	}
-	if entry.pending.OriginalDigest != originalDigest {
-		return fmt.Errorf("%w: digest mismatch", ErrCompressionConflict)
-	}
-	if entry.pending.PolicyRevision != policyRevision {
-		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	if err := validateCompressionClaim(entry, claim); err != nil {
+		return err
 	}
 	if entry.pending.SemanticDigest != semanticDigest {
 		return fmt.Errorf("%w: semantic digest mismatch", ErrCompressionConflict)
@@ -278,16 +323,8 @@ func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, parti
 	if entry.pending.PolicyHashAuthoritative {
 		return fmt.Errorf("%w: already authoritative", ErrCompressionConflict)
 	}
-	// verify artifact still exists
-	list := s.by[key]
-	found := false
-	for i := range list {
-		if list[i].ID == artifactID {
-			found = true
-			break
-		}
-	}
-	if !found {
+	// verify artifact still exists LAST
+	if !s.artifactExistsLocked(key, claim.ArtifactID) {
 		return fmt.Errorf("%w: artifact not found", ErrCompressionNotFound)
 	}
 	entry.pending.EgressPolicyHash = newHash
@@ -297,89 +334,56 @@ func (s *memoryTurnStore) UpdateReservationPolicyHash(ctx context.Context, parti
 	return nil
 }
 
-func (s *memoryTurnStore) BindCompressionJob(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, originalDigest [32]byte, policyRevision string) error {
+func (s *memoryTurnStore) BindCompressionJob(ctx context.Context, claim CompressionClaim, jobID auxiliary.JobID) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if reservationID == "" || jobID == "" || artifactID == "" {
+	if claim.ReservationID == "" || jobID == "" || claim.ArtifactID == "" {
 		return fmt.Errorf("%w: missing binding fields", ErrCompressionConflict)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := partition.key()
-	m, ok := s.compBy[key]
-	if !ok {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	key := claim.Partition.key()
+	entry, err := s.claimLocked(key, claim.ArtifactID, claim.ReservationID)
+	if err != nil {
+		return err
 	}
-	entry, ok := m[artifactID]
-	if !ok || entry.pending == nil {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
-	}
-	if entry.reservationID != reservationID {
-		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
-	}
-	if entry.pending.ReservationID != reservationID {
-		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
-	}
-	if entry.pending.OriginalDigest != originalDigest {
-		return fmt.Errorf("%w: digest mismatch", ErrCompressionConflict)
-	}
-	if entry.pending.PolicyRevision != policyRevision {
-		return fmt.Errorf("%w: policy mismatch", ErrCompressionConflict)
+	if err := validateCompressionClaim(entry, claim); err != nil {
+		return err
 	}
 	if !entry.pending.PolicyHashAuthoritative {
 		return fmt.Errorf("%w: not authoritative", ErrCompressionConflict)
 	}
-	// verify artifact still exists
-	list := s.by[key]
-	found := false
-	for i := range list {
-		if list[i].ID == artifactID {
-			found = true
-			break
-		}
-	}
-	if !found {
+	// verify artifact still exists LAST
+	if !s.artifactExistsLocked(key, claim.ArtifactID) {
 		return fmt.Errorf("%w: artifact not found", ErrCompressionNotFound)
 	}
 	entry.pending.JobID = jobID
 	return nil
 }
 
-func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, partition SessionPartition, artifactID string, reservationID string, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error {
+func (s *memoryTurnStore) AttachSurrogate(ctx context.Context, claim CompressionClaim, jobID auxiliary.JobID, surrogate ReasoningSurrogate) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if artifactID == "" || reservationID == "" {
+	if claim.ArtifactID == "" || claim.ReservationID == "" {
 		return fmt.Errorf("%w: missing attach fields", ErrCompressionConflict)
 	}
 	// Defensive copy outside lock to avoid holding mutex across allocation.
 	clone := cloneSurrogate(surrogate)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := partition.key()
-	// verify artifact exists
-	list := s.by[key]
-	found := false
-	for i := range list {
-		if list[i].ID == artifactID {
-			found = true
-			break
-		}
-	}
-	if !found {
+	key := claim.Partition.key()
+	// verify artifact exists FIRST (preserved precedence for Attach)
+	if !s.artifactExistsLocked(key, claim.ArtifactID) {
 		return fmt.Errorf("%w: artifact not found", ErrCompressionNotFound)
 	}
-	m, ok := s.compBy[key]
-	if !ok {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
+	entry, err := s.claimLocked(key, claim.ArtifactID, claim.ReservationID)
+	if err != nil {
+		return err
 	}
-	entry, ok := m[artifactID]
-	if !ok || entry.pending == nil {
-		return fmt.Errorf("%w: no pending for %q", ErrCompressionConflict, artifactID)
-	}
-	if entry.reservationID != reservationID || entry.pending.ReservationID != reservationID {
-		return fmt.Errorf("%w: reservation mismatch", ErrCompressionConflict)
+	if err := validateCompressionClaim(entry, claim); err != nil {
+		return err
 	}
 	if !entry.pending.PolicyHashAuthoritative {
 		return fmt.Errorf("%w: not authoritative", ErrCompressionConflict)
@@ -496,7 +500,7 @@ func (s *memoryTurnStore) ClearCompression(ctx context.Context, partition Sessio
 	if !ok {
 		return nil
 	}
-	if expectedReservationID != "" && entry.reservationID != expectedReservationID {
+	if expectedReservationID != "" && entry.claim.reservationID != expectedReservationID {
 		return fmt.Errorf("%w: reservation mismatch on clear", ErrCompressionConflict)
 	}
 	if expectedReservationID != "" && entry.pending != nil && entry.pending.ReservationID != expectedReservationID {
@@ -544,8 +548,8 @@ func (s *memoryTurnStore) GetCompressionState(ctx context.Context, partition Ses
 		return CompressionState{}, false, nil
 	}
 	state := CompressionState{
-		PolicyRevision: entry.policyRevision,
-		ReservationID:  entry.reservationID,
+		PolicyRevision: entry.claim.policyRevision,
+		ReservationID:  entry.claim.reservationID,
 	}
 	if entry.pending != nil {
 		cp := *entry.pending

@@ -211,8 +211,16 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 			// content-free error already
 			return AdoptionResult{Outcome: AdoptionOutcomeNone, Candidate: cand, RawByteCount: rawCount, Err: derr}
 		}
-		// success decode, attempt attach
-		err = store.AttachSurrogate(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID, cand.JobID, sur)
+		// Success decode, attempt attach.
+		// Reconstructed claims are untrusted input; the store validates the complete claim.
+		claim := CompressionClaim{
+			Partition:      cand.Partition,
+			ArtifactID:     cand.ArtifactID,
+			ReservationID:  cand.ReservationID,
+			OriginalDigest: pending.OriginalDigest,
+			PolicyRevision: pending.PolicyRevision,
+		}
+		err = store.AttachSurrogate(ctx, claim, cand.JobID, sur)
 		if err != nil {
 			// distinguish budget vs stale — budget exhaustion is distinct from stale/CAS.
 			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)

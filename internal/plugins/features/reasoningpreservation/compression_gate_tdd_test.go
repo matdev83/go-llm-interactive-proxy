@@ -118,13 +118,13 @@ func gateAttachValidSurrogate(t *testing.T, cs reasoningpreservation.Compression
 	var semDigest [32]byte
 	copy(semDigest[:], h.Sum(nil))
 	egHash := sha256.Sum256([]byte(cfg.Compression.EgressPolicyRef))
-	resID, err := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
+	claim, err := cs.ReserveCompression(context.Background(), partition, snapArt.ID, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
 	require.NoError(t, err)
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: cfg.Compression.EgressPolicyRef}, cfg.Compression.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), partition, snapArt.ID, resID, egHash, snapArt.Anchor, cfg.Compression.EgressPolicyRef, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash))
 	jobID := auxiliary.JobID("job-" + snapArt.ID)
-	require.NoError(t, cs.BindCompressionJob(context.Background(), partition, snapArt.ID, resID, jobID, snapArt.Anchor, cfg.Compression.EgressPolicyRef))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, jobID))
 	semIdx := []int{}
 	for i, pr := range snapArt.Reasoning {
 		if reasoningpreservation.ClassifyReasoningPart(pr.Part) == reasoningpreservation.ReplaySemanticText {
@@ -143,7 +143,7 @@ func gateAttachValidSurrogate(t *testing.T, cs reasoningpreservation.Compression
 		OriginalDigest: snapArt.Anchor, PolicyRevision: cfg.Compression.EgressPolicyRef, Sanitization: reasoningpreservation.SanitizationNone,
 		Segments: segs2, Bytes: total, SemanticDigest: semDigest, EgressPolicyHash: authoritative, AuthorizedRouteHash: routeHash,
 	}
-	require.NoError(t, cs.AttachSurrogate(context.Background(), partition, snapArt.ID, resID, jobID, sur))
+	require.NoError(t, cs.AttachSurrogate(context.Background(), claim, jobID, sur))
 }
 
 func gateCallHasCompressed(call lipapi.Call) bool {
@@ -214,7 +214,7 @@ func TestTDD_Gate_ModesTable(t *testing.T) {
 				shadowCfg := gateConfigForMode(t, "shadow", true)
 				gateAttachValidSurrogate(t, cs, partition, artInv, shadowCfg)
 				svc := reasoningpreservation.CompressionServices{EgressPolicy: fakeAllowGate{version: shadowCfg.Compression.EgressPolicyRef}, Sanitizer: fakeSanGate{}}
-				xform = reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, store, svc, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel), tel)
+				xform = reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, reasoningpreservation.CompanionPolicy{}, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel), tel)
 			} else {
 				tel = reasoningpreservation.NewTelemetry()
 				store, _ := reasoningpreservation.NewMemoryTurnStore(reasoningpreservation.StoreOptions{
@@ -278,7 +278,7 @@ func TestTDD_Gate_ActiveFailureReasonsFallback(t *testing.T) {
 				cfg.Compression.EgressPolicyRef = "other-policy"
 				svc := reasoningpreservation.CompressionServices{EgressPolicy: fakeAllowGate{version: "other-policy"}, Sanitizer: fakeSanGate{}}
 				tel2 := reasoningpreservation.NewTelemetry()
-				xform2 := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, parts.Store, svc, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel2), tel2)
+				xform2 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, parts.Store, svc, reasoningpreservation.CompanionPolicy{}, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel2), tel2)
 				call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 				support := lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
 				meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-fail-" + name}, ReplaySupport: support, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
@@ -350,16 +350,16 @@ func TestTDD_Gate_OnStateErrorRejectCompressionFailuresNoExclude(t *testing.T) {
 	var semDigest [32]byte
 	copy(semDigest[:], h.Sum(nil))
 	egHash := sha256.Sum256([]byte(cfg.Compression.EgressPolicyRef))
-	resID, _ := cs.ReserveCompression(context.Background(), partition, art.ID, art.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
+	claim, _ := cs.ReserveCompression(context.Background(), partition, art.ID, art.Anchor, cfg.Compression.EgressPolicyRef, semDigest, egHash)
 	authoritative := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: cfg.Compression.EgressPolicyRef}, cfg.Compression.Route)
 	routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
-	_ = cs.UpdateReservationPolicyHash(context.Background(), partition, art.ID, resID, egHash, art.Anchor, cfg.Compression.EgressPolicyRef, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash)
-	_ = cs.BindCompressionJob(context.Background(), partition, art.ID, resID, auxiliary.JobID("job-gate-reject"), art.Anchor, cfg.Compression.EgressPolicyRef)
+	_ = cs.UpdateReservationPolicyHash(context.Background(), claim, egHash, semDigest, authoritative, reasoningpreservation.SanitizationNone, routeHash)
+	_ = cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job-gate-reject"))
 	poller := &fakePollerGateWithError{err: fakePollErr{"poll boom"}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: fakeAllowGate{version: cfg.Compression.EgressPolicyRef}, Sanitizer: fakeSanGate{}}
 	tel := reasoningpreservation.NewTelemetry()
 	stage := reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel)
-	xform := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, store, svc, stage, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, reasoningpreservation.CompanionPolicy{}, stage, tel)
 	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
 	meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-reject2"}, ReplaySupport: lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 	dec, err := xform.HandleAttempt(context.Background(), &call, meta, request.Services{})

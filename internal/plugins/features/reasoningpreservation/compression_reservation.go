@@ -21,10 +21,10 @@ const (
 // ReservationResult is passed to next hooks in the post-append chain.
 // It is content-free: no reasoning text, no credentials, no raw hashes.
 type ReservationResult struct {
-	Outcome       ReservationOutcome
-	ReservationID string
-	Correlation   PostAppendCorrelation
-	Err           error
+	Outcome     ReservationOutcome
+	Claim       CompressionClaim
+	Correlation PostAppendCorrelation
+	Err         error
 }
 
 // IsReserved reports whether reservation succeeded.
@@ -54,9 +54,9 @@ func TryReserveCompression(ctx context.Context, cfg Config, store CompressionSto
 		return ReservationResult{Outcome: ReservationSkippedBelowThreshold, Correlation: corr}
 	}
 
-	reservationID, err := store.ReserveCompression(ctx, corr.Partition, corr.ArtifactID, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, corr.EgressPolicyRefHash)
+	claim, err := store.ReserveCompression(ctx, corr.Partition, corr.ArtifactID, corr.OriginalDigest, corr.PolicyRevision, corr.SemanticDigest, corr.EgressPolicyRefHash)
 	if err == nil {
-		return ReservationResult{Outcome: ReservationReserved, ReservationID: reservationID, Correlation: corr}
+		return ReservationResult{Outcome: ReservationReserved, Claim: claim, Correlation: corr}
 	}
 	if errors.Is(err, ErrCompressionNotFound) {
 		return ReservationResult{Outcome: ReservationNotFound, Correlation: corr, Err: err}
@@ -71,7 +71,7 @@ func TryReserveCompression(ctx context.Context, cfg Config, store CompressionSto
 }
 
 // PostReservationStage is the next composable stage after reservation (egress, submit).
-// It receives the ReservationResult (including ReservationID) for chaining.
+// It receives the ReservationResult (including Claim) for chaining.
 type PostReservationStage func(ctx context.Context, res ReservationResult) error
 
 // NewCompressionReservationHook returns a concrete LOCAL post-append hook that reserves

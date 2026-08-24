@@ -33,7 +33,7 @@ func TestTDD_RawGuard_OversizeIntegration_ClearsAndForgets_OriginalRemains_Decod
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	// Keep original call snapshot for comparison (original restored in shadow)
 	callCopy := lipapi.CloneCall(call)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
@@ -81,7 +81,7 @@ func TestTDD_RawGuard_ExactBoundary_Success_KeepsPendingNoForget(t *testing.T) {
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-exact"},
@@ -107,7 +107,7 @@ func TestTDD_RawGuard_ExactBoundary_Success_KeepsPendingNoForget(t *testing.T) {
 	arts2[0].ID = "art-exact2"
 	setupPollPendingForFixture(t, cs2, p2, arts2[0])
 	svc2 := reasoningpreservation.CompressionServices{Client: poller2, Poller: poller2, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform2 := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs2, svc2)
+	xform2 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs2, svc2, reasoningpreservation.CompanionPolicy{}, nil)
 	call2, _ := missingRestoreFixture(t)
 	dec2, err := xform2.HandleAttempt(context.Background(), &call2, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -133,7 +133,7 @@ func TestTDD_RawGuard_ToolNonText_InvalidChannel_ClearsAndForgets(t *testing.T) 
 	c.ToolCallOrder = []string{"call-1"}
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	dec, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-tool"},
@@ -187,7 +187,7 @@ func TestTDD_RawGuard_PendingClear_ByteCountExposed(t *testing.T) {
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	_, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-bytecount"},
@@ -219,7 +219,7 @@ func TestTDD_RawGuard_ClearCASFailureStillForgetOnce(t *testing.T) {
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, wrapped, svc)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, wrapped, svc, reasoningpreservation.CompanionPolicy{}, nil)
 	_, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-clear-cas"},
@@ -250,7 +250,7 @@ func TestTDD_RawGuard_TelemetrySnapshotContentFree(t *testing.T) {
 	c.FinishReceived = true
 	poller := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c}}
 	svc := reasoningpreservation.CompressionServices{Client: poller, Poller: poller, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, svc, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, svc, reasoningpreservation.CompanionPolicy{}, nil, tel)
 	_, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-tel"},
@@ -277,7 +277,7 @@ func TestTDD_RawGuard_TelemetrySnapshotContentFree(t *testing.T) {
 	c2.FinishReceived = true
 	poller2 := &pollTestPoller{result: auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: c2}}
 	svc2 := reasoningpreservation.CompressionServices{Client: poller2, Poller: poller2, EgressPolicy: pollTestEgress{}, Sanitizer: pollTestSan{}}
-	xform2 := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs2, svc2, tel2)
+	xform2 := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs2, svc2, reasoningpreservation.CompanionPolicy{}, nil, tel2)
 	call2, _ := missingRestoreFixture(t)
 	_, err = xform2.HandleAttempt(context.Background(), &call2, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
@@ -316,7 +316,7 @@ compression:
 	call, arts := missingRestoreFixture(t)
 	// No pending needed because disabled path never polls; ensure telemetry stays clean
 	_ = arts
-	xform := reasoningpreservation.NewAttemptTransformWithServices(cfg, cs, reasoningpreservation.CompressionServices{}, tel)
+	xform := reasoningpreservation.NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, cs, reasoningpreservation.CompressionServices{}, reasoningpreservation.CompanionPolicy{}, nil, tel)
 	_, err := xform.HandleAttempt(context.Background(), &call, request.AttemptMeta{
 		BackendID: "be", Model: "m", ReplaySupport: pollTestSupport,
 		Session: session.SessionView{AuthoritativeSessionID: "sess-tdd-disabled"},

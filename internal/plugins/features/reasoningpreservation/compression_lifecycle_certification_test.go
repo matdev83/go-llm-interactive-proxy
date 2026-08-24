@@ -293,26 +293,16 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		}
 	}
 	// Use explicit artifact ids for reservation attempts
-	var reserved []struct {
-		p     reasoningpreservation.SessionPartition
-		id    string
-		resID string
-		d     [32]byte
-	}
+	var reserved []reasoningpreservation.CompressionClaim
 	for si, p := range sessions {
 		for ai := range 2 {
 			artID := "t-" + string(rune('A'+si)) + "-" + string(rune('0'+ai))
 			d := digestFor(artID)
 			sem := semanticDigestFor(policy)
 			eg := egressHashFor(policy)
-			resID, err := cs.ReserveCompression(context.Background(), p, artID, d, policy, sem, eg)
+			claim, err := cs.ReserveCompression(context.Background(), p, artID, d, policy, sem, eg)
 			if err == nil {
-				reserved = append(reserved, struct {
-					p     reasoningpreservation.SessionPartition
-					id    string
-					resID string
-					d     [32]byte
-				}{p, artID, resID, d})
+				reserved = append(reserved, claim)
 			} else {
 				require.True(t, reasoningpreservation.IsBudgetError(err))
 			}
@@ -323,21 +313,21 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 	require.Equal(t, limits.MaxPendingTotal, len(reserved))
 	stats := cs.CompressionStats()
 	require.Equal(t, limits.MaxPendingTotal, stats.TotalPending)
-	for _, r := range reserved {
+	for _, claim := range reserved {
 		sem := semanticDigestFor(policy)
 		eg := egressHashFor(policy)
-		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), r.p, r.id, r.resID, eg, r.d, policy, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-		require.NoError(t, cs.BindCompressionJob(context.Background(), r.p, r.id, r.resID, auxiliary.JobID("job-"+r.id), r.d, policy))
-		sur := surrogateFor(r.d, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "x123456789", Bytes: 10})
-		require.NoError(t, cs.AttachSurrogate(context.Background(), r.p, r.id, r.resID, auxiliary.JobID("job-"+r.id), sur))
+		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+		require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job-"+claim.ArtifactID)))
+		sur := surrogateFor(claim.OriginalDigest, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "x123456789", Bytes: 10})
+		require.NoError(t, cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job-"+claim.ArtifactID), sur))
 		stats2 := cs.CompressionStats()
 		require.LessOrEqual(t, stats2.TotalSurrogateBytes, limits.MaxSurrogateBytesTotal)
 	}
 	statsFinal := cs.CompressionStats()
 	require.Equal(t, 0, statsFinal.TotalPending)
 	require.Equal(t, 30, statsFinal.TotalSurrogateBytes)
-	for _, r := range reserved {
-		require.NoError(t, cs.Delete(context.Background(), r.p, r.id))
+	for _, claim := range reserved {
+		require.NoError(t, cs.Delete(context.Background(), claim.Partition, claim.ArtifactID))
 	}
 	statsClean := cs.CompressionStats()
 	require.Equal(t, 0, statsClean.TotalPending)
@@ -488,14 +478,14 @@ func TestCertification_PollVsFinishForgetExpiryShutdown(t *testing.T) {
 		d := snap[0].Anchor
 		sem := semanticDigestFor("v1")
 		eg := egressHashFor("v1")
-		resID, err := cs.ReserveCompression(context.Background(), p, snap[0].ID, d, "v1", sem, eg)
+		claim, err := cs.ReserveCompression(context.Background(), p, snap[0].ID, d, "v1", sem, eg)
 		require.NoError(t, err)
-		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, resID, eg, d, "v1", sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-		require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), d, "v1"))
+		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+		require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job-stale")))
 		sur := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
-		require.NoError(t, cs.AttachSurrogate(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), sur))
+		require.NoError(t, cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job-stale"), sur))
 		for range 5 {
-			err = cs.AttachSurrogate(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), sur)
+			err = cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job-stale"), sur)
 			require.Error(t, err)
 		}
 		require.Equal(t, 0, cs.CompressionStats().TotalPending)
@@ -515,10 +505,10 @@ func TestCertification_CounterUpdatesExactlyOnce(t *testing.T) {
 	d := snap[0].Anchor
 	sem := semanticDigestFor("v1")
 	eg := egressHashFor("v1")
-	resID, err := cs.ReserveCompression(context.Background(), p, snap[0].ID, d, "v1", sem, eg)
+	claim, err := cs.ReserveCompression(context.Background(), p, snap[0].ID, d, "v1", sem, eg)
 	require.NoError(t, err)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snap[0].ID, resID, eg, d, "v1", sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-	require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job1"), d, "v1"))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job1")))
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); _ = cs.ClearCompression(context.Background(), p, snap[0].ID, "") }()
@@ -526,7 +516,7 @@ func TestCertification_CounterUpdatesExactlyOnce(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		sur := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
-		_ = cs.AttachSurrogate(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job1"), sur)
+		_ = cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job1"), sur)
 	}()
 	wg.Wait()
 	stats := cs.CompressionStats()
@@ -540,7 +530,7 @@ func TestCertification_CounterUpdatesExactlyOnce(t *testing.T) {
 	stats2 := cs.CompressionStats()
 	require.GreaterOrEqual(t, stats2.TotalPending, 0)
 	for range 5 {
-		_ = cs.BindCompressionJob(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job1"), d, "v1")
+		_ = cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job1"))
 	}
 	stats3 := cs.CompressionStats()
 	require.Equal(t, stats2.TotalPending, stats3.TotalPending)
@@ -572,11 +562,11 @@ func TestCertification_GenerationReloadUsesCapturedOld(t *testing.T) {
 	oldSnapArt := snap[0]
 	semOld := computeSemanticDigestCert(oldSnapArt.Reasoning)
 	egOld := sha256.Sum256([]byte(oldCfg.Compression.EgressPolicyRef))
-	resOld, err := oldCs.ReserveCompression(context.Background(), oldP, oldSnapArt.ID, oldSnapArt.Anchor, oldCfg.Compression.EgressPolicyRef, semOld, egOld)
+	claimOld, err := oldCs.ReserveCompression(context.Background(), oldP, oldSnapArt.ID, oldSnapArt.Anchor, oldCfg.Compression.EgressPolicyRef, semOld, egOld)
 	require.NoError(t, err)
 	authOld := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: oldCfg.Compression.EgressPolicyRef}, oldCfg.Compression.Route)
 	routeHashOld := sha256.Sum256([]byte(oldCfg.Compression.Route))
-	require.NoError(t, oldCs.UpdateReservationPolicyHash(context.Background(), oldP, oldSnapArt.ID, resOld, egOld, oldSnapArt.Anchor, oldCfg.Compression.EgressPolicyRef, semOld, authOld, reasoningpreservation.SanitizationNone, routeHashOld))
+	require.NoError(t, oldCs.UpdateReservationPolicyHash(context.Background(), claimOld, egOld, semOld, authOld, reasoningpreservation.SanitizationNone, routeHashOld))
 	coalesceOld := "reload-old-key"
 	oldID, err := oldClient.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{Route: lipapi.RouteIntent{Selector: "old:selector"}}}, auxiliary.SubmitOptions{CoalesceKey: coalesceOld, Timeout: time.Second})
 	require.NoError(t, err)
@@ -594,11 +584,11 @@ func TestCertification_GenerationReloadUsesCapturedOld(t *testing.T) {
 	newSnapArt := newSnap[0]
 	semNew := computeSemanticDigestCert(newSnapArt.Reasoning)
 	egNew := sha256.Sum256([]byte(newCfg.Compression.EgressPolicyRef))
-	resNew, err := newCs.ReserveCompression(context.Background(), newP, newSnapArt.ID, newSnapArt.Anchor, newCfg.Compression.EgressPolicyRef, semNew, egNew)
+	claimNew, err := newCs.ReserveCompression(context.Background(), newP, newSnapArt.ID, newSnapArt.Anchor, newCfg.Compression.EgressPolicyRef, semNew, egNew)
 	require.NoError(t, err)
 	authNew := reasoningpreservation.ComputeEgressPolicyHash(reasoningpreservation.CompressionEgressDecision{Action: reasoningpreservation.EgressAllow, PolicyVersion: newCfg.Compression.EgressPolicyRef}, newCfg.Compression.Route)
 	routeHashNew := sha256.Sum256([]byte(newCfg.Compression.Route))
-	require.NoError(t, newCs.UpdateReservationPolicyHash(context.Background(), newP, newSnapArt.ID, resNew, egNew, newSnapArt.Anchor, newCfg.Compression.EgressPolicyRef, semNew, authNew, reasoningpreservation.SanitizationNone, routeHashNew))
+	require.NoError(t, newCs.UpdateReservationPolicyHash(context.Background(), claimNew, egNew, semNew, authNew, reasoningpreservation.SanitizationNone, routeHashNew))
 	newID, err := newClient.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{Route: lipapi.RouteIntent{Selector: "new:selector"}}}, auxiliary.SubmitOptions{CoalesceKey: "reload-new-key", Timeout: time.Second})
 	require.NoError(t, err)
 	close(firstGate)
@@ -672,12 +662,12 @@ func TestCertification_OriginalEvictionClearsOptionalExactlyOnce(t *testing.T) {
 		}
 		sem := semanticDigestFor(policy)
 		eg := egressHashFor(policy)
-		resID, err := cs.ReserveCompression(context.Background(), p, id, snapArt.Anchor, policy, sem, eg)
+		claim, err := cs.ReserveCompression(context.Background(), p, id, snapArt.Anchor, policy, sem, eg)
 		require.NoError(t, err)
-		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, id, resID, eg, snapArt.Anchor, policy, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-		require.NoError(t, cs.BindCompressionJob(context.Background(), p, id, resID, auxiliary.JobID("job-"+id), snapArt.Anchor, policy))
+		require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+		require.NoError(t, cs.BindCompressionJob(context.Background(), claim, auxiliary.JobID("job-"+id)))
 		sur := surrogateFor(snapArt.Anchor, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 10})
-		require.NoError(t, cs.AttachSurrogate(context.Background(), p, id, resID, auxiliary.JobID("job-"+id), sur))
+		require.NoError(t, cs.AttachSurrogate(context.Background(), claim, auxiliary.JobID("job-"+id), sur))
 	}
 	require.Equal(t, 20, cs.CompressionStats().TotalSurrogateBytes)
 	_, err := cs.Append(context.Background(), p, sampleArtifact("evict-2", "payload2", 32))
@@ -705,12 +695,12 @@ func TestCertification_OriginalEvictionClearsOptionalExactlyOnce(t *testing.T) {
 	snapArt := snap[0]
 	sem := semanticDigestFor(policy)
 	eg := egressHashFor(policy)
-	resID, err := cs2.ReserveCompression(context.Background(), p2, snapArt.ID, snapArt.Anchor, policy, sem, eg)
+	claim2, err := cs2.ReserveCompression(context.Background(), p2, snapArt.ID, snapArt.Anchor, policy, sem, eg)
 	require.NoError(t, err)
-	require.NoError(t, cs2.UpdateReservationPolicyHash(context.Background(), p2, snapArt.ID, resID, eg, snapArt.Anchor, policy, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
-	require.NoError(t, cs2.BindCompressionJob(context.Background(), p2, snapArt.ID, resID, auxiliary.JobID("job-ttl"), snapArt.Anchor, policy))
+	require.NoError(t, cs2.UpdateReservationPolicyHash(context.Background(), claim2, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs2.BindCompressionJob(context.Background(), claim2, auxiliary.JobID("job-ttl")))
 	sur := surrogateFor(snapArt.Anchor, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 5})
-	require.NoError(t, cs2.AttachSurrogate(context.Background(), p2, snapArt.ID, resID, auxiliary.JobID("job-ttl"), sur))
+	require.NoError(t, cs2.AttachSurrogate(context.Background(), claim2, auxiliary.JobID("job-ttl"), sur))
 	require.Equal(t, 5, cs2.CompressionStats().TotalSurrogateBytes)
 	advance(2 * time.Hour)
 	_, _ = cs2.Snapshot(context.Background(), p2)
@@ -734,15 +724,15 @@ func TestCertification_NoLockAcrossPolicyProvider(t *testing.T) {
 	snapArt := snap[0]
 	sem := semanticDigestFor("v1")
 	eg := egressHashFor("v1")
-	resID, err := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, "v1", sem, eg)
+	claim, err := cs.ReserveCompression(context.Background(), p, snapArt.ID, snapArt.Anchor, "v1", sem, eg)
 	require.NoError(t, err)
-	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), p, snapArt.ID, resID, eg, snapArt.Anchor, "v1", sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
+	require.NoError(t, cs.UpdateReservationPolicyHash(context.Background(), claim, eg, sem, eg, reasoningpreservation.SanitizationNone, sha256.Sum256([]byte("test-route"))))
 	svcPolicy := reasoningpreservation.CompressionServices{Client: blockClient, Poller: blockClient, EgressPolicy: blockPolicy, Sanitizer: blockSan}
 	corr := reasoningpreservation.PostAppendCorrelation{
 		Partition: p, ArtifactID: snapArt.ID, Anchor: snapArt.Anchor, OriginalDigest: snapArt.Anchor,
 		SemanticDigest: sem, EgressPolicyRefHash: eg, SourceBytes: 10, PolicyRevision: "v1",
 	}
-	res := reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: resID, Correlation: corr}
+	res := reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, Claim: claim, Correlation: corr}
 	egressStage := reasoningpreservation.NewPostReservationEgressStage(cfg, cs, svcPolicy, func(ctx context.Context, pr reasoningpreservation.PreparedReservation) error { return nil })
 	done := make(chan struct{})
 	go func() { _ = egressStage(context.Background(), res); close(done) }()
@@ -773,10 +763,10 @@ func TestCertification_NoLockAcrossPolicyProvider(t *testing.T) {
 		}
 	}
 	require.Equal(t, "t-block2", snapArt2.ID)
-	resID2, err := cs.ReserveCompression(context.Background(), p, snapArt2.ID, snapArt2.Anchor, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
+	claim2, err := cs.ReserveCompression(context.Background(), p, snapArt2.ID, snapArt2.Anchor, "v1", semanticDigestFor("v1"), egressHashFor("v1"))
 	require.NoError(t, err)
 	svcSan.EgressPolicy = redactEgressCert{}
-	res2 := reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: resID2, Correlation: reasoningpreservation.PostAppendCorrelation{
+	res2 := reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, Claim: claim2, Correlation: reasoningpreservation.PostAppendCorrelation{
 		Partition: p, ArtifactID: snapArt2.ID, Anchor: snapArt2.Anchor, OriginalDigest: snapArt2.Anchor,
 		SemanticDigest: semanticDigestFor("v1"), EgressPolicyRefHash: egressHashFor("v1"), SourceBytes: 10, PolicyRevision: "v1",
 	}}
@@ -797,7 +787,7 @@ func TestCertification_NoLockAcrossPolicyProvider(t *testing.T) {
 	blockClient2 := &blockingBackgroundClient{block: make(chan struct{})}
 	svcClient := reasoningpreservation.CompressionServices{Client: blockClient2, Poller: blockClient2, EgressPolicy: allowPolicy, Sanitizer: pollTestSan{}}
 	pr := reasoningpreservation.PreparedReservation{
-		Reservation: reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, ReservationID: resID2, Correlation: reasoningpreservation.PostAppendCorrelation{
+		Reservation: reasoningpreservation.ReservationResult{Outcome: reasoningpreservation.ReservationReserved, Claim: claim2, Correlation: reasoningpreservation.PostAppendCorrelation{
 			Partition: p, ArtifactID: snapArt2.ID, Anchor: snapArt2.Anchor, OriginalDigest: snapArt2.Anchor, SemanticDigest: semanticDigestFor("v1"), EgressPolicyRefHash: egressHashFor("v1"), PolicyRevision: "v1",
 		}},
 		Segments: []reasoningpreservation.CompressorInputSegment{{Index: 0, Text: "hi"}},
