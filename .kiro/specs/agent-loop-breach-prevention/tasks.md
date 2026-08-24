@@ -179,7 +179,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: focused protocol/conformance tests_
 
 - [ ] 9. Add bounded observability and accounting assertions
-  - [ ] 9.1 (P) Add telemetry tests for guard cause/verdict/action/continuation/no-progress paths
+  - [x] 9.1 (P) Add telemetry tests for guard cause/verdict/action/continuation/no-progress paths
     - Use bounded enums/codes only; prohibit prompt text, assistant text, tool arguments, verifier reason/objective, or recovery prompt as metric labels.
     - Preserve existing trace/A-leg/B-leg lineage and auxiliary verifier usage accounting.
     - _Requirements: 9.6, 11.1–11.5_
@@ -285,3 +285,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 8.1 defines a conservative canonical explicit-completion fact from correlated completed `attempt_completion`/`attempt_complete` call-result pairs, proves the real OpenResponses decode path and stopgate trust/verify behavior, and leaves a compile-safe runtime RED seam for task 8.3.
 - HUMAN DECISION (2026-08-24, repo owner): execute 8.2 and 8.3 as one pragmatic TDD cycle because unsupported-continuation RED needs the normalized capability type introduced by 8.3; retain separate completion checkboxes and verify both task boundaries before one combined commit.
 - 8.2/8.3 use canonical Invocation operations to gate continuation legality conservatively, add Anthropic/Gemini operation identities, green the explicit-completion seam using real correlated tool results, and prove production B1-to-B2 stitching through live frontend wire handlers with one final terminal.
+- 9.1 adds compile-safe behavioral RED contracts for bounded candidate/verdict/action/breaker/replay telemetry and GREEN assertions for verifier usage, private lineage, attributable B-leg accounting, privacy, and A-side turn integrity.
