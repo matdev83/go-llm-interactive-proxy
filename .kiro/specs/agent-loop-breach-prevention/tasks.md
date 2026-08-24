@@ -200,7 +200,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 5.1–5.7, 6.1–6.7, 7.1–7.6, 8.1–8.6, 12.1–12.9_
     - _Depends on: 4.3, 6.3_
     - _Validation: focused stopguard/verifier/runtime regression suite_
-  - [ ] 10.2 Add architecture ratchets for ownership and dependency boundaries
+  - [x] 10.2 Add architecture ratchets for ownership and dependency boundaries
     - Assert `internal/core/stopguard` has no provider adapter/SDK dependencies and no auxiliary/backend I/O.
     - Assert no post-output continuation path uses retry/replacement semantics.
     - Assert hidden recovery control content cannot be rendered/persisted as A-side user-authored content.
@@ -288,3 +288,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 9.1 adds compile-safe behavioral RED contracts for bounded candidate/verdict/action/breaker/replay telemetry and GREEN assertions for verifier usage, private lineage, attributable B-leg accounting, privacy, and A-side turn integrity.
 - 9.2 emits bounded candidate, verdict, action, breaker, and replay-suppression telemetry through runtime structured logs, carries honest verifier usage/latency and lineage, and keeps stopgate pure with no conversational payloads in telemetry attributes.
 - 10.1 adds 18 deterministic semantic-stop fixtures and all 16 design integration scenarios across positive unfinished work, critical false-positive boundaries, verifier uncertainty, transport safety, cancellation, no-progress, budgets, explicit completion, and unsupported continuation.
+- 10.2 ratchets stopguard purity and zero-I/O imports, semantic continuation non-retry call paths, hidden Developer-control isolation, and exactly-once B/A terminal ownership under deterministic repeated and race-enabled tests.
