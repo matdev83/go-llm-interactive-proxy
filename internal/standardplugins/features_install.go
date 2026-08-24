@@ -206,6 +206,14 @@ func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, 
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
+	if cfg.Compression.Enabled {
+		// Configuration factory must not fail closed on generation-bound capabilities.
+		// Enabled compression is validated for config correctness here, but the
+		// actual AttemptTransform/StreamObserver is injected at CompileGeneration
+		// via bindReasoningPreservationCompression using process BackgroundAux
+		// and trusted egress/matcher resolvers.
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}
 	return reasoningpreservation.FeatureBundleWithCompanionPolicy(cfg, codexCompanionPolicy())
 }
 

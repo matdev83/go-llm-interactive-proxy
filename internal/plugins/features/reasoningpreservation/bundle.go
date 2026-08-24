@@ -27,18 +27,38 @@ func FeatureBundleWithParts(cfg Config) (*InstanceParts, lipfeature.FeatureBundl
 }
 
 func FeatureBundleWithPartsAndPolicy(cfg Config, policy CompanionPolicy) (*InstanceParts, lipfeature.FeatureBundle, error) {
+	return FeatureBundleWithPartsAndCompression(cfg, CompressionServices{}, policy)
+}
+
+// FeatureBundleWithPartsAndCompression extends the feature composition with explicit
+// generation-local compression capabilities. It wires validated
+// CompressionConfig.ToLimits() into StoreOptions.CompressionLimits and validates
+// that enabled compression has all required capabilities, while disabled mode
+// requires none (zero delta).
+func FeatureBundleWithPartsAndCompression(cfg Config, svc CompressionServices, policy CompanionPolicy) (*InstanceParts, lipfeature.FeatureBundle, error) {
+	if err := svc.validateFor(cfg); err != nil {
+		return nil, lipfeature.FeatureBundle{}, err
+	}
 	store, err := NewMemoryTurnStore(StoreOptions{
 		TTL:                      cfg.State.TTL,
 		MaxTurnsPerSession:       cfg.State.MaxTurnsPerSession,
 		MaxReasoningBytesPerTurn: cfg.State.MaxReasoningBytesPerTurn,
 		MaxSessionBytes:          cfg.State.MaxSessionBytes,
+		CompressionLimits:        cfg.Compression.ToLimits(),
 	})
 	if err != nil {
 		return nil, lipfeature.FeatureBundle{}, err
 	}
 	tel := NewTelemetry()
-	xform := NewAttemptTransformWithCompanionPolicy(cfg, store, policy, tel)
-	obs := NewStreamObserverFactory(cfg, store, tel)
+	stage := CompletedAdoptionStage(identityAdoptionStage)
+	if cfg.Compression.Enabled {
+		if cs, ok := store.(CompressionStore); ok {
+			stage = NewDecoderAdoptionStage(cfg, cs, svc, tel)
+		}
+	}
+	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, policy, stage, tel)
+	hook := BuildPostAppendHookWithTelemetry(cfg, store, svc, tel)
+	obs := NewStreamObserverFactoryWithPostAppendHook(cfg, store, hook, tel)
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:           lipfeature.SchemaVersionV1,
 		AttemptTransforms:       []request.AttemptTransform{xform},
@@ -48,22 +68,29 @@ func FeatureBundleWithPartsAndPolicy(cfg Config, policy CompanionPolicy) (*Insta
 		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", ID, err)
 	}
 	parts := &InstanceParts{
-		Config:    cfg,
-		Store:     store,
-		Telemetry: tel,
-		Transform: xform,
-		Observer:  obs,
+		Config:              cfg,
+		Store:               store,
+		Telemetry:           tel,
+		Transform:           xform,
+		Observer:            obs,
+		CompressionServices: svc,
 	}
 	return parts, b, nil
 }
 
+// FeatureBundleWithCompression is a convenience wrapper without companion policy.
+func FeatureBundleWithCompression(cfg Config, svc CompressionServices) (*InstanceParts, lipfeature.FeatureBundle, error) {
+	return FeatureBundleWithPartsAndCompression(cfg, svc, CompanionPolicy{})
+}
+
 // InstanceParts exposes test/diagnostics handles for one enabled feature instance.
 type InstanceParts struct {
-	Config    Config
-	Store     TurnStore
-	Telemetry *Telemetry
-	Transform *AttemptTransform
-	Observer  *StreamObserverFactory
+	Config              Config
+	Store               TurnStore
+	Telemetry           *Telemetry
+	Transform           *AttemptTransform
+	Observer            *StreamObserverFactory
+	CompressionServices CompressionServices
 }
 
 func (p *InstanceParts) Inventory() SafeInventory {

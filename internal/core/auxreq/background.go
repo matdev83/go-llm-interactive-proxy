@@ -2,10 +2,8 @@ package auxreq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,14 +59,15 @@ type SchedulerConfig struct {
 type BackgroundSchedulerConfig = SchedulerConfig
 
 type backgroundJob struct {
-	id      auxiliary.JobID
-	key     string
-	req     auxiliary.Request
-	runner  ExecutorRunner
-	pin     genpin.Pin
-	timeout time.Duration
-	done    chan struct{}
-	release sync.Once
+	id             auxiliary.JobID
+	key            string
+	req            auxiliary.Request
+	runner         ExecutorRunner
+	pin            genpin.Pin
+	timeout        time.Duration
+	maxOutputBytes int
+	done           chan struct{}
+	release        sync.Once
 
 	// The fields below are protected by BackgroundScheduler.mu.
 	finished       bool
@@ -201,6 +200,13 @@ func (c boundBackgroundClient) Forget(id auxiliary.JobID) {
 	}
 }
 
+func (c boundBackgroundClient) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
+	if c.scheduler == nil {
+		return auxiliary.PollResult{}, ErrSchedulerClosed
+	}
+	return c.scheduler.Poll(ctx, id)
+}
+
 func (s *BackgroundScheduler) worker() {
 	defer s.wg.Done()
 	for {
@@ -251,10 +257,26 @@ func (s *BackgroundScheduler) run(job *backgroundJob) {
 	stream, err := (Client{}).streamWithRunner(ctx, job.req, job.runner, false)
 	if err == nil {
 		var collectedValue lipapi.Collected
-		collectedValue, runErr = lipapi.Collect(ctx, stream)
+		effective := s.cfg.MaxResultBytes
+		if job.maxOutputBytes > 0 && job.maxOutputBytes < effective {
+			effective = job.maxOutputBytes
+		}
+		defaultLimits := lipapi.DefaultCollectLimits()
+		limits := lipapi.CollectLimits{
+			MaxTextBytes:             effective,
+			MaxReasoningBytes:        effective,
+			MaxToolArgsTotalBytes:    effective,
+			MaxWarnings:              defaultLimits.MaxWarnings,
+			MaxAssistantMediaParts:   defaultLimits.MaxAssistantMediaParts,
+			MaxAggregatePayloadBytes: effective,
+		}
+		collectedValue, runErr = lipapi.CollectWithLimits(ctx, stream, limits)
+		if runErr != nil && errors.Is(runErr, lipapi.ErrCollectLimitExceeded) {
+			runErr = fmt.Errorf("%w: %w: %w", ErrResultTooLarge, auxiliary.ErrResultTooLarge, runErr)
+		}
 		collected = &collectedValue
-		if runErr == nil && estimateCollectedBytes(collected) > s.cfg.MaxResultBytes {
-			runErr = ErrResultTooLarge
+		if runErr == nil && estimateCollectedBytes(collected) > effective {
+			runErr = fmt.Errorf("%w: %w", ErrResultTooLarge, auxiliary.ErrResultTooLarge)
 		}
 	} else if stream != nil {
 		_ = stream.Close()
@@ -319,6 +341,7 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 	}
 	if id, ok := s.byKey[key]; ok {
 		s.mu.Unlock()
+		safeInvokeOnCoalesced(opts.OnCoalesced, true)
 		return id, nil
 	}
 	s.mu.Unlock()
@@ -354,12 +377,13 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 		timeout = s.cfg.JobTimeout
 	}
 	job := &backgroundJob{
-		key:     key,
-		req:     request,
-		runner:  run,
-		pin:     pin,
-		timeout: timeout,
-		done:    make(chan struct{}),
+		key:            key,
+		req:            request,
+		runner:         run,
+		pin:            pin,
+		timeout:        timeout,
+		maxOutputBytes: opts.MaxOutputBytes,
+		done:           make(chan struct{}),
 	}
 	if parent, ok := scope.ScopeFromContext(ctx); ok {
 		job.scope = parent
@@ -369,8 +393,29 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 	id, admitted, err := s.publishJob(job)
 	if admitted {
 		releaseOnFailure = false
+		safeInvokeOnCoalesced(opts.OnCoalesced, false)
+	} else if err == nil && id != "" {
+		safeInvokeOnCoalesced(opts.OnCoalesced, true)
+	}
+	if errors.Is(err, ErrQueueFull) {
+		err = fmt.Errorf("%w: %w", auxiliary.ErrQueueSaturated, err)
+	} else if err != nil && !errors.Is(err, auxiliary.ErrQueueSaturated) && !errors.Is(err, ErrSchedulerClosed) && !errors.Is(err, auxiliary.ErrNotConfigured) && !errors.Is(err, ErrInvalidCoalesceKey) && !errors.Is(err, lipapi.ErrInvalidCall) && !errors.Is(err, lipapi.ErrNilContext) {
+		// Preserve typed taxonomy for unknown submit failures; wrap with ErrSubmitFailed.
+		err = fmt.Errorf("%w: %w", auxiliary.ErrSubmitFailed, err)
 	}
 	return id, err
+}
+
+// safeInvokeOnCoalesced invokes the optional coalescing observer outside any lock
+// and recovers from panics so an SDK consumer cannot crash the scheduler.
+func safeInvokeOnCoalesced(fn func(bool), coalesced bool) {
+	if fn == nil {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	fn(coalesced)
 }
 
 func (s *BackgroundScheduler) publishJob(job *backgroundJob) (auxiliary.JobID, bool, error) {
@@ -393,7 +438,7 @@ func (s *BackgroundScheduler) publishJob(job *backgroundJob) (auxiliary.JobID, b
 		if s.byKey[job.key] == job.id {
 			delete(s.byKey, job.key)
 		}
-		return "", false, ErrQueueFull
+		return "", false, fmt.Errorf("%w: %w", auxiliary.ErrQueueSaturated, ErrQueueFull)
 	}
 }
 
@@ -427,7 +472,7 @@ func (s *BackgroundScheduler) finish(job *backgroundJob, result *lipapi.Collecte
 	job.completedAt = s.now()
 	job.completedOrder = s.completed.Add(1)
 	if err == nil && result != nil {
-		job.result = cloneCollected(result)
+		job.result = lipapi.CloneCollected(result)
 	}
 	if !job.forgotten {
 		s.jobs[job.id] = job
@@ -489,8 +534,49 @@ func (s *BackgroundScheduler) Await(ctx context.Context, id auxiliary.JobID) (ou
 	if job.result == nil {
 		return out, errors.New("auxreq: completed job has no result")
 	}
-	cloneCollectedInto(&out, job.result)
+	lipapi.CloneCollectedInto(&out, job.result)
 	return out, nil
+}
+
+// Poll inspects a background job without blocking. It distinguishes pending,
+// completed, failed, and not-found/expired states, clones completed results
+// defensively, and does not consume or forget the job.
+func (s *BackgroundScheduler) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
+	if s == nil {
+		return auxiliary.PollResult{}, ErrSchedulerClosed
+	}
+	if ctx == nil {
+		return auxiliary.PollResult{}, lipapi.ErrNilContext
+	}
+	if err := ctx.Err(); err != nil {
+		return auxiliary.PollResult{}, err
+	}
+	if strings.TrimSpace(string(id)) == "" {
+		return auxiliary.PollResult{}, ErrInvalidJobID
+	}
+	s.mu.Lock()
+	s.cleanupLocked(s.now())
+	job, ok := s.jobs[id]
+	if !ok {
+		s.mu.Unlock()
+		return auxiliary.PollResult{State: auxiliary.PollNotFound}, nil
+	}
+	finished := job.finished
+	jobErr := job.err
+	resultPtr := job.result
+	s.mu.Unlock()
+	if !finished {
+		return auxiliary.PollResult{State: auxiliary.PollPending}, nil
+	}
+	if jobErr != nil {
+		return auxiliary.PollResult{State: auxiliary.PollFailed, Err: jobErr}, nil
+	}
+	if resultPtr == nil {
+		return auxiliary.PollResult{State: auxiliary.PollFailed, Err: errors.New("auxreq: completed job has no result")}, nil
+	}
+	var collected lipapi.Collected
+	lipapi.CloneCollectedInto(&collected, resultPtr)
+	return auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: collected}, nil
 }
 
 // Forget removes a result (or prevents a pending result from being retained)
@@ -605,210 +691,9 @@ func estimateCollectedBytes(c *lipapi.Collected) int {
 	return n
 }
 
-func cloneCollected(in *lipapi.Collected) *lipapi.Collected {
-	if in == nil {
-		return nil
-	}
-	out := &lipapi.Collected{}
-	cloneCollectedInto(out, in)
-	return out
-}
-
-// cloneCollectedInto copies a populated collection into an already allocated
-// destination without assigning either Collected value. In particular, this
-// never copies a non-zero strings.Builder by value.
-func cloneCollectedInto(out, in *lipapi.Collected) {
-	if out == nil || in == nil {
-		return
-	}
-	out.Text.Reset()
-	out.Reasoning.Reset()
-	_, _ = out.Text.WriteString(in.Text.String())
-	_, _ = out.Reasoning.WriteString(in.Reasoning.String())
-	out.ToolArgs = cloneBuilders(in.ToolArgs)
-	out.ToolNames = cloneStringMap(in.ToolNames)
-	out.ToolCallOrder = cloneStrings(in.ToolCallOrder)
-	out.Warnings = cloneStrings(in.Warnings)
-	out.InputTokens = in.InputTokens
-	out.OutputTokens = in.OutputTokens
-	out.CacheReadTokens = in.CacheReadTokens
-	out.CacheWriteTokens = in.CacheWriteTokens
-	out.ReasoningTokens = in.ReasoningTokens
-	out.TotalTokens = in.TotalTokens
-	out.CostNanoUnits = in.CostNanoUnits
-	out.Currency = in.Currency
-	out.CostSource = in.CostSource
-	out.TerminalError = cloneEvent(in.TerminalError)
-	out.FinishReceived = in.FinishReceived
-	out.FinishReason = in.FinishReason
-	if in.AssistantMedia != nil {
-		out.AssistantMedia = make([]lipapi.Part, len(in.AssistantMedia))
-		for i := range in.AssistantMedia {
-			out.AssistantMedia[i] = clonePart(in.AssistantMedia[i])
-		}
-	}
-	if in.ReasoningParts != nil {
-		out.ReasoningParts = make([]lipapi.ReasoningPart, len(in.ReasoningParts))
-		for i := range in.ReasoningParts {
-			if copyPart := cloneReasoningPart(&in.ReasoningParts[i]); copyPart != nil {
-				out.ReasoningParts[i] = *copyPart
-			}
-		}
-	}
-}
-
-func cloneBuilders(in map[string]*strings.Builder) map[string]*strings.Builder {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]*strings.Builder, len(in))
-	for id, builder := range in {
-		if builder == nil {
-			out[id] = nil
-			continue
-		}
-		copyBuilder := &strings.Builder{}
-		_, _ = copyBuilder.WriteString(builder.String())
-		out[id] = copyBuilder
-	}
-	return out
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	maps.Copy(out, in)
-	return out
-}
-
-func cloneStrings(in []string) []string {
-	if in == nil {
-		return nil
-	}
-	out := make([]string, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneEvent(in *lipapi.Event) *lipapi.Event {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Opaque = cloneBytes(in.Opaque)
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	out.Item = cloneItem(in.Item)
-	if in.UsageScopes != nil {
-		out.UsageScopes = make([]lipapi.ScopedUsageDelta, len(in.UsageScopes))
-		copy(out.UsageScopes, in.UsageScopes)
-	}
-	return &out
-}
-
-func cloneReasoningPart(in *lipapi.ReasoningPart) *lipapi.ReasoningPart {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Opaque = cloneRaw(in.Opaque)
-	out.Summary = cloneRaw(in.Summary)
-	out.Content = cloneRaw(in.Content)
-	out.EncryptedContent = cloneRaw(in.EncryptedContent)
-	return &out
-}
-
-func clonePart(in lipapi.Part) lipapi.Part {
-	out := in
-	out.Content = cloneRaw(in.Content)
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	return out
-}
-
-func cloneItem(in *lipapi.Item) *lipapi.Item {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	if in.Content != nil {
-		out.Content = make([]lipapi.ContentPart, len(in.Content))
-		for i := range in.Content {
-			out.Content[i] = cloneContentPart(in.Content[i])
-		}
-	}
-	if in.Reference != nil {
-		copyReference := *in.Reference
-		out.Reference = &copyReference
-	}
-	if in.ToolCall != nil {
-		copyToolCall := *in.ToolCall
-		copyToolCall.Arguments = cloneRaw(in.ToolCall.Arguments)
-		out.ToolCall = &copyToolCall
-	}
-	if in.ToolResult != nil {
-		copyToolResult := *in.ToolResult
-		if in.ToolResult.Parts != nil {
-			copyToolResult.Parts = make([]lipapi.ContentPart, len(in.ToolResult.Parts))
-			for i := range in.ToolResult.Parts {
-				copyToolResult.Parts[i] = cloneContentPart(in.ToolResult.Parts[i])
-			}
-		}
-		out.ToolResult = &copyToolResult
-	}
-	if in.Reasoning != nil {
-		copyReasoning := *in.Reasoning
-		copyReasoning.Reasoning = cloneReasoningPart(in.Reasoning.Reasoning)
-		out.Reasoning = &copyReasoning
-	}
-	if in.Compaction != nil {
-		copyCompaction := *in.Compaction
-		copyCompaction.Opaque = cloneRaw(in.Compaction.Opaque)
-		out.Compaction = &copyCompaction
-	}
-	if in.Extension != nil {
-		copyExtension := *in.Extension
-		copyExtension.Data = cloneRaw(in.Extension.Data)
-		out.Extension = &copyExtension
-	}
-	return &out
-}
-
-func cloneContentPart(in lipapi.ContentPart) lipapi.ContentPart {
-	out := in
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	if in.Annotation != nil {
-		copyAnnotation := *in.Annotation
-		copyAnnotation.Data = cloneRaw(in.Annotation.Data)
-		out.Annotation = &copyAnnotation
-	}
-	if in.Extension != nil {
-		copyExtension := *in.Extension
-		copyExtension.Data = cloneRaw(in.Extension.Data)
-		out.Extension = &copyExtension
-	}
-	return out
-}
-
-func cloneBytes(in []byte) []byte {
-	if in == nil {
-		return nil
-	}
-	out := make([]byte, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneRaw(in json.RawMessage) json.RawMessage {
-	if in == nil {
-		return nil
-	}
-	out := make(json.RawMessage, len(in))
-	copy(out, in)
-	return out
-}
-
 var (
 	_ auxiliary.BackgroundClient = (*BackgroundScheduler)(nil)
 	_ auxiliary.BackgroundClient = boundBackgroundClient{}
+	_ auxiliary.BackgroundPoller = (*BackgroundScheduler)(nil)
+	_ auxiliary.BackgroundPoller = boundBackgroundClient{}
 )

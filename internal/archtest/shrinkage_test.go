@@ -36,11 +36,14 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 6 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 6", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 7 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 7", len(pathMarkerOverlaySpecs))
 	}
 	if GeoIPIngressOverlayMax != 700 {
 		t.Fatalf("GeoIP ingress overlay cap drift: %d", GeoIPIngressOverlayMax)
+	}
+	if ReasoningSemanticCompressionOverlayMax != 366 {
+		t.Fatalf("reasoning semantic compression overlay cap drift: %d", ReasoningSemanticCompressionOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},

@@ -33,7 +33,6 @@ type ProductionOptions struct {
 	// foreground BillingCallID-scoped usage.
 	KeepwarmAccounting       billing.ProviderMaintenanceUsageObserver
 	BillingPostTurnBatchSize int
-
 	// BillingCreditGate is the required pre-route settled-credit screen for
 	// authoritative billing. It is intentionally separate from detailed post-route
 	// exposure admission.
@@ -53,12 +52,11 @@ type ProductionOptions struct {
 	TrafficObservers          []traffic.Observer
 	UsageObservers            []usage.Observer
 	PolicyObservers           []policydecision.Observer
-
-	// Terminal-work processor ownership (tasks 4.4–4.5). When TerminalWorkStore is
+	// Terminal-work processor ownership (tasks 4.4ÔÇô4.5). When TerminalWorkStore is
 	// set, Build constructs processor/registry/intents, starts the processor, and
 	// injects IntentService into the executor.
 	//
-	// EffectProviders are composed as: RequestRegistrations → AuthorityRequestEffectProvider
+	// EffectProviders are composed as: RequestRegistrations Ôćĺ AuthorityRequestEffectProvider
 	// adapters (by descriptor ID), then TerminalWorkProviders merged by ProviderID with
 	// explicit entries overriding derived adapters for the same ID.
 	TerminalWorkStore          terminalworkapp.RecoveryStore
@@ -70,6 +68,10 @@ type ProductionOptions struct {
 	TerminalWorkPerProviderMax int
 	TerminalWorkTickInterval   time.Duration
 	TerminalWorkRenewInterval  time.Duration
+	// ReasoningCompression holds trusted allowlist and secret redaction
+	// composition for reasoning semantic compression. Nil or missing
+	// EgressPolicies entry fails closed at generation compile time.
+	ReasoningCompression ReasoningCompressionOptions
 }
 
 // HasAuthorityOverrides reports whether production authority providers are set.

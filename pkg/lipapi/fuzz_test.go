@@ -81,10 +81,15 @@ func FuzzCollectWithLimitsProgram(f *testing.F) {
 		evs := collectFuzzEvents(b)
 		ctx := context.Background()
 		_, _ = lipapi.CollectWithLimits(ctx, lipapi.NewFixedEventStream(evs), lipapi.CollectLimits{
-			MaxTextBytes:          1 << 20,
-			MaxReasoningBytes:     1 << 20,
-			MaxToolArgsTotalBytes: 1 << 20,
-			MaxWarnings:           1000,
+			MaxTextBytes:             1 << 20,
+			MaxReasoningBytes:        1 << 20,
+			MaxToolArgsTotalBytes:    1 << 20,
+			MaxWarnings:              1000,
+			MaxAggregatePayloadBytes: 2 << 20,
+		})
+		// Also fuzz aggregate as standalone dimension with zero per-dimension limits.
+		_, _ = lipapi.CollectWithLimits(ctx, lipapi.NewFixedEventStream(evs), lipapi.CollectLimits{
+			MaxAggregatePayloadBytes: 1 << 20,
 		})
 	})
 }
@@ -100,11 +105,13 @@ func collectFuzzEvents(b []byte) []lipapi.Event {
 		if i >= j {
 			break
 		}
-		switch b[i] % 3 {
+		switch b[i] % 4 {
 		case 0:
 			evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(b[i:j])})
 		case 1:
 			evs = append(evs, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: string(b[i:j])})
+		case 2:
+			evs = append(evs, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "fuzz-call", Delta: string(b[i:j])})
 		default:
 			// Always emit a structurally valid exact part inside a legal sequence.
 			opaque := json.RawMessage(`{"v":1}`)

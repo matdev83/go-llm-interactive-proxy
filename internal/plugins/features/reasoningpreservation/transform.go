@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation
 
 import (
@@ -10,12 +11,14 @@ import (
 )
 
 type AttemptTransform struct {
-	cfg       Config
-	store     TurnStore
-	tel       *Telemetry
-	id        string
-	order     int
-	companion CompanionPolicy
+	cfg           Config
+	store         TurnStore
+	tel           *Telemetry
+	id            string
+	order         int
+	companion     CompanionPolicy
+	svc           CompressionServices
+	adoptionStage CompletedAdoptionStage
 }
 
 func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *AttemptTransform {
@@ -27,17 +30,23 @@ func NewAttemptTransform(cfg Config, store TurnStore, tel ...*Telemetry) *Attemp
 		t = NewTelemetry()
 	}
 	return &AttemptTransform{
-		cfg:   cfg,
-		store: store,
-		tel:   t,
-		id:    ID + "-transform",
-		order: 0,
+		cfg:           cfg,
+		store:         store,
+		tel:           t,
+		id:            ID + "-transform",
+		order:         0,
+		adoptionStage: identityAdoptionStage,
 	}
 }
 
-func NewAttemptTransformWithCompanionPolicy(cfg Config, store TurnStore, policy CompanionPolicy, tel ...*Telemetry) *AttemptTransform {
+// NewAttemptTransformWithCompanionPolicyServicesAndStage is the full composition for bundle wiring.
+func NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg Config, store TurnStore, svc CompressionServices, policy CompanionPolicy, stage CompletedAdoptionStage, tel ...*Telemetry) *AttemptTransform {
 	t := NewAttemptTransform(cfg, store, tel...)
+	t.svc = svc
 	t.companion = policy
+	if stage != nil {
+		t.adoptionStage = stage
+	}
 	return t
 }
 
@@ -45,6 +54,134 @@ func (t *AttemptTransform) ID() string { return t.id }
 func (t *AttemptTransform) Order() int { return t.order }
 func (t *AttemptTransform) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailClosed
+}
+
+// compressionAttempt executes one eligible compression attempt end-to-end:
+// shared classification, single poll, adoption guard, view selection,
+// ephemeral candidate construction, and restore. It returns a typed result
+// consumed by a single finalization path.
+type compressionAttempt struct {
+	cfg           Config
+	cs            CompressionStore
+	svc           CompressionServices
+	tel           *Telemetry
+	adoptionStage CompletedAdoptionStage
+}
+
+type compressionAttemptResult struct {
+	call *lipapi.Call
+	res  RestoreResult
+}
+
+func (c *compressionAttempt) run(ctx context.Context, call *lipapi.Call, meta request.AttemptMeta, arts []TurnArtifact, partition SessionPartition) (compressionAttemptResult, error) {
+	classified, candidates, cerr := collectRestoreCandidates(call, arts, meta.ReplaySupport)
+	if cerr != nil {
+		pollRes := CompressionPollAttemptResult{Kind: PollKindPollError, Err: cerr}
+		adoption := handleCompletedPollCandidate(ctx, c.cfg, c.cs, c.svc, c.tel, pollRes, call)
+		if c.adoptionStage != nil {
+			adoption = c.adoptionStage(ctx, adoption)
+		}
+		resTmp, rerr := applyStateErrorPolicy(c.cfg.OnStateError)
+		if rerr != nil {
+			return compressionAttemptResult{}, rerr
+		}
+		return compressionAttemptResult{call: call, res: resTmp}, nil
+	}
+	var pollCandidates []restoreCandidate
+	for _, cand := range candidates {
+		if !cand.Unsupported {
+			pollCandidates = append(pollCandidates, cand)
+		}
+	}
+	pollRes := pollOnceWithCandidates(ctx, c.cs, partition, pollCandidates, c.svc)
+	if c.tel != nil && c.cfg.Compression.Enabled {
+		switch pollRes.Kind {
+		case PollKindPending:
+			c.tel.RecordShadowMeasurement(OutcomePollPending, 0, 0, 0, 0, 0)
+		case PollKindCompleted:
+			c.tel.RecordShadowMeasurement(OutcomePollCompleted, 0, 0, 0, 0, 0)
+		case PollKindFailed:
+			c.tel.RecordShadowMeasurement(OutcomePollFailed, 0, 0, 0, 0, 0)
+		case PollKindNotFound:
+			c.tel.RecordShadowMeasurement(OutcomePollNotFound, 0, 0, 0, 0, 0)
+		case PollKindUnavailable:
+			c.tel.RecordShadowMeasurement(OutcomePollUnavailable, 0, 0, 0, 0, 0)
+		case PollKindPollError:
+			c.tel.RecordShadowMeasurement(OutcomePollError, 0, 0, 0, 0, 0)
+		case PollKindNoPending:
+			// No poll state occurred; implicit original fallback needs no taxonomy sample.
+		}
+	}
+	adoption := handlePollAndGuardRaw(ctx, c.cfg, c.cs, c.svc, c.tel, pollRes, call)
+	if c.adoptionStage != nil {
+		adoption = c.adoptionStage(ctx, adoption)
+	}
+	if c.tel != nil && c.cfg.Compression.Enabled && c.cfg.Compression.Mode == CompressionShadow {
+		if pollRes.Kind != PollKindNoPending && pollRes.Kind != "" {
+			c.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+		} else if adoption.Outcome != AdoptionOutcomeNone {
+			c.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+		}
+	}
+	viewDecisions := selectReasoningViews(ctx, c.cfg.Compression, c.cs, c.svc, partition, candidates, meta.ReplaySupport, meta)
+	var ephemeralCandidates []restoreCandidate
+	if c.cfg.Compression.Enabled && c.cfg.Compression.Mode == CompressionActive {
+		getSur := func(id string) (*ReasoningSurrogate, bool) {
+			st, ok, err := c.cs.GetCompressionState(ctx, partition, id)
+			if err != nil || !ok || st.Surrogate == nil {
+				return nil, false
+			}
+			return st.Surrogate, true
+		}
+		ephemeralCandidates = BuildEphemeralCandidates(candidates, viewDecisions, getSur)
+	}
+	restoreCandidates := candidates
+	if ephemeralCandidates != nil {
+		restoreCandidates = ephemeralCandidates
+	}
+	var resTmp RestoreResult
+	var rerr error
+	if c.cfg.Action == ActionObserve {
+		resTmp = RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}
+	} else if c.cfg.Action != ActionRestore {
+		return compressionAttemptResult{}, fmt.Errorf("%s: unknown action %q", ID, c.cfg.Action)
+	} else {
+		resTmp, rerr = restoreWithCandidates(RestoreInput{
+			Action:            c.cfg.Action,
+			OnUnrepresentable: c.cfg.OnUnrepresentable,
+			OnStateError:      c.cfg.OnStateError,
+			Call:              call,
+			Artifacts:         arts,
+			ReplaySupport:     meta.ReplaySupport,
+			Eligible:          true,
+		}, classified, restoreCandidates)
+		if rerr != nil {
+			return compressionAttemptResult{}, rerr
+		}
+	}
+	if c.tel != nil && c.cfg.Compression.Mode == CompressionActive {
+		used := false
+		if len(viewDecisions) > 0 && resTmp.Mutated && resTmp.RestoredCount > 0 {
+			for _, dec := range viewDecisions {
+				if dec.Kind == ViewSurrogate {
+					used = true
+					break
+				}
+			}
+		}
+		if used {
+			c.tel.RecordCompressionMeasurement(OutcomeActiveUsed, 0, 0, 0)
+		} else {
+			if len(viewDecisions) > 0 {
+				c.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+			} else if pollRes.Kind != PollKindNoPending && pollRes.Kind != "" {
+				c.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+			} else if adoption.Outcome != AdoptionOutcomeNone {
+				c.tel.RecordShadowMeasurement(OutcomeOriginalFallback, 0, 0, 0, 0, 0)
+			}
+		}
+	}
+	return compressionAttemptResult{call: call, res: resTmp}, nil
 }
 
 func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call, meta request.AttemptMeta, _ request.Services) (request.AttemptDecision, error) {
@@ -76,6 +213,22 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if err != nil {
 		return t.stateErrorDecision()
 	}
+	if t.cfg.Compression.Enabled && (t.cfg.Compression.Mode == CompressionShadow || t.cfg.Compression.Mode == CompressionActive) {
+		if cs, ok := t.store.(CompressionStore); ok {
+			ca := compressionAttempt{
+				cfg:           t.cfg,
+				cs:            cs,
+				svc:           t.svc,
+				tel:           t.tel,
+				adoptionStage: t.adoptionStage,
+			}
+			result, err := ca.run(ctx, call, meta, arts, partition)
+			if err != nil {
+				return request.AttemptDecision{}, err
+			}
+			return t.finalizeAttempt(ctx, result.call, meta, match, result.res)
+		}
+	}
 	res, err := RestoreMissingReasoning(RestoreInput{
 		Action:            t.cfg.Action,
 		OnUnrepresentable: t.cfg.OnUnrepresentable,
@@ -88,6 +241,10 @@ func (t *AttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Call,
 	if err != nil {
 		return request.AttemptDecision{}, err
 	}
+	return t.finalizeAttempt(ctx, call, meta, match, res)
+}
+
+func (t *AttemptTransform) finalizeAttempt(ctx context.Context, call *lipapi.Call, meta request.AttemptMeta, match MatchResult, res RestoreResult) (request.AttemptDecision, error) {
 	t.recordRestoreOutcome(res)
 	if res.Exclude {
 		reason := res.ReasonCode

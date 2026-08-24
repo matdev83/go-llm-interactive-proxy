@@ -21,7 +21,8 @@ const (
 type WorkloadRole string
 
 const (
-	WorkloadRoleCompactionContinuityExtractor = "compaction_continuity_extractor"
+	WorkloadRoleCompactionContinuityExtractor   = "compaction_continuity_extractor"
+	WorkloadRoleReasoningPreservationCompressor = "reasoning_preservation_compressor"
 )
 
 var ErrInvalidWorkloadIdentity = errors.New("billing: invalid workload identity")
@@ -38,10 +39,12 @@ type WorkloadIdentity struct {
 // persisting arbitrary plugin or request text.
 func WorkloadIdentityFromAuxiliaryRole(role string) (WorkloadIdentity, error) {
 	role = strings.TrimSpace(role)
-	if role != WorkloadRoleCompactionContinuityExtractor {
+	switch role {
+	case WorkloadRoleCompactionContinuityExtractor, WorkloadRoleReasoningPreservationCompressor:
+		return WorkloadIdentity{Class: WorkloadClassAuxiliary, Role: WorkloadRole(role)}, nil
+	default:
 		return WorkloadIdentity{}, fmt.Errorf("%w: unsupported auxiliary role %q", ErrInvalidWorkloadIdentity, role)
 	}
-	return WorkloadIdentity{Class: WorkloadClassAuxiliary, Role: WorkloadRole(role)}, nil
 }
 
 func (w WorkloadIdentity) IsZero() bool {
@@ -67,7 +70,9 @@ func (w WorkloadIdentity) Validate() error {
 			return fmt.Errorf("%w: primary workload must not carry auxiliary role", ErrInvalidWorkloadIdentity)
 		}
 	case WorkloadClassAuxiliary:
-		if role != WorkloadRole(WorkloadRoleCompactionContinuityExtractor) {
+		switch role {
+		case WorkloadRole(WorkloadRoleCompactionContinuityExtractor), WorkloadRole(WorkloadRoleReasoningPreservationCompressor):
+		default:
 			return fmt.Errorf("%w: unsupported auxiliary role %q", ErrInvalidWorkloadIdentity, role)
 		}
 	}

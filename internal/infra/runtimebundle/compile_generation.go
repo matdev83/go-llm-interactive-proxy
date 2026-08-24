@@ -37,7 +37,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if ps.Closed() {
 		return nil, fmt.Errorf("runtimebundle: ProcessServices is closed")
 	}
-
 	src := in.Candidate
 	if src == nil {
 		src = ps.cfg
@@ -60,6 +59,13 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateCompactionContinuityGeneration(ps, regs); err != nil {
 		return nil, err
 	}
+	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
+		return nil, err
+	}
 	merged, err := featurebundle.MergeFeatureSurface(ps.FactoryCatalog, regs)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
@@ -68,20 +74,21 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, err
 	}
+	merged, err = bindReasoningPreservationCompression(merged, ps, regs, boundClient, boundPoller)
+	if err != nil {
+		return nil, err
+	}
 	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
-
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
 	ext := extensionsFromMerged(merged, ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
-
 	bus := in.Bus
 	if bus == nil {
 		bus = hooks.New(hooksConfigFromMerged(merged))
 	}
-
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,
 		Bus:       bus,
@@ -93,22 +100,20 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
 		FaultInject:      in.FaultInject,
+		GenerationRunner: genRunner,
 	})
 	if err != nil {
 		return nil, err
 	}
-
 	failBeforeTransfer := func(err error) (GenerationRuntime, error) {
 		if rollErr := cand.RollbackUnpublished(); rollErr != nil {
 			return nil, errors.Join(err, rollErr)
 		}
 		return nil, err
 	}
-
 	if err := injectCandidateFault(in.FaultInject, "handler"); err != nil {
 		return failBeforeTransfer(err)
 	}
-
 	wireModel := ps.opts.WireModel
 	if wireModel == nil {
 		wireModel = standardplugins.DefaultWireModel
@@ -118,17 +123,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		route = config.EffectiveDefaultRouteSelector(frozen, wireModel)
 	}
 	authProviders := append([]httpauth.Provider(nil), cand.security.httpAuth...)
-
-	// The generation lifecycle context is the runtime shutdown signal for
-	// long-lived transport state mounted into this generation (WebSocket
-	// sessions). The ledger cancels it at PhaseQuiesce on reload/shutdown;
-	// failure paths below also cancel it before rolling the ledger back.
 	genCtx, genCancel := context.WithCancel(context.Background())
 	if cand.ledger != nil {
 		cand.ledger.AddClose("openresponses-generation-lifecycle", PhaseQuiesce, func() error { genCancel(); return nil })
 	}
 	failWithGenCtx := func(err error) (GenerationRuntime, error) { genCancel(); return failBeforeTransfer(err) }
-
 	nowFn := time.Now
 	if ps.opts != nil && ps.opts.Testing.Clock != nil {
 		nowFn = ps.opts.Testing.Clock
@@ -137,7 +136,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return failWithGenCtx(err)
 	}
-
 	httpInput := buildStandardHTTPInput(genCtx, cand, frozen, regs, route)
 	httpInput.Operations.RouteOverrideAdmin = adminHandler
 	if err := injectCandidateFault(in.FaultInject, "composer-clone"); err != nil {
@@ -147,7 +145,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: composer config clone: %w", err))
 	}
-
 	handler, err := composeStandardHTTPIsolated(ctx, in.Compose, composerCfg, ps.Logger, httpInput)
 	if err != nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: compose request plane: %w", err))
@@ -155,7 +152,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if handler == nil {
 		return failWithGenCtx(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
-
 	if err := injectCandidateFault(in.FaultInject, "ledger-transfer"); err != nil {
 		_ = cand.claimLifecycleLedger()
 	}
@@ -174,7 +170,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if retired, ok := cand.execution.executor.Store.(b2bua.ALegRetirementObserver); ok {
 		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
 	}
-
 	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
 		executor:          cand.execution.executor,
@@ -339,6 +334,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 	}
 	return ext
 }
+
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return

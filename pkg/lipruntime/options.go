@@ -15,6 +15,8 @@ import (
 //
 // Provider injection uses descriptor-bound registrations only:
 // RequestRegistrations, AttemptRegistrations, and ConcurrencyRegistration.
+// ReasoningCompression is the optional host-owned egress policy seam for reasoning semantic compression.
+// Stock lipstd leaves it zero; enabled compression without host policy fails closed. Hosts use lipruntime.
 type Options struct {
 	// ConfigPath is the YAML runtime config path (required).
 	ConfigPath string
@@ -51,4 +53,8 @@ type Options struct {
 	UsageObservers []usage.Observer
 	// PolicyObservers are chained into policy-decision evidence (additive to EvidenceSink).
 	PolicyObservers []policydecision.Observer
+	// ReasoningCompression holds trusted egress policy and secret matcher resolver for reasoning semantic compression.
+	// When compression.enabled is true but no trusted policy/resolver is supplied, generation fails closed.
+	// This seam is non-money and is the supported host path; stock lipstd does not synthesize an allow-all policy.
+	ReasoningCompression ReasoningCompressionOptions
 }

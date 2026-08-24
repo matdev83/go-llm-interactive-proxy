@@ -48,8 +48,7 @@ type BuildOptions struct {
 	// WireModel resolves default upstream model ids when computing the effective
 	// default route selector. When nil, Build uses standardplugins.DefaultWireModel
 	// (standard distribution).
-	WireModel config.WireModelForBackend
-
+	WireModel   config.WireModelForBackend
 	Startup     StartupOptions
 	Infra       InfraOptions
 	Auth        AuthOptions
@@ -63,7 +62,6 @@ type BuildOptions struct {
 	// DiscoveredPlugins, when set, installs validated catalog exports onto
 	// PluginRegistry before backend construction (Phase 4 discovery bridge).
 	DiscoveredPlugins *DiscoveredPluginInstall
-
 	// FeatureLifecycles are merged feature plugin lifecycles owned by the candidate
 	// resource ledger in serve/compile paths (task 3.2). When non-empty, callers must
 	// not also Start/Stop the same instances via runtime.App (singular ownership).
@@ -144,7 +142,6 @@ type SecretGuardInputs struct {
 	// over YAML redaction options during composition.
 	SingleUser coresg.SingleUserOptions
 }
-
 type ExtensionsOptions struct {
 	// SessionOpeners and WorkspaceResolvers are merged from enabled feature
 	// bundles.
@@ -226,4 +223,6 @@ type TestingOptions struct {
 	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
 	// policy/rating generation publisher (Phase 9.3). Tests only.
 	SnapshotPublisherOverride *snapshotgen.Publisher
+	// ReasoningCompression mirrors Production.ReasoningCompression for tests.
+	ReasoningCompression ReasoningCompressionOptions
 }

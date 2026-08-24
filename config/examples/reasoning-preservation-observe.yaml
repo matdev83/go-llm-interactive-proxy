@@ -120,3 +120,24 @@ plugins:
           max_turns_per_session: 8
           max_reasoning_bytes_per_turn: 4096
           max_session_bytes: 32768
+        compression:
+          enabled: false
+        # To enable shadow compression, replace the block above with:
+        # compression:
+        #   enabled: true
+        #   mode: shadow
+        #   route: "openai-responses:small-model"
+        #   timeout: 8s
+        #   max_input_tokens: 12000
+        #   max_input_bytes: 1048576
+        #   max_output_tokens: 1500
+        #   max_output_bytes: 262144
+        #   max_surrogate_bytes: 131072
+        #   min_source_bytes: 4096
+        #   min_saved_bytes: 1024
+        #   min_savings_ratio: 0.3
+        #   max_pending_per_session: 8
+        #   max_surrogate_bytes_per_session: 524288
+        #   max_pending_total: 256
+        #   max_surrogate_bytes_total: 16777216
+        #   egress_policy_ref: "allowlist:reasoning-compression"

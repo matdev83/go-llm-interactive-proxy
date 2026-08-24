@@ -27,7 +27,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimehost/generation.go", Max: 341},
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 284},
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 378},
+	// Reasoning compression adds one generation-local auxiliary binding before
+	// feature merge; measured 360 after extraction, retain 25-line headroom.
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 385},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
@@ -59,10 +61,13 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	{Tree: "internal/infra/runtimebundle", Max: 12616},
+	// Reasoning semantic compression adds explicit generation composition; the
+	// dedicated overlay keeps it out of legacy shrinkage while this tree ratchet
+	// is measured at 12721 on current main plus 25 lines headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 12746},
 	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
-	{Tree: "pkg/lipruntime", Max: 562},
+	{Tree: "pkg/lipruntime", Max: 720},
 }
 
 // LineBudget caps recursive non-test lines for broader architectural layers.
@@ -113,12 +118,15 @@ var LineBudgets = []LineBudget{
 	// Remediation round 1: panic-isolated SafeObserver wrapper, anchor failure only on ErrAnchorMissing/ErrAnchorNotFound, stage label on OnAnchorFallback (stage+policy), production compose helper internal/infra/metrics NewConversationViewServicesWithMetrics; measured 92070, bump to 92095 with 25 headroom.
 	// Conversation-view follow-ups: atomic after_message anchor registration invariant (ErrSteeringAnchorExcluded checked inside Reference/Memory/Bun PutSteering under lock/Tx, RegistersNewAfterMessageAnchor helper, unsafe trailing-survivor rejection in ResolveAfterIngressTailAnchor, storecontract AnchorExcludedRegistration + sdkadapter TOCTOU regression, re-runnable PG harness cleanup); measured 92223, bump to 92248 with 25 headroom.
 	// Conversation-view follow-up review hardening: pin same after_message anchor exempt branch and valid reasoning trajectory with Validate; measured 92263, bump to 92288 with 25 headroom.
-	{Dir: "internal/core", Max: 92288},
+	// Reasoning-preservation semantic compression adds bounded auxiliary workload classification and orchestration; current-main integration measured 92340, bump to 92365 with 25 headroom.
+	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
+	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
+	{Dir: "internal/core", Max: 92178},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12616},
+	{Dir: "internal/infra/runtimebundle", Max: 12746},
 	{Dir: "cmd/lipstd", Max: 979},
-	{Dir: "pkg/lipruntime", Max: 562},
+	{Dir: "pkg/lipruntime", Max: 720},
 }
 
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.

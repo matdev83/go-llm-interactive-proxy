@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -12,11 +13,12 @@ import (
 // A zero value disables all limits (CollectUnbounded). Individual fields use zero to mean
 // “no limit” for that dimension only when using CollectWithLimits with a partially filled struct.
 type CollectLimits struct {
-	MaxTextBytes           int
-	MaxReasoningBytes      int
-	MaxToolArgsTotalBytes  int
-	MaxWarnings            int
-	MaxAssistantMediaParts int // assistant_image_ref / assistant_file_ref events aggregated into Collected.AssistantMedia; 0 = unlimited
+	MaxTextBytes             int
+	MaxReasoningBytes        int
+	MaxToolArgsTotalBytes    int
+	MaxWarnings              int
+	MaxAssistantMediaParts   int // assistant_image_ref / assistant_file_ref events aggregated into Collected.AssistantMedia; 0 = unlimited
+	MaxAggregatePayloadBytes int // aggregate retained bytes across Text + Reasoning (delta + exact ReasoningPart payload) + ToolArgs; 0 = unlimited (backward-compatible). Overflow-safe.
 }
 
 // DefaultCollectLimits returns conservative defaults for Collect (non-streaming aggregation).
@@ -468,6 +470,7 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 	seenTool := make(map[string]struct{})
 	var toolArgBytes int
 	var exactReasoningBytes int
+	var aggregateBytes int
 
 	var sawResponseStarted bool
 	var sawMessage bool
@@ -534,28 +537,68 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 
 		switch ev.Kind {
 		case EventTextDelta:
-			if limits.MaxTextBytes > 0 && out.Text.Len()+len(ev.Delta) > limits.MaxTextBytes {
+			add := len(ev.Delta)
+			if aggregateWouldExceed(aggregateBytes, add, limits.MaxAggregatePayloadBytes) {
+				return out, fmt.Errorf("%w: aggregate payload would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxAggregatePayloadBytes)
+			}
+			if limits.MaxTextBytes > 0 && out.Text.Len()+add > limits.MaxTextBytes {
 				return out, fmt.Errorf("%w: text aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxTextBytes)
 			}
 			out.Text.WriteString(ev.Delta)
+			if aggregateBytes > math.MaxInt-add {
+				aggregateBytes = math.MaxInt
+			} else {
+				aggregateBytes += add
+			}
 		case EventReasoningDelta:
-			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, len(ev.Delta), limits.MaxReasoningBytes) {
+			add := len(ev.Delta)
+			if aggregateWouldExceed(aggregateBytes, add, limits.MaxAggregatePayloadBytes) {
+				return out, fmt.Errorf("%w: aggregate payload would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxAggregatePayloadBytes)
+			}
+			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, add, limits.MaxReasoningBytes) {
 				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
 			}
 			out.Reasoning.WriteString(ev.Delta)
+			if aggregateBytes > math.MaxInt-add {
+				aggregateBytes = math.MaxInt
+			} else {
+				aggregateBytes += add
+			}
 		case EventReasoningPart:
 			if ev.Reasoning == nil {
 				return out, fmt.Errorf("%s without reasoning payload", EventReasoningPart)
+			}
+			// Compute payload bytes before cloning to enforce aggregate limit before allocation.
+			preAdd := ReasoningPayloadBytes(ev.Reasoning)
+			if aggregateWouldExceed(aggregateBytes, preAdd, limits.MaxAggregatePayloadBytes) {
+				return out, fmt.Errorf("%w: aggregate payload would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxAggregatePayloadBytes)
+			}
+			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, preAdd, limits.MaxReasoningBytes) {
+				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
 			}
 			cloned := cloneReasoningPart(ev.Reasoning)
 			if err := validateReasoningPart(cloned); err != nil {
 				return out, fmt.Errorf("%s: %w", EventReasoningPart, err)
 			}
 			add := ReasoningPayloadBytes(cloned)
-			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, add, limits.MaxReasoningBytes) {
+			// If cloned size differs from pre-check (defensive), re-validate aggregate/reasoning limits.
+			if add != preAdd {
+				if aggregateWouldExceed(aggregateBytes, add, limits.MaxAggregatePayloadBytes) {
+					return out, fmt.Errorf("%w: aggregate payload would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxAggregatePayloadBytes)
+				}
+				if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, add, limits.MaxReasoningBytes) {
+					return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
+				}
+			}
+			if exactReasoningBytes > math.MaxInt-add {
 				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
 			}
 			exactReasoningBytes += add
+			if aggregateBytes > math.MaxInt-add {
+				aggregateBytes = math.MaxInt
+			} else {
+				aggregateBytes += add
+			}
 			out.ReasoningParts = append(out.ReasoningParts, *cloned)
 		case EventToolCallStarted:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
@@ -573,6 +616,13 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			if strings.TrimSpace(ev.ToolCallID) == "" {
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallArgsDelta)
 			}
+			add := len(ev.Delta)
+			if aggregateWouldExceed(aggregateBytes, add, limits.MaxAggregatePayloadBytes) {
+				return out, fmt.Errorf("%w: aggregate payload would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxAggregatePayloadBytes)
+			}
+			if limits.MaxToolArgsTotalBytes > 0 && toolArgBytes+add > limits.MaxToolArgsTotalBytes {
+				return out, fmt.Errorf("%w: tool arguments aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxToolArgsTotalBytes)
+			}
 			id := ev.ToolCallID
 			if _, ok := seenTool[id]; !ok {
 				seenTool[id] = struct{}{}
@@ -584,10 +634,15 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				out.ToolArgs[id] = nb
 				b = nb
 			}
-			if limits.MaxToolArgsTotalBytes > 0 && toolArgBytes+len(ev.Delta) > limits.MaxToolArgsTotalBytes {
+			if toolArgBytes > math.MaxInt-add {
 				return out, fmt.Errorf("%w: tool arguments aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxToolArgsTotalBytes)
 			}
-			toolArgBytes += len(ev.Delta)
+			toolArgBytes += add
+			if aggregateBytes > math.MaxInt-add {
+				aggregateBytes = math.MaxInt
+			} else {
+				aggregateBytes += add
+			}
 			b.WriteString(ev.Delta)
 		case EventToolCallFinished:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
@@ -673,6 +728,24 @@ func mergeTotalTokens(cur, next int) int {
 
 func terminalError(ev Event) error {
 	return NewStreamError(ev.ErrorCode, ev.ErrorMessage)
+}
+
+// aggregateWouldExceed reports whether adding add bytes to current would exceed maxLen.
+// maxLen<=0 means unlimited. Overflow-safe.
+func aggregateWouldExceed(current, add, maxLen int) bool {
+	if maxLen <= 0 {
+		return false
+	}
+	if current < 0 || add < 0 {
+		return true
+	}
+	if current > maxLen {
+		return true
+	}
+	if add > maxLen-current {
+		return true
+	}
+	return false
 }
 
 // reasoningAggregateWouldExceed reports whether adding add bytes to text+exact

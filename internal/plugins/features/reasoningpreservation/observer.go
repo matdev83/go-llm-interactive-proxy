@@ -16,15 +16,23 @@ import (
 )
 
 type StreamObserverFactory struct {
-	cfg      Config
-	store    TurnStore
-	tel      *Telemetry
-	id       string
-	order    int
-	lastDiag atomic.Value
+	cfg            Config
+	store          TurnStore
+	tel            *Telemetry
+	id             string
+	order          int
+	lastDiag       atomic.Value
+	postAppendHook PostAppendHook
 }
 
 func NewStreamObserverFactory(cfg Config, store TurnStore, tel ...*Telemetry) *StreamObserverFactory {
+	return NewStreamObserverFactoryWithPostAppendHook(cfg, store, nil, tel...)
+}
+
+// NewStreamObserverFactoryWithPostAppendHook creates a factory with an immutable post-append hook.
+// The hook is assigned once at construction and never mutated thereafter, avoiding data races.
+// When compression is disabled the hook must be nil.
+func NewStreamObserverFactoryWithPostAppendHook(cfg Config, store TurnStore, hook PostAppendHook, tel ...*Telemetry) *StreamObserverFactory {
 	var t *Telemetry
 	if len(tel) > 0 {
 		t = tel[0]
@@ -33,11 +41,12 @@ func NewStreamObserverFactory(cfg Config, store TurnStore, tel ...*Telemetry) *S
 		t = NewTelemetry()
 	}
 	f := &StreamObserverFactory{
-		cfg:   cfg,
-		store: store,
-		tel:   t,
-		id:    ID + "-observer",
-		order: 0,
+		cfg:            cfg,
+		store:          store,
+		tel:            t,
+		id:             ID + "-observer",
+		order:          0,
+		postAppendHook: hook,
 	}
 	f.lastDiag.Store("")
 	return f
@@ -222,22 +231,25 @@ func (o *streamObserver) Observe(_ context.Context, ev lipapi.Event) error {
 
 func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutcome) error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.finished {
+		o.mu.Unlock()
 		return nil
 	}
 	o.finished = true
 	if outcome != response.OutcomeSuccessReleased {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if !o.captureEligible() {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if o.oversized {
 		o.factory.recordOutcome(OutcomeOversize, map[string]int{"bytes": o.reasoningBytes})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	o.flushTextLocked()
@@ -246,12 +258,14 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	placed, _, err := DerivePlacementsFromParts(o.parts)
 	if err != nil || len(placed) == 0 {
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	partition, ok := sessionPartitionOrMiss(o.meta.Session.AuthoritativeSessionID)
 	if !ok {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	msg := lipapi.Message{Role: lipapi.RoleAssistant, Parts: o.parts}
@@ -259,6 +273,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if err != nil {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	reasoningBytes := 0
@@ -268,6 +283,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if reasoningBytes <= 0 || reasoningBytes > o.cfg.State.MaxReasoningBytesPerTurn {
 		o.factory.recordOutcome(OutcomeOversize, map[string]int{"bytes": reasoningBytes})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	art := TurnArtifact{
@@ -283,6 +299,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	if err != nil {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
+		o.mu.Unlock()
 		return nil
 	}
 	if sum.EvictedTurns > 0 || sum.ExpiredTurns > 0 || sum.EvictedBytes > 0 || sum.ExpiredBytes > 0 {
@@ -292,7 +309,76 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 		})
 	}
 	o.factory.recordOutcome(OutcomeObserved, map[string]int{"count": 1, "bytes": reasoningBytes})
+	var hook PostAppendHook
+	var corr PostAppendCorrelation
+	var hasCorr bool
+	if o.factory.cfg.Compression.Enabled && o.factory.postAppendHook != nil {
+		segs := ExtractSemanticSegments(art.Reasoning)
+		if len(segs) == 0 {
+			if o.factory.tel != nil {
+				hasExact := false
+				for _, pr := range art.Reasoning {
+					if ClassifyReasoningPart(pr.Part) == ReplayExactRequired {
+						hasExact = true
+						break
+					}
+				}
+				if hasExact {
+					o.factory.tel.RecordShadowMeasurement(OutcomeExact, 0, 0, 0, 0, 0)
+				} else {
+					o.factory.tel.RecordShadowMeasurement(OutcomeCompIneligible, 0, 0, 0, 0, 0)
+				}
+			}
+		} else {
+			if o.factory.tel != nil {
+				srcAll := 0
+				for _, s := range segs {
+					srcAll += len(s.Text)
+				}
+				// Eligible but may be below threshold; reservation stage will emit below_threshold if needed.
+				// Mixed exact+semantic: eligible wins for flow, but also record exact for taxonomy completeness.
+				o.factory.tel.RecordShadowMeasurement(OutcomeEligible, srcAll, 0, 0, 0, 0)
+				hasExact := false
+				for _, pr := range art.Reasoning {
+					if ClassifyReasoningPart(pr.Part) == ReplayExactRequired {
+						hasExact = true
+						break
+					}
+				}
+				if hasExact {
+					o.factory.tel.RecordShadowMeasurement(OutcomeExact, 0, 0, 0, 0, 0)
+				}
+			}
+			semDigest := computeSemanticDigest(art.Reasoning)
+			egressHash := computeEgressPolicyRefHash(o.factory.cfg.Compression.EgressPolicyRef)
+			srcBytes := 0
+			for _, s := range segs {
+				srcBytes += len(s.Text)
+			}
+			corr = PostAppendCorrelation{
+				Partition:           partition,
+				ArtifactID:          art.ID,
+				Anchor:              anchor,
+				OriginalDigest:      anchor,
+				SemanticDigest:      semDigest,
+				EgressPolicyRefHash: egressHash,
+				SourceBytes:         srcBytes,
+				TraceID:             o.meta.TraceID,
+				ALegID:              o.meta.ALegID,
+				BLegID:              o.meta.BLegID,
+				BranchBinding:       o.meta.CandidateKey,
+				Scope:               o.meta.Scope.Clone(),
+				PolicyRevision:      o.factory.cfg.Compression.EgressPolicyRef,
+			}
+			hook = o.factory.postAppendHook
+			hasCorr = true
+		}
+	}
 	o.clearPendingLocked()
+	o.mu.Unlock()
+	if hasCorr && hook != nil {
+		_ = hook(ctx, corr)
+	}
 	return nil
 }
 
@@ -328,12 +414,27 @@ func (o *streamObserver) captureExactReasoningPartLocked(src *lipapi.ReasoningPa
 		return nil
 	}
 	cloned := &lipapi.ReasoningPart{
-		Dialect:   src.Dialect,
-		Text:      src.Text,
-		Signature: src.Signature,
+		Dialect:                 src.Dialect,
+		Text:                    src.Text,
+		Signature:               src.Signature,
+		Summary:                 append(json.RawMessage(nil), src.Summary...),
+		SummaryPresent:          src.SummaryPresent,
+		Content:                 append(json.RawMessage(nil), src.Content...),
+		ContentPresent:          src.ContentPresent,
+		EncryptedContent:        append(json.RawMessage(nil), src.EncryptedContent...),
+		EncryptedContentPresent: src.EncryptedContentPresent,
 	}
 	if src.Opaque != nil {
 		cloned.Opaque = append(json.RawMessage(nil), src.Opaque...)
+	}
+	if len(cloned.Summary) == 0 && !src.SummaryPresent {
+		cloned.Summary = nil
+	}
+	if len(cloned.Content) == 0 && !src.ContentPresent {
+		cloned.Content = nil
+	}
+	if len(cloned.EncryptedContent) == 0 && !src.EncryptedContentPresent {
+		cloned.EncryptedContent = nil
 	}
 	probe := lipapi.Event{Kind: lipapi.EventReasoningPart, Reasoning: cloned}
 	if err := lipapi.ValidateEventEnvelope(&probe); err != nil {

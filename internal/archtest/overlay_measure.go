@@ -37,6 +37,11 @@ const GeoIPIngressOverlayMax = 700
 // 25 lines of ratchet headroom over the measured 356-line overlay.
 const BackendResourcePoolOverlayMax = 381
 
+// ReasoningSemanticCompressionOverlayMax is the measured reasoning semantic
+// compression host-composition overlay. Keep 25 lines of ratchet headroom over
+// the measured 341-line overlay.
+const ReasoningSemanticCompressionOverlayMax = 366
+
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
 	"/compatible_admission.go",
@@ -78,6 +83,11 @@ var geoIPIngressOverlayPathMarkers = []string{
 	"/stdhttp/middleware.go",
 }
 
+var reasoningSemanticCompressionOverlayPathMarkers = []string{
+	"/reasoning_preservation_compression",
+	"/lipruntime/reasoning_compression.go",
+}
+
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
 // production files are selected by path and ratcheted separately from the legacy
 // Req 11.5 convergence delta.
@@ -96,6 +106,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Keep-warm orchestration", max: KeepwarmOrchestrationOverlayMax, markers: keepwarmOrchestrationOverlayPathMarkers},
 	{name: "Backend resource pool", max: BackendResourcePoolOverlayMax, markers: backendResourcePoolOverlayPathMarkers},
 	{name: "GeoIP ingress", max: GeoIPIngressOverlayMax, markers: geoIPIngressOverlayPathMarkers},
+	{name: "Reasoning semantic compression", max: ReasoningSemanticCompressionOverlayMax, markers: reasoningSemanticCompressionOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

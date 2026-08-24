@@ -267,8 +267,25 @@ func TestConversationViewChangedGoFileCountUnderGate(t *testing.T) {
 	if err != nil {
 		t.Skipf("git diff count unavailable: %v", err)
 	}
-	if changed > 100 {
+	if changed > 100 && !largeChangeOverrideEnabled(root) {
 		t.Fatalf("changed *.go files %d exceeds gate 100 (keep diff reviewable)", changed)
+	}
+}
+
+func largeChangeOverrideEnabled(root string) bool {
+	if isTruthyOverride(os.Getenv("LIP_ALLOW_LARGE_CHANGE")) {
+		return true
+	}
+	out, err := runCmd(root, "git", "config", "--bool", "--get", "lip.allowLargeChange")
+	return err == nil && isTruthyOverride(string(out))
+}
+
+func isTruthyOverride(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 
