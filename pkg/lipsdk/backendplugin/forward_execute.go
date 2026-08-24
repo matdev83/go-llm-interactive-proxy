@@ -13,6 +13,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
+var fallbackCancelGrace = 2 * time.Second
+
 // OpenManagedStream opens an upstream managed event stream for one Execute attempt.
 // ctx is the incoming plugin Execute stream context and must be respected for cancellation.
 type OpenManagedStream func(ctx context.Context, inv Invocation, call lipapi.Call) (lipapi.ManagedEventStream, error)
@@ -114,8 +116,24 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 	}
 
 	var wg sync.WaitGroup
+	var cancelWG sync.WaitGroup
 	controlDone := make(chan struct{})
 	upstreamDone := make(chan struct{})
+
+	triggerFallbackCancel := func() {
+		cancelOnce.Do(func() {
+			canceled.Store(true)
+			cancelWG.Add(1)
+			go func() {
+				defer cancelWG.Done()
+				defer close(cancelOutcomeDone)
+				cancelCtx, cancelFn := fallbackCancelContext(streamCtx)
+				defer cancelFn()
+				_ = ms.Cancel(cancelCtx, lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
+				closeManaged()
+			}()
+		})
+	}
 
 	// 1. Context watcher: observes external stream context cancellation and drives fallback cancel.
 	wg.Add(1)
@@ -123,12 +141,7 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 		defer wg.Done()
 		select {
 		case <-streamCtx.Done():
-			cancelOnce.Do(func() {
-				canceled.Store(true)
-				_ = ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
-				close(cancelOutcomeDone)
-				closeManaged()
-			})
+			triggerFallbackCancel()
 			execCancel()
 		case <-execCtx.Done():
 		}
@@ -149,11 +162,7 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 			frame, recvErr := stream.Recv()
 			if recvErr != nil {
 				if !canceled.Load() && execCtx.Err() == nil && streamCtx.Err() != nil {
-					cancelOnce.Do(func() {
-						canceled.Store(true)
-						_ = ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
-						close(cancelOutcomeDone)
-					})
+					triggerFallbackCancel()
 				}
 				return
 			}
@@ -303,6 +312,7 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 		<-controlDone
 	}
 	wg.Wait()
+	cancelWG.Wait()
 	closeManaged()
 
 	if sequencer.Err() != nil {
@@ -333,7 +343,9 @@ func forwardLegacyExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = ms.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
+			cancelCtx, cancelFn := fallbackCancelContext(ctx)
+			defer cancelFn()
+			_ = ms.Cancel(cancelCtx, lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "plugin_cancel"})
 			closeManaged()
 		case <-stopWatch:
 		}
@@ -385,6 +397,19 @@ func CancelCauseFromCancelReason(reason CancelReason) lipapi.CancelCause {
 	default:
 		return lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: string(reason)}
 	}
+}
+
+func fallbackCancelContext(streamCtx context.Context) (context.Context, context.CancelFunc) {
+	grace := fallbackCancelGrace
+	if d, ok := streamCtx.Deadline(); ok {
+		if remaining := time.Until(d); remaining < grace {
+			grace = remaining
+			if grace < 0 {
+				grace = 0
+			}
+		}
+	}
+	return context.WithTimeout(context.WithoutCancel(streamCtx), grace)
 }
 
 type frameSequencer struct {
