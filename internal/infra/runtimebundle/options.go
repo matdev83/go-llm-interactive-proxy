@@ -2,6 +2,9 @@ package runtimebundle
 
 import (
 	"context"
+	"net/http"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -31,8 +34,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
-	"net/http"
-	"time"
 )
 
 // BuildOptions configures composition-root dependencies for [Build]. Fields are

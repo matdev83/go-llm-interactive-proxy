@@ -14,6 +14,7 @@ type externalThreeMethodClient struct{}
 func (externalThreeMethodClient) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "", nil
 }
+
 func (externalThreeMethodClient) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -46,7 +47,7 @@ func TestSubmitOptions_ZeroValueHasMaxOutputBytesZero(t *testing.T) {
 
 func TestSubmitOptions_ExactFieldArchitecture(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(auxiliary.SubmitOptions{})
+	typ := reflect.TypeFor[auxiliary.SubmitOptions]()
 	if typ.Kind() != reflect.Struct {
 		t.Fatalf("SubmitOptions kind=%v want struct", typ.Kind())
 	}

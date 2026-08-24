@@ -15,15 +15,18 @@ type stubMatcherForAdapt struct{ redacted string }
 func (s stubMatcherForAdapt) ScanBytes(_ context.Context, _ []byte) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (s stubMatcherForAdapt) ScanString(_ context.Context, _ string) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (s stubMatcherForAdapt) RedactBytes(_ context.Context, b []byte) ([]byte, []sdk.Finding, error) {
 	if s.redacted != "" {
 		return []byte(strings.ReplaceAll(string(b), "SECRET", s.redacted)), nil, nil
 	}
 	return b, nil, nil
 }
+
 func (s stubMatcherForAdapt) RedactString(_ context.Context, in string) (string, []sdk.Finding, error) {
 	if s.redacted != "" {
 		return strings.ReplaceAll(in, "SECRET", s.redacted), nil, nil

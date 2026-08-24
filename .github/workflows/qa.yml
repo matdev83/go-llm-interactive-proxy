@@ -2,9 +2,13 @@ name: QA
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
+
+env:
+  LIP_ALLOW_LARGE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'allow-large-change') && '1' || '' }}
 
 concurrency:
   # Share the branch/PR group with equivalent runs so a new push cancels

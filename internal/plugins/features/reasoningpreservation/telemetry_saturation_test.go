@@ -7,6 +7,8 @@ import (
 )
 
 func TestTelemetry_RawBytes_Saturation_WrapRegression(t *testing.T) {
+	t.Parallel()
+
 	tel := NewTelemetry()
 	// Prime rawBytes near MaxInt64 via internal bucket registry.
 	b := tel.getBucket(OutcomeRestored)
@@ -31,7 +33,11 @@ func TestTelemetry_RawBytes_Saturation_WrapRegression(t *testing.T) {
 }
 
 func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
+	t.Parallel()
+
 	t.Run("count saturation", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomePreserved)
 		b.count.Store(math.MaxInt64 - 1)
@@ -42,6 +48,8 @@ func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
 		}
 	})
 	t.Run("rawBytes saturation via RecordCompression", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomeRestored)
 		b.rawBytes.Store(math.MaxInt64 - 10)
@@ -51,6 +59,8 @@ func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
 		}
 	})
 	t.Run("decoded saturation", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomeRestored)
 		b.decodedBytes.Store(math.MaxInt64 - 5)
@@ -60,6 +70,8 @@ func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
 		}
 	})
 	t.Run("saved saturation", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomeRestored)
 		b.savedBytes.Store(math.MaxInt64 - 5)
@@ -69,6 +81,8 @@ func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
 		}
 	})
 	t.Run("source saturation via shadow", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomeRestored)
 		b.sourceBytes.Store(math.MaxInt64 - 5)
@@ -78,6 +92,8 @@ func TestTelemetry_Saturation_CountAndBytes(t *testing.T) {
 		}
 	})
 	t.Run("latency saturation", func(t *testing.T) {
+		t.Parallel()
+
 		tel := NewTelemetry()
 		b := tel.getBucket(OutcomeRestored)
 		b.latencyNanos.Store(math.MaxInt64 - int64(time.Second))

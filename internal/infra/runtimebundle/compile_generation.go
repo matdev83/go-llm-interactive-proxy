@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -20,9 +24,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
-	"log/slog"
-	"net/http"
-	"time"
 )
 
 func CompileGeneration(ctx context.Context, in GenerationCompileInput) (GenerationRuntime, error) {
@@ -188,6 +189,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	})
 	return bundle, nil
 }
+
 func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (handler http.Handler, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -197,6 +199,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 	}()
 	return compose(ctx, cfg, log, in)
 }
+
 func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var billingReports billing.ReportingStore
 	var billingReportsPath string
@@ -289,6 +292,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		},
 	}
 }
+
 func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	if fi.After != boundary {
 		return nil
@@ -298,6 +302,7 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	}
 	return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 }
+
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
 		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
@@ -329,6 +334,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 	}
 	return ext
 }
+
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return

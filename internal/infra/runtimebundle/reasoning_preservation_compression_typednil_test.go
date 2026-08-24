@@ -25,6 +25,7 @@ type typedNilClient struct{}
 func (t *typedNilClient) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "", nil
 }
+
 func (t *typedNilClient) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -49,12 +50,15 @@ type typedNilMatcher struct{}
 func (t *typedNilMatcher) ScanBytes(_ context.Context, _ []byte) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (t *typedNilMatcher) ScanString(_ context.Context, _ string) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (t *typedNilMatcher) RedactBytes(_ context.Context, b []byte) ([]byte, []sdk.Finding, error) {
 	return b, nil, nil
 }
+
 func (t *typedNilMatcher) RedactString(_ context.Context, s string) (string, []sdk.Finding, error) {
 	return s, nil, nil
 }
@@ -155,10 +159,13 @@ func TestReasoningPreservation_TypedNilPolicyResolverFailsClosed(t *testing.T) {
 	}}}}
 	// Need a non-nil client/poller
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: "x"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2, MaxResults: 5})
-	defer scheduler.Close()
+	t.Cleanup(func() { _ = scheduler.Close() })
 	genRunner := compactioncompose.NewGenerationExecutorRunner()
 	bound := scheduler.BindRunner(genRunner)
-	bPoller := bound.(auxiliary.BackgroundPoller)
+	bPoller, ok := bound.(auxiliary.BackgroundPoller)
+	if !ok {
+		t.Fatal("bound background client must implement BackgroundPoller")
+	}
 	if err := validateReasoningPreservationCompressionGeneration(psPolicyNil, regs, bound, bPoller); err == nil || !strings.Contains(err.Error(), "EgressPolicy") {
 		t.Fatalf("typed nil policy should fail closed, got %v", err)
 	}
@@ -270,7 +277,7 @@ compression:
 	// Now test that bind does not duplicate when called via CompileGeneration
 	// Use full CompileGeneration with enabled config and ensure only one set
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: "dup"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
-	defer scheduler.Close()
+	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"dup-ref": &typedNilEgress{}}, MatcherResolver: &typedNilResolver{}}}
 	opts := &BuildOptions{PluginRegistry: reg, Production: prod}
 	cfg := &config.Config{
@@ -286,7 +293,7 @@ compression:
 	if err != nil {
 		t.Fatalf("NewProcessServices: %v", err)
 	}
-	defer ps.Close()
+	t.Cleanup(func() { _ = ps.Close() })
 	mergedForDup := featurebundle.MergedFeatureSurface{
 		AttemptTransforms:       bDisabled.AttemptTransforms,
 		StreamObserverFactories: bDisabled.StreamObserverFactories,
@@ -316,14 +323,14 @@ func TestReasoningPreservation_GeneratorBoundActualExecution(t *testing.T) {
 	}
 	execID := "gen-exec"
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunnerForTypedNil{id: execID} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
-	defer scheduler.Close()
+	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := ProductionOptions{ReasoningCompression: ReasoningCompressionOptions{EgressPolicies: map[string]reasoningpreservation.EgressPolicy{"gen-ref": &typedNilEgress{}}, MatcherResolver: &typedNilResolver{}}}
 	opts := &BuildOptions{PluginRegistry: reg, Production: prod}
 	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{Cfg: cfg, Log: slog.Default(), Opts: opts, BackgroundAux: scheduler})
 	if err != nil {
 		t.Fatalf("NewProcessServices: %v", err)
 	}
-	defer ps.Close()
+	t.Cleanup(func() { _ = ps.Close() })
 	genRunner, boundClient, boundPoller, err := newReasoningCompressionGenerationRunner(ps)
 	if err != nil {
 		t.Fatalf("newRunner: %v", err)

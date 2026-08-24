@@ -5,6 +5,9 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -30,8 +33,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
-	"strings"
-	"time"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -295,6 +296,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Production:           prod,
 	}, nil
 }
+
 func billingCompositionConfigured(prod ProductionOptions) bool {
 	return prod.BillingStore != nil || prod.BillingCreditGate != nil ||
 		prod.BillingExposureAdmission != nil || prod.BillingTerminalUsageSink != nil ||
@@ -319,6 +321,7 @@ func requireCompleteBillingComposition(prod ProductionOptions) error {
 	}
 	return nil
 }
+
 func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {
 	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{})
 	if err != nil {
@@ -376,6 +379,7 @@ func validateRouteSelectorsAgainstBackends(
 	}
 	return nil
 }
+
 func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) routing.BackendExecutionResolver {
 	if cfg == nil {
 		return routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
@@ -405,6 +409,7 @@ func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) 
 		return c, ok
 	})
 }
+
 func validateSelectorTextAgainstBackends(label, text string, configured map[string]struct{}) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -421,6 +426,7 @@ func validateSelectorTextAgainstBackends(label, text string, configured map[stri
 	}
 	return nil
 }
+
 func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {
 	if wireModel == nil {
 		wireModel = standardplugins.DefaultWireModel

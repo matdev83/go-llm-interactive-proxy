@@ -79,15 +79,18 @@ type stubMatch struct{ redacted string }
 func (s stubMatch) ScanBytes(_ context.Context, _ []byte) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (s stubMatch) ScanString(_ context.Context, _ string) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (s stubMatch) RedactBytes(_ context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
 	if s.redacted != "" {
 		return []byte(strings.ReplaceAll(string(input), "SECRET", s.redacted)), nil, nil
 	}
 	return input, nil, nil
 }
+
 func (s stubMatch) RedactString(_ context.Context, input string) (string, []secretguard.Finding, error) {
 	if s.redacted != "" {
 		return strings.ReplaceAll(input, "SECRET", s.redacted), nil, nil
@@ -156,7 +159,7 @@ func TestReasoningPreservation_CompileGeneration_BoundClientExecutes(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer scheduler.Close()
+	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := runtimebundle.ProductionOptions{
 		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
 			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
@@ -168,12 +171,12 @@ func TestReasoningPreservation_CompileGeneration_BoundClientExecutes(t *testing.
 	if err != nil {
 		t.Fatalf("NewProcessServices: %v", err)
 	}
-	defer ps.Close()
+	t.Cleanup(func() { _ = ps.Close() })
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg, Compose: stdhttp.ComposeStandardHTTP})
 	if err != nil {
 		t.Fatalf("CompileGeneration with prerequisites should succeed, got %v", err)
 	}
-	defer bundle.Close()
+	t.Cleanup(func() { _ = bundle.Close() })
 	if bundle.Handler() == nil {
 		t.Fatal("bundle handler nil")
 	}
@@ -211,7 +214,7 @@ func TestReasoningPreservation_MissingPrerequisitesFailClosed(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 	baseScheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunner{id: "x"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 2, MaxResults: 5})
-	defer baseScheduler.Close()
+	t.Cleanup(func() { _ = baseScheduler.Close() })
 	tests := []struct {
 		name string
 		ps   *runtimebundle.ProcessServices
@@ -253,7 +256,7 @@ func TestReasoningPreservation_MissingPrerequisitesFailClosed(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			defer tc.ps.Close()
+			t.Cleanup(func() { _ = tc.ps.Close() })
 			_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{Process: tc.ps, Candidate: cfg, Compose: stdhttp.ComposeStandardHTTP})
 			if err == nil {
 				t.Fatalf("expected fail closed for %s", tc.name)
@@ -283,7 +286,7 @@ func TestReasoningPreservation_ReloadDistinctRunners(t *testing.T) {
 		t.Fatal(err)
 	}
 	scheduler, _ := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunner{id: "shared"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
-	defer scheduler.Close()
+	t.Cleanup(func() { _ = scheduler.Close() })
 	prod := runtimebundle.ProductionOptions{
 		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
 			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
@@ -292,17 +295,17 @@ func TestReasoningPreservation_ReloadDistinctRunners(t *testing.T) {
 	}
 	opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
 	ps, _ := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{Cfg: baseCfg, Log: slog.Default(), Opts: opts, BackgroundAux: scheduler})
-	defer ps.Close()
+	t.Cleanup(func() { _ = ps.Close() })
 	bundleA, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: baseCfg, Compose: stdhttp.ComposeStandardHTTP})
 	if err != nil {
 		t.Fatalf("gen A: %v", err)
 	}
-	defer bundleA.Close()
+	t.Cleanup(func() { _ = bundleA.Close() })
 	bundleB, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: baseCfg, Compose: stdhttp.ComposeStandardHTTP})
 	if err != nil {
 		t.Fatalf("gen B: %v", err)
 	}
-	defer bundleB.Close()
+	t.Cleanup(func() { _ = bundleB.Close() })
 	if bundleA.ExecutorView() == bundleB.ExecutorView() {
 		t.Fatal("expected distinct executor views across reloads")
 	}
@@ -338,7 +341,7 @@ func TestReasoningPreservation_ResolverSanitizerPerContext(t *testing.T) {
 	}
 }
 
-type perContextResolver struct{ key interface{} }
+type perContextResolver struct{ key any }
 
 func (p perContextResolver) Resolve(ctx context.Context) (secretguard.Matcher, error) {
 	if v := ctx.Value(p.key); v != nil {

@@ -51,9 +51,6 @@ func (c *capturingEgressPolicy) Decide(_ context.Context, in lipruntime.EgressIn
 	s.Roles = append(s.Roles, "mutated")
 	s.SafeClaims["injected"] = "evil"
 	s.PolicyLabels["injected"] = "evil"
-	if s.PrincipalID.String() != "" {
-		// mutate string via scope view not possible, but maps/slices mutation is the vector
-	}
 	c.mutated = true
 	return c.decision, nil
 }
@@ -81,15 +78,18 @@ type stubExternalMatcher struct{ redacted string }
 func (s stubExternalMatcher) ScanBytes(_ context.Context, _ []byte) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (s stubExternalMatcher) ScanString(_ context.Context, _ string) ([]sdk.Finding, error) {
 	return nil, nil
 }
+
 func (s stubExternalMatcher) RedactBytes(_ context.Context, b []byte) ([]byte, []sdk.Finding, error) {
 	if s.redacted != "" {
 		return []byte(strings.ReplaceAll(string(b), "SECRET", s.redacted)), nil, nil
 	}
 	return b, nil, nil
 }
+
 func (s stubExternalMatcher) RedactString(_ context.Context, in string) (string, []sdk.Finding, error) {
 	if s.redacted != "" {
 		return strings.ReplaceAll(in, "SECRET", s.redacted), nil, nil
@@ -224,8 +224,7 @@ func TestLipruntime_PublicTypes_NoInternalImportsInSignatures(t *testing.T) {
 	// Also verify via reflection that lipruntime Options field types do not
 	// carry internal package paths (except allowed non-money host seams).
 	typ := reflect.TypeFor[lipruntime.Options]()
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
+	for f := range typ.Fields() {
 		// Field type string should not contain internal imports for non-stdlib?
 		// We check that no field type's PkgPath contains "/internal/" for exported fields
 		// that are not part of the allowed surface (only lipsdk and stdlib).
@@ -403,8 +402,7 @@ func TestBuild_TypedNilPolicyAndResolver_FailClosedNotPanic(t *testing.T) {
 func TestOptions_NonMoneyArchitecture_NoBillingFields(t *testing.T) {
 	t.Parallel()
 	typ := reflect.TypeFor[lipruntime.Options]()
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
+	for f := range typ.Fields() {
 		if strings.Contains(strings.ToLower(f.Name), "billing") {
 			t.Fatalf("public Options must not contain Billing field %q", f.Name)
 		}
@@ -416,8 +414,7 @@ func TestOptions_NonMoneyArchitecture_NoBillingFields(t *testing.T) {
 	}
 	// ReasoningCompression must exist and be non-money (no billing in its fields).
 	rcTyp := reflect.TypeFor[lipruntime.ReasoningCompressionOptions]()
-	for i := 0; i < rcTyp.NumField(); i++ {
-		f := rcTyp.Field(i)
+	for f := range rcTyp.Fields() {
 		if strings.Contains(strings.ToLower(f.Name), "billing") {
 			t.Fatalf("ReasoningCompressionOptions field %q must not be billing", f.Name)
 		}

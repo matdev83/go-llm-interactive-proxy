@@ -493,8 +493,10 @@ func TestCanceledCleanup_StaleClearPreservesNewPending(t *testing.T) {
 }
 
 // ensure imports used
-var _ = atomic.Int32{}
-var _ = response.StreamMeta{}
-var _ = session.SessionView{}
-var _ = json.RawMessage{}
-var _ = request.AttemptMeta{}
+var (
+	_ = atomic.Int32{}
+	_ = response.StreamMeta{}
+	_ = session.SessionView{}
+	_ = json.RawMessage{}
+	_ = request.AttemptMeta{}
+)
