@@ -831,9 +831,19 @@ func TestResolveAfterIngressTailAnchor_ExcludedTerminalUserRejectsNoFallback(t *
 	t.Run("item authority trailing reasoning item rejects unsafe boundary", func(t *testing.T) {
 		t.Parallel()
 		u1 := textItem(lipapi.RoleUser, "u1", "user turn")
-		reasoning := lipapi.Item{Kind: lipapi.ItemKindReasoning, ID: "r1"}
+		reasoning := lipapi.Item{
+			Kind: lipapi.ItemKindReasoning,
+			ID:   "r1",
+			Reasoning: &lipapi.ReasoningItem{
+				Reasoning: &lipapi.ReasoningPart{
+					Dialect: "test.reasoning",
+					Text:    "internal reasoning about a plan",
+				},
+			},
+		}
 		snap := snapshotWithTagsAndOverlays(nil, nil)
 		call := lipapi.Call{Items: []lipapi.Item{u1, reasoning}}
+		require.NoError(t, call.Validate(), "fixture must be valid canonical call")
 		_, err := conversationview.ResolveAfterIngressTailAnchor(call, snap)
 		require.Error(t, err, "trailing surviving non-message item must reject registration")
 		assert.ErrorIs(t, err, conversationview.ErrTerminalNotUser)

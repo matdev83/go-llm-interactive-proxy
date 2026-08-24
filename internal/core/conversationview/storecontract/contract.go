@@ -994,5 +994,45 @@ func Run(t *testing.T, env Env) {
 			require.NoError(t, err)
 			assert.Equal(t, "stable second", overlay.Message.Text)
 		})
+
+		t.Run("same after_message anchor replacement after tag succeeds (exempt)", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-same-after-exempt")
+			createALegMust(t, deps, aLeg)
+			v := testIdentity(82)
+
+			_, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-same-after",
+				Message:             testMessage("first anchored", lipapi.RoleUser),
+				Placement:           afterPlacement(v, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			beforeSnap := snapshotMust(t, deps.Store, aLeg)
+			require.Len(t, beforeSnap.Steering, 1)
+			beforeRev := beforeSnap.Steering[0].Revision
+			beforeSlot := beforeSnap.Steering[0].SlotOrdinal
+
+			_, err = deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: v, Reason: testReason("r")}})
+			require.NoError(t, err)
+
+			// Existing after_message(V) -> tag V -> content replacement retaining after_message(V) is exempt.
+			st, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-same-after",
+				Message:             testMessage("second anchored", lipapi.RoleUser),
+				Placement:           afterPlacement(v, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, beforeRev+1, st.Revision)
+			assert.Equal(t, beforeSlot, st.SlotOrdinal, "same-anchor replacement must retain SlotOrdinal")
+			overlay, err := deps.GetOverlay(ctx, aLeg, "ov-same-after")
+			require.NoError(t, err)
+			assert.Equal(t, "second anchored", overlay.Message.Text)
+			assert.Equal(t, v, overlay.Placement.Anchor.Identity)
+		})
 	})
 }
