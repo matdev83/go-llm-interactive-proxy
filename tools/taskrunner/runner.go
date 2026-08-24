@@ -264,20 +264,33 @@ func fail(result Result, kind Kind, err error) Result {
 }
 
 func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, result Result, drains *sync.WaitGroup, stdout, stderr io.ReadCloser, started time.Time, timeout time.Duration) Result {
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
+	type waitResult struct {
+		err error
+	}
+	waitDone := make(chan waitResult, 1)
+	go func() {
+		if drains != nil {
+			drains.Wait()
+		}
+		waitDone <- waitResult{err: cmd.Wait()}
+	}()
 	var waitErr error
 	select {
-	case waitErr = <-waitDone:
+	case res := <-waitDone:
+		waitErr = res.err
 	case <-ctx.Done():
 		result.Kind = DeadlineExceeded
 		result.Err = ctx.Err()
 		result.Cleanup.Attempted = true
 		result.Cleanup.Err = adapter.kill()
-		waitErr = <-waitDone
-	}
-	if drains != nil {
-		drains.Wait()
+		if stdout != nil {
+			_ = stdout.Close()
+		}
+		if stderr != nil {
+			_ = stderr.Close()
+		}
+		res := <-waitDone
+		waitErr = res.err
 	}
 	if stdout != nil {
 		_ = stdout.Close()

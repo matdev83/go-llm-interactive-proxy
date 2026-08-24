@@ -65,7 +65,7 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 	_ = ctx
 	minor := f.ProtocolMinor
 	if minor == 0 {
-		minor = backendplugin.ProtocolMinorExactOpenResponsesFields
+		minor = backendplugin.ProtocolMinorCancellationHandshake
 	}
 	if f.PromptCache && minor < backendplugin.ProtocolMinorPromptCacheResidency {
 		minor = backendplugin.ProtocolMinorPromptCacheResidency
@@ -73,6 +73,7 @@ func (f *FakeService) Describe(ctx context.Context) (backendplugin.PluginDescrip
 	features := []backendplugin.Feature{
 		{Name: backendplugin.FeatureOrderedItems, Required: false},
 		{Name: backendplugin.FeatureExactOpenResponsesFields, Required: false},
+		{Name: backendplugin.FeatureCancellationHandshake, Required: false},
 		{Name: "count_tokens", Required: false},
 		{Name: "finalize_billing", Required: false},
 	}
@@ -135,13 +136,17 @@ type fakeInstance struct {
 }
 
 func (f *fakeInstance) Negotiation() backendplugin.Negotiation {
-	if f.neg.Compatible {
+	if f.neg.Compatible && f.neg.NegotiatedMinor > 0 {
 		return f.neg
 	}
 	return backendplugin.Negotiation{
 		Compatible:      true,
-		NegotiatedMinor: backendplugin.ProtocolMinorExactOpenResponsesFields,
-		EnabledFeatures: []string{backendplugin.FeatureOrderedItems, backendplugin.FeatureExactOpenResponsesFields},
+		NegotiatedMinor: backendplugin.ProtocolMinorCancellationHandshake,
+		EnabledFeatures: []string{
+			backendplugin.FeatureOrderedItems,
+			backendplugin.FeatureExactOpenResponsesFields,
+			backendplugin.FeatureCancellationHandshake,
+		},
 	}
 }
 

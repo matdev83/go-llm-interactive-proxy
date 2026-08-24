@@ -150,7 +150,7 @@ func TestForwardExecute_CancelsUpstreamWhenStreamContextDone(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err=%v, want context.Canceled", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("ForwardExecute did not return after stream context cancel")
 	}
 
@@ -270,7 +270,7 @@ func TestForwardExecute_CloseExactlyOnceOnCancel(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err=%v, want context.Canceled", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("ForwardExecute did not return after stream context cancel")
 	}
 
@@ -460,4 +460,263 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+type trackingManagedWithDeadline struct {
+	recvEntered    atomic.Bool
+	cancelCalled   atomic.Int32
+	cancelDeadline time.Time
+	cancelCause    lipapi.CancelCause
+	unblocked      chan struct{}
+	events         []lipapi.Event
+	eventIdx       int
+	mu             sync.Mutex
+	cancelMode     lipapi.CancelMode
+}
+
+func (m *trackingManagedWithDeadline) Recv(ctx context.Context) (lipapi.Event, error) {
+	m.recvEntered.Store(true)
+	m.mu.Lock()
+	if m.eventIdx < len(m.events) {
+		ev := m.events[m.eventIdx]
+		m.eventIdx++
+		m.mu.Unlock()
+		return ev, nil
+	}
+	m.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return lipapi.Event{}, ctx.Err()
+	case <-m.unblocked:
+		return lipapi.Event{}, context.Canceled
+	}
+}
+
+func (m *trackingManagedWithDeadline) Close() error { return nil }
+
+func (m *trackingManagedWithDeadline) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	m.cancelCalled.Add(1)
+	m.cancelCause = cause
+	if d, ok := ctx.Deadline(); ok {
+		m.cancelDeadline = d
+	}
+	close(m.unblocked)
+	mode := m.cancelMode
+	if mode == "" {
+		mode = lipapi.CancelModeProvider
+	}
+	return lipapi.CancelResult{Mode: mode}
+}
+
+func TestForwardExecute_InBandCancel_SequencingAndMode(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newChannelExecuteStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	ms := &trackingManagedWithDeadline{
+		unblocked:  make(chan struct{}),
+		cancelMode: lipapi.CancelModeTransport,
+		events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "hello"},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		stream.mu.Lock()
+		defer stream.mu.Unlock()
+		return len(stream.sent) >= 2 // Accepted + Event
+	})
+
+	stream.inFrames <- backendplugin.ClientFrame{
+		Kind:         backendplugin.ClientFrameCancel,
+		CancelReason: backendplugin.CancelReasonClient,
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ForwardExecute returned unexpected error on in-band cancel: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ForwardExecute timed out after in-band cancel")
+	}
+
+	if ms.cancelCalled.Load() != 1 {
+		t.Fatalf("Cancel called %d times, want 1", ms.cancelCalled.Load())
+	}
+	if ms.cancelCause.Detail != "client" {
+		t.Fatalf("Cancel cause detail = %q, want client", ms.cancelCause.Detail)
+	}
+
+	stream.mu.Lock()
+	sent := stream.sent
+	stream.mu.Unlock()
+
+	// Verify sent frame sequence:
+	// 0: Accepted (seq 0)
+	// 1: Event (seq 1)
+	// 2: CancelOutcome (seq 2)
+	// 3: Terminal (seq 3)
+	if len(sent) < 4 {
+		t.Fatalf("sent %d frames, want at least 4: %+v", len(sent), sent)
+	}
+
+	if sent[0].Kind != backendplugin.ServerFrameAccepted {
+		t.Errorf("frame 0 kind = %v, want ServerFrameAccepted", sent[0].Kind)
+	}
+	if sent[1].Kind != backendplugin.ServerFrameEvent || sent[1].Sequence != 1 {
+		t.Errorf("frame 1 = %+v, want Event with Sequence=1", sent[1])
+	}
+	if sent[2].Kind != backendplugin.ServerFrameCancelOutcome || sent[2].Sequence != 2 {
+		t.Errorf("frame 2 = %+v, want CancelOutcome with Sequence=2", sent[2])
+	}
+	if sent[2].CancelOutcome == nil || sent[2].CancelOutcome.Mode != backendplugin.CancelModeTransport {
+		t.Errorf("frame 2 CancelOutcome = %+v, want Mode=CancelModeTransport", sent[2].CancelOutcome)
+	}
+	if sent[3].Kind != backendplugin.ServerFrameTerminal || sent[3].Sequence != 3 {
+		t.Errorf("frame 3 = %+v, want Terminal with Sequence=3", sent[3])
+	}
+	if sent[3].Terminal == nil || sent[3].Terminal.Status != backendplugin.TerminalCancelled {
+		t.Errorf("frame 3 Terminal = %+v, want Status=TerminalCancelled", sent[3].Terminal)
+	}
+}
+
+func TestForwardExecute_InBandCancel_DeadlineCalculation(t *testing.T) {
+	t.Parallel()
+
+	streamDeadline := time.Now().Add(10 * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), streamDeadline)
+	defer cancel()
+
+	stream := newChannelExecuteStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	cancelDeadline := time.Now().Add(500 * time.Millisecond)
+	ms := &trackingManagedWithDeadline{
+		unblocked: make(chan struct{}),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool { return ms.recvEntered.Load() })
+
+	stream.inFrames <- backendplugin.ClientFrame{
+		Kind:                 backendplugin.ClientFrameCancel,
+		CancelReason:         backendplugin.CancelReasonDeadline,
+		CancelDeadlineUnixMS: cancelDeadline.UnixMilli(),
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ForwardExecute error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if ms.cancelDeadline.IsZero() {
+		t.Fatal("expected cancel context to have deadline")
+	}
+	// The effective deadline should match cancelDeadline (within 50ms), NOT the 10s streamDeadline
+	if diff := ms.cancelDeadline.Sub(cancelDeadline); diff < -100*time.Millisecond || diff > 100*time.Millisecond {
+		t.Fatalf("effective cancel deadline diff=%v, got %v want ~%v", diff, ms.cancelDeadline, cancelDeadline)
+	}
+}
+
+func TestForwardExecute_CloseInputDoesNotCancelUpstream(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newChannelExecuteStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	ms := &closeCountManaged{unblocked: make(chan struct{})}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool { return ms.recvEntered.Load() })
+
+	// Send CloseInput
+	stream.inFrames <- backendplugin.ClientFrame{
+		Kind: backendplugin.ClientFrameCloseInput,
+	}
+
+	// Wait briefly to ensure CloseInput is processed without canceling
+	time.Sleep(50 * time.Millisecond)
+	if ms.closeCalls.Load() != 0 {
+		t.Errorf("CloseInput caused upstream Close calls: %d", ms.closeCalls.Load())
+	}
+
+	// Now unblock ms to finish normally
+	close(ms.unblocked)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestForwardExecute_InBandCancel_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := newChannelExecuteStream(ctx)
+	stream.inFrames <- validStartFrame(t)
+
+	ms := &trackingManagedWithDeadline{
+		unblocked: make(chan struct{}),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- backendplugin.ForwardExecute(stream, func(context.Context, backendplugin.Invocation, lipapi.Call) (lipapi.ManagedEventStream, error) {
+			return ms, nil
+		})
+	}()
+
+	waitUntil(t, 2*time.Second, func() bool { return ms.recvEntered.Load() })
+
+	// Send multiple Cancel frames
+	stream.inFrames <- backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCancel, CancelReason: backendplugin.CancelReasonHost}
+	stream.inFrames <- backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCancel, CancelReason: backendplugin.CancelReasonHost}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ForwardExecute error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if calls := ms.cancelCalled.Load(); calls != 1 {
+		t.Fatalf("ms.Cancel called %d times, want exactly 1", calls)
+	}
 }

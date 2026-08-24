@@ -7,8 +7,8 @@ import (
 	"time"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
+	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/nvidia/internal/service"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/contracttest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
@@ -40,7 +40,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 }
 
 func TestSupportedContractTCK(t *testing.T) {
-	srv := httptest.NewServer(openaichat.NewHandler(openaichat.Config{AllowMissingBearer: true}))
+	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 	result := contracttest.Run(t, contracttest.Config{PluginID: "nvidia", Version: "test", Timeout: 10 * time.Second, FactoryKind: service.FactoryKind, ConfigYAML: []byte("base_url: " + srv.URL + "\n"), Secrets: backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}}, Start: func(context.Context) (backendplugin.Service, func(), error) { return service.New(), nil, nil }, StartHost: bufconnHost(service.FactoryKind, []byte("base_url: "+srv.URL+"\n"), backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}})})
 	if err := result.Validate(); err != nil {

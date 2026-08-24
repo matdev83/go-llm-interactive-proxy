@@ -7,6 +7,7 @@ type MetricsSink interface {
 	OnAttemptRecorded(outcome lipapi.AttemptOutcome, backend string)
 	OnBackendOpenDuration(backend string, seconds float64)
 	OnTransportNegotiation(operation lipapi.Operation, mode lipapi.TransportMode, outcome string)
+	OnCancellation(causeClass string, mode lipapi.CancelMode, phase string, fallback string)
 }
 
 func (e *Executor) recordTransportNegotiation(operation lipapi.Operation, mode lipapi.TransportMode, outcome string) {
@@ -14,4 +15,11 @@ func (e *Executor) recordTransportNegotiation(operation lipapi.Operation, mode l
 		return
 	}
 	e.Metrics.OnTransportNegotiation(operation, mode, outcome)
+}
+
+func (e *Executor) recordCancellation(causeClass string, mode lipapi.CancelMode, phase string, fallback string) {
+	if e == nil || e.Metrics == nil {
+		return
+	}
+	e.Metrics.OnCancellation(causeClass, mode, phase, fallback)
 }

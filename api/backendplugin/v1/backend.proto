@@ -96,6 +96,14 @@ enum CancelReason {
   CANCEL_REASON_SHUTDOWN = 4;
 }
 
+enum CancelMode {
+  CANCEL_MODE_UNSPECIFIED = 0;
+  CANCEL_MODE_NONE = 1;
+  CANCEL_MODE_PROVIDER = 2;
+  CANCEL_MODE_TRANSPORT = 3;
+  CANCEL_MODE_CLOSE_ONLY = 4;
+}
+
 enum ClientFrameKind {
   CLIENT_FRAME_KIND_UNSPECIFIED = 0;
   CLIENT_FRAME_KIND_START = 1;
@@ -714,6 +722,7 @@ message CancelOutcome {
   bool acknowledged = 1;
   string detail = 2;
   CancelReason reason = 3;
+  CancelMode mode = 4;
 }
 
 message ExecuteServerFrame {

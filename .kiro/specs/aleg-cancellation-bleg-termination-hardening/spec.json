@@ -1,9 +1,9 @@
 {
   "feature_name": "aleg-cancellation-bleg-termination-hardening",
   "created_at": "2026-08-22T22:41:00+02:00",
-  "updated_at": "2026-08-22T22:41:00+02:00",
+  "updated_at": "2026-08-23T01:10:22+02:00",
   "language": "en",
-  "phase": "tasks-generated",
+  "phase": "ready-for-implementation",
   "approvals": {
     "requirements": {
       "generated": true,

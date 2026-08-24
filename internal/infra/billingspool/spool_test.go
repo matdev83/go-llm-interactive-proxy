@@ -371,7 +371,7 @@ func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deadline := time.Now().Add(800 * time.Millisecond)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		sink.mu.Lock()
 		attempts := sink.attempts

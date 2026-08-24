@@ -76,6 +76,31 @@
   },
   {
     "category": "const",
+    "name": "CancelModeCloseOnly",
+    "detail": "CancelModeCloseOnly backendplugin.CancelMode = \"close_only\""
+  },
+  {
+    "category": "const",
+    "name": "CancelModeNone",
+    "detail": "CancelModeNone backendplugin.CancelMode = \"none\""
+  },
+  {
+    "category": "const",
+    "name": "CancelModeProvider",
+    "detail": "CancelModeProvider backendplugin.CancelMode = \"provider\""
+  },
+  {
+    "category": "const",
+    "name": "CancelModeTransport",
+    "detail": "CancelModeTransport backendplugin.CancelMode = \"transport\""
+  },
+  {
+    "category": "const",
+    "name": "CancelModeUnspecified",
+    "detail": "CancelModeUnspecified backendplugin.CancelMode = \"\""
+  },
+  {
+    "category": "const",
     "name": "CancelReasonClient",
     "detail": "CancelReasonClient backendplugin.CancelReason = \"client\""
   },
@@ -351,6 +376,11 @@
   },
   {
     "category": "const",
+    "name": "FeatureCancellationHandshake",
+    "detail": "FeatureCancellationHandshake untyped string = \"cancellation_handshake_v1\""
+  },
+  {
+    "category": "const",
     "name": "FeatureExactOpenResponsesFields",
     "detail": "FeatureExactOpenResponsesFields untyped string = \"exact_openresponses_fields\""
   },
@@ -503,6 +533,11 @@
     "category": "const",
     "name": "ProtocolMinorAccountingEvidence",
     "detail": "ProtocolMinorAccountingEvidence uint32 = 5"
+  },
+  {
+    "category": "const",
+    "name": "ProtocolMinorCancellationHandshake",
+    "detail": "ProtocolMinorCancellationHandshake uint32 = 8"
   },
   {
     "category": "const",
@@ -700,6 +735,10 @@
   {
     "category": "field",
     "name": "CancelOutcome.Detail"
+  },
+  {
+    "category": "field",
+    "name": "CancelOutcome.Mode"
   },
   {
     "category": "field",
@@ -1925,6 +1964,11 @@
   },
   {
     "category": "func",
+    "name": "CancelCauseFromCancelReason",
+    "detail": "func CancelCauseFromCancelReason(reason CancelReason) lipapi.CancelCause"
+  },
+  {
+    "category": "func",
     "name": "CancelOutcomeFromProto",
     "detail": "func CancelOutcomeFromProto(p *backendpluginv1.CancelOutcome) (*CancelOutcome, error)"
   },
@@ -1932,6 +1976,11 @@
     "category": "func",
     "name": "CancelOutcomeToProto",
     "detail": "func CancelOutcomeToProto(c *CancelOutcome) (*backendpluginv1.CancelOutcome, error)"
+  },
+  {
+    "category": "func",
+    "name": "CancellationHandshakeNegotiated",
+    "detail": "func CancellationHandshakeNegotiated(neg Negotiation) bool"
   },
   {
     "category": "func",
@@ -2390,6 +2439,11 @@
   },
   {
     "category": "func",
+    "name": "ValidateCancelMode",
+    "detail": "func ValidateCancelMode(m CancelMode) error"
+  },
+  {
+    "category": "func",
     "name": "ValidateClientFrameBounds",
     "detail": "func ValidateClientFrameBounds(f ClientFrame) error"
   },
@@ -2570,6 +2624,10 @@
   },
   {
     "category": "method",
+    "name": "OptionalNegotiatedStream.Negotiation"
+  },
+  {
+    "category": "method",
     "name": "PluginDescriptor.Validate",
     "detail": "func (d PluginDescriptor) Validate() error"
   },
@@ -2635,8 +2693,28 @@
   },
   {
     "category": "method",
+    "name": "frameSequencer.Err",
+    "detail": "func (s *frameSequencer) Err() error"
+  },
+  {
+    "category": "method",
+    "name": "frameSequencer.Send",
+    "detail": "func (s *frameSequencer) Send(frame ServerFrame) error"
+  },
+  {
+    "category": "method",
+    "name": "frameSequencer.TerminalSent",
+    "detail": "func (s *frameSequencer) TerminalSent() bool"
+  },
+  {
+    "category": "method",
     "name": "grpcExecuteStream.Context",
     "detail": "func (g *grpcExecuteStream) Context() context.Context"
+  },
+  {
+    "category": "method",
+    "name": "grpcExecuteStream.Negotiation",
+    "detail": "func (g *grpcExecuteStream) Negotiation() Negotiation"
   },
   {
     "category": "method",
@@ -2656,7 +2734,7 @@
   {
     "category": "struct",
     "name": "CancelOutcome",
-    "detail": "CancelOutcome struct {\n\tAcknowledged bool\n\tDetail       string\n\tReason       CancelReason\n}"
+    "detail": "CancelOutcome struct {\n\tAcknowledged bool\n\tDetail       string\n\tReason       CancelReason\n\tMode         CancelMode\n}"
   },
   {
     "category": "struct",
@@ -2940,6 +3018,11 @@
   },
   {
     "category": "type",
+    "name": "CancelMode",
+    "detail": "CancelMode = lipapi.CancelMode"
+  },
+  {
+    "category": "type",
     "name": "CancelReason",
     "detail": "CancelReason string"
   },
@@ -2982,6 +3065,11 @@
     "category": "type",
     "name": "OptionalExecuteStreamCloser",
     "detail": "OptionalExecuteStreamCloser interface {\n\tClose() error\n}"
+  },
+  {
+    "category": "type",
+    "name": "OptionalNegotiatedStream",
+    "detail": "OptionalNegotiatedStream interface {\n\tNegotiation() Negotiation\n}"
   },
   {
     "category": "type",

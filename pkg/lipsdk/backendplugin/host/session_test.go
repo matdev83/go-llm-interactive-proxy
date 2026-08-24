@@ -26,12 +26,12 @@ var (
 func TestSession_ExecuteClosesOptionalBlockingInputStream(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{terminalOnStart: true}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "blocking", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 	stream := &blockingPublicStream{ctx: context.Background(), first: backendplugin.ClientFrame{Kind: backendplugin.ClientFrameStart, InstanceID: "blocking", Invocation: validInvocation()}, released: make(chan struct{})}
 	if err := sess.Execute(stream); err != nil {
 		t.Fatal(err)
@@ -44,12 +44,12 @@ func TestSession_ExecuteClosesOptionalBlockingInputStream(t *testing.T) {
 func TestSession_Execute_NonCloserBlockingStream_UnblocksOnContextCancel(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{terminalOnStart: true}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "non-closer", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 	ctx, cancel := context.WithCancel(context.Background())
 	stream := &nonCloserBlockingStream{
 		ctx:   ctx,
@@ -76,8 +76,7 @@ func TestSession_Execute_NonCloserBlockingStream_UnblocksOnContextCancel(t *test
 func TestSession_ExecuteRejectsClosedSession(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "closed", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
@@ -94,8 +93,7 @@ func TestSession_ExecuteRejectsClosedSession(t *testing.T) {
 func TestSession_CloseWaitsForActiveExecute(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{executeStarted: make(chan struct{}), executeRelease: make(chan struct{}), terminalOnStart: true}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "lifecycle", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
@@ -130,8 +128,7 @@ func TestSession_CloseWaitsForActiveExecute(t *testing.T) {
 func TestSession_PublicHostPathCoversLifecycle(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 
 	sess, profile, err := host.DialConfiguredSession(context.Background(), conn, "public", "fake", []byte("kind: fake\n"), backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
@@ -181,8 +178,7 @@ func validInvocation() *backendplugin.Invocation {
 func TestSession_PublicHostPathCleansUpWhenInitialResolveFails(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{resolveErr: errors.New("resolve failed")}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 
 	_, _, err := host.DialConfiguredSession(context.Background(), conn, "public-error", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err == nil || !stringsContains(err.Error(), "resolve") {
@@ -203,13 +199,13 @@ func TestSession_PublicHostPathRejectsNilConnection(t *testing.T) {
 func TestSession_ForwardsOptionalAccountingOperations(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "accounting", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 	count, err := sess.CountTokens(context.Background(), backendplugin.CountTokensRequest{
 		InstanceID: "accounting", ModelID: "model", Invocation: *validInvocation(),
 	})
@@ -249,12 +245,12 @@ func TestSession_ForwardsOptionalAccountingErrors(t *testing.T) {
 	countErr := errors.New("count failed")
 	finalErr := errors.New("finalize failed")
 	plugin := &publicFake{countErr: countErr, finalizeErr: finalErr}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "accounting-errors", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 	if _, err := sess.CountTokens(context.Background(), backendplugin.CountTokensRequest{InstanceID: "accounting-errors", Invocation: *validInvocation()}); status.Code(err) != codes.Unknown || !stringsContains(err.Error(), countErr.Error()) {
 		t.Fatalf("count err=%v, want unknown count error", err)
 	}
@@ -279,9 +275,8 @@ func TestSession_DialCleanupClosesTransportOnConfigureAndCloseErrors(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			plugin := &publicFake{configureErr: tc.configure, resolveErr: tc.resolve, closeErr: tc.close}
-			conn, cleanup := startPublicFake(t, plugin)
+			conn := startPublicFake(t, plugin)
 			tracked := &trackingConn{Conn: conn}
-			defer cleanup()
 
 			_, _, err := host.DialConfiguredSession(context.Background(), tracked, "cleanup", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 			if err == nil {
@@ -297,12 +292,15 @@ func TestSession_DialCleanupClosesTransportOnConfigureAndCloseErrors(t *testing.
 func TestSession_CloseErrorRemainsRetryable(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{closeErr: errors.New("close failed")}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "retry-close", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		plugin.closeErr = nil
+		_ = sess.Close(context.Background())
+	})
 	if err := sess.Close(context.Background()); err == nil {
 		t.Fatal("expected Close error")
 	}
@@ -317,8 +315,7 @@ func TestSession_CloseErrorRemainsRetryable(t *testing.T) {
 func TestSession_ExecuteContextCancellationAndRPCErrors(t *testing.T) {
 	t.Parallel()
 	plugin := &publicFake{}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "cancel-test", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
@@ -361,8 +358,7 @@ func TestSession_ExecuteContextCancellationAndRPCErrors(t *testing.T) {
 func TestSession_PostTerminalFrameReturnsProtocolViolationError(t *testing.T) {
 	t.Parallel()
 	plugin := &postTerminalFake{}
-	conn, cleanup := startPublicFake(t, plugin)
-	defer cleanup()
+	conn := startPublicFake(t, plugin)
 	sess, _, err := host.DialConfiguredSession(context.Background(), conn, "post-terminal", "fake", nil, backendplugin.SecretBundle{}, backendplugin.RuntimePolicy{DisableTransportRetries: true})
 	if err != nil {
 		t.Fatal(err)
@@ -577,7 +573,7 @@ func (c *trackingConn) Close() error {
 	return c.Conn.Close()
 }
 
-func startPublicFake(t *testing.T, service backendplugin.Service) (net.Conn, func()) {
+func startPublicFake(t *testing.T, service backendplugin.Service) net.Conn {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
@@ -590,7 +586,8 @@ func startPublicFake(t *testing.T, service backendplugin.Service) (net.Conn, fun
 	if err != nil {
 		t.Fatal(err)
 	}
-	return conn, func() { _ = conn.Close(); grpcServer.Stop(); _ = lis.Close() }
+	t.Cleanup(func() { _ = conn.Close(); grpcServer.Stop(); _ = lis.Close() })
+	return conn
 }
 
 func stringsContains(value, want string) bool {

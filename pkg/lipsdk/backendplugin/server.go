@@ -477,3 +477,7 @@ func (g *grpcExecuteStream) Send(frame ServerFrame) error {
 	}
 	return g.stream.Send(msg)
 }
+
+func (g *grpcExecuteStream) Negotiation() Negotiation {
+	return g.negotiation
+}

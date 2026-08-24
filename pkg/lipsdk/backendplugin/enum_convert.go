@@ -202,6 +202,28 @@ func cancelReasonToProto(v CancelReason) (backendpluginv1.CancelReason, error) {
 	return enumToProto(v, cancelReasonToProtoTable, backendpluginv1.CancelReason_CANCEL_REASON_UNSPECIFIED)
 }
 
+var cancelModeFromProtoTable = map[backendpluginv1.CancelMode]CancelMode{
+	backendpluginv1.CancelMode_CANCEL_MODE_NONE:       CancelModeNone,
+	backendpluginv1.CancelMode_CANCEL_MODE_PROVIDER:   CancelModeProvider,
+	backendpluginv1.CancelMode_CANCEL_MODE_TRANSPORT:  CancelModeTransport,
+	backendpluginv1.CancelMode_CANCEL_MODE_CLOSE_ONLY: CancelModeCloseOnly,
+}
+
+var cancelModeToProtoTable = map[CancelMode]backendpluginv1.CancelMode{
+	CancelModeNone:      backendpluginv1.CancelMode_CANCEL_MODE_NONE,
+	CancelModeProvider:  backendpluginv1.CancelMode_CANCEL_MODE_PROVIDER,
+	CancelModeTransport: backendpluginv1.CancelMode_CANCEL_MODE_TRANSPORT,
+	CancelModeCloseOnly: backendpluginv1.CancelMode_CANCEL_MODE_CLOSE_ONLY,
+}
+
+func cancelModeFromProto(v backendpluginv1.CancelMode) (CancelMode, error) {
+	return enumFromProto(v, cancelModeFromProtoTable, CancelModeUnspecified)
+}
+
+func cancelModeToProto(v CancelMode) (backendpluginv1.CancelMode, error) {
+	return enumToProto(v, cancelModeToProtoTable, backendpluginv1.CancelMode_CANCEL_MODE_UNSPECIFIED)
+}
+
 var clientFrameKindFromProtoTable = map[backendpluginv1.ClientFrameKind]ClientFrameKind{
 	backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_START:       ClientFrameStart,
 	backendpluginv1.ClientFrameKind_CLIENT_FRAME_KIND_CANCEL:      ClientFrameCancel,

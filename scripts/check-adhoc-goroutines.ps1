@@ -29,6 +29,9 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # pool; every worker is joined by Shutdown and no per-request fallback exists.
 # connector-support/acp/scripted_stdio.go: in-process scripted mock ACP agent background loop for connector tests.
 # connectors/codex/cmd/fake-codex-cli/main.go: deterministic emulator grandchild process waiter for e2e tests.
+# internal/core/leglifecycle/coordinator.go: bounded A-leg cancel fan-out over a
+# lock-time snapshot of active B-legs; each child is joined via WaitGroup before
+# Cancel returns (spec aleg-cancellation-bleg-termination-hardening, Phase 2).
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/stdhttp/generation_host.go"
@@ -37,6 +40,7 @@ $allowed = @(
     "internal/infra/runtimehost/manager.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
+    "internal/core/leglifecycle/coordinator.go"
     "internal/core/runtime/lease_heartbeat.go"
     "internal/core/billing/handoff_retry_worker.go"
     "internal/core/auxreq/background.go"

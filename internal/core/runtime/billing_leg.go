@@ -138,6 +138,21 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	if command == sdkterminal.CommandNormalFinish || committed {
 		surfaced = billing.SurfacedYes
 	}
+	if attempt != nil {
+		accumulatedEv := attempt.aggregatedUsageEvidence()
+		if accumulatedEv.Kind != "" {
+			if streamEv.Kind == "" || (!streamEv.UsagePresence.Any() && !streamEv.CostPresent) {
+				streamEv = accumulatedEv
+			} else if !streamEv.CostPresent && accumulatedEv.CostPresent {
+				streamEv.CostPresent = true
+				streamEv.CostNanoUnits = accumulatedEv.CostNanoUnits
+				streamEv.Currency = accumulatedEv.Currency
+			}
+		}
+	}
+	if streamEv.Kind == "" {
+		streamEv = emptyOperatorUsageShell()
+	}
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          request.billingCallID,

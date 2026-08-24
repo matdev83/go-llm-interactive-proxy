@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
-	"go.uber.org/goleak"
 )
 
 const sessionConcurrencyGuard = time.Second
@@ -200,19 +199,17 @@ func TestSession_CrossGenerationCloseSerializesWithExecute(t *testing.T) {
 func newCrossGenerationSession(t *testing.T) (*host.Session, *crossGenerationFake) {
 	t.Helper()
 	plugin := newCrossGenerationFake()
-	conn, cleanup := startPublicFake(t, plugin)
+	conn := startPublicFake(t, plugin)
 	session, _, err := host.DialConfiguredSession(
 		context.Background(), conn, "cross-generation", "fake", nil, backendplugin.SecretBundle{},
 		backendplugin.RuntimePolicy{DisableTransportRetries: true},
 	)
 	if err != nil {
-		cleanup()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		plugin.releaseExecute()
 		_ = session.Close(context.Background())
-		cleanup()
 	})
 	return session, plugin
 }

@@ -112,6 +112,8 @@ type attemptTx struct {
 	completed        bool
 	failures         *candidateFailureHistory
 
+	launchPermit *leglifecycle.LaunchPermit
+
 	// attempt-local resources
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
@@ -154,7 +156,11 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		in.observeBillingLeg = e.observeBillingLeg
 		in.appendBillingLeg = e.appendIndependentCallLeg
 	}
-	return newAttemptSession(in)
+	sess := newAttemptSession(in)
+	if e != nil {
+		sess.recordCancellationFn = e.recordCancellation
+	}
+	return sess
 }
 
 func (tx *attemptTx) createSession() *attemptSession {
@@ -223,6 +229,10 @@ func (tx *attemptTx) HandoffReady(pending pendingSelectionEffects) *readyAttempt
 func (tx *attemptTx) rollback(ctx context.Context, cmd sdkterminal.Command, evidence attemptEvidence) attemptTerminalResult {
 	if tx == nil || tx.completed {
 		return attemptTerminalResult{}
+	}
+	if tx.launchPermit != nil {
+		tx.launchPermit.Abort()
+		tx.launchPermit = nil
 	}
 	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
 		tx.budget.release()
@@ -681,6 +691,21 @@ func (e *Executor) openAttemptTx(
 		baseOpenCtx, cancelOpen, ttftDeadline = tx.failures.progress.ttft.scopedContext(ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
 	}
 	defer cancelOpen()
+
+	if tx.reqFacts.aScope != nil {
+		permitCtx, permit, perr := tx.reqFacts.aScope.BeginBLegLaunch(baseOpenCtx, tx.bleg.BLegID)
+		if perr != nil {
+			if errors.Is(perr, leglifecycle.ErrALegCanceled) {
+				tx.recordFailure(ctx, lipapi.AttemptCancelled, "a-leg canceled before launch", perr)
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, perr, "a-leg canceled before launch")
+				return nil
+			}
+			return perr
+		}
+		tx.launchPermit = permit
+		baseOpenCtx = permitCtx
+	}
+
 	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(
 		baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
@@ -691,6 +716,10 @@ func (e *Executor) openAttemptTx(
 	defer openSpan.End()
 	openStart := e.now()
 	if aerr := e.assertSecureSessionActiveBeforeOpen(openCtx); aerr != nil {
+		if tx.launchPermit != nil {
+			tx.launchPermit.Abort()
+			tx.launchPermit = nil
+		}
 		return aerr
 	}
 	tx.openStartedAt = openStart
@@ -708,6 +737,10 @@ func (e *Executor) openAttemptTx(
 	tx.stream = stream
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
+		if tx.launchPermit != nil {
+			tx.launchPermit.Abort()
+			tx.launchPermit = nil
+		}
 		var pe *safety.PanicError
 		if errors.As(err, &pe) {
 			err = mapBackendPanic(pe, false, c.Key)
@@ -934,6 +967,44 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		req.progress.excluded[plan.cand.Key] = struct{}{}
 		return openedAttempt{ready: nil, interleaved: req.interleaved}, nil
 	}
+
+	ready := tx.HandoffReady(pendingSelectionEffects{
+		interleaved: req.interleaved,
+		memoUpdate:  nil,
+	})
+
+	if tx.launchPermit != nil {
+		commitRes, commitErr := tx.launchPermit.Commit(ready.lifecycleHandle())
+		tx.registered = true
+		tx.launchPermit = nil
+		if commitRes.Canceled {
+			cause := commitRes.Cause
+			if cause.Kind == "" {
+				cause = leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+			}
+			ready.cancelViaLifecycle(ctx, cause)
+			req.progress.excluded[plan.cand.Key] = struct{}{}
+			return openedAttempt{ready: nil, interleaved: req.interleaved}, leglifecycle.ErrALegCanceled
+		}
+		if commitErr != nil {
+			ready.Dispose(ctx, commitErr)
+			return openedAttempt{interleaved: req.interleaved}, commitErr
+		}
+		if err := ctx.Err(); err != nil {
+			ready.cancelViaLifecycle(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
+			return openedAttempt{interleaved: req.interleaved}, err
+		}
+	} else if req.reqFacts.aScope != nil {
+		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      tx.bleg.BLegID,
+			Attempt: ready.lifecycleHandle(),
+		}); err != nil {
+			ready.Dispose(ctx, err)
+			return openedAttempt{interleaved: req.interleaved}, err
+		}
+		tx.registered = true
+	}
+
 	interleaved := req.interleaved
 	if plan.nextCycle != nil {
 		interleaved.Cycle = *plan.nextCycle
@@ -942,11 +1013,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	if req.reqFacts.suppressThinker {
 		if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, perr)
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
@@ -955,38 +1022,21 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		if evalOutcome.shapeRes.MemoUpdate != nil {
 			interleaved, err = e.commitMemoInjection(ctx, req.reqFacts.aLegID, interleaved, evalOutcome.shapeRes.MemoUpdate)
 			if err != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, err)
 				return openedAttempt{interleaved: req.interleaved}, err
 			}
 		} else if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, perr)
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
 	}
 	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
-	ready := tx.HandoffReady(pendingSelectionEffects{
+	ready.setPending(pendingSelectionEffects{
 		interleaved: interleaved,
 		memoUpdate:  memoUpdate,
 	})
-	if req.reqFacts.aScope != nil {
-		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      tx.bleg.BLegID,
-			Attempt: ready.lifecycleHandle(),
-		}); err != nil {
-			return openedAttempt{interleaved: req.interleaved}, err
-		}
-		tx.registered = true
-	}
 	return openedAttempt{
 		ready:       ready,
 		interleaved: interleaved,

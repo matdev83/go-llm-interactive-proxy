@@ -141,12 +141,27 @@ func featureMinimumMinor(name string) (uint32, bool) {
 		return ProtocolMinorSemanticExtensions, true
 	case FeaturePromptCacheResidency:
 		return ProtocolMinorPromptCacheResidency, true
+	case FeatureCancellationHandshake:
+		return ProtocolMinorCancellationHandshake, true
 	default:
 		return 0, false
 	}
 }
 
 func validateFeatureMinorRequirements(host, plugin map[string]Feature, minor uint32) error {
+	if minor >= ProtocolMinorCancellationHandshake {
+		return nil
+	}
+	for name, feature := range host {
+		if name == FeatureCancellationHandshake && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorCancellationHandshake)
+		}
+	}
+	for name, feature := range plugin {
+		if name == FeatureCancellationHandshake && feature.Required {
+			return fmt.Errorf("%w: %s requires minor %d", ErrIncompatibleMinor, name, ProtocolMinorCancellationHandshake)
+		}
+	}
 	if minor >= ProtocolMinorPromptCacheResidency {
 		return nil
 	}

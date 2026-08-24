@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -129,6 +130,10 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 			return nil, nil, noop, fmt.Errorf("executor: secure session manager is required")
 		}
 	}
+	origALegID := ""
+	if call != nil {
+		origALegID = strings.TrimSpace(call.Session.ALegID)
+	}
 	pr := &preparedRequest{bus: bus}
 	var err error
 	prepCtx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
@@ -227,7 +232,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		return nil, nil, noop, fmt.Errorf("executor: allocate billing call id: %w", err)
 	}
 	lifecycle := e.lifecycleCoordinator()
-	pr.aScope = lifecycle.StartALeg(pr.identity.aLeg.ALegID)
+	pr.aScope = lifecycle.StartALeg(pr.identity.aLeg.ALegID, origALegID)
 	guard.aScope = pr.aScope
 
 	var recvViews execctx.Views
