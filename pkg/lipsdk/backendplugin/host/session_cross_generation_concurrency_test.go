@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
+	"go.uber.org/goleak"
 )
 
 const sessionConcurrencyGuard = time.Second
