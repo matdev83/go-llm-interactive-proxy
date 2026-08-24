@@ -62,6 +62,12 @@ func TestConversationView_PostgresContract(t *testing.T) {
 		return storecontract.Deps{
 			Store: cv,
 			CreateALeg: func(ctx context.Context, aLegID string) error {
+				// Contract seeds are deterministic while the database persists across
+				// runs; clear any prior leg so FK cascade removes stale conversation-view
+				// dependents and every run starts from an empty view.
+				if _, err := s.db.NewRaw(`DELETE FROM a_legs WHERE a_leg_id = ?`, aLegID).Exec(ctx); err != nil {
+					return err
+				}
 				_, err := s.db.NewRaw(`INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq) VALUES(?,?,?,?,0,0)`, aLegID, "", int64(0), int64(0)).Exec(ctx)
 				if err != nil {
 					var count int

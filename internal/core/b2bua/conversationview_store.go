@@ -203,6 +203,13 @@ func (m *memoryConversationViewStore) PutSteering(ctx context.Context, aLegID st
 				placementChanged = true
 			}
 		}
+		// Registration invariant (Req 9.7): a newly bound after_message anchor must not be
+		// never_backend at this atomic persistence point (prevents resolve/tag/persist TOCTOU).
+		if conversationview.RegistersNewAfterMessageAnchor(req, true, placementChanged) {
+			if _, excluded := view.NeverBackend[req.Placement.Anchor.Identity]; excluded {
+				return conversationview.SteeringState{}, conversationview.ErrSteeringAnchorExcluded
+			}
+		}
 		activeCount := 0
 		totalBytes := 0
 		for _, ov := range view.Steering {
@@ -267,6 +274,12 @@ func (m *memoryConversationViewStore) PutSteering(ctx context.Context, aLegID st
 		}, nil
 	}
 	// New overlay creation.
+	// Registration invariant (Req 9.7): see exists-branch comment above.
+	if conversationview.RegistersNewAfterMessageAnchor(req, false, true) {
+		if _, excluded := view.NeverBackend[req.Placement.Anchor.Identity]; excluded {
+			return conversationview.SteeringState{}, conversationview.ErrSteeringAnchorExcluded
+		}
+	}
 	activeCount := 0
 	totalBytes := 0
 	for _, ov := range view.Steering {
