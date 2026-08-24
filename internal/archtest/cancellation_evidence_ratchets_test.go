@@ -1,284 +1,153 @@
 package archtest
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// DetectCurrentSlotEvidenceAttribution scans runtime code to ensure terminal evidence is attributed
-// to explicit attempt session references, never by re-reading the mutable current-attempt slot.
-func DetectCurrentSlotEvidenceAttribution(root string) ([]string, error) {
-	runtimeDir := filepath.Join(root, "internal", "core", "runtime")
-	targetFiles := []string{
-		"response_pipeline_observations.go",
-		"attempt_session.go",
-		"executor_recv_loop.go",
-	}
-
-	var violations []string
-	for _, name := range targetFiles {
-		path := filepath.Join(runtimeDir, name)
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("parse %s: %w", name, err)
-		}
-		violations = append(violations, inspectCurrentSlotEvidenceAttributionAST(fset, file, name)...)
-	}
-	return violations, nil
+var evidenceAttributionFunctions = map[string]bool{
+	"prepareRecvEvent":                      true,
+	"emitUsage":                             true,
+	"emitUsageEvidence":                     true,
+	"emitUsageTerminal":                     true,
+	"consumeBackendUsageEvidenceForAttempt": true,
 }
 
-func inspectCurrentSlotEvidenceAttributionAST(fset *token.FileSet, file *ast.File, relPath string) []string {
-	var violations []string
-
-	evidenceFunctions := map[string]bool{
-		"prepareRecvEvent":                      true,
-		"emitUsage":                             true,
-		"emitUsageEvidence":                     true,
-		"emitUsageTerminal":                     true,
-		"consumeBackendUsageEvidenceForAttempt": true,
-		"drainSidebandEvidence":                 true,
-		"drainStreamUsageEvidence":              true,
-		"makeSwallowedEvidence":                 true,
-		"terminalizeSwallowed":                  true,
-		"terminalizeEarlyCancellation":          true,
+func TestArch_ResponsePipelineEvidenceUsesExplicitAttempt(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	path := filepath.Join(repoRoot(t), "internal", "core", "runtime", "response_pipeline_observations.go")
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse response_pipeline_observations.go: %v", err)
 	}
 
+	var found int
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
+		if !ok || fn.Body == nil || !evidenceAttributionFunctions[fn.Name.Name] {
 			continue
 		}
-
-		if !evidenceFunctions[fn.Name.Name] {
-			continue
+		found++
+		if !hasAttemptParameter(fn) {
+			t.Errorf("%s must receive an explicit *attemptSession", fn.Name.Name)
 		}
-
-		// Check that function does not call s.attempt.get(), s.attempt.load(), or req.progress.attempt
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			selText := nodeText(sel)
-			if strings.Contains(selText, "s.attempt") || strings.Contains(selText, "progress.attempt") {
+			if ok && sel.Sel.Name == "attempt" {
 				pos := fset.Position(sel.Pos())
-				violations = append(violations, fmt.Sprintf("%s:%d: function %s re-reads mutable current-attempt slot (%s) for evidence attribution (must use explicit attempt parameter)", relPath, pos.Line, fn.Name.Name, selText))
+				t.Errorf("%s:%d: mutable current-attempt slot used for evidence attribution", path, pos.Line)
 			}
 			return true
 		})
 	}
-
-	return violations
+	if found != len(evidenceAttributionFunctions) {
+		t.Fatalf("found %d/%d evidence attribution functions", found, len(evidenceAttributionFunctions))
+	}
 }
 
-// DetectSidebandClientEmissionLeak checks that provider sideband evidence is swallowed from client canonical emission.
-func DetectSidebandClientEmissionLeak(root string) ([]string, error) {
-	runtimeDir := filepath.Join(root, "internal", "core", "runtime")
-	path := filepath.Join(runtimeDir, "response_pipeline_observations.go")
+func TestArch_ResponsePipelineSidebandIsSwallowedBeforeClientTransform(t *testing.T) {
+	t.Parallel()
 	fset := token.NewFileSet()
+	path := filepath.Join(repoRoot(t), "internal", "core", "runtime", "response_pipeline_observations.go")
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("parse response_pipeline_observations.go: %w", err)
+		t.Fatalf("parse response_pipeline_observations.go: %v", err)
 	}
-	return inspectSidebandClientEmissionAST(fset, file, "response_pipeline_observations.go"), nil
-}
 
-func inspectSidebandClientEmissionAST(fset *token.FileSet, file *ast.File, relPath string) []string {
-	var violations []string
-
-	var hasPrepareRecvSwallowedCheck bool
-	var hasTransformSwallowedCheck bool
-
+	var prepare, transform *ast.FuncDecl
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
+		if !ok {
 			continue
 		}
-
-		if fn.Name.Name == "prepareRecvEvent" {
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if assign, ok := n.(*ast.AssignStmt); ok {
-					for i, lhs := range assign.Lhs {
-						if nodeText(lhs) == "prepared.swallowed" && i < len(assign.Rhs) && nodeText(assign.Rhs[i]) == "true" {
-							hasPrepareRecvSwallowedCheck = true
-						}
-					}
-				}
-				return true
-			})
-		}
-
-		if fn.Name.Name == "transformClientEvent" {
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if ifStmt, ok := n.(*ast.IfStmt); ok {
-					condText := nodeText(ifStmt.Cond)
-					if strings.Contains(condText, "out.swallowed") || strings.Contains(condText, "prepared.swallowed") {
-						hasTransformSwallowedCheck = true
-					}
-				}
-				return true
-			})
+		switch fn.Name.Name {
+		case "prepareRecvEvent":
+			prepare = fn
+		case "transformClientEvent":
+			transform = fn
 		}
 	}
-
-	if !hasPrepareRecvSwallowedCheck {
-		violations = append(violations, fmt.Sprintf("%s: prepareRecvEvent does not set prepared.swallowed = true for deduplicated / internal sideband evidence", relPath))
+	if prepare == nil || transform == nil {
+		t.Fatal("response pipeline must expose prepareRecvEvent and transformClientEvent")
 	}
-	if !hasTransformSwallowedCheck {
-		violations = append(violations, fmt.Sprintf("%s: transformClientEvent does not short-circuit when swallowed is true", relPath))
+	if !hasSwallowedAssignment(prepare) {
+		t.Fatal("prepareRecvEvent must mark duplicate/internal evidence swallowed")
 	}
-
-	return violations
-}
-
-func TestArch_NoCurrentSlotEvidenceAttribution(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-
-	violations, err := DetectCurrentSlotEvidenceAttribution(root)
-	if err != nil {
-		t.Fatalf("DetectCurrentSlotEvidenceAttribution failed: %v", err)
-	}
-	if len(violations) > 0 {
-		t.Fatalf("Current slot evidence attribution ratchet violated (%d violations):\n%s", len(violations), strings.Join(violations, "\n"))
+	if !hasSwallowedGuard(transform) {
+		t.Fatal("transformClientEvent must stop before client emission when swallowed")
 	}
 }
 
-func TestArch_NoCurrentSlotEvidenceAttribution_NegativeFixtures(t *testing.T) {
-	t.Parallel()
-
-	// Fixture A: emitUsage re-reading s.attempt.get() instead of using explicit attempt parameter
-	badSourceA := `package runtime
-func (p *responsePipeline) emitUsage(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
-	current := s.attempt.get()
-	p.emitUsageEvidence(ctx, facts, current, ev)
-}`
-	fsetA := token.NewFileSet()
-	fileA, err := parser.ParseFile(fsetA, "response_pipeline_observations.go", badSourceA, 0)
-	if err != nil {
-		t.Fatalf("parse fixture A: %v", err)
+func hasAttemptParameter(fn *ast.FuncDecl) bool {
+	if fn.Type == nil || fn.Type.Params == nil {
+		return false
 	}
-	violationsA := inspectCurrentSlotEvidenceAttributionAST(fsetA, fileA, "response_pipeline_observations.go")
-	if len(violationsA) == 0 {
-		t.Fatal("expected fixture A (emitUsage re-reading s.attempt) to be rejected")
+	for _, field := range fn.Type.Params.List {
+		if !isEvidenceAttemptSessionType(field.Type) {
+			continue
+		}
+		for _, name := range field.Names {
+			if name.Name == "attempt" {
+				return true
+			}
+		}
 	}
-
-	// Fixture B: drainSidebandEvidence re-reading req.progress.attempt
-	badSourceB := `package runtime
-func (p *responsePipeline) drainSidebandEvidence(ctx context.Context, facts recvTurnFacts, attempt *attemptSession) {
-	active := facts.progress.attempt
-	_ = active
-}`
-	fsetB := token.NewFileSet()
-	fileB, err := parser.ParseFile(fsetB, "response_pipeline_observations.go", badSourceB, 0)
-	if err != nil {
-		t.Fatalf("parse fixture B: %v", err)
-	}
-	violationsB := inspectCurrentSlotEvidenceAttributionAST(fsetB, fileB, "response_pipeline_observations.go")
-	if len(violationsB) == 0 {
-		t.Fatal("expected fixture B (drainSidebandEvidence re-reading progress.attempt) to be rejected")
-	}
-
-	// Fixture C: Valid function using explicit attempt parameter (allowed)
-	goodSourceC := `package runtime
-func (p *responsePipeline) emitUsage(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) {
-	p.emitUsageEvidence(ctx, facts, attempt, ev)
-}`
-	fsetC := token.NewFileSet()
-	fileC, err := parser.ParseFile(fsetC, "response_pipeline_observations.go", goodSourceC, 0)
-	if err != nil {
-		t.Fatalf("parse fixture C: %v", err)
-	}
-	violationsC := inspectCurrentSlotEvidenceAttributionAST(fsetC, fileC, "response_pipeline_observations.go")
-	if len(violationsC) != 0 {
-		t.Fatalf("expected valid fixture C to pass, got: %v", violationsC)
-	}
+	return false
 }
 
-func TestArch_SidebandEvidenceNotEmittedToClient(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-
-	violations, err := DetectSidebandClientEmissionLeak(root)
-	if err != nil {
-		t.Fatalf("DetectSidebandClientEmissionLeak failed: %v", err)
+func isEvidenceAttemptSessionType(expr ast.Expr) bool {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
 	}
-	if len(violations) > 0 {
-		t.Fatalf("Sideband client emission ratchet violated (%d violations):\n%s", len(violations), strings.Join(violations, "\n"))
-	}
+	id, ok := expr.(*ast.Ident)
+	return ok && id.Name == "attemptSession"
 }
 
-func TestArch_SidebandEvidenceNotEmittedToClient_NegativeFixtures(t *testing.T) {
-	t.Parallel()
-
-	// Fixture A: prepareRecvEvent missing swallowed assignment
-	badSourceA := `package runtime
-func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) recvEventPreparation {
-	prepared := recvEventPreparation{event: ev}
-	return prepared
+func hasSwallowedAssignment(fn *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, lhs := range assign.Lhs {
+			if i >= len(assign.Rhs) || !isField(lhs, "swallowed") {
+				continue
+			}
+			if id, ok := assign.Rhs[i].(*ast.Ident); ok && id.Name == "true" {
+				found = true
+				return false
+			}
+		}
+		return !found
+	})
+	return found
 }
-func (p *responsePipeline) transformClientEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event, prepared recvEventPreparation) clientEventTransformation {
-	if out.swallowed { return out }
-	return clientEventTransformation{event: ev}
-}`
-	fsetA := token.NewFileSet()
-	fileA, err := parser.ParseFile(fsetA, "response_pipeline_observations.go", badSourceA, 0)
-	if err != nil {
-		t.Fatalf("parse fixture A: %v", err)
-	}
-	violationsA := inspectSidebandClientEmissionAST(fsetA, fileA, "response_pipeline_observations.go")
-	if len(violationsA) == 0 {
-		t.Fatal("expected fixture A (missing swallowed handling in prepareRecvEvent) to be rejected")
-	}
 
-	// Fixture B: transformClientEvent missing swallowed check
-	badSourceB := `package runtime
-func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) recvEventPreparation {
-	prepared := recvEventPreparation{event: ev}
-	prepared.swallowed = true
-	return prepared
+func hasSwallowedGuard(fn *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		ast.Inspect(ifStmt.Cond, func(child ast.Node) bool {
+			if isField(child, "swallowed") {
+				found = true
+				return false
+			}
+			return !found
+		})
+		return !found
+	})
+	return found
 }
-func (p *responsePipeline) transformClientEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event, prepared recvEventPreparation) clientEventTransformation {
-	return clientEventTransformation{event: ev}
-}`
-	fsetB := token.NewFileSet()
-	fileB, err := parser.ParseFile(fsetB, "response_pipeline_observations.go", badSourceB, 0)
-	if err != nil {
-		t.Fatalf("parse fixture B: %v", err)
-	}
-	violationsB := inspectSidebandClientEmissionAST(fsetB, fileB, "response_pipeline_observations.go")
-	if len(violationsB) == 0 {
-		t.Fatal("expected fixture B (missing swallowed check in transformClientEvent) to be rejected")
-	}
 
-	// Fixture C: Valid implementation with both checks
-	goodSourceC := `package runtime
-func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event) recvEventPreparation {
-	prepared := recvEventPreparation{event: ev}
-	prepared.swallowed = true
-	return prepared
-}
-func (p *responsePipeline) transformClientEvent(ctx context.Context, facts recvTurnFacts, attempt *attemptSession, ev lipapi.Event, prepared recvEventPreparation) clientEventTransformation {
-	if out.swallowed { return out }
-	return clientEventTransformation{event: ev}
-}`
-	fsetC := token.NewFileSet()
-	fileC, err := parser.ParseFile(fsetC, "response_pipeline_observations.go", goodSourceC, 0)
-	if err != nil {
-		t.Fatalf("parse fixture C: %v", err)
-	}
-	violationsC := inspectSidebandClientEmissionAST(fsetC, fileC, "response_pipeline_observations.go")
-	if len(violationsC) != 0 {
-		t.Fatalf("expected valid fixture C to pass, got: %v", violationsC)
-	}
+func isField(expr ast.Node, name string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == name
 }

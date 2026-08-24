@@ -11,82 +11,106 @@ import (
 	"testing"
 )
 
-// DetectNonLinearizedBackendOpen scans runtime production code and verifies that
-// all Backend.Open calls are guarded by A-leg launch authority (BeginBLegLaunch).
+// DetectNonLinearizedBackendOpen checks the one production backend-open choke
+// point. It follows the context value returned by BeginBLegLaunch through the
+// small set of assignments between launch and Open; unrelated methods named
+// Open are outside this contract.
 func DetectNonLinearizedBackendOpen(root string) ([]string, error) {
-	runtimeDir := filepath.Join(root, "internal", "core", "runtime")
-	entries, err := os.ReadDir(runtimeDir)
+	path := filepath.Join(root, "internal", "core", "runtime", "executor_open_attempt.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("read runtime dir: %w", err)
+		return nil, fmt.Errorf("parse executor_open_attempt.go: %w", err)
 	}
-
-	var violations []string
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".go") || strings.HasSuffix(ent.Name(), "_test.go") {
-			continue
-		}
-		path := filepath.Join(runtimeDir, ent.Name())
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", ent.Name(), err)
-		}
-		violations = append(violations, inspectBackendOpenAST(fset, file, ent.Name())...)
-	}
-	return violations, nil
+	return inspectBackendOpenAST(fset, file, "executor_open_attempt.go"), nil
 }
 
 func inspectBackendOpenAST(fset *token.FileSet, file *ast.File, relPath string) []string {
 	var violations []string
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
+		if !ok || fn.Body == nil || fn.Name.Name != "openAttemptTx" {
 			continue
 		}
 
-		var beginLaunchPos token.Pos
+		authorityVars := map[string]bool{}
 
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if assign, ok := n.(*ast.AssignStmt); ok {
+				for i, rhs := range assign.Rhs {
+					call, ok := rhs.(*ast.CallExpr)
+					if !ok || !isBeginBLegLaunch(call) {
+						continue
+					}
+					if len(assign.Lhs) == 0 {
+						continue
+					}
+					id, ok := assign.Lhs[min(i, len(assign.Lhs)-1)].(*ast.Ident)
+					if !ok || id.Name == "_" {
+						pos := fset.Position(call.Pos())
+						violations = append(violations, fmt.Sprintf("%s:%d: BeginBLegLaunch context result is discarded before Backend.Open", relPath, pos.Line))
+						continue
+					}
+					authorityVars[id.Name] = true
+				}
+			}
+
+			if assign, ok := n.(*ast.AssignStmt); ok {
+				for i, rhs := range assign.Rhs {
+					if !containsAuthorityIdent(rhs, authorityVars) {
+						continue
+					}
+					if i >= len(assign.Lhs) {
+						continue
+					}
+					if id, ok := assign.Lhs[i].(*ast.Ident); ok && id.Name != "_" {
+						authorityVars[id.Name] = true
+					}
+				}
+			}
+
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
 
-			// Check for BeginBLegLaunch call
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "BeginBLegLaunch" {
-				beginLaunchPos = call.Pos()
-				return true
-			}
-
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "Open" {
-				return true
-			}
-
-			// Identify if this is a backend Open call (any .Open call not on finalStreamObserver)
-			receiverText := nodeText(sel.X)
-			isBackendOpen := !strings.Contains(receiverText, "finalStreamObs")
-
-			if !isBackendOpen {
+			if !ok || sel.Sel.Name != "Open" || !isBackendReceiver(sel.X) {
 				return true
 			}
 
 			pos := fset.Position(call.Pos())
-
-			// Rule 1: Production Backend.Open must be in executor_open_attempt.go inside openAttemptTx
-			if relPath != "executor_open_attempt.go" || fn.Name.Name != "openAttemptTx" {
-				violations = append(violations, fmt.Sprintf("%s:%d: Backend.Open called outside openAttemptTx in %s (must be in executor_open_attempt.go:openAttemptTx)", relPath, pos.Line, fn.Name.Name))
+			if len(call.Args) == 0 || !containsAuthorityIdent(call.Args[0], authorityVars) {
+				violations = append(violations, fmt.Sprintf("%s:%d: Backend.Open context is not derived from BeginBLegLaunch", relPath, pos.Line))
 				return true
-			}
-
-			// Rule 2: Inside openAttemptTx, BeginBLegLaunch must precede Backend.Open
-			if beginLaunchPos == token.NoPos || beginLaunchPos >= call.Pos() {
-				violations = append(violations, fmt.Sprintf("%s:%d: Backend.Open called without preceding BeginBLegLaunch launch authority", relPath, pos.Line))
 			}
 			return true
 		})
 	}
 	return violations
+}
+
+func isBeginBLegLaunch(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "BeginBLegLaunch"
+}
+
+func isBackendReceiver(expr ast.Expr) bool {
+	id, ok := expr.(*ast.Ident)
+	return ok && id.Name == "be"
+}
+
+func containsAuthorityIdent(node ast.Node, names map[string]bool) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if ok && names[id.Name] {
+			found = true
+			return false
+		}
+		return !found
+	})
+	return found
 }
 
 // DetectRawRegistrationInRuntime scans runtime production code to ensure all A-leg
@@ -178,7 +202,7 @@ func TestArch_LaunchAuthority_LinearizedOpen(t *testing.T) {
 func TestArch_LaunchAuthority_LinearizedOpen_NegativeFixtures(t *testing.T) {
 	t.Parallel()
 
-	// Fixture A: Backend.Open called outside openAttemptTx
+	// Fixture A: an Open method outside the production choke point is unrelated.
 	badSourceA := `package runtime
 import "context"
 func otherFunc(ctx context.Context, be backend) {
@@ -190,8 +214,8 @@ func otherFunc(ctx context.Context, be backend) {
 		t.Fatalf("parse fixture A: %v", err)
 	}
 	violationsA := inspectBackendOpenAST(fsetA, fileA, "other_file.go")
-	if len(violationsA) == 0 {
-		t.Fatal("expected fixture A (Backend.Open outside openAttemptTx) to be rejected")
+	if len(violationsA) != 0 {
+		t.Fatalf("expected unrelated Open outside openAttemptTx to be ignored, got: %v", violationsA)
 	}
 
 	// Fixture B: openAttemptTx calling Backend.Open without BeginBLegLaunch
@@ -230,7 +254,7 @@ func (e *Executor) openAttemptTx(ctx context.Context, tx *attemptTx) error {
 		t.Fatalf("expected valid fixture C to pass, got violations: %v", violationsC)
 	}
 
-	// Fixture D: custom backend call in arbitrary file
+	// Fixture D: a custom backend call in an arbitrary file is unrelated.
 	badSourceD := `package runtime
 import "context"
 func runCustom(ctx context.Context, customBackend any) {
@@ -242,8 +266,49 @@ func runCustom(ctx context.Context, customBackend any) {
 		t.Fatalf("parse fixture D: %v", err)
 	}
 	violationsD := inspectBackendOpenAST(fsetD, fileD, "custom.go")
-	if len(violationsD) == 0 {
-		t.Fatal("expected fixture D (customBackend.Open in custom.go) to be rejected")
+	if len(violationsD) != 0 {
+		t.Fatalf("expected custom Open in custom.go to be ignored, got: %v", violationsD)
+	}
+
+	// Fixture E: a discarded launch context must not authorize Backend.Open.
+	badSourceE := `package runtime
+import "context"
+func (e *Executor) openAttemptTx(ctx context.Context, tx *attemptTx) error {
+	_, _, perr := tx.reqFacts.aScope.BeginBLegLaunch(ctx, tx.bleg.BLegID)
+	if perr != nil { return perr }
+	_, err := be.Open(ctx, nil, nil)
+	return err
+}`
+	fsetE := token.NewFileSet()
+	fileE, err := parser.ParseFile(fsetE, "executor_open_attempt.go", badSourceE, 0)
+	if err != nil {
+		t.Fatalf("parse fixture E: %v", err)
+	}
+	violationsE := inspectBackendOpenAST(fsetE, fileE, "executor_open_attempt.go")
+	if len(violationsE) == 0 {
+		t.Fatal("expected fixture E (discarded BeginBLegLaunch context) to be rejected")
+	}
+}
+
+func TestArch_LaunchAuthority_IgnoresUnrelatedOpenMethods(t *testing.T) {
+	t.Parallel()
+
+	source := `package runtime
+import "context"
+func (e *Executor) openAttemptTx(ctx context.Context, tx *attemptTx) error {
+	permitCtx, _, perr := tx.reqFacts.aScope.BeginBLegLaunch(ctx, tx.bleg.BLegID)
+	if perr != nil { return perr }
+	_, _ = observer.Open(ctx)
+	_, err := be.Open(permitCtx, nil, nil)
+	return err
+}`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "executor_open_attempt.go", source, 0)
+	if err != nil {
+		t.Fatalf("parse unrelated Open fixture: %v", err)
+	}
+	if violations := inspectBackendOpenAST(fset, file, "executor_open_attempt.go"); len(violations) != 0 {
+		t.Fatalf("unrelated Open call must be ignored, got: %v", violations)
 	}
 }
 

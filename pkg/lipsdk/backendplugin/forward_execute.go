@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,19 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 )
 
-const maxCancelOutcomeDetailLen = 256
-
-func sanitizeCancelOutcomeDetail(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.TrimSpace(s)
-	runes := []rune(s)
-	if len(runes) > maxCancelOutcomeDetailLen {
-		return string(runes[:maxCancelOutcomeDetailLen])
-	}
-	return string(runes)
-}
+const genericCancelOutcomeDetail = "cancel failed"
 
 var fallbackCancelGrace = 2 * time.Second
 

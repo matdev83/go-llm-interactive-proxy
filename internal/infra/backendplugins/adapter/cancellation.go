@@ -3,7 +3,6 @@ package adapter
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -17,6 +16,8 @@ const (
 
 	// legacyCancelWaitFallback is the fallback wait duration for legacy streams without negotiated cancellation.
 	legacyCancelWaitFallback = 500 * time.Millisecond
+
+	maxCancelOutcomeDetailLen = 256
 )
 
 type cancelState struct {
@@ -54,7 +55,7 @@ func (s *cancelState) observeOutcome(o *backendplugin.CancelOutcome) {
 	s.acknowledged = o.Acknowledged
 	s.mode = o.Mode
 	s.reason = o.Reason
-	s.detail = o.Detail
+	s.detail = safeCancelOutcomeDetail(o.Detail)
 }
 
 func (s *cancelState) markForced() {
@@ -125,10 +126,23 @@ func outcomeCancelResult(prog CancellationProgress) lipapi.CancelResult {
 	res := lipapi.CancelResult{Mode: mode}
 	if !prog.OutcomeAcknowledged {
 		if prog.OutcomeDetail != "" {
-			res.Err = fmt.Errorf("backend plugin cancel failed: %s", prog.OutcomeDetail)
+			// CancelOutcome.Detail is connector-controlled provider text. The host
+			// boundary keeps only the classified failure marker even after the
+			// diagnostic seam has redacted and bounded the detail.
+			res.Err = errors.New("backend plugin cancel failed: [redacted]")
 		} else {
 			res.Err = errors.New("backend plugin cancel failed")
 		}
 	}
 	return res
+}
+
+func safeCancelOutcomeDetail(detail string) string {
+	if detail == "" {
+		return ""
+	}
+	if len(detail) > maxCancelOutcomeDetailLen {
+		return "[redacted]"
+	}
+	return sanitizeDiagnosticText(detail, maxCancelOutcomeDetailLen)
 }

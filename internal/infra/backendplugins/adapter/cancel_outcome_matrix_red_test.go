@@ -163,10 +163,10 @@ func TestRED_Adapter_CancelOutcome_Matrix(t *testing.T) {
 			t.Fatalf("res.Mode = %v, want CancelModeProvider", res.Mode)
 		}
 		if res.Err == nil {
-			t.Fatal("res.Err is nil, want non-nil error containing detail (RED failure)")
+			t.Fatal("res.Err is nil, want non-nil classified error")
 		}
-		if !strings.Contains(res.Err.Error(), "provider cancellation rejected") {
-			t.Fatalf("res.Err = %q, want containing 'provider cancellation rejected'", res.Err.Error())
+		if strings.Contains(res.Err.Error(), "provider cancellation rejected") || !strings.Contains(res.Err.Error(), "[redacted]") {
+			t.Fatalf("res.Err = %q, want classified redacted failure", res.Err.Error())
 		}
 	})
 
@@ -301,10 +301,10 @@ func TestRED_Adapter_CancelOutcome_Matrix(t *testing.T) {
 			t.Fatalf("res2.Mode = %v, want CancelModeProvider", res2.Mode)
 		}
 		if res2.Err == nil {
-			t.Fatal("res2.Err is nil on terminalSeen negative-ack, want error containing detail (RED failure)")
+			t.Fatal("res2.Err is nil on terminalSeen negative-ack, want non-nil classified error")
 		}
-		if !strings.Contains(res2.Err.Error(), "late failure detail") {
-			t.Fatalf("res2.Err = %q, want containing 'late failure detail'", res2.Err.Error())
+		if strings.Contains(res2.Err.Error(), "late failure detail") || !strings.Contains(res2.Err.Error(), "[redacted]") {
+			t.Fatalf("res2.Err = %q, want classified redacted failure", res2.Err.Error())
 		}
 	})
 }
@@ -352,9 +352,9 @@ func TestRED_Adapter_E2E_ForwardExecute_CancelFailure_PropagatesErrorAndMode(t *
 		t.Fatalf("res.Mode = %v, want CancelModeProvider", res.Mode)
 	}
 	if res.Err == nil {
-		t.Fatal("res.Err is nil, want non-nil error propagated across host-plugin boundary (RED failure)")
+		t.Fatal("res.Err is nil, want non-nil classified error across host-plugin boundary")
 	}
-	if !strings.Contains(res.Err.Error(), "upstream-provider-abort-failed") {
-		t.Fatalf("res.Err = %q, want error containing 'upstream-provider-abort-failed'", res.Err.Error())
+	if strings.Contains(res.Err.Error(), "upstream-provider-abort-failed") || !strings.Contains(res.Err.Error(), "[redacted]") {
+		t.Fatalf("res.Err = %q, want classified redacted failure", res.Err.Error())
 	}
 }

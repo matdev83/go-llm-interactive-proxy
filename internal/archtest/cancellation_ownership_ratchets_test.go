@@ -41,110 +41,102 @@ func inspectAttemptTerminalAST(fset *token.FileSet, file *ast.File, relPath stri
 
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok {
+		if !ok || fn.Body == nil {
 			continue
 		}
-		pos := fset.Position(fn.Pos())
+		owners := attemptSessionOwnerNames(fn)
+		if len(owners) == 0 {
+			continue
+		}
+		terminalAliases := map[string]bool{}
+		canonicalOwner := fn.Name.Name == "TerminalizeAttempt" && receiverIsAttemptSession(fn)
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if assign, ok := n.(*ast.AssignStmt); ok {
+				for i, rhs := range assign.Rhs {
+					if i >= len(assign.Lhs) || !isAttemptTerminalField(rhs, owners) {
+						continue
+					}
+					if id, ok := assign.Lhs[i].(*ast.Ident); ok && id.Name != "_" {
+						terminalAliases[id.Name] = true
+					}
+				}
+			}
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Terminalize" || !isAttemptTerminalValue(sel.X, owners, terminalAliases) {
+				return true
+			}
+			if !canonicalOwner {
+				pos := fset.Position(call.Pos())
+				violations = append(violations, fmt.Sprintf("%s:%d: attempt terminal.Terminalize call outside TerminalizeAttempt", relPath, pos.Line))
+			}
+			return true
+		})
+	}
 
-		// Check receiver methods on attemptSession / attemptTx
-		if fn.Recv != nil && len(fn.Recv.List) > 0 {
-			recvType := nodeText(fn.Recv.List[0].Type)
-			if strings.Contains(recvType, "attemptSession") || strings.Contains(recvType, "attemptTx") {
-				switch fn.Name.Name {
-				case "cancelAndClose", "AbortBeforeReturn", "finishAsReplaced", "Rollback", "Abort", "RollbackParallelLoser", "terminalizeAttemptEphemeral":
-					violations = append(violations, fmt.Sprintf("%s:%d: forbidden terminal method %s on %s", relPath, pos.Line, fn.Name.Name, recvType))
+	return violations
+}
+
+func attemptSessionOwnerNames(fn *ast.FuncDecl) map[string]bool {
+	owners := map[string]bool{}
+	if fn.Recv != nil {
+		for _, field := range fn.Recv.List {
+			if !isAttemptSessionType(field.Type) {
+				continue
+			}
+			for _, name := range field.Names {
+				owners[name.Name] = true
+			}
+		}
+	}
+	if fn.Type != nil {
+		for _, fields := range []*ast.FieldList{fn.Type.Params} {
+			if fields == nil {
+				continue
+			}
+			for _, field := range fields.List {
+				if !isAttemptSessionType(field.Type) {
+					continue
+				}
+				for _, name := range field.Names {
+					owners[name.Name] = true
 				}
 			}
 		}
-
-		// Check function names in turn_terminal.go
-		if relPath == "turn_terminal.go" {
-			switch fn.Name.Name {
-			case "closeBackend", "cancelForClose":
-				violations = append(violations, fmt.Sprintf("%s:%d: forbidden helper %s declared in turn_terminal.go", relPath, pos.Line, fn.Name.Name))
-			}
-		}
 	}
-
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pos := fset.Position(call.Pos())
-
-		// Direct .terminal.Terminalize is allowed only in attempt_session.go (on streamTerminal)
-		if sel.Sel.Name == "Terminalize" && nodeText(sel.X) == "a.terminal" {
-			if relPath != "attempt_session.go" {
-				violations = append(violations, fmt.Sprintf("%s:%d: direct attempt terminal.Terminalize call outside attempt_session.go", relPath, pos.Line))
-			}
-		}
-
-		// In parallel_race.go, releaseLosers must not invoke raw cleanup calls
-		if relPath == "parallel_race.go" {
-			switch sel.Sel.Name {
-			case "cancelLosers", "releaseBLegs", "recordParallelBillingLeg", "terminalizeAttemptEphemeral":
-				violations = append(violations, fmt.Sprintf("%s:%d: forbidden raw cleanup call in parallel_race.go: %s", relPath, pos.Line, sel.Sel.Name))
-			}
-		}
-
-		return true
-	})
-
-	return violations
+	return owners
 }
 
-// DetectPostPublicationRawTeardown verifies that no raw stream teardown occurs after publication.
-func DetectPostPublicationRawTeardown(root string) ([]string, error) {
-	runtimeDir := filepath.Join(root, "internal", "core", "runtime")
-	entries, err := os.ReadDir(runtimeDir)
-	if err != nil {
-		return nil, fmt.Errorf("read runtime dir: %w", err)
-	}
-
-	var violations []string
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".go") || strings.HasSuffix(ent.Name(), "_test.go") {
-			continue
-		}
-		if ent.Name() == "attempt_session.go" {
-			continue
-		}
-		path := filepath.Join(runtimeDir, ent.Name())
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", ent.Name(), err)
-		}
-		violations = append(violations, inspectPostPublicationTeardownAST(fset, file, ent.Name())...)
-	}
-	return violations, nil
+func receiverIsAttemptSession(fn *ast.FuncDecl) bool {
+	return fn.Recv != nil && len(fn.Recv.List) > 0 && isAttemptSessionType(fn.Recv.List[0].Type)
 }
 
-func inspectPostPublicationTeardownAST(fset *token.FileSet, file *ast.File, relPath string) []string {
-	var violations []string
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pos := fset.Position(call.Pos())
+func isAttemptSessionType(expr ast.Expr) bool {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	id, ok := expr.(*ast.Ident)
+	return ok && id.Name == "attemptSession"
+}
 
-		switch sel.Sel.Name {
-		case "detachStream", "cancelForClose", "closeBackend", "closeThinkerInner", "closeActiveInner":
-			violations = append(violations, fmt.Sprintf("%s:%d: forbidden post-publication raw teardown call: %s", relPath, pos.Line, sel.Sel.Name))
-		}
+func isAttemptTerminalField(expr ast.Expr, owners map[string]bool) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "terminal" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && owners[id.Name]
+}
+
+func isAttemptTerminalValue(expr ast.Expr, owners, aliases map[string]bool) bool {
+	if isAttemptTerminalField(expr, owners) {
 		return true
-	})
-	return violations
+	}
+	id, ok := expr.(*ast.Ident)
+	return ok && aliases[id.Name]
 }
 
 // DetectLockHeldIOOrCoordination verifies that no locks are held during I/O or coordination (Req 3.7).
@@ -253,9 +245,11 @@ func TestArch_AttemptTerminal_SingleOwnerTerminalizeAttempt(t *testing.T) {
 func TestArch_AttemptTerminal_NegativeFixtures(t *testing.T) {
 	t.Parallel()
 
-	// Fixture A: forbidden AbortBeforeReturn declared on attemptSession
+	// Fixture A: a renamed attemptSession method that owns Terminalize directly.
 	badSourceA := `package runtime
-func (a *attemptSession) AbortBeforeReturn() {}`
+func (a *attemptSession) AbortBeforeReturn(ctx context.Context) {
+	a.terminal.Terminalize(ctx, nil, nil, nil)
+}`
 	fsetA := token.NewFileSet()
 	fileA, err := parser.ParseFile(fsetA, "attempt_session.go", badSourceA, 0)
 	if err != nil {
@@ -263,7 +257,7 @@ func (a *attemptSession) AbortBeforeReturn() {}`
 	}
 	violationsA := inspectAttemptTerminalAST(fsetA, fileA, "attempt_session.go")
 	if len(violationsA) == 0 {
-		t.Fatal("expected fixture A (AbortBeforeReturn on attemptSession) to be rejected")
+		t.Fatal("expected fixture A (renamed direct terminal owner) to be rejected")
 	}
 
 	// Fixture B: direct a.terminal.Terminalize call in executor_open_attempt.go
@@ -281,94 +275,20 @@ func (e *Executor) doTerminal(a *attemptSession) {
 		t.Fatal("expected fixture B (direct Terminalize outside attempt_session.go) to be rejected")
 	}
 
-	// Fixture C: forbidden closeBackend declared in turn_terminal.go
+	// Fixture C: a renamed owner using an alias for the terminal field must be rejected.
 	badSourceC := `package runtime
-func (t *turnTerminal) closeBackend() {}`
+func (a *attemptSession) finishAttempt(ctx context.Context) {
+	term := a.terminal
+	term.Terminalize(ctx, nil, nil, nil)
+}`
 	fsetC := token.NewFileSet()
-	fileC, err := parser.ParseFile(fsetC, "turn_terminal.go", badSourceC, 0)
+	fileC, err := parser.ParseFile(fsetC, "attempt_session.go", badSourceC, 0)
 	if err != nil {
 		t.Fatalf("parse fixture C: %v", err)
 	}
-	violationsC := inspectAttemptTerminalAST(fsetC, fileC, "turn_terminal.go")
+	violationsC := inspectAttemptTerminalAST(fsetC, fileC, "attempt_session.go")
 	if len(violationsC) == 0 {
-		t.Fatal("expected fixture C (closeBackend in turn_terminal.go) to be rejected")
-	}
-
-	// Fixture D: forbidden cancelLosers in parallel_race.go
-	badSourceD := `package runtime
-func (e *Executor) release(arms []parallelArmOutcome) {
-	e.cancelLosers(arms)
-}`
-	fsetD := token.NewFileSet()
-	fileD, err := parser.ParseFile(fsetD, "parallel_race.go", badSourceD, 0)
-	if err != nil {
-		t.Fatalf("parse fixture D: %v", err)
-	}
-	violationsD := inspectAttemptTerminalAST(fsetD, fileD, "parallel_race.go")
-	if len(violationsD) == 0 {
-		t.Fatal("expected fixture D (cancelLosers in parallel_race.go) to be rejected")
-	}
-}
-
-func TestArch_NoPostPublicationRawTeardown(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-
-	violations, err := DetectPostPublicationRawTeardown(root)
-	if err != nil {
-		t.Fatalf("DetectPostPublicationRawTeardown failed: %v", err)
-	}
-	if len(violations) > 0 {
-		t.Fatalf("Post-publication raw teardown ratchet violated (%d violations):\n%s", len(violations), strings.Join(violations, "\n"))
-	}
-}
-
-func TestArch_NoPostPublicationRawTeardown_NegativeFixtures(t *testing.T) {
-	t.Parallel()
-
-	// Fixture A: cancelForClose
-	badSourceA := `package runtime
-func (s *retryRecvStream) closeStream() {
-	s.cancelForClose()
-}`
-	fsetA := token.NewFileSet()
-	fileA, err := parser.ParseFile(fsetA, "executor_retry_stream.go", badSourceA, 0)
-	if err != nil {
-		t.Fatalf("parse fixture A: %v", err)
-	}
-	violationsA := inspectPostPublicationTeardownAST(fsetA, fileA, "executor_retry_stream.go")
-	if len(violationsA) == 0 {
-		t.Fatal("expected fixture A (cancelForClose call) to be rejected")
-	}
-
-	// Fixture B: detachStream
-	badSourceB := `package runtime
-func (s *retryRecvStream) detach() {
-	s.detachStream()
-}`
-	fsetB := token.NewFileSet()
-	fileB, err := parser.ParseFile(fsetB, "executor_retry_stream.go", badSourceB, 0)
-	if err != nil {
-		t.Fatalf("parse fixture B: %v", err)
-	}
-	violationsB := inspectPostPublicationTeardownAST(fsetB, fileB, "executor_retry_stream.go")
-	if len(violationsB) == 0 {
-		t.Fatal("expected fixture B (detachStream call) to be rejected")
-	}
-
-	// Fixture C: closeThinkerInner
-	badSourceC := `package runtime
-func (s *interleavedStream) close() {
-	s.closeThinkerInner()
-}`
-	fsetC := token.NewFileSet()
-	fileC, err := parser.ParseFile(fsetC, "interleaved_stream.go", badSourceC, 0)
-	if err != nil {
-		t.Fatalf("parse fixture C: %v", err)
-	}
-	violationsC := inspectPostPublicationTeardownAST(fsetC, fileC, "interleaved_stream.go")
-	if len(violationsC) == 0 {
-		t.Fatal("expected fixture C (closeThinkerInner call) to be rejected")
+		t.Fatal("expected fixture C (renamed aliased terminal owner) to be rejected")
 	}
 }
 

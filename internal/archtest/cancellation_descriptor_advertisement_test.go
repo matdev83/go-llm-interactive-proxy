@@ -6,69 +6,101 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
-
-// eligibleDescriptorServices lists first-party connectors whose Execute path uses
-// backendplugin.ForwardExecute (directly or via connector-support wrapper).
-// localstub implements a custom Execute loop and must NOT advertise the handshake.
-var eligibleDescriptorServices = []string{
-	"connectors/acp/internal/service/service.go",
-	"connectors/agycliacp/internal/service/service.go",
-	"connectors/codex/internal/service/service.go",
-	"connectors/commandcode-anthropic/internal/service/service.go",
-	"connectors/commandcode-openai/internal/service/service.go",
-	"connectors/cursorcliacp/internal/service/service.go",
-	"connectors/cursorsdk/internal/service/service.go",
-	"connectors/geminicliacp/internal/service/service.go",
-	"connectors/huggingface/internal/service/service.go",
-	"connectors/llamacpp/internal/service/service.go",
-	"connectors/lmstudio/internal/service/service.go",
-	"connectors/nvidia/internal/service/service.go",
-	"connectors/ollama/internal/service/service.go",
-	"connectors/opencode/internal/service/service.go",
-	"connectors/openrouter/internal/service/service.go",
-	"connectors/vllm/internal/service/service.go",
-}
-
-var excludedDescriptorServices = []string{
-	"connectors/localstub/internal/service/service.go",
-}
 
 func TestArch_CancellationHandshake_DescriptorAdvertisement(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 
-	for _, rel := range eligibleDescriptorServices {
+	serviceDirs := discoverConnectorServiceDirs(t, root)
+	var eligible int
+	for _, dir := range serviceDirs {
+		rel := relativeRepoPath(t, root, dir)
+		hasForwardExecute := dirHasForwardExecuteAST(t, dir)
+		if hasForwardExecute {
+			eligible++
+		}
 		t.Run(rel, func(t *testing.T) {
 			t.Parallel()
-			path := filepath.Join(root, filepath.FromSlash(rel))
-			dir := filepath.Dir(path)
-			if !dirHasForwardExecuteAST(t, dir) {
-				t.Fatalf("%s: eligible connector must use ForwardExecute (direct or openaicompat wrapper)", rel)
+			if hasForwardExecute {
+				if !dirHasIdentAST(t, dir, "ProtocolMinorCancellationHandshake") {
+					t.Fatalf("%s: eligible connector must advertise ProtocolMinorCancellationHandshake (minor 8)", rel)
+				}
+				if !dirHasIdentAST(t, dir, "FeatureCancellationHandshake") {
+					t.Fatalf("%s: eligible connector must advertise FeatureCancellationHandshake", rel)
+				}
+				if dirHasFeatureCancellationHandshakeRequiredTrueAST(t, dir) {
+					t.Fatalf("%s: FeatureCancellationHandshake must be optional (Required false)", rel)
+				}
+				return
 			}
-			if !dirHasIdentAST(t, dir, "ProtocolMinorCancellationHandshake") {
-				t.Fatalf("%s: must advertise ProtocolMinorCancellationHandshake (minor 8)", rel)
-			}
-			if !dirHasIdentAST(t, dir, "FeatureCancellationHandshake") {
-				t.Fatalf("%s: must advertise FeatureCancellationHandshake", rel)
-			}
-			if dirHasFeatureCancellationHandshakeRequiredTrueAST(t, dir) {
-				t.Fatalf("%s: FeatureCancellationHandshake must be optional (Required false)", rel)
+			if dirHasIdentAST(t, dir, "FeatureCancellationHandshake") {
+				t.Fatalf("%s: connector without ForwardExecute must not advertise FeatureCancellationHandshake", rel)
 			}
 		})
 	}
+	if eligible == 0 {
+		t.Fatal("no connector service uses ForwardExecute")
+	}
+}
 
-	for _, rel := range excludedDescriptorServices {
-		t.Run("excluded/"+rel, func(t *testing.T) {
-			t.Parallel()
-			path := filepath.Join(root, filepath.FromSlash(rel))
-			dir := filepath.Dir(path)
-			if dirHasIdentAST(t, dir, "FeatureCancellationHandshake") {
-				t.Fatalf("%s: excluded connector (custom Execute) must NOT advertise FeatureCancellationHandshake", rel)
-			}
-		})
+func discoverConnectorServiceDirs(t *testing.T, root string) []string {
+	t.Helper()
+	connectorsRoot := filepath.Join(root, "connectors")
+	seen := map[string]bool{}
+	err := filepath.WalkDir(connectorsRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() || entry.Name() != "service" {
+			return nil
+		}
+		if filepath.Base(filepath.Dir(path)) == "internal" {
+			seen[path] = true
+		}
+		return filepath.SkipDir
+	})
+	if err != nil {
+		t.Fatalf("discover connector service dirs: %v", err)
+	}
+	dirs := make([]string, 0, len(seen))
+	for dir := range seen {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+func relativeRepoPath(t *testing.T, root, path string) string {
+	t.Helper()
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatalf("relative path %s: %v", path, err)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func TestArch_CancellationHandshake_DiscoveryFindsNewConnector(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	serviceDir := filepath.Join(root, "connectors", "future", "internal", "service")
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(serviceDir, "service.go"), []byte(`package service
+func execute() { backendplugin.ForwardExecute(nil, nil) }
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dirs := discoverConnectorServiceDirs(t, root)
+	if len(dirs) != 1 || dirs[0] != serviceDir {
+		t.Fatalf("discovered service dirs = %v, want [%s]", dirs, serviceDir)
+	}
+	if !dirHasForwardExecuteAST(t, dirs[0]) {
+		t.Fatal("new connector ForwardExecute path was not recognized as eligible")
 	}
 }
 

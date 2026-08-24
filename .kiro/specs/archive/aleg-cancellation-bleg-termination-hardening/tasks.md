@@ -365,4 +365,3 @@ Post-implementation review found blocking maintainability regressions with no be
   - Rearchive this spec with completion evidence.
   - _Depends: R.1–R.8_
   - _Validation: all gates green; no wire/ABI/public-contract diffs_
-

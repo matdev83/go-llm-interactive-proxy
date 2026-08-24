@@ -48,7 +48,7 @@ func TestRED_ForwardExecute_InBandCancel_FailureOutcome(t *testing.T) {
 	stream := newNegotiatedChannelExecuteStream(ctx)
 	stream.inFrames <- validStartFrame(t)
 
-	sentinelErr := errors.New("sentinel-cancel-failure\nwith newline")
+	sentinelErr := errors.New("adapter-private-unique-cancel-error-7ab3\nwith newline")
 	ms := &cancelFailingManaged{
 		unblocked: make(chan struct{}),
 		cancelRes: lipapi.CancelResult{
@@ -105,11 +105,11 @@ func TestRED_ForwardExecute_InBandCancel_FailureOutcome(t *testing.T) {
 	if outcome.Mode != backendplugin.CancelModeProvider {
 		t.Fatalf("outcome.Mode = %v, want CancelModeProvider", outcome.Mode)
 	}
-	if outcome.Detail == "" {
-		t.Fatal("outcome.Detail is empty, want non-empty failure detail")
+	if outcome.Detail != "cancel failed" {
+		t.Fatalf("outcome.Detail = %q, want low-cardinality cancellation failure", outcome.Detail)
 	}
-	if !strings.Contains(outcome.Detail, "sentinel-cancel-failure") {
-		t.Fatalf("outcome.Detail = %q, want containing sentinel", outcome.Detail)
+	if strings.Contains(outcome.Detail, "adapter-private-unique-cancel-error-7ab3") {
+		t.Fatalf("outcome.Detail leaked adapter error: %q", outcome.Detail)
 	}
 	if strings.Contains(outcome.Detail, "\n") || strings.Contains(outcome.Detail, "\r") {
 		t.Fatalf("outcome.Detail contains newlines: %q, want single-line", outcome.Detail)

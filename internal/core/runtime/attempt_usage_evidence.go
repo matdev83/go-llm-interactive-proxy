@@ -8,9 +8,13 @@ import (
 )
 
 const maxAttemptAccumulatedUsage = 1024
+const maxAttemptUsageDedupeKeyBytes = 4096
 
 func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
 	if a == nil {
+		return false
+	}
+	if len(ev.Accounting.DedupeKey) > maxAttemptUsageDedupeKeyBytes {
 		return false
 	}
 	key := strings.TrimSpace(ev.Accounting.DedupeKey)
@@ -25,13 +29,13 @@ func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
 	if _, exists := a.internalUsageKeys[key]; exists {
 		return false
 	}
-	a.internalUsageKeys[key] = struct{}{}
-	if len(a.accumulatedUsage) < maxAttemptAccumulatedUsage {
-		a.accumulatedUsage = append(a.accumulatedUsage, ev)
+	if len(a.internalUsageKeys) >= maxAttemptAccumulatedUsage {
+		return false
 	}
+	a.internalUsageKeys[key] = struct{}{}
+	a.accumulatedUsage = append(a.accumulatedUsage, ev)
 	return true
 }
-
 func (a *attemptSession) recordUsageEvidence(ev lipapi.Event) {
 	if a == nil || ev.Kind == "" {
 		return
@@ -41,7 +45,6 @@ func (a *attemptSession) recordUsageEvidence(ev lipapi.Event) {
 	}
 	a.accounting.observeUsage(ev)
 }
-
 func (a *attemptSession) aggregatedUsageEvidence() lipapi.Event {
 	if a == nil {
 		return lipapi.Event{}
@@ -55,7 +58,6 @@ func (a *attemptSession) aggregatedUsageEvidence() lipapi.Event {
 	a.usageMu.Unlock()
 	return authorityUsageEvent(events)
 }
-
 func (a *attemptSession) drainStreamUsageEvidence(inner lipapi.ManagedEventStream) {
 	if a == nil || inner == nil {
 		return

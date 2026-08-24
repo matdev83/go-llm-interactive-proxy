@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -653,5 +655,68 @@ func TestAttemptUsageEvidence_DrainAndDedupe(t *testing.T) {
 	// 10 + 30 = 40 input tokens (second 20 skipped due to duplicate key)
 	if agg.InputTokens != 40 {
 		t.Fatalf("InputTokens = %d, want 40", agg.InputTokens)
+	}
+}
+
+func TestAttemptUsageEvidence_OverflowDoesNotRetainOrObserve(t *testing.T) {
+	t.Parallel()
+
+	sess := newAttemptSession(attemptSessionInput{})
+	for i := 0; i < maxAttemptAccumulatedUsage; i++ {
+		sess.recordUsageEvidence(lipapi.Event{
+			Kind:         lipapi.EventUsageDelta,
+			OutputTokens: 1,
+			Accounting:   lipapi.UsageAccountingMetadata{DedupeKey: fmt.Sprintf("usage-%d", i)},
+		})
+	}
+	if got := len(sess.internalUsageKeys); got != maxAttemptAccumulatedUsage {
+		t.Fatalf("dedupe keys before overflow = %d, want %d", got, maxAttemptAccumulatedUsage)
+	}
+	if got := len(sess.accumulatedUsage); got != maxAttemptAccumulatedUsage {
+		t.Fatalf("retained evidence before overflow = %d, want %d", got, maxAttemptAccumulatedUsage)
+	}
+	observedBefore := sess.accounting.outputTokens
+	overflow := lipapi.Event{
+		Kind:         lipapi.EventUsageDelta,
+		OutputTokens: 100,
+		Accounting:   lipapi.UsageAccountingMetadata{DedupeKey: "usage-overflow"},
+	}
+	sess.recordUsageEvidence(overflow)
+	sess.recordUsageEvidence(overflow)
+	if got := len(sess.internalUsageKeys); got != maxAttemptAccumulatedUsage {
+		t.Fatalf("dedupe keys after overflow = %d, want bounded %d", got, maxAttemptAccumulatedUsage)
+	}
+	if got := len(sess.accumulatedUsage); got != maxAttemptAccumulatedUsage {
+		t.Fatalf("retained evidence after overflow = %d, want bounded %d", got, maxAttemptAccumulatedUsage)
+	}
+	if got := sess.accounting.outputTokens; got != observedBefore {
+		t.Fatalf("overflow output tokens = %d, want unchanged %d", got, observedBefore)
+	}
+	if sess.rememberUsageEvidenceOnce(lipapi.Event{
+		Kind:       lipapi.EventUsageDelta,
+		Accounting: lipapi.UsageAccountingMetadata{DedupeKey: "usage-0"},
+	}) {
+		t.Fatal("existing duplicate key was accepted after the cap")
+	}
+}
+
+func TestAttemptUsageEvidence_OversizedDedupeKeyIsRejectedBeforeObservation(t *testing.T) {
+	t.Parallel()
+
+	sess := newAttemptSession(attemptSessionInput{})
+	sess.recordUsageEvidence(lipapi.Event{
+		Kind: lipapi.EventUsageDelta,
+		Accounting: lipapi.UsageAccountingMetadata{
+			DedupeKey: strings.Repeat("k", maxAttemptUsageDedupeKeyBytes+1),
+		},
+	})
+	if len(sess.internalUsageKeys) != 0 {
+		t.Fatalf("oversized key retained in dedupe map: %d entries", len(sess.internalUsageKeys))
+	}
+	if len(sess.accumulatedUsage) != 0 {
+		t.Fatalf("oversized evidence retained: %d entries", len(sess.accumulatedUsage))
+	}
+	if sess.accounting.usageObserved || sess.accounting.outputTokens != 0 {
+		t.Fatalf("oversized evidence was observed: usageObserved=%v outputTokens=%d", sess.accounting.usageObserved, sess.accounting.outputTokens)
 	}
 }

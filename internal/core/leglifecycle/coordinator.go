@@ -388,20 +388,45 @@ func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt
 	if deadline, ok := ctx.Deadline(); ok {
 		effectiveTimeout = min(effectiveTimeout, max(0, time.Until(deadline)))
 	}
-	var cancel context.CancelFunc
-	if effectiveTimeout > 0 {
-		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), effectiveTimeout)
-	} else {
-		ctx, cancel = context.WithCancel(context.WithoutCancel(ctx))
-		cancel()
-	}
-	defer cancel()
 	var cleanupErr error
-	if res := b.Cancel(ctx, cause); res.Err != nil {
+	res, closeErr := BoundedCancelAndClose(ctx, effectiveTimeout,
+		func(cancelCtx context.Context) CancelResult { return b.Cancel(cancelCtx, cause) },
+		b.Close,
+		nil,
+	)
+	if res.Err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cancel b-leg: %w", res.Err))
 	}
-	if err := b.Close(); err != nil {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close b-leg: %w", err))
+	if closeErr != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close b-leg: %w", closeErr))
 	}
 	return cleanupErr
+}
+
+// BoundedCancelAndClose requires Close to promptly return and unblock Cancel.
+func BoundedCancelAndClose(
+	parent context.Context,
+	timeout time.Duration,
+	cancelFn func(context.Context) CancelResult,
+	closeFn func() error,
+	force <-chan struct{},
+) (CancelResult, error) {
+	cancelCtx, cancelCancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancelCancel()
+	cancelDone := make(chan CancelResult, 1)
+	go func() { cancelDone <- cancelFn(cancelCtx) }()
+	select {
+	case cancelResult := <-cancelDone:
+		return cancelResult, closeFn()
+	case <-force:
+	case <-cancelCtx.Done():
+	}
+	closeErr := closeFn()
+	cancelResult := <-cancelDone
+	if cancelResult.Err == nil {
+		cancelResult.Err = context.DeadlineExceeded
+	} else if !errors.Is(cancelResult.Err, context.DeadlineExceeded) {
+		cancelResult.Err = errors.Join(cancelResult.Err, context.DeadlineExceeded)
+	}
+	return cancelResult, closeErr
 }

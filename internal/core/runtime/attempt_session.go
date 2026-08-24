@@ -72,7 +72,10 @@ type attemptSession struct {
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
 	streamDisposed     bool
-	pendingCancelCause *lipapi.CancelCause
+	pendingCancelCause atomic.Pointer[lipapi.CancelCause]
+	terminalizing      atomic.Bool
+	forceCloseOnce     sync.Once
+	forceClose         chan struct{}
 	usageMu            sync.Mutex
 	billingMu          sync.Mutex
 
@@ -160,7 +163,8 @@ type attemptSessionInput struct {
 func newAttemptSession(in attemptSessionInput) *attemptSession {
 	return &attemptSession{
 		inner: in.inner, streamDisposed: in.streamDisposed, bleg: in.bleg, cand: in.cand, authority: in.authority,
-		terminal: newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
+		forceClose: make(chan struct{}),
+		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
 		traceID: in.traceID, billingCallID: in.billingCallID, billingCallState: in.billingCallState,
 		accounting: in.accounting, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
@@ -334,6 +338,10 @@ func (a *attemptSession) terminalizeForClose(cmd sdkterminal.Command, relKind au
 }
 
 func (a *attemptSession) closeViaLifecycle() error {
+	if a.terminalizing.Load() && a.forceClose != nil {
+		a.forceCloseOnce.Do(func() { close(a.forceClose) })
+		return nil
+	}
 	a.terminalizeForClose(a.defaultCommand, a.releaseKind, a.defaultLegOutcome)
 	return nil
 }
@@ -367,9 +375,7 @@ func (a *attemptSession) setPendingCancelCause(cause lipapi.CancelCause) {
 	if a == nil {
 		return
 	}
-	a.innerMu.Lock()
-	a.pendingCancelCause = &cause
-	a.innerMu.Unlock()
+	a.pendingCancelCause.Store(&cause)
 }
 
 // drainSidebandEvidence drains provider sideband usage evidence attached to
@@ -1287,6 +1293,8 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	if a == nil || a.terminal == nil {
 		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
 	}
+	a.terminalizing.Store(true)
+	defer a.terminalizing.Store(false)
 
 	cmd := evidence.Command
 	if cmd == "" || !cmd.AllowsScope(sdkterminal.ScopeAttempt) {
@@ -1301,39 +1309,46 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	}, func(cctx context.Context, out coreterm.Outcome) error {
 		var errorsList []error
 		innerStream := a.takeInner()
-
 		var cancelRes lipapi.CancelResult
 		contextsCanceled := errors.Is(evidence.Err, context.Canceled) || errors.Is(cctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
-		isCancel, cause := deriveAttemptCancellation(intent, evidence, a.pendingCancelCause, contextsCanceled)
+		isCancel, cause := deriveAttemptCancellation(intent, evidence, a.pendingCancelCause.Load(), contextsCanceled)
 
 		// 2. Cancel/close when intent requires.
 		if innerStream != nil && !a.streamDisposed {
 			a.drainStreamUsageEvidence(innerStream)
-
+			closeInner := func() error {
+				return safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error { return innerStream.Close() })
+			}
 			shouldCancel := (intent != IntentSuccess) || cause.Kind != ""
+			var closeErr error
 			if shouldCancel {
-				cancelCtx, cancel := cleanupContext(cctx, defaultAuthorityCleanupTimeout)
 				if cause.Kind == "" {
 					cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone}
 				}
-				_ = safety.Call(safety.BoundaryBackend, "backend_stream_cancel", func() error {
-					cancelRes = innerStream.Cancel(cancelCtx, cause)
-					if cancelRes.Err != nil && !errors.Is(cancelRes.Err, context.Canceled) {
-						errorsList = append(errorsList, cancelRes.Err)
-					}
-					return nil
-				})
-				cancel()
-
+				cancelRes, closeErr = leglifecycle.BoundedCancelAndClose(cctx, defaultAuthorityCleanupTimeout,
+					func(cancelCtx context.Context) lipapi.CancelResult {
+						var result lipapi.CancelResult
+						_ = safety.Call(safety.BoundaryBackend, "backend_stream_cancel", func() error {
+							result = innerStream.Cancel(cancelCtx, cause)
+							return nil
+						})
+						return result
+					},
+					closeInner,
+					a.forceClose,
+				)
+				if cancelRes.Err != nil && !errors.Is(cancelRes.Err, context.Canceled) {
+					errorsList = append(errorsList, cancelRes.Err)
+				}
 				termObs := a.recordCancellationTelemetry(cause, cancelRes, innerStream, isCancel)
 				a.logAttemptCanceled(cctx, evidence, termObs)
 				a.drainStreamUsageEvidence(innerStream)
+			} else {
+				closeErr = closeInner()
 			}
-			if err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
-				return innerStream.Close()
-			}); err != nil {
+			if closeErr != nil {
 				var pe *safety.PanicError
-				if errors.As(err, &pe) {
+				if errors.As(closeErr, &pe) {
 					// Isolate close panic, log at debug, do not fail terminal effect
 					if a.finalStreamObs != nil && a.finalStreamObs.Log != nil {
 						traceID := strings.TrimSpace(evidence.TraceID)
@@ -1352,11 +1367,10 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
 						a.finalStreamObs.Log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
 					}
-				} else if !errors.Is(err, context.Canceled) {
-					errorsList = append(errorsList, fmt.Errorf("runtime: failed to close inner stream: %w", err))
+				} else if !errors.Is(closeErr, context.Canceled) {
+					errorsList = append(errorsList, fmt.Errorf("runtime: failed to close inner stream: %w", closeErr))
 				}
 			}
-
 			a.drainStreamUsageEvidence(innerStream)
 		} else if isCancel {
 			termObs := a.recordCancellationTelemetry(cause, cancelRes, nil, isCancel)
