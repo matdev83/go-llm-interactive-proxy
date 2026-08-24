@@ -193,7 +193,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: focused observability + billing/B2BUA tests_
 
 - [ ] 10. Close the full regression, race, and architecture matrix
-  - [ ] 10.1 Add realistic semantic-stop regression fixtures
+  - [x] 10.1 Add realistic semantic-stop regression fixtures
     - Positive unfinished cases: immediate promised action, cut-off actionable response, supported reasoning/thinking-only evidence where canonical.
     - Critical negative cases: complete answer, “Done; tests pass,” user-directed question, user-owned “Next steps,” optional improvements, “I can also…”, quoted “I’ll continue,” refusal/filter.
     - Exercise verifier error/timeout and semantic max-attempt/no-progress exhaustion.
@@ -287,3 +287,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 8.2/8.3 use canonical Invocation operations to gate continuation legality conservatively, add Anthropic/Gemini operation identities, green the explicit-completion seam using real correlated tool results, and prove production B1-to-B2 stitching through live frontend wire handlers with one final terminal.
 - 9.1 adds compile-safe behavioral RED contracts for bounded candidate/verdict/action/breaker/replay telemetry and GREEN assertions for verifier usage, private lineage, attributable B-leg accounting, privacy, and A-side turn integrity.
 - 9.2 emits bounded candidate, verdict, action, breaker, and replay-suppression telemetry through runtime structured logs, carries honest verifier usage/latency and lineage, and keeps stopgate pure with no conversational payloads in telemetry attributes.
+- 10.1 adds 18 deterministic semantic-stop fixtures and all 16 design integration scenarios across positive unfinished work, critical false-positive boundaries, verifier uncertainty, transport safety, cancellation, no-progress, budgets, explicit completion, and unsupported continuation.

@@ -1,0 +1,429 @@
+[
+  {
+    "id": "positive_immediate_promised_action_test_run",
+    "description": "Assistant announces it will run tests next but finishes clean without tool call or execution in trajectory",
+    "category": "positive_unfinished",
+    "user_objective": [
+      "Please implement the sum function and run the test suite to verify."
+    ],
+    "candidate_assistant_text": "I have implemented the sum function in math.go. Let me run the tests next.",
+    "recent_trajectory": [
+      {
+        "kind": "tool_call",
+        "name": "write_file",
+        "call_id": "call_w1",
+        "status": "completed",
+        "args": "{\"path\":\"math.go\",\"content\":\"func Sum(a, b int) int { return a + b }\"}"
+      },
+      {
+        "kind": "tool_result",
+        "name": "write_file",
+        "call_id": "call_w1",
+        "status": "completed",
+        "output": "ok"
+      }
+    ],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"continue\",\"reason\":\"promised test execution has not been performed\",\"remaining_objective\":\"run the test suite to verify sum function\"}",
+    "expected_verdict": {
+      "kind": "continue",
+      "reason": "promised test execution has not been performed",
+      "remaining_objective": "run the test suite to verify sum function"
+    },
+    "expected_normalized_kind": "continue",
+    "expected_gate_action": "continue_leg"
+  },
+  {
+    "id": "positive_cutoff_actionable_response",
+    "description": "Assistant is cut off mid-task while stating next action to execute",
+    "category": "positive_unfinished",
+    "user_objective": [
+      "Refactor the database schema and migrate existing user rows."
+    ],
+    "candidate_assistant_text": "Schema updated in migrations/001.sql. Now executing the migration script on the database:",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"continue\",\"reason\":\"response cut off before executing migration script\",\"remaining_objective\":\"execute migration script on database\"}",
+    "expected_verdict": {
+      "kind": "continue",
+      "reason": "response cut off before executing migration script",
+      "remaining_objective": "execute migration script on database"
+    },
+    "expected_normalized_kind": "continue",
+    "expected_gate_action": "continue_leg"
+  },
+  {
+    "id": "positive_reasoning_only_without_final_answer",
+    "description": "Assistant output contains only internal reasoning/thinking steps with no final answer or tool action delivered",
+    "category": "positive_unfinished",
+    "user_objective": [
+      "Calculate the SHA-256 hash of the string 'hello world'."
+    ],
+    "candidate_assistant_text": "",
+    "candidate_reasoning_text": "To calculate the SHA-256 hash of 'hello world', I need to compute the digest of the ASCII bytes...",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"continue\",\"reason\":\"model emitted reasoning steps only without final answer\",\"remaining_objective\":\"provide the calculated SHA-256 hash to the user\"}",
+    "expected_verdict": {
+      "kind": "continue",
+      "reason": "model emitted reasoning steps only without final answer",
+      "remaining_objective": "provide the calculated SHA-256 hash to the user"
+    },
+    "expected_normalized_kind": "continue",
+    "expected_gate_action": "continue_leg"
+  },
+  {
+    "id": "negative_complete_answer_redis_port",
+    "description": "Assistant provides a complete direct answer to a straightforward user question",
+    "category": "critical_negative",
+    "user_objective": [
+      "What is the default TCP port for Redis?"
+    ],
+    "candidate_assistant_text": "The default TCP port for Redis is 6379.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"question answered completely\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "question answered completely",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_done_tests_pass",
+    "description": "Assistant states work is done and tests pass, corroborated by test execution in trajectory",
+    "category": "critical_negative",
+    "user_objective": [
+      "Fix the nil pointer exception in auth.go and run tests."
+    ],
+    "candidate_assistant_text": "Fixed the nil check in auth.go. Done; tests pass.",
+    "recent_trajectory": [
+      {
+        "kind": "tool_call",
+        "name": "bash",
+        "call_id": "call_t1",
+        "status": "completed",
+        "args": "{\"cmd\":\"go test ./internal/auth/...\"}"
+      },
+      {
+        "kind": "tool_result",
+        "name": "bash",
+        "call_id": "call_t1",
+        "status": "completed",
+        "output": "PASS\nok   auth  0.042s"
+      }
+    ],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"bug fixed and tests verified passing\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "bug fixed and tests verified passing",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_user_directed_question",
+    "description": "Assistant asks the user for confirmation or choice; must return NEEDS_USER and release terminal",
+    "category": "critical_negative",
+    "user_objective": [
+      "Clean up old temporary files."
+    ],
+    "candidate_assistant_text": "I found 5 old files in /tmp/cache. Would you like me to delete them now, or archive them first?",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"needs_user\",\"reason\":\"requires user decision on deletion vs archiving\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "needs_user",
+      "reason": "requires user decision on deletion vs archiving",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "needs_user",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_user_owned_next_steps",
+    "description": "Assistant lists user-owned next steps or deployment tasks; must NOT continue autonomously",
+    "category": "critical_negative",
+    "user_objective": [
+      "Implement the health check HTTP handler."
+    ],
+    "candidate_assistant_text": "The /healthz endpoint has been implemented and tested.\n\nNext steps for the operator:\n1. Update Kubernetes liveness probe configuration.\n2. Configure Prometheus scrape interval.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"health check implemented; next steps are assigned to user/operator\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "health check implemented; next steps are assigned to user/operator",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_optional_improvements",
+    "description": "Assistant offers optional improvements or ideas after completing the request",
+    "category": "critical_negative",
+    "user_objective": [
+      "Write a SQL query to fetch top 10 users by balance."
+    ],
+    "candidate_assistant_text": "Here is the query: SELECT * FROM users ORDER BY balance DESC LIMIT 10;\n\nAs an optional optimization, you could add an index on balance if the table exceeds 1M rows.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"query provided; index recommendation is an optional suggestion\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "query provided; index recommendation is an optional suggestion",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_i_can_also_offer",
+    "description": "Assistant concludes with 'I can also...' offer of additional help; must not continue",
+    "category": "critical_negative",
+    "user_objective": [
+      "Translate 'Thank you very much' into Spanish."
+    ],
+    "candidate_assistant_text": "'Muchas gracias'. I can also translate it into German, French, or Italian if you'd like.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"translation complete; 'I can also' is an offer for future help\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "translation complete; 'I can also' is an offer for future help",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_quoted_ill_continue",
+    "description": "Assistant quotes 'I will continue' or 'I'll continue' from user input/code review; quotation alone does not continue",
+    "category": "critical_negative",
+    "user_objective": [
+      "Review this PR description for typos: 'Initial draft. I'll continue with tests tomorrow.'"
+    ],
+    "candidate_assistant_text": "The sentence 'I'll continue with tests tomorrow.' contains valid punctuation and no grammatical errors.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"review completed; 'I'll continue' is a quoted phrase, not an unfulfilled assistant commitment\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "review completed; 'I'll continue' is a quoted phrase, not an unfulfilled assistant commitment",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "negative_refusal_filter",
+    "description": "Assistant output is a refusal / safety filter; must forward terminal without verifier call",
+    "category": "critical_negative",
+    "user_objective": [
+      "Provide exploit payload for CVE-2026-1234."
+    ],
+    "candidate_assistant_text": "I cannot provide functional exploits or attack payloads for security vulnerabilities.",
+    "candidate_has_refusal": true,
+    "recent_trajectory": [],
+    "cause": "refusal_or_filter",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "error_verifier_transport_failure",
+    "description": "Auxiliary verifier returns transport network error; normalizes conservatively to UNCERTAIN and allows stop",
+    "category": "verifier_error",
+    "user_objective": [
+      "Run the build script."
+    ],
+    "candidate_assistant_text": "I will run the build script now.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "simulated_verifier_error": "transport_error",
+    "verifier_raw_response": "",
+    "expected_verdict": {
+      "kind": "uncertain",
+      "reason": "",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "uncertain",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "error_verifier_timeout",
+    "description": "Auxiliary verifier context deadline exceeded; normalizes conservatively to UNCERTAIN and allows stop",
+    "category": "verifier_error",
+    "user_objective": [
+      "Refactor the payment processor."
+    ],
+    "candidate_assistant_text": "Refactoring payment processor.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "simulated_verifier_error": "timeout",
+    "verifier_raw_response": "",
+    "expected_verdict": {
+      "kind": "uncertain",
+      "reason": "",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "uncertain",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "error_malformed_verdict_json",
+    "description": "Auxiliary verifier returns invalid JSON; normalizes to UNCERTAIN and allows stop",
+    "category": "verifier_error",
+    "user_objective": [
+      "Deploy application."
+    ],
+    "candidate_assistant_text": "Deploying now.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "I think the model should continue: {\"kind\": ...broken json",
+    "expected_verdict": {
+      "kind": "uncertain",
+      "reason": "",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "uncertain",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "error_unknown_verdict_kind",
+    "description": "Auxiliary verifier returns unknown verdict kind string; normalizes to UNCERTAIN and allows stop",
+    "category": "verifier_error",
+    "user_objective": [
+      "Run benchmarks."
+    ],
+    "candidate_assistant_text": "Starting benchmarks.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"MAYBE_CONTINUE\",\"reason\":\"looks halfway\"}",
+    "expected_verdict": {
+      "kind": "uncertain",
+      "reason": "looks halfway",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "uncertain",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "error_continue_missing_remaining_objective",
+    "description": "Verifier returns CONTINUE but omits concrete remaining_objective; normalizes to UNCERTAIN and allows stop",
+    "category": "verifier_error",
+    "user_objective": [
+      "Verify all tests."
+    ],
+    "candidate_assistant_text": "Let me test.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": false,
+    "verifier_raw_response": "{\"kind\":\"continue\",\"reason\":\"more to do\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "uncertain",
+      "reason": "more to do",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "uncertain",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "explicit_completion_trust_policy_bypass",
+    "description": "Explicit completion fact present with PolicyTrust skips verifier call and forwards terminal directly",
+    "category": "explicit_completion",
+    "user_objective": [
+      "Automated task execution."
+    ],
+    "candidate_assistant_text": "Task finished successfully.",
+    "recent_trajectory": [
+      {
+        "kind": "tool_call",
+        "name": "attempt_completion",
+        "call_id": "call_comp1",
+        "status": "completed",
+        "args": "{\"result\":\"completed\"}"
+      },
+      {
+        "kind": "tool_result",
+        "name": "attempt_completion",
+        "call_id": "call_comp1",
+        "status": "completed",
+        "output": "ok"
+      }
+    ],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": true,
+    "verifier_raw_response": "",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  },
+  {
+    "id": "explicit_completion_verify_policy_evidence",
+    "description": "Explicit completion fact present with PolicyVerify still invokes verifier with explicit evidence",
+    "category": "explicit_completion",
+    "user_objective": [
+      "Automated task execution with strict verification."
+    ],
+    "candidate_assistant_text": "Task finished.",
+    "recent_trajectory": [],
+    "cause": "normal_end",
+    "output_committed": true,
+    "explicit_completion": true,
+    "verifier_raw_response": "{\"kind\":\"allow_stop\",\"reason\":\"explicit completion signal corroborated\",\"remaining_objective\":\"\"}",
+    "expected_verdict": {
+      "kind": "allow_stop",
+      "reason": "explicit completion signal corroborated",
+      "remaining_objective": ""
+    },
+    "expected_normalized_kind": "allow_stop",
+    "expected_gate_action": "forward_terminal"
+  }
+]
