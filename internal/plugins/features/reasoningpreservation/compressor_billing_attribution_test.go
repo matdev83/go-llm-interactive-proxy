@@ -53,19 +53,19 @@ func TestCompressorBilling_PromptExcludesControlPlane(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "reasoning_preservation_compressor", req.Role)
 	require.Equal(t, "private", req.Visibility)
-	var modelBlob string
+	var modelBlob strings.Builder
 	for _, m := range req.Call.Messages {
 		for _, p := range m.Parts {
-			modelBlob += p.Text
+			modelBlob.WriteString(p.Text)
 		}
 	}
 	// sanitized text and schema must be present
-	require.Contains(t, modelBlob, "sanitized reasoning text")
-	require.Contains(t, modelBlob, reasoningpreservation.CompressorSystemPrompt)
-	require.Contains(t, modelBlob, reasoningpreservation.CompressorOutputSchema)
+	require.Contains(t, modelBlob.String(), "sanitized reasoning text")
+	require.Contains(t, modelBlob.String(), reasoningpreservation.CompressorSystemPrompt)
+	require.Contains(t, modelBlob.String(), reasoningpreservation.CompressorOutputSchema)
 	// control-plane lineage must NOT leak into model prompt
 	for _, leak := range []string{trace, aleg, bleg, branch, principalID, "reasoning_preservation_compressor", "private"} {
-		require.NotContains(t, modelBlob, leak, "leak %q", leak)
+		require.NotContains(t, modelBlob.String(), leak, "leak %q", leak)
 	}
 	// envelope retains lineage for billing/routing
 	require.Equal(t, trace, req.ParentTraceID)

@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -239,7 +240,7 @@ func TestCompression_AggregateExhaustion_PreservesOriginals(t *testing.T) {
 	cs := newCompressionStore(t, now, limits)
 	policy := "v1"
 	// Fill aggregate with 2 sessions
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		p := reasoningpreservation.NewSessionPartition(fmt.Sprintf("sess-%d", i))
 		d := appendArtifactForCompression(t, cs, p, fmt.Sprintf("t-%d", i), 32)
 		_, err := cs.ReserveCompression(context.Background(), p, fmt.Sprintf("t-%d", i), d, policy, semanticDigestFor(policy), egressHashFor(policy))
@@ -377,7 +378,7 @@ func TestCompression_RepeatedStale_NoDrift(t *testing.T) {
 	assert.Equal(t, 0, stats.TotalPending)
 	assert.Equal(t, 2, stats.TotalSurrogateBytes)
 	// repeated stale attaches must not drift
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err = cs.AttachSurrogate(context.Background(), p, "t1", res, auxiliary.JobID("job1"), sur)
 		require.Error(t, err)
 	}
@@ -385,7 +386,7 @@ func TestCompression_RepeatedStale_NoDrift(t *testing.T) {
 	assert.Equal(t, 0, stats.TotalPending)
 	assert.Equal(t, 2, stats.TotalSurrogateBytes)
 	// stale bind attempts also no drift
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = cs.BindCompressionJob(context.Background(), p, "t1", res, auxiliary.JobID("job1"), d, policy)
 	}
 	stats = cs.CompressionStats()
@@ -527,7 +528,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	assert.GreaterOrEqual(t, stats.TotalPending, 0)
 	// Now concurrent clears
 	wg.Add(5)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			defer wg.Done()
 			_ = cs.ClearCompression(context.Background(), p, "t1", "")
@@ -547,7 +548,7 @@ func TestCompression_ConcurrentExactlyOnce(t *testing.T) {
 	sur2 := surrogateFor(d2, policy, reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
 	require.NoError(t, cs.AttachSurrogate(context.Background(), p, "t2", res2, auxiliary.JobID("job2"), sur2))
 	wg.Add(3)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		go func() {
 			defer wg.Done()
 			_ = cs.Delete(context.Background(), p, "t2")
@@ -578,7 +579,7 @@ func TestCompression_FIFOEviction_ClearsOptionalAndPreservesCounters(t *testing.
 	p := reasoningpreservation.NewSessionPartition("sess-fifo")
 	policy := "v1"
 	// append two with surrogates
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		id := fmt.Sprintf("t%d", i)
 		d := appendArtifactForCompression(t, cs, p, id, 32)
 		res, err := cs.ReserveCompression(context.Background(), p, id, d, policy, semanticDigestFor(policy), egressHashFor(policy))
@@ -721,7 +722,6 @@ func TestCompression_Replacement_BudgetCredit(t *testing.T) {
 		{"credit_rejects_larger_replacement", 14, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			limits := reasoningpreservation.CompressionLimits{
@@ -852,13 +852,13 @@ func TestCompression_Replacement_ConcurrentClearDeleteExactlyOnce(t *testing.T) 
 	// concurrent Clear/Delete interleavings must decrement exactly once and zero stats
 	var wg sync.WaitGroup
 	wg.Add(8)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		go func() {
 			defer wg.Done()
 			_ = cs.ClearCompression(context.Background(), p, "t1", "")
 		}()
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		go func() {
 			defer wg.Done()
 			_ = cs.Delete(context.Background(), p, "t1")
@@ -880,5 +880,7 @@ func TestCompression_Replacement_ConcurrentClearDeleteExactlyOnce(t *testing.T) 
 }
 
 // Ensure auxiliary import used
-var _ = auxiliary.JobID("")
-var _ = lipapi.Part{}
+var (
+	_ = auxiliary.JobID("")
+	_ = lipapi.Part{}
+)

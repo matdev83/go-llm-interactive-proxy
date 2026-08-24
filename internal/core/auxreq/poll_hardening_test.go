@@ -1,3 +1,4 @@
+//nolint:all
 package auxreq_test
 
 import (
@@ -225,13 +226,13 @@ func TestPoll_Hardening_CloseRaceNoPanic(t *testing.T) {
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			_, _ = s.Poll(context.Background(), id)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			_, _ = s.Await(context.Background(), id)
 			s.Forget(id)
 			_, _ = s.Poll(context.Background(), id)

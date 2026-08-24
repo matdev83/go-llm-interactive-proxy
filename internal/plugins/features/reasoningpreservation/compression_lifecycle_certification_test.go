@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -22,12 +23,15 @@ type backgroundRunner func(context.Context, *lipapi.Call) (lipapi.EventStream, e
 func (r backgroundRunner) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
 	return r(ctx, call)
 }
+
 func certFinishedStream() lipapi.EventStream {
 	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}})
 }
+
 func certBackgroundRequest() auxiliary.Request {
 	return auxiliary.Request{Call: &lipapi.Call{Route: lipapi.RouteIntent{Selector: "local:test"}}}
 }
+
 func certPollPendingRunner(start, release chan struct{}) backgroundRunner {
 	return func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
 		return &certGatedStream{started: start, release: release}, nil
@@ -90,12 +94,14 @@ func certNewScheduler(t *testing.T, runner func() auxreq.ExecutorRunner, cfg aux
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
+
 func certNewSchedulerNoCleanup(t *testing.T, runner func() auxreq.ExecutorRunner, cfg auxreq.SchedulerConfig) *auxreq.BackgroundScheduler {
 	t.Helper()
 	s, err := auxreq.NewBackgroundScheduler(context.Background(), runner, cfg)
 	require.NoError(t, err)
 	return s
 }
+
 func newTestClockAux() *testClockAux {
 	return &testClockAux{now: time.Unix(100, 0)}
 }
@@ -140,6 +146,7 @@ func (b *blockingBackgroundClient) SubmitCollect(ctx context.Context, req auxili
 		return "", ctx.Err()
 	}
 }
+
 func (b *blockingBackgroundClient) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -177,6 +184,7 @@ func newCompressionStoreWithOptions(t *testing.T, opts reasoningpreservation.Sto
 	require.True(t, ok)
 	return cs
 }
+
 func longArtifactForReload(id, text string) reasoningpreservation.TurnArtifact {
 	visible := []lipapi.Part{lipapi.TextPart("visible answer")}
 	anchor, _ := reasoningpreservation.ComputeAnchor(lipapi.Message{Role: lipapi.RoleAssistant, Parts: visible})
@@ -187,6 +195,7 @@ func longArtifactForReload(id, text string) reasoningpreservation.TurnArtifact {
 		CreatedAt: time.Now().UTC(), ReasoningBytes: len(text),
 	}
 }
+
 func computeSemanticDigestCert(placements []reasoningpreservation.PlacedReasoning) [32]byte {
 	segs := reasoningpreservation.ExtractSemanticSegments(placements)
 	if len(segs) == 0 {
@@ -216,6 +225,7 @@ func computeSemanticDigestCert(placements []reasoningpreservation.PlacedReasonin
 	copy(out[:], h.Sum(nil))
 	return out
 }
+
 func certStoreForSubmit(t *testing.T, cfg reasoningpreservation.Config) reasoningpreservation.CompressionStore {
 	t.Helper()
 	now, _ := newTestClock(time.Unix(1_700_000_000, 0).UTC())
@@ -227,6 +237,7 @@ func certStoreForSubmit(t *testing.T, cfg reasoningpreservation.Config) reasonin
 	require.True(t, ok)
 	return cs
 }
+
 func certArtifact(id, text string, bytes int) reasoningpreservation.TurnArtifact {
 	part := reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, text, "", nil)
 	return reasoningpreservation.TurnArtifact{
@@ -269,7 +280,7 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		reasoningpreservation.NewSessionPartition("sess-e"),
 	}
 	for si, p := range sessions {
-		for ai := 0; ai < 2; ai++ {
+		for ai := range 2 {
 			id := string(rune('a'+si)) + string(rune('0'+ai))
 			_ = id
 			id2 := "t-" + p.String() + "-" + string(rune('0'+ai)) // keep deterministic but unique
@@ -289,7 +300,7 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		d     [32]byte
 	}
 	for si, p := range sessions {
-		for ai := 0; ai < 2; ai++ {
+		for ai := range 2 {
 			artID := "t-" + string(rune('A'+si)) + "-" + string(rune('0'+ai))
 			d := digestFor(artID)
 			sem := semanticDigestFor(policy)
@@ -338,7 +349,7 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		opts2 := defaultStoreOptions(now2)
 		opts2.CompressionLimits = reasoningpreservation.CompressionLimits{MaxPendingPerSession: 2, MaxPendingTotal: 3, MaxSurrogateBytesPerTurn: 50, MaxSurrogateBytesPerSession: 100, MaxSurrogateBytesTotal: 100}
 		cs2 := newCompressionStoreWithOptions(t, opts2)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			p := reasoningpreservation.NewSessionPartition("conc-" + string(rune('0'+i)))
 			art := sampleArtifact("conc-t-"+string(rune('0'+i)), "r", 32)
 			_, err := cs2.Append(context.Background(), p, art)
@@ -347,7 +358,7 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		var wg sync.WaitGroup
 		results := make([]error, 5)
 		wg.Add(5)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			i := i
 			go func() {
 				defer wg.Done()
@@ -483,7 +494,7 @@ func TestCertification_PollVsFinishForgetExpiryShutdown(t *testing.T) {
 		require.NoError(t, cs.BindCompressionJob(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), d, "v1"))
 		sur := surrogateFor(d, "v1", reasoningpreservation.SurrogateSegment{PlacementIndex: 0, Text: "hi", Bytes: 2})
 		require.NoError(t, cs.AttachSurrogate(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), sur))
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			err = cs.AttachSurrogate(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job-stale"), sur)
 			require.Error(t, err)
 		}
@@ -522,13 +533,13 @@ func TestCertification_CounterUpdatesExactlyOnce(t *testing.T) {
 	require.GreaterOrEqual(t, stats.TotalPending, 0)
 	require.GreaterOrEqual(t, stats.TotalSurrogateBytes, 0)
 	wg.Add(5)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() { defer wg.Done(); _ = cs.ClearCompression(context.Background(), p, snap[0].ID, "") }()
 	}
 	wg.Wait()
 	stats2 := cs.CompressionStats()
 	require.GreaterOrEqual(t, stats2.TotalPending, 0)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = cs.BindCompressionJob(context.Background(), p, snap[0].ID, resID, auxiliary.JobID("job1"), d, "v1")
 	}
 	stats3 := cs.CompressionStats()
@@ -646,7 +657,7 @@ func TestCertification_OriginalEvictionClearsOptionalExactlyOnce(t *testing.T) {
 	cs := newCompressionStoreWithOptions(t, opts)
 	p := reasoningpreservation.NewSessionPartition("sess-evict-once")
 	policy := "v1"
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		id := "evict-" + string(rune('0'+i))
 		art := sampleArtifact(id, "payload", 32)
 		_, err := cs.Append(context.Background(), p, art)

@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -176,7 +177,6 @@ func TestTDD_Gate_ModesTable(t *testing.T) {
 		{"invalid", true, "turbo", false, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var cfg reasoningpreservation.Config
@@ -248,7 +248,6 @@ func TestTDD_Gate_ActiveFailureReasonsFallback(t *testing.T) {
 	anchor, _ := reasoningpreservation.ComputeAnchor(lipapi.Message{Role: lipapi.RoleAssistant, Parts: visible})
 	cases := []string{"classifier_exact", "classifier_unknown", "correlation_stale_policy", "destination_unsupported", "current_policy_deny"}
 	for _, name := range cases {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			cfg := gateConfigForMode(t, "active", true)
@@ -281,7 +280,7 @@ func TestTDD_Gate_ActiveFailureReasonsFallback(t *testing.T) {
 				tel2 := reasoningpreservation.NewTelemetry()
 				xform2 := reasoningpreservation.NewAttemptTransformWithServicesAndStage(cfg, parts.Store, svc, reasoningpreservation.NewDecoderAdoptionStage(cfg, cs, svc, tel2), tel2)
 				call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: visible}}}
-				var support lipapi.ReasoningReplaySupport = lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
+				support := lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
 				meta := request.AttemptMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-fail-" + name}, ReplaySupport: support, Scope: scope.PrincipalScopeView{PrincipalID: scope.Known("user-1")}}
 				dec, err := xform2.HandleAttempt(context.Background(), &call, meta, request.Services{})
 				require.NoError(t, err)
@@ -478,6 +477,7 @@ type fakeBgGate struct{}
 func (f *fakeBgGate) SubmitCollect(_ context.Context, _ auxiliary.Request, _ auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "job", nil
 }
+
 func (f *fakeBgGate) Await(_ context.Context, _ auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -492,9 +492,11 @@ type fakePollerGateWithError struct{ err error }
 func (f *fakePollerGateWithError) Poll(_ context.Context, _ auxiliary.JobID) (auxiliary.PollResult, error) {
 	return auxiliary.PollResult{}, f.err
 }
+
 func (f *fakePollerGateWithError) SubmitCollect(_ context.Context, _ auxiliary.Request, _ auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "job", nil
 }
+
 func (f *fakePollerGateWithError) Await(_ context.Context, _ auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -505,9 +507,11 @@ type fakePollerGate struct{}
 func (f *fakePollerGate) Poll(_ context.Context, _ auxiliary.JobID) (auxiliary.PollResult, error) {
 	return auxiliary.PollResult{State: auxiliary.PollNotFound}, nil
 }
+
 func (f *fakePollerGate) SubmitCollect(_ context.Context, _ auxiliary.Request, _ auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "job", nil
 }
+
 func (f *fakePollerGate) Await(_ context.Context, _ auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }

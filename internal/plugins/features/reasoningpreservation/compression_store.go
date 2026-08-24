@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -566,12 +567,8 @@ func (s *memoryTurnStore) CompressionStats() CompressionStats {
 		PendingPerSession:        make(map[string]int, len(s.pendingPerSession)),
 		SurrogateBytesPerSession: make(map[string]int, len(s.surrogateBytesPerSession)),
 	}
-	for k, v := range s.pendingPerSession {
-		out.PendingPerSession[k] = v
-	}
-	for k, v := range s.surrogateBytesPerSession {
-		out.SurrogateBytesPerSession[k] = v
-	}
+	maps.Copy(out.PendingPerSession, s.pendingPerSession)
+	maps.Copy(out.SurrogateBytesPerSession, s.surrogateBytesPerSession)
 	return out
 }
 

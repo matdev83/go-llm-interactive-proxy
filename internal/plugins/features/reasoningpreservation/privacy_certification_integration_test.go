@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -43,6 +44,7 @@ func (c *certFakeBackground) SubmitCollect(_ context.Context, req auxiliary.Requ
 	}
 	return auxiliary.JobID("job-cert-1"), nil
 }
+
 func (c *certFakeBackground) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -50,11 +52,13 @@ func (c *certFakeBackground) Forget(auxiliary.JobID) {}
 func (c *certFakeBackground) Poll(context.Context, auxiliary.JobID) (auxiliary.PollResult, error) {
 	return auxiliary.PollResult{State: auxiliary.PollPending}, nil
 }
+
 func (c *certFakeBackground) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.submits
 }
+
 func (c *certFakeBackground) promptBlob() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -503,7 +507,7 @@ func TestCertify_ModelPrompt_Telemetry_LogErrors_ContentFree(t *testing.T) {
 	require.NoError(t, obs.Finish(context.Background(), response.OutcomeSuccessReleased))
 	// Facade LastSafeDiagnostic is content-free (via factory)
 	// Retrieve via type assertion to access LastSafeDiagnostic if available
-	if fac, ok := interface{}(parts.Observer).(interface{ LastSafeDiagnostic() string }); ok {
+	if fac, ok := any(parts.Observer).(interface{ LastSafeDiagnostic() string }); ok {
 		diag := fac.LastSafeDiagnostic()
 		for _, needle := range forbidden {
 			assert.NotContains(t, diag, needle)

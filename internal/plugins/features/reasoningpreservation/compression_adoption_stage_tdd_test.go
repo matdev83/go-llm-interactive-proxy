@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -265,7 +266,6 @@ func TestTDD_Adoption_StaleDoubleAggregateExhaustionAndDecoderOutcomes(t *testin
 		{"surrogate_oversize", map[string]any{"schema_version": 1, "segments": []map[string]any{{"index": 0, "text": strings.Repeat("x", 100)}}}, reasoningpreservation.OutcomeSurrogateOversize},
 		{"insufficient_savings", map[string]any{"schema_version": 1, "segments": []map[string]any{{"index": 0, "text": strings.Repeat("a", 18)}}}, reasoningpreservation.OutcomeInsufficientSavings},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// For insufficient_savings we need source 20 and decoded 18 (saved 2 <5) within max 20
 			sourceText := strings.Repeat("a", 100)

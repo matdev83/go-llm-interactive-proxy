@@ -52,15 +52,9 @@ func (b *deterministicShadowBackend) Poll(_ context.Context, _ auxiliary.JobID) 
 
 func (b *deterministicShadowBackend) PollWithSource(sourceText string, maxOutputBytes int) auxiliary.PollResult {
 	srcLen := len(sourceText)
-	decLen := int(float64(srcLen) * b.ratio)
-	if decLen < 1 {
-		decLen = 1
-	}
+	decLen := max(int(float64(srcLen)*b.ratio), 1)
 	if decLen >= srcLen {
-		decLen = srcLen - 1
-		if decLen < 1 {
-			decLen = 1
-		}
+		decLen = max(srcLen-1, 1)
 	}
 	surText := strings.Repeat("c", decLen)
 	obj := map[string]any{"schema_version": 1, "segments": []map[string]any{{"index": 0, "text": surText}}}
@@ -155,10 +149,7 @@ func runDeterministicShadowRound(cfg Config, sourceText string, ratio float64) s
 		sur, _, _ := DecodeSurrogate(raw, params)
 		_ = cs.AttachSurrogate(context.Background(), p, art.ID, resID, jobID, sur)
 		decBytes := sur.Bytes
-		saved := srcBytes - decBytes
-		if saved < 0 {
-			saved = 0
-		}
+		saved := max(srcBytes-decBytes, 0)
 		tel.RecordShadowMeasurement(OutcomeSurrogateAttached, srcBytes, len(raw), decBytes, saved, 5*time.Millisecond)
 		tel.RecordShadowMeasurement(OutcomeShadowReady, srcBytes, 0, decBytes, saved, 0)
 		tel.RecordShadowMeasurement(OutcomeOriginalFallback, srcBytes, 0, 0, 0, 0)
@@ -181,13 +172,14 @@ func runDeterministicShadowRound(cfg Config, sourceText string, ratio float64) s
 	return shadowEvidence{Evaluation: tel.ShadowEvaluationSnapshot()}
 }
 
-func boolPtrShadow(b bool) *bool { return &b }
+//go:fix inline
+func boolPtrShadow(b bool) *bool { return new(b) }
 
 func TestShadowFixture_DeterministicEvidence(t *testing.T) {
 	t.Parallel()
 	cfg := Config{
 		Action:      ActionRestore,
-		Rules:       []RuleConfig{{ID: "test-be", Backend: "be", Enabled: boolPtrShadow(true)}},
+		Rules:       []RuleConfig{{ID: "test-be", Backend: "be", Enabled: new(true)}},
 		OnAmbiguous: PolicyLogSkip, OnUnrepresentable: PolicyReject, OnStateError: PolicyReject,
 		State: StateConfig{TTL: time.Hour, MaxTurnsPerSession: 8, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 32768},
 		Compression: CompressionConfig{
@@ -224,7 +216,7 @@ func TestShadowFixture_DeterministicEvidence(t *testing.T) {
 func BenchmarkDisabledObserverNoTelemetry(b *testing.B) {
 	cfg := Config{
 		Action:      ActionRestore,
-		Rules:       []RuleConfig{{ID: "test-be", Backend: "be", Enabled: boolPtrShadow(true)}},
+		Rules:       []RuleConfig{{ID: "test-be", Backend: "be", Enabled: new(true)}},
 		OnAmbiguous: PolicyLogSkip, OnUnrepresentable: PolicyReject, OnStateError: PolicyReject,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 8, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 32768},
 		Compression: CompressionConfig{Enabled: false},

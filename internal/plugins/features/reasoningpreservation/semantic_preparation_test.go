@@ -116,7 +116,6 @@ func TestExtractSemanticSegments_MixedExactSemanticPlacements(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := reasoningpreservation.ExtractSemanticSegments(tc.in)
@@ -167,7 +166,6 @@ func TestExtractSemanticSegments_EmptyWhitespaceMalformed(t *testing.T) {
 		{name: "whitespace_dialect", part: reasoningPart(lipapi.ReasoningDialect("   "), "hello", "", nil)},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			placements := []reasoningpreservation.PlacedReasoning{placedReasoning(0, tc.part)}
@@ -245,7 +243,6 @@ func TestPrepareSemanticSegments_ByteTokenExactBoundaries(t *testing.T) {
 		{name: "unbounded_pass", maxBytes: 0, maxTokens: 0, shouldPass: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			segs, outcome, err := reasoningpreservation.PrepareSemanticSegments(context.Background(), placements, allowDecision(), tc.maxBytes, tc.maxTokens)
@@ -285,7 +282,6 @@ func TestPrepareSemanticSegments_TypedOutcomes(t *testing.T) {
 		{name: "tokens_exceeded", placements: sem, decision: allowDecision(), maxTokens: 2, wantOutcome: reasoningpreservation.OutcomeInputTokensExceeded, wantErrCheck: reasoningpreservation.ErrPreparationInputTokensExceeded},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			segs, outcome, err := reasoningpreservation.PrepareSemanticSegments(context.Background(), tc.placements, tc.decision, tc.maxBytes, tc.maxTokens)
@@ -312,7 +308,7 @@ func TestPrepareSemanticSegments_NoMetadataLeakage(t *testing.T) {
 	require.Equal(t, reasoningpreservation.OutcomePrepared, outcome)
 	require.Len(t, segs, 2)
 	// segments must only have Index and Text
-	typ := reflect.TypeOf(reasoningpreservation.CompressorInputSegment{})
+	typ := reflect.TypeFor[reasoningpreservation.CompressorInputSegment]()
 	require.Equal(t, 2, typ.NumField())
 	assert.Equal(t, "Index", typ.Field(0).Name)
 	assert.Equal(t, "Text", typ.Field(1).Name)
@@ -329,12 +325,12 @@ func TestPrepareSemanticSegments_NoMetadataLeakage(t *testing.T) {
 	assert.Equal(t, 0, segs2[0].Index)
 	assert.Equal(t, 1, segs2[1].Index)
 	// Ensure artifact IDs/anchors not reachable via segments slice stringification
-	combined := ""
+	var combined strings.Builder
 	for _, s := range segs {
-		combined += s.Text
+		combined.WriteString(s.Text)
 	}
-	assert.NotContains(t, combined, art.ID)
-	assert.NotContains(t, combined, art.SourceBackend)
+	assert.NotContains(t, combined.String(), art.ID)
+	assert.NotContains(t, combined.String(), art.SourceBackend)
 }
 
 func TestPrepareSemanticSegments_PreservesInputsNonMutation(t *testing.T) {

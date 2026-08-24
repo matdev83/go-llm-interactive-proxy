@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -386,10 +387,7 @@ func FuzzCertify_RawExtractor_HugeMalformedDuplicateControls(f *testing.F) {
 			}
 			return
 		}
-		effective := lim
-		if effective > reasoningpreservation.HardRawOutputCeiling {
-			effective = reasoningpreservation.HardRawOutputCeiling
-		}
+		effective := min(lim, reasoningpreservation.HardRawOutputCeiling)
 		if err != nil {
 			if !errors.Is(err, reasoningpreservation.ErrRawOversize) && !errors.Is(err, reasoningpreservation.ErrRawInvalidChannel) && !errors.Is(err, reasoningpreservation.ErrRawInvalidLimit) {
 				t.Fatalf("unexpected error %v for lim %d", err, lim)

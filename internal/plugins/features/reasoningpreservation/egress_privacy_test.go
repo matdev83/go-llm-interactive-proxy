@@ -115,7 +115,6 @@ func TestEgress_Table_AllowRedactDenyMissingPolicyRouteMismatch(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dec := reasoningpreservation.EvaluateEgress(context.Background(), tc.policy, tc.input)

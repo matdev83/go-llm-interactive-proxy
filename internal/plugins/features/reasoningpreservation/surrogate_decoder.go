@@ -98,10 +98,7 @@ func DecodeSurrogate(raw []byte, params SurrogateDecodeParams) (ReasoningSurroga
 	if params.MaxSurrogateBytes <= 0 {
 		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSurrogateOversize, fmt.Errorf("%w: max_surrogate_bytes %d must be >0", ErrSurrogateOversize, params.MaxSurrogateBytes)
 	}
-	effectiveMax := params.MaxSurrogateBytes
-	if effectiveMax > HardCompressionMaxSurrogateBytes {
-		effectiveMax = HardCompressionMaxSurrogateBytes
-	}
+	effectiveMax := min(params.MaxSurrogateBytes, HardCompressionMaxSurrogateBytes)
 	// Explicit caller-params validation for SourceBytes: must be >0, schema_invalid for invalid caller params.
 	if params.SourceBytes <= 0 {
 		return ReasoningSurrogate{Sanitization: "none"}, OutcomeSchemaInvalid, fmt.Errorf("%w: source_bytes %d must be >0", ErrSurrogateSchemaInvalid, params.SourceBytes)

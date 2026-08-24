@@ -209,6 +209,6 @@ func TestBackgroundPoller_InterfaceIsOptional(t *testing.T) {
 	t.Parallel()
 	// Prove that adding Poll to BackgroundPoller does not retroactively require it on BackgroundClient.
 	var client auxiliary.BackgroundClient = externalCompatClient{}
-	_, isPoller := interface{}(client).(auxiliary.BackgroundPoller)
+	_, isPoller := any(client).(auxiliary.BackgroundPoller)
 	assert.False(t, isPoller, "historical client must not be a Poller")
 }

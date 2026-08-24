@@ -3,6 +3,7 @@ package reasoningpreservation_test
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -34,9 +35,7 @@ func marshalSurrogate(t *testing.T, schema int, segs []map[string]any, extraFiel
 		"schema_version": schema,
 		"segments":       segs,
 	}
-	for k, v := range extraFields {
-		m[k] = v
-	}
+	maps.Copy(m, extraFields)
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
 	return b
@@ -47,9 +46,7 @@ func mustMarshalSurrogate(schema int, segs []map[string]any, extraFields map[str
 		"schema_version": schema,
 		"segments":       segs,
 	}
-	for k, v := range extraFields {
-		m[k] = v
-	}
+	maps.Copy(m, extraFields)
 	b, _ := json.Marshal(m)
 	return b
 }
@@ -404,7 +401,6 @@ func TestSurrogateDecoder_TableValidation(t *testing.T) {
 	// base raw for mut that expects base
 	baseRaw := mustMarshalSurrogate(1, []map[string]any{{"index": 0, "text": "hello"}, {"index": 2, "text": "world"}}, nil)
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			raw := tc.mut(baseRaw)

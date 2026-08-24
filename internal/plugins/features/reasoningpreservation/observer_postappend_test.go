@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -374,9 +375,9 @@ func TestPostAppend_callbackFailureDoesNotInvalidateOriginal(t *testing.T) {
 
 func TestPostAppend_noContentInCorrelationStruct(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(reasoningpreservation.PostAppendCorrelation{})
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
+	typ := reflect.TypeFor[reasoningpreservation.PostAppendCorrelation]()
+	for f := range typ.Fields() {
+		f := f
 		lower := f.Name
 		if lower == "Text" || lower == "Content" || lower == "Reasoning" || lower == "ReasoningBytes" {
 			t.Fatalf("correlation struct must not contain content field %q", f.Name)
@@ -390,8 +391,8 @@ func TestPostAppend_noContentInCorrelationStruct(t *testing.T) {
 	sensitive := "sk-secret-sensitive-payload"
 	hook := func(_ context.Context, corr reasoningpreservation.PostAppendCorrelation) error {
 		val := reflect.ValueOf(corr)
-		for i := 0; i < val.NumField(); i++ {
-			f := val.Field(i)
+		for _, f := range val.Fields() {
+			f := f
 			if f.Kind() == reflect.String {
 				assert.NotContains(t, f.String(), sensitive)
 				assert.NotContains(t, f.String(), "eligible")
@@ -518,7 +519,7 @@ func TestPostAppend_concurrentObserversWithImmutableHook(t *testing.T) {
 	const n = 16
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(idx int) {
 			defer wg.Done()
 			sess := "sess-conc-" + string(rune('a'+idx))

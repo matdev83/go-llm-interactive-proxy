@@ -193,19 +193,19 @@ func TestReasoningPreservationCompressor_BillingAttribution_ScopeAndLegIsolation
 	}
 
 	// ensure control-plane metadata not in model prompt
-	var promptBlob string
+	var promptBlob strings.Builder
 	for _, m := range compressorReq.Call.Messages {
 		for _, p := range m.Parts {
-			promptBlob += p.Text
+			promptBlob.WriteString(p.Text)
 		}
 	}
 	for _, leak := range []string{principalID, accountID, "trace-reasoning-primary"} {
-		if strings.Contains(promptBlob, leak) {
-			t.Fatalf("control-plane %q leaked into compressor prompt: %q", leak, promptBlob)
+		if strings.Contains(promptBlob.String(), leak) {
+			t.Fatalf("control-plane %q leaked into compressor prompt: %q", leak, promptBlob.String())
 		}
 	}
-	if !strings.Contains(promptBlob, "sanitized reasoning") {
-		t.Fatalf("sanitized reasoning missing from prompt: %q", promptBlob)
+	if !strings.Contains(promptBlob.String(), "sanitized reasoning") {
+		t.Fatalf("sanitized reasoning missing from prompt: %q", promptBlob.String())
 	}
 
 	auxClient := auxreq.NewClient(func() auxreq.ExecutorRunner { return ex })

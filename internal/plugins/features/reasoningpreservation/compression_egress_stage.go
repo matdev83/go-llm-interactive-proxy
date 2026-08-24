@@ -105,15 +105,16 @@ func NewPostReservationEgressStageWithTelemetry(cfg Config, store CompressionSto
 		}
 		if tel != nil && cfg.Compression.Enabled {
 			// Content-free privacy telemetry before provider work.
-			if dec.Action == EgressDeny {
+			switch dec.Action {
+			case EgressDeny:
 				if dec.PolicyVersion == "missing-policy" {
 					tel.RecordShadowMeasurement(OutcomeEgressMissingPolicy, res.Correlation.SourceBytes, 0, 0, 0, 0)
 				} else {
 					tel.RecordShadowMeasurement(OutcomeEgressDeny, res.Correlation.SourceBytes, 0, 0, 0, 0)
 				}
-			} else if dec.Action == EgressRedactThenAllow {
+			case EgressRedactThenAllow:
 				tel.RecordShadowMeasurement(OutcomeEgressRedact, res.Correlation.SourceBytes, 0, 0, 0, 0)
-			} else if dec.Action == EgressAllow {
+			case EgressAllow:
 				tel.RecordShadowMeasurement(OutcomeEgressAllow, res.Correlation.SourceBytes, 0, 0, 0, 0)
 			}
 		}

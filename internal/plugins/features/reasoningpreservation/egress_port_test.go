@@ -19,12 +19,15 @@ type stubSecretMatcher struct {
 func (s stubSecretMatcher) ScanBytes(_ context.Context, _ []byte) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (s stubSecretMatcher) ScanString(_ context.Context, _ string) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (s stubSecretMatcher) RedactBytes(_ context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
 	return []byte(s.redacted), nil, nil
 }
+
 func (s stubSecretMatcher) RedactString(_ context.Context, _ string) (string, []secretguard.Finding, error) {
 	return s.redacted, nil, nil
 }
@@ -34,7 +37,7 @@ func TestEgressPort_SecretguardAdapterImplementsTrustedSanitizer(t *testing.T) {
 	matcher := stubSecretMatcher{redacted: "sanitized-[REDACTED]"}
 	sanitizer := reasoningpreservation.NewTrustedSanitizerFromMatcher(matcher)
 	require.NotNil(t, sanitizer, "adapter must be non-nil")
-	var _ reasoningpreservation.TrustedTextSanitizer = sanitizer
+	_ = sanitizer
 	out, err := sanitizer.SanitizeText(context.Background(), "input with secret sk-123")
 	require.NoError(t, err)
 	assert.Equal(t, "sanitized-[REDACTED]", out)
@@ -93,7 +96,6 @@ func TestEgressPort_AllowRedactDenyMissingPolicyViaPort(t *testing.T) {
 		{"redact", fakeRedactPolicy{version: "v1", sanitizer: &recordingSanitizer{replacement: "[REDACTED]"}}, "route-a", reasoningpreservation.EgressRedactThenAllow, "v1"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := reasoningpreservation.CompressionEgressInput{
@@ -128,7 +130,7 @@ func TestEgressPort_ControlPlaneNotInSanitizedSegments(t *testing.T) {
 	assert.Equal(t, "session sess-123 principal p1", sanitized[0].Text)
 	// Structural guard: segments carry only local index and text; any future
 	// control-plane field added to CompressorInputSegment fails this check.
-	typ := reflect.TypeOf(reasoningpreservation.CompressorInputSegment{})
+	typ := reflect.TypeFor[reasoningpreservation.CompressorInputSegment]()
 	require.Equal(t, 2, typ.NumField(), "CompressorInputSegment must expose only Index and Text")
 	assert.Equal(t, "Index", typ.Field(0).Name)
 	assert.Equal(t, "Text", typ.Field(1).Name)

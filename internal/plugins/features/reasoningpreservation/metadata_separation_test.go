@@ -95,16 +95,16 @@ func TestMetadataSeparation_EnvelopeRetainsButPromptClean(t *testing.T) {
 	assert.Equal(t, "reasoning_preservation_compressor", req.Role)
 	// prompt inspection: Call.Messages serialized must not contain envelope values
 	// collect all message texts
-	var prompt string
+	var prompt strings.Builder
 	for _, m := range req.Call.Messages {
 		for _, p := range m.Parts {
-			prompt += p.Text
+			prompt.WriteString(p.Text)
 		}
 	}
-	assert.NotContains(t, prompt, "reasoning_preservation_compressor")
-	assert.NotContains(t, prompt, "private")
-	assert.NotContains(t, prompt, "trace-1")
-	assert.NotContains(t, prompt, "aleg-1")
+	assert.NotContains(t, prompt.String(), "reasoning_preservation_compressor")
+	assert.NotContains(t, prompt.String(), "private")
+	assert.NotContains(t, prompt.String(), "trace-1")
+	assert.NotContains(t, prompt.String(), "aleg-1")
 	// disable list not in prompt
-	assert.NotContains(t, prompt, "reasoning-output-preservation")
+	assert.NotContains(t, prompt.String(), "reasoning-output-preservation")
 }

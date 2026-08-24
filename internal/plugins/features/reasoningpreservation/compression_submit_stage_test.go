@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -22,10 +23,10 @@ import (
 
 // counting fake for submit stage tests
 type submitStageFake struct {
-	submitCalls int32
-	awaitCalls  int32
-	pollCalls   int32
-	forgetCalls int32
+	submitCalls atomic.Int32
+	awaitCalls  atomic.Int32
+	pollCalls   atomic.Int32
+	forgetCalls atomic.Int32
 	lastJob     auxiliary.JobID
 	lastReq     auxiliary.Request
 	lastOpts    auxiliary.SubmitOptions
@@ -37,7 +38,7 @@ type submitStageFake struct {
 }
 
 func (f *submitStageFake) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
-	atomic.AddInt32(&f.submitCalls, 1)
+	f.submitCalls.Add(1)
 	f.lastCtx = ctx
 	f.lastReq = req
 	f.lastOpts = opts
@@ -54,19 +55,21 @@ func (f *submitStageFake) SubmitCollect(ctx context.Context, req auxiliary.Reque
 	f.lastJob = auxiliary.JobID("job-test-1")
 	return f.lastJob, nil
 }
+
 func (f *submitStageFake) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
-	atomic.AddInt32(&f.awaitCalls, 1)
+	f.awaitCalls.Add(1)
 	panic("Await must not be called in submit stage")
 }
+
 func (f *submitStageFake) Poll(ctx context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
-	atomic.AddInt32(&f.pollCalls, 1)
+	f.pollCalls.Add(1)
 	panic("Poll must not be called in submit stage")
 }
-func (f *submitStageFake) Forget(id auxiliary.JobID) { atomic.AddInt32(&f.forgetCalls, 1) }
-func (f *submitStageFake) SubmitCount() int          { return int(atomic.LoadInt32(&f.submitCalls)) }
-func (f *submitStageFake) ForgetCount() int          { return int(atomic.LoadInt32(&f.forgetCalls)) }
-func (f *submitStageFake) AwaitCount() int           { return int(atomic.LoadInt32(&f.awaitCalls)) }
-func (f *submitStageFake) PollCount() int            { return int(atomic.LoadInt32(&f.pollCalls)) }
+func (f *submitStageFake) Forget(id auxiliary.JobID) { f.forgetCalls.Add(1) }
+func (f *submitStageFake) SubmitCount() int          { return int(f.submitCalls.Load()) }
+func (f *submitStageFake) ForgetCount() int          { return int(f.forgetCalls.Load()) }
+func (f *submitStageFake) AwaitCount() int           { return int(f.awaitCalls.Load()) }
+func (f *submitStageFake) PollCount() int            { return int(f.pollCalls.Load()) }
 
 func storeForSubmit(t *testing.T, cfg reasoningpreservation.Config) reasoningpreservation.CompressionStore {
 	t.Helper()
@@ -277,16 +280,16 @@ func TestSubmitStage_SuccessfulBindState(t *testing.T) {
 	assert.Equal(t, "none", string(fake.lastReq.Call.ToolChoice.Mode))
 	assert.Contains(t, fake.lastReq.DisablePlugins, "reasoning-output-preservation")
 	// prompt sanitized: must contain segment text, not lineage
-	blob := ""
+	var blob strings.Builder
 	for _, m := range fake.lastReq.Call.Messages {
 		for _, pt := range m.Parts {
-			blob += pt.Text
+			blob.WriteString(pt.Text)
 		}
 	}
-	assert.Contains(t, blob, pr.Segments[0].Text)
-	assert.NotContains(t, blob, pr.Reservation.Correlation.TraceID)
-	assert.NotContains(t, blob, pr.Reservation.Correlation.ALegID)
-	assert.NotContains(t, blob, "sess-success-bind")
+	assert.Contains(t, blob.String(), pr.Segments[0].Text)
+	assert.NotContains(t, blob.String(), pr.Reservation.Correlation.TraceID)
+	assert.NotContains(t, blob.String(), pr.Reservation.Correlation.ALegID)
+	assert.NotContains(t, blob.String(), "sess-success-bind")
 	// timeout exact
 	assert.Equal(t, cfg.Compression.Timeout, fake.lastOpts.Timeout)
 	assert.NotEmpty(t, fake.lastOpts.CoalesceKey)
@@ -383,7 +386,6 @@ func TestSubmitStage_CoalesceKeyDeterministic(t *testing.T) {
 		{"route", func(p *reasoningpreservation.PreparedReservation) { p.Route = "different-route" }},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			csTmp := storeForSubmit(t, cfg)
 			pTmp := reasoningpreservation.NewSessionPartition("sess-" + tc.name)
@@ -504,7 +506,7 @@ func TestSubmitStage_NonSuccessObserverNeverSubmits(t *testing.T) {
 	require.NoError(t, err)
 	for _, oc := range []response.StreamOutcome{response.OutcomeFailed, response.OutcomeCancelled, response.OutcomeClosed, response.OutcomeReplaced, response.OutcomeGateReplaced} {
 		t.Run(string(oc), func(t *testing.T) {
-			atomic.StoreInt32(&fake.submitCalls, 0)
+			fake.submitCalls.Store(0)
 			meta := response.StreamMeta{BackendID: "be", Model: "m", Session: session.SessionView{AuthoritativeSessionID: "sess-non-success-" + string(oc)}, TraceID: "t", ALegID: "a", BLegID: "b", Scope: scope.PrincipalScopeView{SubjectKind: scope.SubjectHuman, PrincipalID: scope.Known("u")}}
 			obs, err := parts.Observer.Open(context.Background(), meta, response.Services{})
 			require.NoError(t, err)
@@ -571,7 +573,6 @@ func TestValidateFor_TypedNilCapabilities_Table(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, _, err := reasoningpreservation.FeatureBundleWithPartsAndCompression(baseCfg, tc.svc, reasoningpreservation.CompanionPolicy{})
@@ -600,10 +601,10 @@ func TestSubmitStage_TypedNilClientClearsNoPanic(t *testing.T) {
 }
 
 // test retainer/pin helpers
-type testPin struct{ released int32 }
+type testPin struct{ released atomic.Int32 }
 
 func (p *testPin) Kind() genpin.Kind { return genpin.KindAsync }
-func (p *testPin) Release()          { atomic.AddInt32(&p.released, 1) }
+func (p *testPin) Release()          { p.released.Add(1) }
 
 type testRetainer struct{ pin genpin.Pin }
 

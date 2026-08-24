@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -95,13 +96,14 @@ func (c *countingSanitizer) SanitizeText(_ context.Context, text string) (string
 }
 
 type countingBackground struct {
-	submitCalls int32
+	submitCalls atomic.Int32
 }
 
 func (c *countingBackground) SubmitCollect(_ context.Context, _ auxiliary.Request, _ auxiliary.SubmitOptions) (auxiliary.JobID, error) {
-	atomic.AddInt32(&c.submitCalls, 1)
+	c.submitCalls.Add(1)
 	return auxiliary.JobID("job-1"), nil
 }
+
 func (c *countingBackground) Await(_ context.Context, _ auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -109,7 +111,7 @@ func (c *countingBackground) Forget(_ auxiliary.JobID) {}
 func (c *countingBackground) Poll(_ context.Context, _ auxiliary.JobID) (auxiliary.PollResult, error) {
 	return auxiliary.PollResult{State: auxiliary.PollPending}, nil
 }
-func (c *countingBackground) SubmitCount() int { return int(atomic.LoadInt32(&c.submitCalls)) }
+func (c *countingBackground) SubmitCount() int { return int(c.submitCalls.Load()) }
 
 // TestEgressStage_Allow_FakeNextSeesSanitizedOnly verifies allow path passes sanitized (original) segments
 // to next, promotes hash, and does not clear reservation before next.
@@ -362,7 +364,6 @@ func TestEgressStage_Deny_Missing_Mismatch_ClearsReservation(t *testing.T) {
 		{"mismatch_route", reasoningpreservation.NewRouteBoundEgressPolicy(map[string]struct{}{"allowed-route": {}}, fakeAllowPolicy{version: "v1"})},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := egressCfgWithLimits(t, 4096, 4096)

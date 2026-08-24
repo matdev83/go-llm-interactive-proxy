@@ -82,7 +82,7 @@ func BuildCompressorAuxRequest(p CompressorAuxRequestParams) (auxiliary.Request,
 	}
 	w := wireReq{SchemaVersion: 1}
 	for _, s := range p.Segments {
-		w.Segments = append(w.Segments, wireSeg{Index: s.Index, Text: s.Text})
+		w.Segments = append(w.Segments, wireSeg(s))
 	}
 	payload, err := json.Marshal(w)
 	if err != nil {

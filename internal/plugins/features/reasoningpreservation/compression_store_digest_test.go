@@ -35,7 +35,6 @@ func TestCompression_DigestCAS(t *testing.T) {
 		{"zero_egress_still_rejected_via_sem", zero, zero, true, true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			now, _ := newTestClock(time.Unix(1_700_000_000, 0).UTC())

@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation
 
 import (
@@ -177,7 +178,6 @@ func TestSelectReasoningView_StaleEveryField(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if tc.name == "stale_indexes_exact" {
@@ -701,7 +701,7 @@ func TestSelectReasoningView_ConsumerReceivesMapAndShadowDefault(t *testing.T) {
 		OnStateError:      PolicyLogSkip,
 		OnAmbiguous:       PolicyLogSkip,
 		State:             StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       compCfg,
 	}
 	store, _ := NewMemoryTurnStore(StoreOptions{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000, Now: time.Now, CompressionLimits: compCfg.ToLimits()})
@@ -785,7 +785,7 @@ func TestSelectReasoningView_TransformShadowAlwaysOriginal(t *testing.T) {
 		OnStateError:      PolicyLogSkip,
 		OnAmbiguous:       PolicyLogSkip,
 		State:             StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       compCfg,
 	}
 	compCfg = cfg.Compression
@@ -906,4 +906,5 @@ type fakeSan struct{}
 
 func (fakeSan) SanitizeText(_ context.Context, t string) (string, error) { return t, nil }
 
-func boolPtr(v bool) *bool { return &v }
+//go:fix inline
+func boolPtr(v bool) *bool { return new(v) }

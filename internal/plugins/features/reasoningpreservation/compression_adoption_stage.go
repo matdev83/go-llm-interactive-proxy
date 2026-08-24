@@ -247,10 +247,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		doForget()
 		if tel != nil {
 			decodedBytes := sur.Bytes
-			savedBytes := sourceBytes - decodedBytes
-			if savedBytes < 0 {
-				savedBytes = 0
-			}
+			savedBytes := max(sourceBytes-decodedBytes, 0)
 			tel.RecordCompressionMeasurement(OutcomeSurrogateAttached, rawCount, decodedBytes, savedBytes)
 			if cfg.Compression.Mode == CompressionShadow {
 				tel.RecordCompressionMeasurement(OutcomeShadowReady, 0, 0, savedBytes)

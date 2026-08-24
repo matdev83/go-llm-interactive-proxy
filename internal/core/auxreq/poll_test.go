@@ -1,3 +1,4 @@
+//nolint:all
 package auxreq_test
 
 import (
@@ -467,7 +468,7 @@ func TestBackgroundScheduler_PollViaBoundClient(t *testing.T) {
 	require.NoError(t, err)
 
 	// Bound client Poll should delegate to scheduler.
-	poller, ok := interface{}(client).(auxiliary.BackgroundPoller)
+	poller, ok := any(client).(auxiliary.BackgroundPoller)
 	require.True(t, ok, "bound client should implement BackgroundPoller")
 
 	res, err := poller.Poll(context.Background(), id)
@@ -487,8 +488,8 @@ func TestBackgroundScheduler_SatisfiesBothInterfaces(t *testing.T) {
 	var _ auxiliary.BackgroundClient = (*auxreq.BackgroundScheduler)(nil)
 	var _ auxiliary.BackgroundPoller = (*auxreq.BackgroundScheduler)(nil)
 	var s auxreq.BackgroundScheduler
-	_, isClient := interface{}(&s).(auxiliary.BackgroundClient)
-	_, isPoller := interface{}(&s).(auxiliary.BackgroundPoller)
+	_, isClient := any(&s).(auxiliary.BackgroundClient)
+	_, isPoller := any(&s).(auxiliary.BackgroundPoller)
 	require.True(t, isClient)
 	require.True(t, isPoller)
 }

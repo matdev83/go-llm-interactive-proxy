@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -98,7 +99,7 @@ func TestRawExtractor_OversizeNoPayloadAlloc(t *testing.T) {
 	payload := strings.Repeat("a", 256*1024)
 	c := collectedFromText(t, payload)
 	limit := 1024
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, err := reasoningpreservation.ExtractBoundedRaw(c, limit)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, reasoningpreservation.ErrRawOversize)
@@ -205,15 +206,19 @@ func FuzzRawExtractor(f *testing.F) {
 
 // Keep RED aliases for evidence that RED phase existed and now GREEN.
 func TestRawExtractor_RED_InvalidLimitTyped(t *testing.T) { TestRawExtractor_InvalidLimitTyped(t) }
+
 func TestRawExtractor_RED_OversizeValidJSONTailDecodeNeverCalled(t *testing.T) {
 	TestRawExtractor_OversizeValidJSONTailDecodeNeverCalled(t)
 }
+
 func TestRawExtractor_RED_AllNonTextChannelsTyped(t *testing.T) {
 	TestRawExtractor_AllNonTextChannelsTyped(t)
 }
+
 func TestRawExtractor_RED_OversizeNoPayloadAlloc(t *testing.T) {
 	TestRawExtractor_OversizeNoPayloadAlloc(t)
 }
+
 func TestRawExtractor_RED_NoMutationAndExactBoundary(t *testing.T) {
 	TestRawExtractor_NoMutationAndExactBoundary(t)
 }

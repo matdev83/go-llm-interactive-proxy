@@ -90,10 +90,7 @@ func extractBoundedRawFromSource(src rawTextSource, collected lipapi.Collected, 
 	// (CollectLimits.MaxWarnings) and scheduler level, not here.
 
 	// Effective limit is min(configured, hard ceiling) – explicit clamp.
-	effectiveLimit := maxOutputBytes
-	if effectiveLimit > HardRawOutputCeiling {
-		effectiveLimit = HardRawOutputCeiling
-	}
+	effectiveLimit := min(maxOutputBytes, HardRawOutputCeiling)
 
 	// Byte-counter guard: check Len() before String(). Oversize returns before materialization.
 	n := src.TextLen()

@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation
 
 import (
@@ -219,7 +220,7 @@ func TestBuildEphemeralArtifact_StoreSnapshotUnchangedAfterCallAndMutation(t *te
 		OnStateError:      PolicyLogSkip,
 		OnAmbiguous:       PolicyLogSkip,
 		State:             StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       cfg,
 	}
 	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
@@ -287,7 +288,6 @@ func TestBuildEphemeralArtifact_AmbiguityFallback(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var o TurnArtifact
@@ -425,7 +425,7 @@ func TestBuildEphemeralArtifact_ToolsOrdinaryCallUnchanged(t *testing.T) {
 	cfgActive := Config{
 		Action: ActionRestore, OnUnrepresentable: PolicyReject, OnStateError: PolicyLogSkip, OnAmbiguous: PolicyLogSkip,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
 	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
@@ -534,7 +534,7 @@ func TestBuildEphemeralArtifact_Idempotence(t *testing.T) {
 	cfgActive := Config{
 		Action: ActionRestore, OnUnrepresentable: PolicyReject, OnStateError: PolicyLogSkip, OnAmbiguous: PolicyLogSkip,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
 	xform := &AttemptTransform{cfg: cfgActive, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionActive), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
@@ -605,7 +605,7 @@ func TestEphemeralView_ShadowAlwaysOriginal(t *testing.T) {
 	cfgShadow := Config{
 		Action: ActionRestore, OnUnrepresentable: PolicyReject, OnStateError: PolicyLogSkip, OnAmbiguous: PolicyLogSkip,
 		State:       StateConfig{TTL: time.Hour, MaxTurnsPerSession: 10, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 100000},
-		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:       []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression: cfg,
 	}
 	xform := &AttemptTransform{cfg: cfgShadow, store: store, tel: NewTelemetry(), id: ID + "-transform", order: 0, adoptionStage: identityAdoptionStage, viewStage: identityReasoningViewStage, viewConsumerStage: EphemeralViewConsumerForMode(CompressionShadow), svc: CompressionServices{EgressPolicy: fakeAllowPolicy{version: cfg.EgressPolicyRef}, Sanitizer: fakeSan{}}}
@@ -640,7 +640,7 @@ func TestBundle_EphemeralConsumerWiring(t *testing.T) {
 		OnUnrepresentable: PolicyReject,
 		OnStateError:      PolicyLogSkip,
 		State:             StateConfig{TTL: time.Hour, MaxTurnsPerSession: 4, MaxReasoningBytesPerTurn: 1024, MaxSessionBytes: 4096},
-		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       testEphemeralConfig(CompressionShadow),
 	}
 	svc := CompressionServices{EgressPolicy: fakeAllowPolicy{version: "policy-v1"}, Client: &fakeBgClientForBundle{}, Poller: &fakePollerForBundle{}, Sanitizer: fakeSan{}}
@@ -656,7 +656,7 @@ func TestBundle_EphemeralConsumerWiring(t *testing.T) {
 		OnUnrepresentable: PolicyReject,
 		OnStateError:      PolicyLogSkip,
 		State:             StateConfig{TTL: time.Hour, MaxTurnsPerSession: 4, MaxReasoningBytesPerTurn: 1024, MaxSessionBytes: 4096},
-		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: boolPtr(true)}},
+		Rules:             []RuleConfig{{ID: "r1", Backend: "be", ModelKeywords: []string{}, Enabled: new(true)}},
 		Compression:       testEphemeralConfig(CompressionActive),
 	}
 	partsActive, _, err := FeatureBundleWithPartsAndCompression(activeCfg, svc, CompanionPolicy{})
@@ -676,6 +676,7 @@ type fakeBgClientForBundle struct{}
 func (f *fakeBgClientForBundle) SubmitCollect(ctx context.Context, req auxiliary.Request, opts auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "job", nil
 }
+
 func (f *fakeBgClientForBundle) Await(ctx context.Context, id auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }

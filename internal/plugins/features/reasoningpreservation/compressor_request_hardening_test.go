@@ -143,19 +143,19 @@ func TestCompressorRequest_Hardened_OneCallMultiSegment(t *testing.T) {
 	require.NotNil(t, req.Call)
 	require.Len(t, req.Call.Messages, 2)
 	// user payload must contain all segments exactly once and index matches
-	var payload string
+	var payload strings.Builder
 	for _, m := range req.Call.Messages {
 		for _, p := range m.Parts {
-			payload += p.Text
+			payload.WriteString(p.Text)
 		}
 	}
 	for _, s := range segs {
-		assert.Contains(t, payload, s.Text)
+		assert.Contains(t, payload.String(), s.Text)
 	}
 	// ensure ONE call contains multiple segments: check JSON quoted payload contains 3 segments
-	assert.Contains(t, payload, `"index":0`)
-	assert.Contains(t, payload, `"index":2`)
-	assert.Contains(t, payload, `"index":5`)
+	assert.Contains(t, payload.String(), `"index":0`)
+	assert.Contains(t, payload.String(), `"index":2`)
+	assert.Contains(t, payload.String(), `"index":5`)
 }
 
 func TestCompressorRequest_Hardened_PromptEnvelopeSeparation(t *testing.T) {
@@ -175,30 +175,30 @@ func TestCompressorRequest_Hardened_PromptEnvelopeSeparation(t *testing.T) {
 		MaxOutputTokens:     100,
 	})
 	require.NoError(t, err)
-	var modelBlob string
+	var modelBlob strings.Builder
 	for _, m := range req.Call.Messages {
 		for _, p := range m.Parts {
-			modelBlob += p.Text
-			modelBlob += string(p.Content)
+			modelBlob.WriteString(p.Text)
+			modelBlob.WriteString(string(p.Content))
 		}
 	}
 	// sanitized text must be present as quoted JSON
-	assert.Contains(t, modelBlob, "sanitized hello")
+	assert.Contains(t, modelBlob.String(), "sanitized hello")
 	// versioned schema must be present
-	assert.Contains(t, modelBlob, "schema_version")
+	assert.Contains(t, modelBlob.String(), "schema_version")
 	// fixed instruction must be present
-	assert.Contains(t, modelBlob, reasoningpreservation.CompressorSystemPrompt)
+	assert.Contains(t, modelBlob.String(), reasoningpreservation.CompressorSystemPrompt)
 	// output schema must be present
-	assert.Contains(t, modelBlob, reasoningpreservation.CompressorOutputSchema)
+	assert.Contains(t, modelBlob.String(), reasoningpreservation.CompressorOutputSchema)
 	// untrusted wrapper must be present
-	assert.Contains(t, modelBlob, "<untrusted-compression-input>")
-	assert.Contains(t, modelBlob, "</untrusted-compression-input>")
+	assert.Contains(t, modelBlob.String(), "<untrusted-compression-input>")
+	assert.Contains(t, modelBlob.String(), "</untrusted-compression-input>")
 	// control-plane must NOT leak into model blob
 	for _, leak := range []string{trace, aleg, bleg, branch, "reasoning_preservation_compressor", "private"} {
-		assert.NotContains(t, modelBlob, leak)
+		assert.NotContains(t, modelBlob.String(), leak)
 	}
 	// also ensure principal not leaked: we don't put principal in params, but envelope should not copy it
-	assert.NotContains(t, modelBlob, "principal")
+	assert.NotContains(t, modelBlob.String(), "principal")
 }
 
 func TestCompressorRequest_Hardened_MarshalAndValidationErrorPaths(t *testing.T) {

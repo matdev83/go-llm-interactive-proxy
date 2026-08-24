@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -187,9 +188,7 @@ func cloneCollected(in lipapi.Collected) lipapi.Collected {
 	}
 	if len(in.ToolNames) > 0 {
 		out.ToolNames = make(map[string]string, len(in.ToolNames))
-		for k, v := range in.ToolNames {
-			out.ToolNames[k] = v
-		}
+		maps.Copy(out.ToolNames, in.ToolNames)
 	}
 	if len(in.ToolCallOrder) > 0 {
 		out.ToolCallOrder = append([]string(nil), in.ToolCallOrder...)

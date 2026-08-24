@@ -18,30 +18,32 @@ import (
 )
 
 type pollTestPoller struct {
-	pollCalls   int32
+	pollCalls   atomic.Int32
 	result      auxiliary.PollResult
 	err         error
 	lastID      auxiliary.JobID
-	forgetCalls int32
+	forgetCalls atomic.Int32
 }
 
 func (f *pollTestPoller) Poll(_ context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
-	atomic.AddInt32(&f.pollCalls, 1)
+	f.pollCalls.Add(1)
 	f.lastID = id
 	if f.err != nil {
 		return auxiliary.PollResult{}, f.err
 	}
 	return f.result, nil
 }
+
 func (f *pollTestPoller) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return "job-1", nil
 }
+
 func (f *pollTestPoller) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
-func (f *pollTestPoller) Forget(id auxiliary.JobID) { atomic.AddInt32(&f.forgetCalls, 1) }
-func (f *pollTestPoller) PollCount() int            { return int(atomic.LoadInt32(&f.pollCalls)) }
-func (f *pollTestPoller) ForgetCount() int          { return int(atomic.LoadInt32(&f.forgetCalls)) }
+func (f *pollTestPoller) Forget(id auxiliary.JobID) { f.forgetCalls.Add(1) }
+func (f *pollTestPoller) PollCount() int            { return int(f.pollCalls.Load()) }
+func (f *pollTestPoller) ForgetCount() int          { return int(f.forgetCalls.Load()) }
 
 type pollTestEgress struct{}
 
@@ -431,9 +433,11 @@ type pollSnapshotFailStore struct{}
 func (s *pollSnapshotFailStore) Append(ctx context.Context, p reasoningpreservation.SessionPartition, a reasoningpreservation.TurnArtifact) (reasoningpreservation.EvictionSummary, error) {
 	return reasoningpreservation.EvictionSummary{}, nil
 }
+
 func (s *pollSnapshotFailStore) Snapshot(ctx context.Context, p reasoningpreservation.SessionPartition) ([]reasoningpreservation.TurnArtifact, error) {
 	return nil, errors.New("snapshot boom")
 }
+
 func (s *pollSnapshotFailStore) Delete(ctx context.Context, p reasoningpreservation.SessionPartition, ids ...string) error {
 	return nil
 }

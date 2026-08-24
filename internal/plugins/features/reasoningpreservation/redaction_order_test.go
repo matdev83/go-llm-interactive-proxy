@@ -107,6 +107,7 @@ func (f *fakeCompressor2) Submit(segs []reasoningpreservation.CompressorInputSeg
 	f.received = append([]reasoningpreservation.CompressorInputSegment(nil), segs...)
 	return nil
 }
+
 func (f *fakeCompressor2) ReceivedText() string {
 	var b strings.Builder
 	for _, s := range f.received {

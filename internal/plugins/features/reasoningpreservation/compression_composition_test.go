@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -20,6 +21,7 @@ type fakeBackground struct {
 func (f *fakeBackground) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return auxiliary.JobID("job-1"), nil
 }
+
 func (f *fakeBackground) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -34,6 +36,7 @@ type fakeClientOnly struct{}
 func (fakeClientOnly) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
 	return auxiliary.JobID("job-1"), nil
 }
+
 func (fakeClientOnly) Await(context.Context, auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }

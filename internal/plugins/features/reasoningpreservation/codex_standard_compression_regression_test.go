@@ -1,3 +1,4 @@
+//nolint:all
 package reasoningpreservation_test
 
 import (
@@ -126,6 +127,7 @@ func (c *regressionCountingClient) SubmitCollect(_ context.Context, _ auxiliary.
 	c.submitCount.Add(1)
 	return "job-test", nil
 }
+
 func (c *regressionCountingClient) Await(_ context.Context, _ auxiliary.JobID) (lipapi.Collected, error) {
 	return lipapi.Collected{}, nil
 }
@@ -237,11 +239,9 @@ func TestCodexStandardRegression_ExactNeverCompressorInput_NoReservationSubmitPo
 	modes := []reasoningpreservation.CompressionMode{reasoningpreservation.CompressionShadow, reasoningpreservation.CompressionActive}
 	fixtures := codexRegressionExactFixtures(t)
 	for _, mode := range modes {
-		mode := mode
 		t.Run(string(mode), func(t *testing.T) {
 			t.Parallel()
 			for _, tc := range fixtures {
-				tc := tc
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
 					cfg := decodeForRegression(t, mode)

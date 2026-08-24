@@ -312,7 +312,7 @@ The completed reasoning-preservation, OpenAI Responses preservation, Codex nativ
   - _Validation: fuzz + benchmark + allocation-sensitive tests_
   - _Requirements: 3, 10, 13_
 
-- [ ] 7.5 Run repository gates, shadow-value review, and Kiro closeout
+- [x] 7.5 Run repository gates, shadow-value review, and Kiro closeout
   - Run focused tests, `make quality-checks`, `make test-unit`, applicable parity/architecture/security checks, `go mod verify`, formatting/diff checks, and example-config/docs checks; run wider `make qa` when change surface warrants it.
   - Review a deterministic or approved shadow evidence set for savings, cost, privacy outcomes, raw-limit rejection, aggregate-budget rejection, and failure fallback; do not claim semantic quality improvement without separate task-quality evidence.
   - Revalidate this SDD against current `main` if request/terminal-pipeline simplification specs landed before implementation.
