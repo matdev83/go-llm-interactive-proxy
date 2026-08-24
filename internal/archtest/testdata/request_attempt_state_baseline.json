@@ -147,7 +147,7 @@
     "translation_sites": [
       "internal/core/runtime/executor_route_plan.go:125"
     ],
-    "direct_field_copy_assignments": 308,
+    "direct_field_copy_assignments": 309,
     "context_business_state_rereads": 15,
     "pre_handoff_cleanup_sites": 24
   },
@@ -156,7 +156,7 @@
     "max_pointer_out_fields": 0,
     "max_route_progress_duplicates": 0,
     "max_translation_sites": 1,
-    "max_direct_field_copy_assignments": 308,
+    "max_direct_field_copy_assignments": 309,
     "max_context_business_state_rereads": 15,
     "max_pre_handoff_cleanup_sites": 24
   }

@@ -170,7 +170,82 @@ func (t *turnTerminal) agentLoopGuardEvaluate(ctx context.Context, facts request
 		SafeNativeResume:     false,
 		SuppressVerification: suppress,
 	}
-	return t.loopGuard.gate.ObserveCandidate(ctx, tf)
+	out := t.loopGuard.gate.ObserveCandidate(ctx, tf)
+	// Debug
+	// fmt.Printf("agentLoopGuardEvaluate cause=%v committed=%v out=%v reason=%q\n", candidate.Cause, candidate.OutputCommitted, out.Action, out.Reason)
+	return out
+}
+
+func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts requestTerminalFacts, attempt *attemptSession, p *responsePipeline, cause stopguard.Cause, reason string) stopgate.Outcome {
+	if !t.isLoopGuardEnabled() {
+		return stopgate.Outcome{Action: stopguard.ActionForwardTerminal, HoldReleased: true, Reason: "disabled"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	suppress := execctx.IsSuppressedPluginID(ctx, "agent_loop_guard")
+	tail := buildGuardTailState(p, attempt)
+	prior := honestPriorForEvaluate(t, facts, p, attempt)
+	bounds := lipcont.DefaultBounds()
+	safetyInput := continuationsafety.Input{Prior: prior, Tail: tail, Bounds: bounds}
+	safetyRes := continuationsafety.Evaluate(safetyInput)
+	safe := safetyRes.Outcome == continuationsafety.OutcomeContinueSafe
+	candidate := stopguard.Candidate{
+		Cause:                     cause,
+		OutputCommitted:           true,
+		SafeCanonicalContinuation: safe,
+		ExplicitCompletion:        false,
+	}
+	tf := stopgate.TerminalFacts{
+		Candidate:            candidate,
+		Tail:                 tail,
+		Prior:                prior,
+		Bounds:               bounds,
+		SafeNativeResume:     false,
+		SuppressVerification: suppress,
+	}
+	outcome := t.loopGuard.gate.ObserveCandidate(ctx, tf)
+	// Preserve original transport reason for diagnostics while keeping outcome's reason.
+	if reason != "" && !strings.Contains(outcome.Reason, reason) {
+		outcome.Reason = boundGuardReason(reason + " " + outcome.Reason)
+	}
+	return outcome
+}
+
+func (t *turnTerminal) tryPostOutputContinuation(s *retryRecvStream, ctx context.Context, attempt *attemptSession, cause stopguard.Cause, reason string) bool {
+	if s == nil || attempt == nil {
+		return false
+	}
+	if ctx.Err() != nil || t.finished() {
+		return false
+	}
+	outcome := t.postOutputGuardOutcome(ctx, s.facts.terminalFacts(), attempt, s.responsePipeline, cause, reason)
+	if outcome.Action != stopguard.ActionContinueLeg || outcome.HoldReleased {
+		return false
+	}
+	return t.tryGuardContinuation(s, ctx, attempt, outcome)
+}
+
+const postOutputInterruptionReason = "post_output_interruption"
+
+func (t *turnTerminal) settlePostOutputInterruptedBAttempt(ctx context.Context, attempt *attemptSession, cause stopguard.Cause, detail string) {
+	if attempt == nil {
+		return
+	}
+	reason := postOutputInterruptionReason + ":" + string(cause)
+	if strings.TrimSpace(detail) != "" {
+		reason = boundGuardReason(reason + " " + strings.TrimSpace(detail))
+	}
+	attempt.TerminalizeAttempt(ctx, IntentSwallowedFailure, attemptEvidence{
+		Command:       sdkterminal.CommandSwallowedAttempt,
+		LegOutcome:    billing.LegOutcomeSwallowed,
+		ObsOutcome:    response.OutcomeReplaced,
+		RecordOutcome: lipapi.AttemptSwallowedFailure,
+		RecordReason:  reason,
+		TraceID:       attempt.traceID,
+		ALegID:        attempt.bleg.ALegID,
+		StartedAt:     attempt.accounting.requestStartedAt,
+	})
 }
 
 func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Context, attempt *attemptSession, outcome stopgate.Outcome) bool {
@@ -183,6 +258,7 @@ func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Cont
 	if ctx.Err() != nil {
 		return false
 	}
+	// fmt.Printf("tryGuardContinuation attempt %v outcome %+v\n", attempt.bleg.BLegID, outcome)
 	tail := buildGuardTailState(s.responsePipeline, attempt)
 	prior := buildGuardPrior(s)
 	bounds := lipcont.DefaultBounds()
@@ -238,12 +314,17 @@ func (t *turnTerminal) tryGuardContinuation(s *retryRecvStream, ctx context.Cont
 	}
 	origBaseline := s.facts.baseline
 	newBaseline := lipapi.CloneCall(origBaseline)
-	hiddenItem := lipapi.Item{
-		Kind:    lipapi.ItemKindMessage,
-		Role:    lipapi.RoleDeveloper,
-		Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: instr}},
+	// Preserve single-authority invariant: baseline may use legacy Messages or new Items, not both.
+	if len(origBaseline.Messages) > 0 && len(origBaseline.Items) == 0 {
+		newBaseline.Messages = append(newBaseline.Messages, lipapi.Message{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{lipapi.TextPart(instr)}})
+	} else {
+		hiddenItem := lipapi.Item{
+			Kind:    lipapi.ItemKindMessage,
+			Role:    lipapi.RoleDeveloper,
+			Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: instr}},
+		}
+		newBaseline.Items = append(newBaseline.Items, hiddenItem)
 	}
-	newBaseline.Items = append(newBaseline.Items, hiddenItem)
 	savedFacts := s.facts
 	s.facts.baseline = newBaseline
 	defer func() { s.facts.baseline = savedFacts.baseline }()

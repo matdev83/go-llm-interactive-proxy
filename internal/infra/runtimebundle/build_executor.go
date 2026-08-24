@@ -110,9 +110,13 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
 		seed = time.Now().UnixNano()
 	}
+	effGuardEarly := cfg.EffectiveAgentLoopGuard()
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if effGuardEarly.Enabled {
+		streamRecovery.AllowPostOutputContinuation = true
 	}
 	tokenAccounting, err := bindTokenAccountingRuntime(in.AccountingStores, cfg, in.Model.Backends)
 	if err != nil {

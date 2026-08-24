@@ -146,7 +146,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 4.1–4.6, 9.5–9.6, 10.1–10.4, 12.6–12.7_
     - _Depends on: 3.2, 5.3, 6.3_
     - _Validation: focused runtime + tool correlation tests_
-  - [ ] 7.2 Wire post-output interruption into safe continuation path
+  - [x] 7.2 Wire post-output interruption into safe continuation path
     - Consume the new `streamrecovery` continuation-eligible signal.
     - Preserve committed canonical trajectory and settle interrupted B-leg with truthful typed outcome.
     - Open continuation B-leg only if canonical continuation builder proves state safe; otherwise finalize without replay.
@@ -281,3 +281,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 6.2 completion resolves the replay issue through the existing per-attempt terminal owner, records held attempts truthfully as swallowed, injects the production guard through ExecutorConfig, and emits only the controlled interim fallback; full runtime/runtimebundle suites and scope-related architecture gates passed. Full archtest still has the pre-existing branch-wide shrinkage shortfall tracked for final convergence.
 - 6.3 uses a per-logical-request LoopGuard factory, one immutable budget/progress gate across hidden legs, honest canonical prior evidence, Developer-role bounded recovery control, and a non-retry semantic continuation admission mode; production test stubs were removed and the focused/full runtime plus scope architecture gates passed.
 - 7.1 adds compile-safe RED runtime coverage for post-output EOF/idle, completed tool/result retention, unsafe partial/opaque state, cancellation, and disabled compatibility; task 7.2 must harden idle-path, no-retry, and retained-tool assertions while turning these behavioral failures GREEN.
+- 7.2 consumes guard-enabled post-output recovery signals for EOF, idle, and generic errors; safe state opens a non-retry continuation leg, unsafe state finalizes once without replay, and hardened tests prove retained tool pairs, cancellation authority, disabled compatibility, and one legal A-side terminal.

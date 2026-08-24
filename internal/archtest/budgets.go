@@ -132,7 +132,8 @@ var LineBudgets = []LineBudget{
 	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): exactly-once dedup + runtimebundle LoopGuard composition + holdback tests; measured 94933, bump to 94958 with 25 headroom.
 	// Agent Loop Guard spec task 6.2 remediation (agent-loop-breach-prevention): terminal-CAS exactly-once, controlled fallback, channel-coordinated holdback/cancel tests, composition moved to runtimebundle, honest observer; measured 95049, bump to 95074 with 25 headroom.
 	// Agent Loop Guard spec task 6.3 (agent-loop-breach-prevention): semantic continuation with immutable budget/progress, safe materialization, hidden recovery instruction, normal admission B-leg; measured 95438, bump to 95463 with 25 headroom.
-	{Dir: "internal/core", Max: 95463},
+	// Agent Loop Guard spec task 7.2 (agent-loop-breach-prevention): post-output continuation wiring with safe canonical continuation, idle/EOF handling, and composition flag; measured 95671, bump to 95696 with 25 headroom.
+	{Dir: "internal/core", Max: 95696},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12851},

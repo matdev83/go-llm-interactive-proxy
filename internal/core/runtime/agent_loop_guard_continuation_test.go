@@ -345,12 +345,31 @@ func TestGuardContinuation_HiddenInstructionNotForwarded(t *testing.T) {
 				}
 			}
 		}
-		if it.Role == lipapi.RoleUser && contains(it.Content[0].Text, "<automated-recovery>") {
+		if it.Role == lipapi.RoleUser && len(it.Content) > 0 && contains(it.Content[0].Text, "<automated-recovery>") {
 			t.Fatalf("hidden leaked as user role")
 		}
 	}
+	for _, msg := range capturedCall.Messages {
+		if msg.Role == lipapi.RoleDeveloper {
+			for _, part := range msg.Parts {
+				if contains(part.Text, "<automated-recovery>") {
+					foundHidden = true
+					if !contains(part.Text, "not a new user request") {
+						t.Fatalf("hidden missing normative wording, got %q", part.Text)
+					}
+				}
+			}
+		}
+		if msg.Role == lipapi.RoleUser {
+			for _, part := range msg.Parts {
+				if contains(part.Text, "<automated-recovery>") {
+					t.Fatalf("hidden leaked as user role")
+				}
+			}
+		}
+	}
 	if !foundHidden {
-		t.Fatalf("hidden instruction not found in B2 Call Developer items, captured %v", capturedCall.Items)
+		t.Fatalf("hidden instruction not found in B2 Call Developer items/messages, captured Items=%v Messages=%v", capturedCall.Items, capturedCall.Messages)
 	}
 	visible := rs.responsePipeline.releasedOutputText()
 	if contains(visible, "<automated-recovery>") {

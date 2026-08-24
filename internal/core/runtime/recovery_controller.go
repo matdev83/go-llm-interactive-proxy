@@ -164,12 +164,13 @@ func (r *recoveryController) scopedIdleContext(parent context.Context, parentCan
 }
 
 type recvRecoveryDecision struct {
-	finish      bool
-	recover     bool
-	reason      string
-	err         error
-	warning     lipapi.Event
-	finishEvent lipapi.Event
+	finish             bool
+	recover            bool
+	continuePostOutput bool
+	reason             string
+	err                error
+	warning            lipapi.Event
+	finishEvent        lipapi.Event
 }
 
 func (r *recoveryController) idleRecvDecision(now time.Time) recvRecoveryDecision {
@@ -178,9 +179,10 @@ func (r *recoveryController) idleRecvDecision(now time.Time) recvRecoveryDecisio
 	}
 	dec := r.recoverPolicy.DecideIdle(now)
 	return recvRecoveryDecision{
-		finish:  dec.Kind == streamrecovery.DecisionFinishPostOutput,
-		recover: dec.Kind == streamrecovery.DecisionRecoverPreOutput,
-		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
+		finish:             dec.Kind == streamrecovery.DecisionFinishPostOutput,
+		recover:            dec.Kind == streamrecovery.DecisionRecoverPreOutput,
+		continuePostOutput: dec.Kind == streamrecovery.DecisionContinuePostOutput,
+		reason:             dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
 
@@ -190,9 +192,23 @@ func (r *recoveryController) eofRecvDecision(now time.Time) recvRecoveryDecision
 	}
 	dec := r.recoverPolicy.DecideEOF(io.EOF, now)
 	return recvRecoveryDecision{
-		finish:  dec.Kind == streamrecovery.DecisionFinishPostOutput,
-		recover: dec.Kind == streamrecovery.DecisionRecoverPreOutput,
-		reason:  dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
+		finish:             dec.Kind == streamrecovery.DecisionFinishPostOutput,
+		recover:            dec.Kind == streamrecovery.DecisionRecoverPreOutput,
+		continuePostOutput: dec.Kind == streamrecovery.DecisionContinuePostOutput,
+		reason:             dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
+	}
+}
+
+func (r *recoveryController) genericErrorRecvDecision(err error, now time.Time) recvRecoveryDecision {
+	if r == nil || r.recoverPolicy == nil || err == nil {
+		return recvRecoveryDecision{}
+	}
+	dec := r.recoverPolicy.DecideEOF(err, now)
+	return recvRecoveryDecision{
+		finish:             dec.Kind == streamrecovery.DecisionFinishPostOutput,
+		recover:            dec.Kind == streamrecovery.DecisionRecoverPreOutput,
+		continuePostOutput: dec.Kind == streamrecovery.DecisionContinuePostOutput,
+		reason:             dec.Reason, err: dec.Err, warning: dec.Warning, finishEvent: dec.Finish,
 	}
 }
 
