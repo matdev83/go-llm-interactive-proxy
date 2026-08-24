@@ -76,6 +76,12 @@ func EnsureReasoningOutputPreservationInConfig(cfg *config.Config, opts Reasonin
 	return nil
 }
 
+// CodexCompanionPolicy returns the standard distribution companion policy.
+// Exported for runtimebundle generation binding.
+func CodexCompanionPolicy() reasoningpreservation.CompanionPolicy {
+	return codexCompanionPolicy()
+}
+
 func codexCompanionPolicy() reasoningpreservation.CompanionPolicy {
 	return reasoningpreservation.CompanionPolicy{
 		BeforeMatch: func(call *lipapi.Call, _ request.AttemptMeta) {

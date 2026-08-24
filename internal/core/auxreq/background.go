@@ -61,14 +61,15 @@ type SchedulerConfig struct {
 type BackgroundSchedulerConfig = SchedulerConfig
 
 type backgroundJob struct {
-	id      auxiliary.JobID
-	key     string
-	req     auxiliary.Request
-	runner  ExecutorRunner
-	pin     genpin.Pin
-	timeout time.Duration
-	done    chan struct{}
-	release sync.Once
+	id             auxiliary.JobID
+	key            string
+	req            auxiliary.Request
+	runner         ExecutorRunner
+	pin            genpin.Pin
+	timeout        time.Duration
+	maxOutputBytes int
+	done           chan struct{}
+	release        sync.Once
 
 	// The fields below are protected by BackgroundScheduler.mu.
 	finished       bool
@@ -258,10 +259,25 @@ func (s *BackgroundScheduler) run(job *backgroundJob) {
 	stream, err := (Client{}).streamWithRunner(ctx, job.req, job.runner, false)
 	if err == nil {
 		var collectedValue lipapi.Collected
-		collectedValue, runErr = lipapi.Collect(ctx, stream)
+		effective := s.cfg.MaxResultBytes
+		if job.maxOutputBytes > 0 && job.maxOutputBytes < effective {
+			effective = job.maxOutputBytes
+		}
+		defaultLimits := lipapi.DefaultCollectLimits()
+		limits := lipapi.CollectLimits{
+			MaxTextBytes:           effective,
+			MaxReasoningBytes:      effective,
+			MaxToolArgsTotalBytes:  effective,
+			MaxWarnings:            defaultLimits.MaxWarnings,
+			MaxAssistantMediaParts: defaultLimits.MaxAssistantMediaParts,
+		}
+		collectedValue, runErr = lipapi.CollectWithLimits(ctx, stream, limits)
+		if runErr != nil && errors.Is(runErr, lipapi.ErrCollectLimitExceeded) {
+			runErr = fmt.Errorf("%w: %w: %w", ErrResultTooLarge, auxiliary.ErrResultTooLarge, runErr)
+		}
 		collected = &collectedValue
-		if runErr == nil && estimateCollectedBytes(collected) > s.cfg.MaxResultBytes {
-			runErr = ErrResultTooLarge
+		if runErr == nil && estimateCollectedBytes(collected) > effective {
+			runErr = fmt.Errorf("%w: %w", ErrResultTooLarge, auxiliary.ErrResultTooLarge)
 		}
 	} else if stream != nil {
 		_ = stream.Close()
@@ -362,12 +378,13 @@ func (s *BackgroundScheduler) submitCollect(ctx context.Context, req auxiliary.R
 		timeout = s.cfg.JobTimeout
 	}
 	job := &backgroundJob{
-		key:     key,
-		req:     request,
-		runner:  run,
-		pin:     pin,
-		timeout: timeout,
-		done:    make(chan struct{}),
+		key:            key,
+		req:            request,
+		runner:         run,
+		pin:            pin,
+		timeout:        timeout,
+		maxOutputBytes: opts.MaxOutputBytes,
+		done:           make(chan struct{}),
 	}
 	if parent, ok := scope.ScopeFromContext(ctx); ok {
 		job.scope = parent

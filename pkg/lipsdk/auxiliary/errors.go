@@ -22,3 +22,8 @@ var ErrAdmissionDenied = errors.New("lipsdk/auxiliary: admission denied")
 // ErrSubmitFailed is a generic non-queue/non-admission submit failure.
 // Unknown submit errors are wrapped with this sentinel for typed classification.
 var ErrSubmitFailed = errors.New("lipsdk/auxiliary: submit failed")
+
+// ErrResultTooLarge means a background collection exceeded the configured per-job
+// or scheduler byte bound before allocation. It is returned via Await/Poll (PollFailed)
+// and is inspectable with errors.Is. Zero MaxOutputBytes preserves existing behavior.
+var ErrResultTooLarge = errors.New("lipsdk/auxiliary: result too large")

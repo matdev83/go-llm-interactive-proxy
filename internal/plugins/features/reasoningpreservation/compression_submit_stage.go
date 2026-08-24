@@ -63,15 +63,15 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 			return nil
 		}
 		if pr.Reservation.ReservationID == "" || pr.Reservation.Correlation.ArtifactID == "" {
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		if len(pr.Segments) == 0 {
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		if isNilCapability(svc.Client) {
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		params := CompressorAuxRequestParams{
@@ -85,15 +85,16 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 		}
 		req, err := BuildCompressorAuxRequest(params)
 		if err != nil {
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		coalesceKey := compressionCoalesceKey(pr)
 		var coalesced bool
 		opts := auxiliary.SubmitOptions{
-			Timeout:     cfg.Compression.Timeout,
-			CoalesceKey: coalesceKey,
-			OnCoalesced: func(c bool) { coalesced = c },
+			Timeout:        cfg.Compression.Timeout,
+			CoalesceKey:    coalesceKey,
+			OnCoalesced:    func(c bool) { coalesced = c },
+			MaxOutputBytes: cfg.Compression.MaxOutputBytes,
 		}
 		submitCtx := context.WithoutCancel(ctx)
 		submitCtx = scope.WithScope(submitCtx, pr.Reservation.Correlation.Scope)
@@ -109,14 +110,14 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 					tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
 				}
 			}
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		if jobID == "" {
 			if tel != nil && cfg.Compression.Enabled {
 				tel.RecordShadowMeasurement(OutcomeSubmitFailed, pr.Reservation.Correlation.SourceBytes, 0, 0, 0, 0)
 			}
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		err = store.BindCompressionJob(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID, jobID, pr.Reservation.Correlation.OriginalDigest, pr.Reservation.Correlation.PolicyRevision)
@@ -124,7 +125,7 @@ func NewPostEgressSubmitStageWithTelemetry(cfg Config, store CompressionStore, s
 			if !isNilCapability(svc.Client) {
 				svc.Client.Forget(jobID)
 			}
-			_ = store.ClearCompression(ctx, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
+			clearCompressionWithCleanup(ctx, store, pr.Reservation.Correlation.Partition, pr.Reservation.Correlation.ArtifactID, pr.Reservation.ReservationID)
 			return nil
 		}
 		if tel != nil && cfg.Compression.Enabled {

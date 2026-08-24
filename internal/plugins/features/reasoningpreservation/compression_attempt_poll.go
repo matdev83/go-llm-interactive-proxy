@@ -143,13 +143,13 @@ func pollOnceForTarget(ctx context.Context, cs CompressionStore, partition Sessi
 	case auxiliary.PollPending:
 		return CompressionPollAttemptResult{Kind: PollKindPending, State: pr.State}
 	case auxiliary.PollFailed:
-		_ = cs.ClearCompression(ctx, partition, targetID, reservationID)
+		clearCompressionWithCleanup(ctx, cs, partition, targetID, reservationID)
 		if !isNilCapability(svc.Client) {
 			svc.Client.Forget(jobID)
 		}
 		return CompressionPollAttemptResult{Kind: PollKindFailed, State: pr.State, Err: pr.Err}
 	case auxiliary.PollNotFound:
-		_ = cs.ClearCompression(ctx, partition, targetID, reservationID)
+		clearCompressionWithCleanup(ctx, cs, partition, targetID, reservationID)
 		if !isNilCapability(svc.Client) {
 			svc.Client.Forget(jobID)
 		}
@@ -397,7 +397,7 @@ func handleCompletedPollCandidate(ctx context.Context, cfg Config, cs Compressio
 		// content-free error, no string payload
 		err := fmt.Errorf("%w: max_output_bytes %d must be > 0", ErrRawInvalidLimit, maxBytes)
 		if cs != nil {
-			_ = cs.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, cs, cand.Partition, cand.ArtifactID, cand.ReservationID)
 		}
 		if !isNilCapability(svc.Client) {
 			svc.Client.Forget(cand.JobID)
@@ -423,7 +423,7 @@ func handleCompletedPollCandidate(ctx context.Context, cfg Config, cs Compressio
 		}
 		// Clear expected reservation and forget once, as required for rejection paths.
 		if cs != nil {
-			_ = cs.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, cs, cand.Partition, cand.ArtifactID, cand.ReservationID)
 		}
 		if !isNilCapability(svc.Client) {
 			svc.Client.Forget(cand.JobID)

@@ -5,9 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"strings"
-	"time"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -33,6 +30,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	"strings"
+	"time"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -75,6 +74,7 @@ type executorBuildInput struct {
 	// generations. Nil disables compaction observation.
 	CompactionDetector  *compactiondetect.Detector
 	CompactionScheduler *auxreq.BackgroundScheduler
+	GenerationRunner    *compactioncompose.GenerationExecutorRunner
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -88,7 +88,6 @@ type executorBuildInput struct {
 func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	bctx := in.Bctx
 	cfg, log, opts := bctx.Cfg, bctx.Log, bctx.Opts
-
 	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
@@ -106,12 +105,10 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			return execbackend.EffectiveCaps(ctx, be, call, cand)
 		}
 	}
-
 	var seed int64
 	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
 		seed = time.Now().UnixNano()
 	}
-
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -120,7 +117,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	meteringRT := in.Metering
 	var prod ProductionOptions
 	if in.Bctx.Opts != nil {
@@ -132,13 +128,11 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			meteringRT = &meteringRuntime{Recorder: prod.MeteringRecorder, StoreBacking: "injected"}
 		}
 	}
-
 	// Compute interleaved-thinking config before construction.
 	interleaved, err := interleavedExecutorRuntime(cfg)
 	if err != nil {
 		return nil, err
 	}
-
 	// Compute accounting runtime fields.
 	accountingRT := runtime.AccountingRuntime{}
 	if tokenAccounting != nil {
@@ -182,14 +176,12 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		ssStore = "memory"
 	}
 	securityRT.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
-
 	policyDiagEnabled := false
 	maxArgsBytes := 0
 	if opts != nil {
 		policyDiagEnabled = opts.Policy.PolicyDiagnosticsEnabled
 		maxArgsBytes = opts.Extensions.ToolCallFinalizationMaxArgsBytes
 	}
-
 	// Compute observability runtime with metrics sinks.
 	obsRT := runtime.ObservabilityRuntime{
 		Log:                      log,
@@ -205,7 +197,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			tokenAccounting.Observability.SetSink(in.Observability.Bundle.TokenAccountingObservabilitySink())
 		}
 	}
-
 	// Build routing runtime; model catalog resolvers are attached before construction.
 	var affStore affinity.Store
 	var candHealth policy.CandidateHealth
@@ -233,13 +224,14 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		BackendExecutionResolver:   execResolver,
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
-
-	boundRunner := compactioncompose.NewGenerationExecutorRunner()
+	genRunner := in.GenerationRunner
+	if genRunner == nil {
+		genRunner = compactioncompose.NewGenerationExecutorRunner()
+	}
 	var compactionBackground auxiliary.BackgroundClient
 	if in.CompactionScheduler != nil {
-		compactionBackground = in.CompactionScheduler.BindRunner(boundRunner)
+		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
-
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -257,7 +249,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			TerminalUsageSink:        prod.BillingTerminalUsageSink,
 			BillingIdentity:          prod.BillingIdentity,
 		},
-
 		Routing:       routingRT,
 		Security:      securityRT,
 		Accounting:    accountingRT,
@@ -270,8 +261,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Interleaved: interleaved,
 		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
 	})
-	boundRunner.Bind(exec)
-
+	genRunner.Bind(exec)
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {
 		secureSessionStore = opts.Diagnostics.SecureSessionStore
@@ -305,7 +295,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Production:           prod,
 	}, nil
 }
-
 func billingCompositionConfigured(prod ProductionOptions) bool {
 	return prod.BillingStore != nil || prod.BillingCreditGate != nil ||
 		prod.BillingExposureAdmission != nil || prod.BillingTerminalUsageSink != nil ||
@@ -330,7 +319,6 @@ func requireCompleteBillingComposition(prod ProductionOptions) error {
 	}
 	return nil
 }
-
 func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {
 	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{})
 	if err != nil {
@@ -388,7 +376,6 @@ func validateRouteSelectorsAgainstBackends(
 	}
 	return nil
 }
-
 func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) routing.BackendExecutionResolver {
 	if cfg == nil {
 		return routing.BackendExecutionResolverFunc(func(string) (lipsdk.BackendExecutionClass, bool) {
@@ -418,7 +405,6 @@ func buildBackendExecutionResolver(cfg *config.Config, reg *pluginreg.Registry) 
 		return c, ok
 	})
 }
-
 func validateSelectorTextAgainstBackends(label, text string, configured map[string]struct{}) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -435,7 +421,6 @@ func validateSelectorTextAgainstBackends(label, text string, configured map[stri
 	}
 	return nil
 }
-
 func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {
 	if wireModel == nil {
 		wireModel = standardplugins.DefaultWireModel

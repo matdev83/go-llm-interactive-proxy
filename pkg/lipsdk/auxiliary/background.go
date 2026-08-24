@@ -21,10 +21,17 @@ type JobID string
 // panic: the scheduler recovers panics from the callback so an SDK consumer
 // cannot crash the scheduler. Additive field: old callers with zero value (nil)
 // remain source-compatible; new callers may set it.
+// MaxOutputBytes is an optional per-job pre-collection byte bound for the
+// aggregated result (Text, Reasoning, ToolArgs). Zero preserves existing
+// scheduler/default behavior; a positive value is clamped to the scheduler's
+// MaxResultBytes defense-in-depth bound and is enforced with CollectWithLimits
+// before builder growth so a misbehaving compressor cannot allocate far above
+// the feature hard/config limit. Bounded defaults for warnings/media remain.
 type SubmitOptions struct {
-	CoalesceKey string
-	Timeout     time.Duration
-	OnCoalesced func(coalesced bool)
+	CoalesceKey    string
+	Timeout        time.Duration
+	OnCoalesced    func(coalesced bool)
+	MaxOutputBytes int
 }
 
 // BackgroundClient is the narrow asynchronous auxiliary collection surface.

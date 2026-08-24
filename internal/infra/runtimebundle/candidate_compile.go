@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	"time"
 )
 
 type GenerationCompileInput struct {
@@ -25,6 +25,7 @@ type GenerationCompileInput struct {
 	Compose          HandlerComposer
 	LiveFactoryKinds map[string]int
 	FaultInject      CandidateFaultInject
+	GenerationRunner *compactioncompose.GenerationExecutorRunner
 }
 
 func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidateAssembly, error) {
@@ -50,7 +51,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		return nil, fmt.Errorf("runtimebundle: provider profiles: %w", err)
 	}
 	cfg = prepared
-
 	if in.Candidate != nil && ps.cfg != nil && rawCandidate != ps.cfg {
 		if _, err := configreload.Classify(ps.cfg, rawCandidate); err != nil {
 			return nil, err
@@ -67,14 +67,12 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		(ps.GeoIP == nil || !ps.GeoIP.Ready()) {
 		return nil, fmt.Errorf("runtimebundle: GeoIP country lookup is not ready")
 	}
-
 	if err := ClassifyFeatureLifecycles(opts.FeatureLifecycles); err != nil {
 		return nil, err
 	}
 	if err := ClassifyBackendOverlap(opts.PluginRegistry, cfg, in.LiveFactoryKinds); err != nil {
 		return nil, err
 	}
-
 	bus := in.Bus
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
@@ -86,7 +84,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if parent == nil {
 		return nil, fmt.Errorf("runtimebundle: nil compile context")
 	}
-
 	ledger := NewResourceLedger()
 	bctx := buildContext{
 		Cfg:               cfg,
@@ -99,7 +96,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		Ledger:            ledger,
 		ExplicitCandidate: in.Candidate != nil,
 	}
-
 	fail := func(err error) error {
 		rollErr := ledger.Rollback(parent)
 		if rollErr != nil {
@@ -116,7 +112,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		}
 		return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 	}
-
 	sec, err := buildSecurityRuntime(bctx, ps.controlPlane)
 	if err != nil {
 		return nil, fail(err)
@@ -129,9 +124,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-
 	obs := buildGenerationObservability(bctx, ps.Metrics)
-
 	model, err := buildModelRuntime(bctx, obs.Upstream)
 	if err != nil {
 		return nil, fail(err)
@@ -139,12 +132,10 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err := injectFault("model"); err != nil {
 		return nil, fail(err)
 	}
-
 	nowFn := time.Now
 	if opts.Testing.Clock != nil {
 		nowFn = opts.Testing.Clock
 	}
-
 	var exec *runtime.Executor
 	var extState lipstate.Store
 	if ps.sharedMutable != nil {
@@ -175,6 +166,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		BackendIdentities:   backendIDs,
 		CompactionDetector:  ps.CompactionDetector,
 		CompactionScheduler: ps.BackgroundAux,
+		GenerationRunner:    in.GenerationRunner,
 	})
 	if err != nil {
 		return nil, fail(err)
@@ -194,13 +186,11 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err := ledger.Activate(parent); err != nil {
 		return nil, fail(err)
 	}
-
 	exec = execRun.Exec
 	var twReady func(context.Context) error
 	if ps.terminalWorkRT != nil {
 		twReady = ps.terminalWorkRT.checkReady
 	}
-
 	var billingProvisioner billing.AccountProvisioner
 	var billingExposureRecovery billing.ExposureRecovery
 	if billingCompositionConfigured(execRun.Production) {
@@ -211,7 +201,6 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			billingExposureRecovery = r
 		}
 	}
-
 	return &candidateAssembly{
 		execution: candidateExecutionGroup{
 			executor:              execRun.Exec,

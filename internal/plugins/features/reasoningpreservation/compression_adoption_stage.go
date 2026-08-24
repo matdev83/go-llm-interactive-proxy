@@ -51,7 +51,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
 			}
 			// clear expected pending if possible (best effort)
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			return AdoptionResult{Outcome: AdoptionOutcomeNone, Candidate: cand, RawByteCount: rawCount, Err: err}
 		}
 		if !ok || st.Pending == nil {
@@ -66,7 +66,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		// verify reservation/job correlation
 		if pending.ReservationID != cand.ReservationID || pending.JobID != cand.JobID {
 			// stale: CAS clear expected pending preserving surrogate
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -74,7 +74,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 			return AdoptionResult{Outcome: AdoptionOutcomeNone, Candidate: cand, RawByteCount: rawCount, Err: ErrCompressionConflict}
 		}
 		if !pending.PolicyHashAuthoritative {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -84,7 +84,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		// Fetch authoritative artifact
 		snap, err := store.Snapshot(ctx, cand.Partition)
 		if err != nil {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -99,7 +99,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 			}
 		}
 		if artifact == nil {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -108,7 +108,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		}
 		// Verify original digest current
 		if artifact.Anchor != pending.OriginalDigest {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -117,7 +117,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		}
 		// Verify policy revision current
 		if pending.PolicyRevision != cfg.Compression.EgressPolicyRef {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -127,7 +127,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		// Derive semantic segments and correlation digests
 		segs := ExtractSemanticSegments(artifact.Reasoning)
 		if len(segs) == 0 {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -137,7 +137,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		// Verify semantic digest current
 		semDigest := computeSemanticDigest(artifact.Reasoning)
 		if semDigest != pending.SemanticDigest {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -146,7 +146,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		}
 		// Verify egress policy hash current (already authoritative)
 		if pending.EgressPolicyHash == [32]byte{} {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -154,7 +154,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 			return AdoptionResult{Outcome: AdoptionOutcomeNone, Candidate: cand, RawByteCount: rawCount, Err: ErrCompressionConflict}
 		}
 		if !isValidSanitization(pending.Sanitization) {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -163,7 +163,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		}
 		var zeroRouteHash [32]byte
 		if pending.AuthorizedRouteHash == zeroRouteHash {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -172,7 +172,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		}
 		routeHash := sha256.Sum256([]byte(cfg.Compression.Route))
 		if pending.AuthorizedRouteHash != routeHash {
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(OutcomeStale, rawCount, 0, 0)
@@ -203,7 +203,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		sur, outcome, derr := DecodeSurrogate(raw, params)
 		if derr != nil {
 			// map decode outcome to telemetry
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				tel.RecordCompressionMeasurement(outcome, rawCount, 0, 0)
@@ -215,7 +215,7 @@ func NewDecoderAdoptionStage(cfg Config, store CompressionStore, svc Compression
 		err = store.AttachSurrogate(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID, cand.JobID, sur)
 		if err != nil {
 			// distinguish budget vs stale — budget exhaustion is distinct from stale/CAS.
-			_ = store.ClearCompression(ctx, cand.Partition, cand.ArtifactID, cand.ReservationID)
+			clearCompressionWithCleanup(ctx, store, cand.Partition, cand.ArtifactID, cand.ReservationID)
 			doForget()
 			if tel != nil {
 				if errors.Is(err, ErrCompressionBudgetExceeded) {
