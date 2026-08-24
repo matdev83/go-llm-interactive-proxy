@@ -156,7 +156,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Validation: focused runtime/streamrecovery tests_
 
 - [ ] 8. Preserve frontend/protocol legality and explicit completion semantics
-  - [ ] 8.1 (P) Add normalized explicit-completion evidence tests for known frontend capability paths
+  - [x] 8.1 (P) Add normalized explicit-completion evidence tests for known frontend capability paths
     - Consume a canonical capability/fact rather than hard-code provider/frontend tool names into `stopguard`.
     - `trust` skips semantic continuation for clean explicit completion; `verify` passes strong evidence to verifier.
     - Malformed/absent explicit signal falls back to normal semantic policy.
@@ -282,3 +282,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - 6.3 uses a per-logical-request LoopGuard factory, one immutable budget/progress gate across hidden legs, honest canonical prior evidence, Developer-role bounded recovery control, and a non-retry semantic continuation admission mode; production test stubs were removed and the focused/full runtime plus scope architecture gates passed.
 - 7.1 adds compile-safe RED runtime coverage for post-output EOF/idle, completed tool/result retention, unsafe partial/opaque state, cancellation, and disabled compatibility; task 7.2 must harden idle-path, no-retry, and retained-tool assertions while turning these behavioral failures GREEN.
 - 7.2 consumes guard-enabled post-output recovery signals for EOF, idle, and generic errors; safe state opens a non-retry continuation leg, unsafe state finalizes once without replay, and hardened tests prove retained tool pairs, cancellation authority, disabled compatibility, and one legal A-side terminal.
+- 8.1 defines a conservative canonical explicit-completion fact from correlated completed `attempt_completion`/`attempt_complete` call-result pairs, proves the real OpenResponses decode path and stopgate trust/verify behavior, and leaves a compile-safe runtime RED seam for task 8.3.
