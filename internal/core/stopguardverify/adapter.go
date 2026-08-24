@@ -28,6 +28,9 @@ type VerifyObservation struct {
 	TotalTokens   int
 	CostNanoUnits int64
 	Err           error
+	ParentTraceID string
+	ParentALegID  string
+	ParentBLegID  string
 }
 
 // AdapterConfig holds verifier adapter construction parameters.
@@ -105,6 +108,10 @@ func (a *Adapter) Verify(ctx context.Context, evidence stopguard.Evidence) (stop
 	if req.ParentALegID == "" {
 		req.ParentALegID = lineage.ALegID(ctx)
 	}
+
+	obs.ParentTraceID = req.ParentTraceID
+	obs.ParentALegID = req.ParentALegID
+	obs.ParentBLegID = req.ParentBLegID
 
 	start := time.Now()
 	collected, err := a.client.Collect(dctx, req)

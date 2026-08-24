@@ -185,7 +185,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 9.6, 11.1–11.5_
     - _Depends on: 1.3 domain enums_
     - _Validation: focused metrics/tracing/accounting tests_
-  - [ ] 9.2 Wire guard telemetry through existing observability paths
+  - [x] 9.2 Wire guard telemetry through existing observability paths
     - Record candidate cause, verifier outcome/latency, action/outcome, no-progress breaker, replay suppression, and final result.
     - Ensure hidden verifier and continuation B-legs remain operator-visible/internal rather than being billed/recorded as fabricated A-side user turns.
     - _Requirements: 9.6, 11.1–11.5_
@@ -286,3 +286,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - HUMAN DECISION (2026-08-24, repo owner): execute 8.2 and 8.3 as one pragmatic TDD cycle because unsupported-continuation RED needs the normalized capability type introduced by 8.3; retain separate completion checkboxes and verify both task boundaries before one combined commit.
 - 8.2/8.3 use canonical Invocation operations to gate continuation legality conservatively, add Anthropic/Gemini operation identities, green the explicit-completion seam using real correlated tool results, and prove production B1-to-B2 stitching through live frontend wire handlers with one final terminal.
 - 9.1 adds compile-safe behavioral RED contracts for bounded candidate/verdict/action/breaker/replay telemetry and GREEN assertions for verifier usage, private lineage, attributable B-leg accounting, privacy, and A-side turn integrity.
+- 9.2 emits bounded candidate, verdict, action, breaker, and replay-suppression telemetry through runtime structured logs, carries honest verifier usage/latency and lineage, and keeps stopgate pure with no conversational payloads in telemetry attributes.

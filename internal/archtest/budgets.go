@@ -134,7 +134,8 @@ var LineBudgets = []LineBudget{
 	// Agent Loop Guard spec task 6.3 (agent-loop-breach-prevention): semantic continuation with immutable budget/progress, safe materialization, hidden recovery instruction, normal admission B-leg; measured 95438, bump to 95463 with 25 headroom.
 	// Agent Loop Guard spec task 7.2 (agent-loop-breach-prevention): post-output continuation wiring with safe canonical continuation, idle/EOF handling, and composition flag; measured 95671, bump to 95696 with 25 headroom.
 	// Agent Loop Guard spec tasks 8.2/8.3 (agent-loop-breach-prevention): protocol E2E stitching with canonical continuation capability and explicit completion plumbing; measured 95818, bump to 95843 with 25 headroom.
-	{Dir: "internal/core", Max: 95843},
+	// Agent Loop Guard spec task 9.2 (agent-loop-breach-prevention): wire guard telemetry and verifier lineage; measured 95894, bump to 95919 with 25 headroom.
+	{Dir: "internal/core", Max: 95919},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12851},

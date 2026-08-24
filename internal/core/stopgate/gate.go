@@ -56,6 +56,16 @@ type Outcome struct {
 	RemainingObjective string
 	Attempt            int
 	MaxAttempts        int
+
+	// Observability / Telemetry metadata
+	CandidateCause    stopguard.Cause
+	Verified          bool
+	VerdictKind       stopguard.VerdictKind
+	VerdictRole       string
+	BreakerTripped    bool
+	BreakerReason     string
+	ReplaySuppressed  bool
+	SuppressionReason string
 }
 
 // Gate implements request-level guard orchestration.
@@ -113,6 +123,7 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			HoldReleased:       true,
 			AttemptSettledOnce: true,
 			Reason:             "disabled: forward terminal",
+			CandidateCause:     facts.Candidate.Cause,
 		}
 	}
 
@@ -125,6 +136,7 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			HoldReleased:       true,
 			AttemptSettledOnce: true,
 			Reason:             "latched: forward terminal",
+			CandidateCause:     facts.Candidate.Cause,
 		}
 	}
 
@@ -138,6 +150,7 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			HoldReleased:       true,
 			AttemptSettledOnce: true,
 			Reason:             "recursion suppressed: forward terminal",
+			CandidateCause:     facts.Candidate.Cause,
 		}
 	}
 
@@ -159,12 +172,26 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 	dec := stopguard.Decide(candidate, g.policy)
 	if !dec.Verify {
 		act := dec.Action
+		var replaySuppressed bool
+		var suppressionReason string
+
 		// Explicit unsupported capability downgrades continuation even when
 		// Decide says ContinueLeg. This is not unsafe tool state but a
 		// frontend legality fact; conservative default is to not stitch raw frames.
 		if act == stopguard.ActionContinueLeg && !facts.SupportsContinuation {
 			act = stopguard.ActionForwardTerminal
+			replaySuppressed = true
+			suppressionReason = "unsupported_continuation"
+		} else if (candidate.Cause == stopguard.CauseTransportEOFPostCommit || candidate.Cause == stopguard.CauseIdlePostCommit || candidate.Cause == stopguard.CausePartialToolCall) && !candidate.SafeCanonicalContinuation {
+			if facts.Tail.HasIncompleteToolArgs {
+				replaySuppressed = true
+				suppressionReason = "incomplete_args"
+			} else if facts.Tail.HasUnsupportedOpaqueState {
+				replaySuppressed = true
+				suppressionReason = "opaque"
+			}
 		}
+
 		hold := holdForAction(act)
 		reason := reasonForImmediateAction(act, candidate, g.policy)
 		if act == stopguard.ActionForwardTerminal && !facts.SupportsContinuation && dec.Action == stopguard.ActionContinueLeg {
@@ -190,6 +217,9 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			Reason:             reason,
 			Attempt:            attemptNum,
 			MaxAttempts:        g.maxSemanticContinuations,
+			CandidateCause:     candidate.Cause,
+			ReplaySuppressed:   replaySuppressed,
+			SuppressionReason:  suppressionReason,
 		}
 	}
 
@@ -245,6 +275,7 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			HoldReleased:       true,
 			AttemptSettledOnce: true,
 			Reason:             "uncertain: verifier unavailable",
+			CandidateCause:     candidate.Cause,
 		}
 	}
 
@@ -283,6 +314,12 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 				HoldReleased:       true,
 				AttemptSettledOnce: true,
 				Reason:             "unsupported continuation: forward terminal",
+				CandidateCause:     candidate.Cause,
+				Verified:           true,
+				VerdictKind:        normalized.Kind,
+				VerdictRole:        "loop_guard",
+				ReplaySuppressed:   true,
+				SuppressionReason:  "unsupported_continuation",
 			}
 		}
 		// Requirement 8.1 caps HIDDEN continuation legs at
@@ -308,18 +345,25 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			g.mu.Unlock()
 			g.holdReleased.Store(true)
 			reason := "forward terminal: breaker"
-			if res.BudgetExhausted && res.NoProgressTripped {
-				reason = "budget exhausted and no_progress: forward terminal"
+			breakerReason := "no_progress"
+			if res.NoProgressTripped {
+				reason = "no_progress breaker: forward terminal"
+				breakerReason = "no_progress"
 			} else if res.BudgetExhausted {
 				reason = "budget exhausted: forward terminal"
-			} else if res.NoProgressTripped {
-				reason = "no_progress breaker: forward terminal"
+				breakerReason = "budget_exhausted"
 			}
 			return Outcome{
 				Action:             stopguard.ActionForwardTerminal,
 				HoldReleased:       true,
 				AttemptSettledOnce: true,
 				Reason:             reason,
+				CandidateCause:     candidate.Cause,
+				Verified:           true,
+				VerdictKind:        normalized.Kind,
+				VerdictRole:        "loop_guard",
+				BreakerTripped:     true,
+				BreakerReason:      breakerReason,
 			}
 		}
 		r := strings.TrimSpace(verdict.Reason)
@@ -342,6 +386,10 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 			RemainingObjective: obj,
 			Attempt:            recoveryAttempt,
 			MaxAttempts:        g.maxSemanticContinuations,
+			CandidateCause:     candidate.Cause,
+			Verified:           true,
+			VerdictKind:        normalized.Kind,
+			VerdictRole:        "loop_guard",
 		}
 	}
 
@@ -383,6 +431,10 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 		HoldReleased:       true,
 		AttemptSettledOnce: true,
 		Reason:             reason,
+		CandidateCause:     candidate.Cause,
+		Verified:           true,
+		VerdictKind:        normalized.Kind,
+		VerdictRole:        "loop_guard",
 	}
 }
 

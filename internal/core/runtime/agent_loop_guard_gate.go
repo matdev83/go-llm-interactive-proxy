@@ -132,6 +132,51 @@ func (t *turnTerminal) isLoopGuardEnabled() bool {
 	return t != nil && t.loopGuard != nil && t.loopGuard.gate != nil
 }
 
+// emitGuardTelemetry records bounded structured telemetry for loop guard decisions.
+func (t *turnTerminal) emitGuardTelemetry(ctx context.Context, outcome stopgate.Outcome) {
+	if t == nil || t.log == nil || !t.isLoopGuardEnabled() {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 1. Candidate evaluation event with bounded cause
+	if outcome.CandidateCause != "" {
+		t.log.DebugContext(ctx, "agent_loop_guard_candidate", "cause", string(outcome.CandidateCause))
+	}
+
+	// 2. Verifier outcome event with bounded verdict and role
+	if outcome.Verified {
+		role := outcome.VerdictRole
+		if role == "" {
+			role = "loop_guard"
+		}
+		t.log.DebugContext(ctx, "agent_loop_guard_verdict", "verdict", string(outcome.VerdictKind), "role", role)
+	}
+
+	// 3. Breaker reason event
+	if outcome.BreakerTripped && outcome.BreakerReason != "" {
+		t.log.DebugContext(ctx, "agent_loop_guard_breaker", "reason", outcome.BreakerReason)
+	}
+
+	// 4. Replay suppression event
+	if outcome.ReplaySuppressed && outcome.SuppressionReason != "" {
+		t.log.DebugContext(ctx, "agent_loop_guard_replay_suppressed", "reason", outcome.SuppressionReason)
+	}
+
+	// 5. Action decision event
+	if outcome.Action != "" {
+		attrs := []any{"action", string(outcome.Action)}
+		if outcome.BreakerTripped && outcome.BreakerReason != "" {
+			attrs = append(attrs, "reason", outcome.BreakerReason)
+		} else if outcome.ReplaySuppressed && outcome.SuppressionReason != "" {
+			attrs = append(attrs, "reason", outcome.SuppressionReason)
+		}
+		t.log.DebugContext(ctx, "agent_loop_guard_action", attrs...)
+	}
+}
+
 // agentLoopGuardHoldCandidate consults the guard for a backend clean response_finished candidate.
 // nil-guard fast path returns held=false. Builds minimal TerminalFacts and calls ObserveCandidate.
 // Returns held=true only when Outcome.Action==continue_leg && !HoldReleased.
@@ -143,8 +188,12 @@ func (t *turnTerminal) agentLoopGuardHoldCandidate(ctx context.Context, facts re
 		ctx = context.Background()
 	}
 	tail := buildGuardTailState(p, attempt)
+	candidateCause := stopguard.CauseNormalEnd
+	if !t.committed() {
+		candidateCause = stopguard.CauseEmptyNormalEnd
+	}
 	candidate := stopguard.Candidate{
-		Cause:              stopguard.CauseNormalEnd,
+		Cause:              candidateCause,
 		OutputCommitted:    t.committed(),
 		ExplicitCompletion: hasExplicitCompletionFromTail(tail),
 	}
@@ -158,6 +207,7 @@ func (t *turnTerminal) agentLoopGuardHoldCandidate(ctx context.Context, facts re
 		SupportsContinuation: t.supportsContinuation,
 	}
 	outcome := t.loopGuard.gate.ObserveCandidate(ctx, tf)
+	t.emitGuardTelemetry(ctx, outcome)
 	if outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased {
 		return true, boundGuardReason(outcome.Reason)
 	}

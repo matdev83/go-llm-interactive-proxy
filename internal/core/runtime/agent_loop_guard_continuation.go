@@ -199,8 +199,12 @@ func (t *turnTerminal) agentLoopGuardEvaluate(ctx context.Context, facts request
 	tail := buildGuardTailState(p, attempt)
 	prior := honestPriorForEvaluate(t, facts, p, attempt)
 	bounds := lipcont.DefaultBounds()
+	candidateCause := stopguard.CauseNormalEnd
+	if !t.committed() {
+		candidateCause = stopguard.CauseEmptyNormalEnd
+	}
 	candidate := stopguard.Candidate{
-		Cause:              stopguard.CauseNormalEnd,
+		Cause:              candidateCause,
 		OutputCommitted:    t.committed(),
 		ExplicitCompletion: hasExplicitCompletionFromTail(tail),
 	}
@@ -213,10 +217,9 @@ func (t *turnTerminal) agentLoopGuardEvaluate(ctx context.Context, facts request
 		SuppressVerification: suppress,
 		SupportsContinuation: t.supportsContinuation,
 	}
-	out := t.loopGuard.gate.ObserveCandidate(ctx, tf)
-	// Debug
-	// fmt.Printf("agentLoopGuardEvaluate cause=%v committed=%v explicit=%v supported=%v out=%v reason=%q\n", candidate.Cause, candidate.OutputCommitted, candidate.ExplicitCompletion, tf.SupportsContinuation, out.Action, out.Reason)
-	return out
+	outcome := t.loopGuard.gate.ObserveCandidate(ctx, tf)
+	t.emitGuardTelemetry(ctx, outcome)
+	return outcome
 }
 
 func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts requestTerminalFacts, attempt *attemptSession, p *responsePipeline, cause stopguard.Cause, reason string) stopgate.Outcome {
@@ -253,6 +256,7 @@ func (t *turnTerminal) postOutputGuardOutcome(ctx context.Context, facts request
 	if reason != "" && !strings.Contains(outcome.Reason, reason) {
 		outcome.Reason = boundGuardReason(reason + " " + outcome.Reason)
 	}
+	t.emitGuardTelemetry(ctx, outcome)
 	return outcome
 }
 

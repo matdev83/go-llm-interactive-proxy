@@ -55,19 +55,32 @@ func buildLoopGuardFactory(eff config.EffectiveAgentLoopGuardConfig, client auxi
 
 // newLoopGuardObserver creates a production observer that forwards honest telemetry.
 // If no observability sink exists, it is a no-op for success and logs errors at debug.
-// Deferred: full verifier metrics will be owned by task 9.2; this seam preserves honest data.
 func newLoopGuardObserver(log interface {
 	DebugContext(context.Context, string, ...any)
 }) loopGuardObserver {
 	return func(obs stopguardverify.VerifyObservation) {
 		// Honest: Latency is measured by adapter (>=0), usage from Collected, Err as observed.
-		// No fabricated values. Success and failure both forwarded; current production only logs at debug.
+		// No fabricated values. Success and failure both forwarded.
 		if log != nil {
-			if obs.Err != nil {
-				log.DebugContext(context.Background(), "agent_loop_guard_verifier_observation", "latency_ms", obs.Latency.Milliseconds(), "input_tokens", obs.InputTokens, "output_tokens", obs.OutputTokens, "cost_nano", obs.CostNanoUnits, "err", obs.Err)
-			} else {
-				log.DebugContext(context.Background(), "agent_loop_guard_verifier_observation", "latency_ms", obs.Latency.Milliseconds(), "input_tokens", obs.InputTokens, "output_tokens", obs.OutputTokens, "cost_nano", obs.CostNanoUnits)
+			attrs := []any{
+				"latency_ms", obs.Latency.Milliseconds(),
+				"input_tokens", obs.InputTokens,
+				"output_tokens", obs.OutputTokens,
+				"cost_nano", obs.CostNanoUnits,
 			}
+			if obs.ParentTraceID != "" {
+				attrs = append(attrs, "trace_id", obs.ParentTraceID)
+			}
+			if obs.ParentALegID != "" {
+				attrs = append(attrs, "a_leg_id", obs.ParentALegID)
+			}
+			if obs.ParentBLegID != "" {
+				attrs = append(attrs, "b_leg_id", obs.ParentBLegID)
+			}
+			if obs.Err != nil {
+				attrs = append(attrs, "err", obs.Err)
+			}
+			log.DebugContext(context.Background(), "agent_loop_guard_verifier_observation", attrs...)
 		}
 	}
 }
