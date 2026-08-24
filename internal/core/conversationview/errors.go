@@ -74,4 +74,10 @@ var (
 
 	// ErrTerminalNotUser is returned when the terminal forwardable message is not a user message.
 	ErrTerminalNotUser = errors.New("conversationview: terminal forwardable message is not user")
+
+	// ErrSteeringAnchorExcluded is returned when a steering registration would newly bind an
+	// after_message anchor whose identity is already never_backend at the atomic persistence
+	// point. Exclusion of a previously registered anchor is legitimate later anchor loss and is
+	// handled by AnchorMissingPolicy at projection time.
+	ErrSteeringAnchorExcluded = errors.New("conversationview: steering anchor identity is never_backend")
 )

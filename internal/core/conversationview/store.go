@@ -613,6 +613,18 @@ func (s *ReferenceStore) TagNeverBackend(ctx context.Context, aLegID string, tag
 	}, nil
 }
 
+// RegistersNewAfterMessageAnchor reports whether this request would newly bind a fixed
+// after_message anchor at the persistence point: overlay creation or a placement-changing
+// replacement. Unchanged-placement replacement and semantic no-ops keep their previously
+// accepted anchor; exclusion arriving after the original registration is legitimate later
+// anchor loss handled by AnchorMissingPolicy at projection time.
+func RegistersNewAfterMessageAnchor(req PutSteeringRequest, exists, placementChanged bool) bool {
+	if req.Placement.Kind != PlacementAfterMessage || req.Placement.Anchor == nil {
+		return false
+	}
+	return !exists || placementChanged
+}
+
 // PutSteering creates or replaces a steering overlay.
 func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req PutSteeringRequest) (SteeringState, error) {
 	if err := ctx.Err(); err != nil {
@@ -671,6 +683,13 @@ func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req Put
 				placementChanged = true
 			} else if existing.Placement.Anchor != nil && *existing.Placement.Anchor != *req.Placement.Anchor {
 				placementChanged = true
+			}
+		}
+		// Registration invariant (Req 9.7): a newly bound after_message anchor must not be
+		// never_backend at this atomic persistence point (prevents resolve/tag/persist TOCTOU).
+		if RegistersNewAfterMessageAnchor(req, true, placementChanged) {
+			if _, excluded := lv.tags[req.Placement.Anchor.Identity]; excluded {
+				return SteeringState{}, ErrSteeringAnchorExcluded
 			}
 		}
 		// Compute active count/bytes after replacement.
@@ -739,6 +758,12 @@ func (s *ReferenceStore) PutSteering(ctx context.Context, aLegID string, req Put
 		}, nil
 	}
 	// New overlay creation.
+	// Registration invariant (Req 9.7): see exists-branch comment above.
+	if RegistersNewAfterMessageAnchor(req, false, true) {
+		if _, excluded := lv.tags[req.Placement.Anchor.Identity]; excluded {
+			return SteeringState{}, ErrSteeringAnchorExcluded
+		}
+	}
 	activeCount := 0
 	totalBytes := 0
 	for _, ov := range lv.steering {

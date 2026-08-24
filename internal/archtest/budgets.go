@@ -111,7 +111,9 @@ var LineBudgets = []LineBudget{
 	// Non-forwardable conversation content Task 4.3 cache regression (bounded CacheDiscontinuityKind/Placement in SteeringState for create/replace/move/deactivate, MemoryStore/Bun parity, stable_prefix and fixed activation ordering U_N,STEER,A_N,U_N+1 across 3 turns, moving-tail negative, anchor fallback/fail_closed); measured 91840, bump to 91865 with 25 headroom.
 	// Non-forwardable conversation content Task 5.2 bounded diagnostics and security guards (content-free observer seam for filter/injection/fallback/failure/mutation, SDK Writer observer wiring, runtime early/final projection summary emission, Prometheus bounded labels, docs hidden-steering not secrecy, reason-code/secret-guard ordering tests); measured 92021, bump to 92046 with 25 headroom.
 	// Remediation round 1: panic-isolated SafeObserver wrapper, anchor failure only on ErrAnchorMissing/ErrAnchorNotFound, stage label on OnAnchorFallback (stage+policy), production compose helper internal/infra/metrics NewConversationViewServicesWithMetrics; measured 92070, bump to 92095 with 25 headroom.
-	{Dir: "internal/core", Max: 92095},
+	// Conversation-view follow-ups: atomic after_message anchor registration invariant (ErrSteeringAnchorExcluded checked inside Reference/Memory/Bun PutSteering under lock/Tx, RegistersNewAfterMessageAnchor helper, unsafe trailing-survivor rejection in ResolveAfterIngressTailAnchor, storecontract AnchorExcludedRegistration + sdkadapter TOCTOU regression, re-runnable PG harness cleanup); measured 92223, bump to 92248 with 25 headroom.
+	// Conversation-view follow-up review hardening: pin same after_message anchor exempt branch and valid reasoning trajectory with Validate; measured 92263, bump to 92288 with 25 headroom.
+	{Dir: "internal/core", Max: 92288},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12616},

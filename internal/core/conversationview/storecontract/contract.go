@@ -875,4 +875,164 @@ func Run(t *testing.T, env Env) {
 		assert.Empty(t, snap2.Steering)
 		assert.Equal(t, uint64(0), snap2.StateRevision)
 	})
+
+	t.Run("AnchorExcludedRegistration", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		t.Run("tag before put rejects atomically", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-excluded-create")
+			createALegMust(t, deps, aLeg)
+			u := testIdentity(77)
+
+			// Step 2 of the TOCTOU sequence: exclusion commits before registration.
+			_, err := deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: u, Reason: testReason("late_tag")}})
+			require.NoError(t, err)
+			before := snapshotMust(t, deps.Store, aLeg)
+
+			// Step 3: persisting an after_message anchor to the excluded identity must fail.
+			_, err = deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-excluded",
+				Message:             testMessage("anchored steering", lipapi.RoleSystem),
+				Placement:           afterPlacement(u, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.ErrorIs(t, err, conversationview.ErrSteeringAnchorExcluded)
+
+			after := snapshotMust(t, deps.Store, aLeg)
+			assert.Equal(t, before.StateRevision, after.StateRevision, "rejected Put must not bump StateRevision")
+			assert.Empty(t, after.Steering, "rejected Put must not create an overlay")
+			_, getErr := deps.GetOverlay(ctx, aLeg, "ov-excluded")
+			require.ErrorIs(t, getErr, conversationview.ErrOverlayNotFound)
+		})
+
+		t.Run("unrelated exclusion does not block anchor registration", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-unrelated-tag")
+			createALegMust(t, deps, aLeg)
+			u := testIdentity(78)
+			other := testIdentity(79)
+
+			_, err := deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: other, Reason: testReason("r")}})
+			require.NoError(t, err)
+			st, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-ok",
+				Message:             testMessage("ok steering", lipapi.RoleUser),
+				Placement:           afterPlacement(u, 1),
+				AnchorMissingPolicy: conversationview.AnchorFailClosed,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			assert.True(t, st.Active)
+		})
+
+		t.Run("put then tag is legitimate later anchor loss", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-later-loss")
+			createALegMust(t, deps, aLeg)
+			v := testIdentity(80)
+
+			_, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-loss",
+				Message:             testMessage("loss steering", lipapi.RoleUser),
+				Placement:           afterPlacement(v, 1),
+				AnchorMissingPolicy: conversationview.AnchorFailClosed,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			// Exclusion arriving after registration must succeed (no cascade).
+			_, err = deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: v, Reason: testReason("r")}})
+			require.NoError(t, err)
+			overlay, err := deps.GetOverlay(ctx, aLeg, "ov-loss")
+			require.NoError(t, err)
+			assert.True(t, overlay.Active, "later tag must not deactivate a registered overlay")
+		})
+
+		t.Run("placement change into excluded anchor rejects; same-anchor replace after tag succeeds", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-replace-cases")
+			createALegMust(t, deps, aLeg)
+			w := testIdentity(81)
+
+			_, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-move",
+				Message:             testMessage("stable first", lipapi.RoleUser),
+				Placement:           stablePlacement(),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			_, err = deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: w, Reason: testReason("r")}})
+			require.NoError(t, err)
+
+			// Moving the overlay onto an now-excluded anchor must reject.
+			_, err = deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-move",
+				Message:             testMessage("stable first", lipapi.RoleUser),
+				Placement:           afterPlacement(w, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.ErrorIs(t, err, conversationview.ErrSteeringAnchorExcluded)
+
+			// Content replacement keeping the unchanged (pre-tag) placement stays exempt.
+			_, err = deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-move",
+				Message:             testMessage("stable second", lipapi.RoleUser),
+				Placement:           stablePlacement(),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			overlay, err := deps.GetOverlay(ctx, aLeg, "ov-move")
+			require.NoError(t, err)
+			assert.Equal(t, "stable second", overlay.Message.Text)
+		})
+
+		t.Run("same after_message anchor replacement after tag succeeds (exempt)", func(t *testing.T) {
+			t.Parallel()
+			deps := env.New(t)
+			aLeg := testALegID("anchor-same-after-exempt")
+			createALegMust(t, deps, aLeg)
+			v := testIdentity(82)
+
+			_, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-same-after",
+				Message:             testMessage("first anchored", lipapi.RoleUser),
+				Placement:           afterPlacement(v, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			beforeSnap := snapshotMust(t, deps.Store, aLeg)
+			require.Len(t, beforeSnap.Steering, 1)
+			beforeRev := beforeSnap.Steering[0].Revision
+			beforeSlot := beforeSnap.Steering[0].SlotOrdinal
+
+			_, err = deps.Store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: v, Reason: testReason("r")}})
+			require.NoError(t, err)
+
+			// Existing after_message(V) -> tag V -> content replacement retaining after_message(V) is exempt.
+			st, err := deps.Store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
+				OverlayID:           "ov-same-after",
+				Message:             testMessage("second anchored", lipapi.RoleUser),
+				Placement:           afterPlacement(v, 1),
+				AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+				Reason:              testReason("r"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, beforeRev+1, st.Revision)
+			assert.Equal(t, beforeSlot, st.SlotOrdinal, "same-anchor replacement must retain SlotOrdinal")
+			overlay, err := deps.GetOverlay(ctx, aLeg, "ov-same-after")
+			require.NoError(t, err)
+			assert.Equal(t, "second anchored", overlay.Message.Text)
+			assert.Equal(t, v, overlay.Placement.Anchor.Identity)
+		})
+	})
 }

@@ -675,3 +675,58 @@ func TestMessageIdentity_NoPlaintextLeakedInErrorsOrString(t *testing.T) {
 	assert.False(t, strings.Contains(idStr, secretText), "MessageIdentity.String() must not contain plaintext")
 	assert.True(t, strings.HasPrefix(idStr, "v1:"), "MessageIdentity.String() must start with v1:")
 }
+
+func TestMessageIdentity_UnknownPartKindRejected(t *testing.T) {
+	t.Parallel()
+	// Unknown kind with non-empty Text must now be rejected explicitly, not coerced to text.
+	secret := "SUPER_SECRET_PLAINTEXT_SHOULD_NOT_LEAK_12345"
+	bogusKind := lipapi.PartKind("bogus_unknown_kind")
+	msg := lipapi.Message{
+		Role: lipapi.RoleUser,
+		Parts: []lipapi.Part{
+			{Kind: bogusKind, Text: secret},
+		},
+	}
+	_, err := conversationview.MessageIdentityOf(msg)
+	require.Error(t, err)
+	// Error must contain bounded kind, not plaintext.
+	assert.Contains(t, err.Error(), string(bogusKind), "error must contain bounded kind")
+	assert.False(t, strings.Contains(err.Error(), secret), "error must not leak plaintext")
+	// Also via AtomOfMessage directly.
+	_, err2 := conversationview.AtomOfMessage(msg)
+	require.Error(t, err2)
+	assert.Contains(t, err2.Error(), string(bogusKind))
+	assert.False(t, strings.Contains(err2.Error(), secret))
+
+	// Unknown kind with empty Text also rejects with same shape.
+	msgEmpty := lipapi.Message{
+		Role: lipapi.RoleUser,
+		Parts: []lipapi.Part{
+			{Kind: lipapi.PartKind("another_bogus"), Text: ""},
+		},
+	}
+	_, err3 := conversationview.MessageIdentityOf(msgEmpty)
+	require.Error(t, err3)
+	assert.Contains(t, err3.Error(), "another_bogus")
+	assert.False(t, strings.Contains(err3.Error(), secret))
+
+	// Valid kinds remain unchanged – control that we didn't break semantic identity format.
+	validMsg := lipapi.Message{
+		Role: lipapi.RoleUser,
+		Parts: []lipapi.Part{
+			{Kind: lipapi.PartText, Text: "hello valid"},
+		},
+	}
+	id, err := conversationview.MessageIdentityOf(validMsg)
+	require.NoError(t, err)
+	assert.True(t, id.IsValid(), "valid part kind must still produce valid identity")
+	// Same for item authority with valid content part.
+	item := lipapi.Item{
+		Kind:    lipapi.ItemKindMessage,
+		Role:    lipapi.RoleUser,
+		Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "hello valid"}},
+	}
+	itemID, err := conversationview.ItemIdentityOf(item)
+	require.NoError(t, err)
+	assert.Equal(t, id, itemID, "legacy and item valid text identities must remain equivalent")
+}

@@ -92,14 +92,43 @@ func Project(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvidence,
 // ResolveAfterIngressTailAnchor resolves the terminal forwardable user message
 // in call (filtered by snap exclusions) to a MessageAnchor.
 // It rejects if the terminal message is absent, not user, or not safe.
+// It first establishes the concrete original terminal complete message boundary
+// and rejects if that terminal's identity is in snapshot exclusions (never falls
+// back to an earlier forwardable user).
 func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnchor, error) {
 	exclusion := make(map[MessageIdentity]struct{}, len(snap.NeverBackend))
 	for _, t := range snap.NeverBackend {
 		exclusion[t.Identity] = struct{}{}
 	}
 	if call.HasItemAuthority() {
-		// Build forwardable message items.
-		var fwd []lipapi.Item
+		// Establish concrete terminal message boundary before filtering.
+		termIdx := -1
+		for i := len(call.Items) - 1; i >= 0; i-- {
+			if call.Items[i].Kind == lipapi.ItemKindMessage {
+				termIdx = i
+				break
+			}
+		}
+		if termIdx < 0 {
+			return MessageAnchor{}, fmt.Errorf("%w: no forwardable message", ErrTerminalUserNotFound)
+		}
+		terminal := call.Items[termIdx]
+		termID, err := ItemIdentityOf(terminal)
+		if err != nil {
+			return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
+		}
+		if _, excluded := exclusion[termID]; excluded {
+			return MessageAnchor{}, fmt.Errorf("%w: terminal message is never_backend", ErrTerminalUserNotFound)
+		}
+		if terminal.Role != lipapi.RoleUser {
+			return MessageAnchor{}, fmt.Errorf("%w: terminal is %q", ErrTerminalNotUser, terminal.Role)
+		}
+		// Derive the surviving (backend-effective) trajectory with the same
+		// semantics as projection: excluded complete messages are removed and
+		// item_reference entries targeting removed message IDs are dropped.
+		// The FINAL surviving item must be the terminal complete user message;
+		// any surviving non-message item after it makes the boundary unsafe.
+		removedIDs := make(map[string]struct{})
 		for _, it := range call.Items {
 			if it.Kind != lipapi.ItemKindMessage {
 				continue
@@ -108,46 +137,67 @@ func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnch
 			if err != nil {
 				return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 			}
-			if _, excluded := exclusion[id]; excluded {
+			if _, excluded := exclusion[id]; excluded && it.ID != "" {
+				removedIDs[it.ID] = struct{}{}
+			}
+		}
+		lastSurvivorIdx := -1
+		occ := uint32(0)
+		for i, it := range call.Items {
+			if it.Kind == lipapi.ItemKindMessage {
+				id, err := ItemIdentityOf(it)
+				if err != nil {
+					return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
+				}
+				if _, excluded := exclusion[id]; excluded {
+					continue
+				}
+				lastSurvivorIdx = i
+				if id == termID {
+					occ++
+				}
 				continue
 			}
-			fwd = append(fwd, it)
+			if it.Kind == lipapi.ItemKindItemReference && it.Reference != nil {
+				if _, removed := removedIDs[it.Reference.ID]; removed {
+					continue
+				}
+			}
+			lastSurvivorIdx = i
 		}
-		if len(fwd) == 0 {
+		if lastSurvivorIdx < 0 {
 			return MessageAnchor{}, fmt.Errorf("%w: no forwardable message", ErrTerminalUserNotFound)
 		}
-		hasUser := false
-		for _, it := range fwd {
-			if it.Role == lipapi.RoleUser {
-				hasUser = true
-				break
+		if lastSurvivorIdx != termIdx {
+			surviving := call.Items[lastSurvivorIdx]
+			detail := string(surviving.Kind)
+			if surviving.Kind == lipapi.ItemKindMessage {
+				detail = string(surviving.Role)
 			}
+			return MessageAnchor{}, fmt.Errorf("%w: terminal %q item is not a safe user-message boundary", ErrTerminalNotUser, detail)
 		}
-		if !hasUser {
-			return MessageAnchor{}, fmt.Errorf("%w: no forwardable user message", ErrTerminalUserNotFound)
-		}
-		last := fwd[len(fwd)-1]
-		if last.Role != lipapi.RoleUser {
-			return MessageAnchor{}, fmt.Errorf("%w: terminal is %q", ErrTerminalNotUser, last.Role)
-		}
-		id, err := ItemIdentityOf(last)
-		if err != nil {
-			return MessageAnchor{}, err
-		}
-		var occ uint32
-		for _, it := range fwd {
-			cid, _ := ItemIdentityOf(it)
-			if cid == id {
-				occ++
-			}
-		}
-		anchor := MessageAnchor{Identity: id, Occurrence: occ}
+		anchor := MessageAnchor{Identity: termID, Occurrence: occ}
 		if err := anchor.Validate(); err != nil {
 			return MessageAnchor{}, err
 		}
 		return anchor, nil
 	}
-	// Legacy authority.
+	// Legacy authority: establish concrete terminal boundary over original trajectory.
+	origCombined := append(append([]lipapi.Message(nil), call.Instructions...), call.Messages...)
+	if len(origCombined) == 0 {
+		return MessageAnchor{}, fmt.Errorf("%w: empty forwardable trajectory", ErrTerminalUserNotFound)
+	}
+	origLast := origCombined[len(origCombined)-1]
+	origID, err := MessageIdentityOf(origLast)
+	if err != nil {
+		return MessageAnchor{}, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
+	}
+	if _, excluded := exclusion[origID]; excluded {
+		return MessageAnchor{}, fmt.Errorf("%w: terminal message is never_backend", ErrTerminalUserNotFound)
+	}
+	if origLast.Role != lipapi.RoleUser {
+		return MessageAnchor{}, fmt.Errorf("%w: terminal is %q", ErrTerminalNotUser, origLast.Role)
+	}
 	var fwdInstr []lipapi.Message
 	var fwdMsgs []lipapi.Message
 	for _, m := range call.Instructions {
