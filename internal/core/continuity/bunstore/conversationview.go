@@ -783,11 +783,11 @@ func rowToOverlay(overlayID string, overlayRevision, slotOrdinal int64, active i
 
 func splitIdentity(id conversationview.MessageIdentity) (version, digest string, err error) {
 	s := string(id)
-	idx := strings.IndexByte(s, ':')
-	if idx < 0 {
+	version, digest, found := strings.Cut(s, ":")
+	if !found {
 		return "", "", fmt.Errorf("%w: missing colon in identity %q", conversationview.ErrInvalidMessageIdentity, s)
 	}
-	return s[:idx], s[idx+1:], nil
+	return version, digest, nil
 }
 
 func overlaysEqualForBun(a, b conversationview.SteeringOverlay) bool {

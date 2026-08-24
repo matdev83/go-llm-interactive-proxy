@@ -263,9 +263,19 @@ func fail(result Result, kind Kind, err error) Result {
 	return result
 }
 
+// waitForProcess coordinates process termination, output drain completion, and timeout handling.
+// The capture drain WaitGroup is awaited before cmd.Wait() to guarantee that all stdout/stderr
+// data in flight is fully copied into memory buffers before the process handles and pipes are torn down.
+// On deadline expiration or cancellation, the process adapter is killed and stdout/stderr pipes are
+// closed immediately to unblock pending read operations and prevent capture stalls during teardown.
 func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, result Result, drains *sync.WaitGroup, stdout, stderr io.ReadCloser, started time.Time, timeout time.Duration) Result {
 	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
+	go func() {
+		if drains != nil {
+			drains.Wait()
+		}
+		waitDone <- cmd.Wait()
+	}()
 	var waitErr error
 	select {
 	case waitErr = <-waitDone:
@@ -274,10 +284,13 @@ func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, 
 		result.Err = ctx.Err()
 		result.Cleanup.Attempted = true
 		result.Cleanup.Err = adapter.kill()
+		if stdout != nil {
+			_ = stdout.Close()
+		}
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		waitErr = <-waitDone
-	}
-	if drains != nil {
-		drains.Wait()
 	}
 	if stdout != nil {
 		_ = stdout.Close()

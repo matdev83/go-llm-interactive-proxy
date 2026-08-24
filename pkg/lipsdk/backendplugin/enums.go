@@ -105,6 +105,17 @@ const (
 	CancelReasonShutdown    CancelReason = "shutdown"
 )
 
+// CancelMode reports how cancellation was performed (alias of lipapi.CancelMode).
+type CancelMode = lipapi.CancelMode
+
+const (
+	CancelModeUnspecified CancelMode = ""
+	CancelModeNone        CancelMode = lipapi.CancelModeNone
+	CancelModeProvider    CancelMode = lipapi.CancelModeProvider
+	CancelModeTransport   CancelMode = lipapi.CancelModeTransport
+	CancelModeCloseOnly   CancelMode = lipapi.CancelModeCloseOnly
+)
+
 // ClientFrameKind is a host-to-plugin Execute frame kind.
 type ClientFrameKind string
 
@@ -244,6 +255,16 @@ func ValidateAccessScope(s AccessScope) error {
 func (p ProcessSharing) Validate() error {
 	switch p {
 	case ProcessSharingPerInstance, ProcessSharingSharedArtifact:
+		return nil
+	default:
+		return ErrUnknownEnum
+	}
+}
+
+// ValidateCancelMode rejects unspecified and unknown cancel modes.
+func ValidateCancelMode(m CancelMode) error {
+	switch m {
+	case CancelModeNone, CancelModeProvider, CancelModeTransport, CancelModeCloseOnly:
 		return nil
 	default:
 		return ErrUnknownEnum

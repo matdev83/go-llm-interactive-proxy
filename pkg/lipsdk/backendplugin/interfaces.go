@@ -43,6 +43,12 @@ type OptionalExecuteStreamCloser interface {
 	Close() error
 }
 
+// OptionalNegotiatedStream is an optional ExecuteStream extension for inspecting
+// the negotiated protocol capabilities.
+type OptionalNegotiatedStream interface {
+	Negotiation() Negotiation
+}
+
 // Session.Execute uses that optional close seam to unblock caller-owned streams
 // before joining its client-to-server pump. For legacy streams without Close,
 // the caller owns cancellation of Context; Session cannot cancel an arbitrary

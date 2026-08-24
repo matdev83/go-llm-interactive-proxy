@@ -121,7 +121,8 @@ var LineBudgets = []LineBudget{
 	// Reasoning-preservation semantic compression adds bounded auxiliary workload classification and orchestration; current-main integration measured 92340, bump to 92365 with 25 headroom.
 	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
 	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
-	{Dir: "internal/core", Max: 92178},
+	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
+	{Dir: "internal/core", Max: 92796},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
 	{Dir: "internal/infra/runtimebundle", Max: 12746},

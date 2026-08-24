@@ -24,22 +24,20 @@ func (id MessageIdentity) String() string {
 
 // Version returns the version prefix of this identity (e.g. "v1").
 func (id MessageIdentity) Version() string {
-	s := string(id)
-	idx := strings.IndexByte(s, ':')
-	if idx < 0 {
+	version, _, found := strings.Cut(string(id), ":")
+	if !found {
 		return ""
 	}
-	return s[:idx]
+	return version
 }
 
 // Digest returns the lowercase hex hash portion of this identity.
 func (id MessageIdentity) Digest() string {
-	s := string(id)
-	idx := strings.IndexByte(s, ':')
-	if idx < 0 {
+	_, digest, found := strings.Cut(string(id), ":")
+	if !found {
 		return ""
 	}
-	return s[idx+1:]
+	return digest
 }
 
 // Validate checks that id conforms to "v1:<64-char lowercase hex sha256>".
@@ -60,7 +58,7 @@ func (id MessageIdentity) Validate() error {
 		return fmt.Errorf("%w: digest length %d (want 64)", ErrInvalidMessageIdentity, len(digest))
 	}
 	for _, c := range digest {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return fmt.Errorf("%w: invalid lowercase hex character in digest", ErrInvalidMessageIdentity)
 		}
 	}

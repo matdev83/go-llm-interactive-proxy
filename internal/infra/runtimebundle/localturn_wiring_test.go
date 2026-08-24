@@ -24,6 +24,7 @@ func (h wiringHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.Fail
 func (h wiringHandler) Match(_ context.Context, _ lipapi.Call, _ localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h wiringHandler) Handle(_ context.Context, _ localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "ok"}, nil
 }

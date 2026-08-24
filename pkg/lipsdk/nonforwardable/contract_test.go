@@ -43,7 +43,6 @@ func TestReasonCode_Validation(t *testing.T) {
 		{"max boundary", nonforwardable.ReasonCode(strings.Repeat("a", 64)), false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.in.Validate()
@@ -70,7 +69,6 @@ func TestALegRef_Validation(t *testing.T) {
 		{"max", strings.Repeat("a", 256), false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := nonforwardable.ALegRef{ID: tc.id}.Validate()
@@ -97,7 +95,6 @@ func TestMessageRef_Validation(t *testing.T) {
 		{"max", strings.Repeat("a", 512), false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := nonforwardable.MessageRef{Identity: tc.id}.Validate()

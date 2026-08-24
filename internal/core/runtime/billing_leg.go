@@ -138,6 +138,7 @@ func (t *turnTerminal) recordBillingLegForAttempt(ctx context.Context, request r
 	if command == sdkterminal.CommandNormalFinish || committed {
 		surfaced = billing.SurfacedYes
 	}
+	streamEv = attempt.augmentBillingUsage(streamEv, lipapi.Event{})
 	workloadCtx := request.toRecvTurnFacts(ctx).projectContext(ctx, nil)
 	legRecord := billingLegRecord(billingLegDraft{
 		callID:          request.billingCallID,

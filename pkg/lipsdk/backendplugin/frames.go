@@ -35,6 +35,11 @@ func (f ServerFrame) ValidateShape() error {
 		if f.CancelOutcome.Reason == CancelReasonUnspecified {
 			return ErrUnknownEnum
 		}
+		if f.CancelOutcome.Mode != CancelModeUnspecified {
+			if err := ValidateCancelMode(f.CancelOutcome.Mode); err != nil {
+				return err
+			}
+		}
 		return nil
 	case ServerFrameTerminal:
 		if f.Terminal == nil || f.Terminal.Status == TerminalUnspecified {

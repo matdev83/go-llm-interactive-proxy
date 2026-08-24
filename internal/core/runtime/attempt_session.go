@@ -72,12 +72,18 @@ type attemptSession struct {
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
 	streamDisposed     bool
-	pendingCancelCause *lipapi.CancelCause
+	pendingCancelCause atomic.Pointer[lipapi.CancelCause]
+	terminalizing      atomic.Bool
+	forceCloseOnce     sync.Once
+	forceClose         chan struct{}
 	usageMu            sync.Mutex
 	billingMu          sync.Mutex
 
 	internalUsageKeys  map[string]struct{}
+	accumulatedUsage   []lipapi.Event
 	billingLegRecorded bool
+
+	cancelResult lipapi.CancelResult
 
 	bleg              b2bua.BLegRecord
 	cand              routing.AttemptCandidate
@@ -97,6 +103,7 @@ type attemptSession struct {
 	promptCacheController promptcache.Controller
 	finalStreamObs        *extensions.FinalStreamObservationSession
 	recordAttemptLoggedFn func(context.Context, recordAttemptParams, diag.AttrOpts)
+	recordCancellationFn  func(obs CancellationObservation)
 
 	emitBackendEgressFn func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
 	appendBillingLegFn  func(context.Context, b2bua.BLegRecord, routing.Primary, time.Time, time.Time, billing.LegOutcome)
@@ -120,23 +127,6 @@ func (a *attemptSession) claimBillingLegRecord() bool {
 		return false
 	}
 	a.billingLegRecorded = true
-	return true
-}
-
-func (a *attemptSession) rememberUsageEvidenceOnce(ev lipapi.Event) bool {
-	if a == nil || ev.Accounting.DedupeKey == "" {
-		return false
-	}
-	a.usageMu.Lock()
-	defer a.usageMu.Unlock()
-	if a.internalUsageKeys == nil {
-		a.internalUsageKeys = make(map[string]struct{})
-	}
-	key := ev.Accounting.DedupeKey
-	if _, exists := a.internalUsageKeys[key]; exists {
-		return false
-	}
-	a.internalUsageKeys[key] = struct{}{}
 	return true
 }
 
@@ -173,7 +163,8 @@ type attemptSessionInput struct {
 func newAttemptSession(in attemptSessionInput) *attemptSession {
 	return &attemptSession{
 		inner: in.inner, streamDisposed: in.streamDisposed, bleg: in.bleg, cand: in.cand, authority: in.authority,
-		terminal: newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
+		forceClose: make(chan struct{}),
+		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
 		traceID: in.traceID, billingCallID: in.billingCallID, billingCallState: in.billingCallState,
 		accounting: in.accounting, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
@@ -182,6 +173,12 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,
 		operatorRateRef: in.operatorRateRef, billingWorkload: in.billingWorkload,
 		observeBillingLeg: in.observeBillingLeg, appendBillingLeg: in.appendBillingLeg, finalizeBilling: in.finalizeBilling,
+	}
+}
+
+func (a *attemptSession) recordCancellation(obs CancellationObservation) {
+	if a != nil && a.recordCancellationFn != nil {
+		a.recordCancellationFn(obs)
 	}
 }
 
@@ -254,29 +251,30 @@ type attemptLifecycleHandle struct {
 	session *attemptSession
 }
 
-func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+func (a *attemptSession) terminalizeForCancel(ctx context.Context, cause lipapi.CancelCause, cmd sdkterminal.Command, relKind authorityapp.ReleaseKind, legOutcome billing.LegOutcome) attemptTerminalResult {
 	if a == nil {
-		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
+		return attemptTerminalResult{Cancellation: lipapi.CancelResult{Mode: lipapi.CancelModeNone}}
 	}
 	intent := IntentCancellation
-	cmd := a.defaultCommand
 	if cmd == "" {
-		cmd = sdkterminal.CommandCancel
+		cmd = a.defaultCommand
+		if cmd == "" {
+			cmd = sdkterminal.CommandCancel
+		}
 	}
-	relKind := a.releaseKind
-	legOutcome := a.defaultLegOutcome
+	if relKind == "" {
+		relKind = a.releaseKind
+	}
 	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
+		legOutcome = a.defaultLegOutcome
+		if legOutcome == "" {
+			legOutcome = billing.LegOutcomeCanceled
+		}
 	}
-	if cause.Kind == lipapi.CancelRaceLoser || a.defaultCommand == sdkterminal.CommandParallelLoser {
-		intent = IntentParallelLoser
-		relKind = authorityapp.ReleaseKindLosing
-		cmd = sdkterminal.CommandParallelLoser
-		legOutcome = billing.LegOutcomeFailed
-	} else if a.defaultCommand == sdkterminal.CommandBackendOpenFailure {
-		intent = IntentSwallowedFailure
-		relKind = authorityapp.ReleaseKindSwallowed
-		cmd = sdkterminal.CommandBackendOpenFailure
+	if cause.Kind == lipapi.CancelRaceLoser || cmd == sdkterminal.CommandParallelLoser {
+		intent, relKind, cmd, legOutcome = IntentParallelLoser, authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed
+	} else if cmd == sdkterminal.CommandBackendOpenFailure {
+		intent, relKind, cmd = IntentSwallowedFailure, authorityapp.ReleaseKindSwallowed, sdkterminal.CommandBackendOpenFailure
 		if (ctx != nil && ctx.Err() != nil) || cause.Kind == lipapi.CancelContextDone {
 			legOutcome = billing.LegOutcomeCanceled
 		} else {
@@ -287,7 +285,7 @@ func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.Ca
 	if detail == "" {
 		detail = string(cause.Kind)
 	}
-	a.TerminalizeAttempt(ctx, intent, attemptEvidence{
+	return a.TerminalizeAttempt(ctx, intent, attemptEvidence{
 		Command:       cmd,
 		ReleaseKind:   relKind,
 		CancelCause:   &cause,
@@ -300,21 +298,30 @@ func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.Ca
 		ALegID:        a.bleg.ALegID,
 		StartedAt:     a.accounting.requestStartedAt,
 	})
-	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
-func (a *attemptSession) closeViaLifecycle() error {
+func (a *attemptSession) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	return a.terminalizeForCancel(ctx, cause, a.defaultCommand, a.releaseKind, a.defaultLegOutcome).Cancellation
+}
+
+func (a *attemptSession) terminalizeForClose(cmd sdkterminal.Command, relKind authorityapp.ReleaseKind, legOutcome billing.LegOutcome) {
 	if a == nil {
-		return nil
+		return
 	}
-	cmd := a.defaultCommand
 	if cmd == "" {
-		cmd = sdkterminal.CommandClose
+		cmd = a.defaultCommand
+		if cmd == "" {
+			cmd = sdkterminal.CommandClose
+		}
 	}
-	relKind := a.releaseKind
-	legOutcome := a.defaultLegOutcome
+	if relKind == "" {
+		relKind = a.releaseKind
+	}
 	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
+		legOutcome = a.defaultLegOutcome
+		if legOutcome == "" {
+			legOutcome = billing.LegOutcomeCanceled
+		}
 	}
 	a.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
 		Command:       cmd,
@@ -328,6 +335,14 @@ func (a *attemptSession) closeViaLifecycle() error {
 		ALegID:        a.bleg.ALegID,
 		StartedAt:     a.accounting.requestStartedAt,
 	})
+}
+
+func (a *attemptSession) closeViaLifecycle() error {
+	if a.terminalizing.Load() && a.forceClose != nil {
+		a.forceCloseOnce.Do(func() { close(a.forceClose) })
+		return nil
+	}
+	a.terminalizeForClose(a.defaultCommand, a.releaseKind, a.defaultLegOutcome)
 	return nil
 }
 
@@ -360,9 +375,7 @@ func (a *attemptSession) setPendingCancelCause(cause lipapi.CancelCause) {
 	if a == nil {
 		return
 	}
-	a.innerMu.Lock()
-	a.pendingCancelCause = &cause
-	a.innerMu.Unlock()
+	a.pendingCancelCause.Store(&cause)
 }
 
 // drainSidebandEvidence drains provider sideband usage evidence attached to
@@ -808,6 +821,15 @@ func (r *readyAttempt) setDefaultEvidence(releaseKind authorityapp.ReleaseKind, 
 	}
 }
 
+func (r *readyAttempt) setPending(p pendingSelectionEffects) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.pending = p
+	r.mu.Unlock()
+}
+
 func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if r == nil {
 		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
@@ -819,15 +841,19 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 		if sess != nil {
 			return sess.cancelViaLifecycle(ctx, cause)
 		}
-		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
 	if r.state == readyStateDisposed {
 		cond := r.getCond()
 		for r.opInFlight {
 			cond.Wait()
 		}
+		sess := r.boundSess
 		r.mu.Unlock()
-		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+		if cr, ok := storedCancelResult(sess); ok {
+			return cr
+		}
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
 	if r.opInFlight {
 		if r.pendingInvalidation == nil {
@@ -850,16 +876,21 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 			r.mu.Unlock()
 
 			if sess != nil {
-				r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+				termRes := r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+				return termRes.Cancellation
 			}
-			return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+			return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 		}
 		cond := r.getCond()
 		for r.opInFlight {
 			cond.Wait()
 		}
+		sess := r.boundSess
 		r.mu.Unlock()
-		return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+		if cr, ok := storedCancelResult(sess); ok {
+			return cr
+		}
+		return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 	}
 
 	r.state = readyStateDisposed
@@ -874,9 +905,10 @@ func (r *readyAttempt) cancelViaLifecycle(ctx context.Context, cause lipapi.Canc
 	r.mu.Unlock()
 
 	if sess != nil {
-		r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+		termRes := r.terminalizeSessionForCancel(ctx, sess, cause, cmd, relKind, legOutcome)
+		return termRes.Cancellation
 	}
-	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
+	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 }
 
 func (r *readyAttempt) terminalizeSessionForCancel(
@@ -886,55 +918,8 @@ func (r *readyAttempt) terminalizeSessionForCancel(
 	cmd sdkterminal.Command,
 	relKind authorityapp.ReleaseKind,
 	legOutcome billing.LegOutcome,
-) {
-	intent := IntentCancellation
-	if cmd == "" {
-		cmd = sess.defaultCommand
-	}
-	if cmd == "" {
-		cmd = sdkterminal.CommandCancel
-	}
-	if relKind == "" {
-		relKind = sess.releaseKind
-	}
-	if legOutcome == "" {
-		legOutcome = sess.defaultLegOutcome
-	}
-	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
-	}
-	if cause.Kind == lipapi.CancelRaceLoser || cmd == sdkterminal.CommandParallelLoser {
-		intent = IntentParallelLoser
-		relKind = authorityapp.ReleaseKindLosing
-		cmd = sdkterminal.CommandParallelLoser
-		legOutcome = billing.LegOutcomeFailed
-	} else if cmd == sdkterminal.CommandBackendOpenFailure {
-		intent = IntentSwallowedFailure
-		relKind = authorityapp.ReleaseKindSwallowed
-		cmd = sdkterminal.CommandBackendOpenFailure
-		if (ctx != nil && ctx.Err() != nil) || cause.Kind == lipapi.CancelContextDone {
-			legOutcome = billing.LegOutcomeCanceled
-		} else {
-			legOutcome = billing.LegOutcomeFailed
-		}
-	}
-	detail := cause.Detail
-	if detail == "" {
-		detail = string(cause.Kind)
-	}
-	sess.TerminalizeAttempt(ctx, intent, attemptEvidence{
-		Command:       cmd,
-		ReleaseKind:   relKind,
-		CancelCause:   &cause,
-		LegOutcome:    legOutcome,
-		ObsOutcome:    response.OutcomeCancelled,
-		RecordOutcome: lipapi.AttemptCancelled,
-		RecordReason:  detail,
-		BillingReason: detail,
-		TraceID:       sess.traceID,
-		ALegID:        sess.bleg.ALegID,
-		StartedAt:     sess.accounting.requestStartedAt,
-	})
+) attemptTerminalResult {
+	return sess.terminalizeForCancel(ctx, cause, cmd, relKind, legOutcome)
 }
 
 func (r *readyAttempt) closeViaLifecycle() error {
@@ -971,9 +956,7 @@ func (r *readyAttempt) closeViaLifecycle() error {
 			sess := r.session
 			r.session = nil
 			r.pending = pendingSelectionEffects{}
-			relKind := r.defaultReleaseKind
-			cmd := r.defaultCommand
-			legOutcome := r.defaultLegOutcome
+			relKind, cmd, legOutcome := r.defaultReleaseKind, r.defaultCommand, r.defaultLegOutcome
 			cond.Broadcast()
 			r.mu.Unlock()
 
@@ -994,9 +977,7 @@ func (r *readyAttempt) closeViaLifecycle() error {
 	sess := r.session
 	r.session = nil
 	r.pending = pendingSelectionEffects{}
-	relKind := r.defaultReleaseKind
-	cmd := r.defaultCommand
-	legOutcome := r.defaultLegOutcome
+	relKind, cmd, legOutcome := r.defaultReleaseKind, r.defaultCommand, r.defaultLegOutcome
 	cond := r.getCond()
 	cond.Broadcast()
 	r.mu.Unlock()
@@ -1013,33 +994,7 @@ func (r *readyAttempt) terminalizeSessionForClose(
 	relKind authorityapp.ReleaseKind,
 	legOutcome billing.LegOutcome,
 ) {
-	if cmd == "" {
-		cmd = sess.defaultCommand
-	}
-	if cmd == "" {
-		cmd = sdkterminal.CommandClose
-	}
-	if relKind == "" {
-		relKind = sess.releaseKind
-	}
-	if legOutcome == "" {
-		legOutcome = sess.defaultLegOutcome
-	}
-	if legOutcome == "" {
-		legOutcome = billing.LegOutcomeCanceled
-	}
-	sess.TerminalizeAttempt(context.Background(), IntentCancellation, attemptEvidence{
-		Command:       cmd,
-		ReleaseKind:   relKind,
-		LegOutcome:    legOutcome,
-		ObsOutcome:    response.OutcomeClosed,
-		RecordOutcome: lipapi.AttemptCancelled,
-		RecordReason:  "aleg close",
-		BillingReason: "aleg close",
-		TraceID:       sess.traceID,
-		ALegID:        sess.bleg.ALegID,
-		StartedAt:     sess.accounting.requestStartedAt,
-	})
+	sess.terminalizeForClose(cmd, relKind, legOutcome)
 }
 
 func (r *readyAttempt) DisposeWithEvidence(ctx context.Context, intent attemptTerminalIntent, evidence attemptEvidence) {
@@ -1275,7 +1230,8 @@ type attemptEvidence struct {
 }
 
 type attemptTerminalResult struct {
-	Result coreterm.Result
+	Result       coreterm.Result
+	Cancellation lipapi.CancelResult
 }
 
 func (a *attemptSession) makeSwallowedEvidence(facts recvTurnFacts, p *responsePipeline, committed bool, reason string, err error) attemptEvidence {
@@ -1337,6 +1293,8 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	if a == nil || a.terminal == nil {
 		return attemptTerminalResult{Result: coreterm.Result{Err: sdkterminal.ErrInvalid}}
 	}
+	a.terminalizing.Store(true)
+	defer a.terminalizing.Store(false)
 
 	cmd := evidence.Command
 	if cmd == "" || !cmd.AllowsScope(sdkterminal.ScopeAttempt) {
@@ -1351,46 +1309,46 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 	}, func(cctx context.Context, out coreterm.Outcome) error {
 		var errorsList []error
 		innerStream := a.takeInner()
+		var cancelRes lipapi.CancelResult
+		contextsCanceled := errors.Is(evidence.Err, context.Canceled) || errors.Is(cctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		isCancel, cause := deriveAttemptCancellation(intent, evidence, a.pendingCancelCause.Load(), contextsCanceled)
 
 		// 2. Cancel/close when intent requires.
 		if innerStream != nil && !a.streamDisposed {
-			var cause lipapi.CancelCause
-			if evidence.CancelCause != nil && evidence.CancelCause.Kind != "" {
-				cause = *evidence.CancelCause
-			} else if a.pendingCancelCause != nil && a.pendingCancelCause.Kind != "" {
-				cause = *a.pendingCancelCause
-			} else if intent == IntentParallelLoser {
-				cause = lipapi.CancelCause{Kind: lipapi.CancelRaceLoser, Detail: "parallel race loser"}
-			} else if intent == IntentTimeout {
-				cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "timeout"}
-			} else if intent == IntentCancellation {
-				cause = lipapi.CancelCause{Kind: lipapi.CancelClientGone}
-			} else if evidence.Err != nil {
-				cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: evidence.Err.Error()}
-			} else if evidence.RecordReason != "" {
-				cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: evidence.RecordReason}
+			a.drainStreamUsageEvidence(innerStream)
+			closeInner := func() error {
+				return safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error { return innerStream.Close() })
 			}
-
 			shouldCancel := (intent != IntentSuccess) || cause.Kind != ""
+			var closeErr error
 			if shouldCancel {
-				cancelCtx, cancel := cleanupContext(cctx, defaultAuthorityCleanupTimeout)
 				if cause.Kind == "" {
 					cause = lipapi.CancelCause{Kind: lipapi.CancelContextDone}
 				}
-				_ = safety.Call(safety.BoundaryBackend, "backend_stream_cancel", func() error {
-					res := innerStream.Cancel(cancelCtx, cause)
-					if res.Err != nil && !errors.Is(res.Err, context.Canceled) {
-						errorsList = append(errorsList, res.Err)
-					}
-					return nil
-				})
-				cancel()
+				cancelRes, closeErr = leglifecycle.BoundedCancelAndClose(cctx, defaultAuthorityCleanupTimeout,
+					func(cancelCtx context.Context) lipapi.CancelResult {
+						var result lipapi.CancelResult
+						_ = safety.Call(safety.BoundaryBackend, "backend_stream_cancel", func() error {
+							result = innerStream.Cancel(cancelCtx, cause)
+							return nil
+						})
+						return result
+					},
+					closeInner,
+					a.forceClose,
+				)
+				if cancelRes.Err != nil && !errors.Is(cancelRes.Err, context.Canceled) {
+					errorsList = append(errorsList, cancelRes.Err)
+				}
+				termObs := a.recordCancellationTelemetry(cause, cancelRes, innerStream, isCancel)
+				a.logAttemptCanceled(cctx, evidence, termObs)
+				a.drainStreamUsageEvidence(innerStream)
+			} else {
+				closeErr = closeInner()
 			}
-			if err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
-				return innerStream.Close()
-			}); err != nil {
+			if closeErr != nil {
 				var pe *safety.PanicError
-				if errors.As(err, &pe) {
+				if errors.As(closeErr, &pe) {
 					// Isolate close panic, log at debug, do not fail terminal effect
 					if a.finalStreamObs != nil && a.finalStreamObs.Log != nil {
 						traceID := strings.TrimSpace(evidence.TraceID)
@@ -1409,11 +1367,21 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
 						a.finalStreamObs.Log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
 					}
-				} else if !errors.Is(err, context.Canceled) {
-					errorsList = append(errorsList, fmt.Errorf("runtime: failed to close inner stream: %w", err))
+				} else if !errors.Is(closeErr, context.Canceled) {
+					errorsList = append(errorsList, fmt.Errorf("runtime: failed to close inner stream: %w", closeErr))
 				}
 			}
+			a.drainStreamUsageEvidence(innerStream)
+		} else if isCancel {
+			termObs := a.recordCancellationTelemetry(cause, cancelRes, nil, isCancel)
+			a.logAttemptCanceled(cctx, evidence, termObs)
+		} else if innerStream != nil {
+			a.drainStreamUsageEvidence(innerStream)
 		}
+
+		a.innerMu.Lock()
+		a.cancelResult = cancelRes
+		a.innerMu.Unlock()
 
 		// 3. Pre-terminal preparation (AuthorityPrepare / token accounting).
 		var preparedUsageEv lipapi.Event
@@ -1479,10 +1447,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		// 5. Finalize/release attempt authority.
 		if a.authority.control != nil && !a.authority.Settled() {
 			runGuarded("authority finalize", &errorsList, func() {
-				usage := evidence.Usage
-				if usage.Kind == "" {
-					usage = emptyOperatorUsageShell()
-				}
+				usage := a.usageOrAccumulated(evidence.Usage)
 				switch intent {
 				case IntentSuccess:
 					_ = a.authority.Settle(cctx, authorityapp.SettlementKindFinal, usage, false)
@@ -1541,10 +1506,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if intent == IntentSuccess {
 					surfaced = metering.SurfacedYes
 				}
-				usage := evidence.Usage
-				if usage.Kind == "" {
-					usage = emptyOperatorUsageShell()
-				}
+				usage := a.usageOrAccumulated(evidence.Usage)
 				a.emitBackendEgressFn(cctx, a.bleg.BLegID, outcomeMeter, surfaced, usage)
 			})
 		}
@@ -1600,83 +1562,73 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				if callID == "" && billingState != nil {
 					callID = billingState.callID
 				}
-				if billingState != nil || callID != "" {
-					blegID := strings.TrimSpace(a.bleg.BLegID)
-					if blegID == "" {
-						blegID = billingSyntheticBLegID(a.bleg.Seq)
-					}
-					if a.bleg.Seq > 0 && billingState != nil {
+				blegID := strings.TrimSpace(a.bleg.BLegID)
+				if blegID == "" {
+					blegID = billingSyntheticBLegID(a.bleg.Seq)
+				}
+				if billingState != nil {
+					if a.bleg.Seq > 0 {
 						billingState.noteAllocatedBLeg(blegID, a.bleg.Seq)
 					}
-					if billingState != nil {
-						billingState.noteLegTimes(started, finished)
+					billingState.noteLegTimes(started, finished)
+				}
+				surfaced := billing.SurfacedNo
+				if cmd == sdkterminal.CommandNormalFinish || evidence.Committed {
+					surfaced = billing.SurfacedYes
+				}
+				streamEv := a.augmentBillingUsage(evidence.StreamFallback, evidence.Usage)
+				finalizeReason := "record_leg"
+				if evidence.BillingReason != "" {
+					finalizeReason = evidence.BillingReason
+				} else if evidence.RecordReason != "" {
+					finalizeReason = evidence.RecordReason
+				}
+				finalizeEv := streamEv
+				if billingState != nil && a.finalizeBilling != nil {
+					if ev, ok := billingState.finalizeOnce(cctx, execbackend.BillingFinalizationInput{
+						TraceID: traceID,
+						ALegID:  aLegID,
+						BLegID:  strings.TrimSpace(a.bleg.BLegID),
+						Backend: strings.TrimSpace(a.cand.Primary.Backend),
+						Model:   strings.TrimSpace(a.cand.Primary.Model),
+						Reason:  finalizeReason,
+					}, func(cctx2 context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+						return a.finalizeBilling(cctx2, in)
+					}); ok {
+						finalizeEv = ev
 					}
-					surfaced := billing.SurfacedNo
-					if cmd == sdkterminal.CommandNormalFinish || evidence.Committed {
-						surfaced = billing.SurfacedYes
-					}
-					streamEv := evidence.StreamFallback
-					if streamEv.Kind == "" {
-						streamEv = evidence.Usage
-						if streamEv.Kind == "" {
-							streamEv = emptyOperatorUsageShell()
-						}
-					}
-					finalizeReason := "record_leg"
-					if evidence.BillingReason != "" {
-						finalizeReason = evidence.BillingReason
-					} else if evidence.RecordReason != "" {
-						finalizeReason = evidence.RecordReason
-					}
-					finalizeEv := streamEv
-					if billingState != nil && a.finalizeBilling != nil {
-						if ev, ok := billingState.finalizeOnce(cctx, execbackend.BillingFinalizationInput{
-							TraceID: traceID,
-							ALegID:  aLegID,
-							BLegID:  strings.TrimSpace(a.bleg.BLegID),
-							Backend: strings.TrimSpace(a.cand.Primary.Backend),
-							Model:   strings.TrimSpace(a.cand.Primary.Model),
-							Reason:  finalizeReason,
-						}, func(cctx2 context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-							return a.finalizeBilling(cctx2, in)
-						}); ok {
-							finalizeEv = ev
-						}
-					}
-					var opRef billing.VersionRef
-					if a.operatorRateRef != nil {
-						opRef = a.operatorRateRef(cctx, a.cand.Primary)
-					}
-					var workload billing.WorkloadIdentity
-					if a.billingWorkload != nil {
-						workload = a.billingWorkload(cctx, aLegID)
-					}
-					legRecord := billingLegRecord(billingLegDraft{
-						callID:          callID,
-						aLegID:          aLegID,
-						bLegID:          a.bleg.BLegID,
-						seq:             a.bleg.Seq,
-						primary:         a.cand.Primary,
-						startedAt:       started,
-						finishedAt:      finished,
-						command:         cmd,
-						outcome:         legOutcome,
-						surfaced:        surfaced,
-						finalize:        finalizeEv,
-						stream:          streamEv,
-						operatorRateRef: opRef,
-						workload:        workload,
-					})
-					if a.observeBillingLeg != nil {
-						a.observeBillingLeg(cctx, legRecord)
-					}
-					if a.appendBillingLeg != nil && callID != "" {
-						a.appendBillingLeg(cctx, callID, legRecord)
-					}
-					if a.observeBillingLeg == nil && a.appendBillingLeg == nil && a.appendBillingLegFn != nil {
-						a.appendBillingLegFn(cctx, a.bleg, a.cand.Primary, started, finished, legOutcome)
-					}
-				} else if a.appendBillingLegFn != nil {
+				}
+				var opRef billing.VersionRef
+				if a.operatorRateRef != nil {
+					opRef = a.operatorRateRef(cctx, a.cand.Primary)
+				}
+				var workload billing.WorkloadIdentity
+				if a.billingWorkload != nil {
+					workload = a.billingWorkload(cctx, aLegID)
+				}
+				legRecord := billingLegRecord(billingLegDraft{
+					callID:          callID,
+					aLegID:          aLegID,
+					bLegID:          a.bleg.BLegID,
+					seq:             a.bleg.Seq,
+					primary:         a.cand.Primary,
+					startedAt:       started,
+					finishedAt:      finished,
+					command:         cmd,
+					outcome:         legOutcome,
+					surfaced:        surfaced,
+					finalize:        finalizeEv,
+					stream:          streamEv,
+					operatorRateRef: opRef,
+					workload:        workload,
+				})
+				if a.observeBillingLeg != nil {
+					a.observeBillingLeg(cctx, legRecord)
+				}
+				if a.appendBillingLeg != nil && callID != "" {
+					a.appendBillingLeg(cctx, callID, legRecord)
+				}
+				if a.observeBillingLeg == nil && a.appendBillingLeg == nil && a.appendBillingLegFn != nil {
 					a.appendBillingLegFn(cctx, a.bleg, a.cand.Primary, started, finished, legOutcome)
 				}
 			})
@@ -1734,7 +1686,13 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		return nil
 	})
 
-	return attemptTerminalResult{Result: res}
+	a.innerMu.Lock()
+	finalCancel := a.cancelResult
+	a.innerMu.Unlock()
+	if finalCancel.Mode == "" {
+		finalCancel.Mode = lipapi.CancelModeNone
+	}
+	return attemptTerminalResult{Result: res, Cancellation: finalCancel}
 }
 
 func mapIntentToCommand(intent attemptTerminalIntent) sdkterminal.Command {

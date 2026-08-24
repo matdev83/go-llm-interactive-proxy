@@ -129,7 +129,6 @@ func TestWriter_Put_Validation(t *testing.T) {
 		Reason:              "test_reason",
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := w.Put(ctx, tc.mutate(valid))
@@ -465,7 +464,7 @@ func TestWriter_Put_StateMappingAndErrorMapping(t *testing.T) {
 	aLegCap := "a_cap_test"
 	require.NoError(t, store.CreateALeg(ctx, aLegCap))
 	wCap, _ := sdkadapter.NewWriter(store, aLegCap, nil)
-	for i := 0; i < conversationview.MaxActiveOverlays; i++ {
+	for i := range conversationview.MaxActiveOverlays {
 		_, err := wCap.Put(ctx, steering.PutRequest{
 			OverlayID:           steering.OverlayID(fmt.Sprintf("ov-cap-%03d", i)),
 			Message:             steering.Message{Role: lipapi.RoleUser, Text: "text"},

@@ -382,7 +382,7 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	final := make([]lipapi.Item, 0, finalCapacity)
 	provIndex := make(map[string]int, provenanceCapacity)
 	// prefix region with interleaved after anchors that fall inside prefix
-	for i := 0; i < leading; i++ {
+	for i := range leading {
 		final = append(final, filtered[i])
 		if ovs, ok := afterByIdx[i]; ok {
 			for _, ov := range ovs {

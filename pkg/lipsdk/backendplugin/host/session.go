@@ -73,7 +73,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 	cleanup := func() { _ = gc.Close() }
 	client := backendpluginv1.NewBackendPluginClient(gc)
 	offer := backendplugin.ProtocolOffer{
-		Major: 1, Minor: backendplugin.ProtocolMinorPromptCacheResidency,
+		Major: 1, Minor: backendplugin.ProtocolMinorCancellationHandshake,
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts},
 			{Name: backendplugin.FeatureOrderedItems},
@@ -82,6 +82,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureSemanticExtensions},
 			{Name: backendplugin.FeaturePromptCacheResidency},
+			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		DisableTransportRetries: true,
 	}
@@ -95,6 +96,7 @@ func DialConfiguredSession(ctx context.Context, conn net.Conn, instanceID, facto
 			{Name: backendplugin.FeatureAccountingEvidence},
 			{Name: backendplugin.FeatureSemanticExtensions},
 			{Name: backendplugin.FeaturePromptCacheResidency},
+			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		DisableTransportRetries: true,
 	})
@@ -277,6 +279,9 @@ func (s *Session) Execute(stream backendplugin.ExecuteStream) error {
 		if sendErr := stream.Send(frame); sendErr != nil {
 			closePump()
 			return sendErr
+		}
+		if terminal {
+			_ = gs.CloseSend()
 		}
 	}
 }

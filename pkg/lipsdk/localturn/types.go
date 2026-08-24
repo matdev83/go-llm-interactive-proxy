@@ -43,7 +43,7 @@ func (r ReasonCode) Validate() error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("localturn: reason code must be ascii")
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("localturn: invalid character %q in reason code", ch)
 		}
 	}
@@ -64,7 +64,7 @@ func ValidateHandlerID(id string) error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("localturn: handler id must be ascii")
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("localturn: invalid character %q in handler id", ch)
 		}
 	}

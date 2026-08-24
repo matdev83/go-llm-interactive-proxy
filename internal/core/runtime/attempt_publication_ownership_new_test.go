@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -421,14 +422,19 @@ func TestReadyAttempt_PrepareConcurrentWithDispose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-inFlight
+		go func() {
+			for !ready.hasPendingInvalidation() {
+				time.Sleep(50 * time.Microsecond)
+			}
+			close(releasePrep)
+		}()
 		ready.Dispose(context.Background(), errors.New("concurrent dispose"))
 	}()
 
-	close(releasePrep)
 	wg.Wait()
 
-	if prepErr != nil {
-		t.Fatalf("prepare failed: %v", prepErr)
+	if prepErr == nil {
+		t.Fatal("expected prepare to fail on concurrent dispose, got nil")
 	}
 	if !ready.IsConsumed() {
 		t.Error("expected readyAttempt to be consumed/disposed")

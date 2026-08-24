@@ -287,6 +287,7 @@ type CancelOutcome struct {
 	Acknowledged bool
 	Detail       string
 	Reason       CancelReason
+	Mode         CancelMode
 }
 
 // Terminal ends an execute attempt exactly once.

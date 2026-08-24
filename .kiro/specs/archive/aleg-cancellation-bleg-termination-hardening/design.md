@@ -366,6 +366,8 @@ Required concurrency model:
 - cancellation actions are bounded by the cancel frame deadline/effective policy;
 - control-reader/upstream-reader completion has explicit join/cancel ownership; no orphan goroutines.
 
+Frame ordering is established by construction, never by timing: readers publish typed observations to the coordinator, and only the coordinator sends server frames. The negotiated `CancelOutcome` is emitted by the coordinator before the cancelled terminal it owns; reader goroutines never call `Send` directly.
+
 `CLOSE_INPUT` stays semantically distinct from CANCEL.
 
 ### Negotiated Cancellation Flow

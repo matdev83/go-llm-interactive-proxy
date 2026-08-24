@@ -108,6 +108,7 @@ func TestIntegration_SQLiteCloseReopen_RetainsTagsAndSteering(t *testing.T) {
 }
 
 func TestIntegration_Postgres_WriterLaterReader_NoStaleCache(t *testing.T) {
+	t.Parallel()
 	runtimeDSN := testkit.SkipUnlessPostgres(t)
 	adminDSN, ok := testkit.PostgresAdminDSN()
 	if !ok {

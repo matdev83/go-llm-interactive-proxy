@@ -23,15 +23,19 @@ var LegacyABIAllowlist = []string{
 	backendplugin.FeatureAccountingEvidence,
 	backendplugin.FeatureSemanticExtensions,
 	backendplugin.FeaturePromptCacheResidency,
+	backendplugin.FeatureCancellationHandshake,
 }
 
 var genericABIFieldTerms = map[string]bool{
 	"custom": true, "extension": true, "extensions": true, "semantic": true,
 	"capability": true, "capabilities": true, "session": true, "owned": true,
 	"proxy": true, "reasoning": true, "parts": true, "items": true, "ordered": true,
-	"exact":      true,
-	"accounting": true,
-	"evidence":   true,
+	"exact":        true,
+	"accounting":   true,
+	"evidence":     true,
+	"cancellation": true,
+	"handshake":    true,
+	"v1":           true,
 }
 
 var neutralABITerms = map[string]bool{
@@ -54,7 +58,7 @@ var neutralABITerms = map[string]bool{
 	"unsupported": true, "failed": true,
 	"mode": true, "access": true, "scope": true, "process": true, "sharing": true,
 	"role": true, "part": true, "kind": true, "event": true, "terminal": true,
-	"status": true, "cancel": true, "client": true, "server": true, "frame": true,
+	"status": true, "cancel": true, "cancellation": true, "handshake": true, "client": true, "server": true, "frame": true,
 	"error": true, "code": true, "reason": true, "name": true, "id": true,
 	"minor": true, "major": true, "plugin": true, "host": true, "version": true,
 	"build": true, "description": true, "prefixes": true, "dynamic": true,

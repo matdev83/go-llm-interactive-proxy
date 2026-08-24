@@ -18,8 +18,11 @@ func New() *Service { return &Service{} }
 
 func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, error) {
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: 0,
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorCancellationHandshake,
 		PluginID: "io.golip.backend.geminicliacp", Version: "0.1.0", BuildID: "localdev",
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureCancellationHandshake},
+		},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKind, DisplayName: "Gemini CLI ACP",
 			Description:              "External Gemini CLI ACP connector",

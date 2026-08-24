@@ -65,8 +65,7 @@ func (w *Writer) Put(ctx context.Context, req steering.PutRequest) (steering.Sta
 		return steering.State{}, fmt.Errorf("sdkadapter: %w", err)
 	}
 	var placement conversationview.StoredPlacement
-	var msg conversationview.StoredMessageV1
-	msg = conversationview.StoredMessageV1{
+	msg := conversationview.StoredMessageV1{
 		Role: req.Message.Role,
 		Text: req.Message.Text,
 	}

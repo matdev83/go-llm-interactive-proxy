@@ -405,7 +405,9 @@ func TestWindowsTaskReliability_TaskRunnerCaptureContract(t *testing.T) {
 	}
 	t.Parallel()
 	root := repositoryFile(t)
-	command := "$items = @(Invoke-TaskRunner -Label 'contract' -Cwd '" + strings.ReplaceAll(root, "'", "''") + "' -Timeout '1s' -Output capture -Command @('powershell', '-NoProfile', '-Command', 'Write-Output module-a; Write-Output module-b; Write-Output module-c')); Write-Output ('count=' + $items.Count); $items | ForEach-Object { Write-Output $_ }"
+	// The 30s budget tolerates cold PowerShell spawn latency on loaded CI
+	// runners; the contract under test is exact, duplicate-free capture.
+	command := "$items = @(Invoke-TaskRunner -Label 'contract' -Cwd '" + strings.ReplaceAll(root, "'", "''") + "' -Timeout '30s' -Output capture -Command @('powershell', '-NoProfile', '-Command', 'Write-Output module-a; Write-Output module-b; Write-Output module-c')); Write-Output ('count=' + $items.Count); $items | ForEach-Object { Write-Output $_ }"
 	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ". '"+strings.ReplaceAll(filepath.Join(root, "scripts", "taskrunner.ps1"), "'", "''")+"'; "+command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -440,7 +442,9 @@ func TestWindowsTaskReliability_TaskRunnerCaptureFailureDiagnosticOnce(t *testin
 	t.Parallel()
 	root := repositoryFile(t)
 	marker := "unique-powershell-taskrunner-failure-marker"
-	command := "$ErrorActionPreference = 'Continue'; try { Invoke-TaskRunner -Label 'contract-failure' -Cwd '" + strings.ReplaceAll(root, "'", "''") + "' -Timeout '1s' -Output capture -Command @('powershell', '-NoProfile', '-Command', 'Write-Output " + marker + "; exit 23') } catch { Write-Output ('caught=' + $_.Exception.Message) }"
+	// The 30s budget tolerates cold PowerShell spawn latency on loaded CI
+	// runners; the contract under test is exactly-once failure diagnostics.
+	command := "$ErrorActionPreference = 'Continue'; try { Invoke-TaskRunner -Label 'contract-failure' -Cwd '" + strings.ReplaceAll(root, "'", "''") + "' -Timeout '30s' -Output capture -Command @('powershell', '-NoProfile', '-Command', 'Write-Output " + marker + "; exit 23') } catch { Write-Output ('caught=' + $_.Exception.Message) }"
 	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ". '"+strings.ReplaceAll(filepath.Join(root, "scripts", "taskrunner.ps1"), "'", "''")+"'; "+command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

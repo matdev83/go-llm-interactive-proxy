@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +36,57 @@ func TestCoordinator_CancelALeg_cancelsActiveBLegsBeforeClose(t *testing.T) {
 		if got, want := b.calls(), []string{"cancel:client_gone", "close"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("%s calls = %v want %v", name, got, want)
 		}
+	}
+}
+
+func TestCoordinator_CancelALeg_ForcesCloseForNonCooperativeCancel(t *testing.T) {
+	t.Parallel()
+
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: 80 * time.Millisecond})
+	a := c.StartALeg("a-force-close")
+	blocked := &nonCooperativeBLeg{
+		cancelStarted: make(chan struct{}),
+		cancelDone:    make(chan struct{}),
+		releaseCancel: make(chan struct{}),
+	}
+	sibling := &signalingBLeg{cancelStarted: make(chan struct{})}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "blocked", Attempt: blocked}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "sibling", Attempt: sibling}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- c.CancelALeg(context.Background(), "a-force-close", CancelCause{Kind: CancelExplicit})
+	}()
+	select {
+	case <-blocked.cancelStarted:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("blocked B-leg Cancel did not start")
+	}
+	select {
+	case <-sibling.cancelStarted:
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("sibling cancellation was delayed by blocked B-leg")
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("CancelALeg error = %v, want deadline from forced cancellation", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("CancelALeg hung after bounded force-close")
+	}
+	select {
+	case <-blocked.cancelDone:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("owned Cancel worker remained after Close unblocked it")
+	}
+	if got := blocked.closeCalls.Load(); got != 1 {
+		t.Fatalf("blocked B-leg Close calls = %d, want 1", got)
 	}
 }
 
@@ -334,6 +386,31 @@ func (r *recordingBLeg) calls() []string {
 type erroringBLeg struct {
 	cancelErr error
 	closeErr  error
+}
+
+type nonCooperativeBLeg struct {
+	cancelStarted chan struct{}
+	cancelDone    chan struct{}
+	releaseCancel chan struct{}
+	closeCalls    atomic.Int32
+	closeOnce     sync.Once
+}
+
+func (b *nonCooperativeBLeg) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
+func (b *nonCooperativeBLeg) Cancel(context.Context, CancelCause) CancelResult {
+	close(b.cancelStarted)
+	<-b.releaseCancel
+	close(b.cancelDone)
+	return CancelResult{Mode: CancelModeProvider}
+}
+
+func (b *nonCooperativeBLeg) Close() error {
+	b.closeCalls.Add(1)
+	b.closeOnce.Do(func() { close(b.releaseCancel) })
+	return nil
 }
 
 func (e *erroringBLeg) Recv(context.Context) (lipapi.Event, error) {

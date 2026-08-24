@@ -113,8 +113,7 @@ func TestConversationViewHasNoWatcherOrBackgroundGoroutine(t *testing.T) {
 		}
 		// Package-level sync primitives as global locator
 		if strings.Contains(s, "sync.Once") || strings.Contains(s, "sync.WaitGroup") {
-			lines := strings.Split(s, "\n")
-			for _, line := range lines {
+			for line := range strings.SplitSeq(s, "\n") {
 				trim := strings.TrimSpace(line)
 				if strings.HasPrefix(trim, "var ") && (strings.Contains(trim, "Once") || strings.Contains(trim, "WaitGroup")) {
 					bad = append(bad, path+": package-level sync primitive forbidden: "+trim)
@@ -123,8 +122,7 @@ func TestConversationViewHasNoWatcherOrBackgroundGoroutine(t *testing.T) {
 		}
 		// Forbid global mutable map/slice holding Store
 		if strings.Contains(s, "var ") && (strings.Contains(s, "Store") || strings.Contains(s, "conversationview.Store")) && strings.Contains(s, "map[") {
-			lines := strings.Split(s, "\n")
-			for _, line := range lines {
+			for line := range strings.SplitSeq(s, "\n") {
 				trim := strings.TrimSpace(line)
 				if strings.HasPrefix(trim, "var ") && strings.Contains(trim, "Store") {
 					bad = append(bad, path+": global Store var forbidden: "+trim)
@@ -138,11 +136,8 @@ func TestConversationViewHasNoWatcherOrBackgroundGoroutine(t *testing.T) {
 	// Also ensure storecontract's concurrent helper is test-only (not production)
 	// Production code must not have package-level WaitGroup
 	contractPath := filepath.Join(root, "internal", "core", "conversationview", "storecontract", "contract.go")
-	if src, err := os.ReadFile(contractPath); err == nil {
-		if strings.Contains(string(src), "var wg sync.WaitGroup") {
-			// This is test contract helper, but ensure it's not in production scan - we already excluded _test.go, but this is contract.go (shared test helper)
-			// It's acceptable because it's test helper, not production.
-		}
+	if _, err := os.ReadFile(contractPath); err != nil {
+		t.Fatalf("read contract.go: %v", err)
 	}
 }
 

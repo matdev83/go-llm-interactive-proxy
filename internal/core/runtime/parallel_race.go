@@ -362,20 +362,14 @@ func (e *Executor) tryOpenParallelGroup(
 				memoUpdate:  evalOutcome.shapeRes.MemoUpdate,
 			})
 			ready.setDefaultEvidence(authorityapp.ReleaseKindLosing, sdkterminal.CommandParallelLoser, billing.LegOutcomeFailed)
-			if workerReqFacts.aScope != nil {
-				if err := workerReqFacts.aScope.RegisterBLeg(armCtx, leglifecycle.BLegHandle{
-					ID:      tx.bleg.BLegID,
-					Attempt: ready.lifecycleHandle(),
-				}); err != nil {
-					e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
-						cand:    entry.cand,
-						failErr: err,
-						bleg:    tx.bleg,
-						delta:   parallelFailureDeltaFromHistory(localHist),
-					}, nil, nil)
-					return
-				}
-				tx.registered = true
+			if err := tx.commitLaunchOrRegister(armCtx, ready, workerReqFacts.aScope); err != nil {
+				e.reportParallelArmOutcome(ctx, raceCtx, outcomeCh, parallelArmOutcome{
+					cand:    entry.cand,
+					failErr: err,
+					bleg:    tx.bleg,
+					delta:   parallelFailureDeltaFromHistory(localHist),
+				}, nil, nil)
+				return
 			}
 
 			armLeg := &parallelLeg{
@@ -737,9 +731,6 @@ func (r *parallelRoundReducer) Reduce(
 
 	// 4. Handle Fatal Errors (only when no ready winner exists).
 	if fatalErr != nil && winnerOut == nil {
-		if winnerOut != nil && winnerOut.ready != nil {
-			winnerOut.ready.Dispose(cleanupCtx, fatalErr)
-		}
 		r.releaseOpenedLegs(cleanupCtx, legs)
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatalErr)
 	}

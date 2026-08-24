@@ -40,6 +40,7 @@ type fakeTagger struct {
 func newFakeTagger() *fakeTagger {
 	return &fakeTagger{store: make(map[conversationview.MessageIdentity]conversationview.Tag), rev: 1}
 }
+
 func (f *fakeTagger) Snapshot(ctx context.Context, aLegID string) (conversationview.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -49,6 +50,7 @@ func (f *fakeTagger) Snapshot(ctx context.Context, aLegID string) (conversationv
 	}
 	return conversationview.Snapshot{StateRevision: f.rev, NeverBackend: tags}, nil
 }
+
 func (f *fakeTagger) TagNeverBackend(ctx context.Context, aLegID string, tags []conversationview.TagRequest) (conversationview.TagResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -75,6 +77,7 @@ func (f *fakeTagger) TagNeverBackend(ctx context.Context, aLegID string, tags []
 	}
 	return conversationview.TagResult{StateRevision: f.rev, Tags: out}, nil
 }
+
 func (f *fakeTagger) Calls() [][]conversationview.TagRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -113,6 +116,7 @@ func (h *fakeHandler) Match(ctx context.Context, call lipapi.Call, meta localtur
 	}
 	return localturn.MatchResult{}, nil
 }
+
 func (h *fakeHandler) Handle(ctx context.Context, in localturn.HandleInput) (localturn.Reply, error) {
 	h.handleCalls.Add(1)
 	if h.orderLog != nil {
@@ -146,7 +150,8 @@ func newLocalExecutor(t *testing.T, tagger *fakeTagger, handlers []localturn.Han
 	return ex, st, ""
 }
 
-func newInmemSecure(t *testing.T, st b2bua.Store) interface{} {
+func newInmemSecure(t *testing.T, _ b2bua.Store) any {
+	t.Helper()
 	// not needed; use detached context to bypass secure session
 	return nil
 }
@@ -231,7 +236,7 @@ func TestLocalTurn_CausalOrder_MatchSourceTagHandleReplyTagStream(t *testing.T) 
 	// stream must contain same text as reply tag identity: decode reply identity vs stream content
 	// check stream is finite and contains reply text
 	ctx := context.Background()
-	evs := collectEvents(t, ctx, stream)
+	evs := collectEvents(ctx, t, stream)
 	if len(evs) == 0 {
 		t.Fatal("no events")
 	}
@@ -253,7 +258,7 @@ func TestLocalTurn_CausalOrder_MatchSourceTagHandleReplyTagStream(t *testing.T) 
 	_ = order
 }
 
-func collectEvents(t *testing.T, ctx context.Context, s lipapi.EventStream) []lipapi.Event {
+func collectEvents(ctx context.Context, t *testing.T, s lipapi.EventStream) []lipapi.Event {
 	t.Helper()
 	var out []lipapi.Event
 	for {
@@ -520,8 +525,7 @@ func TestLocalTurn_CancellationAndCloseFiniteNoGoroutine(t *testing.T) {
 	cancel()
 	_, err = stream.Recv(ctx)
 	if !errors.Is(err, context.Canceled) && err != context.Canceled {
-		// FixedEventStream checks ctx.Err before delivering; should return canceled
-		// Allow either canceled or EOF if already consumed? We check that it respects cancellation.
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 	// Close must be safe and idempotent, no goroutine leak
 	if err := stream.Close(); err != nil {
@@ -535,7 +539,7 @@ func TestLocalTurn_CancellationAndCloseFiniteNoGoroutine(t *testing.T) {
 		_, e := stream.Recv(context.Background())
 		if e != nil {
 			if !errors.Is(e, io.EOF) && !errors.Is(e, context.Canceled) {
-				// after Close, FixedEventStream still returns EOF for remaining
+				t.Fatalf("expected EOF or Canceled, got %v", e)
 			}
 			break
 		}
@@ -646,7 +650,6 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			expectPanic: true,
 		},
 	} {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -762,21 +765,27 @@ type blockingStore struct {
 func (b *blockingStore) ResolveALeg(ctx context.Context, k string) (b2bua.ALegRecord, error) {
 	return b.inner.ResolveALeg(ctx, k)
 }
+
 func (b *blockingStore) CreateALeg(ctx context.Context, k string) (b2bua.ALegRecord, error) {
 	return b.inner.CreateALeg(ctx, k)
 }
+
 func (b *blockingStore) FetchALeg(ctx context.Context, id string) (b2bua.ALegRecord, error) {
 	return b.inner.FetchALeg(ctx, id)
 }
+
 func (b *blockingStore) SetWeightedFirstConsumed(ctx context.Context, aLegID string, consumed bool) error {
 	return b.inner.SetWeightedFirstConsumed(ctx, aLegID, consumed)
 }
+
 func (b *blockingStore) NextBLeg(ctx context.Context, aLegID string) (b2bua.BLegRecord, error) {
 	return b.inner.NextBLeg(ctx, aLegID)
 }
+
 func (b *blockingStore) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) error {
 	return b.inner.RecordAttempt(ctx, rec)
 }
+
 func (b *blockingStore) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.AttemptRecord, error) {
 	return b.inner.LoadAttempts(ctx, aLegID)
 }

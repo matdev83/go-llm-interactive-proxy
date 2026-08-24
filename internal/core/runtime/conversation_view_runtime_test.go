@@ -49,6 +49,7 @@ func (c *countingReader) Snapshot(ctx context.Context, aLegID string) (conversat
 	}
 	return conversationview.Snapshot{}, nil
 }
+
 func (c *countingReader) Count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -572,7 +573,7 @@ func TestConversationView_SecureSeamOrder(t *testing.T) {
 	if idxFetch == -1 || idxSubmit == -1 || idxSnapshot == -1 {
 		t.Fatalf("missing events %v", events)
 	}
-	if !(idxFetch < idxSubmit && idxSubmit < idxSnapshot) {
+	if idxFetch >= idxSubmit || idxSubmit >= idxSnapshot {
 		t.Fatalf("order FetchALeg->Submit->Snapshot wrong %v", events)
 	}
 	if idxRequest != -1 && idxSnapshot > idxRequest {
@@ -617,9 +618,7 @@ func TestConversationView_OneSnapshotThroughBackendOpen(t *testing.T) {
 	ctx := execDetachedCtx(context.Background())
 	call := recordingCall("openai:gpt-4", nil)
 	_, err := ex.Execute(ctx, call)
-	if err != nil {
-		// may fail due to missing route but snapshot count still 1
-	}
+	_ = err // may fail due to missing route but snapshot count still 1
 	if counting.Count() != 1 {
 		t.Fatalf("expected exactly 1 Snapshot through Execute, got %d events %v", counting.Count(), events)
 	}
@@ -682,11 +681,13 @@ func TestConversationView_FailureCountersZero(t *testing.T) {
 	cv := st.ConversationViewStore()
 	rec, _ := st.CreateALeg(context.Background(), "fail-ctr")
 	anchor := conversationview.MessageAnchor{Identity: conversationview.MessageIdentity("v1:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"), Occurrence: 1}
-	cv.PutSteering(context.Background(), rec.ALegID, conversationview.PutSteeringRequest{
+	if _, err := cv.PutSteering(context.Background(), rec.ALegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-fail-ctr", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "steer"},
 		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementAfterMessage, Anchor: &anchor},
 		AnchorMissingPolicy: conversationview.AnchorFailClosed, Reason: "test",
-	})
+	}); err != nil {
+		t.Fatalf("PutSteering: %v", err)
+	}
 	snap, _ := cv.Snapshot(context.Background(), rec.ALegID)
 	reader2 := &staticReader{snap: snap}
 	preReqCount.Store(0)
@@ -746,11 +747,15 @@ func TestConversationView_SummaryBounded(t *testing.T) {
 	rec, _ := st.CreateALeg(context.Background(), "sum-ck")
 	hiMsg := lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}
 	hiID, _ := conversationview.MessageIdentityOf(hiMsg)
-	cv.TagNeverBackend(context.Background(), rec.ALegID, []conversationview.TagRequest{{Identity: hiID, Reason: "r"}})
-	cv.PutSteering(context.Background(), rec.ALegID, conversationview.PutSteeringRequest{
+	if _, err := cv.TagNeverBackend(context.Background(), rec.ALegID, []conversationview.TagRequest{{Identity: hiID, Reason: "r"}}); err != nil {
+		t.Fatalf("TagNeverBackend: %v", err)
+	}
+	if _, err := cv.PutSteering(context.Background(), rec.ALegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-sum-123", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "super-secret-plaintext-value"},
 		Placement: conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix}, AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
-	})
+	}); err != nil {
+		t.Fatalf("PutSteering: %v", err)
+	}
 	snap, _ := cv.Snapshot(context.Background(), rec.ALegID)
 	call := lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}, {Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("keep")}}}}
 	_, ev, _ := conversationview.Project(call, snap)
@@ -771,7 +776,9 @@ func TestConversationView_SummaryBounded(t *testing.T) {
 		t.Fatalf("state revision mismatch %d vs %d", sum.StateRevision, snap.StateRevision)
 	}
 	var m map[string]any
-	json.Unmarshal(raw, &m)
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
 	for k := range m {
 		switch k {
 		case "state_revision", "filtered_count", "injected_count", "stable_prefix_count", "after_message_count", "fallback_count", "max_overlay_revision", "max_slot_ordinal":
@@ -879,11 +886,15 @@ func TestConversationView_BoundedEvidenceAndProvenanceSeparation(t *testing.T) {
 	rec, _ := st.CreateALeg(ctx, "ck-ev")
 	aLegID := rec.ALegID
 	cv := st.ConversationViewStore()
-	cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: conversationview.MessageIdentity("v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Reason: "r"}})
-	cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
+	if _, err := cv.TagNeverBackend(ctx, aLegID, []conversationview.TagRequest{{Identity: conversationview.MessageIdentity("v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Reason: "r"}}); err != nil {
+		t.Fatalf("TagNeverBackend: %v", err)
+	}
+	if _, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 		OverlayID: "ov-ev", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "secret-plaintext"},
 		Placement: conversationview.StoredPlacement{Kind: conversationview.PlacementStablePrefix}, AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback, Reason: "r",
-	})
+	}); err != nil {
+		t.Fatalf("PutSteering: %v", err)
+	}
 	snap, _ := cv.Snapshot(ctx, aLegID)
 	call := lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
 	_, ev, _ := conversationview.Project(call, snap)
@@ -969,6 +980,7 @@ func (s *stubB2BUAStore) CreateALeg(ctx context.Context, k string) (b2bua.ALegRe
 	}
 	return s.Store.CreateALeg(ctx, k)
 }
+
 func (s *stubB2BUAStore) FetchALeg(ctx context.Context, id string) (b2bua.ALegRecord, error) {
 	if s.Store == nil {
 		mem, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -976,6 +988,7 @@ func (s *stubB2BUAStore) FetchALeg(ctx context.Context, id string) (b2bua.ALegRe
 	}
 	return s.Store.FetchALeg(ctx, id)
 }
+
 func (s *stubB2BUAStore) ResolveALeg(ctx context.Context, k string) (b2bua.ALegRecord, error) {
 	if s.Store == nil {
 		mem, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

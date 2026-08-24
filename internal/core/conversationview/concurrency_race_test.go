@@ -34,12 +34,12 @@ func TestConcurrent_TagVsSnapshot_Deterministic(t *testing.T) {
 	errCh := make(chan error, goroutines*2)
 
 	// Writers: tag batches
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		wg.Add(1)
 		go func(gid int) {
 			defer wg.Done()
 			<-start
-			for i := 0; i < tagsPerGoroutine; i++ {
+			for i := range tagsPerGoroutine {
 				msg := testMessage(fmt.Sprintf("tag-g%d-i%d", gid, i))
 				id, err := conversationview.MessageIdentityOf(msg)
 				if err != nil {
@@ -54,12 +54,10 @@ func TestConcurrent_TagVsSnapshot_Deterministic(t *testing.T) {
 		}(g)
 	}
 	// Readers: snapshot repeatedly with deterministic validation (sorted, bounded)
-	for r := 0; r < goroutines; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			<-start
-			for i := 0; i < tagsPerGoroutine; i++ {
+			for range tagsPerGoroutine {
 				snap, err := store.Snapshot(ctx, aLeg)
 				if err != nil {
 					errCh <- err
@@ -74,7 +72,7 @@ func TestConcurrent_TagVsSnapshot_Deterministic(t *testing.T) {
 					snap.NeverBackend[0].Reason = "mutated"
 				}
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -104,12 +102,12 @@ func TestConcurrent_SteeringPutVsSnapshot_Deterministic(t *testing.T) {
 	const readers = 4
 	const putsPerWriter = 16
 
-	for w := 0; w < writers; w++ {
+	for w := range writers {
 		wg.Add(1)
 		go func(wid int) {
 			defer wg.Done()
 			<-start
-			for i := 0; i < putsPerWriter; i++ {
+			for i := range putsPerWriter {
 				ovID := fmt.Sprintf("ov-w%d-i%d", wid, i)
 				_, err := store.PutSteering(ctx, aLeg, conversationview.PutSteeringRequest{
 					OverlayID:           ovID,
@@ -132,12 +130,10 @@ func TestConcurrent_SteeringPutVsSnapshot_Deterministic(t *testing.T) {
 			}
 		}(w)
 	}
-	for r := 0; r < readers; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
-			for i := 0; i < putsPerWriter*2; i++ {
+			for range putsPerWriter * 2 {
 				snap, err := store.Snapshot(ctx, aLeg)
 				if err != nil {
 					errCh <- err
@@ -164,7 +160,7 @@ func TestConcurrent_SteeringPutVsSnapshot_Deterministic(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -202,11 +198,9 @@ func TestConcurrent_MixedMutationsVsSnapshot_ProjectIsPure(t *testing.T) {
 	errCh := make(chan error, 32)
 
 	// Writer: tag + put steering concurrently.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			m := testMessage(fmt.Sprintf("writer-msg-%d", i))
 			id, _ := conversationview.MessageIdentityOf(m)
 			if _, err := store.TagNeverBackend(ctx, aLeg, []conversationview.TagRequest{{Identity: id, Reason: "writer"}}); err != nil {
@@ -223,14 +217,12 @@ func TestConcurrent_MixedMutationsVsSnapshot_ProjectIsPure(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	// Reader: snapshot + pure Project must remain deterministic per snapshot (no data race inside Project).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			snap, err := store.Snapshot(ctx, aLeg)
 			if err != nil {
 				errCh <- err
@@ -254,12 +246,10 @@ func TestConcurrent_MixedMutationsVsSnapshot_ProjectIsPure(t *testing.T) {
 			_ = out
 			_ = ev
 		}
-	}()
+	})
 
 	// Reader 2: concurrent Reassert (pure, no I/O) using frozen snapshot.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		// Take a frozen snapshot at start of this reader.
 		snapFrozen, _ := store.Snapshot(ctx, aLeg)
@@ -270,7 +260,7 @@ func TestConcurrent_MixedMutationsVsSnapshot_ProjectIsPure(t *testing.T) {
 			return
 		}
 		filtered, _ := conversationview.FilterNeverBackend(base, snapFrozen)
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			// Reassert must be pure and not read store.
 			_, _, err := conversationview.Reassert(projected, snapFrozen, ev.Provenance, filtered)
 			if err != nil {
@@ -278,7 +268,7 @@ func TestConcurrent_MixedMutationsVsSnapshot_ProjectIsPure(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	close(start)
 	wg.Wait()
@@ -350,7 +340,7 @@ func TestConcurrent_ProjectAndReassert_StablePrefixInvariant(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, workers)
 	results := make([][]string, workers)
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

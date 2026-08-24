@@ -18,6 +18,7 @@ type stubWriter struct{}
 func (s *stubWriter) Put(_ context.Context, _ steering.PutRequest) (steering.State, error) {
 	return steering.State{}, nil
 }
+
 func (s *stubWriter) Deactivate(_ context.Context, _ steering.OverlayID) (steering.State, error) {
 	return steering.State{}, nil
 }
@@ -45,7 +46,6 @@ func TestOverlayID_Validation(t *testing.T) {
 		{"max", steering.OverlayID(strings.Repeat("a", 128)), false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.id.Validate()
@@ -105,7 +105,6 @@ func TestMessage_Validation(t *testing.T) {
 		{"max boundary", steering.Message{Role: lipapi.RoleUser, Text: strings.Repeat("a", 64*1024)}, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.msg.Validate()
@@ -157,7 +156,6 @@ func TestPutRequest_Validation(t *testing.T) {
 		}, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			req := tc.mutate(valid)

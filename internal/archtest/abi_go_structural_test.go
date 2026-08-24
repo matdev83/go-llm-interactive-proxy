@@ -246,6 +246,7 @@ var exactProtocolVersionSymbols = map[string]string{
 	"ProtocolMinorAccountingEvidence":       "ProtocolMinorAccountingEvidence uint32 = 5",
 	"ProtocolMinorSemanticExtensions":       "ProtocolMinorSemanticExtensions uint32 = 6",
 	"ProtocolMinorPromptCacheResidency":     "ProtocolMinorPromptCacheResidency uint32 = 7",
+	"ProtocolMinorCancellationHandshake":    "ProtocolMinorCancellationHandshake uint32 = 8",
 }
 
 func protocolSpecificABISymbol(name string) bool {
@@ -299,6 +300,16 @@ func TestPublicBackendPluginABIBaselineIsExact(t *testing.T) {
 	actual, err := ScanPublicBackendPluginABI("../..")
 	if err != nil {
 		t.Fatalf("scan public backend-plugin ABI: %v", err)
+	}
+	if os.Getenv("UPDATE_BASELINE") == "1" {
+		data, err := json.MarshalIndent(actual, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal actual ABI baseline: %v", err)
+		}
+		if err := os.WriteFile("testdata/backend_plugin_go_abi_baseline.json", append(data, '\n'), 0o644); err != nil {
+			t.Fatalf("write ABI baseline: %v", err)
+		}
+		return
 	}
 	raw, err := os.ReadFile("testdata/backend_plugin_go_abi_baseline.json")
 	if err != nil {

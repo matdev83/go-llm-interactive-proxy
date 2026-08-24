@@ -38,7 +38,7 @@ func (r ReasonCode) Validate() error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("%w: reason code must be ascii", ErrInvalidReasonCode)
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("%w: invalid character %q in reason code", ErrInvalidReasonCode, ch)
 		}
 	}
@@ -59,7 +59,7 @@ func validateOverlayID(id string) error {
 		if ch > unicode.MaxASCII {
 			return fmt.Errorf("%w: overlay id must be ascii", ErrInvalidOverlayID)
 		}
-		if !(ch == '_' || ch == '-' || ch == '.' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+		if ch != '_' && ch != '-' && ch != '.' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return fmt.Errorf("%w: invalid character %q in overlay id", ErrInvalidOverlayID, ch)
 		}
 	}

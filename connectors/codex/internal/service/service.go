@@ -34,7 +34,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 	}
 	transport := backendplugin.TransportCapabilitySummary{Cancellation: true, BidirectionalStream: true}
 	return backendplugin.PluginDescriptor{
-		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorAccountingEvidence,
+		ProtocolMajor: 1, ProtocolMinor: backendplugin.ProtocolMinorCancellationHandshake,
 		PluginID: PluginID, Version: "0.1.0", BuildID: "localdev",
 		Features: []backendplugin.Feature{
 			{Name: backendplugin.FeatureExactReasoningParts, Required: true},
@@ -42,6 +42,7 @@ func (s *Service) Describe(context.Context) (backendplugin.PluginDescriptor, err
 			{Name: backendplugin.FeatureExactOpenResponsesFields},
 			{Name: backendplugin.FeatureProxyOwnedSessionID},
 			{Name: backendplugin.FeatureAccountingEvidence, Required: true},
+			{Name: backendplugin.FeatureCancellationHandshake},
 		},
 		Factories: []backendplugin.FactoryDescriptor{{
 			Kind: FactoryKindHTTP, DisplayName: "OpenAI Codex", Description: "OpenAI Codex Responses backend",

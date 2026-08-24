@@ -112,6 +112,8 @@ type attemptTx struct {
 	completed        bool
 	failures         *candidateFailureHistory
 
+	launchPermit *leglifecycle.LaunchPermit
+
 	// attempt-local resources
 	accounting            attemptAccountingTracker
 	toolFinal             *toolCallAssembler
@@ -154,7 +156,11 @@ func (e *Executor) newAttemptSession(in attemptSessionInput) *attemptSession {
 		in.observeBillingLeg = e.observeBillingLeg
 		in.appendBillingLeg = e.appendIndependentCallLeg
 	}
-	return newAttemptSession(in)
+	sess := newAttemptSession(in)
+	if e != nil {
+		sess.recordCancellationFn = e.recordCancellation
+	}
+	return sess
 }
 
 func (tx *attemptTx) createSession() *attemptSession {
@@ -224,6 +230,7 @@ func (tx *attemptTx) rollback(ctx context.Context, cmd sdkterminal.Command, evid
 	if tx == nil || tx.completed {
 		return attemptTerminalResult{}
 	}
+	tx.abortLaunchPermit()
 	if tx.budgetAcquired && tx.budget != nil && !tx.backendAttempted {
 		tx.budget.release()
 		tx.budgetAcquired = false
@@ -266,6 +273,62 @@ func (tx *attemptTx) recordFailure(ctx context.Context, outcome lipapi.AttemptOu
 		Reason:    reason,
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: tx.reqFacts.traceID, BLegID: tx.bleg.BLegID})
+}
+
+// abortLaunchPermit releases an uncommitted launch permit exactly once.
+func (tx *attemptTx) abortLaunchPermit() {
+	if tx == nil || tx.launchPermit == nil {
+		return
+	}
+	tx.launchPermit.Abort()
+	tx.launchPermit = nil
+}
+
+// commitLaunchOrRegister transfers a successful Open into A-leg authority:
+// committing the launch permit when present, else registering directly with
+// the A-leg scope. It terminalizes/disposes through the ready owner on every
+// failure disposition and returns the disposition error:
+//   - leglifecycle.ErrALegCanceled when the permit observed sticky cancellation;
+//   - the commit error, when registration-through-permit failed;
+//   - ctx.Err() when the context died between commit and use;
+//   - the RegisterBLeg error for direct A-leg scope registration.
+func (tx *attemptTx) commitLaunchOrRegister(ctx context.Context, ready *readyAttempt, aScope *leglifecycle.ALeg) error {
+	if tx == nil {
+		return nil
+	}
+	if tx.launchPermit != nil {
+		commitRes, commitErr := tx.launchPermit.Commit(ready.lifecycleHandle())
+		tx.registered = true
+		tx.launchPermit = nil
+		if commitRes.Canceled {
+			cause := commitRes.Cause
+			if cause.Kind == "" {
+				cause = leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+			}
+			ready.cancelViaLifecycle(ctx, cause)
+			return leglifecycle.ErrALegCanceled
+		}
+		if commitErr != nil {
+			ready.Dispose(ctx, commitErr)
+			return commitErr
+		}
+		if err := ctx.Err(); err != nil {
+			ready.cancelViaLifecycle(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
+			return err
+		}
+		return nil
+	}
+	if aScope != nil {
+		if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      tx.bleg.BLegID,
+			Attempt: ready.lifecycleHandle(),
+		}); err != nil {
+			ready.Dispose(ctx, err)
+			return err
+		}
+		tx.registered = true
+	}
+	return nil
 }
 
 func (e *Executor) startAttemptTx(ctx context.Context, rf requestFacts, route routeFacts, cand routing.AttemptCandidate, budget *attemptBudget, failures *candidateFailureHistory) (*attemptTx, error) {
@@ -681,6 +744,21 @@ func (e *Executor) openAttemptTx(
 		baseOpenCtx, cancelOpen, ttftDeadline = tx.failures.progress.ttft.scopedContext(ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
 	}
 	defer cancelOpen()
+
+	if tx.reqFacts.aScope != nil {
+		permitCtx, permit, perr := tx.reqFacts.aScope.BeginBLegLaunch(baseOpenCtx, tx.bleg.BLegID)
+		if perr != nil {
+			if errors.Is(perr, leglifecycle.ErrALegCanceled) {
+				tx.recordFailure(ctx, lipapi.AttemptCancelled, "a-leg canceled before launch", perr)
+				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, billing.LegOutcomeNeverStarted, perr, "a-leg canceled before launch")
+				return nil
+			}
+			return perr
+		}
+		tx.launchPermit = permit
+		baseOpenCtx = permitCtx
+	}
+
 	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(
 		baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
@@ -691,6 +769,7 @@ func (e *Executor) openAttemptTx(
 	defer openSpan.End()
 	openStart := e.now()
 	if aerr := e.assertSecureSessionActiveBeforeOpen(openCtx); aerr != nil {
+		tx.abortLaunchPermit()
 		return aerr
 	}
 	tx.openStartedAt = openStart
@@ -708,6 +787,7 @@ func (e *Executor) openAttemptTx(
 	tx.stream = stream
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
+		tx.abortLaunchPermit()
 		var pe *safety.PanicError
 		if errors.As(err, &pe) {
 			err = mapBackendPanic(pe, false, c.Key)
@@ -934,6 +1014,20 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		req.progress.excluded[plan.cand.Key] = struct{}{}
 		return openedAttempt{ready: nil, interleaved: req.interleaved}, nil
 	}
+
+	ready := tx.HandoffReady(pendingSelectionEffects{
+		interleaved: req.interleaved,
+		memoUpdate:  nil,
+	})
+
+	if err := tx.commitLaunchOrRegister(ctx, ready, req.reqFacts.aScope); err != nil {
+		if errors.Is(err, leglifecycle.ErrALegCanceled) {
+			req.progress.excluded[plan.cand.Key] = struct{}{}
+			return openedAttempt{ready: nil, interleaved: req.interleaved}, err
+		}
+		return openedAttempt{interleaved: req.interleaved}, err
+	}
+
 	interleaved := req.interleaved
 	if plan.nextCycle != nil {
 		interleaved.Cycle = *plan.nextCycle
@@ -942,11 +1036,7 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 	if req.reqFacts.suppressThinker {
 		if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, perr)
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
@@ -955,38 +1045,21 @@ func (e *Executor) evaluateAndOpenCandidate(ctx context.Context, req openNextReq
 		if evalOutcome.shapeRes.MemoUpdate != nil {
 			interleaved, err = e.commitMemoInjection(ctx, req.reqFacts.aLegID, interleaved, evalOutcome.shapeRes.MemoUpdate)
 			if err != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, err)
 				return openedAttempt{interleaved: req.interleaved}, err
 			}
 		} else if plan.nextCycle != nil {
 			if perr := e.persistInterleavedState(ctx, req.reqFacts.aLegID, interleaved); perr != nil {
-				outcome := billing.LegOutcomeFailed
-				if errors.Is(perr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-					outcome = billing.LegOutcomeCanceled
-				}
-				tx.rollbackSimple(ctx, sdkterminal.CommandBackendOpenFailure, authorityapp.ReleaseKindAdmissionFailure, outcome, nil, "")
+				ready.Dispose(ctx, perr)
 				return openedAttempt{interleaved: req.interleaved}, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
 			}
 		}
 	}
 	e.logInterleavedRouteSelected(ctx, req.reqFacts.traceID, tx.bleg.BLegID, plan.cand, req.interleaved.Cycle, interleaved.Cycle)
-	ready := tx.HandoffReady(pendingSelectionEffects{
+	ready.setPending(pendingSelectionEffects{
 		interleaved: interleaved,
 		memoUpdate:  memoUpdate,
 	})
-	if req.reqFacts.aScope != nil {
-		if err := req.reqFacts.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      tx.bleg.BLegID,
-			Attempt: ready.lifecycleHandle(),
-		}); err != nil {
-			return openedAttempt{interleaved: req.interleaved}, err
-		}
-		tx.registered = true
-	}
 	return openedAttempt{
 		ready:       ready,
 		interleaved: interleaved,

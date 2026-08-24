@@ -15,7 +15,7 @@ import (
 
 func benchCallWithMessages(n int) lipapi.Call {
 	msgs := make([]lipapi.Message, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		msgs = append(msgs, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: fmt.Sprintf("bench-msg-%d", i)}}})
 	}
 	return lipapi.Call{Messages: msgs}
@@ -23,7 +23,7 @@ func benchCallWithMessages(n int) lipapi.Call {
 
 func benchCallWithItems(n int) lipapi.Call {
 	items := make([]lipapi.Item, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		items = append(items, lipapi.Item{Kind: lipapi.ItemKindMessage, ID: fmt.Sprintf("id-%d", i), Status: lipapi.ItemStatusCompleted, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: fmt.Sprintf("bench-item-%d", i)}}})
 	}
 	return lipapi.Call{Items: items}
@@ -31,7 +31,7 @@ func benchCallWithItems(n int) lipapi.Call {
 
 func benchSnapshot4096Tags() conversationview.Snapshot {
 	tags := make([]conversationview.Tag, 0, 4096)
-	for i := 0; i < 4096; i++ {
+	for i := range 4096 {
 		digest := fmt.Sprintf("%064x", i)
 		id := conversationview.MessageIdentity("v1:" + digest)
 		tags = append(tags, conversationview.Tag{Identity: id, Reason: "bench"})
@@ -42,7 +42,7 @@ func benchSnapshot4096Tags() conversationview.Snapshot {
 func benchSnapshot64Overlays256KiB() conversationview.Snapshot {
 	// 64 overlays, each 4 KiB -> 256 KiB total.
 	steering := make([]conversationview.SteeringOverlay, 0, 64)
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		text := strings.Repeat("a", 4096)
 		ov := conversationview.SteeringOverlay{
 			OverlayID:           fmt.Sprintf("ov-%d", i),
@@ -95,8 +95,7 @@ func BenchmarkProject_4096Tags_20Messages(b *testing.B) {
 			b.Fatalf("project: %v", err)
 		}
 		if ev.FilteredCount != 0 {
-			// 20 messages none match 4096 synthetic tags (digests are synthetic, not derived from these messages),
-			// so filtered 0 is expected; keep branch to avoid optimization elimination.
+			b.Fatalf("filtered %d want 0", ev.FilteredCount)
 		}
 	}
 }

@@ -11,6 +11,7 @@ type ExecutorProm struct {
 	attempts           *prometheus.CounterVec
 	openDur            *prometheus.HistogramVec
 	transportDecisions *prometheus.CounterVec
+	cancellations      *prometheus.CounterVec
 }
 
 var openAttemptBuckets = []float64{
@@ -45,9 +46,25 @@ func RegisterExecutorProm(reg prometheus.Registerer) *ExecutorProm {
 			},
 			[]string{"operation", "mode", "outcome"},
 		),
+		cancellations: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "executor_cancellations_total",
+				Help:      "Executor cancellations recorded with low-cardinality cause class, mode, phase, and fallback.",
+			},
+			[]string{"cause_class", "mode", "phase", "fallback"},
+		),
 	}
-	reg.MustRegister(m.attempts, m.openDur, m.transportDecisions)
+	reg.MustRegister(m.attempts, m.openDur, m.transportDecisions, m.cancellations)
 	return m
+}
+
+// ObserveCancellation records a cancellation event with strictly bounded low-cardinality labels.
+func (m *ExecutorProm) ObserveCancellation(obs runtime.CancellationObservation) {
+	if m == nil || m.cancellations == nil {
+		return
+	}
+	m.cancellations.WithLabelValues(string(obs.CauseClass), string(obs.Mode), string(obs.Phase), string(obs.Fallback)).Inc()
 }
 
 type executorPromSink struct {
@@ -105,4 +122,11 @@ func (s *executorPromSink) OnTransportNegotiation(operation lipapi.Operation, mo
 		o = "other"
 	}
 	s.p.transportDecisions.WithLabelValues(op, m, o).Inc()
+}
+
+func (s *executorPromSink) OnCancellation(obs runtime.CancellationObservation) {
+	if s == nil || s.p == nil {
+		return
+	}
+	s.p.ObserveCancellation(obs)
 }

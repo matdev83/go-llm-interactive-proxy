@@ -270,7 +270,7 @@ func Run(t *testing.T, env Env) {
 		createALegMust(t, deps, aLeg)
 
 		batch := make([]conversationview.TagRequest, conversationview.MaxNeverBackendTags)
-		for i := 0; i < conversationview.MaxNeverBackendTags; i++ {
+		for i := range conversationview.MaxNeverBackendTags {
 			batch[i] = conversationview.TagRequest{Identity: testIdentity(i + 1), Reason: testReason("r")}
 		}
 		res, err := deps.Store.TagNeverBackend(context.Background(), aLeg, batch)
@@ -495,7 +495,7 @@ func Run(t *testing.T, env Env) {
 			deps := env.New(t)
 			aLeg := testALegID("cap-64")
 			createALegMust(t, deps, aLeg)
-			for i := 0; i < conversationview.MaxActiveOverlays; i++ {
+			for i := range conversationview.MaxActiveOverlays {
 				_, err := deps.Store.PutSteering(context.Background(), aLeg, conversationview.PutSteeringRequest{
 					OverlayID:           fmt.Sprintf("ov-%d", i),
 					Message:             testMessage(fmt.Sprintf("text-%d", i), lipapi.RoleUser),
@@ -555,7 +555,7 @@ func Run(t *testing.T, env Env) {
 			aLeg := testALegID("cap-256k")
 			createALegMust(t, deps, aLeg)
 			text64k := strings.Repeat("b", conversationview.MaxSteeringTextBytes)
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				_, err := deps.Store.PutSteering(context.Background(), aLeg, conversationview.PutSteeringRequest{
 					OverlayID:           fmt.Sprintf("ov%d", i),
 					Message:             testMessage(text64k, lipapi.RoleUser),
@@ -587,7 +587,7 @@ func Run(t *testing.T, env Env) {
 			// Fill with many small overlays to leave count headroom but approach byte cap.
 			// Use 5 overlays of 50KiB = 256000 bytes, just under 256KiB, so a replace with 64KiB pushes over.
 			text50k := strings.Repeat("c", 50*1024)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				_, err := deps.Store.PutSteering(context.Background(), aLeg, conversationview.PutSteeringRequest{
 					OverlayID:           fmt.Sprintf("ovr-%d", i),
 					Message:             testMessage(text50k, lipapi.RoleUser),
@@ -783,7 +783,7 @@ func Run(t *testing.T, env Env) {
 
 		var wg sync.WaitGroup
 		errs := make(chan error, 20)
-		for n := 0; n < 10; n++ {
+		for n := range 10 {
 			wg.Add(1)
 			n := n
 			env.Spawn(func() {
@@ -794,7 +794,7 @@ func Run(t *testing.T, env Env) {
 				}
 			})
 		}
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			wg.Add(1)
 			env.Spawn(func() {
 				defer wg.Done()

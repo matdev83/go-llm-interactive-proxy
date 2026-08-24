@@ -271,7 +271,15 @@ func CancelOutcomeFromProto(p *backendpluginv1.CancelOutcome) (*CancelOutcome, e
 	if err != nil {
 		return nil, err
 	}
-	return &CancelOutcome{Acknowledged: p.GetAcknowledged(), Detail: p.GetDetail(), Reason: reason}, nil
+	var mode CancelMode
+	if p.GetMode() != backendpluginv1.CancelMode_CANCEL_MODE_UNSPECIFIED {
+		var modeErr error
+		mode, modeErr = cancelModeFromProto(p.GetMode())
+		if modeErr != nil {
+			return nil, modeErr
+		}
+	}
+	return &CancelOutcome{Acknowledged: p.GetAcknowledged(), Detail: p.GetDetail(), Reason: reason, Mode: mode}, nil
 }
 
 // CancelOutcomeToProto encodes cancel outcomes.
@@ -283,5 +291,13 @@ func CancelOutcomeToProto(c *CancelOutcome) (*backendpluginv1.CancelOutcome, err
 	if err != nil {
 		return nil, err
 	}
-	return &backendpluginv1.CancelOutcome{Acknowledged: c.Acknowledged, Detail: c.Detail, Reason: reason}, nil
+	var mode backendpluginv1.CancelMode
+	if c.Mode != "" && c.Mode != CancelModeUnspecified {
+		var modeErr error
+		mode, modeErr = cancelModeToProto(c.Mode)
+		if modeErr != nil {
+			return nil, modeErr
+		}
+	}
+	return &backendpluginv1.CancelOutcome{Acknowledged: c.Acknowledged, Detail: c.Detail, Reason: reason, Mode: mode}, nil
 }

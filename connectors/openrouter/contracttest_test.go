@@ -7,8 +7,8 @@ import (
 	"time"
 
 	backendpluginv1 "github.com/matdev83/go-llm-interactive-proxy/api/backendplugin/v1"
+	"github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/openrouter/internal/service"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/contracttest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin/host"
@@ -17,10 +17,23 @@ import (
 )
 
 func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBundle) func(context.Context, backendplugin.Service) (contracttest.HostSession, func(), error) {
+	return bufconnHostWithOffer(factory, config, secrets, backendplugin.ProtocolOffer{
+		Major:                   1,
+		Minor:                   backendplugin.ProtocolMinorCancellationHandshake,
+		DisableTransportRetries: true,
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
+			{Name: backendplugin.FeatureProxyOwnedSessionID},
+			{Name: backendplugin.FeatureCancellationHandshake},
+		},
+	})
+}
+
+func bufconnHostWithOffer(factory string, config []byte, secrets backendplugin.SecretBundle, offer backendplugin.ProtocolOffer) func(context.Context, backendplugin.Service) (contracttest.HostSession, func(), error) {
 	return func(ctx context.Context, svc backendplugin.Service) (contracttest.HostSession, func(), error) {
 		lis := bufconn.Listen(1 << 20)
 		server := grpc.NewServer()
-		offer := backendplugin.ProtocolOffer{Major: 1, Minor: backendplugin.ProtocolMinorProxyOwnedSessionID, DisableTransportRetries: true, Features: []backendplugin.Feature{{Name: backendplugin.FeatureOrderedItems}, {Name: backendplugin.FeatureExactOpenResponsesFields}, {Name: backendplugin.FeatureProxyOwnedSessionID}}}
 		backendpluginv1.RegisterBackendPluginServer(server, backendplugin.NewGRPCServer(offer, svc))
 		go func() { _ = server.Serve(lis) }()
 		conn, err := lis.Dial()
@@ -40,10 +53,78 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 }
 
 func TestSupportedContractTCK(t *testing.T) {
-	srv := httptest.NewServer(openaichat.NewHandler(openaichat.Config{AllowMissingBearer: true}))
+	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
-	result := contracttest.Run(t, contracttest.Config{PluginID: "openrouter", Version: "test", Timeout: 10 * time.Second, FactoryKind: service.FactoryKind, ConfigYAML: []byte("base_url: " + srv.URL + "\n"), Secrets: backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}}, Start: func(context.Context) (backendplugin.Service, func(), error) { return service.New(), nil, nil }, StartHost: bufconnHost(service.FactoryKind, []byte("base_url: "+srv.URL+"\n"), backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}})})
+	result := contracttest.Run(t, contracttest.Config{
+		PluginID:    "openrouter",
+		Version:     "test",
+		Timeout:     10 * time.Second,
+		FactoryKind: service.FactoryKind,
+		ConfigYAML:  []byte("base_url: " + srv.URL + "\n"),
+		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}},
+		Start: func(context.Context) (backendplugin.Service, func(), error) {
+			return service.New(), nil, nil
+		},
+		StartHost: bufconnHost(
+			service.FactoryKind,
+			[]byte("base_url: "+srv.URL+"\n"),
+			backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}},
+		),
+	})
 	if err := result.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	if !containsFeature(result.Negotiated.EnabledFeatures, backendplugin.FeatureCancellationHandshake) {
+		t.Fatalf("negotiated handshake must be enabled for minor 8, got negotiated=%+v", result.Negotiated)
+	}
+	if result.Negotiated.NegotiatedMinor != backendplugin.ProtocolMinorCancellationHandshake {
+		t.Fatalf("negotiated minor=%d want %d", result.Negotiated.NegotiatedMinor, backendplugin.ProtocolMinorCancellationHandshake)
+	}
+}
+
+func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
+	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
+	t.Cleanup(srv.Close)
+	legacyOffer := backendplugin.ProtocolOffer{
+		Major:                   1,
+		Minor:                   backendplugin.ProtocolMinorProxyOwnedSessionID,
+		DisableTransportRetries: true,
+		Features: []backendplugin.Feature{
+			{Name: backendplugin.FeatureOrderedItems},
+			{Name: backendplugin.FeatureExactOpenResponsesFields},
+			{Name: backendplugin.FeatureProxyOwnedSessionID},
+		},
+	}
+	result := contracttest.Run(t, contracttest.Config{
+		PluginID:    "openrouter-legacy",
+		Version:     "test",
+		Timeout:     10 * time.Second,
+		FactoryKind: service.FactoryKind,
+		ConfigYAML:  []byte("base_url: " + srv.URL + "\n"),
+		Secrets:     backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}},
+		Start: func(context.Context) (backendplugin.Service, func(), error) {
+			return service.New(), nil, nil
+		},
+		StartHost: bufconnHostWithOffer(
+			service.FactoryKind,
+			[]byte("base_url: "+srv.URL+"\n"),
+			backendplugin.SecretBundle{Values: map[string][]byte{"api_key": []byte("test")}},
+			legacyOffer,
+		),
+	})
+	if err := result.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if containsFeature(result.Negotiated.EnabledFeatures, backendplugin.FeatureCancellationHandshake) {
+		t.Fatalf("legacy negotiation must NOT enable cancellation handshake, got %+v", result.Negotiated)
+	}
+}
+
+func containsFeature(features []string, want string) bool {
+	for _, f := range features {
+		if f == want {
+			return true
+		}
+	}
+	return false
 }

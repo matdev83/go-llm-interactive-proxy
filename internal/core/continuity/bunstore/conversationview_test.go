@@ -40,7 +40,11 @@ func newConversationViewDeps(t *testing.T) storecontract.Deps {
 			return err
 		},
 		GetOverlay: func(ctx context.Context, aLegID, overlayID string) (conversationview.SteeringOverlay, error) {
-			return cv.(*conversationViewStore).GetOverlay(ctx, aLegID, overlayID)
+			cvStore, ok := cv.(*conversationViewStore)
+			if !ok {
+				return conversationview.SteeringOverlay{}, fmt.Errorf("unexpected cv store type %T", cv)
+			}
+			return cvStore.GetOverlay(ctx, aLegID, overlayID)
 		},
 	}
 }
@@ -49,6 +53,7 @@ func TestConversationView_BunContract_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.Run(t, storecontract.Env{
 		New: func(t *testing.T) storecontract.Deps {
+			t.Helper()
 			return newConversationViewDeps(t)
 		},
 		Spawn: func(fn func()) { go fn() },
@@ -274,7 +279,7 @@ func TestConversationView_SnapshotOrdering_SQLite(t *testing.T) {
 		assert.Less(t, string(snap.NeverBackend[i-1].Identity), string(snap.NeverBackend[i].Identity))
 	}
 	// Steering ordered by slot.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := cv.PutSteering(ctx, aLegID, conversationview.PutSteeringRequest{
 			OverlayID:           "ov-" + string(rune('a'+i)),
 			Message:             conversationview.StoredMessageV1{Role: lipapi.RoleUser, Text: "text"},
@@ -357,10 +362,9 @@ func TestConversationView_ConcurrentTagSnapshot_SQLite(t *testing.T) {
 	cv := st.ConversationViewStore()
 	var wg sync.WaitGroup
 	errs := make(chan error, 20)
-	for n := 0; n < 10; n++ {
+	for n := range 10 {
 		wg.Add(1)
-		n := n
-		go func() {
+		go func(n int) {
 			defer wg.Done()
 			hex := fmt.Sprintf("%064x", 1000+n)
 			id := conversationview.MessageIdentity("v1:" + hex)
@@ -368,17 +372,15 @@ func TestConversationView_ConcurrentTagSnapshot_SQLite(t *testing.T) {
 			if err != nil {
 				errs <- err
 			}
-		}()
+		}(n)
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			_, err := cv.Snapshot(ctx, aLegID)
 			if err != nil {
 				errs <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

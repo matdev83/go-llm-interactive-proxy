@@ -37,8 +37,12 @@ const (
 	ProtocolMinorSemanticExtensions = uint32(6)
 	// ProtocolMinorPromptCacheResidency adds optional prompt-cache profile,
 	// observation sideband, and instance-scoped control RPCs.
-	ProtocolMinorPromptCacheResidency  = uint32(7)
-	FeaturePromptCacheResidency        = "prompt_cache_residency_v1"
+	ProtocolMinorPromptCacheResidency = uint32(7)
+	FeaturePromptCacheResidency       = "prompt_cache_residency_v1"
+	// ProtocolMinorCancellationHandshake adds negotiated same-Execute cancellation handshake
+	// with observed outcome mode and deadline propagation.
+	ProtocolMinorCancellationHandshake = uint32(8)
+	FeatureCancellationHandshake       = "cancellation_handshake_v1"
 	DefaultMaxAccountingDedupeKeyBytes = uint64(256)
 
 	// DefaultMaxMessageBytes is the default whole-message size ceiling.

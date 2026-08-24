@@ -98,6 +98,7 @@ func TestNewTextStream_ObeysCancellationAndClose(t *testing.T) {
 func TestNewTextStream_NilContextReturnsError(t *testing.T) {
 	t.Parallel()
 	s := NewTextStream("hi")
+	//nolint:staticcheck // SA1012 explicitly testing defensive nil context handling
 	if _, err := s.Recv(nil); !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("Recv(nil) should be ErrNilContext, got %v", err)
 	}

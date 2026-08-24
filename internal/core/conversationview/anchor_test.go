@@ -61,6 +61,7 @@ func TestMessageAnchor_ValidationAndString(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := tc.anchor.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)

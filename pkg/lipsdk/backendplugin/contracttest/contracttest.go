@@ -204,30 +204,69 @@ func Run(t *testing.T, cfg Config) CertificationResult {
 			continue
 		}
 		ms := &memoryStream{ctx: ctx, inbox: []backendplugin.ClientFrame{{Kind: backendplugin.ClientFrameStart, InstanceID: "contract", Invocation: &inv}}}
-		ms.inbox = append(ms.inbox, backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCloseInput, InstanceID: "contract"})
+		if scenario.Feature == contract.FeatureCancellation {
+			ms.inbox = append(ms.inbox, backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCancel, InstanceID: "contract", CancelReason: backendplugin.CancelReasonClient})
+		} else {
+			ms.inbox = append(ms.inbox, backendplugin.ClientFrame{Kind: backendplugin.ClientFrameCloseInput, InstanceID: "contract"})
+		}
 		var runErr error
 		if scenario.Feature == contract.FeatureCancellation {
 			runErr = host.Cancel(ctx, inv)
 			r.Cancelled = runErr == nil
+			if executeErr := host.Execute(ms); executeErr == nil {
+				for _, frame := range ms.outbox {
+					if frame.Kind == backendplugin.ServerFrameTerminal && frame.Terminal != nil && frame.Terminal.Status == backendplugin.TerminalCancelled {
+						r.Cancelled = true
+					}
+					if frame.Kind == backendplugin.ServerFrameCancelOutcome && frame.CancelOutcome != nil && frame.CancelOutcome.Acknowledged {
+						r.Cancelled = true
+					}
+				}
+			}
 		} else {
 			runErr = host.Execute(ms)
 		}
 		if runErr != nil {
 			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", scenario.ID, runErr))
 		}
+		var lastSeq uint64
+		var terminalCount int
+		var eventAfterTerminal bool
 		for _, frame := range ms.outbox {
 			if err := frame.ValidateShape(); err != nil {
 				result.Failures = append(result.Failures, fmt.Sprintf("%s: invalid frame: %v", scenario.ID, err))
 				break
 			}
+			if frame.Kind != backendplugin.ServerFrameAccepted {
+				if frame.Sequence <= lastSeq {
+					result.Failures = append(result.Failures, fmt.Sprintf("%s: non-monotonic sequence: %d <= %d", scenario.ID, frame.Sequence, lastSeq))
+				}
+				lastSeq = frame.Sequence
+			}
+			if terminalCount > 0 {
+				eventAfterTerminal = true
+			}
 			r.FramesValidated++
 			if frame.Kind == backendplugin.ServerFrameTerminal {
+				terminalCount++
 				r.Terminal = true
+				if frame.Terminal != nil && frame.Terminal.Status == backendplugin.TerminalCancelled {
+					r.Cancelled = true
+				}
+			}
+			if frame.Kind == backendplugin.ServerFrameCancelOutcome && frame.CancelOutcome != nil && frame.CancelOutcome.Acknowledged {
+				r.Cancelled = true
 			}
 			if frame.Kind == backendplugin.ServerFrameEvent && frame.Event != nil {
 				r.UsageObserved = r.UsageObserved || frame.Event.Kind == backendplugin.EventUsageDelta
 				r.ErrorObserved = r.ErrorObserved || frame.Event.Kind == backendplugin.EventError
 			}
+		}
+		if terminalCount > 1 {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: multiple terminal frames observed: %d", scenario.ID, terminalCount))
+		}
+		if eventAfterTerminal {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: frame observed after terminal", scenario.ID))
 		}
 		r.Rejected = !positive && runErr != nil && len(ms.outbox) == 0
 		if scenario.Feature != contract.FeatureCancellation && (!r.Terminal || r.FramesValidated == 0) {

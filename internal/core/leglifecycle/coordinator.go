@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -40,6 +41,67 @@ type BLegAttempt = lipapi.ManagedEventStream
 type BLegHandle struct {
 	ID      string
 	Attempt BLegAttempt
+}
+
+type LaunchCommitResult struct {
+	Canceled bool
+	Cause    CancelCause
+}
+
+type launchEntry struct {
+	cancel context.CancelFunc
+}
+
+type LaunchPermit struct {
+	aLeg    *ALeg
+	bLegID  string
+	entry   *launchEntry
+	cancel  context.CancelFunc
+	settled atomic.Bool
+}
+
+func (p *LaunchPermit) Commit(handle BLegAttempt) (LaunchCommitResult, error) {
+	if p == nil || p.aLeg == nil {
+		return LaunchCommitResult{}, nil
+	}
+	if p.settled.Swap(true) {
+		return LaunchCommitResult{}, nil
+	}
+	a := p.aLeg
+	a.mu.Lock()
+	if cur, ok := a.launches[p.bLegID]; ok && cur == p.entry {
+		delete(a.launches, p.bLegID)
+	}
+	if a.canceled {
+		cause := a.cause
+		a.mu.Unlock()
+		p.cancel()
+		return LaunchCommitResult{Canceled: true, Cause: cause}, nil
+	}
+	if handle != nil {
+		if a.blegs == nil {
+			a.blegs = make(map[string]BLegAttempt)
+		}
+		a.blegs[p.bLegID] = handle
+	}
+	a.mu.Unlock()
+	return LaunchCommitResult{}, nil
+}
+
+func (p *LaunchPermit) Abort() {
+	if p == nil || p.aLeg == nil {
+		return
+	}
+	if p.settled.Swap(true) {
+		return
+	}
+	a := p.aLeg
+	a.mu.Lock()
+	if cur, ok := a.launches[p.bLegID]; ok && cur == p.entry {
+		delete(a.launches, p.bLegID)
+	}
+	a.mu.Unlock()
+	p.cancel()
 }
 
 type CloseOnlyAttempt struct {
@@ -90,7 +152,7 @@ func (c *Coordinator) StartALeg(id string) *ALeg {
 	if a := c.alegs[id]; a != nil {
 		return a
 	}
-	a := &ALeg{id: id, coordinator: c, blegs: map[string]BLegAttempt{}}
+	a := &ALeg{id: id, coordinator: c, launches: map[string]*launchEntry{}, blegs: map[string]BLegAttempt{}}
 	c.alegs[id] = a
 	return a
 }
@@ -103,7 +165,7 @@ func (c *Coordinator) CancelALeg(ctx context.Context, id string, cause CancelCau
 	c.ensureALegsLocked()
 	a := c.alegs[id]
 	if a == nil {
-		a = &ALeg{id: id, coordinator: c, blegs: map[string]BLegAttempt{}}
+		a = &ALeg{id: id, coordinator: c, launches: map[string]*launchEntry{}, blegs: map[string]BLegAttempt{}}
 		c.alegs[id] = a
 	}
 	c.mu.Unlock()
@@ -126,7 +188,40 @@ type ALeg struct {
 	mu       sync.Mutex
 	canceled bool
 	cause    CancelCause
+	launches map[string]*launchEntry
 	blegs    map[string]BLegAttempt
+}
+
+func (a *ALeg) BeginBLegLaunch(parent context.Context, bLegID string) (context.Context, *LaunchPermit, error) {
+	if a == nil {
+		if parent == nil {
+			parent = context.Background()
+		}
+		return parent, nil, nil
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	openCtx, cancel := context.WithCancel(parent)
+	a.mu.Lock()
+	if a.canceled {
+		a.mu.Unlock()
+		cancel()
+		return nil, nil, ErrALegCanceled
+	}
+	if a.launches == nil {
+		a.launches = make(map[string]*launchEntry)
+	}
+	if a.blegs == nil {
+		a.blegs = make(map[string]BLegAttempt)
+	}
+	if old, exists := a.launches[bLegID]; exists {
+		old.cancel()
+	}
+	entry := &launchEntry{cancel: cancel}
+	a.launches[bLegID] = entry
+	a.mu.Unlock()
+	return openCtx, &LaunchPermit{aLeg: a, bLegID: bLegID, entry: entry, cancel: cancel}, nil
 }
 
 func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
@@ -161,6 +256,9 @@ func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
 			return err
 		}
 	}
+	if a.blegs == nil {
+		a.blegs = make(map[string]BLegAttempt)
+	}
 	a.blegs[h.ID] = h.Attempt
 	a.mu.Unlock()
 	return nil
@@ -180,14 +278,50 @@ func (a *ALeg) Cancel(ctx context.Context, cause CancelCause) error {
 	}
 	a.canceled = true
 	a.cause = cause
+	launches := make([]context.CancelFunc, 0, len(a.launches))
+	for _, l := range a.launches {
+		if l != nil && l.cancel != nil {
+			launches = append(launches, l.cancel)
+		}
+	}
+	a.launches = map[string]*launchEntry{}
 	blegs := make([]BLegAttempt, 0, len(a.blegs))
 	for _, b := range a.blegs {
 		blegs = append(blegs, b)
 	}
+	a.blegs = map[string]BLegAttempt{}
 	a.mu.Unlock()
+
+	for _, cancel := range launches {
+		cancel()
+	}
+
+	if len(blegs) == 0 {
+		return nil
+	}
+	if len(blegs) == 1 {
+		cleanupErr := cancelAndClose(ctx, a.cancelTimeout(), blegs[0], cause)
+		if cleanupErr != nil {
+			return fmt.Errorf("leglifecycle: cancel and close b-legs: %w", cleanupErr)
+		}
+		return nil
+	}
+
+	timeout := a.cancelTimeout()
+	errs := make([]error, len(blegs))
+	var wg sync.WaitGroup
+	wg.Add(len(blegs))
+	for i, b := range blegs {
+		go func(i int, b BLegAttempt) {
+			defer wg.Done()
+			errs[i] = cancelAndClose(ctx, timeout, b, cause)
+		}(i, b)
+	}
+	wg.Wait()
+
 	var cleanupErr error
-	for _, b := range blegs {
-		cleanupErr = errors.Join(cleanupErr, cancelAndClose(ctx, a.cancelTimeout(), b, cause))
+	for _, err := range errs {
+		cleanupErr = errors.Join(cleanupErr, err)
 	}
 	if cleanupErr != nil {
 		return fmt.Errorf("leglifecycle: cancel and close b-legs: %w", cleanupErr)
@@ -220,6 +354,12 @@ func (a *ALeg) ReleaseBLeg(id string) {
 	}
 	a.mu.Lock()
 	delete(a.blegs, id)
+	if l, ok := a.launches[id]; ok {
+		delete(a.launches, id)
+		if l != nil && l.cancel != nil {
+			l.cancel()
+		}
+	}
 	a.mu.Unlock()
 }
 
@@ -238,22 +378,55 @@ func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt
 		cause.Kind = CancelContextDone
 	}
 	ctx := parent
-	cancel := func() {}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), timeout)
-	} else {
-		ctx = context.WithoutCancel(ctx)
+	effectiveTimeout := timeout
+	if effectiveTimeout <= 0 {
+		effectiveTimeout = DefaultCancelTimeout
 	}
-	defer cancel()
+	if deadline, ok := ctx.Deadline(); ok {
+		effectiveTimeout = min(effectiveTimeout, max(0, time.Until(deadline)))
+	}
 	var cleanupErr error
-	if res := b.Cancel(ctx, cause); res.Err != nil {
+	res, closeErr := BoundedCancelAndClose(ctx, effectiveTimeout,
+		func(cancelCtx context.Context) CancelResult { return b.Cancel(cancelCtx, cause) },
+		b.Close,
+		nil,
+	)
+	if res.Err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cancel b-leg: %w", res.Err))
 	}
-	if err := b.Close(); err != nil {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close b-leg: %w", err))
+	if closeErr != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close b-leg: %w", closeErr))
 	}
 	return cleanupErr
+}
+
+// BoundedCancelAndClose requires Close to promptly return and unblock Cancel.
+func BoundedCancelAndClose(
+	parent context.Context,
+	timeout time.Duration,
+	cancelFn func(context.Context) CancelResult,
+	closeFn func() error,
+	force <-chan struct{},
+) (CancelResult, error) {
+	cancelCtx, cancelCancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancelCancel()
+	cancelDone := make(chan CancelResult, 1)
+	go func() { cancelDone <- cancelFn(cancelCtx) }()
+	select {
+	case cancelResult := <-cancelDone:
+		return cancelResult, closeFn()
+	case <-force:
+	case <-cancelCtx.Done():
+	}
+	closeErr := closeFn()
+	cancelResult := <-cancelDone
+	if cancelResult.Err == nil {
+		cancelResult.Err = context.DeadlineExceeded
+	} else if !errors.Is(cancelResult.Err, context.DeadlineExceeded) {
+		cancelResult.Err = errors.Join(cancelResult.Err, context.DeadlineExceeded)
+	}
+	return cancelResult, closeErr
 }

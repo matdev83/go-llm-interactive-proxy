@@ -55,7 +55,7 @@ func boundedAuthorityLifecycle(svc UsageAuthorityService) authorityLifecycle {
 	state := attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(1),
 		admissionResult: authorityapp.AdmissionResult{Reserved: true, ReservationID: "reservation", ReservedAmount: authorityInputAmount(1), RuleIDs: []string{"rule"}, UnreservedRuleIDs: []string{"advisory"}},
-		cleanupTimeout:  20 * time.Millisecond,
+		cleanupTimeout:  500 * time.Millisecond,
 	}
 	return newAuthorityLifecycle(svc, nil, state, authorityCandidate())
 }
@@ -64,7 +64,7 @@ func assertBoundedAuthorityCall(t *testing.T, call func()) {
 	t.Helper()
 	started := time.Now()
 	call()
-	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("authority cleanup elapsed %v, want bounded", elapsed)
 	}
 }

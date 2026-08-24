@@ -71,6 +71,7 @@ func (e *ExecuteFailureError) ToClassifiedError() *ClassifiedError {
 		retryable = false
 	case ExecuteFailureCanceled:
 		code = "canceled"
+		retryable = false
 	case ExecuteFailureProtocolViolation:
 		code = "protocol"
 	case ExecuteFailureTransportDeath:

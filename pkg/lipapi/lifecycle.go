@@ -38,6 +38,7 @@ type CancelResult struct {
 }
 
 // ManagedEventStream is the canonical backend stream lifecycle contract.
+// Close must promptly return and unblock any in-flight Cancel.
 type ManagedEventStream interface {
 	EventStream
 	Cancel(ctx context.Context, cause CancelCause) CancelResult

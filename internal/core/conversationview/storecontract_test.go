@@ -29,6 +29,7 @@ func TestReferenceStoreContract(t *testing.T) {
 	t.Parallel()
 	storecontract.Run(t, storecontract.Env{
 		New: func(t *testing.T) storecontract.Deps {
+			t.Helper()
 			return newReferenceDeps(t)
 		},
 		Spawn: func(fn func()) { go fn() },
