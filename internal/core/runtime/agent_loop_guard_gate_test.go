@@ -46,7 +46,7 @@ func setupGuardedStream(t *testing.T, verifier stopguard.Verifier, guardEnabled 
 			fv = &fakeGuardVerifier{verdict: stopguard.Verdict{Kind: stopguard.VerdictAllowStop}}
 			verifier = fv
 		}
-		ex.LoopGuard = newLoopGuardForTest(verifier)
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(verifier)
 		if isFake && fv != nil {
 			// already set
 		}
@@ -222,7 +222,7 @@ func TestAgentLoopGuard_Race_RecvClose_NoDoublePublish(t *testing.T) {
 	ex := TestExecutor()
 	store, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	ex.Store = store
-	ex.LoopGuard = newLoopGuardForTest(fv)
+	ex.LoopGuardFactory = newLoopGuardFactoryForTest(fv)
 	bindTestRuntimeOwners(rs2, ex)
 	inner2 := &blockingUntilCloseInner{
 		recvEntered: make(chan struct{}, 1),

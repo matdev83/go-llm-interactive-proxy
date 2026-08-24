@@ -236,7 +236,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	var execHolder *runtime.Executor
 	auxClientForGuard := auxreq.NewClient(func() auxreq.ExecutorRunner { return execHolder })
 	effGuard := cfg.EffectiveAgentLoopGuard()
-	loopGuard := buildLoopGuard(effGuard, auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
+	loopGuardFactory := buildLoopGuardFactory(effGuard, auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
 
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
@@ -264,9 +264,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			RuntimeSnapshot:                  in.Ext.Snap,
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
-		Interleaved: interleaved,
-		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
-		LoopGuard:   loopGuard,
+		Interleaved:      interleaved,
+		Compaction:       runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
+		LoopGuardFactory: loopGuardFactory,
 	})
 	execHolder = exec
 	genRunner.Bind(exec)

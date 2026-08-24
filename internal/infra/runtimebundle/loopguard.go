@@ -17,11 +17,9 @@ import (
 // Success usage/cost is forwarded honestly without fabrication.
 type loopGuardObserver func(stopguardverify.VerifyObservation)
 
-// buildLoopGuard constructs the production LoopGuard from effective config.
+// buildLoopGuardFactory constructs a per-request LoopGuard factory sharing verifier/config.
 // Nil is returned when disabled, preserving the fast path.
-// The auxiliary client is lazy (captures executor pointer) and the observer is invoked exactly once per Verify.
-// Nil client is normalized to DisabledClient for conservative UNCERTAIN behavior without panic.
-func buildLoopGuard(eff config.EffectiveAgentLoopGuardConfig, client auxiliary.Client, now func() time.Time, observer loopGuardObserver) *runtime.LoopGuard {
+func buildLoopGuardFactory(eff config.EffectiveAgentLoopGuardConfig, client auxiliary.Client, now func() time.Time, observer loopGuardObserver) *runtime.LoopGuardFactory {
 	if !eff.Enabled {
 		return nil
 	}
@@ -47,13 +45,12 @@ func buildLoopGuard(eff config.EffectiveAgentLoopGuardConfig, client auxiliary.C
 			}
 		},
 	})
-	gate := stopgate.New(stopgate.Ports{Verifier: verifier, Now: now}, stopgate.Config{
+	return runtime.NewLoopGuardFactory(stopgate.Ports{Verifier: verifier, Now: now}, stopgate.Config{
 		Enabled:                  true,
 		ExplicitCompletionPolicy: policy,
 		MaxSemanticContinuations: eff.MaxSemanticContinuations,
 		NoProgressLimit:          eff.NoProgressLimit,
 	})
-	return runtime.NewLoopGuard(gate)
 }
 
 // newLoopGuardObserver creates a production observer that forwards honest telemetry.

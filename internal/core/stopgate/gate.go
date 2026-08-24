@@ -46,15 +46,19 @@ type Outcome struct {
 	HoldReleased       bool
 	AttemptSettledOnce bool
 	Reason             string
+	RemainingObjective string
+	Attempt            int
+	MaxAttempts        int
 }
 
 // Gate implements request-level guard orchestration.
 type Gate struct {
-	enabled  bool
-	policy   stopguard.ExplicitCompletionPolicy
-	verifier stopguard.Verifier
-	tracker  *stopguard.ProgressTracker
-	now      func() time.Time
+	enabled                  bool
+	policy                   stopguard.ExplicitCompletionPolicy
+	verifier                 stopguard.Verifier
+	tracker                  *stopguard.ProgressTracker
+	now                      func() time.Time
+	maxSemanticContinuations int
 
 	mu                sync.Mutex
 	latched           bool
@@ -85,11 +89,12 @@ func New(ports Ports, cfg Config) *Gate {
 	}
 	tracker := stopguard.NewProgressTracker(maxCont, cfg.NoProgressLimit)
 	return &Gate{
-		enabled:  cfg.Enabled,
-		policy:   policy,
-		verifier: ports.Verifier,
-		tracker:  tracker,
-		now:      now,
+		enabled:                  cfg.Enabled,
+		policy:                   policy,
+		verifier:                 ports.Verifier,
+		tracker:                  tracker,
+		now:                      now,
+		maxSemanticContinuations: cfg.MaxSemanticContinuations,
 	}
 }
 
@@ -158,11 +163,17 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 		// Surface the evaluated outcome indirectly for progress correlation even
 		// on immediate actions: not required to record, but keep evaluation side-effect free.
 		_ = evalRes
+		attemptNum := 1
+		g.mu.Lock()
+		attemptNum = g.continuationCount + 1
+		g.mu.Unlock()
 		return Outcome{
 			Action:             act,
 			HoldReleased:       hold,
 			AttemptSettledOnce: true,
 			Reason:             reason,
+			Attempt:            attemptNum,
+			MaxAttempts:        g.maxSemanticContinuations,
 		}
 	}
 
@@ -289,11 +300,19 @@ func (g *Gate) ObserveCandidate(ctx context.Context, facts TerminalFacts) Outcom
 		if !strings.Contains(strings.ToLower(r), "continue") {
 			r = r + " continue_leg"
 		}
+		// Normalize objective bounded
+		obj := strings.TrimSpace(verdict.RemainingObjective)
+		if len(obj) > stopguard.MaxRemainingObjectiveBytes {
+			obj = obj[:stopguard.MaxRemainingObjectiveBytes]
+		}
 		return Outcome{
 			Action:             stopguard.ActionContinueLeg,
 			HoldReleased:       false,
 			AttemptSettledOnce: true,
 			Reason:             r,
+			RemainingObjective: obj,
+			Attempt:            recoveryAttempt,
+			MaxAttempts:        g.maxSemanticContinuations,
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuationsafety"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopgate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguardverify"
@@ -16,6 +17,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func buildLoopGuard(eff config.EffectiveAgentLoopGuardConfig, client auxiliary.Client, now func() time.Time, observer loopGuardObserver) *runtime.LoopGuard {
+	f := buildLoopGuardFactory(eff, client, now, observer)
+	if f == nil {
+		return nil
+	}
+	return f.NewGuard()
+}
 
 // fakeAuxForWiring captures verifier request and returns controlled response.
 type fakeAuxForWiring struct {

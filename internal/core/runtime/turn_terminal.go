@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -80,6 +81,19 @@ type turnTerminal struct {
 	emitBackendEgress       func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
 
 	loopGuard *LoopGuard
+
+	// guard continuation per-request state (hidden, not forwarded to pipeline).
+	guardHidden      string
+	guardPriorRecord lipcont.ContinuationRecord
+	guardPriorOK     bool
+}
+
+// guardHiddenInstruction exposes hidden instruction for tests via terminal.
+func (t *turnTerminal) guardHiddenInstruction() string {
+	if t == nil {
+		return ""
+	}
+	return t.guardHidden
 }
 
 func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
@@ -103,7 +117,6 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.emitFrontendEgress = e.emitFrontendEgressMeteringFact
 	t.meteringRecorderPresent = e.MeteringRecorder != nil
 	t.emitBackendEgress = e.emitBackendEgressMeteringFact
-	t.loopGuard = e.LoopGuard
 }
 
 func (t *turnTerminal) nowTime() time.Time {

@@ -226,16 +226,16 @@ type CompactionRuntime struct {
 // ExecutorConfig groups executor dependencies for explicit construction at the
 // composition root and in tests. Use [NewExecutor] to obtain a runnable executor.
 type ExecutorConfig struct {
-	Core          CoreRuntime
-	Billing       BillingRuntime
-	Routing       RoutingRuntime
-	Security      SecurityRuntime
-	Accounting    AccountingRuntime
-	Observability ObservabilityRuntime
-	Extension     ExtensionRuntime
-	Interleaved   InterleavedRuntime
-	Compaction    CompactionRuntime
-	LoopGuard     *LoopGuard
+	Core             CoreRuntime
+	Billing          BillingRuntime
+	Routing          RoutingRuntime
+	Security         SecurityRuntime
+	Accounting       AccountingRuntime
+	Observability    ObservabilityRuntime
+	Extension        ExtensionRuntime
+	Interleaved      InterleavedRuntime
+	Compaction       CompactionRuntime
+	LoopGuardFactory *LoopGuardFactory
 }
 
 // NewExecutor constructs an [Executor] from grouped runtime configuration.
@@ -263,6 +263,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		ExtensionRuntime:     cfg.Extension,
 		InterleavedRuntime:   cfg.Interleaved,
 		CompactionRuntime:    cfg.Compaction,
-		LoopGuard:            cfg.LoopGuard,
+		LoopGuardFactory:     cfg.LoopGuardFactory,
 	}
 }

@@ -53,6 +53,7 @@ type openMode int
 const (
 	openModeInitial openMode = iota
 	openModeRetry
+	openModeGuardContinuation
 )
 
 type candidatePlan struct {

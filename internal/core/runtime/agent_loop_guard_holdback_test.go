@@ -259,7 +259,7 @@ func setupGuardedStreamForHoldback(t *testing.T, verifier stopguard.Verifier, gu
 		} else if v, ok := verifier.(*fakeGuardVerifier); ok {
 			fv = v
 		}
-		ex.LoopGuard = newLoopGuardForTest(verifier)
+		ex.LoopGuardFactory = newLoopGuardFactoryForTest(verifier)
 	}
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),

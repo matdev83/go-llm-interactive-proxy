@@ -129,7 +129,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 1.2–1.5, 2.1–2.5, 3.1–3.5, 5.1–5.6, 9.1–9.5_
     - _Depends on: 6.1_
     - _Validation: focused runtime tests_
-  - [ ] 6.3 Wire semantic continuation with immutable per-request budget/progress state
+  - [x] 6.3 Wire semantic continuation with immutable per-request budget/progress state
     - On actionable `CONTINUE`, invoke safe continuation materialization, add conditional hidden instruction, open new B-leg through normal runtime admission, and keep logical A response open.
     - Preserve max semantic continuation count across new progress; only reset justified no-progress state.
     - Suppress guard recursion for verifier operation and avoid accidental nested autonomous recovery.
@@ -279,3 +279,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - HUMAN DECISION (2026-08-24, repo owner): the 100-modified-Go-files source-change gate is authorized to be exceeded for this feature's implementation run given its broad cross-cutting scope. Local override enabled via git config lip.allowLargeChange true; CI/PR still requires the allow-large-change label per repo policy.
 - 6.2-phase2 KNOWN ISSUE (fix first in 6.3): on the guarded path, withholding finishResponse can cause the same backend response_finished to be re-recorded via recordAttemptLogged on replay (implementer observed 2 settlement logs on authority+dispatch paths; >=1 accepted provisionally). Requirement 9.1 demands exactly-once attempt settlement - before opening continuation legs, deduplicate by attempt terminal CAS state. Guard-disabled path verified byte-for-byte unchanged (full runtime suite green).
 - 6.2 completion resolves the replay issue through the existing per-attempt terminal owner, records held attempts truthfully as swallowed, injects the production guard through ExecutorConfig, and emits only the controlled interim fallback; full runtime/runtimebundle suites and scope-related architecture gates passed. Full archtest still has the pre-existing branch-wide shrinkage shortfall tracked for final convergence.
+- 6.3 uses a per-logical-request LoopGuard factory, one immutable budget/progress gate across hidden legs, honest canonical prior evidence, Developer-role bounded recovery control, and a non-retry semantic continuation admission mode; production test stubs were removed and the focused/full runtime plus scope architecture gates passed.

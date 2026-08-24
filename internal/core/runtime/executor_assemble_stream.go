@@ -18,6 +18,12 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	bindTurnTerminalRuntime(terminal, e)
+	// Per-logical-request LoopGuard: factory is sole production source, exactly one fresh Gate per assembled request; hidden legs reuse it via terminal.
+	if e.LoopGuardFactory != nil {
+		if g := e.LoopGuardFactory.NewGuard(); g != nil {
+			terminal.loopGuard = g
+		}
+	}
 	responsePipeline := newResponsePipelineForExecutor(e, prep.compactionOpenMeta)
 	rsFacts := prep.recvTurnFacts
 	rsFacts.captureBoundModelViews(ctx)

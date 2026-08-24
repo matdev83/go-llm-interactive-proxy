@@ -42,7 +42,7 @@ type Executor struct {
 	InterleavedRuntime
 	CompactionRuntime
 
-	LoopGuard *LoopGuard
+	LoopGuardFactory *LoopGuardFactory
 
 	lifecycleMu     sync.Mutex
 	rngOnce         sync.Once

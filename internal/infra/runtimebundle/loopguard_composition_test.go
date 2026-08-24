@@ -26,7 +26,7 @@ func TestLoopGuardWiring_ProductionComposition_EnabledHasGuard(t *testing.T) {
 	}
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	exec := b.Executor()
-	require.NotNil(t, exec.LoopGuard, "production executor with enabled guard must have LoopGuard")
+	require.NotNil(t, exec.LoopGuardFactory, "production executor with enabled guard must have LoopGuardFactory")
 }
 
 func TestLoopGuardWiring_ProductionComposition_DisabledNil(t *testing.T) {
@@ -38,5 +38,5 @@ func TestLoopGuardWiring_ProductionComposition_DisabledNil(t *testing.T) {
 	}
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	exec := b.Executor()
-	require.Nil(t, exec.LoopGuard, "production executor with disabled guard must have nil LoopGuard")
+	require.Nil(t, exec.LoopGuardFactory, "production executor with disabled guard must have nil LoopGuardFactory")
 }

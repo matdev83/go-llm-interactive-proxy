@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuationsafety"
@@ -23,14 +22,33 @@ type loopguardRuntime struct {
 	gate *stopgate.Gate
 }
 
-// newLoopGuardForTest builds an enabled guard with the supplied verifier and default test bounds.
-func newLoopGuardForTest(verifier stopguard.Verifier) *loopguardRuntime {
-	gate := stopgate.New(stopgate.Ports{Verifier: verifier, Now: time.Now}, stopgate.Config{
-		Enabled:                  true,
-		ExplicitCompletionPolicy: stopguard.PolicyTrust,
-		MaxSemanticContinuations: 3,
-		NoProgressLimit:          2,
-	})
+// LoopGuardFactory creates a fresh per-logical-request LoopGuard sharing verifier/config.
+// The factory itself may be shared across requests (process-wide), but each NewGuard
+// yields an independent gate/tracker/latch so one request's CONTINUE/exhaustion never
+// affects another. See task 6.3 mandatory repair 1.
+type LoopGuardFactory struct {
+	enabled bool
+	ports   stopgate.Ports
+	config  stopgate.Config
+}
+
+// NewLoopGuardFactory builds a factory from the same inputs as NewLoopGuard.
+func NewLoopGuardFactory(ports stopgate.Ports, cfg stopgate.Config) *LoopGuardFactory {
+	if !cfg.Enabled {
+		return nil
+	}
+	return &LoopGuardFactory{enabled: cfg.Enabled, ports: ports, config: cfg}
+}
+
+// NewGuard creates a fresh per-request guard instance.
+func (f *LoopGuardFactory) NewGuard() *LoopGuard {
+	if f == nil || !f.enabled {
+		return nil
+	}
+	gate := stopgate.New(f.ports, f.config)
+	if gate == nil {
+		return nil
+	}
 	return &loopguardRuntime{gate: gate}
 }
 
@@ -61,8 +79,11 @@ func (g *LoopGuard) ObserveCandidate(ctx context.Context, tf stopgate.TerminalFa
 const guardContinuationPendingReason = "guard_continuation_pending_6_3"
 
 // settleSwallowedBAttempt settles the B-attempt as swallowed for a held CONTINUE without re-invoking verifier.
+// It is idempotent via attempt terminal CAS; if already settled it returns without duplicate outer effects.
 func (t *turnTerminal) settleSwallowedBAttempt(ctx context.Context, attempt *attemptSession) {
-	if attempt == nil {
+	if attempt == nil || attempt.terminal == nil || attempt.terminal.Owner() == nil {
+		// Fall through to TerminalizeAttempt which will CAS-check, but nil guard avoids panic.
+	} else if attempt.terminal.Owner().State() != sdkterminal.StateOpen {
 		return
 	}
 	attempt.TerminalizeAttempt(ctx, IntentSwallowedFailure, attemptEvidence{

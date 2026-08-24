@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -89,9 +90,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
 				if terminal.isLoopGuardEnabled() {
-					held, reason := terminal.agentLoopGuardHoldCandidate(ctx, facts.terminalFacts(), attempt, p, ev)
+					outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
+					held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 					if held {
-						fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_gated", reason)
+						if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+							return lipapi.Event{}, true, nil
+						}
+						fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_gated", outcome.Reason)
 						attempt.accounting.observeClientEvent(p.nowTime(), fallback)
 						if recovery != nil && recovery.recoverPolicy != nil {
 							recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
@@ -142,9 +147,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		if ev.Kind == lipapi.EventResponseFinished {
 			if terminal.isLoopGuardEnabled() {
-				held, reason := terminal.agentLoopGuardHoldCandidate(ctx, facts.terminalFacts(), attempt, p, ev)
+				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
+				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 				if held {
-					fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_nongated", reason)
+					if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+						return lipapi.Event{}, true, nil
+					}
+					fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_nongated", outcome.Reason)
 					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
 					if recovery != nil && recovery.recoverPolicy != nil {
 						recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
@@ -360,11 +369,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
 		// Guard hold check before emitting raw terminal (Req 1.3/12.10)
 		if ev.Kind == lipapi.EventResponseFinished && terminal.isLoopGuardEnabled() {
-			held, reason := terminal.agentLoopGuardHoldCandidate(ctx, facts.terminalFacts(), attempt, p, ev)
+			outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
+			held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 			if held {
+				if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+					return lipapi.Event{}, nil
+				}
 				terminal.settleSwallowedBAttempt(ctx, attempt)
 				if terminal.log != nil {
-					terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "recovery_drain", "reason", boundGuardReason(reason+" "+guardContinuationPendingReason))
+					terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "recovery_drain", "reason", boundGuardReason(outcome.Reason+" "+guardContinuationPendingReason))
 				}
 				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: guardContinuationPendingReason}
 				terminal.finishResponse(p, attempt)
@@ -426,11 +439,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if ev, ok := p.popGateDrainHead(); ok {
 			// Guard hold check before any success finalization to ensure held B-attempt settles as swallowed (Req 9.1)
 			if ev.Kind == lipapi.EventResponseFinished && terminal.isLoopGuardEnabled() {
-				held, reason := terminal.agentLoopGuardHoldCandidate(ctx, facts.terminalFacts(), attempt, p, ev)
+				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
+				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
 				if held {
+					if terminal.tryGuardContinuation(s, ctx, attempt, outcome) {
+						continue
+					}
 					terminal.settleSwallowedBAttempt(ctx, attempt)
 					if terminal.log != nil {
-						terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "gate_drain", "reason", boundGuardReason(reason+" "+guardContinuationPendingReason))
+						terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "gate_drain", "reason", boundGuardReason(outcome.Reason+" "+guardContinuationPendingReason))
 					}
 					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: guardContinuationPendingReason}
 					terminal.finishResponse(p, attempt)
