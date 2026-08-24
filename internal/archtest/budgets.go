@@ -64,7 +64,8 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// Reasoning semantic compression adds explicit generation composition; the
 	// dedicated overlay keeps it out of legacy shrinkage while this tree ratchet
 	// is measured at 12721 on current main plus 25 lines headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12746},
+	// Agent Loop Guard wiring and composition in runtimebundle adds loopguard.go; bump to 12851 with 25 headroom.
+	{Tree: "internal/infra/runtimebundle", Max: 12851},
 	{Tree: "internal/stdhttp", Max: 6246},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
@@ -128,10 +129,12 @@ var LineBudgets = []LineBudget{
 	// Agent Loop Guard spec task 5.3 (agent-loop-breach-prevention): continuationsafety evaluate + recovery instruction; measured 94275, bump to 94300 with 25 headroom.
 	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): request-level stopgate orchestration; measured 94723, bump to 94748 with 25 headroom.
 	// Agent Loop Guard spec task 6.2 phase 2 (agent-loop-breach-prevention): runtime recv loop guard gate wiring; measured 94847, bump to 94872 with 25 headroom.
-	{Dir: "internal/core", Max: 94872},
+	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): exactly-once dedup + runtimebundle LoopGuard composition + holdback tests; measured 94933, bump to 94958 with 25 headroom.
+	// Agent Loop Guard spec task 6.2 remediation (agent-loop-breach-prevention): terminal-CAS exactly-once, controlled fallback, channel-coordinated holdback/cancel tests, composition moved to runtimebundle, honest observer; measured 95049, bump to 95074 with 25 headroom.
+	{Dir: "internal/core", Max: 95074},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12746},
+	{Dir: "internal/infra/runtimebundle", Max: 12851},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

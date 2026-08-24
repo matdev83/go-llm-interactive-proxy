@@ -235,6 +235,7 @@ type ExecutorConfig struct {
 	Extension     ExtensionRuntime
 	Interleaved   InterleavedRuntime
 	Compaction    CompactionRuntime
+	LoopGuard     *LoopGuard
 }
 
 // NewExecutor constructs an [Executor] from grouped runtime configuration.
@@ -262,5 +263,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		ExtensionRuntime:     cfg.Extension,
 		InterleavedRuntime:   cfg.Interleaved,
 		CompactionRuntime:    cfg.Compaction,
+		LoopGuard:            cfg.LoopGuard,
 	}
 }

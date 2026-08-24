@@ -183,9 +183,16 @@ func (a *attemptSession) recordCancellation(obs CancellationObservation) {
 }
 
 func (a *attemptSession) recordAttemptLogged(ctx context.Context, p recordAttemptParams, attrs diag.AttrOpts) {
-	if a != nil && a.recordAttemptLoggedFn != nil {
-		a.recordAttemptLoggedFn(ctx, p, attrs)
+	if a == nil || a.recordAttemptLoggedFn == nil {
+		return
 	}
+	// Deduplicate by attempt terminal CAS (Req 9.1): if attempt already terminalized, suppress replay.
+	if a.terminal != nil && a.terminal.Owner() != nil {
+		if st := a.terminal.Owner().State(); st != "" && st != sdkterminal.StateOpen {
+			return
+		}
+	}
+	a.recordAttemptLoggedFn(ctx, p, attrs)
 }
 
 func (a *attemptSession) BLeg() b2bua.BLegRecord {
@@ -1670,7 +1677,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 			})
 		}
 
-		// 9. Discard attempt-local state.
+		// 10. Discard attempt-local state.
 		a.accounting = attemptAccountingTracker{}
 		a.toolFinal = nil
 		a.promptCacheSource = nil

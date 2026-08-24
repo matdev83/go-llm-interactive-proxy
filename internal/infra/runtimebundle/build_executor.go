@@ -233,6 +233,11 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if in.CompactionScheduler != nil {
 		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
+	var execHolder *runtime.Executor
+	auxClientForGuard := auxreq.NewClient(func() auxreq.ExecutorRunner { return execHolder })
+	effGuard := cfg.EffectiveAgentLoopGuard()
+	loopGuard := buildLoopGuard(effGuard, auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
+
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -261,7 +266,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		},
 		Interleaved: interleaved,
 		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
+		LoopGuard:   loopGuard,
 	})
+	execHolder = exec
 	genRunner.Bind(exec)
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {

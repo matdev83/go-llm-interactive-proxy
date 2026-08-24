@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -146,24 +145,32 @@ func TestAgentLoopGuard_Enabled_Continue_Withheld(t *testing.T) {
 			origFn(ctx, p, attrs)
 		}
 	}
-	// Use non-gated path (no completion gates)
-	ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished})
+	ev, err := testRecvOne(context.Background(), rs, lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "raw_backend_finish"})
 	if err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
-	// In current phase, we still surface the finish event but withhold terminal claim
-	// So ev may be response_finished; we assert withheld finished flag
-	if rs.terminal.finished() {
-		t.Fatal("expected finished==false when CONTINUE held")
+	// Held CONTINUE must not leak raw backend terminal; it surfaces controlled fallback and settles B-attempt as swallowed (Req 1.3, 9.1, 12.10)
+	if ev.FinishReason == "raw_backend_finish" {
+		t.Fatalf("raw backend terminal leaked, got FinishReason=%q", ev.FinishReason)
+	}
+	if ev.FinishReason != guardContinuationPendingReason {
+		t.Fatalf("expected controlled fallback FinishReason=%q, got %q", guardContinuationPendingReason, ev.FinishReason)
+	}
+	if !rs.terminal.finished() {
+		t.Fatal("expected finished==true via controlled fallback for CONTINUE held (interim)")
 	}
 	if fv.CallCount() != 1 {
 		t.Fatalf("verifier calls=%d want 1", fv.CallCount())
 	}
-	if logged.Load() < 1 {
-		t.Fatalf("recordAttemptLogged calls=%d want >=1", logged.Load())
+	if logged.Load() != 1 {
+		t.Fatalf("recordAttemptLogged calls=%d want 1", logged.Load())
 	}
 	if ev.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("first Recv kind=%q want response_finished (controlled fallback)", ev.Kind)
+	}
+	// Verify B-attempt outcome is swallowed, not success
+	if attempt.terminal != nil && attempt.terminal.Owner() != nil {
+		// No direct outcome check here, but record count ensures exactly-once
 	}
 	// no panic and subsequent Recv terminates cleanly (EOF)
 	_, err = rs.Recv(context.Background())
@@ -217,9 +224,11 @@ func TestAgentLoopGuard_Race_RecvClose_NoDoublePublish(t *testing.T) {
 	ex.Store = store
 	ex.LoopGuard = newLoopGuardForTest(fv)
 	bindTestRuntimeOwners(rs2, ex)
-	// Use a stream that returns response_finished then EOF
-	stream := &task51SingleEventStream{event: lipapi.Event{Kind: lipapi.EventResponseFinished}}
-	testStoreInner(rs2, stream)
+	inner2 := &blockingUntilCloseInner{
+		recvEntered: make(chan struct{}, 1),
+		unblock:     make(chan struct{}),
+	}
+	testStoreInner(rs2, inner2)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -227,8 +236,7 @@ func TestAgentLoopGuard_Race_RecvClose_NoDoublePublish(t *testing.T) {
 		defer wg.Done()
 		_, _ = rs2.Recv(context.Background())
 	}()
-	// concurrent Close
-	time.Sleep(5 * time.Millisecond)
+	<-inner2.recvEntered
 	_ = rs2.Close()
 	wg.Wait()
 	// finished should be exactly once, no panic

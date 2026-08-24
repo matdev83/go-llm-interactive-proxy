@@ -122,7 +122,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Requirements: 1.2–1.4, 5.1–5.6, 8.4–8.5, 9.1–9.5, 12.8–12.10_
     - _Depends on: 1.3, 3.2, 4.3, 5.3_
     - _Validation: focused runtime tests and targeted `go test -race`_
-  - [ ] 6.2 Implement request-level guard orchestration before logical normal-finish claim
+  - [x] 6.2 Implement request-level guard orchestration before logical normal-finish claim
     - On candidate terminal, normalize cause/evidence and select: existing pre-output recovery, safe continuation, semantic verify, or final terminal/failure.
     - Settle the current B-side attempt independently before/while opening a continuation according to existing lifecycle rules; never undo a logical terminal claim.
     - Make cancellation/close authoritative and cancel in-flight verifier/continuation work promptly.
@@ -278,3 +278,4 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
 - kiro-impl ran in manual mode: the sub-agent dispatch channel returned empty results twice, so implementation/review execute in main context per skill fallback.
 - HUMAN DECISION (2026-08-24, repo owner): the 100-modified-Go-files source-change gate is authorized to be exceeded for this feature's implementation run given its broad cross-cutting scope. Local override enabled via git config lip.allowLargeChange true; CI/PR still requires the allow-large-change label per repo policy.
 - 6.2-phase2 KNOWN ISSUE (fix first in 6.3): on the guarded path, withholding finishResponse can cause the same backend response_finished to be re-recorded via recordAttemptLogged on replay (implementer observed 2 settlement logs on authority+dispatch paths; >=1 accepted provisionally). Requirement 9.1 demands exactly-once attempt settlement - before opening continuation legs, deduplicate by attempt terminal CAS state. Guard-disabled path verified byte-for-byte unchanged (full runtime suite green).
+- 6.2 completion resolves the replay issue through the existing per-attempt terminal owner, records held attempts truthfully as swallowed, injects the production guard through ExecutorConfig, and emits only the controlled interim fallback; full runtime/runtimebundle suites and scope-related architecture gates passed. Full archtest still has the pre-existing branch-wide shrinkage shortfall tracked for final convergence.
