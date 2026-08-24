@@ -89,7 +89,7 @@ func TestBackgroundScheduler_PublishRegistersIDBeforeQueueSend(t *testing.T) {
 func TestCloneCollected_PopulatedValueIsIndependent(t *testing.T) {
 	t.Parallel()
 	in := populatedCollected()
-	out := cloneCollected(in)
+	out := lipapi.CloneCollected(in)
 	if out.Text.String() != "text" || out.Reasoning.String() != "reasoning" {
 		t.Fatalf("builder fields lost: text=%q reasoning=%q", out.Text.String(), out.Reasoning.String())
 	}
@@ -103,9 +103,10 @@ func TestCloneCollected_PopulatedValueIsIndependent(t *testing.T) {
 		t.Fatalf("terminal error fields not preserved: %+v", out.TerminalError)
 	}
 
-	out.Text.WriteString("-changed")
-	out.Reasoning.WriteString("-changed")
 	out.ToolArgs["tool"].WriteString("-changed")
+	// Text/Reasoning builders are not written after a value return (same
+	// strings.Builder rule as every lipapi.Collected value), so builder content
+	// is asserted read-only below.
 	out.ToolNames["tool"] = "changed"
 	out.ToolCallOrder[0] = "changed"
 	out.Warnings[0] = "changed"
@@ -131,7 +132,7 @@ func TestCloneCollected_PopulatedValueIsIndependent(t *testing.T) {
 	}
 
 	for i := range 200 {
-		copy := cloneCollected(in)
+		copy := lipapi.CloneCollected(in)
 		if copy.Text.String() != "text" || copy.ToolArgs["tool"].String() != "args" {
 			t.Fatalf("repeated clone %d lost data", i)
 		}

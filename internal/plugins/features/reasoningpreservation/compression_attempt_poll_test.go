@@ -629,9 +629,9 @@ func TestPollOnce_CompletedCarriesPollerPayload(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindCompleted, res.Kind)
 	require.NotNil(t, res.Candidate)
-	// Candidate carries the poller's Collected as returned. Defensive copy is provided
-	// by the auxiliary.BackgroundPoller contract when State == PollCompleted, not by the
-	// plugin. Verify candidate reflects the original payload.
+	// Candidate carries the poller's Collected as returned. The feature re-clones it
+	// defensively at the adoption boundary (cloneCollected), so candidate reflects
+	// the original payload independently of the poller implementation.
 	require.Equal(t, "orig text", res.Candidate.Collected.Text.String())
 	require.Equal(t, "orig reasoning", res.Candidate.Collected.Reasoning.String())
 	require.Equal(t, "args1", res.Candidate.Collected.ToolArgs["tool-1"].String())

@@ -2,10 +2,8 @@ package auxreq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -474,7 +472,7 @@ func (s *BackgroundScheduler) finish(job *backgroundJob, result *lipapi.Collecte
 	job.completedAt = s.now()
 	job.completedOrder = s.completed.Add(1)
 	if err == nil && result != nil {
-		job.result = cloneCollected(result)
+		job.result = lipapi.CloneCollected(result)
 	}
 	if !job.forgotten {
 		s.jobs[job.id] = job
@@ -536,7 +534,7 @@ func (s *BackgroundScheduler) Await(ctx context.Context, id auxiliary.JobID) (ou
 	if job.result == nil {
 		return out, errors.New("auxreq: completed job has no result")
 	}
-	cloneCollectedInto(&out, job.result)
+	lipapi.CloneCollectedInto(&out, job.result)
 	return out, nil
 }
 
@@ -577,7 +575,7 @@ func (s *BackgroundScheduler) Poll(ctx context.Context, id auxiliary.JobID) (aux
 		return auxiliary.PollResult{State: auxiliary.PollFailed, Err: errors.New("auxreq: completed job has no result")}, nil
 	}
 	var collected lipapi.Collected
-	cloneCollectedInto(&collected, resultPtr)
+	lipapi.CloneCollectedInto(&collected, resultPtr)
 	return auxiliary.PollResult{State: auxiliary.PollCompleted, Collected: collected}, nil
 }
 
@@ -691,209 +689,6 @@ func estimateCollectedBytes(c *lipapi.Collected) int {
 		n += len(part.Content)
 	}
 	return n
-}
-
-func cloneCollected(in *lipapi.Collected) *lipapi.Collected {
-	if in == nil {
-		return nil
-	}
-	out := &lipapi.Collected{}
-	cloneCollectedInto(out, in)
-	return out
-}
-
-// cloneCollectedInto copies a populated collection into an already allocated
-// destination without assigning either Collected value. In particular, this
-// never copies a non-zero strings.Builder by value.
-func cloneCollectedInto(out, in *lipapi.Collected) {
-	if out == nil || in == nil {
-		return
-	}
-	out.Text.Reset()
-	out.Reasoning.Reset()
-	_, _ = out.Text.WriteString(in.Text.String())
-	_, _ = out.Reasoning.WriteString(in.Reasoning.String())
-	out.ToolArgs = cloneBuilders(in.ToolArgs)
-	out.ToolNames = cloneStringMap(in.ToolNames)
-	out.ToolCallOrder = cloneStrings(in.ToolCallOrder)
-	out.Warnings = cloneStrings(in.Warnings)
-	out.InputTokens = in.InputTokens
-	out.OutputTokens = in.OutputTokens
-	out.CacheReadTokens = in.CacheReadTokens
-	out.CacheWriteTokens = in.CacheWriteTokens
-	out.ReasoningTokens = in.ReasoningTokens
-	out.TotalTokens = in.TotalTokens
-	out.CostNanoUnits = in.CostNanoUnits
-	out.Currency = in.Currency
-	out.CostSource = in.CostSource
-	out.TerminalError = cloneEvent(in.TerminalError)
-	out.FinishReceived = in.FinishReceived
-	out.FinishReason = in.FinishReason
-	if in.AssistantMedia != nil {
-		out.AssistantMedia = make([]lipapi.Part, len(in.AssistantMedia))
-		for i := range in.AssistantMedia {
-			out.AssistantMedia[i] = clonePart(in.AssistantMedia[i])
-		}
-	}
-	if in.ReasoningParts != nil {
-		out.ReasoningParts = make([]lipapi.ReasoningPart, len(in.ReasoningParts))
-		for i := range in.ReasoningParts {
-			if copyPart := cloneReasoningPart(&in.ReasoningParts[i]); copyPart != nil {
-				out.ReasoningParts[i] = *copyPart
-			}
-		}
-	}
-}
-
-func cloneBuilders(in map[string]*strings.Builder) map[string]*strings.Builder {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]*strings.Builder, len(in))
-	for id, builder := range in {
-		if builder == nil {
-			out[id] = nil
-			continue
-		}
-		copyBuilder := &strings.Builder{}
-		_, _ = copyBuilder.WriteString(builder.String())
-		out[id] = copyBuilder
-	}
-	return out
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	maps.Copy(out, in)
-	return out
-}
-
-func cloneStrings(in []string) []string {
-	if in == nil {
-		return nil
-	}
-	out := make([]string, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneEvent(in *lipapi.Event) *lipapi.Event {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Opaque = cloneBytes(in.Opaque)
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	out.Item = cloneItem(in.Item)
-	if in.UsageScopes != nil {
-		out.UsageScopes = make([]lipapi.ScopedUsageDelta, len(in.UsageScopes))
-		copy(out.UsageScopes, in.UsageScopes)
-	}
-	return &out
-}
-
-func cloneReasoningPart(in *lipapi.ReasoningPart) *lipapi.ReasoningPart {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Opaque = cloneRaw(in.Opaque)
-	out.Summary = cloneRaw(in.Summary)
-	out.Content = cloneRaw(in.Content)
-	out.EncryptedContent = cloneRaw(in.EncryptedContent)
-	return &out
-}
-
-func clonePart(in lipapi.Part) lipapi.Part {
-	out := in
-	out.Content = cloneRaw(in.Content)
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	return out
-}
-
-func cloneItem(in *lipapi.Item) *lipapi.Item {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	if in.Content != nil {
-		out.Content = make([]lipapi.ContentPart, len(in.Content))
-		for i := range in.Content {
-			out.Content[i] = cloneContentPart(in.Content[i])
-		}
-	}
-	if in.Reference != nil {
-		copyReference := *in.Reference
-		out.Reference = &copyReference
-	}
-	if in.ToolCall != nil {
-		copyToolCall := *in.ToolCall
-		copyToolCall.Arguments = cloneRaw(in.ToolCall.Arguments)
-		out.ToolCall = &copyToolCall
-	}
-	if in.ToolResult != nil {
-		copyToolResult := *in.ToolResult
-		if in.ToolResult.Parts != nil {
-			copyToolResult.Parts = make([]lipapi.ContentPart, len(in.ToolResult.Parts))
-			for i := range in.ToolResult.Parts {
-				copyToolResult.Parts[i] = cloneContentPart(in.ToolResult.Parts[i])
-			}
-		}
-		out.ToolResult = &copyToolResult
-	}
-	if in.Reasoning != nil {
-		copyReasoning := *in.Reasoning
-		copyReasoning.Reasoning = cloneReasoningPart(in.Reasoning.Reasoning)
-		out.Reasoning = &copyReasoning
-	}
-	if in.Compaction != nil {
-		copyCompaction := *in.Compaction
-		copyCompaction.Opaque = cloneRaw(in.Compaction.Opaque)
-		out.Compaction = &copyCompaction
-	}
-	if in.Extension != nil {
-		copyExtension := *in.Extension
-		copyExtension.Data = cloneRaw(in.Extension.Data)
-		out.Extension = &copyExtension
-	}
-	return &out
-}
-
-func cloneContentPart(in lipapi.ContentPart) lipapi.ContentPart {
-	out := in
-	out.Reasoning = cloneReasoningPart(in.Reasoning)
-	if in.Annotation != nil {
-		copyAnnotation := *in.Annotation
-		copyAnnotation.Data = cloneRaw(in.Annotation.Data)
-		out.Annotation = &copyAnnotation
-	}
-	if in.Extension != nil {
-		copyExtension := *in.Extension
-		copyExtension.Data = cloneRaw(in.Extension.Data)
-		out.Extension = &copyExtension
-	}
-	return out
-}
-
-func cloneBytes(in []byte) []byte {
-	if in == nil {
-		return nil
-	}
-	out := make([]byte, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneRaw(in json.RawMessage) json.RawMessage {
-	if in == nil {
-		return nil
-	}
-	out := make(json.RawMessage, len(in))
-	copy(out, in)
-	return out
 }
 
 var (

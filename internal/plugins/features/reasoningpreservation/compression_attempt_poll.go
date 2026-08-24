@@ -151,13 +151,19 @@ func pollOnceForTarget(ctx context.Context, cs CompressionStore, partition Sessi
 		}
 		return CompressionPollAttemptResult{Kind: PollKindNotFound, State: pr.State}
 	case auxiliary.PollCompleted:
-		// PollResult.Collected is already a defensive copy per the auxiliary.BackgroundPoller contract when State == PollCompleted.
+		// Defensive copy at the adoption boundary: the feature must not depend on a
+		// third-party BackgroundPoller honoring the documented defensive-copy contract.
+		// lipapi.CloneCollectedInto gives the candidate ownership of every collected
+		// interior so a poller that keeps writing to its payload cannot corrupt the
+		// raw guard/decode.
+		var collected lipapi.Collected
+		lipapi.CloneCollectedInto(&collected, &pr.Collected)
 		cand := &CompletedPollCandidate{
 			Partition:     partition,
 			ArtifactID:    targetID,
 			ReservationID: reservationID,
 			JobID:         jobID,
-			Collected:     pr.Collected,
+			Collected:     collected,
 			PollState:     pr.State,
 		}
 		return CompressionPollAttemptResult{Kind: PollKindCompleted, Candidate: cand, State: pr.State}

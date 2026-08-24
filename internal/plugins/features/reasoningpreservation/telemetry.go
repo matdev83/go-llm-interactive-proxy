@@ -72,17 +72,21 @@ func NewTelemetry() *Telemetry {
 	return &Telemetry{}
 }
 
+// discardBuckets absorbs writes if getBucket ever observes a foreign value
+// stored under an outcome key, which cannot happen today: buckets is unexported
+// and only getBucket writes to it, always *outcomeBuckets.
+var discardBuckets outcomeBuckets
+
 // getBucket returns the bucket for outcome, creating if absent.
 func (t *Telemetry) getBucket(outcome SafeOutcome) *outcomeBuckets {
 	v, _ := t.buckets.LoadOrStore(outcome, &outcomeBuckets{})
-	b, ok := v.(*outcomeBuckets)
-	if ok && b != nil {
+	if b, ok := v.(*outcomeBuckets); ok && b != nil {
 		return b
 	}
-	// Defensive fallback on type mismatch.
-	nb := &outcomeBuckets{}
-	t.buckets.Store(outcome, nb)
-	return nb
+	// Never overwrite the existing entry: replacing it here would drop its
+	// accumulated counters. Writes to discardBuckets are counted by nothing
+	// and harm no one.
+	return &discardBuckets
 }
 
 // addSaturating adds delta to addr with saturation at MaxInt64/MinInt64.
