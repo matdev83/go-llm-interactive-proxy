@@ -55,6 +55,7 @@ type launchEntry struct {
 type LaunchPermit struct {
 	aLeg    *ALeg
 	bLegID  string
+	entry   *launchEntry
 	cancel  context.CancelFunc
 	settled atomic.Bool
 }
@@ -68,7 +69,9 @@ func (p *LaunchPermit) Commit(handle BLegAttempt) (LaunchCommitResult, error) {
 	}
 	a := p.aLeg
 	a.mu.Lock()
-	delete(a.launches, p.bLegID)
+	if cur, ok := a.launches[p.bLegID]; ok && cur == p.entry {
+		delete(a.launches, p.bLegID)
+	}
 	if a.canceled {
 		cause := a.cause
 		a.mu.Unlock()
@@ -94,7 +97,9 @@ func (p *LaunchPermit) Abort() {
 	}
 	a := p.aLeg
 	a.mu.Lock()
-	delete(a.launches, p.bLegID)
+	if cur, ok := a.launches[p.bLegID]; ok && cur == p.entry {
+		delete(a.launches, p.bLegID)
+	}
 	a.mu.Unlock()
 	p.cancel()
 }
@@ -147,7 +152,7 @@ func (c *Coordinator) StartALeg(id string) *ALeg {
 	if a := c.alegs[id]; a != nil {
 		return a
 	}
-	a := &ALeg{id: id, coordinator: c, launches: map[string]launchEntry{}, blegs: map[string]BLegAttempt{}}
+	a := &ALeg{id: id, coordinator: c, launches: map[string]*launchEntry{}, blegs: map[string]BLegAttempt{}}
 	c.alegs[id] = a
 	return a
 }
@@ -160,7 +165,7 @@ func (c *Coordinator) CancelALeg(ctx context.Context, id string, cause CancelCau
 	c.ensureALegsLocked()
 	a := c.alegs[id]
 	if a == nil {
-		a = &ALeg{id: id, coordinator: c, launches: map[string]launchEntry{}, blegs: map[string]BLegAttempt{}}
+		a = &ALeg{id: id, coordinator: c, launches: map[string]*launchEntry{}, blegs: map[string]BLegAttempt{}}
 		c.alegs[id] = a
 	}
 	c.mu.Unlock()
@@ -183,7 +188,7 @@ type ALeg struct {
 	mu       sync.Mutex
 	canceled bool
 	cause    CancelCause
-	launches map[string]launchEntry
+	launches map[string]*launchEntry
 	blegs    map[string]BLegAttempt
 }
 
@@ -205,7 +210,7 @@ func (a *ALeg) BeginBLegLaunch(parent context.Context, bLegID string) (context.C
 		return nil, nil, ErrALegCanceled
 	}
 	if a.launches == nil {
-		a.launches = make(map[string]launchEntry)
+		a.launches = make(map[string]*launchEntry)
 	}
 	if a.blegs == nil {
 		a.blegs = make(map[string]BLegAttempt)
@@ -213,9 +218,10 @@ func (a *ALeg) BeginBLegLaunch(parent context.Context, bLegID string) (context.C
 	if old, exists := a.launches[bLegID]; exists {
 		old.cancel()
 	}
-	a.launches[bLegID] = launchEntry{cancel: cancel}
+	entry := &launchEntry{cancel: cancel}
+	a.launches[bLegID] = entry
 	a.mu.Unlock()
-	return openCtx, &LaunchPermit{aLeg: a, bLegID: bLegID, cancel: cancel}, nil
+	return openCtx, &LaunchPermit{aLeg: a, bLegID: bLegID, entry: entry, cancel: cancel}, nil
 }
 
 func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
@@ -274,9 +280,11 @@ func (a *ALeg) Cancel(ctx context.Context, cause CancelCause) error {
 	a.cause = cause
 	launches := make([]context.CancelFunc, 0, len(a.launches))
 	for _, l := range a.launches {
-		launches = append(launches, l.cancel)
+		if l != nil && l.cancel != nil {
+			launches = append(launches, l.cancel)
+		}
 	}
-	a.launches = map[string]launchEntry{}
+	a.launches = map[string]*launchEntry{}
 	blegs := make([]BLegAttempt, 0, len(a.blegs))
 	for _, b := range a.blegs {
 		blegs = append(blegs, b)
@@ -348,7 +356,9 @@ func (a *ALeg) ReleaseBLeg(id string) {
 	delete(a.blegs, id)
 	if l, ok := a.launches[id]; ok {
 		delete(a.launches, id)
-		l.cancel()
+		if l != nil && l.cancel != nil {
+			l.cancel()
+		}
 	}
 	a.mu.Unlock()
 }

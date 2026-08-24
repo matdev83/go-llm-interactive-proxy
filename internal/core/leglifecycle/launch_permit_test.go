@@ -265,3 +265,109 @@ func TestLaunchPermit_ReleaseBLegCancelsLaunch(t *testing.T) {
 		t.Fatal("openCtx was not canceled after ReleaseBLeg")
 	}
 }
+
+func TestLaunchPermit_StalePermitDoesNotRemoveSuccessor(t *testing.T) {
+	t.Parallel()
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
+	a := coord.StartALeg("a-x")
+
+	_, permit1, err := a.BeginBLegLaunch(context.Background(), "b-dup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	openCtx2, permit2, err := a.BeginBLegLaunch(context.Background(), "b-dup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle2 := &recordingBLeg{}
+
+	permit1.Abort()
+
+	select {
+	case <-openCtx2.Done():
+		t.Fatal("openCtx2 should still be live after stale permit1 abort")
+	default:
+	}
+
+	cause := leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+	if err := a.Cancel(context.Background(), cause); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-openCtx2.Done():
+		// openCtx2 canceled promptly
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("openCtx2 was not canceled when A-leg was canceled")
+	}
+
+	res, err := permit2.Commit(handle2)
+	if err != nil {
+		t.Fatalf("commit error: %v", err)
+	}
+	if !res.Canceled {
+		t.Fatal("expected Commit result to be Canceled")
+	}
+	if res.Cause.Kind != leglifecycle.CancelExplicit {
+		t.Fatalf("expected cause %v, got %v", leglifecycle.CancelExplicit, res.Cause.Kind)
+	}
+	if got := handle2.calls(); len(got) != 0 {
+		t.Fatalf("handle2 should not have been called, got %v", got)
+	}
+}
+
+func TestLaunchPermit_StalePermitCommitDoesNotRemoveSuccessor(t *testing.T) {
+	t.Parallel()
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
+	a := coord.StartALeg("a-commit-stale")
+
+	_, permit1, err := a.BeginBLegLaunch(context.Background(), "b-dup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	openCtx2, permit2, err := a.BeginBLegLaunch(context.Background(), "b-dup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle1 := &recordingBLeg{}
+	if _, err := permit1.Commit(handle1); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-openCtx2.Done():
+		t.Fatal("openCtx2 should still be live after stale permit1 commit")
+	default:
+	}
+
+	cause := leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}
+	if err := a.Cancel(context.Background(), cause); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-openCtx2.Done():
+		// openCtx2 canceled promptly
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("openCtx2 was not canceled when A-leg was canceled")
+	}
+
+	handle2 := &recordingBLeg{}
+	res, err := permit2.Commit(handle2)
+	if err != nil {
+		t.Fatalf("commit error: %v", err)
+	}
+	if !res.Canceled {
+		t.Fatal("expected Commit result to be Canceled")
+	}
+	if res.Cause.Kind != leglifecycle.CancelExplicit {
+		t.Fatalf("expected cause %v, got %v", leglifecycle.CancelExplicit, res.Cause.Kind)
+	}
+	if got := handle2.calls(); len(got) != 0 {
+		t.Fatalf("handle2 should not have been called, got %v", got)
+	}
+}
