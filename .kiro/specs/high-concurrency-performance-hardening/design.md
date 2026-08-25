@@ -8,7 +8,7 @@ The architecture deliberately does **not** replace Go's goroutine-per-stream mod
 
 Capacity is treated as a measured property of workload + feature mode + persistence topology + transport topology + host. The capacity unit is a **logical LLM stream**. Physical HTTP/TCP connections are measured separately because direct HTTP/1.1 generally consumes one active connection per long stream whereas HTTP/2 can multiplex many logical streams over fewer client/front-door connections. The final result may certify 1k/5k/10k logical-stream tiers differently for idle-held versus actively emitting streams and may return an explicit NO-GO with a measured limiter. The design never extrapolates an untested tier.
 
-#446 is part of the current architecture rather than a pending dependency. It made B-leg launch/cancel publication explicit, parallelized sibling teardown, and introduced negotiated executable-plugin stream coordination with bounded per-stream readers/workers/channels. The harness therefore treats backend execution form and cancellation schedule as first-class scenario dimensions. The design measures these owners and freezes their correctness as regression gates; it does not create a second cancellation authority or reopen #446's approved lifecycle design without contrary evidence.
+PR #446 is part of the current architecture rather than a pending dependency. It made B-leg launch/cancel publication explicit, parallelized sibling teardown, and introduced negotiated executable-plugin stream coordination with bounded per-stream readers/workers/channels. The harness therefore treats backend execution form and cancellation schedule as first-class scenario dimensions. The design measures these owners and freezes their correctness as regression gates; it does not create a second cancellation authority or reopen #446's approved lifecycle design without contrary evidence.
 
 ### Goals
 
@@ -89,7 +89,7 @@ The current architecture already contains several good scalability primitives: i
 
 The post-#446 executable-plugin path is not equivalent to the built-in/standard backend path for capacity purposes. On the connector side, a negotiated plugin stream can own a control reader, an upstream reader, a coordinator, a bounded 16-event observation channel, an optional stream-closer worker, and a bounded cancellation worker. On the Go-LIP adapter side it also owns an Execute pump, optional stderr drain, control/error/done channels, a configurable pending-event channel whose current default is 64, and bounded usage evidence. Conversion copies may add event-rate allocation. These costs occur in different processes but are all part of deployment capacity and must be measured separately and in aggregate in HOLD, DELTA, DISCONNECT, and SOAK.
 
-The problematic paths share four patterns:
+The problematic paths share five patterns:
 
 1. **Work proportional to historical output** — secure-session sequence scans, retained event/output histories, terminal full-slice copies, lease-map scans.
 2. **Unrelated work serialized by global ownership** — secure-session memory mutations, auth sink I/O, B2BUA memory activity updates, concurrency-authority lease scans.
@@ -97,7 +97,7 @@ The problematic paths share four patterns:
 4. **Policy expressed as a total-duration timeout instead of phase/progress policy** — inbound server write and outbound client total timeout.
 5. **Small fixed/rate costs multiplied by stream count** — per-stream goroutines/channels/stacks/buffers, per-event conversions/allocations, and request/event/terminal database work whose individual cost looks modest below the 1k–10k target.
 
-#446 does not retire any of these five dominant patterns. It changes the baseline for stream topology and disconnect behavior: parallel sibling teardown is now a positive control, while per-stream plugin owners and forced-close joinability require current measurements.
+PR #446 does not retire any of these five dominant patterns. It changes the baseline for stream topology and disconnect behavior: parallel sibling teardown is now a positive control, while per-stream plugin owners and forced-close joinability require current measurements.
 
 The design attacks these properties at their current boundaries instead of moving the same complexity into new packages.
 
@@ -446,15 +446,15 @@ A failed gate is evidence, not a reason to omit the verdict. Remaining independe
 
 ### Flow H: Hot-Path I/O and Resource Classification
 
-Every measured database operation is classified before an optimization mechanism is chosen:
+Every measured database operation is assigned exactly one of the four canonical Requirement 19.4 classes before an optimization mechanism is chosen. The table splits reusable reads and authoritative work into operational subtypes without creating additional canonical classes:
 
-| Operation class | Default realization | Eligible optimization | Forbidden shortcut |
+| Canonical class / operational subtype | Default realization | Eligible optimization | Forbidden shortcut |
 |---|---|---|---|
-| Immutable/versioned reference read | Build or load once into the immutable generation/process owner | Reuse already-loaded value; bounded version cache if construction cannot own it | Per-request DB lookup or an unbounded global TTL map |
-| Staleness-tolerant dynamic read | Current adapter read | Bounded identity/TTL/version cache with miss collapse, freshness and invalidation tests | Treating cache contents as authority after the allowed freshness window |
-| Authoritative admission/security/financial read-write | Minimum synchronous transaction at the owning seam | Remove redundant queries; combine operations transactionally | Stale cache or RAM-only async acknowledgement |
-| Mandatory stream/event record | Minimum durability-preserving logical mutation | Consolidated transaction, measured microbatch, or local durable acknowledgement | Releasing mandatory output after enqueue to volatile memory |
-| Best-effort projection/telemetry | Direct call when cheap | Bounded queue with explicit drop/coalesce/backpressure and owned drain | Unbounded queue or goroutine per event |
+| Reusable/versioned read work — immutable reference | Build or load once into the immutable generation/process owner | Reuse already-loaded value; bounded version cache if construction cannot own it | Per-request DB lookup or an unbounded global TTL map |
+| Reusable/versioned read work — staleness-tolerant dynamic value | Current adapter read | Bounded identity/TTL/version cache with miss collapse, freshness and invalidation tests | Treating cache contents as authority after the allowed freshness window |
+| Authoritative synchronous work — admission/security/financial read-write | Minimum synchronous transaction at the owning seam | Remove redundant queries; combine operations transactionally | Stale cache or RAM-only async acknowledgement |
+| Authoritative synchronous work — mandatory stream/event record | Minimum durability-preserving logical mutation | Consolidated transaction, measured microbatch, or local durable acknowledgement | Releasing mandatory output after enqueue to volatile memory |
+| Best-effort projection — telemetry | Direct call when cheap | Bounded queue with explicit drop/coalesce/backpressure and owned drain | Unbounded queue or goroutine per event |
 | Idempotent terminal work | Existing durable spool/terminal owner | Maintained metadata, bounded batching, worker concurrency if measured | Moving terminal financial writes onto event cadence |
 
 The performance result also derives a **phase-aware cost envelope**:
@@ -499,10 +499,11 @@ The model separates work units from physical transport resources:
 
 ```go
 type Scenario struct {
-    ID             string
-    Protocol       ProtocolDriver
-    LogicalStreams int
-    Transport      TransportPlan
+    ID               string
+    Protocol         ProtocolDriver
+    LogicalStreams   int
+    Transport        TransportPlan
+    ReferenceBackend ReferenceBackendPlan
 
     Ramp           time.Duration
     RequestBytes   int
@@ -516,19 +517,33 @@ type Scenario struct {
     DisconnectAt   time.Duration
     CompletionSkew time.Duration
     BackendPath    BackendExecutionPath // builtin_standard, executable_plugin
-    ResourceScope  ResourceScope         // proxy_only, connector_only, aggregate_process_tree
+    ResourcePlan   ProcessTreeResourcePlan
     Cancellation   CancellationPlan
     FeatureMode    FeatureMode
 
-    GateProfileID  string // required when scenario is used for capacity certification
+    GateProfileID string // required when scenario is used for capacity certification
 }
 
 type CancellationPlan struct {
-    LaunchInFlight   bool
-    SiblingBLegs     int
-    Mode             CancellationMode // graceful, deadline_force_close, upstream_terminal_race
-    CancelAfter      time.Duration
-    CancelDeadline   time.Duration
+    LaunchInFlight        bool
+    SiblingBLegs          int
+    Mode                  CancellationMode // graceful, deadline_force_close, upstream_terminal_race
+    CancelAfter           time.Duration
+    CancelDeadline        time.Duration
+    UpstreamTerminalAfter time.Duration
+    UpstreamOutcome       UpstreamTerminalOutcome // none, success, failure
+}
+
+type ReferenceBackendPlan struct {
+    ScriptID      string
+    ScriptVersion string // immutable version or content digest
+}
+
+type ProcessTreeResourcePlan struct {
+    RequireProxy             bool
+    RequireConnectorChildren bool
+    RequireAggregate         bool
+    Aggregation              ProcessTreeAggregationMethod
 }
 
 type TransportPlan struct {
@@ -539,9 +554,9 @@ type TransportPlan struct {
 }
 ```
 
-Validation rejects impossible/unbounded values. A direct HTTP/1.1 active-stream scenario cannot claim fewer simultaneously active client/proxy connections than its protocol semantics permit. HTTP/2 scenarios may multiplex, but the multiplex policy/limit is part of the fingerprint. Scenarios are serializable/describable so an experiment can record an exact fingerprint rather than prose only.
+Validation rejects impossible/unbounded values. A direct HTTP/1.1 active-stream scenario cannot claim fewer simultaneously active client/proxy connections than its protocol semantics permit. HTTP/2 scenarios may multiplex, but the multiplex policy/limit is part of the fingerprint. An executable-plugin `ResourcePlan` requires the proxy, every discovered managed connector child, and aggregate process tree; it cannot select aggregate-only accounting. An `upstream_terminal_race` requires explicit cancellation and upstream-terminal offsets plus an outcome of `success` or `failure`; `none` is invalid for that mode. Scenarios are serializable/describable so an experiment can record an exact fingerprint rather than prose only.
 
-`BackendPath` is also part of the fingerprint. A built-in/standard stream and a negotiated executable-plugin stream are not equivalent even when their frontend protocol, logical-stream count, event cadence, and socket topology match. Executable-plugin results capture proxy-side and connector-side goroutines per stream, stack memory, bounded channel capacities/occupancy (including adapter pending events), scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and post-terminal owner reclamation. Aggregate process-tree cost is derived without hiding the individual processes. `CancellationPlan` drives existing #446 contracts; it does not implement a parallel cancellation state machine in the load tool.
+`BackendPath`, every `CancellationPlan` field, and the stable reference-backend script ID plus immutable version/content digest are part of the fingerprint. Therefore upstream-success and upstream-failure race variants, different timing schedules, and different script versions cannot compare as equivalent. Contract tests must prove those fingerprint inequalities. A built-in/standard stream and a negotiated executable-plugin stream are likewise not equivalent even when their frontend protocol, logical-stream count, event cadence, and socket topology match. Executable-plugin results capture proxy-side and connector-side goroutines per stream, stack memory, bounded channel capacities/occupancy (including adapter pending events), scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and post-terminal owner reclamation. Aggregate process-tree cost is derived without hiding the individual processes. `CancellationPlan` drives existing #446 contracts; it does not implement a parallel cancellation state machine in the load tool.
 
 ### Typed Result Model
 
@@ -580,22 +595,38 @@ type Result struct {
     Latency        LatencyDistributions
     Throughput     ThroughputStats
     Outcomes       OutcomeCounts // expected vs unexpected failures/rejections/cancels
-    CPU            CPUStats      // process + system
-    Memory         MemoryStats   // RSS, heap, objects, stack
-    Allocations    AllocationStats
-    GC             GCStats
-    Scheduler      SchedulerStats
-    Goroutines     GoroutineStats
+    Host           HostResourceStats // system/host headroom; excluded from process-tree aggregate
+    Resources      ProcessTreeResources
     Database       DatabaseStats
-    HotPathCost    PhaseCostEnvelope
-    Processes      []ProcessResourceStats // proxy and managed connector children
+    HotPathCost    ScopedPhaseCostEnvelope // proxy, connector children, and aggregate
     Queues         QueueStats
     Artifacts      []ArtifactRef
     Unavailable    []UnavailableMetric
 }
+
+type ProcessTreeResources struct {
+    Proxy             ProcessResourceStats
+    ConnectorChildren []ProcessResourceStats
+    Aggregate         ProcessResourceStats // ScopeAggregateProcessTree; derived or cgroup-scoped, no PID
+    Aggregation       ProcessTreeAggregationMethod
+}
+
+type ProcessResourceStats struct {
+    Scope       ResourceScope // proxy_only, connector_child, aggregate_process_tree
+    Identity    ProcessIdentity
+    CPU         CPUStats
+    Memory      MemoryStats // RSS, heap, objects, stack
+    Allocations AllocationStats
+    GC          GCStats
+    Scheduler   SchedulerStats
+    Goroutines  GoroutineStats
+    SocketsFDs  DescriptorStats
+}
 ```
 
 The machine-readable result contract must preserve **unavailable** versus numeric zero. Correctness assertions are typed, not buried in console text. A semantically wrong run is `RunInvalidCorrectness` and cannot be fed into certification as a successful datapoint.
+
+`Resources.Aggregate` is a deployment-process-tree result, not a second observation that can include the same process twice. `Aggregation` records membership intervals, sample alignment, and whether the aggregate came from one process-tree/cgroup source or was derived from members; those methods are never added together. For a derived aggregate, all members use the same sampling interval and normalized monotonic clock. CPU time and other additive counter **deltas** are summed once across the proxy and identified connector children. For instantaneous additive gauges such as live heap, stack bytes, goroutines, and descriptors, each aggregate sample is the sum of aligned member samples; aggregate peak is the maximum of those aligned sums, never the sum of independently observed per-process peaks. Unique physical memory uses a process-tree/cgroup reading or aligned PSS/USS where available. A summed RSS is retained only as a labeled conservative accounting metric because shared pages may be counted in more than one process; it cannot masquerade as unique host-memory use. Ratios and rates are recomputed from aggregate numerators/denominators rather than added. Host/system metrics remain in `Host` and are not part of the process-tree sum. If a required member or interval is unavailable, the affected aggregate is marked unavailable/partial and cannot pass a required aggregate gate. `HotPathCost` uses the same scopes and aggregation rules.
 
 ### Certification Gate Profile
 
@@ -620,11 +651,13 @@ type CertificationGateProfile struct {
     TerminalLatency    OptionalLatencyGate
     ResourceHeadroom   OptionalResourceGate
     FixedStreamCost    OptionalCostGate
+    RequestStartCost   OptionalCostGate
     EventRateCost      OptionalCostGate
+    TerminalBurstCost OptionalCostGate
     DatabaseOps        OptionalCostGate
     SchedulerGC        OptionalCostGate
     MemoryGrowth       MemoryGrowthGate
-    Cleanup            CleanupGate
+    CleanupCost        CleanupGate
     Durability         DurabilityGate
     Timeout            TimeoutGate
 
@@ -647,7 +680,9 @@ Rules:
 - Expected policy/QoS rejections are scenario assertions and are classified separately from unexpected failures.
 - Latency/resource gates may be `not-a-release-gate` only with rationale; if a latency/resource objective is required for the capacity claim but no defensible source exists, the tier remains `NO-GO (gate-definition-incomplete)` rather than receiving an invented number.
 - Memory/cleanup gates use a predeclared method/window/tolerance or statistical criterion. Visual inspection alone is not a certification gate.
-- Fixed-stream, event-rate, database-operation, and scheduler/GC gates use sourced budgets or predeclared baseline-regression envelopes. A connection remaining open is insufficient when one of these required gates is exhausted.
+- The scenario declares which Flow H phases are applicable. `FixedStreamCost`, `RequestStartCost`, `EventRateCost`, `TerminalBurstCost`, and `CleanupCost` map one-to-one to the fixed, request-start, event-rate, terminal-burst, and cleanup envelopes; database and scheduler/GC gates retain their per-phase breakdowns.
+- Every applicable phase must have a sourced gate or an explicit `not-a-release-gate` rationale frozen before the run. A missing required profile field or threshold source yields `NO-GO (gate-definition-incomplete)`; a defined gate whose required measurement is unavailable makes the run `invalid-incomplete` and ineligible for GO; a measured gate failure yields NO-GO with the typed measured limiter.
+- A connection remaining open is insufficient when any required phase, database-operation, scheduler/GC, resource-headroom, correctness, durability, or cleanup gate is exhausted.
 - A gate profile ID/version is included in the scenario/result fingerprint so later edits cannot retroactively make a failed run pass.
 
 ### Staged Admission State
@@ -809,9 +844,9 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 
 ### Default / unit tests
 
-- Scenario validation including impossible stream/connection topology combinations.
-- Result serialization/aggregation and distinction between zero, unavailable, invalid, and unsupported outcomes.
-- Certification gate profile validation/versioning/fingerprint stability and PASS/NO-GO evaluation.
+- Scenario validation including impossible stream/connection topology combinations; upstream terminal race fingerprints must differ for success versus failure, timing changes, and reference-backend script/version changes.
+- Result serialization/aggregation and distinction between zero, unavailable, invalid, and unsupported outcomes; process-tree tests use non-coincident per-process peaks to prove aggregate peak is the maximum aligned sum rather than the sum of peaks.
+- Certification gate profile validation/versioning/fingerprint stability and PASS/NO-GO evaluation, including missing, unavailable, passing, and failing coverage for every applicable Flow H phase.
 - Diagnostic privacy allowlist/redaction across result JSON, labels, logs, metrics, profile labels/metadata, trace metadata, and artifact names.
 - Staged admission state transitions and exact release under all error paths.
 - Secure-session batch mutation equivalence, sequence monotonicity, concurrent session independence, expiry/reclamation.

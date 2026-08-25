@@ -24,8 +24,8 @@
 16. The implementation baseline is post-#446 `main`, beginning at `f70201d037268508931ceab599b12ee4d3b40aad`. Record the exact run commit; pre-#446 HOLD/DELTA/DISCONNECT results are historical context only and cannot satisfy Phase 2.
 17. Fingerprint built-in/standard and negotiated executable-plugin backend execution separately. For executable plugins, record per-stream goroutines/stack, bounded event-buffer capacity/occupancy where observable, scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and owner reclamation.
 18. Treat #446's launch-permit linearization and parallel sibling cancellation as correctness/performance regression controls. A run with an unjoinable cancellation worker, duplicate/missing terminal/usage/billing evidence, or unreclaimed stream owner is invalid for certification.
-19. Record a phase-aware cost envelope: fixed resources per active stream plus request-start, per-event, terminal-burst, and cleanup costs. For executable plugins, record Go-LIP, managed connector child processes, and aggregate process-tree resources separately; moving cost across IPC is not an aggregate improvement.
-20. Classify every material request/event/terminal/cleanup database operation as authoritative synchronous, reusable/versioned read, best-effort projection, or idempotent terminal work before testing a cache, batch, or async path. Never use stale cache or volatile enqueue acknowledgement to erase a required correctness/durability boundary.
+19. Record a phase-aware cost envelope: fixed resources per active stream plus request-start, per-event, terminal-burst, and cleanup costs. For executable plugins, record Go-LIP, managed connector child processes, and aggregate process-tree resources separately; moving cost across IPC is not an aggregate improvement. Derive aggregate counter deltas by summing each member once over the same interval and aggregate gauge peaks from the maximum aligned per-timestamp sum, never by adding independent process peaks. Prefer cgroup/process-tree memory or aligned PSS/USS for unique physical memory; label summed RSS as conservative accounting that may count shared pages more than once.
+20. Classify every material request/event/terminal/cleanup database operation as exactly one canonical class before testing a cache, batch, or async path: authoritative synchronous work (including mandatory stream/event records), reusable/versioned read work, best-effort projection, or idempotent terminal work. Never use stale cache or volatile enqueue acknowledgement to erase a required correctness/durability boundary.
 21. Allocation/reuse experiments must compare simpler ownership/copy elimination, preallocation, or incremental processing where applicable. A retained buffer/object reuse candidate records capacity classes/drop threshold, oversized-buffer rejection, reset/zeroing/privacy behavior, post-GC retention, and cross-session tests.
 22. Goroutine experiments report owner and join contract for each per-stream goroutine/channel. A shared worker candidate is eligible only for bounded short independent jobs with explicit queue/full/fairness/cancel/shutdown behavior; never pool blocking stream receive, ordered send, cancellation, or close merely to lower the count.
 
@@ -82,9 +82,9 @@ Task 1 establishes stable scenario IDs here before production optimization begin
 - `SOAK-*` — steady-state long-duration run at the highest sustainable tier.
 - `COST-*` — phase-aware overlays on HOLD/START/DELTA/COMPLETE/DISCONNECT that derive fixed-stream, request-start, per-event, terminal-burst, cleanup, database-operation, allocation/GC, shared-state, and goroutine/scheduler costs rather than introducing a second synthetic protocol path.
 
-For each scenario record: protocol/client driver, reference backend script, **logical stream target**, transport topology, target client/front-door transport connections, target terminator/proxy connections if applicable, max/multiplexed streams per connection where controlled, backend execution path, process resource scope, negotiated plugin features when applicable, ramp, request bytes, TTFT, stream duration, event count, event size, event cadence, launch-in-flight flag, sibling B-leg count, cancellation mode/deadline/race schedule, completion synchronization, secure-session mode, store mode, traffic observer mode, authority mode, expected terminal/usage/billing/joinability/cleanup assertions, phase-cost dimensions, and certification gate profile ID when used for a capacity verdict.
+For each scenario record: protocol/client driver, stable reference-backend script ID plus immutable version/content digest, **logical stream target**, transport topology, target client/front-door transport connections, target terminator/proxy connections if applicable, max/multiplexed streams per connection where controlled, backend execution path, required process resource scopes and aggregation method, negotiated plugin features when applicable, ramp, request bytes, TTFT, stream duration, event count, event size, event cadence, launch-in-flight flag, sibling B-leg count, cancellation mode/deadline, explicit cancellation-versus-upstream-terminal schedule, upstream terminal outcome (`success`/`failure` where raced), completion synchronization, secure-session mode, store mode, traffic observer mode, authority mode, expected terminal/usage/billing/joinability/cleanup assertions, phase-cost dimensions, and certification gate profile ID when used for a capacity verdict.
 
-A scenario fingerprint MUST include logical-stream and transport-connection fields independently. `HOLD-10000` over HTTP/1.1 and `HOLD-10000` multiplexed over HTTP/2 are not equivalent resource scenarios even though both carry 10,000 logical streams.
+A scenario fingerprint MUST include logical-stream and transport-connection fields independently. It MUST also include the reference-backend script ID/version or digest and the complete cancellation plan, so upstream-success and upstream-failure races or different race schedules cannot compare as equivalent. `HOLD-10000` over HTTP/1.1 and `HOLD-10000` multiplexed over HTTP/2 are not equivalent resource scenarios even though both carry 10,000 logical streams.
 
 ## 4. Certification Gate Registry
 
@@ -107,11 +107,13 @@ Certification is deterministic but does **not** invent universal latency/SLO num
 - **Terminal latency gate:** threshold + statistic + source, or `not-a-release-gate` with rationale.
 - **CPU/resource-headroom gate:** threshold + source when required for the capacity claim.
 - **Fixed active-stream cost gate:** heap/RSS contribution, goroutines, stack bytes, channels/reserved buffers, sockets/owners and source, or `not-a-release-gate` with rationale.
-- **Request/event/terminal cost gate:** applicable allocations/bytes, GC/scheduler, blocking/queue, tail latency and source, or `not-a-release-gate` with rationale.
+- **Request-start cost gate:** allocations/bytes, DB/lock/scheduler work, start latency and source, or `not-a-release-gate` with rationale.
+- **Per-event cost gate:** allocations/bytes, GC/scheduler, DB/channel blocking, event-forward latency and source, or `not-a-release-gate` with rationale.
+- **Terminal-burst cost gate:** peak allocations, durable DB/spool/queue work, goroutine/scheduler burst, terminal latency and source, or `not-a-release-gate` with rationale.
 - **Database-operation gate:** classified logical operations and physical queries/transactions/pool-wait by lifecycle phase plus source/budget, or `not-a-release-gate` with rationale.
 - **Process-tree attribution gate:** proxy and connector-child measurements present separately and aggregate headroom passes when executable plugins are in scope.
 - **Steady-state memory-growth gate:** method/threshold + source; must reject a supported positive monotonic growth trend attributable to live-history leakage.
-- **Post-cleanup resource gate:** expected return band for heap/goroutines/sockets/session/lease/queue state + source/method.
+- **Cleanup cost gate:** cleanup deadline plus expected return band for heap/goroutines/sockets/session/lease/cache/queue state + source/method.
 - **Durability gate:** missing mandatory records `0`; duplicate mandatory records `0`; ordering/exactly-once rules per existing contract.
 - **Timeout gate:** healthy progressing stream must not fail solely because total duration crosses the historical blanket timeout.
 - Threshold source(s): product SLO | configured/protocol bound | explicit operator capacity objective | predeclared baseline-regression budget | frozen lower-tier scaling contract | other documented source.
@@ -123,6 +125,7 @@ Rules:
 2. A latency/resource threshold without a defensible recorded source cannot be invented merely to obtain `GO`; mark the performance gate unresolved and the tier **NO-GO for certification** until the release objective is defined.
 3. Gate profiles may differ by scenario (for example `HOLD`, `DELTA`, `BODY`, `COMPLETE`) because their useful latency/resource metrics differ, but they must be frozen before the evaluated run and versioned when intentionally changed.
 4. `GO` requires a valid run reaching the target logical-stream tier for the required steady-state duration and passing every required gate. A required-gate failure yields `NO-GO`. A generator/OS/host inability yields `NO-GO (environment-limited)`/`unsupported-by-host` for that tier, not a proxy-failure label.
+5. The scenario declares applicable fixed, request-start, per-event, terminal-burst, and cleanup phases. Each applicable phase maps to its same-named gate. A missing required gate or threshold source yields `NO-GO (gate-definition-incomplete)`; unavailable required evidence makes the run `invalid-incomplete`; a measured gate failure yields `NO-GO` with the typed measured limiter.
 
 ## 5. Baseline Matrix
 
@@ -187,9 +190,11 @@ Copy this section for **every** optimization attempt, including reverted attempt
 
 **Backend execution path / negotiated plugin features:**
 
-**Process resource scope / child connector identities:**
+**Reference-backend script ID / immutable version or content digest:**
 
-**Cancellation schedule (launch state / siblings / mode / deadline / upstream race):**
+**Required process resource scopes / child connector identities / aggregation method:**
+
+**Cancellation schedule (launch state / siblings / mode / deadline / cancel and upstream-terminal offsets / terminal outcome):**
 
 **Controlled variables / intentional differences:**
 
@@ -216,7 +221,7 @@ Copy this section for **every** optimization attempt, including reverted attempt
 - Process CPU / system CPU:
 - Proxy process CPU/RSS/heap/stack/goroutines/alloc/GC:
 - Managed connector child CPU/RSS/heap/stack/goroutines/alloc/GC:
-- Aggregate process-tree CPU/RSS/heap/stack/goroutines:
+- Aggregate process-tree CPU/RSS/heap/stack/goroutines plus aligned-sample/counter-delta method and member completeness:
 - RSS / live heap / heap objects:
 - Total allocation bytes / malloc/free counts:
 - Alloc bytes/op and allocs/op where applicable:
@@ -304,7 +309,7 @@ Complete after the implementation program has executed the final certification g
 - Unexpected error/rejection gate result:
 - Tail-latency gate results and sources:
 - Steady-state memory-growth gate result:
-- Post-cleanup resource gate result:
+- Cleanup cost gate result:
 - Monotonic heap/session/history growth observed? yes/no + evidence:
 - Dominant remaining CPU profile nodes:
 - Dominant remaining mutex/block profile nodes:

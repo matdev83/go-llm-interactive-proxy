@@ -424,9 +424,9 @@ The performance program shall not mechanically replace these patterns merely bec
 
 ### Decision 11: Database optimization follows freshness and durability class
 
-- **Selected approach**: Prefer already-loaded values and immutable/versioned generation projections for stable reads. Consider a bounded TTL/version cache only when the data contract permits staleness and a measured repeated read remains material. Keep authoritative admission/security/financial writes synchronous unless an existing best-effort policy or a proved local durable acknowledgement permits bounded asynchronous completion.
+- **Selected approach**: Classify each operation into the four canonical Requirement 19.4 classes, treating mandatory stream/event records as authoritative synchronous work. Prefer already-loaded values and immutable/versioned generation projections for stable reads. Consider a bounded TTL/version cache only when the data contract permits staleness and a measured repeated read remains material. Keep authoritative admission/security/financial writes synchronous unless an existing best-effort policy or a proved local durable acknowledgement permits bounded asynchronous completion.
 - **Rationale**: “No database on the hot path” is not a safe universal rule. Some database operations are the transaction boundary that makes admission, durability, or exactly-once behavior true; moving them to RAM queues would improve latency by deleting the guarantee.
-- **Trade-off**: Some mandatory modes may remain database-limited, which final capacity certification must report honestly rather than hide.
+- **Trade-off**: Some mandatory modes may remain database-limited; final capacity certification must report that honestly rather than hide it.
 
 ### Decision 12: Minimize fixed stream cost before considering pools
 
@@ -499,6 +499,7 @@ The design was validated against steering boundaries, current source ownership, 
 - Added explicit host/topology attribution and separate held-versus-active certification.
 - Re-anchored implementation evidence to post-#446 `main`, added built-in versus executable-plugin stream variants, and expanded cancellation/disconnect schedules without changing the P0/P1 implementation order.
 - Added a phase-aware per-session cost envelope, persistence freshness/durability classification, process-tree resource accounting, bounded reuse safety, and a narrow evidence gate for worker pools instead of prescribing blanket caching/pooling.
+- Aligned the four canonical database-operation classes, made race outcome/script identity part of scenario fingerprints, typed aggregate process-tree accounting with aligned-peak/shared-memory rules, and mapped every Flow H phase to an explicit certification gate and failure mode.
 
 **Design validation verdict: PASS / GO.** The planned architecture is implementable against current boundaries and contains explicit safety rails for the high-risk durability, security, billing, and streaming semantics.
 
@@ -527,6 +528,7 @@ The design was validated against steering boundaries, current source ownership, 
 - Design choices preserve steering boundaries and explicitly coordinate with active runtime-ownership specs.
 - Tasks are ordered by impact: harness/baseline first; streaming correctness/admission; secure-session event-cadence work; bounded stream memory; then P1 shared stores/persistence; then evidence-gated P2 allocation/observer/lock/transport work; final certification last.
 - Cross-cutting database, allocation/GC, shared-state, and goroutine costs now have one phase-aware resource envelope and process-tree certification contract rather than relying on isolated profile notes.
+- Requirements, design, tasks, and the benchmark ledger use the same database taxonomy, cancellation fingerprint inputs, process-tree aggregation semantics, and per-phase gate mapping.
 - Every production optimization task has an evidence obligation in `benchmark-scratch.md`; no “expected to improve” task can close without measured before/after evidence.
 - Spec-only delivery contains no production implementation.
 
