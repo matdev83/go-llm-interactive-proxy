@@ -5,7 +5,8 @@
 - **Feature**: `high-concurrency-performance-hardening`
 - **Issue**: #394 — high-volume/high-concurrency proxy reality check
 - **Classification**: Brownfield, cross-cutting performance/scalability hardening of existing streaming, persistence, admission, and coordination paths
-- **Audit baseline**: `962e1546e29a6df0f6d19f2ae195a9999cdf1b64`
+- **Original static-audit baseline**: `962e1546e29a6df0f6d19f2ae195a9999cdf1b64`
+- **Required implementation baseline**: post-#446 `main` beginning at `f70201d037268508931ceab599b12ee4d3b40aad`; every Phase 1/2 run must record the exact then-current commit and refresh affected measurements if production code advances.
 - **Current main during spec creation**: `d8f61a6eeaf360fe8c561e5355a3b4830153a704`
 - **Baseline freshness**: The only commit between the audited SHA and current main is a spec-only Kiro change; no production code changed, so the static audit findings remain current for this specification.
 - **Current evidence status**: Static/code-path findings only. Existing focused benchmarks exist for a few paths, but no end-to-end 1k/5k/10k capacity certification was found. This spec therefore treats current performance claims as unproven until the implementation records measurements in `benchmark-scratch.md`.
@@ -20,8 +21,33 @@
 6. Several P2 candidates should be benchmarked rather than automatically refactored: deep `lipapi.Call` cloning, traffic observation serialization/copies, executor/RNG/credential/state/affinity/lifecycle locks, and HTTP transport pool tuning.
 7. Existing atomic generation pinning, atomic model-catalog snapshots, per-stream EventPump synchronization, shared outbound transport, and much of per-A-leg lifecycle ownership are positive controls and should not be rewritten without contrary evidence.
 8. The repository already contains protocol-faithful reference clients and reference backend HTTP emulators. The traffic generator should orchestrate/reuse these assets rather than reimplement all protocol wire behavior.
+9. #446 materially changed cancellation and executable-plugin stream topology without removing the dominant original P0 risks. It is therefore a baseline invalidation/reclassification event: serial sibling cancellation is now a regression gate, while built-in versus negotiated executable-plugin HOLD/DELTA and expanded DISCONNECT/SOAK variants become mandatory measurement dimensions.
 
 ## Research Log
+
+### 0. Post-#446 brownfield revalidation
+
+**Sources consulted**:
+- merge commit `f70201d037268508931ceab599b12ee4d3b40aad` / PR #446
+- `internal/core/leglifecycle/coordinator.go`
+- `internal/core/runtime/attempt_session.go`
+- `internal/core/runtime/executor_open_attempt.go`
+- `pkg/lipsdk/backendplugin/forward_execute_active.go`
+- `internal/infra/backendplugins/adapter/stream.go`
+- post-#446 re-audit comment on #394
+
+**Findings**:
+- B-leg launch/cancel linearization is now explicit through a per-A-leg launch permit. Sibling B-leg cancellation is detached under the per-A-leg lock and executed in parallel, removing the former serial `N × cancellation-timeout` shape.
+- Negotiated executable-plugin execution now owns a control reader, upstream reader, coordinator, bounded 16-event observation channel, optional stream-closer worker, and cancellation worker. These owners are bounded and stream-scoped, but they change goroutines/stream, retained buffer capacity, scheduler work, and disconnect behavior compared with both the pre-#446 implementation and the built-in/standard backend path.
+- Per-stream frame sequencing uses a stream-local mutex and normally has one sending coordinator; it is not evidence of a process-global bottleneck.
+- Cancellation is deadline-bounded only when the managed-stream contract holds: forced `Close` must make `Cancel` return so the owner can join it. A violating adapter must be exposed as a correctness/cleanup failure, not hidden by an unowned worker.
+- #446 did not change secure-session event-cadence persistence, memory-store sequence scans/global locking, request-body admission placement, blanket 120-second streaming timeouts, auth sink serialization, B2BUA memory-store locking, authority scans, or billing-spool aggregate scans. Those findings retain their prior priority.
+
+**Implications**:
+- Pre-#446 benchmark assumptions are invalid. Freeze a fresh Phase 1/2 baseline on the exact post-#446 implementation commit.
+- HOLD/DELTA scenario fingerprints must distinguish built-in/standard and negotiated executable-plugin execution paths and capture per-stream goroutine/buffer/scheduler evidence.
+- DISCONNECT/SOAK must cover launch-in-flight, one/many siblings, graceful acknowledgement, deadline/forced close, upstream-terminal races, and return to baseline.
+- Treat parallel sibling cancellation as a positive-control regression gate. Do not schedule a second cancellation redesign absent new measured evidence.
 
 ### 1. Product and repository constraints
 
@@ -280,7 +306,7 @@
 - Lifecycle-coordinator lazy lookup and a shared RNG have small global mutexes on request/routing paths.
 - Credential pools serialize acquire/scan but pools are typically small.
 - Generic scoped memory state holds a mutex while encoding/decoding in some paths.
-- Affinity has a short map lock; leg lifecycle has a top-level map lock but expensive cancel/close work is already moved outside it and B-leg mutable state is mostly per A-leg.
+- Affinity has a short map lock; leg lifecycle has a top-level map lock but expensive cancel/close work is outside it, B-leg mutable state and launch permits are per A-leg, and sibling cancellation is parallel after #446.
 - The outbound transport is shared, attempts HTTP/2, and its idle-pool limits do not cap active connections. Direct standard inbound serving is plaintext HTTP/1.1 unless an external TLS/H2 terminator is used.
 
 **Implications**:
@@ -295,6 +321,7 @@
 - Existing decode admission is process-owned across generations.
 - Shared outbound HTTP transports avoid per-request client construction and attempt HTTP/2.
 - Leg lifecycle avoids holding its top-level lock around expensive B-leg cancel/close calls.
+- Post-#446 launch permits close the launch-versus-cancel publication gap, sibling B-leg teardown is parallel, and executable-plugin coordination remains stream-scoped with bounded channels.
 - Billing spool already has explicit storage/backlog caps and durable crash-oriented behavior.
 
 The performance program shall not mechanically replace these patterns merely because synchronization exists.
@@ -382,6 +409,8 @@ The first requirements pass was cross-checked against the current implementation
 10. **Durability preservation**: Async/batching suggestions could accidentally weaken mandatory recorder or billing durability. Strengthened Requirements 5.6–5.8 and 11.2–11.4.
 11. **Failed-experiment provenance**: A before/after-only rule could cause agents to delete neutral/reverted attempts. Added Requirements 1.6–1.7 and the append-only scratch template.
 12. **Connection type ambiguity**: “10k streams” without separating idle-held from active emitting was too vague. Added Requirement 2.1–2.2 and 18.5.
+13. **Post-#446 execution topology**: The original matrix did not distinguish built-in/standard execution from negotiated executable-plugin coordination and its bounded per-stream owners. Added Requirement 2.18 and strengthened Requirement 18.2.
+14. **Post-#446 disconnect schedules**: Mass disconnect alone did not cover launch-in-flight, sibling fan-out, acknowledgement/forced-close, upstream-terminal races, or the joinability contract. Added Requirements 2.19–2.20.
 
 ### Requirements gate after repair
 
@@ -405,6 +434,8 @@ The design was validated against steering boundaries, current source ownership, 
 | Could billing optimization weaken FULL durability/caps? | PASS | Aggregate-counter optimization precedes any writer concurrency; crash/replay tests are mandatory. |
 | Could traffic async queues become unbounded? | PASS | Only bounded queues with explicit full policy; mandatory observers retain backpressure. |
 | Are known-good atomic/per-stream primitives accidentally in scope for rewrite? | PASS after repair | Requirements 14.6 explicitly preserve them absent contrary profile evidence. |
+| Does the baseline model #446's executable-plugin and cancellation topology? | PASS after repair | Requirements 2.18–2.20, design scenario dimensions, and Tasks 1–2/8/9 require separate execution-path and disconnect schedules. |
+| Could cancellation optimization create a second owner or unjoinable worker? | PASS | #446 ownership is a characterization/regression contract; forced-close joinability and return-to-baseline are correctness gates, and no generic scheduler is introduced. |
 | Does final 10k goal become an invented absolute SLO? | PASS | Certification states tested environment/highest proven tier and may produce NO-GO for 10k with evidence. |
 
 ### Significant design repairs made during validation
@@ -415,6 +446,7 @@ The design was validated against steering boundaries, current source ownership, 
 - Added a cross-spec migration rule so response ownership simplification and performance boundedness cannot create parallel authorities.
 - Added measured-no-change as a valid completion path for P2 candidates, preventing unnecessary abstraction.
 - Added explicit host/topology attribution and separate held-versus-active certification.
+- Re-anchored implementation evidence to post-#446 `main`, added built-in versus executable-plugin stream variants, and expanded cancellation/disconnect schedules without changing the P0/P1 implementation order.
 
 **Design validation verdict: PASS / GO.** The planned architecture is implementable against current boundaries and contains explicit safety rails for the high-risk durability, security, billing, and streaming semantics.
 
@@ -429,11 +461,13 @@ The design was validated against steering boundaries, current source ownership, 
 - **10k is limited by OS rather than proxy** — record FD/socket/backlog/resource limits and separate direct HTTP/1.1 from externally terminated HTTP/2 topology.
 - **Microbench win regresses end-to-end** — every retained micro-optimization also runs the relevant end-to-end scenario before final acceptance.
 - **Parallel implementation agents invalidate baselines** — P0 production phases are sequential by dependency; optional P2 measurement tasks may parallelize only after the frozen harness/baseline and must name their baseline commit.
+- **Executable-plugin stream overhead is hidden by aggregate HOLD/DELTA numbers** — fingerprint backend execution path and capture goroutine/buffer/scheduler evidence separately.
+- **A managed stream violates forced-close joinability** — fail the correctness/cleanup gate with owned diagnostic evidence; never detach an unjoinable cancellation worker merely to complete the benchmark.
 
 ## Final Cross-Artifact Review
 
 - Requirements cover all P0, P1, P2, positive-control, measurement, cleanup, and certification findings from #394.
-- Research current-state facts remain valid against the production code because current main differs from the audit baseline only by a spec-only commit at spec creation time.
+- Research preserves the original audit at `962e1546`, but current-state conclusions and implementation evidence are re-anchored to post-#446 `main` beginning at `f70201d`; affected baselines must be refreshed again if production code advances.
 - Design choices preserve steering boundaries and explicitly coordinate with active runtime-ownership specs.
 - Tasks are ordered by impact: harness/baseline first; streaming correctness/admission; secure-session event-cadence work; bounded stream memory; then P1 shared stores/persistence; then evidence-gated P2 allocation/observer/lock/transport work; final certification last.
 - Every production optimization task has an evidence obligation in `benchmark-scratch.md`; no “expected to improve” task can close without measured before/after evidence.

@@ -21,6 +21,9 @@
 13. A run whose semantic correctness assertions fail is **invalid for performance certification**, regardless of throughput. Record it as `invalid-run`, preserve the failure evidence, and fix/understand correctness before using performance numbers from that run.
 14. Capacity tiers refer to **simultaneous logical LLM streams**, not physical TCP connections. Always record actual/target transport connection counts separately for each transport leg/topology.
 15. A certification gate profile must be frozen before the first result it evaluates. Do not choose or relax thresholds after seeing candidate/certification measurements.
+16. The implementation baseline is post-#446 `main`, beginning at `f70201d037268508931ceab599b12ee4d3b40aad`. Record the exact run commit; pre-#446 HOLD/DELTA/DISCONNECT results are historical context only and cannot satisfy Phase 2.
+17. Fingerprint built-in/standard and negotiated executable-plugin backend execution separately. For executable plugins, record per-stream goroutines/stack, bounded event-buffer capacity/occupancy where observable, scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and owner reclamation.
+18. Treat #446's launch-permit linearization and parallel sibling cancellation as correctness/performance regression controls. A run with an unjoinable cancellation worker, duplicate/missing terminal/usage/billing evidence, or unreclaimed stream owner is invalid for certification.
 
 ## 2. Environment Record
 
@@ -44,6 +47,8 @@ Create one subsection per benchmark host/runtime combination and reference its I
 - Generator CPU/RAM/socket headroom during run:
 - Open-file/socket/backlog limits:
 - Reverse proxy / TLS / HTTP version topology:
+- Backend execution path: built-in/standard | negotiated executable plugin
+- Backend-plugin protocol/features and executable identity, if applicable:
 - Client -> front-door connection topology:
 - Front-door/terminator -> Go-LIP connection topology, if applicable:
 - Go-LIP -> reference-backend transport topology:
@@ -53,8 +58,8 @@ Create one subsection per benchmark host/runtime combination and reference its I
 
 Task 1 establishes stable scenario IDs here before production optimization begins. At minimum include:
 
-- `HOLD-*` — long-held idle/low-rate streaming logical streams.
-- `DELTA-*` — actively emitting streams with controlled event cadence and payload size.
+- `HOLD-BUILTIN-*` / `HOLD-PLUGIN-*` — long-held idle/low-rate streaming logical streams through built-in/standard versus negotiated executable-plugin execution.
+- `DELTA-BUILTIN-*` / `DELTA-PLUGIN-*` — actively emitting streams with controlled event cadence and payload size through each backend execution form.
 - `START-*` — high request/session-start churn.
 - `BODY-*` — concurrent maximum/near-maximum request-body materialization pressure, including chunked bodies.
 - `OUTPUT-*` — long cumulative output / many-event streams for retained-memory analysis.
@@ -63,10 +68,14 @@ Task 1 establishes stable scenario IDs here before production optimization begin
 - `OBSERVE-*` — traffic/audit disabled, enabled-fast, and deliberately slow-sink variants.
 - `AUTHZ-*` — concurrency-authority same-dimension and many-dimension contention.
 - `B2BUA-*` — independent A-leg, hot-A-leg, and expiration/churn variants.
-- `DISCONNECT-*` — mass client disconnect/cancel and cleanup/reclamation.
+- `DISCONNECT-LAUNCH-*` — cancellation while a B-leg launch permit is outstanding.
+- `DISCONNECT-SIBLING-{1,N}-*` — one versus multiple sibling B-leg cancellation/close, preserving parallel teardown.
+- `DISCONNECT-ACK-*` / `DISCONNECT-FORCE-*` — graceful cancellation acknowledgement versus deadline/forced-close fallback.
+- `DISCONNECT-RACE-*` — cancellation receipt racing upstream success/failure/terminal evidence.
+- `DISCONNECT-JOIN-CONTRACT-*` — deterministic fake whose `Cancel` becomes joinable only after `Close`, plus a bounded negative case that fails validity rather than hanging.
 - `SOAK-*` — steady-state long-duration run at the highest sustainable tier.
 
-For each scenario record: protocol/client driver, reference backend script, **logical stream target**, transport topology, target client/front-door transport connections, target terminator/proxy connections if applicable, max/multiplexed streams per connection where controlled, ramp, request bytes, TTFT, stream duration, event count, event size, event cadence, failure/cancel schedule, completion synchronization, secure-session mode, store mode, traffic observer mode, authority mode, expected correctness assertions, and certification gate profile ID when used for a capacity verdict.
+For each scenario record: protocol/client driver, reference backend script, **logical stream target**, transport topology, target client/front-door transport connections, target terminator/proxy connections if applicable, max/multiplexed streams per connection where controlled, backend execution path, negotiated plugin features when applicable, ramp, request bytes, TTFT, stream duration, event count, event size, event cadence, launch-in-flight flag, sibling B-leg count, cancellation mode/deadline/race schedule, completion synchronization, secure-session mode, store mode, traffic observer mode, authority mode, expected terminal/usage/billing/joinability/cleanup assertions, and certification gate profile ID when used for a capacity verdict.
 
 A scenario fingerprint MUST include logical-stream and transport-connection fields independently. `HOLD-10000` over HTTP/1.1 and `HOLD-10000` multiplexed over HTTP/2 are not equivalent resource scenarios even though both carry 10,000 logical streams.
 
@@ -112,14 +121,21 @@ The 1k/5k/10k columns are **logical-stream tiers**. Every evidence entry also re
 
 | Scenario | 1k streams | 5k streams | 10k streams | Store / Feature Mode | Evidence entry |
 |---|---:|---:|---:|---|---|
-| HOLD | pending | pending | pending | minimal | pending |
-| DELTA | pending | pending | pending | secure-session memory | pending |
-| DELTA | pending | pending | pending | secure-session durable | pending |
+| HOLD-BUILTIN | pending | pending | pending | minimal / built-in-standard | pending |
+| HOLD-PLUGIN | pending | pending | pending | minimal / negotiated executable plugin | pending |
+| DELTA-BUILTIN | pending | pending | pending | secure-session memory / built-in-standard | pending |
+| DELTA-PLUGIN | pending | pending | pending | secure-session memory / negotiated executable plugin | pending |
+| DELTA-BUILTIN | pending | pending | pending | secure-session durable / built-in-standard | pending |
+| DELTA-PLUGIN | pending | pending | pending | secure-session durable / negotiated executable plugin | pending |
 | START | pending | pending | pending | normal | pending |
 | BODY | pending | pending | pending | normal | pending |
 | OUTPUT | pending | pending | pending | normal | pending |
 | COMPLETE | pending | pending | pending | durable billing spool | pending |
-| DISCONNECT | pending | pending | pending | normal | pending |
+| DISCONNECT-LAUNCH | pending | pending | pending | negotiated executable plugin / launch in flight | pending |
+| DISCONNECT-SIBLING-1 | pending | pending | pending | built-in + plugin sentinels | pending |
+| DISCONNECT-SIBLING-N | pending | pending | pending | built-in + plugin sentinels / parallel teardown | pending |
+| DISCONNECT-ACK/FORCE/RACE | pending | pending | pending | negotiated executable plugin | pending |
+| DISCONNECT-JOIN-CONTRACT | pending | bounded sentinel | bounded sentinel | plugin contract fake | pending |
 
 Use `unsupported-by-host` rather than `fail` when the generator/OS/host cannot supply the requested tier. Record the limiting evidence.
 
@@ -157,6 +173,10 @@ Copy this section for **every** optimization attempt, including reverted attempt
 
 **Observed transport connections by leg:**
 
+**Backend execution path / negotiated plugin features:**
+
+**Cancellation schedule (launch state / siblings / mode / deadline / upstream race):**
+
 **Controlled variables / intentional differences:**
 
 #### Run validity / limiter classification
@@ -185,6 +205,10 @@ Copy this section for **every** optimization attempt, including reverted attempt
 - Alloc bytes/op and allocs/op where applicable:
 - GC CPU / pause / cycles:
 - Goroutine count / stack memory:
+- Goroutines and stack bytes per logical stream by backend execution path:
+- Bounded stream/event channel capacity, peak occupancy, and blocked-send/receive evidence where observable:
+- Cancellation acknowledgement / forced-close / join latency p50/p95/p99:
+- Launch/attempt/control/upstream/closer/cancellation owner count before load, at steady state, and after cleanup:
 - File descriptors / sockets by transport leg where observable:
 - Logical streams target / achieved peak / achieved steady:
 - Mutex/block profile summary:
@@ -241,6 +265,9 @@ Complete after the implementation program has executed the final certification g
 - Long-stream (> legacy 120 s) result:
 - Body-flood admission result:
 - Disconnect cleanup result:
+- Built-in/standard versus executable-plugin HOLD/DELTA result:
+- Post-#446 launch-in-flight / sibling-1 / sibling-N / acknowledgement / forced-close / upstream-race results:
+- Forced-close joinability and executable-plugin owner/buffer reclamation result:
 - Correctness assertions all passed? yes/no + failures:
 - Mandatory durability missing/duplicates/order failures:
 - Unexpected error/rejection gate result:

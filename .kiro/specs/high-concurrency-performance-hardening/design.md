@@ -2,11 +2,13 @@
 
 ## Overview
 
-This design turns #394 from a static audit into an evidence-driven scalability program. The implementation begins by creating a reusable deterministic load laboratory around the existing reference clients/backends, freezes canonical workloads and certification gates, and records the current baseline. Production changes then proceed in descending impact order: streaming correctness/body admission, secure-session event-cadence persistence, per-stream retained memory, P1 shared stores/persistence, and finally P2 allocation/observer/lock/transport candidates. Every optimization crosses the same experiment gate and leaves its before/after evidence in `benchmark-scratch.md`.
+This design turns #394 from a static audit into an evidence-driven scalability program. The implementation begins by creating a reusable deterministic load laboratory around the existing reference clients/backends, freezes canonical workloads and certification gates, and records a fresh post-#446 baseline beginning at `f70201d037268508931ceab599b12ee4d3b40aad`. Production changes then proceed in descending impact order: streaming correctness/body admission, secure-session event-cadence persistence, per-stream retained memory, P1 shared stores/persistence, and finally P2 allocation/observer/lock/transport candidates. Every optimization crosses the same experiment gate and leaves its before/after evidence in `benchmark-scratch.md`.
 
 The architecture deliberately does **not** replace Go's goroutine-per-stream model or introduce a new actor/worker framework. The audit found the dominant risks in synchronous shared side effects, lifetime-retained data, admission placement, and a handful of global critical sections. Fixing those at their owning boundaries is lower-risk and more aligned with the repository's streaming-first/canonical architecture.
 
 Capacity is treated as a measured property of workload + feature mode + persistence topology + transport topology + host. The capacity unit is a **logical LLM stream**. Physical HTTP/TCP connections are measured separately because direct HTTP/1.1 generally consumes one active connection per long stream whereas HTTP/2 can multiplex many logical streams over fewer client/front-door connections. The final result may certify 1k/5k/10k logical-stream tiers differently for idle-held versus actively emitting streams and may return an explicit NO-GO with a measured limiter. The design never extrapolates an untested tier.
+
+#446 is part of the current architecture rather than a pending dependency. It made B-leg launch/cancel publication explicit, parallelized sibling teardown, and introduced negotiated executable-plugin stream coordination with bounded per-stream readers/workers/channels. The harness therefore treats backend execution form and cancellation schedule as first-class scenario dimensions. The design measures these owners and freezes their correctness as regression gates; it does not create a second cancellation authority or reopen #446's approved lifecycle design without contrary evidence.
 
 ### Goals
 
@@ -16,6 +18,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - Bound live memory and shared critical sections by meaningful process/session/dimension limits rather than lifetime history or arrival count.
 - Preserve secure-session durability, billing durability, auth/security, routing/failover, canonical protocol, and exactly-once terminal semantics.
 - Separate logical-stream capacity from transport-connection/socket topology.
+- Separate built-in/standard backend execution from negotiated executable-plugin execution and certify post-#446 cancellation cleanup schedules.
 - Leave a repeatable performance regression harness and an append-only evidence trail for future changes.
 
 ### Non-Goals
@@ -41,6 +44,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - Auth dispatcher contention, B2BUA memory-store contention/expiry, concurrency-authority lease-store contention, and terminal billing-spool redundant aggregate work.
 - Evidence-gated optimization of cloning, traffic observation, residual shared locks, and transport defaults.
 - Final logical-stream capacity/soak certification with transport topology evidence.
+- Post-#446 executable-plugin stream and cancellation/disconnect characterization/regression gates.
 
 ### Out of Boundary
 
@@ -49,6 +53,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - New public benchmark/config APIs absent an independent product need.
 - Ongoing structural ownership refactors except for the private integration needed to keep performance state bounded.
 - Product latency SLO definition where no existing SLO/operator objective exists; this spec requires a sourced gate before GO but does not fabricate the source.
+- Redesigning #446's launch permits, cancellation ownership, backend-plugin ABI, or terminalization semantics absent a measured defect; this spec owns characterization and performance follow-up only.
 
 ### Allowed Dependencies
 
@@ -67,12 +72,15 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - New frontend body-reader architecture.
 - New HTTP/TLS termination or multiplexing topology in the standard deployment.
 - New benchmark diagnostic channel or label source.
+- Backend-plugin cancellation/stream protocol changes, managed-stream joinability changes, or new per-stream goroutine/channel owners.
 
 ## Architecture
 
 ### Existing Architecture Analysis
 
-The current architecture already contains several good scalability primitives: immutable generation pinning, atomic model-catalog publication, process-owned decode QoS, per-stream event synchronization, shared outbound transports, and mostly per-A-leg lifecycle ownership. Those become controls, not rewrite targets.
+The current architecture already contains several good scalability primitives: immutable generation pinning, atomic model-catalog publication, process-owned decode QoS, per-stream event synchronization, shared outbound transports, and mostly per-A-leg lifecycle ownership. After #446, launch permits linearize B-leg publication against A-leg cancellation, sibling B-leg teardown runs in parallel outside the per-A-leg lock, and executable-plugin cancellation has an explicit bounded coordinator. Those become controls, not rewrite targets.
+
+The post-#446 executable-plugin path is not equivalent to the built-in/standard backend path for capacity purposes. A negotiated plugin stream can own a control reader, an upstream reader, a coordinator, a bounded 16-event observation channel, an optional stream-closer worker, and a bounded cancellation worker. These are stream-scoped rather than process-global, but their memory/scheduler/cleanup cost is multiplied by active streams and must be measured independently in HOLD, DELTA, DISCONNECT, and SOAK.
 
 The problematic paths share four patterns:
 
@@ -80,6 +88,8 @@ The problematic paths share four patterns:
 2. **Unrelated work serialized by global ownership** — secure-session memory mutations, auth sink I/O, B2BUA memory activity updates, concurrency-authority lease scans.
 3. **Expensive work before resource admission** — request-body `ReadAll`/preflight before decode admission.
 4. **Policy expressed as a total-duration timeout instead of phase/progress policy** — inbound server write and outbound client total timeout.
+
+#446 does not retire any of these four dominant patterns. It changes the baseline for stream topology and disconnect behavior: serial sibling teardown is now a positive control, while per-stream plugin owners and forced-close joinability require current measurements.
 
 The design attacks these properties at their current boundaries instead of moving the same complexity into new packages.
 
@@ -124,6 +134,7 @@ flowchart LR
 - Scenario/result/gate contracts are explicit so capacity verdicts are reproducible rather than dependent on a human reading charts.
 - A small set of private accumulator/batch/store seams is introduced only where lifetime history or event-cadence calls are the root cause.
 - No generic scheduler or global performance manager is introduced.
+- The existing #446 launch permit/cancellation owners are exercised through scenario controls; the harness does not reproduce their state machine.
 
 ### Optional Hexagonal Lens
 
@@ -191,6 +202,7 @@ Likely production change surfaces, resolved against the implementation-time tree
 - `internal/infra/billingspool/` — maintained pending totals/reconciliation and completion-burst instrumentation.
 - `pkg/lipapi/call_clone.go` + runtime preparation — only if clone benchmarks justify changes.
 - `pkg/lipsdk/traffic/` + traffic-emission call sites — no-consumer fast path / bounded delivery only if measured.
+- `pkg/lipsdk/backendplugin/`, `internal/infra/backendplugins/adapter/`, and `internal/core/leglifecycle/` — post-#446 execution-path/cancellation instrumentation and regression tests; production redesign only if the fresh baseline proves a material defect.
 - executor config/RNG, `pkg/credpool`, `internal/core/state`, affinity/lifecycle — only candidates proven material by profiles.
 
 ## System Flows
@@ -425,6 +437,7 @@ A failed gate is evidence, not a reason to omit the verdict. Remaining independe
 | Component | Layer | Intent | Requirements | Critical dependencies |
 |---|---|---|---|---|
 | Perf Scenario Model | internal test support | Stable logical-stream/transport workload definition | 1, 2, 15, 18 | refclients/refbackends |
+| Backend Execution Variant | internal test support | Distinguish built-in/standard and negotiated executable-plugin stream/cancel topology | 2, 14, 17, 18 | backendplugin/adapter/leglifecycle contracts |
 | Perf Runner | internal test support | Concurrency/ramp/load orchestration | 1, 2 | HTTP clients, resource samplers |
 | Perf Result Collector | internal test support | Typed metrics/validity/limiter/environment | 1, 2, 16, 18 | runtime/OS/db metrics |
 | Certification Gate Profile | internal test support | Pre-frozen deterministic GO/NO-GO envelope | 18 | scenario/result model |
@@ -465,9 +478,19 @@ type Scenario struct {
     RetryFailures  int
     DisconnectAt   time.Duration
     CompletionSkew time.Duration
+    BackendPath    BackendExecutionPath // builtin_standard, executable_plugin
+    Cancellation   CancellationPlan
     FeatureMode    FeatureMode
 
     GateProfileID  string // required when scenario is used for capacity certification
+}
+
+type CancellationPlan struct {
+    LaunchInFlight   bool
+    SiblingBLegs     int
+    Mode             CancellationMode // graceful, deadline_force_close, upstream_terminal_race
+    CancelAfter      time.Duration
+    CancelDeadline   time.Duration
 }
 
 type TransportPlan struct {
@@ -479,6 +502,8 @@ type TransportPlan struct {
 ```
 
 Validation rejects impossible/unbounded values. A direct HTTP/1.1 active-stream scenario cannot claim fewer simultaneously active client/proxy connections than its protocol semantics permit. HTTP/2 scenarios may multiplex, but the multiplex policy/limit is part of the fingerprint. Scenarios are serializable/describable so an experiment can record an exact fingerprint rather than prose only.
+
+`BackendPath` is also part of the fingerprint. A built-in/standard stream and a negotiated executable-plugin stream are not equivalent even when their frontend protocol, logical-stream count, event cadence, and socket topology match. Executable-plugin results capture goroutines per stream, stack memory, bounded observation-channel capacity/occupancy where observable, scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and post-terminal owner reclamation. `CancellationPlan` drives existing #446 contracts; it does not implement a parallel cancellation state machine in the load tool.
 
 ### Typed Result Model
 
@@ -613,7 +638,10 @@ For secure-session/B2BUA/authority memory stores:
 | Requirement | Design realization |
 |---|---|
 | 1 | Evidence gate, typed scenario/result validity, scratchpad workflow |
-| 2 | Canonical scenario matrix, logical-stream/transport split, result collector |
+| 2 | Canonical scenario matrix, logical-stream/transport/backend-execution split, post-#446 cancellation schedules, result collector |
+| 2.18 | Separate built-in/standard and negotiated executable-plugin HOLD/DELTA fingerprints and per-stream ownership measurements |
+| 2.19 | Launch-in-flight, sibling fan-out, acknowledgement, forced-close, and upstream-terminal-race DISCONNECT matrix |
+| 2.20 | Bounded joinability failure classification and owner diagnostics after forced `Close` |
 | 3 | Streaming Timeout Policy + >legacy-boundary scenario |
 | 4 | Staged Admission State / frontend flow |
 | 5 | Secure Stream-Event Recorder, per-session entry, durable staged optimization |
@@ -706,6 +734,8 @@ Use fixed scenario sizes (`-benchtime=Nx` where history growth would make adapti
 - Warm up caches/connections before timed steady-state periods when the scenario is not explicitly measuring cold start.
 - Run at least 1k → 5k → 10k **logical streams** rather than jumping directly to 10k; stop/escalate based on correctness/resource safety.
 - Record target/actual physical connection counts separately for each relevant transport leg/topology.
+- Run equivalent HOLD/DELTA cases through built-in/standard and negotiated executable-plugin execution where supported; do not aggregate away per-stream goroutine/buffer/scheduler differences.
+- Run DISCONNECT cases for launch-in-flight, one/many sibling B-legs, graceful acknowledgement, deadline/forced-close, and upstream-terminal races; a managed stream that cannot become joinable after forced close fails the correctness/cleanup gate.
 - Capture headline results without heavy profiling and separate diagnostic runs with profiling if profiler overhead is material.
 - Only valid runs enter a capacity PASS comparison.
 
@@ -738,6 +768,7 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 - B2BUA fetch/touch/attempt/evict races.
 - Authority acquire/release/expiry races.
 - Observer queue shutdown/full behavior if any queue is added.
+- #446 launch-permit commit/abort versus A-leg cancellation, sibling teardown, cancellation acknowledgement/forced-close, upstream-terminal race, and joinability after `Close`.
 
 ### Integration tests
 
@@ -746,6 +777,7 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 - Billing spool crash/reopen/reconciliation/cap behavior.
 - Long HTTP stream exceeding the legacy timeout boundary.
 - Direct HTTP/1.1 and supported externally terminated/multiplexed topology smoke tests proving stream/connection accounting is not conflated.
+- Built-in/standard versus negotiated executable-plugin HOLD/DELTA sentinels plus executable-plugin DISCONNECT contract tests.
 
 ### Performance tests
 
@@ -766,7 +798,7 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 
 ## Migration / Rollout Strategy
 
-1. Land perf harness, typed result/gate/privacy contracts, and baseline with no production behavior changes.
+1. Land perf harness, typed result/gate/privacy contracts, and a fresh post-#446 baseline with no production behavior changes; fingerprint built-in/standard versus executable-plugin execution and cancellation schedules separately.
 2. Land streaming timeout/body-admission fixes with characterization + measurements.
 3. Land secure-session store/app contract simplification, migrate dual-dialect store implementations together, and run recorder/active-delta evidence.
 4. Land bounded stream evidence in coordination with current response-owner shape.
@@ -778,4 +810,4 @@ Do not batch all optimizations into one opaque implementation PR: smaller causal
 
 ## Final Design Validation Verdict
 
-The design satisfies all 18 requirements and remains within the repository's existing architecture. The CodeRabbit review exposed six real specification gaps: experiment status vocabulary, stream-versus-connection modeling, incomplete typed result validity, deterministic capacity gates, diagnostic-channel privacy coverage, and NO-GO recording on failed gates. Those gaps are repaired here without introducing arbitrary performance SLOs: certification thresholds must instead be sourced and frozen before the evaluated run. The highest-risk semantic areas—mandatory security durability, billing durability, body/auth ordering, stream terminal behavior, diagnostic privacy, and active runtime ownership refactors—have explicit preservation and revalidation gates. Optional complexity has benchmark gates and a measured-no-change path. **GO for implementation.**
+The design satisfies all 18 requirements and remains within the repository's existing architecture. The original review exposed six real specification gaps: experiment status vocabulary, stream-versus-connection modeling, incomplete typed result validity, deterministic capacity gates, diagnostic-channel privacy coverage, and NO-GO recording on failed gates. The post-#446 revalidation exposed one further baseline gap: backend execution topology and cancellation schedules were not explicit enough to prevent reuse of pre-#446 assumptions. Requirements 2.18–2.20, the scenario model, task plan, and benchmark registry now repair that gap without creating another lifecycle owner. Certification thresholds remain sourced and frozen before the evaluated run. The highest-risk semantic areas—mandatory security durability, billing durability, body/auth ordering, stream terminal behavior, cancellation joinability, diagnostic privacy, and active runtime ownership refactors—have explicit preservation and revalidation gates. Optional complexity has benchmark gates and a measured-no-change path. **GO for implementation.**
