@@ -2,284 +2,204 @@
 
 ## Introduction
 
-Long-running agent sessions can terminate even though the user's requested work is not actually complete. The failure can be transport/protocol-level—for example, an EOF, reset, idle timeout, or empty completion—or semantic, where a backend emits a syntactically clean terminal marker while the model's own response shows that it intended to keep working. Today, a terminal event that reaches the A-side client can break the client agent loop permanently when the user is unattended.
+Agent Loop Guard (ALG) is the first concrete policy provider for the generic terminal-decision extension defined by `.kiro/specs/terminal-decision-feature-extension/`. It protects unattended agent loops from recoverable backend interruptions and suspiciously premature clean stops while preserving conservative user-authority boundaries.
 
-This specification adds an opt-in **Agent Loop Guard** that prevents recoverable backend terminal candidates from becoming prematurely visible as final A-side termination. The guard distinguishes replay-safe transport recovery from post-output continuation and from semantic completion verification. It must bias toward avoiding false-positive autonomous continuation: uncertainty, user-choice boundaries, refusals, and unsupported recovery states end normally rather than inventing work or authority.
-
-The feature is brownfield. Existing Go-LIP streaming, transport recovery, continuation, auxiliary request, terminal ownership, B2BUA lineage, billing, routing, and protocol invariants remain authoritative.
+This specification owns ALG policy: canonical cause/evidence classification, bounded semantic verification, progress/no-progress decisions, and the provider's bounded continuation intent and internal recovery content. The platform specification owns FeatureBundle registration, the single core terminal chokepoint, transactional continuation execution, conversation-view steering lifecycle, immutable generations, process policy, and generic client/operator endpoints. ALG must not recreate those authorities.
 
 ## Boundary Context
 
-### In Scope
-
-- opt-in interception of eligible terminal candidates before final A-side terminal publication;
-- canonical classification of transport, protocol, and clean semantic stop causes;
-- reuse of current pre-output transport recovery behavior;
-- safe post-output continuation from retained canonical trajectory without replaying committed work;
-- separate semantic verification of eligible clean terminal candidates;
-- conditional internal continuation instructions that preserve existing user intent and authority;
-- canonical registration, placement, snapshot isolation, reassertion, and deactivation of hidden recovery instructions using merged PR #435 conversation-view steering infrastructure (`pkg/lipsdk/steering.Writer` and `internal/core/conversationview`);
-- bounded continuation, progress detection, recursion prevention, terminal accounting, and observability;
-- protocol-neutral behavior across supported frontends/backends.
-
-### Out of Scope
-
-- a generic task planner, workflow engine, autonomous objective discovery system, or agent orchestrator;
-- changing provider-specific stop semantics at adapter boundaries;
-- weakening the current prohibition on silent retry/failover after client-visible output is committed;
-- inferring user permission, approval, choices, or authorization from a recovery event;
-- requiring every frontend agent to adopt an explicit completion tool;
-- redesigning billing, routing, B2BUA, continuation persistence, or extension architecture;
-- implementing the underlying conversation-view store and projection engine (already merged in PR #435 `b763a772`).
+- **In scope**: an opt-in ALG feature provider; canonical terminal-cause/evidence classification; independent bounded completion verification; conservative verdict policy; bounded progress and continuation intent; provider-specific internal recovery wording; ALG-specific metrics and fixtures.
+- **Out of scope**: FeatureBundle merge mechanics; terminal ownership/chokepoint; continuation admission/settlement; conversation-view storage/projection/reassertion; secure-session tri-state store; client/operator endpoints; routing, billing, B2BUA, stream-recovery transport algorithms, or generic lifecycle infrastructure.
+- **Adjacent expectations**: The provider depends on the ready-to-implement `terminal-decision-feature-extension` spec and uses its provider-neutral contract. The platform executes every returned intent and remains the only owner of terminal publication and continuation side effects.
+- **Boundary ownership**: concrete feature plugin/provider policy and its SDK-facing auxiliary adapter; no ALG implementation in `internal/core`.
+- **Revalidation triggers**: provider contract, canonical continuation evidence, auxiliary request visibility/recursion controls, explicit completion facts, or platform terminal/steering transaction semantics change.
 
 ## Requirements
 
-### Requirement 1: Opt-In Activation and Backward Compatibility
+### Requirement 1: Opt-In ALG Provider and Compatibility
 
-**Objective:** As a proxy operator, I want loop-breach prevention to be explicitly enabled so that existing deployments do not acquire new autonomous behavior unexpectedly.
-
-#### Acceptance Criteria
-
-1.1. **Where** Agent Loop Guard is disabled, the proxy shall preserve the existing terminal, stream-recovery, retry, failover, continuation, and A-side publication behavior.
-
-1.2. **When** Agent Loop Guard is enabled and an eligible backend terminal candidate is received, the proxy shall keep that candidate provisional until the configured guard decision resolves.
-
-1.3. **While** a terminal candidate is provisional, the proxy shall not expose that candidate as a final A-side terminal marker, terminal event, or equivalent end-of-response signal.
-
-1.4. **While** Agent Loop Guard is enabled, the proxy shall preserve streaming-first delivery of legal non-terminal output and shall not require buffering the complete response merely to decide whether its terminal is final.
-
-1.5. **If** a condition is outside the feature's supported recovery or verification scope, the proxy shall preserve the applicable existing terminal/error behavior rather than attempt undefined autonomous recovery.
-
-### Requirement 2: Canonical Terminal-Cause Classification
-
-**Objective:** As a maintainer, I want terminal candidates classified by canonical facts so that recovery behavior is protocol- and provider-neutral.
+**Objective:** As an operator, I want ALG to be explicitly enabled so that existing deployments do not gain autonomous continuation unexpectedly.
 
 #### Acceptance Criteria
 
-2.1. **When** a backend attempt reaches a possible terminal boundary, the proxy shall distinguish at least clean normal completion, empty/near-empty normal completion, provider pause/deferred continuation, output/token limit, transport EOF/reset, idle timeout, partial tool-call state, refusal/content-filter termination, and client cancellation when the canonical protocol exposes those facts.
+1.1. **Where** ALG is disabled, the proxy shall preserve existing terminal, stream-recovery, continuation, and A-side publication behavior and shall not construct an ALG verifier or provider.
 
-2.2. **When** a transport EOF/reset or idle timeout occurs, the proxy shall distinguish whether meaningful A-side output from that attempt has already been committed.
+1.2. **When** ALG is enabled and the platform supplies an eligible provisional terminal candidate, ALG shall return a bounded provider-neutral decision through the platform contract rather than publishing a terminal itself.
 
-2.3. **When** a terminal cause is classified, the decision shall be based on canonical request/stream state rather than provider-name checks in core policy.
+1.3. **If** a candidate or state is outside ALG's supported evidence/continuation policy, ALG shall return an allow-stop decision or an otherwise conservative non-continuation result.
 
-2.4. **If** a terminal cause cannot be classified with sufficient confidence for autonomous recovery, the proxy shall choose a conservative terminal/error outcome and shall not create new model work solely to resolve the ambiguity.
+1.4. **When** the ALG feature is not installed or is removed from the registry, the generic platform shall remain usable without ALG-specific packages, configuration, or core branches.
 
-2.5. **When** a terminal condition represents client cancellation, refusal/content filtering, or another explicit non-recoverable control outcome, the proxy shall not reinterpret it as unfinished agent work.
+### Requirement 2: Canonical Terminal-Cause and Evidence Classification
 
-### Requirement 3: Pre-Output Transport Recovery
-
-**Objective:** As a proxy user, I want transient failures before any visible output recovered transparently so that harmless backend faults do not break the agent loop.
+**Objective:** As a maintainer, I want ALG to use canonical facts so that policy is protocol- and provider-neutral.
 
 #### Acceptance Criteria
 
-3.1. **When** a transport failure occurs before meaningful A-side output from the affected attempt has been committed, the proxy shall delegate recovery to the existing configured pre-output recovery/retry/failover policy.
+2.1. **When** a candidate is evaluated, ALG shall distinguish clean normal completion, empty/near-empty completion, provider pause/deferred continuation, output/token limit, transport interruption before/after commitment, partial tool-call state, refusal/content filtering, client cancellation, and unknown state when canonical facts expose those distinctions.
 
-3.2. **While** a replay-safe pre-output recovery sequence remains in progress, the proxy shall not emit an intermediate A-side terminal event for the swallowed attempt.
+2.2. **When** a transport interruption is classified, ALG shall use canonical output-commit state and shall not infer commitment from provider name or raw wire frames.
 
-3.3. **When** an empty or effectively empty clean completion is eligible for existing replay-safe recovery before output commitment, the proxy shall be able to discard that attempt and retry within the existing bounded recovery policy.
+2.3. **When** evidence is projected, ALG shall include the bounded current user objective, relevant recent canonical trajectory, candidate assistant output, tool/action state, explicit completion fact, lineage reference, and logical continuation attempt number.
 
-3.4. **If** the existing transport recovery policy is disabled or exhausted, the proxy shall surface the applicable final terminal/error exactly once.
+2.4. **If** a cause or evidence field cannot be classified safely, ALG shall return conservative non-continuation rather than create model work solely to resolve ambiguity.
 
-3.5. **When** the client cancels the request, the proxy shall terminate recovery and shall not start or continue a hidden retry or continuation on the client's behalf.
+2.5. **When** the candidate represents client cancellation, refusal/content filtering, or another explicit non-recoverable outcome, ALG shall not reinterpret it as unfinished agent work.
+
+### Requirement 3: Pre-Output Transport Recovery Policy
+
+**Objective:** As a user, I want transient failures before visible output handled by existing transport recovery rather than by a competing ALG retry loop.
+
+#### Acceptance Criteria
+
+3.1. **When** a transport failure occurs before meaningful output commitment, ALG shall return the platform decision that delegates to existing bounded pre-output recovery policy without adding a second retry budget.
+
+3.2. **While** existing replay-safe recovery is in progress, ALG shall not authorize an intermediate A-side terminal or a semantic continuation.
+
+3.3. **When** an eligible empty/near-empty clean completion is offered to the existing pre-output recovery path, ALG shall not require semantic verification before that path resolves.
+
+3.4. **If** existing recovery is disabled or exhausted, ALG shall return a conservative final decision and shall not start hidden work after client cancellation.
 
 ### Requirement 4: Post-Output Interruption Safety
 
-**Objective:** As a proxy user, I want interrupted work resumed without duplicated output or side effects after visible progress has already been delivered.
+**Objective:** As a user, I want interrupted work resumed without replaying committed output or side effects.
 
 #### Acceptance Criteria
 
-4.1. **When** meaningful A-side output from an attempt has been committed, the proxy shall not replay, silently fail over, or restart that committed attempt as if no output had occurred.
+4.1. **When** meaningful output is committed, ALG shall never return an intent that labels replay or failover of the committed attempt as safe.
 
-4.2. **When** a post-output transport interruption leaves a canonically resumable trajectory and the configured recovery budget permits another leg, Agent Loop Guard shall preserve the committed trajectory and shall start a continuation from the last safe point without retracting prior A-side output.
+4.2. **When** a post-output interruption has a canonically resumable trajectory and budget remains, ALG shall return a bounded continuation intent that refers to the retained trajectory and does not duplicate committed assistant output.
 
-4.3. **When** a continuation follows a post-output interruption, the proxy shall not duplicate already committed assistant content in the A-side stream.
+4.3. **When** a completed tool call and matching result are retained, ALG shall preserve that fact in its evidence and shall not request re-execution solely because the later stream failed.
 
-4.4. **When** a completed tool call and its matching result are already part of the retained trajectory, recovery shall preserve those facts and shall not autonomously re-execute the completed side effect merely because the response stream later failed.
+4.4. **If** incomplete tool arguments, opaque provider state, or another unsafe state cannot be resumed through a normalized safe capability, ALG shall return non-continuation.
 
-4.5. **If** recovery state contains incomplete tool-call arguments, an unresolvable provider-owned opaque/thinking continuation state, or another state that cannot be resumed without guessing or replaying unsafe work, the proxy shall not execute, fabricate, or blindly replay that state.
+4.5. **If** post-output continuation is unavailable, protocol-ineligible, or exhausted, ALG shall return a final conservative decision while preserving committed output.
 
-4.6. **If** safe post-output continuation is unavailable or its bounded recovery is exhausted, the proxy shall surface one final terminal/error outcome while preserving already committed output.
+4.6. **When** the platform executes an ALG continuation intent, ALG shall not assume that the platform can undo external provider calls, emitted output, tool effects, or durable records.
 
-### Requirement 5: Semantic Verification of Eligible Clean Stops
+### Requirement 5: Independent Semantic Completion Verification
 
-**Objective:** As an unattended agent user, I want suspiciously premature but syntactically clean completions checked before they are allowed to stop my agent loop.
-
-#### Acceptance Criteria
-
-5.1. **When** Agent Loop Guard is enabled and an eligible clean normal completion occurs with no unresolved tool boundary, the proxy shall obtain an independent completion verdict before releasing the held A-side terminal.
-
-5.2. **When** the verifier concludes that the requested work is complete, the proxy shall release the terminal without creating an additional model turn.
-
-5.3. **When** the verifier concludes that concrete work already requested by the user remains unfinished and can proceed without additional user input, the proxy shall suppress the candidate terminal and start a bounded continuation.
-
-5.4. **When** the next legitimate step requires user input, approval, permission, credentials, clarification, or a user choice, the proxy shall end normally so the user can respond and shall not synthesize that response.
-
-5.5. **When** the session is genuinely blocked by an external condition that autonomous continuation cannot resolve, the proxy shall end normally rather than repeatedly ask the worker model to continue.
-
-5.6. **If** semantic verification times out, fails, returns malformed output, or remains uncertain, the proxy shall treat the candidate as allowed to stop and shall not autonomously continue.
-
-5.7. **Where** an explicit frontend completion signal is available and configured as trusted, the proxy shall treat that signal as authoritative completion evidence for the clean stop and shall bypass semantic verification for that stop while retaining transport-failure protection.
-
-### Requirement 6: Conditional Recovery Without Scope or Authority Expansion
-
-**Objective:** As a user, I want automatic continuation to resume only my unfinished request, never to invent follow-up work or pretend I authorized something new.
+**Objective:** As an unattended agent user, I want suspiciously premature clean stops checked by an independent bounded evaluator.
 
 #### Acceptance Criteria
 
-6.1. **When** the proxy starts a semantic continuation, the recovery instruction shall explicitly state that it is automated internal recovery and is not a new user request, approval, permission, or expansion of scope.
+5.1. **When** an eligible clean normal completion has no unresolved tool boundary and ALG is enabled, ALG shall request one independent completion verdict before allowing continuation.
 
-6.2. **When** the original requested work is already complete, the recovery instruction shall direct the worker to end normally without inventing, repeating, broadening, optimizing, or discovering additional work.
+5.2. **When** the verifier concludes the requested work is complete, ALG shall return allow-stop without a continuation intent.
 
-6.3. **When** concrete unfinished work remains, the recovery instruction shall constrain continuation to that existing work and the last safe point in the retained trajectory.
+5.3. **When** the verifier identifies concrete unfinished work already requested by the user and executable without new input, ALG shall return a continuation intent.
 
-6.4. **When** further progress requires user input, approval, permission, credentials, clarification, or a choice, the recovery instruction shall direct the worker not to assume it and to end normally for user input.
+5.4. **When** the next step needs user input, approval, permission, credentials, clarification, or a choice, ALG shall return allow-stop and shall not synthesize that response or authorization.
 
-6.5. **When** an automated recovery instruction is sent to a backend, the proxy shall not expose or persist it to the A-side as if it were a user-authored message.
+5.5. **When** the work is externally blocked, ALG shall return allow-stop rather than repeatedly asking the worker model to continue.
 
-6.6. **When** the verifier identifies a remaining objective, the proxy shall not treat suggestions, optional improvements, future possibilities, offers of help, or tasks assigned to the user as sufficient evidence of required unfinished work.
+5.6. **If** verifier timeout, transport failure, malformed output, unknown verdict, missing objective, or uncertainty occurs, ALG shall return allow-stop.
 
-6.7. **When** a recovery event occurs, it shall not grant authority for a tool action that the existing user request and current policy did not already authorize.
+5.7. **Where** a trusted normalized explicit completion fact is present, ALG shall honor the configured trust policy and bypass semantic verification for that clean stop while retaining transport-failure protection.
 
-6.8. **When** an actionable semantic continuation is authorized, the proxy shall register/update the automated recovery instruction via `pkg/lipsdk/steering.Writer` (`steering.PutRequest`), using the fixed request-scoped `OverlayID` (`steering.OverlayID("alg-rec")`) within the authoritative A-leg scope, message role `RoleDeveloper` (or valid canonical steering role), placement `AfterIngressTail`, anchor missing policy `FailClosed`, and a bounded diagnostic reason code. The proxy shall rely on existing single-active-request A-leg authority to serialize logical requests and prevent simultaneous active recovery overlays on the same A-leg.
+5.8. **Where** explicit completion is configured as evidence rather than trust, ALG shall pass it to the verifier without treating it as an unconditional continuation or stop override.
 
-6.9. **When** the steering writer processes `AfterIngressTail` placement, the trajectory resolver shall supply the accepted user ingress request call (`identityBoundTurn.ingressCall` or equivalent preserved ingress trajectory) plus current committed snapshot, and the proxy shall resolve it to a fixed `MessageAnchor` identifying the terminal forwardable user message from that accepted ingress trajectory. If the terminal forwardable user message is absent, not a user role, or snapshot-excluded, the proxy shall fail closed before backend execution.
+### Requirement 6: Bounded Conditional Continuation Intent
 
-6.10. **When** a hidden semantic continuation leg is prepared, the proxy shall freeze a new conversation-view snapshot (snapshot N+1) after steering registration; all candidate arms and attempts of that hidden model turn shall share the same frozen snapshot, and the proxy shall not mutate an already frozen turn snapshot.
-
-6.11. **When** backend attempt transforms or candidate shaping execute, the proxy shall reassert the frozen conversation-view snapshot via `conversationview.Reassert` using `OverlayProvenance` and `FilteredBaseline` prior to opening the backend attempt, ensuring each active overlay is injected exactly once and cannot be duplicated, displaced, or silently dropped.
-
-6.12. **While** a steering overlay is registered for hidden recovery, the proxy shall not expose it to the A-side client stream, client-facing frontends, or frontend `ContinuationRecord` transcripts.
-
-6.13. **When** a logical request executes multiple continuation attempts, the proxy shall reuse the fixed `OverlayID` (`"alg-rec"`) within the authoritative A-leg scope (updating only if instruction content changes) and shall explicitly deactivate the overlay via `steering.Writer.Deactivate` before final A-side terminal publication, client cancellation, continuation exhaustion, or leg open failure.
-
-6.14. **When** a subsequent externally initiated turn begins on the A-leg, the proxy shall deterministically clean up any lingering or stale recovery steering overlay by deactivating `OverlayID("alg-rec")` before freezing the new turn's initial snapshot. If the overlay is not found or already inactive, cleanup shall succeed as a no-op; if a persistence error occurs, the proxy shall fail closed before snapshot freeze or backend open.
-
-6.15. **Where** conversation-view persistence is configured using in-memory, SQLite, or PostgreSQL backends, the steering overlay lifecycle (put, resolve, project, reassert, deactivate, clean) shall behave identically and reliably.
-
-6.16. **If** a backend candidate cannot represent the required canonical steering role or placement, the proxy shall reject that candidate through standard candidate adaptation and selection rather than silently dropping or relocating the steering overlay.
-
-6.17. **Where** Agent Loop Guard coordinates hidden recovery, steering visibility, persistence, placement, reinjection, and deactivation shall be exclusively owned by the conversation-view steering subsystem (`pkg/lipsdk/steering` / `internal/core/conversationview`), and the proxy shall not use direct `Call.Messages`/`Items` append or secondary hidden authorities (such as `turnTerminal.guardHidden`).
-
-### Requirement 7: Verification Evidence and False-Positive Resistance
-
-**Objective:** As a proxy user, I want the completion check grounded in the actual task trajectory so that clean final answers are not misclassified from superficial wording.
+**Objective:** As a user, I want any automatic continuation constrained to my existing request and represented through the platform's safe transaction.
 
 #### Acceptance Criteria
 
-7.1. **When** semantic verification runs, it shall consider the current user objective and relevant recent user instructions together with the candidate final assistant output and the available canonical tool/action trajectory.
+6.1. **When** ALG returns continuation, the intent content shall state that it is automated internal recovery and is not a new user request, approval, permission, or scope expansion.
 
-7.2. **When** the candidate answer states that requested work is complete and available evidence does not contradict it, future-looking optional language such as “I can also…” shall not by itself require continuation.
+6.2. **When** the original work is complete, the intent content shall direct the worker to end normally without inventing, repeating, broadening, optimizing, or discovering work.
 
-7.3. **When** the candidate answer directly asks the user a question or offers an optional next action, that wording shall not by itself be treated as an unfinished executable objective.
+6.3. **When** concrete unfinished work remains, the intent content shall constrain the worker to that existing work and the retained canonical safe point.
 
-7.4. **When** a “Next steps” section assigns actions to the user or merely recommends future work outside the current request, it shall not by itself trigger continuation.
+6.4. **When** further progress requires user input, approval, permission, credentials, clarification, or a choice, the intent content shall direct the worker to stop for the user rather than assume it.
 
-7.5. **When** assistant text says it is about to perform an immediate in-scope action and the retained trajectory contains no evidence that the action occurred, the verifier shall be able to identify the stop as unfinished work.
+6.5. **When** the platform receives the intent, ALG shall provide only bounded provider-neutral continuation fields and shall not append to canonical calls, claim terminals, open backends, or mutate conversation snapshots.
 
-7.6. **When** quoted or discussed text contains phrases such as “I’ll continue” but the assistant is not itself committing to that action, the verifier shall not classify the quotation alone as evidence that continuation is required.
+6.6. **When** multiple ALG continuation attempts occur, ALG shall retain the logical request's immutable maximum budget and shall not reset it merely because new output exists.
 
-### Requirement 8: Bounded Recovery and Progress Detection
+6.7. **If** the platform rejects intent bounds, authority, placement, protocol capability, or lifecycle admission, ALG shall accept the conservative final outcome and shall not retry through a second authority.
 
-**Objective:** As an operator, I want hidden recovery bounded and progress-aware so that the safety feature cannot create a new infinite loop or uncontrolled token spend.
+### Requirement 7: Progress, Recursion, and Cost Bounds
 
-#### Acceptance Criteria
-
-8.1. **When** semantic continuation is enabled, the proxy shall enforce a configurable maximum number of hidden semantic continuation attempts per logical request.
-
-8.2. **When** semantic verification is invoked, the proxy shall enforce a bounded verifier timeout and shall treat timeout as an allowed stop.
-
-8.3. **When** successive continuation attempts reproduce materially equivalent final output, tool/action/error state, or recovery decisions without new canonical progress, the proxy shall detect no progress and stop further hidden continuation.
-
-8.4. **When** a no-progress limit or semantic continuation limit is reached, the proxy shall release or surface exactly one final terminal/error outcome and shall not leave the logical request hanging.
-
-8.5. **While** a verifier or recovery continuation is itself executing, the proxy shall prevent Agent Loop Guard from recursively applying to its own internal verifier operation.
-
-8.6. **When** a continuation makes new canonical progress, the proxy may reset only the no-progress state justified by that new progress and shall not reset the logical request's maximum continuation budget.
-
-### Requirement 9: Logical Request, Attempt, and Terminal Integrity
-
-**Objective:** As a maintainer, I want hidden recovery to preserve Go-LIP's existing attempt/request ownership guarantees.
+**Objective:** As an operator, I want ALG unable to create an unbounded hidden loop or uncontrolled verifier cost.
 
 #### Acceptance Criteria
 
-9.1. **When** an interrupted or semantically incomplete backend attempt is swallowed for continuation, that B-side attempt shall still reach exactly one attempt-level terminal settlement.
+7.1. **When** ALG is enabled, it shall enforce a configured maximum number of semantic continuation intents per logical request.
 
-9.2. **While** Agent Loop Guard continues a logical request across hidden B-side legs, the A-side logical request shall remain open and shall preserve its request/session lineage.
+7.2. **When** ALG invokes its verifier, it shall enforce a bounded timeout and shall normalize timeout to allow-stop.
 
-9.3. **When** final completion, final failure, cancellation, or recovery exhaustion is reached, the A-side logical request shall terminalize exactly once.
+7.3. **When** successive candidates repeat materially equivalent assistant output, tool/action/error state, verifier decision, or remaining objective without canonical progress, ALG shall return non-continuation at the configured no-progress limit.
 
-9.4. **When** competing terminal, cancellation, close, or recovery outcomes race, existing terminal ownership rules shall determine one authoritative outcome without duplicate settlement or duplicate A-side terminal publication.
+7.4. **While** the verifier or an ALG policy evaluation is executing, ALG shall suppress ALG recursion for that internal operation.
 
-9.5. **When** output has already been committed, hidden continuation shall not be represented as a retry/replacement that weakens the existing post-commit retry prohibition.
+7.5. **When** a budget or no-progress limit is reached, ALG shall return one final conservative decision and shall not leave the platform request waiting for another hidden leg.
 
-9.6. **When** hidden recovery creates additional backend legs, billing, metering, authority, and B2BUA evidence for those legs shall remain attributable and shall not be merged in a way that conceals actual backend work.
+### Requirement 8: Evidence and False-Positive Resistance
 
-### Requirement 10: Protocol-Neutral Streaming Continuity
-
-**Objective:** As a frontend user, I want recovery to remain valid for my protocol and not produce malformed or provider-specific stitched streams.
+**Objective:** As a user, I want clean answers and user-owned next steps left alone rather than misclassified from superficial wording.
 
 #### Acceptance Criteria
 
-10.1. **When** Agent Loop Guard suppresses an intermediate backend terminal, the A-side output shall remain a legal stream for the active frontend protocol.
+8.1. **When** the verifier evaluates a candidate, it shall consider the current user objective and relevant recent instructions together with candidate output and canonical tool/action trajectory.
 
-10.2. **When** output from a continuation leg is exposed to the same logical A-side response, canonical item ordering, identifiers, tool-call correlation, and terminal semantics shall remain valid for the frontend protocol.
+8.2. **When** the candidate says requested work is complete and evidence does not contradict it, optional language such as “I can also…” shall not require continuation.
 
-10.3. **When** a backend uses provider-native resumable state, core guard policy shall consume only normalized continuation capabilities/facts and shall not depend directly on provider SDK types.
+8.3. **When** the candidate asks the user a question or offers an optional next action, that wording alone shall not authorize continuation.
 
-10.4. **If** a frontend/backend combination cannot legally continue the existing logical stream, the proxy shall choose a supported final terminal/error behavior rather than concatenate raw protocol frames into an invalid response.
+8.4. **When** a “Next steps” section assigns work to the user or recommends future work outside the request, it shall not authorize continuation.
 
-10.5. **When** non-streaming clients are served by collection over the canonical stream, they shall observe the same final guard decision semantics as streaming clients.
+8.5. **When** the candidate commits to an immediate in-scope action and the trajectory lacks evidence that it occurred, ALG shall be able to return concrete continuation intent.
 
-### Requirement 11: Observability and Privacy
+8.6. **When** quoted or discussed text contains future-action wording but the assistant is not committing to that action, ALG shall not treat the quotation alone as unfinished work.
 
-**Objective:** As an operator, I want to understand recovery decisions and cost without leaking conversational content into telemetry.
+### Requirement 9: Feature Lifecycle and Platform Dependency
 
-#### Acceptance Criteria
-
-11.1. **When** Agent Loop Guard evaluates a terminal candidate, the proxy shall expose bounded-cardinality telemetry for the canonical cause and final guard outcome.
-
-11.2. **When** semantic verification runs, telemetry shall expose verifier latency and usage/cost evidence available through existing accounting mechanisms without recording prompt or response bodies in metrics.
-
-11.3. **When** hidden retry or continuation is attempted, telemetry shall preserve the relationship among the logical A-side request and affected B-side legs using existing trace/lineage identifiers.
-
-11.4. **When** recovery is suppressed for replay safety, unsupported state, explicit completion, no progress, cancellation, or exhausted budget, the proxy shall expose a bounded reason suitable for diagnostics.
-
-11.5. **When** internal verifier/recovery instructions are used, operator diagnostics shall identify them as internal recovery activity rather than user-authored traffic while respecting existing sensitive-data logging policy.
-
-### Requirement 12: Regression and Acceptance Safety Matrix
-
-**Objective:** As a maintainer, I want a concrete regression matrix for common false-stop and false-continuation cases so that later refactors preserve behavior.
+**Objective:** As a maintainer, I want ALG to activate and withdraw as a normal feature provider so that concrete policy can be removed without changing core architecture.
 
 #### Acceptance Criteria
 
-12.1. **When** a clean stop follows an assistant statement equivalent to “Let me run the tests next” and no test action occurred, semantic verification shall be able to continue the existing task.
+9.1. **When** ALG configuration is enabled, its provider shall be constructed through the platform's FeatureBundle contribution and shall not add an ALG branch to core terminal logic.
 
-12.2. **When** a clean stop follows a complete answer equivalent to “Done; tests pass,” semantic verification shall allow the stop when the trajectory does not show unfinished requested work.
+9.2. **When** ALG is disabled, reloaded, or removed, existing requests shall follow the platform's immutable generation semantics and no new request shall call a withdrawn ALG provider.
 
-12.3. **When** a clean stop ends with a user-directed question equivalent to “Would you like me to do X?”, Agent Loop Guard shall not synthesize user approval and shall allow the interaction to return to the user.
+9.3. **When** the platform process policy snapshot is supplied, ALG shall consume that snapshot and shall not create a second client/operator policy store or endpoint.
 
-12.4. **When** a complete answer includes optional improvements or a user-owned “Next steps” list, those additions shall not by themselves trigger continuation.
+9.4. **If** the platform contract is unavailable or incompatible, ALG feature construction shall fail before generation publication and shall not fall back to direct core integration.
 
-12.5. **When** a pre-output transport EOF is recoverable, the proxy shall complete the bounded existing recovery path without leaking an intermediate A-side terminal.
+9.5. **When** ALG is removed from the registry, all ALG verifier/classifier/instruction code shall be removable without leaving core imports, provider-name checks, or hidden terminal authorities.
 
-12.6. **When** a post-output transport failure occurs, the proxy shall not replay already committed output or re-execute an already completed matching tool side effect.
+### Requirement 10: ALG Observability and Acceptance Matrix
 
-12.7. **When** a transport interruption occurs during incomplete tool arguments, the proxy shall not execute guessed arguments or blindly replay the committed attempt.
+**Objective:** As an operator and maintainer, I want bounded evidence for ALG decisions and deterministic regressions for false stops and unsafe continuation.
 
-12.8. **When** semantic verification fails or times out, the proxy shall allow the held terminal rather than manufacture a continuation.
+#### Acceptance Criteria
 
-12.9. **When** repeated recovery produces no canonical progress or reaches its maximum semantic continuation budget, the proxy shall emit exactly one final terminal/error outcome.
+10.1. **When** ALG evaluates a candidate, it shall emit bounded cause, verdict, action, continuation, no-progress, and failure reason evidence through existing observability seams.
 
-12.10. **When** any supported frontend protocol is exercised end-to-end, no provisional backend terminal shall become observable as the final A-side terminal before the guard has reached its final allow/abort decision.
+10.2. **When** ALG runs a verifier or continuation, telemetry shall preserve A-leg/B-leg/trace relationships and existing usage/accounting attribution without putting content or secrets in labels.
 
-12.11. **When** an actionable semantic continuation is authorized, the proxy shall register the recovery instruction via `steering.Writer.Put` with fixed `OverlayID("alg-rec")` within the authoritative A-leg scope, `AfterIngressTail` resolving via the accepted user ingress request call (`identityBoundTurn.ingressCall`) to a fixed `MessageAnchor` on the terminal forwardable user message, and `FailClosed` policy, rejecting execution if the anchor cannot be resolved.
+10.3. **When** a clean stop follows an immediate promised in-scope action with no corresponding trajectory action, ALG shall be able to return continuation.
 
-12.12. **When** a hidden continuation turn executes, the proxy shall freeze a new turn snapshot, reassert active steering overlays exactly once across late attempt transforms via `conversationview.Reassert` (with `OverlayProvenance` and `FilteredBaseline`), and verify steering is absent from A-side output and frontend `ContinuationRecord`s.
+10.4. **When** a clean stop follows a complete answer, user-directed question, optional improvement, user-owned next steps, quoted future action, refusal, or filter, ALG shall return allow-stop.
 
-12.13. **When** a logical request completes, cancels, exhausts its continuation budget, or fails to open a continuation leg, the proxy shall explicitly deactivate the recovery overlay via `steering.Writer.Deactivate(ctx, "alg-rec")` before final terminal publication.
+10.5. **When** pre-output EOF, post-output interruption, completed tool/result retention, incomplete tool arguments, cancellation, verifier failure, no-progress, and budget exhaustion are exercised, ALG shall produce the conservative provider decisions required by this specification.
 
-12.14. **When** an external turn is received following a restart or previous request, the proxy shall deterministically clean up any stale recovery overlay by calling `Deactivate(ctx, "alg-rec")` on the A-leg before freezing the turn snapshot, treating `ErrOverlayNotFound` or already inactive as no-op success and failing closed if a persistence error occurs.
+10.6. **When** the platform executes a valid ALG intent across supported frontends, no intermediate terminal or hidden control content shall become client-visible; protocol legality remains the platform's responsibility.
 
-12.15. **When** conversation-view persistence is exercised across in-memory, SQLite, and PostgreSQL store implementations, the full recovery steering overlay lifecycle (put, resolve, project, reassert, deactivate, clean) shall pass all conformance tests identically.
+10.7. **When** architecture ratchets run, they shall prove zero direct call append, zero `turnTerminal.guardHidden` dependency, zero provider-specific core branch, and zero second ALG policy owner.
 
-12.16. **When** architecture ratchets are evaluated, the proxy shall verify zero direct appending to `Call.Messages`/`Items` in continuation logic, zero reliance on `turnTerminal.guardHidden`, and complete convergence on conversation-view steering as the single authority for hidden control content.
+### Requirement 11: Scope and Review Gates
+
+**Objective:** As a project owner, I want ALG implementation bounded to policy so that generic platform work remains reusable and reviewable.
+
+#### Acceptance Criteria
+
+11.1. **The** ALG implementation shall contain no Go native plugin loading, DI/container wiring, service locator, reflection registry, generic effect runtime, core provider-name switch, or duplicate terminal/continuation owner.
+
+11.2. **When** ALG provider integration begins, the platform dependency's contract, terminal chokepoint, continuation transaction, policy snapshot, and generic endpoints shall have passed their approved task gates.
+
+11.3. **When** ALG is declared ready, tests shall show that removing the concrete provider leaves generic platform behavior and no-provider compatibility intact.
+
+11.4. **If** ALG-specific work would require changing the generic platform's ownership or adding a second authority, the work shall return to platform design rather than expand this specification.
