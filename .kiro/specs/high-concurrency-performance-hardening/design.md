@@ -2,9 +2,9 @@
 
 ## Overview
 
-This design turns #394 from a static audit into an evidence-driven scalability program. The implementation begins by creating a reusable deterministic load laboratory around the existing reference clients/backends, freezes canonical workloads and certification gates, and records a fresh post-#446 baseline beginning at `f70201d037268508931ceab599b12ee4d3b40aad`. Production changes then proceed in descending impact order: streaming correctness/body admission, secure-session event-cadence persistence, per-stream retained memory, P1 shared stores/persistence, and finally P2 allocation/observer/lock/transport candidates. Every optimization crosses the same experiment gate and leaves its before/after evidence in `benchmark-scratch.md`.
+This design turns #394 from a static audit into an evidence-driven scalability program. The implementation begins by creating a reusable deterministic load laboratory around the existing reference clients/backends, freezes canonical workloads and certification gates, and records a fresh post-#446 baseline beginning at `f70201d037268508931ceab599b12ee4d3b40aad`. Production changes then proceed in descending impact order: streaming correctness/body admission, secure-session event-cadence persistence, per-stream retained memory, P1 shared stores/persistence, and finally P2 allocation/observer/lock/transport plus narrowly eligible reuse candidates. Every optimization crosses the same experiment gate and leaves its before/after evidence in `benchmark-scratch.md`.
 
-The architecture deliberately does **not** replace Go's goroutine-per-stream model or introduce a new actor/worker framework. The audit found the dominant risks in synchronous shared side effects, lifetime-retained data, admission placement, and a handful of global critical sections. Fixing those at their owning boundaries is lower-risk and more aligned with the repository's streaming-first/canonical architecture.
+The architecture deliberately does **not** replace Go's goroutine-per-stream model or introduce a new actor/worker framework by assumption. At 1k–10k sessions, however, every fixed stream owner, channel, stack, and buffer is multiplicative, so the harness records a phase-aware cost envelope for both the Go-LIP process and managed executable-connector processes. The preferred optimization order is remove redundant work/ownership, preallocate or process incrementally, narrow shared state, then consider bounded buffer/object reuse or a worker pool only for a measured short independent job. Blocking stream `Recv`, ordered emission, `Cancel`, and `Close` remain lifecycle-owned rather than being hidden in a shared pool.
 
 Capacity is treated as a measured property of workload + feature mode + persistence topology + transport topology + host. The capacity unit is a **logical LLM stream**. Physical HTTP/TCP connections are measured separately because direct HTTP/1.1 generally consumes one active connection per long stream whereas HTTP/2 can multiplex many logical streams over fewer client/front-door connections. The final result may certify 1k/5k/10k logical-stream tiers differently for idle-held versus actively emitting streams and may return an explicit NO-GO with a measured limiter. The design never extrapolates an untested tier.
 
@@ -19,12 +19,15 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - Preserve secure-session durability, billing durability, auth/security, routing/failover, canonical protocol, and exactly-once terminal semantics.
 - Separate logical-stream capacity from transport-connection/socket topology.
 - Separate built-in/standard backend execution from negotiated executable-plugin execution and certify post-#446 cancellation cleanup schedules.
+- Derive a phase-aware fixed/per-event/terminal cost envelope covering database operations, allocations/GC, shared-state contention, goroutines/channels/stacks, and proxy-plus-connector process-tree resources.
+- Permit caching, asynchronous writes, buffer/object reuse, or worker pooling only where freshness/durability/lifecycle classification and equivalent measurements prove the narrow mechanism safe and useful.
 - Leave a repeatable performance regression harness and an append-only evidence trail for future changes.
 
 ### Non-Goals
 
 - Replacing `net/http`, Go's scheduler, or the goroutine-per-stream model without evidence.
 - Designing a universal scheduler, worker pool, actor system, or asynchronous event bus.
+- Blanket TTL caching, asynchronous persistence, `sync.Pool` use, or goroutine pooling without a path-specific correctness and measurement case.
 - Changing LLM protocol semantics, routing selector semantics, backend ABI, or provider-specific behavior in core.
 - Weakening mandatory secure-session persist-before-release semantics or billing spool durability.
 - Creating a Cartesian frontend×backend performance matrix.
@@ -43,6 +46,8 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - Stream/output evidence boundedness and usage-accounting integration needed to remove lifetime event histories.
 - Auth dispatcher contention, B2BUA memory-store contention/expiry, concurrency-authority lease-store contention, and terminal billing-spool redundant aggregate work.
 - Evidence-gated optimization of cloning, traffic observation, residual shared locks, and transport defaults.
+- A lifecycle-phase database-operation ledger and fixed/rate-driven resource-cost envelope for the proxy and managed connector process tree.
+- Evidence-gated bounded read caching, asynchronous projection, temporary object/buffer reuse, and short-job worker reuse where the operation's correctness class permits them.
 - Final logical-stream capacity/soak certification with transport topology evidence.
 - Post-#446 executable-plugin stream and cancellation/disconnect characterization/regression gates.
 
@@ -54,6 +59,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - Ongoing structural ownership refactors except for the private integration needed to keep performance state bounded.
 - Product latency SLO definition where no existing SLO/operator objective exists; this spec requires a sourced gate before GO but does not fabricate the source.
 - Redesigning #446's launch permits, cancellation ownership, backend-plugin ABI, or terminalization semantics absent a measured defect; this spec owns characterization and performance follow-up only.
+- Moving authoritative authentication, admission, secure-session, billing, or financial truth into stale caches or non-durable in-memory queues merely to remove database latency.
 
 ### Allowed Dependencies
 
@@ -73,6 +79,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 - New HTTP/TLS termination or multiplexing topology in the standard deployment.
 - New benchmark diagnostic channel or label source.
 - Backend-plugin cancellation/stream protocol changes, managed-stream joinability changes, or new per-stream goroutine/channel owners.
+- Cache identity/freshness policy, async persistence acknowledgement, object/buffer reuse, worker-pool ownership, or runtime GC-tuning defaults.
 
 ## Architecture
 
@@ -80,7 +87,7 @@ Capacity is treated as a measured property of workload + feature mode + persiste
 
 The current architecture already contains several good scalability primitives: immutable generation pinning, atomic model-catalog publication, process-owned decode QoS, per-stream event synchronization, shared outbound transports, and mostly per-A-leg lifecycle ownership. After #446, launch permits linearize B-leg publication against A-leg cancellation, sibling B-leg teardown runs in parallel outside the per-A-leg lock, and executable-plugin cancellation has an explicit bounded coordinator. Those become controls, not rewrite targets.
 
-The post-#446 executable-plugin path is not equivalent to the built-in/standard backend path for capacity purposes. A negotiated plugin stream can own a control reader, an upstream reader, a coordinator, a bounded 16-event observation channel, an optional stream-closer worker, and a bounded cancellation worker. These are stream-scoped rather than process-global, but their memory/scheduler/cleanup cost is multiplied by active streams and must be measured independently in HOLD, DELTA, DISCONNECT, and SOAK.
+The post-#446 executable-plugin path is not equivalent to the built-in/standard backend path for capacity purposes. On the connector side, a negotiated plugin stream can own a control reader, an upstream reader, a coordinator, a bounded 16-event observation channel, an optional stream-closer worker, and a bounded cancellation worker. On the Go-LIP adapter side it also owns an Execute pump, optional stderr drain, control/error/done channels, a configurable pending-event channel whose current default is 64, and bounded usage evidence. Conversion copies may add event-rate allocation. These costs occur in different processes but are all part of deployment capacity and must be measured separately and in aggregate in HOLD, DELTA, DISCONNECT, and SOAK.
 
 The problematic paths share four patterns:
 
@@ -88,8 +95,9 @@ The problematic paths share four patterns:
 2. **Unrelated work serialized by global ownership** — secure-session memory mutations, auth sink I/O, B2BUA memory activity updates, concurrency-authority lease scans.
 3. **Expensive work before resource admission** — request-body `ReadAll`/preflight before decode admission.
 4. **Policy expressed as a total-duration timeout instead of phase/progress policy** — inbound server write and outbound client total timeout.
+5. **Small fixed/rate costs multiplied by stream count** — per-stream goroutines/channels/stacks/buffers, per-event conversions/allocations, and request/event/terminal database work whose individual cost looks modest below the 1k–10k target.
 
-#446 does not retire any of these four dominant patterns. It changes the baseline for stream topology and disconnect behavior: serial sibling teardown is now a positive control, while per-stream plugin owners and forced-close joinability require current measurements.
+#446 does not retire any of these five dominant patterns. It changes the baseline for stream topology and disconnect behavior: parallel sibling teardown is now a positive control, while per-stream plugin owners and forced-close joinability require current measurements.
 
 The design attacks these properties at their current boundaries instead of moving the same complexity into new packages.
 
@@ -133,6 +141,7 @@ flowchart LR
 - `internal/testkit/perf` is necessary because existing conformance/reference clients exercise correctness but do not orchestrate thousands of controlled streams with stable measurement metadata.
 - Scenario/result/gate contracts are explicit so capacity verdicts are reproducible rather than dependent on a human reading charts.
 - A small set of private accumulator/batch/store seams is introduced only where lifetime history or event-cadence calls are the root cause.
+- A phase-aware cost ledger classifies fixed stream resources and request/event/terminal/cleanup work before a cache, queue, reuse pool, or goroutine-topology change is selected.
 - No generic scheduler or global performance manager is introduced.
 - The existing #446 launch permit/cancellation owners are exercised through scenario controls; the harness does not reproduce their state machine.
 
@@ -153,7 +162,7 @@ flowchart TD
     W1 --> W2[Wave 2: Secure-session event persistence]
     W2 --> W3[Wave 3: Bounded per-stream evidence]
     W3 --> W4[Wave 4: P1 locks/lifecycle/spool]
-    W4 --> W5[Wave 5: P2 clones/observers/residual locks/transport]
+    W4 --> W5[Wave 5: P2 clones/allocations/observers/locks/goroutine topology/transport]
     W5 --> W6[Wave 6: 1k/5k/10k logical streams + soak certification]
 ```
 
@@ -170,6 +179,7 @@ internal/testkit/perf/
 ├── gates.go                # versioned pre-frozen certification gate profiles/evaluator
 ├── runner.go               # concurrency/ramp/lifecycle orchestration
 ├── metrics.go              # client-visible latency/error/resource sampling hooks
+├── cost.go                 # phase-aware DB/allocation/shared-state/goroutine process-tree ledger
 ├── privacy.go              # diagnostic label/result allowlist/redaction validation
 ├── clients.go              # adapters over existing refclient/wire-client helpers
 ├── upstream.go             # scripted reference upstream behavior
@@ -201,8 +211,10 @@ Likely production change surfaces, resolved against the implementation-time tree
 - `internal/infra/concurrencyauthority/leasestore/` — per-dimension live state/tombstone expiry.
 - `internal/infra/billingspool/` — maintained pending totals/reconciliation and completion-burst instrumentation.
 - `pkg/lipapi/call_clone.go` + runtime preparation — only if clone benchmarks justify changes.
+- request/event codec and stream-adapter allocation sites — preallocation/copy elimination/incremental processing first; bounded reuse only when alloc/GC profiles justify it.
 - `pkg/lipsdk/traffic/` + traffic-emission call sites — no-consumer fast path / bounded delivery only if measured.
 - `pkg/lipsdk/backendplugin/`, `internal/infra/backendplugins/adapter/`, and `internal/core/leglifecycle/` — post-#446 execution-path/cancellation instrumentation and regression tests; production redesign only if the fresh baseline proves a material defect.
+- owning read/store/composition packages — reuse already-loaded/immutable generation state first; bounded version/TTL cache or asynchronous persistence only for a measured operation whose freshness/durability class permits it.
 - executor config/RNG, `pkg/credpool`, `internal/core/state`, affinity/lifecycle — only candidates proven material by profiles.
 
 ## System Flows
@@ -432,6 +444,29 @@ flowchart TD
 
 A failed gate is evidence, not a reason to omit the verdict. Remaining independent gates continue where safe so the final evidence package is diagnostically useful.
 
+### Flow H: Hot-Path I/O and Resource Classification
+
+Every measured database operation is classified before an optimization mechanism is chosen:
+
+| Operation class | Default realization | Eligible optimization | Forbidden shortcut |
+|---|---|---|---|
+| Immutable/versioned reference read | Build or load once into the immutable generation/process owner | Reuse already-loaded value; bounded version cache if construction cannot own it | Per-request DB lookup or an unbounded global TTL map |
+| Staleness-tolerant dynamic read | Current adapter read | Bounded identity/TTL/version cache with miss collapse, freshness and invalidation tests | Treating cache contents as authority after the allowed freshness window |
+| Authoritative admission/security/financial read-write | Minimum synchronous transaction at the owning seam | Remove redundant queries; combine operations transactionally | Stale cache or RAM-only async acknowledgement |
+| Mandatory stream/event record | Minimum durability-preserving logical mutation | Consolidated transaction, measured microbatch, or local durable acknowledgement | Releasing mandatory output after enqueue to volatile memory |
+| Best-effort projection/telemetry | Direct call when cheap | Bounded queue with explicit drop/coalesce/backpressure and owned drain | Unbounded queue or goroutine per event |
+| Idempotent terminal work | Existing durable spool/terminal owner | Maintained metadata, bounded batching, worker concurrency if measured | Moving terminal financial writes onto event cadence |
+
+The performance result also derives a **phase-aware cost envelope**:
+
+- **fixed active-stream cost** — live heap/RSS contribution, goroutines, stack bytes, channels, reserved/occupied buffers, sockets and owner count;
+- **request-start cost** — allocations/bytes, SQL reads/writes/transactions, lock wait, goroutine starts and start latency;
+- **event-rate cost** — allocations/bytes and CPU/GC per canonical event, store/SQL operations per event, channel occupancy/blocking, event-forward latency;
+- **terminal-burst cost** — peak allocation, durable work/transactions, queue/spool depth, goroutine bursts and terminal latency;
+- **cleanup cost** — time and return band for process-tree goroutines/stacks, buffers, heap, sockets, caches/queues and owner registries.
+
+Proxy and managed connector processes are sampled independently and aggregated. A candidate cannot claim a deployment improvement by moving cost across IPC. A cache, reuse pool, or worker pool is a conditional private mechanism, not a new general subsystem: it must reduce the relevant envelope without violating its freshness, privacy, ordering, cancellation, durability, fairness, or cleanup contract.
+
 ## Components and Interfaces
 
 | Component | Layer | Intent | Requirements | Critical dependencies |
@@ -455,6 +490,8 @@ A failed gate is evidence, not a reason to omit the verdict. Remaining independe
 | Traffic Fast/Bounded Path | SDK/runtime traffic | Pay-for-use observation | 13 | redaction/sinks |
 | Residual Lock Review | owning packages | Evidence-based small lock fixes | 14 | race/correctness tests |
 | Transport Tuning Gate | stdhttp/httpclient | Topology-specific connection tuning | 15 | net/http/OS |
+| Hot-Path Cost Ledger | internal test support | Phase-aware DB/allocation/shared-state/goroutine process-tree envelope | 19 | runtime/OS/DB/connector metrics |
+| Conditional Reuse Gate | owning private package | Select bounded cache/buffer/short-job reuse only after classification and A/B proof | 19 | existing lifecycle and durability owners |
 
 ### Performance Scenario Model
 
@@ -479,6 +516,7 @@ type Scenario struct {
     DisconnectAt   time.Duration
     CompletionSkew time.Duration
     BackendPath    BackendExecutionPath // builtin_standard, executable_plugin
+    ResourceScope  ResourceScope         // proxy_only, connector_only, aggregate_process_tree
     Cancellation   CancellationPlan
     FeatureMode    FeatureMode
 
@@ -503,7 +541,7 @@ type TransportPlan struct {
 
 Validation rejects impossible/unbounded values. A direct HTTP/1.1 active-stream scenario cannot claim fewer simultaneously active client/proxy connections than its protocol semantics permit. HTTP/2 scenarios may multiplex, but the multiplex policy/limit is part of the fingerprint. Scenarios are serializable/describable so an experiment can record an exact fingerprint rather than prose only.
 
-`BackendPath` is also part of the fingerprint. A built-in/standard stream and a negotiated executable-plugin stream are not equivalent even when their frontend protocol, logical-stream count, event cadence, and socket topology match. Executable-plugin results capture goroutines per stream, stack memory, bounded observation-channel capacity/occupancy where observable, scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and post-terminal owner reclamation. `CancellationPlan` drives existing #446 contracts; it does not implement a parallel cancellation state machine in the load tool.
+`BackendPath` is also part of the fingerprint. A built-in/standard stream and a negotiated executable-plugin stream are not equivalent even when their frontend protocol, logical-stream count, event cadence, and socket topology match. Executable-plugin results capture proxy-side and connector-side goroutines per stream, stack memory, bounded channel capacities/occupancy (including adapter pending events), scheduler/trace evidence, cancellation acknowledgement/forced-close latency, and post-terminal owner reclamation. Aggregate process-tree cost is derived without hiding the individual processes. `CancellationPlan` drives existing #446 contracts; it does not implement a parallel cancellation state machine in the load tool.
 
 ### Typed Result Model
 
@@ -546,8 +584,11 @@ type Result struct {
     Memory         MemoryStats   // RSS, heap, objects, stack
     Allocations    AllocationStats
     GC             GCStats
+    Scheduler      SchedulerStats
     Goroutines     GoroutineStats
     Database       DatabaseStats
+    HotPathCost    PhaseCostEnvelope
+    Processes      []ProcessResourceStats // proxy and managed connector children
     Queues         QueueStats
     Artifacts      []ArtifactRef
     Unavailable    []UnavailableMetric
@@ -578,6 +619,10 @@ type CertificationGateProfile struct {
     EventForward       OptionalLatencyGate
     TerminalLatency    OptionalLatencyGate
     ResourceHeadroom   OptionalResourceGate
+    FixedStreamCost    OptionalCostGate
+    EventRateCost      OptionalCostGate
+    DatabaseOps        OptionalCostGate
+    SchedulerGC        OptionalCostGate
     MemoryGrowth       MemoryGrowthGate
     Cleanup            CleanupGate
     Durability         DurabilityGate
@@ -602,6 +647,7 @@ Rules:
 - Expected policy/QoS rejections are scenario assertions and are classified separately from unexpected failures.
 - Latency/resource gates may be `not-a-release-gate` only with rationale; if a latency/resource objective is required for the capacity claim but no defensible source exists, the tier remains `NO-GO (gate-definition-incomplete)` rather than receiving an invented number.
 - Memory/cleanup gates use a predeclared method/window/tolerance or statistical criterion. Visual inspection alone is not a certification gate.
+- Fixed-stream, event-rate, database-operation, and scheduler/GC gates use sourced budgets or predeclared baseline-regression envelopes. A connection remaining open is insufficient when one of these required gates is exhausted.
 - A gate profile ID/version is included in the scenario/result fingerprint so later edits cannot retroactively make a failed run pass.
 
 ### Staged Admission State
@@ -625,13 +671,15 @@ The implementation may merge count and byte reservations inside `decodeqos` as l
 
 ### Shared-Store Concurrency Rules
 
-For secure-session/B2BUA/authority memory stores:
+For secure-session/B2BUA/authority memory stores and any measured cache/worker/reuse owner:
 
 - Never hold a store/shard index mutex while performing external I/O, JSON encode/decode, callbacks, or other potentially blocking work.
 - Per-entry locks may protect one logical session/A-leg/dimension's invariant set.
+- Prefer immutable generation/process snapshots for stable reference data and request/attempt/session-local state for mutable data. A process-shared cache is justified only by a cross-session reuse invariant and must have bounded identity/cardinality/bytes plus explicit freshness/invalidation.
 - Define lock ordering explicitly if a top-level index plus entry lock are both needed; prefer lookup under index lock → retain/stabilize entry → release index → mutate entry.
 - Expiry deletion must not invalidate an entry still referenced by an in-flight operation.
 - Avoid background goroutines solely for cleanup unless benchmark evidence shows bounded opportunistic cleanup is inadequate; if introduced, own shutdown and `goleak` tests.
+- A reusable buffer/object must not retain oversized capacity or observable session data across claims. A worker pool owns only short independent jobs; stream `Recv`, ordered send, `Cancel`, and `Close` remain with their existing enumerated lifecycle owners.
 
 ## Requirements Traceability
 
@@ -658,6 +706,7 @@ For secure-session/B2BUA/authority memory stores:
 | 16 | Existing profiling reuse + diagnostic privacy validator + bounded metrics |
 | 17 | Local concrete owners, no generic framework, active-spec reconciliation |
 | 18 | Frozen gate profiles, 1k/5k/10k logical streams, soak, deterministic verdict |
+| 19.1–19.14 | Phase-aware cost envelope, process-tree accounting, database correctness classes, bounded cache/reuse/short-job gates, shared-state and goroutine ownership rules |
 
 ## Data / State Changes
 
@@ -679,6 +728,10 @@ Prefer metadata stored transactionally in the spool database or reconstructed sa
 ### Performance result/gate data
 
 Performance JSON/results/profiles are test artifacts, not product state. The small human evidence ledger and gate registry remain `benchmark-scratch.md`. Gate definitions and scenario/result fingerprints are stable machine-readable artifacts in the internal harness; large binary profiles/traces are not committed to the spec folder by default.
+
+### Conditional cache, queue, and reuse state
+
+No cache, async-write queue, object/buffer pool, or worker pool is mandatory merely because Requirement 19 exists. If an experiment selects one, its owner is the narrow existing process/generation/domain owner; it records bounded entries/bytes or jobs, complete identity/freshness where applicable, and explicit close/drain behavior. Durable authority remains in the existing store/spool. Reused buffers discard oversized capacity and reset/zero state according to data sensitivity before another claim.
 
 ## Error Handling
 
@@ -715,6 +768,8 @@ Performance JSON/results/profiles are test artifacts, not product state. The sma
 
 - Eviction/expiry must not surface spurious “not found” for an entry actively retained by an operation.
 - Shard/per-entry design retains current typed errors and idempotency.
+- Cache misses/origin failures preserve the original fail-closed/fallback contract; stale data is never silently substituted outside the declared freshness window.
+- Full async/reuse worker queues apply their declared backpressure/drop/coalesce policy and expose the event; they do not spawn an escape goroutine or acknowledge mandatory work before required durability.
 
 ### Billing Spool
 
@@ -724,7 +779,7 @@ Performance JSON/results/profiles are test artifacts, not product state. The sma
 
 ### Microbenchmark protocol
 
-Use fixed scenario sizes (`-benchtime=Nx` where history growth would make adaptive iteration non-stationary) and repeated sample counts appropriate for `benchstat`. Record `ns/op`, `B/op`, `allocs/op` plus relevant custom counters. For contention benchmarks, also run with representative `-cpu`/`GOMAXPROCS` and collect mutex/block profiles in dedicated repeats.
+Use fixed scenario sizes (`-benchtime=Nx` where history growth would make adaptive iteration non-stationary) and repeated sample counts appropriate for `benchstat`. Record `ns/op`, `B/op`, `allocs/op` plus relevant custom counters. For contention benchmarks, also run with representative `-cpu`/`GOMAXPROCS` and collect mutex/block profiles in dedicated repeats. Allocation candidates compare ownership/copy elimination, preallocation/incremental processing, and bounded reuse where applicable; a pooled candidate also reports retained-capacity distribution, cross-session reset/privacy tests, and post-GC behavior.
 
 ### End-to-end protocol
 
@@ -735,6 +790,8 @@ Use fixed scenario sizes (`-benchtime=Nx` where history growth would make adapti
 - Run at least 1k → 5k → 10k **logical streams** rather than jumping directly to 10k; stop/escalate based on correctness/resource safety.
 - Record target/actual physical connection counts separately for each relevant transport leg/topology.
 - Run equivalent HOLD/DELTA cases through built-in/standard and negotiated executable-plugin execution where supported; do not aggregate away per-stream goroutine/buffer/scheduler differences.
+- Sample the Go-LIP process and managed connector child processes independently, then aggregate the process tree. Report fixed cost per stream plus request-start, per-event, terminal-burst, and cleanup costs rather than one process-wide average.
+- Count logical store operations and physical queries/transactions by lifecycle phase. Record the correctness/freshness class for each material database operation before testing immutable reuse, a bounded cache, batching, or asynchronous completion.
 - Run DISCONNECT cases for launch-in-flight, one/many sibling B-legs, graceful acknowledgement, deadline/forced-close, and upstream-terminal races; a managed stream that cannot become joinable after forced close fails the correctness/cleanup gate.
 - Capture headline results without heavy profiling and separate diagnostic runs with profiling if profiler overhead is material.
 - Only valid runs enter a capacity PASS comparison.
@@ -760,6 +817,8 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 - Secure-session batch mutation equivalence, sequence monotonicity, concurrent session independence, expiry/reclamation.
 - Incremental/compact usage evidence equivalence to existing reconstruction across adversarial chunk boundaries and event mixtures.
 - B2BUA/authority per-key race/invariant tests and billing metadata reconciliation.
+- Hot-path cost-envelope serialization/gate evaluation, database-operation classification, proxy/connector process attribution, and fixed-versus-rate-driven slope calculations.
+- Conditional cache freshness/invalidation/stampede/bounds tests, buffer reuse outlier/reset/privacy tests, and short-job pool full/fairness/cancel/shutdown tests only when those mechanisms are selected.
 
 ### Race / scheduling tests
 
@@ -769,6 +828,7 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 - Authority acquire/release/expiry races.
 - Observer queue shutdown/full behavior if any queue is added.
 - #446 launch-permit commit/abort versus A-leg cancellation, sibling teardown, cancellation acknowledgement/forced-close, upstream-terminal race, and joinability after `Close`.
+- Fixed goroutine/channel owner counts versus event count; any topology candidate must prove no event-cadence spawn, no blocked pooled lifecycle job, and full process-tree cleanup.
 
 ### Integration tests
 
@@ -804,10 +864,11 @@ Known correctness fixes are accepted on demonstrated correctness plus no materia
 4. Land bounded stream evidence in coordination with current response-owner shape.
 5. Land P1 store/spool changes one domain at a time with their own before/after entries.
 6. Run P2 measurement tasks; only branches with proven value become production changes.
-7. Freeze final scenario/gate profiles, run full logical-stream matrix/soak, and record GO/NO-GO including failed/environment-limited results.
+7. Reconcile the phase-aware database/allocation/shared-state/goroutine cost ledger and retain only classified, bounded cache/reuse/short-job mechanisms with proved A/B benefit.
+8. Freeze final scenario/gate profiles, run full logical-stream matrix/soak, and record GO/NO-GO including failed/environment-limited results.
 
 Do not batch all optimizations into one opaque implementation PR: smaller causal changes preserve benchmark attribution and make regressions/reverts tractable.
 
 ## Final Design Validation Verdict
 
-The design satisfies all 18 requirements and remains within the repository's existing architecture. The original review exposed six real specification gaps: experiment status vocabulary, stream-versus-connection modeling, incomplete typed result validity, deterministic capacity gates, diagnostic-channel privacy coverage, and NO-GO recording on failed gates. The post-#446 revalidation exposed one further baseline gap: backend execution topology and cancellation schedules were not explicit enough to prevent reuse of pre-#446 assumptions. Requirements 2.18–2.20, the scenario model, task plan, and benchmark registry now repair that gap without creating another lifecycle owner. Certification thresholds remain sourced and frozen before the evaluated run. The highest-risk semantic areas—mandatory security durability, billing durability, body/auth ordering, stream terminal behavior, cancellation joinability, diagnostic privacy, and active runtime ownership refactors—have explicit preservation and revalidation gates. Optional complexity has benchmark gates and a measured-no-change path. **GO for implementation.**
+The design satisfies all 19 requirements and remains within the repository's existing architecture. The original review exposed six real specification gaps: experiment status vocabulary, stream-versus-connection modeling, incomplete typed result validity, deterministic capacity gates, diagnostic-channel privacy coverage, and NO-GO recording on failed gates. The post-#446 revalidation exposed a further baseline gap: backend execution topology and cancellation schedules were not explicit enough to prevent reuse of pre-#446 assumptions. This revision found that database operations, allocation/GC, shared-state, and goroutine costs still lacked one phase-aware process-tree envelope and that blanket cache/pool advice could weaken correctness. Requirements 19.1–19.14, Flow H, the task plan, and benchmark registry repair those gaps without creating another runtime owner. Certification thresholds remain sourced and frozen before the evaluated run. The highest-risk semantic areas—mandatory security durability, billing durability, body/auth ordering, stream terminal behavior, cancellation joinability, cache freshness, async acknowledgement, reuse privacy, diagnostic privacy, and active runtime ownership refactors—have explicit preservation and revalidation gates. Optional complexity has benchmark gates and a measured-no-change path. **GO for implementation.**

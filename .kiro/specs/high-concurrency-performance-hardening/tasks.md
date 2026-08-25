@@ -15,6 +15,9 @@
 - **No production providers.** Proxy-capacity tests use deterministic local upstreams. External PostgreSQL/database latency is measured only in dedicated persistence scenarios.
 - **No benchmark-only public surface.** Performance tooling stays internal unless a separate product requirement independently justifies a public API/config field.
 - **Preserve architecture.** Do not introduce a generic worker pool, actor/event framework, mutable execution bag, reflection registry, service locator, unbounded queue, or per-event goroutine architecture.
+- **Classify hot-path I/O before moving it.** Reuse already-loaded/immutable versioned values before adding a cache. Do not cache stale authority or move mandatory security/session/admission/billing writes to volatile async queues; only documented best-effort work or a proved local durable acknowledgement may leave the initiating call stack.
+- **Reuse and pooling are conditional.** Try ownership/copy elimination, preallocation, incremental processing, and redundant-owner removal first. A buffer/object pool must bound retained capacity and reset/zero session data; a worker pool may own only bounded short independent jobs and never hides blocking stream `Recv`, ordered emission, `Cancel`, or `Close` lifecycles.
+- **Measure the deployment process tree.** Executable-plugin evidence reports the Go-LIP process, managed connector child processes, and aggregate resources separately. Moving goroutines, heap, allocations, or CPU across IPC is not a deployment-wide optimization.
 - **Coordinate adjacent specs.** Before modifying recv/response/request state, inspect the then-current `turn-recv-terminal-ownership-simplification` and `request-attempt-pipeline-state-simplification` implementation state and change the authoritative owner rather than recreating old duplicate fields.
 - **Protect every diagnostic channel.** Result JSON, CLI labels, logs, metrics, pprof labels/metadata, trace task/region/log metadata, scratch references, and artifact names must use bounded/sanitized identifiers. Binary pprof/trace artifacts remain access-controlled diagnostics rather than public evidence.
 - **Record raw evidence outside the Markdown when large.** `benchmark-scratch.md` records environment, commands/scenario/gate fingerprints, summaries, profile/result paths, conclusion, and decision; do not commit large binary pprof/trace outputs into the spec folder by default.
@@ -32,8 +35,9 @@
   - Record which measurements can be collected externally from the load process versus internally from the proxy and ensure the generator can run in a separate process/host.
   - Inventory direct HTTP/1.1 and supported front-door/HTTP2 termination topologies so the harness can distinguish logical streams from physical transport connections.
   - Inventory the post-#446 built-in/standard and negotiated executable-plugin execution paths, including launch permits, sibling cancellation, plugin control/upstream readers, bounded event buffering, optional closer, forced-close joinability, terminal usage/billing evidence, and reusable contract fakes.
+  - Build a brownfield hot-path inventory by lifecycle phase: logical/physical database operations and correctness class; allocations/copies; process-shared mutable owners/lock scope; proxy-side and connector-side goroutines/channels/stacks/buffers plus cancellation/join owner.
   - Add a deterministic harness inventory/test fixture so later refactors cannot silently bypass real frontend/backend wire paths.
-  - _Requirements: 1.1–1.3, 2.1–2.10, 2.18–2.20, 15.1–15.3, 17.1, 17.8_
+  - _Requirements: 1.1–1.3, 2.1–2.10, 2.18–2.20, 15.1–15.3, 17.1, 17.8, 19.1–19.4, 19.10–19.12_
   - _Boundary: tests / internal performance support_
   - _Depends: none_
   - _Validation: `go test ./internal/refclient/... ./internal/refbackend/... ./internal/testkit/...`_
@@ -42,10 +46,11 @@
   - Add `internal/testkit/perf` scenario types with validation and stable IDs for `HOLD`, `DELTA`, `START`, `BODY`, `OUTPUT`, `COMPLETE`, `RETRY`, `OBSERVE`, `AUTHZ`, `B2BUA`, `DISCONNECT`, and `SOAK` families.
   - Model `LogicalStreams` independently from transport topology/connection controls; fingerprint target client/front-door and terminator/proxy connections plus multiplexing limits separately from stream count.
   - Fingerprint backend execution path and cancellation schedule independently: built-in/standard versus negotiated executable plugin, launch-in-flight, sibling count, graceful acknowledgement, deadline/forced close, and upstream-terminal race.
-  - Add machine-readable environment/result models covering target/achieved logical streams, observed transport connections, latency/throughput, expected/unexpected outcomes, process/system CPU, RSS/heap/stack, allocation bytes/counts, GC, goroutines, sockets/FDs, correctness assertions, unavailable metrics, and typed limiter/run-validity status.
-  - Add versioned `CertificationGateProfile` types with frozen warm-up/steady duration, valid repetition count, correctness/durability/error gates, applicable sourced latency/resource gates, memory-growth/cleanup methods, and gate-profile fingerprinting.
+  - Add machine-readable environment/result models covering target/achieved logical streams, observed transport connections, latency/throughput, expected/unexpected outcomes, process/system CPU, RSS/heap/stack, allocation bytes/counts, GC/scheduler, goroutines/channels/buffers, sockets/FDs, database work by lifecycle phase, shared-lock evidence, correctness assertions, unavailable metrics, and typed limiter/run-validity status.
+  - Model proxy, managed connector child, and aggregate process-tree resource scopes separately; derive fixed-per-stream versus request-start/per-event/terminal/cleanup cost rather than one aggregate average.
+  - Add versioned `CertificationGateProfile` types with frozen warm-up/steady duration, valid repetition count, correctness/durability/error gates, applicable sourced latency/resource/fixed-stream/event-rate/DB/scheduler gates, memory-growth/cleanup methods, and gate-profile fingerprinting.
   - Unit-test serialization, stable fingerprints, zero-vs-unavailable metrics, HTTP/1.1/HTTP2 stream/connection validation, backend-path/cancellation-schedule inequivalence, invalid-correctness classification, limiter classification, and gate PASS/NO-GO behavior.
-  - _Requirements: 1.3, 1.10–1.14, 2.11–2.20, 15.1–15.9, 18.5–18.11_
+  - _Requirements: 1.3, 1.10–1.14, 2.11–2.20, 15.1–15.9, 18.5–18.11, 19.1–19.3, 19.14_
   - _Boundary: tests / internal performance support_
   - _Depends: 1.1_
   - _Validation: `go test ./internal/testkit/perf/...`_
@@ -67,9 +72,10 @@
   - Reuse existing diagnostics/pprof and runtime metrics to collect CPU, heap, allocation, mutex, and block evidence; add Go-trace support for explicitly scheduler-sensitive experiments.
   - Add platform-aware sampling for process/system CPU, RSS, live heap, allocation counts/bytes, stack memory, goroutines, and socket/file-descriptor counts where available, with explicit `unavailable` rather than fabricated zero values.
   - Add benchmark/test instrumentation for logical secure-session/store operations, SQL query/transaction/pool-wait observations, billing spool latency/backlog, and outbound connection/handshake/HTTP2 reuse where scenarios require them.
+  - Attribute DB reads/writes/queries/transactions to request-start, stream-event, terminal, and cleanup phases and record their authoritative/reusable/best-effort/idempotent classification; collect proxy/connector process-tree goroutine/stack/channel/buffer and scheduler/runnable/blocking evidence.
   - Implement a diagnostic privacy validator/allowlist covering result JSON/console output, labels, logs, metrics, pprof labels/metadata where inspectable, trace task/region/log metadata, and artifact names; keep binary profiles/traces access-controlled.
   - Measure the overhead of any newly always-on production instrumentation before retaining it on a hot path; keep heavyweight instrumentation test-only when appropriate.
-  - _Requirements: 1.4–1.14, 2.12–2.17, 16.1–16.8_
+  - _Requirements: 1.4–1.14, 2.12–2.17, 16.1–16.8, 19.1–19.4, 19.13–19.14_
   - _Boundary: tests / observability / adapter instrumentation_
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/testkit/perf/...` plus focused metrics/diagnostics/privacy tests_
@@ -78,10 +84,11 @@
   - Populate the Canonical Scenario Registry in `benchmark-scratch.md` with exact primary fingerprints, including logical streams, transport topology/connection plan, held-versus-active shape, and feature/store variants.
   - Add distinct built-in/standard and negotiated executable-plugin HOLD/DELTA fingerprints plus the complete post-#446 DISCONNECT schedule matrix; record which variants are mandatory at each capacity tier and which are bounded sentinels.
   - Populate the Certification Gate Registry before certification use; document the source of each numeric threshold and reject any gate profile whose required release objective is chosen after results are visible.
+  - Freeze the applicable fixed-stream, event-rate allocation/GC, per-phase DB-operation, shared-contention, scheduler, and process-tree cleanup envelopes before their certification runs; record `GOMEMLIMIT`/`GOGC` as controlled environment values rather than hidden tuning.
   - Document reproducible commands for baseline/candidate runs, repeated microbenchmarks/`benchstat`, pprof/trace capture, race tests, high-scale driver placement, and gate evaluation.
   - Add comparison validation that rejects uncontrolled scenario/environment/gate differences before an A/B comparison is accepted.
   - Validate privacy across **all** emitted channels: result/scratch/CLI labels, logs, metrics, pprof labels/metadata, trace metadata, and artifact names; no raw prompt/secret/session/user/model identifiers may enter evidence.
-  - _Requirements: 1.4–1.14, 2, 15, 16, 18.2, 18.6–18.11, 18.17_
+  - _Requirements: 1.4–1.14, 2, 15, 16, 18.2, 18.6–18.11, 18.17, 19.1–19.3, 19.13–19.14_
   - _Boundary: tests / docs-in-spec_
   - _Depends: 1.1–1.4_
   - _Validation: perf-tool `describe`/fingerprint/gate/privacy tests_
@@ -93,11 +100,12 @@
 - [ ] 2.1 Capture P0 logical-stream, active-delta, body, output, and timeout baselines
   - On a recorded environment and exact post-#446 commit, run `HOLD`, `DELTA`, `BODY`, and `OUTPUT` at 1k logical streams and higher feasible tiers, plus a healthy stream beyond the legacy total-timeout boundary; record actual physical connection counts for each topology.
   - Run equivalent HOLD/DELTA cases through built-in/standard and negotiated executable-plugin execution where supported; record goroutines/stack per logical stream, bounded event-buffer capacity/occupancy where observable, scheduler/trace evidence, event latency, and post-terminal cleanup separately.
+  - For executable plugins, record Go-LIP adapter and managed connector process CPU/RSS/heap/stack/goroutine/channel/buffer/alloc/GC data independently and as an aggregate process tree; include current adapter pending-event and usage-evidence bounds rather than measuring only the plugin-side 16-event channel.
   - Run DISCONNECT at launch-in-flight, one and multiple sibling B-legs, graceful acknowledgement, deadline/forced close, and upstream success/failure race points; prove exact terminal/usage/billing evidence and return of goroutines/sockets/buffers/owners to the frozen cleanup band.
   - Separate secure-session disabled/minimal, memory-store recording, and durable-store recording where available so event-cadence cost is attributable.
   - Capture CPU/heap/alloc/mutex/block profiles for active-delta and long-output cases and peak RSS/heap for body bursts; preserve typed correctness/limiter status for every run.
   - Append baseline entries to `benchmark-scratch.md`; mark generator/host-limited tiers `unsupported-by-host`, mark semantic failures invalid, and do not extrapolate.
-  - _Requirements: 1, 2, 3.6, 4.7, 5.11–5.12, 7.8–7.10, 15, 17.6–17.7, 18.2–18.3_
+  - _Requirements: 1, 2, 3.6, 4.7, 5.11–5.12, 7.8–7.10, 15, 17.6–17.7, 18.2–18.3, 19.1–19.3, 19.11, 19.14_
   - _Boundary: tests / evidence_
   - _Depends: 1.1–1.5_
   - _Validation: frozen `lipperf` baseline commands; no production diff required_
@@ -105,9 +113,10 @@
 - [ ] 2.2 Capture request-start, shared-lock, authority, billing, clone, observer, and transport baselines (P)
   - Run `START`, `B2BUA`, `AUTHZ`, `COMPLETE`, `RETRY`, and `OBSERVE` variants with mutex/block/CPU/alloc/database evidence appropriate to each path.
   - Run existing secure-session recorder, authority contention, and stream-traffic microbenchmarks with repeated samples; add fixed-history/fixed-operation sizes where adaptive benchmark iteration would hide growth.
+  - Produce a lifecycle-phase DB ledger for every material START/DELTA/COMPLETE path, a top allocation/escape/copy ledger for request/event/terminal work, and a process-shared state/lock ledger; classify each database operation before proposing cache/async alternatives.
   - Record outbound connection reuse/TLS handshake/HTTP2 observations and direct-listener/front-door topology without changing transport defaults; always pair connection counts with logical-stream counts.
   - Append one baseline experiment entry per candidate family, including typed run validity and explicit `material` / `uncertain` / `not-material-at-baseline` observations without yet modifying production code.
-  - _Requirements: 5, 6, 8–15_
+  - _Requirements: 5, 6, 8–15, 19.1, 19.4–19.10, 19.13–19.14_
   - _Boundary: tests / evidence_
   - _Depends: 1.1–1.5_
   - _Validation: named microbenchmarks + frozen `lipperf` scenarios_
@@ -117,8 +126,10 @@
   - Record which P2 candidates are sufficiently material to justify production experiments and which currently qualify only for later confirmation/no-change.
   - Record the baseline commit/environment/scenario/gate definitions that every Phase 3–7 experiment derives from; if unrelated production changes land before a task starts, rerun the affected baseline.
   - Reclassify serial sibling cancellation as resolved-by-#446 with regression evidence rather than an implementation target; record executable-plugin per-stream ownership and forced-close joinability as measured baseline facts/limiters.
+  - Record fixed cost per stream and request-start/per-event/terminal/cleanup cost slopes, identify which database reads are reusable versus authoritative, and rank measured allocation/GC/shared-state/goroutine multipliers across proxy and connector processes.
+  - For each proposed TTL/version cache, async writer, buffer/object pool, or short-job pool, record the smallest non-pooled alternative, the correctness/lifecycle contract, and the evidence required to retain it; absence of materiality closes the candidate as measured-no-change.
   - Do not alter task order to chase microbenchmarks ahead of known P0 fixes; use the ledger to choose alternatives **within** scheduled high-impact work and to prune unproven optional complexity.
-  - _Requirements: 1.4–1.14, 18.14_
+  - _Requirements: 1.4–1.14, 18.14, 19.1–19.14_
   - _Boundary: evidence / planning_
   - _Depends: 2.1–2.2_
   - _Validation: completed baseline sections in `benchmark-scratch.md`_
@@ -379,6 +390,17 @@
   - _Depends: 6.5_
   - _Validation: COMPLETE A/B + crash/recovery suite_
 
+- [ ] 6.7 Classify and remove remaining material request-path database amplification
+  - Refresh the Phase-2 lifecycle DB ledger after Tasks 4.4, 6.1, and 6.5; rank remaining request-start, stream-event, terminal, and cleanup reads/writes by query/transaction count, latency, pool wait, and correctness/freshness class.
+  - For repeated stable reads, first reuse the authoritative value already loaded by orchestration or project an immutable/versioned value into the existing generation/process owner. Consider a bounded version/TTL cache only when staleness is explicitly valid and tests cover identity, freshness, invalidation, entry/byte bounds, expiry, duplicate-miss collapse, origin failure, and close.
+  - Do not cache transactional authority for authentication, secure-session mandatory state, concurrency/exposure admission, billing, or settlement. Consolidate redundant authoritative calls into the minimum owning transaction instead of serving stale state.
+  - Move writes off the caller only for existing best-effort projections or after a separate durability-preserving local-ack experiment; define bounded overload/retry/crash/restart/drain/shutdown behavior and never acknowledge mandatory work from volatile memory.
+  - Rerun identical START/DELTA/COMPLETE scenarios and retain only a material end-to-end/query-count improvement without freshness, durability, memory, contention, or tail regression; otherwise record measured-no-change/revert per operation.
+  - _Requirements: 5.5–5.9, 6.1–6.7, 11.2–11.7, 16.5–16.8, 19.4–19.7, 19.10, 19.14_
+  - _Boundary: owning app/store/composition seams; no generic cache layer_
+  - _Depends: 4.4, 6.1, 6.5–6.6_
+  - _Validation: focused freshness/durability/cache tests where selected + SQLite/PostgreSQL + START/DELTA/COMPLETE A/B_
+
 ## Phase 7 — P2 Allocation, Observation, Residual Locks, and Transport (Profile-Gated)
 
 - [ ] 7. Address every lower-priority audit candidate, but only ship measured improvements.
@@ -454,14 +476,34 @@
   - _Depends: 6.1–6.6_
   - _Validation: HOLD/START/DELTA topology A/B + stream/connection accounting tests_
 
-- [ ] 7.8 Re-profile after all retained P2 work and prevent accidental rewrites of known-good primitives
+- [ ] 7.8 Measure event-path allocation/GC cost and retain only bounded safe reuse (P)
+  - Use DELTA/OUTPUT plus focused codec/adapter benchmarks to rank `alloc_space`, allocation objects/bytes per event, conversion copies, temporary JSON/byte buffers, GC CPU/pause, and terminal allocation peaks across built-in and executable-plugin paths.
+  - For each material site, compare the smallest applicable alternatives in order: remove redundant ownership/copy, preallocate known capacity, process incrementally/stream, then a narrow buffer/object reuse candidate. Do not add a general pooling package.
+  - If reuse is tested, define capacity classes/max retained capacity, discard oversized outliers, fully reset state, zero sensitive backing storage where required, prevent cross-session observability, and do not treat `sync.Pool` as a memory bound.
+  - Rerun identical micro/end-to-end loads and retain reuse only when allocation/GC and relevant tail/resource metrics improve materially without privacy, memory-retention, contention, or correctness regression; otherwise revert/record measured-no-change.
+  - _Requirements: 2.2, 2.12–2.13, 7.8–7.10, 12.1–12.6, 16.8, 19.1, 19.8–19.9, 19.13–19.14_
+  - _Boundary: measured owning codec/adapter/runtime package only_
+  - _Depends: 6.1–6.7_
+  - _Validation: focused `-benchmem`/benchstat + alloc/heap profiles + DELTA/OUTPUT A/B + cross-session privacy/retention tests when reuse is selected_
+
+- [ ] 7.9 Measure and minimize fixed per-stream goroutine/channel topology without hiding lifecycle work (P)
+  - At fixed HOLD/DELTA tiers, derive proxy-side, connector-side, and aggregate goroutines, stack bytes, channels/buffer capacity/occupancy, runnable/blocked scheduler time, event latency, and cleanup per logical stream; verify the count is independent of event count and identify each owner.
+  - Compare current topology first with removing/fusing only a proved redundant owner or buffer. Do not pool blocking `Recv`, ordered send, `Cancel`, `Close`, or sibling teardown merely to lower goroutine count; preserve #446 launch/cancel/terminal ordering and parallel sibling cleanup.
+  - If a distinct short independent CPU/I/O job remains a material spawn/scheduler cost, test one bounded worker candidate with explicit concurrency, queue/full/fairness/cancellation/panic/error/shutdown contracts and no work admitted before ownership; reject pool-wide starvation under blocked/adversarial jobs.
+  - Retain a topology/pool change only with equivalent cancellation/disconnect/race behavior, lower aggregate process-tree cost, no tail/backpressure regression, and full `goleak`/post-cleanup recovery; otherwise record measured-no-change.
+  - _Requirements: 2.18–2.20, 14.6, 17.2, 17.6–17.7, 19.1–19.3, 19.10–19.14_
+  - _Boundary: existing stream/adapter/lifecycle owner; no generic scheduler_
+  - _Depends: 6.1–6.7_
+  - _Validation: HOLD/DELTA/DISCONNECT A/B + Go trace/runtime metrics + targeted `-race`/goleak_
+
+- [ ] 7.10 Re-profile after all retained P2 work and prevent accidental rewrites of known-good primitives
   - Capture fresh CPU/heap/alloc/mutex/block profiles on representative START/DELTA/OUTPUT loads and compare top contributors with the Phase-2 bottleneck ledger.
   - Explicitly verify generation refcount CAS, model-catalog atomic reads, per-stream EventPump synchronization, and existing per-A-leg lifecycle structure remain unchanged unless one was separately proven material.
   - Add/retain architecture tests preventing reintroduction of global external-sink I/O locks, unbounded response histories, and separate hot-path next-sequence calls where practical.
   - Record remaining dominant costs and any audited candidate intentionally left unchanged due to measured non-materiality.
-  - _Requirements: 14.6, 17.1–17.10, 18.12, 18.14_
+  - _Requirements: 14.6, 17.1–17.10, 18.12, 18.14, 19.1–19.14_
   - _Boundary: architecture tests / evidence_
-  - _Depends: 7.1–7.7_
+  - _Depends: 7.1–7.9_
   - _Validation: profiles + `go test ./internal/archtest/...`_
 
 ## Phase 8 — Cross-Cutting Correctness, Database, Privacy, and Resource-Reclamation Gates
@@ -471,30 +513,33 @@
 - [ ] 8.1 Run cross-domain race and goroutine ownership gates
   - Run targeted `-race` on secure-session stores, frontend admission, runtime response/accounting state, auth events, B2BUA, concurrency authority, billing spool, and any new queue/batcher owners.
   - Add/verify `goleak` TestMain or focused leak checks in every package newly owning goroutines; prove cancellation/shutdown drains or abandons work according to policy without hanging.
+  - For every retained cache/reuse/worker mechanism, run deterministic expiry/invalidation/final-release/Close schedules plus queue-full/fairness and cross-session reset/privacy cases as applicable; prove one logical owner and no I/O/cleanup while holding a central shared lock.
   - Run the full post-#446 DISCONNECT matrix across built-in/standard and negotiated executable-plugin paths: launch-in-flight, one/many siblings, graceful acknowledgement, deadline/forced close, upstream-terminal races, a compliant fake whose `Cancel` returns only after `Close`, and a subprocess-isolated negative fake that remains unjoinable after `Close`.
   - Measure post-run goroutines, sockets/FDs, heap, bounded stream buffers, launch/attempt owners, admission reservations, per-session state, lease state, and spool/observer queues; a non-joinable cancel or detached worker fails the gate.
   - Record/fix cleanup regression before capacity certification; a benchmark with leaked resources is invalid regardless of throughput.
-  - _Requirements: 2.10, 2.18–2.20, 17.6–17.7, 18.2, 18.15_
+  - _Requirements: 2.10, 2.18–2.20, 17.6–17.7, 18.2, 18.15, 19.2, 19.5–19.12_
   - _Boundary: cross-cutting tests_
-  - _Depends: 3.1–7.8_
+  - _Depends: 3.1–7.10_
   - _Validation: targeted `go test -race ...`, goleak suites, DISCONNECT scenario_
 
 - [ ] 8.2 Run dual-dialect persistence and pooler gates
   - Execute SQLite secure-session/billing suites and configured PostgreSQL integration suites for concurrent stream-event append, sequence uniqueness/order, lifecycle query consolidation, and billing metadata reconciliation.
   - When transaction-pooler testing is configured, run the PgBouncer gate and verify no session GUC/temp/prepared/advisory-lock behavior was introduced.
   - Run durable DELTA/COMPLETE scenarios with DB query/pool metrics and confirm optimization does not merely shift latency into pool waits/transactions.
+  - Verify the final lifecycle DB ledger contains no unclassified material operation and that any retained cache/local durable acknowledgement/async projection preserves its declared freshness, durability, restart, and overload contract in both dialects where applicable.
   - Append any environment-specific durability/performance differences affecting final certification scope.
-  - _Requirements: 5.5–5.8, 6.5, 11.2–11.6, 17.5–17.6, 18.2, 18.7_
+  - _Requirements: 5.5–5.8, 6.5, 11.2–11.6, 17.5–17.6, 18.2, 18.7, 19.4–19.7_
   - _Boundary: persistence integration tests / evidence_
-  - _Depends: 4.4–4.7, 6.1, 6.5–6.6_
+  - _Depends: 4.4–4.7, 6.1, 6.5–6.7_
   - _Validation: SQLite + PostgreSQL + pooler integration commands_
 
 - [ ] 8.3 Reconcile adjacent specs, diagnostics privacy, and architecture gates
   - Re-read active/implemented recv-terminal and request-attempt simplification specs; ensure bounded evidence/admission/persistence changes live at current authoritative owners with no duplicated compatibility state.
   - Run deterministic architecture/change-surface checks and add targeted guards for new seams/bounds without encoding fragile file names where ownership is intentionally moving.
+  - Add architecture ratchets against request/event-path DB loops that bypass the classified owner, unbounded process-global caches/queues, per-event goroutine spawns, lifecycle-bearing generic pools, and pooled sensitive/oversized buffers where a stable structural check is practical.
   - Run the complete diagnostic privacy validation over representative result JSON/CLI/log/metrics/profile-label/trace-metadata/artifact-name output and reject evidence artifacts containing forbidden identifiers.
   - Run `make quality-checks`, focused unit suites, and parity/contract tests affected by frontend/runtime/usage/store changes; fix regression before freezing the certification commit.
-  - _Requirements: 16.1–16.8, 17.1–17.10, 18.18_
+  - _Requirements: 16.1–16.8, 17.1–17.10, 18.18, 19.4–19.13_
   - _Boundary: architecture / privacy / cross-spec integration_
   - _Depends: 8.1–8.2_
   - _Validation: `make quality-checks`, `go test ./internal/archtest/...`, perf privacy tests, relevant parity suites_
@@ -506,10 +551,11 @@
 - [ ] 9.1 Certify the 1,000-logical-stream tier
   - Freeze/verify applicable gate-profile IDs **before** the evaluated runs, then run frozen HOLD, DELTA secure-memory, DELTA secure-durable, START, BODY, OUTPUT, COMPLETE, AUTHZ, OBSERVE, and DISCONNECT scenarios at 1k logical streams where applicable.
   - Include built-in/standard and negotiated executable-plugin HOLD/DELTA variants plus the full post-#446 DISCONNECT contract matrix where executable plugins are supported; report their per-stream owner/buffer/scheduler and cleanup results separately.
-  - Record target/achieved logical streams, actual physical connection counts by topology/leg, p50/p95/p99 latency, throughput/expected-vs-unexpected outcomes, CPU/RSS/heap/alloc/GC/goroutines/sockets plus DB/queue metrics and dominant profiles.
+  - Record target/achieved logical streams, actual physical connection counts by topology/leg, p50/p95/p99 latency, throughput/expected-vs-unexpected outcomes, CPU/RSS/heap/alloc/GC/goroutines/sockets plus DB/queue metrics and dominant profiles; split proxy, connector-child, and aggregate process-tree resources.
+  - Evaluate the frozen fixed-stream, request-start, per-event, terminal, cleanup, DB-operation, scheduler/GC, shared-contention, and resource-headroom gates and record every retained/rejected cache/async/reuse/topology mechanism.
   - Require valid correctness/durability results and evaluate every required scenario gate; do not count invalid-correctness or environment-limited runs as PASS.
   - Populate the 1k certification record with `GO`, `NO-GO (proxy-limited)`, `NO-GO (environment-limited)`, or `NO-GO (gate-definition-incomplete)` plus exact feature/store/topology scope and failed/unsupported gates.
-  - _Requirements: 2.18–2.20, 18.1–18.15_
+  - _Requirements: 2.18–2.20, 18.1–18.15, 19.1–19.14_
   - _Boundary: performance certification_
   - _Depends: 8.1–8.3_
   - _Validation: full frozen 1k logical-stream scenario/gate matrix_
@@ -517,9 +563,10 @@
 - [ ] 9.2 Certify the 5,000-logical-stream tier
   - Escalate the same frozen relevant scenarios/gate profiles to 5k logical streams without weakening cadence/output/features; separate idle-held from actively emitting results.
   - Capture physical connections/multiplexing plus host/generator/OS/database utilization so a failed tier can be attributed to the actual limiter rather than assumed proxy capacity.
+  - Compare the phase-aware fixed/rate cost slopes against 1k, including proxy/connector process-tree allocation/GC/goroutine/stack/channel and per-phase DB-operation scaling; do not accept hidden queue/cache growth as throughput.
   - Repeat enough valid runs to satisfy the frozen gate profile and capture diagnostic profiles at/near the first degraded point.
   - Record PASS/NO-GO per gate/profile immediately; continue independent remaining gates where safe instead of omitting a failed verdict.
-  - _Requirements: 18.1–18.16_
+  - _Requirements: 18.1–18.16, 19.1–19.3, 19.13–19.14_
   - _Boundary: performance certification_
   - _Depends: 9.1_
   - _Validation: full frozen 5k logical-stream scenario/gate matrix where host supports it_
@@ -527,20 +574,21 @@
 - [ ] 9.3 Certify the 10,000-logical-stream stretch tier
   - Attempt 10k logical-stream HOLD first, then active DELTA and other representative high-impact scenarios only when generator/host safety permits; do not infer active capacity from held streams or infer streams from connection count.
   - Record exact stream/connection topology, proxy/host/generator/database/socket limits, error/tail behavior, memory slope, and dominant CPU/mutex/DB profile at the highest stable load.
+  - Record proxy and connector-child resource slopes, fixed owners/buffers per stream, per-event allocation/GC and DB work, scheduler/blocking evidence, and any cache/queue/pool saturation that limits active rather than merely held streams.
   - If 10k cannot be generated on one driver, distribute generation without changing the proxy host and record aggregate driver resources/configuration and actual physical connections.
   - Mark 10k `GO` only for valid scenarios completing the frozen steady-state window and passing all required gates; otherwise record explicit NO-GO classification, failed/unsupported gate, measured limiter, and next experiment.
-  - _Requirements: 1.12–1.14, 2.11, 15.1–15.9, 18.5–18.16_
+  - _Requirements: 1.12–1.14, 2.11, 15.1–15.9, 18.5–18.16, 19.1–19.3, 19.13–19.14_
   - _Boundary: performance certification_
   - _Depends: 9.2_
   - _Validation: frozen 10k logical-stream scenario/gate set where environment permits_
 
 - [ ] 9.4 Run steady-state soak and post-load reclamation certification
   - At the highest sustainable representative active logical-stream tier, run a multi-hour SOAK (or longer equivalent duration justified/recorded by environment constraints) with secure sessions and representative production features enabled.
-  - Sample RSS/live heap/objects/GC/goroutines/sockets/session-history/lease/queue/spool state over time and evaluate the **pre-frozen** memory-growth method rather than visually accepting a graph.
+  - Sample per-process and aggregate RSS/live heap/objects/GC/goroutines/stacks/sockets/session-history/cache/lease/queue/spool state over time and evaluate the **pre-frozen** memory-growth method rather than visually accepting a graph.
   - Terminate/disconnect the workload and evaluate the frozen cleanup window/band for heap/goroutines/sockets/session/lease/queue state; investigate any retained-growth slope instead of accepting a one-time peak.
   - Include a representative negotiated executable-plugin run where supported and verify its control/upstream/closer/cancellation owners and bounded buffers return to baseline after termination.
   - Record soak duration, logical streams, physical connections, resource slopes, cleanup gate result, and any leak/retention fix experiment.
-  - _Requirements: 2.15, 2.18–2.20, 5.10, 7.10, 18.2, 18.4, 18.6–18.11, 18.15_
+  - _Requirements: 2.15, 2.18–2.20, 5.10, 7.10, 18.2, 18.4, 18.6–18.11, 18.15, 19.2–19.3, 19.9–19.14_
   - _Boundary: performance certification / leak evidence_
   - _Depends: 9.1–9.3_
   - _Validation: SOAK + DISCONNECT final gate profiles_
@@ -548,9 +596,10 @@
 - [ ] 9.5 Finalize the evidence ledger and capacity verdict
   - Complete every #394 finding row as `proved improvement`, `correctness fixed`, or `measured non-bottleneck/no production change`; no item may disappear because an attempt failed, was invalid, or was unsupported by the host.
   - Summarize final versus baseline deltas for event latency, memory per held/active logical stream, CPU/GC, major lock contention, SQL/store work, completion throughput, cleanup, and physical transport connections, with scenario/environment/gate IDs.
+  - Publish the final phase-aware cost envelope and operation classification, including proxy/connector process-tree resources and why each cache, async writer, buffer/object pool, shared-state change, or goroutine/worker topology was retained, rejected, or left unchanged.
   - State the highest proven HOLD and active DELTA logical-stream tiers separately for memory/durable secure-session modes plus observer/authority/billing/topology qualifications and remaining measured limiter.
   - State explicit NO-GO for every uncertified tier and enumerate failed, missing-definition, safety-stopped, and environment-unsupported gates; never convert a 1k/5k curve or connection count into a 10k stream claim by extrapolation.
-  - _Requirements: 1.5–1.14, 15, 18.5–18.17_
+  - _Requirements: 1.5–1.14, 15, 18.5–18.17, 19.1–19.14_
   - _Boundary: evidence / spec scratch finalization_
   - _Depends: 9.1–9.4_
   - _Validation: completed `benchmark-scratch.md` Final Certification Record_
@@ -560,7 +609,7 @@
   - **Always update `benchmark-scratch.md` with the certification commit and final GO/NO-GO scope.** A failing required gate prevents GO but does not prevent recording NO-GO; continue remaining independent gates where safe to improve diagnosis.
   - If a safety/resource failure requires stopping a tier, record the failed gate/limiter immediately and mark dependent unexecuted gates `not-run-after-safety-stop`; do not pretend the gate suite passed and do not discard the partial evidence.
   - Ensure low-scale deterministic perf-harness contract tests remain CI-appropriate while expensive scale/soak commands are documented for explicit/nightly/manual execution; verify scenario/result/gate formats and tool help are sufficient for future repetition.
-  - _Requirements: 16, 17.10, 18.11–18.18_
+  - _Requirements: 16, 17.10, 18.11–18.18, 19.3, 19.13–19.14_
   - _Boundary: repository verification / tests / documentation_
   - _Depends: 9.5_
   - _Validation: `make quality-checks && make test`, targeted race/integration/parity/privacy/perf commands plus completed verdict record_
@@ -570,10 +619,10 @@
 - **Strictly before production changes**: 1.1 → 1.2/1.3 → 1.4/1.5 → 2.1/2.2 → 2.3.
 - **P0 order**: Phase 3 (timeouts/body) → Phase 4 (secure-session persistence) → Phase 5 (stream memory). These should not be reordered behind P2 work.
 - **Post-#446 baseline**: built-in/standard versus executable-plugin HOLD/DELTA and the expanded DISCONNECT matrix are Phase 1/2 prerequisites and Phase 8/9 regression gates. #446's parallel sibling cancellation is not a new implementation task.
-- **P1**: 6.2–6.5 can be implemented as separate reviewable changes after Phase 5; baseline refreshes may run in parallel, but each production change must preserve its own A/B attribution. 6.6 is conditional on 6.5 evidence.
-- **P2**: 7.1, 7.2, 7.4, 7.5, 7.6, and 7.7 may run in parallel from the same post-P1 baseline when agent capacity allows. 7.3 depends on 7.2 evidence. 7.8 reconverges the branch/profile.
+- **P1**: 6.2–6.5 can be implemented as separate reviewable changes after Phase 5; baseline refreshes may run in parallel, but each production change must preserve its own A/B attribution. 6.6 is conditional on 6.5 evidence; 6.7 reconciles the remaining classified database-operation ledger after the targeted store changes.
+- **P2**: 7.1, 7.2, 7.4, 7.5, 7.6, 7.7, 7.8, and 7.9 may run in parallel from the same post-P1 baseline when agent capacity allows. 7.3 depends on 7.2 evidence. 7.10 reconverges the branch/profile and phase-aware cost envelope.
 - **Certification**: Phase 8 must reconverge correctness/privacy first; 9.1 → 9.2 → 9.3 scales logical streams progressively; 9.4 soak follows the highest sustainable tier; 9.5–9.6 close out. A failed gate locks that tier out of GO immediately, but remaining independent gates continue where safe.
 
 ## Completion Rule
 
-This implementation plan is complete only when **all audited findings have evidence**, not when all possible code has been changed. A lower-priority candidate that benchmarks as non-material is correctly completed with no production modification and a durable scratch entry. A change with no before/after evidence is incomplete. A claimed 10k capacity result without an actually executed **10,000-logical-stream** scenario and its frozen required gates is invalid. Physical connection counts are evidence about topology/resource use, never a substitute for the logical-stream capacity claim. Final evidence must record both GO and NO-GO outcomes rather than suppressing failed certification attempts.
+This implementation plan is complete only when **all audited findings and the Requirement-19 cost envelope have evidence**, not when all possible code has been changed. A lower-priority cache/reuse/pool candidate that benchmarks as non-material is correctly completed with no production modification and a durable scratch entry. A change with no before/after evidence is incomplete. A claimed 10k capacity result without an actually executed **10,000-logical-stream** scenario and its frozen required gates is invalid. Physical connection counts are evidence about topology/resource use, never a substitute for the logical-stream capacity claim, and parent-process improvement cannot hide connector-child regression. Final evidence must record both GO and NO-GO outcomes rather than suppressing failed certification attempts.
