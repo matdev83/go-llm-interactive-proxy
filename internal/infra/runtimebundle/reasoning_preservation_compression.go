@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -60,6 +61,14 @@ func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, reg
 	return err
 }
 
+func appendReasoningCompressionBundle(merged featurebundle.MergedFeatureSurface, bundle lipfeature.FeatureBundle) (featurebundle.MergedFeatureSurface, error) {
+	merged = removeReasoningParticipants(merged)
+	if err := merged.Append(bundle); err != nil {
+		return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression merge: %w", err)
+	}
+	return merged, nil
+}
+
 func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.MergedFeatureSurface, error) {
 	bindings, err := decodedReasoningCompressionBindings(ps, regs, client, poller)
 	if err != nil {
@@ -76,8 +85,10 @@ func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurf
 		if err != nil {
 			return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
 		}
-		merged = removeReasoningParticipants(merged)
-		merged.Append(bundle)
+		merged, err = appendReasoningCompressionBundle(merged, bundle)
+		if err != nil {
+			return featurebundle.MergedFeatureSurface{}, err
+		}
 	}
 	return merged, nil
 }

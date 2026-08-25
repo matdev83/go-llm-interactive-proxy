@@ -48,26 +48,22 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	outCtx = execctx.WithoutRouteCandidatePreferences(outCtx)
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
 
-	// Create a fresh, unkeyed A-leg for detached children inheriting parent A-leg,
-	// or reuse existing ALeg if explicitly targeted.
-	// A detached child must never replace or resolve the parent continuity key,
-	// and route overrides are intentionally not read for this private leg.
+	// Detached children with captured parent A-leg lineage always receive a
+	// private A-leg. An explicitly targeted A-leg without captured parent
+	// lineage is genuine external ingress and may reuse that A-leg so ingress
+	// cleanup (including stale steering) applies to the intended owner.
 	parentMeta, _ := execctx.DetachedSessionFromContext(outCtx)
 	var aLeg b2bua.ALegRecord
-	if work.Session.ALegID != "" && work.Session.ALegID != parentMeta.ParentALegID {
-		var ferr error
-		aLeg, ferr = e.Store.FetchALeg(outCtx, work.Session.ALegID)
-		if ferr != nil {
+	if strings.TrimSpace(work.Session.ALegID) != "" && strings.TrimSpace(parentMeta.ParentALegID) == "" {
+		aLeg, err = e.Store.FetchALeg(outCtx, work.Session.ALegID)
+		if err != nil {
 			aLeg, err = e.Store.CreateALeg(outCtx, "")
-			if err != nil {
-				return nil, nil, outCtx, fmt.Errorf("executor: create detached a-leg: %w", err)
-			}
 		}
 	} else {
 		aLeg, err = e.Store.CreateALeg(outCtx, "")
-		if err != nil {
-			return nil, nil, outCtx, fmt.Errorf("executor: create detached a-leg: %w", err)
-		}
+	}
+	if err != nil {
+		return nil, nil, outCtx, fmt.Errorf("executor: prepare detached a-leg: %w", err)
 	}
 	work.Session = lipapi.SessionRef{ALegID: aLeg.ALegID}
 

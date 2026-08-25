@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -44,32 +45,33 @@ type SecretGuardPlane struct {
 // or rebinding must publish a new snapshot (new [RequestRuntimeSnapshot] value and new executor
 // wiring from [github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle.Build]).
 type RequestRuntimeSnapshot struct {
-	hookBus                 *hooks.Bus
-	state                   state.Store
-	aux                     auxiliary.Client
-	obs                     traffic.Observer
-	usageObs                usage.Observer
-	raw                     traffic.RawCaptureSink
-	ws                      workspace.Resolver
-	sessionOpeners          []session.Opener
-	toolCatalogFilters      []toolcatalog.Filter
-	toolCallPolicies        []toolpolicy.Policy
-	toolCallFinalizers      []toolcall.Finalizer
-	requestTransforms       []request.Transform
-	preRequestHandlers      []prerequest.Handler
-	routeHintProviders      []routehint.Provider
-	completionGates         []completion.Gate
-	attemptTransforms       []request.AttemptTransform
-	streamObserverFactories []response.StreamObserverFactory
-	trafficRedactors        []traffic.Redactor
-	compactionObservers     []compaction.Observer
-	compactionPreservers    []compaction.Preserver
-	secretGuardPlane        SecretGuardPlane
-	policyObserver          policydecision.Observer
-	timeoutBudget           TimeoutBudgetSource
-	timeoutGuard            *ProviderTimeoutGuard
-	localTurnHandlers       []localturn.Handler
-	gen                     int64
+	hookBus                  *hooks.Bus
+	state                    state.Store
+	aux                      auxiliary.Client
+	obs                      traffic.Observer
+	usageObs                 usage.Observer
+	raw                      traffic.RawCaptureSink
+	ws                       workspace.Resolver
+	sessionOpeners           []session.Opener
+	toolCatalogFilters       []toolcatalog.Filter
+	toolCallPolicies         []toolpolicy.Policy
+	toolCallFinalizers       []toolcall.Finalizer
+	requestTransforms        []request.Transform
+	preRequestHandlers       []prerequest.Handler
+	routeHintProviders       []routehint.Provider
+	completionGates          []completion.Gate
+	attemptTransforms        []request.AttemptTransform
+	streamObserverFactories  []response.StreamObserverFactory
+	trafficRedactors         []traffic.Redactor
+	compactionObservers      []compaction.Observer
+	compactionPreservers     []compaction.Preserver
+	secretGuardPlane         SecretGuardPlane
+	policyObserver           policydecision.Observer
+	timeoutBudget            TimeoutBudgetSource
+	timeoutGuard             *ProviderTimeoutGuard
+	localTurnHandlers        []localturn.Handler
+	terminalDecisionProvider terminaldecision.Provider
+	gen                      int64
 }
 
 // SnapshotOptions configures optional facades; zero value uses disabled placeholders.
@@ -107,7 +109,10 @@ type SnapshotOptions struct {
 	// stage/provider) so legacy extension behavior is unchanged (requirements 6.3, 10.5).
 	TimeoutBudgetSource TimeoutBudgetSource
 	LocalTurnHandlers   []localturn.Handler
-	Generation          int64
+	// TerminalDecisionProvider is frozen with the request snapshot. A nil
+	// provider preserves the platform's no-provider behavior.
+	TerminalDecisionProvider terminaldecision.Provider
+	Generation               int64
 }
 
 // NewRequestRuntimeSnapshot captures bus and facades for the lifetime of the returned value.
@@ -174,32 +179,33 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	}
 	localTurns := localturn.MaterializeSorted(opts.LocalTurnHandlers)
 	return &RequestRuntimeSnapshot{
-		hookBus:                 bus,
-		state:                   st,
-		aux:                     ax,
-		obs:                     ob,
-		usageObs:                uob,
-		raw:                     raw,
-		ws:                      ws,
-		sessionOpeners:          openers,
-		toolCatalogFilters:      catalog,
-		toolCallPolicies:        policies,
-		toolCallFinalizers:      finalizers,
-		requestTransforms:       transforms,
-		preRequestHandlers:      preReqs,
-		routeHintProviders:      routeHints,
-		completionGates:         compGates,
-		attemptTransforms:       attemptXforms,
-		streamObserverFactories: streamObs,
-		trafficRedactors:        reds,
-		compactionObservers:     compactObs,
-		compactionPreservers:    compactPreservers,
-		secretGuardPlane:        plane,
-		policyObserver:          polObs,
-		timeoutBudget:           budget,
-		timeoutGuard:            NewProviderTimeoutGuard(),
-		localTurnHandlers:       localTurns,
-		gen:                     opts.Generation,
+		hookBus:                  bus,
+		state:                    st,
+		aux:                      ax,
+		obs:                      ob,
+		usageObs:                 uob,
+		raw:                      raw,
+		ws:                       ws,
+		sessionOpeners:           openers,
+		toolCatalogFilters:       catalog,
+		toolCallPolicies:         policies,
+		toolCallFinalizers:       finalizers,
+		requestTransforms:        transforms,
+		preRequestHandlers:       preReqs,
+		routeHintProviders:       routeHints,
+		completionGates:          compGates,
+		attemptTransforms:        attemptXforms,
+		streamObserverFactories:  streamObs,
+		trafficRedactors:         reds,
+		compactionObservers:      compactObs,
+		compactionPreservers:     compactPreservers,
+		secretGuardPlane:         plane,
+		policyObserver:           polObs,
+		timeoutBudget:            budget,
+		timeoutGuard:             NewProviderTimeoutGuard(),
+		localTurnHandlers:        localTurns,
+		terminalDecisionProvider: opts.TerminalDecisionProvider,
+		gen:                      opts.Generation,
 	}
 }
 
@@ -482,6 +488,15 @@ func (s *RequestRuntimeSnapshot) LocalTurnHandlersExecution() []localturn.Handle
 		return nil
 	}
 	return s.localTurnHandlers
+}
+
+// TerminalDecisionProvider returns the generation provider captured by this
+// immutable request snapshot, or nil when no provider is active.
+func (s *RequestRuntimeSnapshot) TerminalDecisionProvider() terminaldecision.Provider {
+	if s == nil {
+		return nil
+	}
+	return s.terminalDecisionProvider
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.

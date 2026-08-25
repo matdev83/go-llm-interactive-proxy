@@ -196,3 +196,63 @@ func TestExecutor_detachedPrepareUsesPrivateChildALegAndSkipsPrimarySessionAutho
 		t.Fatalf("detached preparation touched primary activity: before=%v after=%v", parentRecord.LastActivityAt, childRecord.LastActivityAt)
 	}
 }
+
+func TestExecutor_detachedPrepareAlwaysAllocatesPrivateChildALeg(t *testing.T) {
+	t.Parallel()
+
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.SyntheticLocalPrincipal = true
+
+	const parentALegID = "parent-a-leg"
+	existingALeg, err := store.CreateALeg(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name         string
+		inputALegID  string
+		forbiddenIDs []string
+	}{
+		{name: "empty", forbiddenIDs: []string{parentALegID}},
+		{name: "matching parent", inputALegID: parentALegID, forbiddenIDs: []string{parentALegID}},
+		{name: "mismatched existing", inputALegID: existingALeg.ALegID, forbiddenIDs: []string{parentALegID, existingALeg.ALegID}},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := execctx.WithDetachedSession(context.Background(), execctx.DetachedSession{
+				ParentALegID: parentALegID,
+			})
+			call := &lipapi.Call{
+				ID:      "detached-" + tc.name,
+				Session: lipapi.SessionRef{ALegID: tc.inputALegID},
+				Messages: []lipapi.Message{{
+					Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("extract")},
+				}},
+			}
+
+			_, _, childALeg, _, _, err := ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if childALeg.ALegID == "" {
+				t.Fatal("detached child A-leg is empty")
+			}
+			for _, forbiddenID := range tc.forbiddenIDs {
+				if childALeg.ALegID == forbiddenID {
+					t.Fatalf("detached child reused forbidden A-leg %q", forbiddenID)
+				}
+			}
+			if got := call.Session.ALegID; got != childALeg.ALegID {
+				t.Fatalf("detached call A-leg: got %q want %q", got, childALeg.ALegID)
+			}
+		})
+	}
+}

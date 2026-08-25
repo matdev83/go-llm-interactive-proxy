@@ -29,7 +29,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
 	// Reasoning compression adds one generation-local auxiliary binding before
 	// feature merge; measured 360 after extraction, retain 25-line headroom.
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 385},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 388},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
@@ -64,9 +64,8 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// Reasoning semantic compression adds explicit generation composition; the
 	// dedicated overlay keeps it out of legacy shrinkage while this tree ratchet
 	// is measured at 12721 on current main plus 25 lines headroom.
-	// Agent Loop Guard wiring and composition in runtimebundle adds loopguard.go; bump to 12851 with 25 headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12851},
-	{Tree: "internal/stdhttp", Max: 6246},
+	{Tree: "internal/infra/runtimebundle", Max: 12933},
+	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -123,23 +122,10 @@ var LineBudgets = []LineBudget{
 	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
 	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
-	// Agent Loop Guard spec group 1 (agent-loop-breach-prevention): pure stopguard policy package plus opt-in config/reload surface; measured 93177, bump to 93202 with 25 headroom.
-	// Agent Loop Guard spec task 2.2 (agent-loop-breach-prevention): bounded progress fingerprint and tracker in stopguard; measured 93360, bump to 93385 with 25 headroom.
-	// Agent Loop Guard spec task 4.2 (agent-loop-breach-prevention): bounded evidence projector and conservative verifier prompt in stopguardverify; measured 93889, bump to 93914 with 25 headroom.
-	// Agent Loop Guard spec task 5.3 (agent-loop-breach-prevention): continuationsafety evaluate + recovery instruction; measured 94275, bump to 94300 with 25 headroom.
-	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): request-level stopgate orchestration; measured 94723, bump to 94748 with 25 headroom.
-	// Agent Loop Guard spec task 6.2 phase 2 (agent-loop-breach-prevention): runtime recv loop guard gate wiring; measured 94847, bump to 94872 with 25 headroom.
-	// Agent Loop Guard spec task 6.2 (agent-loop-breach-prevention): exactly-once dedup + runtimebundle LoopGuard composition + holdback tests; measured 94933, bump to 94958 with 25 headroom.
-	// Agent Loop Guard spec task 6.2 remediation (agent-loop-breach-prevention): terminal-CAS exactly-once, controlled fallback, channel-coordinated holdback/cancel tests, composition moved to runtimebundle, honest observer; measured 95049, bump to 95074 with 25 headroom.
-	// Agent Loop Guard spec task 6.3 (agent-loop-breach-prevention): semantic continuation with immutable budget/progress, safe materialization, hidden recovery instruction, normal admission B-leg; measured 95438, bump to 95463 with 25 headroom.
-	// Agent Loop Guard spec task 7.2 (agent-loop-breach-prevention): post-output continuation wiring with safe canonical continuation, idle/EOF handling, and composition flag; measured 95671, bump to 95696 with 25 headroom.
-	// Agent Loop Guard spec tasks 8.2/8.3 (agent-loop-breach-prevention): protocol E2E stitching with canonical continuation capability and explicit completion plumbing; measured 95818, bump to 95843 with 25 headroom.
-	// Agent Loop Guard spec task 9.2 (agent-loop-breach-prevention): wire guard telemetry and verifier lineage; measured 95894, bump to 95919 with 25 headroom.
-	// Task 11.5 baseline reconciliation after PR435 rebase and conversation steering integration: measured 96117, bump to 96142 with 25 headroom.
-	{Dir: "internal/core", Max: 96142},
+	{Dir: "internal/core", Max: 94467},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12851},
+	{Dir: "internal/stdhttp", Max: 6693},
+	{Dir: "internal/infra/runtimebundle", Max: 12933},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

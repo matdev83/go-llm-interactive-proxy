@@ -17,17 +17,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // aLegEndMode names the one owner permitted to end the request's A-leg.
 // Interleaved thinker/executor wrappers keep the A-leg open until their outer
 // boundary; ordinary streams end it at their own terminal boundary.
 type aLegEndMode uint8
+
+const terminalDecisionEvaluationBudget = 250 * time.Millisecond
 
 const (
 	aLegEndBase aLegEndMode = iota
@@ -81,12 +84,6 @@ type turnTerminal struct {
 	meteringRecorderPresent bool
 	emitBackendEgress       func(context.Context, string, metering.AttemptOutcome, metering.SurfacedState, lipapi.Event)
 
-	loopGuard *LoopGuard
-
-	// guard continuation per-request state (lineage tracking).
-	guardPriorRecord lipcont.ContinuationRecord
-	guardPriorOK     bool
-
 	// supportsContinuation indicates whether the A-side frontend can legally
 	// stitch a continuation leg onto the same logical response. Zero value is
 	// false (conservative unsupported) but all production constructors set it to
@@ -97,22 +94,24 @@ type turnTerminal struct {
 	steeringStore        conversationview.SteeringStore
 	conversationReader   conversationview.Reader
 	conversationObserver conversationview.Observer
-}
 
-func (t *turnTerminal) deactivateGuardOverlay(ctx context.Context, aLegID string) error {
-	if t == nil || t.steeringStore == nil || aLegID == "" {
-		return nil
-	}
-	deactCtx, cancel := cleanupContext(ctx, defaultAuthorityCleanupTimeout)
-	defer cancel()
-	_, err := t.steeringStore.DeactivateSteering(deactCtx, aLegID, "alg-rec")
-	if err != nil {
-		if errors.Is(err, conversationview.ErrOverlayNotFound) || errors.Is(err, conversationview.ErrALegNotFound) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	terminalDecisionMu     sync.Mutex
+	terminalDecisionFlight *terminalDecisionFlight
+
+	// terminalDecisionProvider is generation-owned when wired by the
+	// composition root. It remains nil until provider projection is implemented;
+	// the evaluator's nil fast path preserves existing behavior.
+	terminalDecisionProvider terminaldecision.Provider
+	// terminalDecisionAuxiliary is captured once from the immutable request
+	// snapshot and copied into every terminal-decision input for this turn.
+	terminalDecisionAuxiliary      auxiliary.Client
+	terminalDecisionAuxiliaryBound bool
+
+	// continuationTransaction is the one core-owned publication seam for a
+	// provider continuation. It is installed when the receive stream is
+	// assembled; the terminal owner only invokes it after a provisional
+	// decision has returned Continue.
+	continuationTransaction func(context.Context, terminaldecision.ContinuationIntent) (bool, error)
 }
 
 func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
@@ -139,6 +138,10 @@ func bindTurnTerminalRuntime(t *turnTerminal, e *Executor) {
 	t.steeringStore = e.conversationViewSteeringStore()
 	t.conversationReader = e.conversationViewReader()
 	t.conversationObserver = e.conversationViewObserver()
+	if !t.terminalDecisionAuxiliaryBound && e.RuntimeSnapshot != nil {
+		t.terminalDecisionAuxiliary = e.RuntimeSnapshot.Aux()
+		t.terminalDecisionAuxiliaryBound = true
+	}
 }
 
 func (t *turnTerminal) nowTime() time.Time {
@@ -180,6 +183,10 @@ func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
 		terminal.steeringStore = parent.steeringStore
 		terminal.conversationReader = parent.conversationReader
 		terminal.conversationObserver = parent.conversationObserver
+		terminal.terminalDecisionProvider = parent.terminalDecisionProvider
+		terminal.terminalDecisionAuxiliary = parent.terminalDecisionAuxiliary
+		terminal.terminalDecisionAuxiliaryBound = parent.terminalDecisionAuxiliaryBound
+		terminal.continuationTransaction = parent.continuationTransaction
 	}
 	return terminal
 }
@@ -303,16 +310,111 @@ func (t *turnTerminal) finishResponse(response *responsePipeline, attempt *attem
 	return true
 }
 
+// finishResponseAtBoundary completes a response event at the receive-phase
+// ownership boundary. An interleaved thinker has only completed its B-leg;
+// the outer stream still owns the shared request terminal until the executor
+// phase (or an authoritative abort) completes it.
+func (t *turnTerminal) finishResponseAtBoundary(response *responsePipeline, attempt *attemptSession, endALeg bool) bool {
+	if t == nil {
+		return false
+	}
+	if t.isInterleavedThinker() {
+		clearAttemptToolState(response, attempt)
+		return true
+	}
+	finished := t.finishResponse(response, attempt)
+	if endALeg {
+		t.endALeg(aLegEndBase)
+	}
+	return finished
+}
+
 func (t *turnTerminal) settleOrReleaseRequestAuthority(ctx context.Context, p *responsePipeline, request requestTerminalFacts) {
 	if t.committed() {
+		if p == nil {
+			return
+		}
 		_ = t.settleRequestAuthorityWithFrontendEgress(ctx, p.usageEvidenceOrEmpty(), request, p)
 	} else if t.releaseRequestAuthority != nil {
 		_ = t.releaseRequestAuthority(ctx)
 	}
 }
 
-func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) {
-	deactErr := t.deactivateGuardOverlay(ctx, request.aLegID)
+func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) bool {
+	input := t.terminalDecisionInput(cmd, request, attempt, p, snapshot)
+	_, published := t.terminalizeTurnDecisionWithPublication(ctx, t.terminalDecisionProvider, input, cmd, intent, request, attempt, p, evidence, snapshot)
+	return published
+}
+
+// terminalizeTurnWithDecision is the production terminal path used by the
+// focused contract tests and by future generation wiring. Continue remains
+// provisional until the installed core transaction publishes a B-leg.
+func (t *turnTerminal) terminalizeTurnWithDecision(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, cmd sdkterminal.Command, attempt *attemptSession) coreterm.Result {
+	if t == nil || t.request == nil {
+		return coreterm.Result{Err: sdkterminal.ErrInvalid}
+	}
+	snapshot := coreterm.NewAccumulatorSnapshot(nil, input.Candidate.OutputCommitted)
+	evidence := attemptEvidence{
+		Command:      cmd,
+		LegOutcome:   decisionLegOutcome(cmd),
+		Snapshot:     &snapshot,
+		Committed:    input.Candidate.OutputCommitted,
+		RecordReason: string(input.Candidate.Cause),
+		TraceID:      input.Request.TraceID,
+		ALegID:       input.Request.ALegID,
+	}
+	result, _ := t.terminalizeTurnDecisionWithPublication(ctx, provider, input, cmd, decisionIntent(cmd), requestTerminalFacts{}, attempt, nil, evidence, snapshot)
+	return result
+}
+
+// terminalizeTurnDecision is the single bridge between provisional candidate
+// evaluation and the existing request/attempt owners. No owner is claimed
+// until evaluation has returned a final decision.
+func (t *turnTerminal) terminalizeTurnDecision(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) coreterm.Result {
+	result, _ := t.terminalizeTurnDecisionWithPublication(ctx, provider, input, cmd, intent, request, attempt, p, evidence, snapshot)
+	return result
+}
+
+func (t *turnTerminal) terminalizeTurnDecisionWithPublication(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) (coreterm.Result, bool) {
+	decision := t.sharedTerminalDecision(ctx, provider, input)
+	return t.terminalizeTurnAfterDecision(ctx, decision, cmd, intent, request, attempt, p, evidence, snapshot)
+}
+
+func (t *turnTerminal) terminalizeTurnAfterDecision(ctx context.Context, decision terminalDecisionOutcome, cmd sdkterminal.Command, intent attemptTerminalIntent, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, evidence attemptEvidence, snapshot coreterm.AccumulatorSnapshot) (coreterm.Result, bool) {
+	if decision.Decision.Kind == terminaldecision.DecisionContinue {
+		if decision.Decision.Continue == nil || t.continuationTransaction == nil {
+			return coreterm.Result{State: t.requestTerminal().Owner().State()}, false
+		}
+		published, err := t.continuationTransaction(ctx, *decision.Decision.Continue)
+		if published {
+			return coreterm.Result{State: t.requestTerminal().Owner().State()}, true
+		}
+		if err != nil && t.finished() {
+			// The existing transaction owns pre-publication failure
+			// finalization. Do not claim or settle the request a second time.
+			return coreterm.Result{State: t.requestTerminal().Owner().State(), Err: err}, false
+		}
+		if err != nil {
+			decision.Decision = allowStopDecision("continuation_failed")
+			evidence.Err = err
+		} else {
+			return coreterm.Result{State: t.requestTerminal().Owner().State()}, false
+		}
+	}
+	if decision.Decision.Kind == terminaldecision.DecisionSurfaceFailure {
+		if cmd != sdkterminal.CommandCancel && cmd != sdkterminal.CommandClose && cmd != sdkterminal.CommandTimeout {
+			cmd = sdkterminal.CommandPartialError
+		}
+		intent = IntentSurfacedFailure
+		evidence.Command = cmd
+		evidence.LegOutcome = billing.LegOutcomeFailed
+	}
+	if decision.OutputCommitted {
+		snapshot = coreterm.NewAccumulatorSnapshot(snapshot.Bytes(), true)
+		evidence.Committed = true
+	}
+
+	deactErr := deactivateContinuationOverlay(ctx, t, request.aLegID)
 	if deactErr != nil {
 		if evidence.Err == nil {
 			evidence.Err = deactErr
@@ -324,7 +426,7 @@ func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Comm
 	if attempt != nil {
 		attempt.TerminalizeAttempt(ctx, intent, evidence)
 	}
-	t.terminalizeRequest(ctx, cmd, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
+	result := t.claimRequestTerminal(ctx, cmd, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
 		t.settleOrReleaseRequestAuthority(cctx, p, request)
 		t.handoffBillingTurn(cctx, request, cmd)
 		t.finishResponse(p, attempt)
@@ -332,6 +434,91 @@ func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Comm
 	})
 	if !t.finished() {
 		t.finishResponse(p, attempt)
+	}
+	return result, false
+}
+
+func (t *turnTerminal) terminalDecisionInput(cmd sdkterminal.Command, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, snapshot coreterm.AccumulatorSnapshot) terminaldecision.Input {
+	var bLegID string
+	if attempt != nil {
+		bLegID = attempt.bleg.BLegID
+	}
+	reference := strings.TrimSpace(bLegID)
+	if reference == "" {
+		reference = strings.TrimSpace(request.traceID)
+	}
+	if reference == "" {
+		reference = string(cmd)
+	}
+	requestID := strings.TrimSpace(request.call.ID)
+	if requestID == "" {
+		requestID = strings.TrimSpace(request.traceID)
+	}
+	if requestID == "" {
+		requestID = reference
+	}
+	policy := request.terminalDecisionPolicy
+	if strings.TrimSpace(policy.Revision) == "" {
+		policy.Revision = "0"
+	}
+	evidence := projectTerminalDecisionEvidence(request, attempt, p)
+	return terminaldecision.Input{
+		Candidate: terminaldecision.CanonicalTerminalCandidate{
+			Cause:           decisionCandidateCause(cmd),
+			Reference:       reference,
+			OutputCommitted: snapshot.OutputCommitted(),
+		},
+		Request: terminaldecision.RequestIdentity{
+			RequestID: requestID,
+			TraceID:   request.traceID,
+			ALegID:    request.aLegID,
+			BLegID:    bLegID,
+		},
+		Policy: policy,
+		Continuation: terminaldecision.ContinuationEvidence{
+			TrajectoryRef: evidence.Lineage.TrajectoryRef,
+			Attempt:       evidence.Lineage.Attempt,
+		},
+		Evidence:  evidence,
+		Auxiliary: t.terminalDecisionAuxiliary,
+		Deadline:  time.Now().Add(terminalDecisionEvaluationBudget),
+	}
+}
+
+func decisionCandidateCause(cmd sdkterminal.Command) terminaldecision.CandidateCause {
+	switch cmd {
+	case sdkterminal.CommandCancel, sdkterminal.CommandClose, sdkterminal.CommandTimeout:
+		return terminaldecision.CandidateCauseCancellation
+	case sdkterminal.CommandGateReplacement:
+		return terminaldecision.CandidateCauseAuthorityDenied
+	case sdkterminal.CommandNormalFinish:
+		return terminaldecision.CandidateCauseNormal
+	case sdkterminal.CommandEOF:
+		return terminaldecision.CandidateCauseTransport
+	default:
+		return terminaldecision.CandidateCauseProviderError
+	}
+}
+
+func decisionIntent(cmd sdkterminal.Command) attemptTerminalIntent {
+	switch cmd {
+	case sdkterminal.CommandCancel, sdkterminal.CommandClose:
+		return IntentCancellation
+	case sdkterminal.CommandTimeout:
+		return IntentTimeout
+	case sdkterminal.CommandNormalFinish:
+		return IntentSuccess
+	default:
+		return IntentSurfacedFailure
+	}
+}
+
+func decisionLegOutcome(cmd sdkterminal.Command) billing.LegOutcome {
+	switch cmd {
+	case sdkterminal.CommandCancel, sdkterminal.CommandClose, sdkterminal.CommandTimeout:
+		return billing.LegOutcomeCanceled
+	default:
+		return billing.LegOutcomeFailed
 	}
 }
 
@@ -366,9 +553,9 @@ func (t *turnTerminal) terminalizeWithEvidence(
 	reason string,
 	cause error,
 	prep func(context.Context) (lipapi.Event, lipapi.Event, bool, error),
-) {
+) bool {
 	if t == nil || p == nil {
-		return
+		return false
 	}
 	snapshot := p.accumulatorSnapshot()
 	ev := t.makeBaseEvidence(request, attempt, p, &snapshot)
@@ -386,7 +573,7 @@ func (t *turnTerminal) terminalizeWithEvidence(
 	case sdkterminal.CommandTimeout:
 		ev.CancelCause = &lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: "timeout"}
 	}
-	t.terminalizeTurn(ctx, cmd, intent, request, attempt, p, ev, snapshot)
+	return t.terminalizeTurn(ctx, cmd, intent, request, attempt, p, ev, snapshot)
 }
 
 func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
@@ -402,13 +589,17 @@ func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFa
 	ev.RecordReason = "client closed"
 	ev.BillingReason = "client closed"
 	ev.CancelCause = &lipapi.CancelCause{Kind: lipapi.CancelClientGone, Detail: "client closed"}
+	decision := t.sharedTerminalDecision(ctx, t.terminalDecisionProvider, t.terminalDecisionInput(sdkterminal.CommandClose, request, attempt, p, snapshot))
+	if decision.Decision.Kind == terminaldecision.DecisionContinue {
+		return
+	}
 	if attempt != nil {
 		attempt.TerminalizeAttempt(ctx, IntentCancellation, ev)
 	}
 	if t.hasALeg() {
 		_ = t.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelClientGone})
 	}
-	t.terminalizeTurn(ctx, sdkterminal.CommandClose, IntentCancellation, request, nil, p, ev, snapshot)
+	t.terminalizeTurnAfterDecision(ctx, decision, sdkterminal.CommandClose, IntentCancellation, request, nil, p, ev, snapshot)
 }
 
 func (t *turnTerminal) isALegCanceled(err error) bool {
@@ -418,38 +609,38 @@ func (t *turnTerminal) isALegCanceled(err error) bool {
 // terminalizePartialFailure owns the terminal side of a response/encoder
 // failure. Event transformation stays on responsePipeline; this method only
 // applies the irreversible terminal and billing consequences.
-func (t *turnTerminal) terminalizePartialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, cmd sdkterminal.Command, reason string, cause error) {
+func (t *turnTerminal) terminalizePartialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, cmd sdkterminal.Command, reason string, cause error) bool {
 	if attempt == nil {
-		return
+		return false
 	}
-	t.terminalizeWithEvidence(ctx, request, attempt, p, cmd, IntentSurfacedFailure, billing.LegOutcomeFailed, response.OutcomeFailed, lipapi.AttemptSurfacedFailure, reason, cause, nil)
+	return t.terminalizeWithEvidence(ctx, request, attempt, p, cmd, IntentSurfacedFailure, billing.LegOutcomeFailed, response.OutcomeFailed, lipapi.AttemptSurfacedFailure, reason, cause, nil)
 }
 
-func (t *turnTerminal) partialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, encoderFailure bool, cause error) {
+func (t *turnTerminal) partialFailure(ctx context.Context, p *responsePipeline, request requestTerminalFacts, attempt *attemptSession, encoderFailure bool, cause error) bool {
 	cmd := sdkterminal.CommandPartialError
 	if encoderFailure {
 		cmd = sdkterminal.CommandFrontendEncoderFailure
 	}
-	t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(cause), cause)
+	return t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(cause), cause)
 }
 
-func (t *turnTerminal) terminalizeEOF(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+func (t *turnTerminal) terminalizeEOF(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) bool {
 	if attempt == nil {
-		return
+		return false
 	}
-	t.terminalizeWithEvidence(ctx, request, attempt, p, sdkterminal.CommandEOF, IntentSurfacedFailure, billing.LegOutcomeFailed, response.OutcomeFailed, lipapi.AttemptSurfacedFailure, "stream ended without response_finished", io.EOF, nil)
+	return t.terminalizeWithEvidence(ctx, request, attempt, p, sdkterminal.CommandEOF, IntentSurfacedFailure, billing.LegOutcomeFailed, response.OutcomeFailed, lipapi.AttemptSurfacedFailure, "stream ended without response_finished", io.EOF, nil)
 }
 
-func (t *turnTerminal) terminalizeTimeout(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
+func (t *turnTerminal) terminalizeTimeout(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) bool {
 	if attempt == nil {
-		return
+		return false
 	}
-	t.terminalizeWithEvidence(ctx, request, attempt, p, sdkterminal.CommandTimeout, IntentTimeout, billing.LegOutcomeCanceled, response.OutcomeFailed, lipapi.AttemptCancelled, "timeout", context.DeadlineExceeded, nil)
+	return t.terminalizeWithEvidence(ctx, request, attempt, p, sdkterminal.CommandTimeout, IntentTimeout, billing.LegOutcomeCanceled, response.OutcomeFailed, lipapi.AttemptCancelled, "timeout", context.DeadlineExceeded, nil)
 }
 
-func (t *turnTerminal) terminalizeCancellation(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, reason string, timeout bool) {
+func (t *turnTerminal) terminalizeCancellation(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, reason string, timeout bool) bool {
 	if attempt == nil {
-		return
+		return false
 	}
 	cmd := sdkterminal.CommandCancel
 	intent := IntentCancellation
@@ -457,7 +648,7 @@ func (t *turnTerminal) terminalizeCancellation(ctx context.Context, request requ
 		cmd = sdkterminal.CommandTimeout
 		intent = IntentTimeout
 	}
-	t.terminalizeWithEvidence(ctx, request, attempt, p, cmd, intent, billing.LegOutcomeCanceled, response.OutcomeCancelled, lipapi.AttemptCancelled, reason, nil, func(cctx context.Context) (lipapi.Event, lipapi.Event, bool, error) {
+	return t.terminalizeWithEvidence(ctx, request, attempt, p, cmd, intent, billing.LegOutcomeCanceled, response.OutcomeCancelled, lipapi.AttemptCancelled, reason, nil, func(cctx context.Context) (lipapi.Event, lipapi.Event, bool, error) {
 		if t.finalizeBillingAfterCancel(cctx, attempt, reason, request, p) {
 			t.reconcileOrSettleCancellationAuthorityForAttempt(cctx, attempt, p)
 		} else {
@@ -468,16 +659,16 @@ func (t *turnTerminal) terminalizeCancellation(ctx context.Context, request requ
 	})
 }
 
-func (t *turnTerminal) terminalizeSurfacedFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, surfErr error, panicFailure bool) {
+func (t *turnTerminal) terminalizeSurfacedFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, surfErr error, panicFailure bool) bool {
 	cmd := sdkterminal.CommandPartialError
 	if panicFailure {
 		cmd = sdkterminal.CommandPanic
 	}
-	t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(surfErr), surfErr)
+	return t.terminalizePartialFailure(ctx, p, request, attempt, cmd, attemptReasonDetail(surfErr), surfErr)
 }
 
-func (t *turnTerminal) terminalizeReplacementFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) {
-	t.terminalizePartialFailure(ctx, p, request, attempt, sdkterminal.CommandPartialError, "replacement failure", nil)
+func (t *turnTerminal) terminalizeReplacementFailure(ctx context.Context, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) bool {
+	return t.terminalizePartialFailure(ctx, p, request, attempt, sdkterminal.CommandPartialError, "replacement failure", nil)
 }
 
 // terminalizeGateReplacement owns the post-output mandatory-recording stop.
@@ -500,8 +691,12 @@ func (t *turnTerminal) terminalizeGateReplacement(ctx context.Context, request r
 	ev.RecordOutcome = lipapi.AttemptSurfacedFailure
 	ev.RecordReason = gateErr.Reason
 	ev.Err = gateErr
+	decision := t.sharedTerminalDecision(ctx, t.terminalDecisionProvider, t.terminalDecisionInput(sdkterminal.CommandGateReplacement, request, attempt, p, snapshot))
+	if decision.Decision.Kind == terminaldecision.DecisionContinue {
+		return nil
+	}
 	attempt.TerminalizeAttempt(ctx, IntentSurfacedFailure, ev)
-	t.terminalizeRequest(ctx, sdkterminal.CommandGateReplacement, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
+	t.claimRequestTerminal(ctx, sdkterminal.CommandGateReplacement, snapshot, func(cctx context.Context, _ coreterm.Outcome) error {
 		t.handoffBillingTurn(cctx, request, sdkterminal.CommandGateReplacement)
 		return nil
 	})
@@ -579,6 +774,15 @@ func (t *turnTerminal) unclaimAccountingFinalization() {
 // billing closure only. It MUST NOT accept attempt or attemptEffects; all
 // attempt-owned effects go through attemptSession.TerminalizeAttempt.
 func (t *turnTerminal) terminalizeRequest(
+	ctx context.Context,
+	cmd sdkterminal.Command,
+	snapshot coreterm.AccumulatorSnapshot,
+	requestEffects func(context.Context, coreterm.Outcome) error,
+) coreterm.Result {
+	return t.claimRequestTerminal(ctx, cmd, snapshot, requestEffects)
+}
+
+func (t *turnTerminal) claimRequestTerminal(
 	ctx context.Context,
 	cmd sdkterminal.Command,
 	snapshot coreterm.AccumulatorSnapshot,

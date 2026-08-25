@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -66,21 +67,23 @@ type candidateOperationsGroup struct {
 	terminalMetrics         *terminalworkapp.MetricsObserver
 }
 type candidateProcessRefs struct {
-	store                 b2bua.Store
-	pluginRegistry        *pluginreg.Registry
-	databasePools         *db.PoolRegistry
-	metrics               *metrics.Bundle
-	controlPlaneQueries   *controlplane.QueryService
-	controlPlaneStatus    *controlplane.Status
-	controlPlaneRetention *controlplane.RetentionController
-	usageAuthority        *authorityapp.Service
-	concurrencyAuthority  *concurrencyapp.Service
-	snapshotGeneration    *snapshotgen.Publisher
-	snapshotController    *SnapshotController
-	meteringQuerier       metering.Querier
-	keepwarmPolicy        *keepwarm.PolicyStore
-	keepwarmRegistry      *keepwarm.ManagerRegistry
-	geoip                 *infraGeoIP.Service
+	store                  b2bua.Store
+	pluginRegistry         *pluginreg.Registry
+	databasePools          *db.PoolRegistry
+	metrics                *metrics.Bundle
+	controlPlaneQueries    *controlplane.QueryService
+	controlPlaneStatus     *controlplane.Status
+	controlPlaneRetention  *controlplane.RetentionController
+	usageAuthority         *authorityapp.Service
+	concurrencyAuthority   *concurrencyapp.Service
+	snapshotGeneration     *snapshotgen.Publisher
+	snapshotController     *SnapshotController
+	meteringQuerier        metering.Querier
+	keepwarmPolicy         *keepwarm.PolicyStore
+	keepwarmRegistry       *keepwarm.ManagerRegistry
+	geoip                  *infraGeoIP.Service
+	secureSessions         ssessionapp.Store
+	terminalDecisionPolicy *terminaldecisionpolicy.Store
 }
 type candidateAssembly struct {
 	execution                      candidateExecutionGroup

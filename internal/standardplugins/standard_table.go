@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
@@ -134,6 +135,7 @@ func StandardBundle() Bundle {
 		Frontends: frontendRegistrationsFrom(frontends),
 		Backends:  backendRegistrationsFrom(standardBackendContributions(UpstreamAPIKeys{})),
 		Features: []FeatureRegistration{
+			{ID: agentloopguard.ID, Factory: featureAgentLoopGuard},
 			{ID: submitnoop.ID, Factory: featureSubmitNoop},
 			{ID: partsnoop.ID, Factory: featurePartsNoop},
 			{ID: toolreactornoop.ID, Factory: featureToolReactorNoop},

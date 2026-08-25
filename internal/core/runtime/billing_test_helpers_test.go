@@ -91,9 +91,6 @@ func bindTestRuntimeOwners(s *retryRecvStream, e *Executor) {
 	}
 	s.responsePipeline = deps
 	bindTurnTerminalRuntime(s.terminal, e)
-	if e.LoopGuardFactory != nil && s.terminal != nil && s.terminal.loopGuard == nil {
-		s.terminal.loopGuard = e.LoopGuardFactory.NewGuard()
-	}
 	if attempt := s.attempt.snapshot(); attempt != nil {
 		attempt.recordAttemptLoggedFn = e.recordAttemptLogged
 		attempt.emitBackendEgressFn = e.emitBackendEgressMeteringFact

@@ -42,9 +42,10 @@ const BackendResourcePoolOverlayMax = 381
 // the measured 341-line overlay.
 const ReasoningSemanticCompressionOverlayMax = 366
 
-// AgentLoopGuardOverlayMax ratchets the agent loop guard composition and
-// observer wiring additions independently from the legacy convergence delta.
-const AgentLoopGuardOverlayMax = 112
+// TerminalDecisionFeatureExtensionOverlayMax ratchets the provider-neutral
+// policy endpoint files independently from the legacy convergence delta.
+// The measured overlay is 597 lines; retain 25 lines of headroom.
+const TerminalDecisionFeatureExtensionOverlayMax = 622
 
 var genericCompatibleBackendOverlayPathMarkers = []string{
 	"/core/concurrencyauthority/compatible/",
@@ -92,8 +93,11 @@ var reasoningSemanticCompressionOverlayPathMarkers = []string{
 	"/lipruntime/reasoning_compression.go",
 }
 
-var agentLoopGuardOverlayPathMarkers = []string{
-	"/runtimebundle/loopguard.go",
+var terminalDecisionFeatureExtensionOverlayPathMarkers = []string{
+	"/runtimebundle/terminal_policy_http.go",
+	"/stdhttp/terminal_decision_policy_mount.go",
+	"/stdhttp/terminalpolicy/handler.go",
+	"/stdhttp/contract/terminal_decision_policy_input.go",
 }
 
 // pathMarkerOverlaySpec is one path-marker overlay allowance: a feature's new
@@ -115,7 +119,7 @@ var pathMarkerOverlaySpecs = []pathMarkerOverlaySpec{
 	{name: "Backend resource pool", max: BackendResourcePoolOverlayMax, markers: backendResourcePoolOverlayPathMarkers},
 	{name: "GeoIP ingress", max: GeoIPIngressOverlayMax, markers: geoIPIngressOverlayPathMarkers},
 	{name: "Reasoning semantic compression", max: ReasoningSemanticCompressionOverlayMax, markers: reasoningSemanticCompressionOverlayPathMarkers},
-	{name: "Agent loop guard", max: AgentLoopGuardOverlayMax, markers: agentLoopGuardOverlayPathMarkers},
+	{name: "Terminal decision feature extension", max: TerminalDecisionFeatureExtensionOverlayMax, markers: terminalDecisionFeatureExtensionOverlayPathMarkers},
 }
 
 // measurePathMarkerOverlays measures every path-marker overlay in table order.

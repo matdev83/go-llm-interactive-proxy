@@ -76,6 +76,11 @@ type responsePipeline struct {
 	// caller apply replacement/terminal policy without a second hard-stop flag.
 	recordingOutcome responseRecordingOutcome
 
+	// continuationLifecyclePending marks the next B-leg as a continuation of
+	// the already-started logical response. Its provider lifecycle markers must
+	// not be published a second time to the client-facing stream.
+	continuationLifecyclePending bool
+
 	lastAuthorityUsage lipapi.Event
 	lastCustomerUsage  lipapi.Event
 	keepwarmArmOnce    sync.Once
@@ -308,6 +313,31 @@ func (p *responsePipeline) setRecordingOutcome(outcome responseRecordingOutcome)
 	p.eventsMu.Lock()
 	p.recordingOutcome = outcome
 	p.eventsMu.Unlock()
+}
+
+func (p *responsePipeline) markContinuationLifecyclePending() {
+	if p == nil {
+		return
+	}
+	p.eventsMu.Lock()
+	p.continuationLifecyclePending = true
+	p.eventsMu.Unlock()
+}
+
+func (p *responsePipeline) consumeContinuationLifecycleMarker(ev lipapi.Event) bool {
+	if p == nil {
+		return false
+	}
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	if !p.continuationLifecyclePending {
+		return false
+	}
+	if ev.Kind == lipapi.EventResponseStarted || ev.Kind == lipapi.EventMessageStarted {
+		return true
+	}
+	p.continuationLifecyclePending = false
+	return false
 }
 
 // resetForReplacement clears evidence whose lifetime is one B-leg. Gate and

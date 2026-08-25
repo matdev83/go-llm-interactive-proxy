@@ -45,8 +45,8 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if ReasoningSemanticCompressionOverlayMax != 366 {
 		t.Fatalf("reasoning semantic compression overlay cap drift: %d", ReasoningSemanticCompressionOverlayMax)
 	}
-	if AgentLoopGuardOverlayMax != 112 {
-		t.Fatalf("agent loop guard overlay cap drift: %d", AgentLoopGuardOverlayMax)
+	if TerminalDecisionFeatureExtensionOverlayMax != 622 {
+		t.Fatalf("terminal decision feature extension overlay cap drift: %d", TerminalDecisionFeatureExtensionOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -262,7 +262,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Keep-warm orchestration overlay lines:",
 		"Backend resource pool overlay lines:",
 		"GeoIP ingress overlay lines:",
-		"Agent loop guard overlay lines:",
+		"Terminal decision feature extension overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {

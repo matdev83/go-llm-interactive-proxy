@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 func (e *Executor) assembleExecutorStream(ctx context.Context, prep *preparedRequest, plan *routePlanState, out openedAttempt) (lipapi.EventStream, error) {
@@ -17,16 +18,13 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	e := a.Executor
 	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
+	if e != nil && e.RuntimeSnapshot != nil && prep.recvTurnFacts.terminalDecisionEnabled {
+		terminal.terminalDecisionProvider = e.RuntimeSnapshot.TerminalDecisionProvider()
+	}
 	if prep.call != nil {
 		terminal.supportsContinuation = supportsContinuationForCall(*prep.call)
 	}
 	bindTurnTerminalRuntime(terminal, e)
-	// Per-logical-request LoopGuard: factory is sole production source, exactly one fresh Gate per assembled request; hidden legs reuse it via terminal.
-	if e.LoopGuardFactory != nil {
-		if g := e.LoopGuardFactory.NewGuard(); g != nil {
-			terminal.loopGuard = g
-		}
-	}
 	responsePipeline := newResponsePipelineForExecutor(e, prep.compactionOpenMeta)
 	rsFacts := prep.recvTurnFacts
 	rsFacts.captureBoundModelViews(ctx)
@@ -38,6 +36,9 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 		responsePipeline: responsePipeline,
 		terminal:         terminal,
 		recovery:         plan.progress,
+	}
+	terminal.continuationTransaction = func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+		return runContinuationTransaction(cctx, terminal, rs, intent)
 	}
 	responsePipeline.bindTerminalSnapshot(func() (bool, bool) {
 		return terminal.committed(), terminal.accountingFinalized()

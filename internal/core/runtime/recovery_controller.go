@@ -317,17 +317,15 @@ func newReplacementOpener(e *Executor, bus *hooks.Bus, aScope *leglifecycle.ALeg
 	}
 }
 
-func (r *recoveryController) openGuardContinuation(ctx context.Context, req replacementOpenRequest) (replacementOpenResult, error) {
+func (r *recoveryController) openContinuation(ctx context.Context, req replacementOpenRequest) (replacementOpenResult, error) {
 	if r == nil || r.opener == nil {
 		return replacementOpenResult{}, errors.New("runtime: replacement opener unavailable")
 	}
 	if !req.prior.retired {
 		return replacementOpenResult{}, errRecoveryPriorAttemptNotRetired
 	}
-	// Semantic continuation is not a retry/replacement: allow committed and enter normal admission with isRetryPath false.
-	// Bypass the generic opener which forces openModeRetry; call openNext directly if we have executor access via snapshot.
-	// For testability, if opener is a stub it already handles guard path; delegate to opener but opener must respect isRetryPath.
-	// Here we delegate and the opener implementation checks req.isRetryPath to choose openModeGuardContinuation.
+	// Semantic continuation is not a retry/replacement: allow committed and
+	// enter normal admission with isRetryPath false.
 	return r.opener(ctx, req)
 }
 

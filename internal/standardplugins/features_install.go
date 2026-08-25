@@ -2,6 +2,7 @@ package standardplugins
 
 import (
 	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
@@ -32,6 +33,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"gopkg.in/yaml.v3"
 )
+
+func featureAgentLoopGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := agentloopguard.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	if !cfg.Enabled {
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}
+	return lipfeature.FeatureBundle{
+		SchemaVersion:            lipfeature.SchemaVersionV1,
+		TerminalDecisionProvider: agentloopguard.NewProvider(cfg),
+	}, nil
+}
 
 func featureSubmitNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := submitnoop.DecodeHookConfig(n)

@@ -89,6 +89,7 @@ type HTTPOperationsInput struct {
 	KeepwarmAdmin           adminkeepwarm.Options
 	KeepwarmAdminEnabled    bool
 	Registrations           []lipsdk.Registration
+	TerminalDecisionPolicy  TerminalDecisionPolicyInput
 }
 
 type HTTPModelInput struct {

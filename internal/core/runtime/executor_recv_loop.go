@@ -10,8 +10,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // errGateContinueInner signals Recv to pull another inner event without returning to the client yet.
@@ -54,7 +54,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		attempt := slot.require()
 		transformed := p.transformClientEvent(ctx, facts, attempt, ev, prepared)
 		if transformed.err != nil {
-			terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, transformed.err)
+			if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, transformed.err) {
+				return lipapi.Event{}, true, nil
+			}
 			return lipapi.Event{}, false, transformed.err
 		}
 		if transformed.swallowed {
@@ -70,12 +72,19 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, true, nil
 			}
 			if gated.err != nil {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, gated.recording.mandatory(), gated.err)
+				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, gated.recording.mandatory(), gated.err) {
+					return lipapi.Event{}, true, nil
+				}
 				return lipapi.Event{}, false, gated.err
 			}
 			ev = gated.event
 			if gated.finishPreflight {
-				usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p)
+				usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+					return runContinuationTransaction(cctx, terminal, s, intent)
+				})
+				if errors.Is(err, errTerminalDecisionContinuationPublished) {
+					return lipapi.Event{}, true, nil
+				}
 				if err != nil {
 					return lipapi.Event{}, false, err
 				}
@@ -89,35 +98,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				terminal.markCommitted(slot.snapshot())
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
-				if terminal.isLoopGuardEnabled() {
-					outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
-					held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
-					if held {
-						if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
-							return lipapi.Event{}, true, nil
-						}
-						fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_gated", outcome.Reason)
-						attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-						if recovery != nil && recovery.recoverPolicy != nil {
-							recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-						}
-						out, recording, err := p.observeClientFacing(ctx, fallback, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), finishBeforeRelease: true})
-						if err != nil {
-							terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), err)
-							return lipapi.Event{}, false, err
-						}
-						return out, false, nil
-					}
-					if p != nil {
-						attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
-					}
-					terminal.finishResponse(p, attempt)
-				} else {
-					if p != nil {
-						attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
-					}
-					terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "dispatch_gated")
+				if p != nil {
+					attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
 				}
+				terminal.finishResponseAtBoundary(p, attempt, false)
 			}
 			attempt.accounting.observeClientEvent(p.nowTime(), ev)
 			if recovery != nil && recovery.recoverPolicy != nil {
@@ -126,7 +110,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if gated.finishPreflight {
 				out, _, err := p.observeClientFacing(ctx, ev, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishAfterRemember: true})
 				if err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
+					if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err) {
+						return lipapi.Event{}, true, nil
+					}
 					return lipapi.Event{}, false, err
 				}
 				if out.Kind == lipapi.EventResponseFinished {
@@ -136,7 +122,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			out, recording, err := p.observeClientFacing(ctx, ev, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), finishBeforeRelease: true})
 			if err != nil {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), err)
+				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), err) {
+					return lipapi.Event{}, true, nil
+				}
 				return lipapi.Event{}, false, err
 			}
 			return out, false, nil
@@ -146,40 +134,19 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
 		}
 		if ev.Kind == lipapi.EventResponseFinished {
-			if terminal.isLoopGuardEnabled() {
-				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
-				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
-				if held {
-					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
-						return lipapi.Event{}, true, nil
-					}
-					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-						return lipapi.Event{}, false, err
-					}
-					fallback := terminal.guardHeldFallback(ctx, attempt, p, "dispatch_nongated", outcome.Reason)
-					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-					if recovery != nil && recovery.recoverPolicy != nil {
-						recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-					}
-					out, _, err := p.observeClientFacing(ctx, fallback, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishAfterRemember: true})
-					if err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
-						return lipapi.Event{}, false, err
-					}
-					return out, false, nil
-				}
-				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-					return lipapi.Event{}, false, err
-				}
-			}
 			recording := p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
 			if recording.mandatory() {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
+				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err) {
+					return lipapi.Event{}, true, nil
+				}
 				return lipapi.Event{}, false, recording.err
 			}
-			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p)
+			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+				return runContinuationTransaction(cctx, terminal, s, intent)
+			})
+			if errors.Is(err, errTerminalDecisionContinuationPublished) {
+				return lipapi.Event{}, true, nil
+			}
 			if err != nil {
 				if !terminal.finished() {
 					terminal.finishResponse(p, attempt)
@@ -192,36 +159,23 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				emitted, emitErr := terminal.emitSynthesizedUsage(ctx, usageEv, facts.terminalFacts(), attempt, p)
 				return emitted, false, emitErr
 			}
-			if terminal.isLoopGuardEnabled() {
-				// Not held: settle B-attempt as success via terminal CAS for exactly-once (Req 9.1)
-				attempt.TerminalizeAttempt(ctx, IntentSuccess, attemptEvidence{
-					RecordOutcome: lipapi.AttemptSuccess,
-					RecordReason:  "success",
-					TraceID:       attempt.traceID,
-					ALegID:        attempt.bleg.ALegID,
-					StartedAt:     attempt.accounting.requestStartedAt,
-				})
-			} else {
-				attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
-			}
+			attempt.recordAttemptLogged(ctx, recordAttemptParams{ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess}, facts.attemptDiagAttrs(attempt))
 			p.commitSuccessfulTurn(facts, attempt, terminal.committed())
-			if terminal.isLoopGuardEnabled() {
-				// Already verified not held, so directly finish without second verifier
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-			} else {
-				terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "dispatch_nongated")
-			}
+			terminal.finishResponseAtBoundary(p, attempt, true)
 			out, _, err := p.observeClientFacing(ctx, ev, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishAfterRemember: true})
 			if err != nil {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
+				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err) {
+					return lipapi.Event{}, true, nil
+				}
 				return lipapi.Event{}, false, err
 			}
 			return out, false, nil
 		}
 		out, recording, err := p.observeClientFacing(ctx, ev, responseEventInput{facts: facts, attempt: attempt, recovery: recovery, pm: transformed.partMeta, committed: terminal.committed(), now: p.nowTime(), finishBeforeRelease: true})
 		if err != nil {
-			terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), err)
+			if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), err) {
+				return lipapi.Event{}, true, nil
+			}
 			return lipapi.Event{}, false, err
 		}
 		if lipapi.OutputCommitted(out) {
@@ -269,35 +223,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.endALeg(aLegEndBase)
 					return lipapi.Event{}, false, ctx.Err()
 				}
-				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
+				if terminal.terminalizeEOF(ctx, facts.terminalFacts(), attempt, p) {
 					return lipapi.Event{}, true, nil
 				}
-				if terminal.isLoopGuardEnabled() {
-					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-						return lipapi.Event{}, false, err
-					}
-					terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason)
-					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
-					pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
-					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-					if recovery != nil && recovery.recoverPolicy != nil {
-						recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-					}
-					out, _, err := p.observeClientFacing(ctx, fallback, responseEventInput{
-						facts: facts, attempt: attempt, recovery: recovery,
-						pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishBeforeRelease: true,
-					})
-					if err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
-						return lipapi.Event{}, false, err
-					}
-					terminal.finishResponse(p, attempt)
-					terminal.endALeg(aLegEndBase)
-					return out, false, nil
-				}
-				terminal.terminalizeEOF(ctx, facts.terminalFacts(), attempt, p)
-				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
+				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "post_output_interrupted"}
 				p.appendRecoveryDrain(fallback)
 				head, _ := p.popRecoveryDrain()
 				if head.Kind == lipapi.EventResponseFinished {
@@ -312,7 +241,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return out, false, err
 			}
 		}
-		terminal.terminalizeEOF(ctx, facts.terminalFacts(), attempt, p)
+		if terminal.terminalizeEOF(ctx, facts.terminalFacts(), attempt, p) {
+			return lipapi.Event{}, true, nil
+		}
 		if !terminal.finished() {
 			terminal.finishResponse(p, attempt)
 		}
@@ -356,35 +287,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.endALeg(aLegEndBase)
 					return lipapi.Event{}, false, ctx.Err()
 				}
-				if terminal.isLoopGuardEnabled() && s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseIdlePostCommit, dec.reason) {
-					return lipapi.Event{}, true, nil
-				}
-				if terminal.isLoopGuardEnabled() {
-					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-						return lipapi.Event{}, false, err
-					}
-					terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseIdlePostCommit, dec.reason)
-					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
-					pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
-					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-					if recovery != nil && recovery.recoverPolicy != nil {
-						recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-					}
-					out, _, err := p.observeClientFacing(ctx, fallback, responseEventInput{
-						facts: facts, attempt: attempt, recovery: recovery,
-						pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishBeforeRelease: true,
-					})
-					if err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
-						return lipapi.Event{}, false, err
-					}
-					terminal.finishResponse(p, attempt)
-					terminal.endALeg(aLegEndBase)
-					return out, false, nil
-				}
 				attempt.setPendingCancelCause(lipapi.CancelCause{Kind: lipapi.CancelContextDone, Detail: dec.reason})
-				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
+				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "post_output_interrupted"}
 				p.appendRecoveryDrain(fallback)
 				head, _ := p.popRecoveryDrain()
 				if head.Kind == lipapi.EventResponseFinished {
@@ -423,51 +327,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			terminal.endALeg(aLegEndBase)
 			return lipapi.Event{}, false, recvErr
 		}
-		if terminal.committed() && terminal.isLoopGuardEnabled() && recovery != nil && recovery.recoverPolicy != nil {
-			dec := recovery.genericErrorRecvDecision(recvErr, p.nowTime())
-			if dec.continuePostOutput {
-				if ctx.Err() != nil {
-					reason := cancellationAttemptReason(ctx, ctx.Err())
-					terminal.terminalizeCancellation(ctx, facts.terminalFacts(), attempt, p, reason, errors.Is(ctx.Err(), context.DeadlineExceeded))
-					if terminal.hasALeg() {
-						_ = terminal.cancelALeg(ctx, lipapi.CancelCause{Kind: lipapi.CancelContextDone})
-					}
-					terminal.endALeg(aLegEndBase)
-					return lipapi.Event{}, false, ctx.Err()
-				}
-				if s != nil && terminal.tryPostOutputContinuation(ctx, s, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason) {
-					return lipapi.Event{}, true, nil
-				}
-				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-					return lipapi.Event{}, false, err
-				}
-				terminal.settlePostOutputInterruptedBAttempt(ctx, attempt, stopguard.CauseTransportEOFPostCommit, dec.reason)
-				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: postOutputInterruptionReason}
-				pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
-				attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-				if recovery != nil && recovery.recoverPolicy != nil {
-					recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-				}
-				out, _, err := p.observeClientFacing(ctx, fallback, responseEventInput{
-					facts: facts, attempt: attempt, recovery: recovery,
-					pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishBeforeRelease: true,
-				})
-				if err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
-					return lipapi.Event{}, false, err
-				}
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-				return out, false, nil
-			}
-		}
 		if terminal.committed() || !lipapi.IsRecoverablePreOutput(recvErr) {
 			surfErr := recvErr
 			if terminal.committed() && lipapi.IsRecoverablePreOutput(recvErr) {
 				surfErr = &lipapi.UpstreamFailureError{Phase: lipapi.PhasePostOutput, Recoverable: false, Reason: attemptReasonDetail(recvErr), CandidateKey: attempt.cand.Key}
 			}
-			terminal.terminalizeSurfacedFailure(ctx, facts.terminalFacts(), attempt, p, surfErr, backendReceivePanic(recvErr))
+			if terminal.terminalizeSurfacedFailure(ctx, facts.terminalFacts(), attempt, p, surfErr, backendReceivePanic(recvErr)) {
+				return lipapi.Event{}, true, nil
+			}
 			return lipapi.Event{}, false, surfErr
 		}
 		facts.logRecoverablePreOutput(ctx, p.log, attempt.cand.Key)
@@ -505,10 +372,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
 				return lipapi.Event{}, recording.err
 			}
-			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p)
+			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+				return runContinuationTransaction(cctx, terminal, s, intent)
+			})
+			if errors.Is(err, errTerminalDecisionContinuationPublished) {
+				return lipapi.Event{}, nil
+			}
 			if err != nil {
 				if !terminal.finished() {
-					terminal.finishResponse(p, attempt)
+					terminal.finishResponseAtBoundary(p, attempt, true)
 				}
 				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
 				return lipapi.Event{}, err
@@ -519,46 +391,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
-		// Guard hold check before emitting raw terminal (Req 1.3/12.10)
-		if ev.Kind == lipapi.EventResponseFinished && terminal.isLoopGuardEnabled() {
-			outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
-			held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
-			if held {
-				if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
-					return lipapi.Event{}, nil
-				}
-				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-					return lipapi.Event{}, err
-				}
-				terminal.settleSwallowedBAttempt(ctx, attempt)
-				if terminal.log != nil {
-					terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "recovery_drain", "reason", boundGuardReason(outcome.Reason+" "+guardContinuationPendingReason))
-				}
-				fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: guardContinuationPendingReason}
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-				attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-				if recovery != nil && recovery.recoverPolicy != nil {
-					recovery.recoverPolicy.ObserveClientEvent(fallback, p.nowTime())
-				}
-				out, recording, emitErr := p.observeClientFacing(ctx, fallback, responseEventInput{
-					facts: facts, attempt: attempt, recovery: recovery,
-					pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishBeforeRelease: true,
-				})
-				if emitErr != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), emitErr)
-				}
-				if emitErr == nil && lipapi.OutputCommitted(out) {
-					terminal.markOutputCommittedForAttempt(out, attempt, recovery)
-				}
-				return out, emitErr
-			}
-			if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-				return lipapi.Event{}, err
-			}
-		}
 		out, recording, emitErr := p.observeClientFacing(ctx, ev, responseEventInput{
 			facts: facts, attempt: attempt, recovery: recovery,
 			pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: ev.Kind == lipapi.EventResponseFinished,
@@ -568,13 +400,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), emitErr)
 		}
 		if emitErr == nil && ev.Kind == lipapi.EventResponseFinished {
-			if terminal.isLoopGuardEnabled() {
-				// Already verified not held, directly finish without second verifier
-				terminal.finishResponse(p, attempt)
-				terminal.endALeg(aLegEndBase)
-			} else {
-				terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "recovery_drain")
-			}
+			terminal.finishResponse(p, attempt)
 		}
 		if emitErr == nil && lipapi.OutputCommitted(out) {
 			terminal.markOutputCommittedForAttempt(out, attempt, recovery)
@@ -597,43 +423,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if ev, ok := p.popGateDrainHead(); ok {
-			// Guard hold check before any success finalization to ensure held B-attempt settles as swallowed (Req 9.1)
-			if ev.Kind == lipapi.EventResponseFinished && terminal.isLoopGuardEnabled() {
-				outcome := terminal.agentLoopGuardEvaluate(ctx, facts.terminalFacts(), attempt, p, ev)
-				held := outcome.Action == stopguard.ActionContinueLeg && !outcome.HoldReleased
-				if held {
-					if terminal.tryGuardContinuation(ctx, s, attempt, outcome) {
-						continue
-					}
-					if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-						return lipapi.Event{}, err
-					}
-					terminal.settleSwallowedBAttempt(ctx, attempt)
-					if terminal.log != nil {
-						terminal.log.DebugContext(ctx, "agent_loop_guard_hold", "source", "gate_drain", "reason", boundGuardReason(outcome.Reason+" "+guardContinuationPendingReason))
-					}
-					fallback := lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: guardContinuationPendingReason}
-					terminal.finishResponse(p, attempt)
-					attempt.accounting.observeClientEvent(p.nowTime(), fallback)
-					pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
-					out, recording, emitErr := p.observeClientFacing(ctx, fallback, responseEventInput{
-						facts: facts, attempt: attempt, recovery: recovery,
-						pm: pm, committed: terminal.committed(), now: p.nowTime(), recorded: true, finishBeforeRelease: true,
-					})
-					if emitErr != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, recording.mandatory(), emitErr)
-					}
-					if emitErr == nil && lipapi.OutputCommitted(out) {
-						terminal.markOutputCommittedForAttempt(out, attempt, recovery)
-					}
-					return out, emitErr
-				}
-				if err := terminal.deactivateGuardOverlay(ctx, facts.aLegID); err != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
-					return lipapi.Event{}, err
-				}
-			}
 			// A gate-drain finish is finalized through the same centralized chokepoint as the other
 			// response_finished completion paths, before emitGateDrained marks the stream finished, so
 			// a reconstructed-usage (ok) result can re-queue the finish and emit the synthesized
@@ -647,7 +436,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
 					return lipapi.Event{}, recording.err
 				}
-				usageEv, usageOk, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p)
+				usageEv, usageOk, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+					return runContinuationTransaction(cctx, terminal, s, intent)
+				})
+				if errors.Is(err, errTerminalDecisionContinuationPublished) {
+					continue
+				}
 				if err != nil {
 					if !terminal.finished() {
 						terminal.finishResponse(p, attempt)
@@ -664,22 +458,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				terminal.markCommitted(slot.snapshot())
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
-				if terminal.isLoopGuardEnabled() {
-					// Early hold check already handled held case; this is not held
-					if p != nil {
-						attempt.recordAttemptLogged(ctx, recordAttemptParams{
-							ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
-						}, facts.attemptDiagAttrs(attempt))
-					}
-					terminal.finishResponse(p, attempt)
-				} else {
-					if p != nil {
-						attempt.recordAttemptLogged(ctx, recordAttemptParams{
-							ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
-						}, facts.attemptDiagAttrs(attempt))
-					}
-					terminal.finishResponseGuarded(ctx, facts.terminalFacts(), attempt, p, ev, "gate_drain")
+				if p != nil {
+					attempt.recordAttemptLogged(ctx, recordAttemptParams{
+						ALegID: facts.aLegID, BLeg: attempt.bleg, Cand: attempt.cand, Outcome: lipapi.AttemptSuccess,
+					}, facts.attemptDiagAttrs(attempt))
 				}
+				terminal.finishResponseAtBoundary(p, attempt, false)
 			}
 			attempt.accounting.observeClientEvent(p.nowTime(), ev)
 			pm, _ := facts.hookMeta(attempt.bleg, attempt.cand)
@@ -787,6 +571,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if err == nil {
+			if p.consumeContinuationLifecycleMarker(ev) {
+				continue
+			}
 			prepared := p.prepareRecvEvent(ctx, facts, attempt, ev)
 			if prepared.err != nil {
 				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, prepared.err)

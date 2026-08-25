@@ -50,6 +50,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 	}
 
 	wantFeat := []string{
+		"agent-loop-guard",
 		"codex-client-compat",
 		"compaction-continuity",
 		"parts-noop",

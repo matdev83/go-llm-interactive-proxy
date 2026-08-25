@@ -25,14 +25,15 @@ import (
 // StandardHTTPInput and its groups are exact aliases of the cycle-neutral
 // internal/stdhttp/contract definitions (task 3.4).
 type (
-	StandardHTTPInput   = httpcontract.StandardHTTPInput
-	HTTPCoreInput       = httpcontract.HTTPCoreInput
-	HTTPSecurityInput   = httpcontract.HTTPSecurityInput
-	GeoIPSecurityInput  = httpcontract.GeoIPSecurityInput
-	GeoIPResolverConfig = httpcontract.GeoIPResolverConfig
-	HTTPOperationsInput = httpcontract.HTTPOperationsInput
-	HTTPModelInput      = httpcontract.HTTPModelInput
-	HTTPFrontendInput   = httpcontract.HTTPFrontendInput
+	StandardHTTPInput           = httpcontract.StandardHTTPInput
+	HTTPCoreInput               = httpcontract.HTTPCoreInput
+	HTTPSecurityInput           = httpcontract.HTTPSecurityInput
+	GeoIPSecurityInput          = httpcontract.GeoIPSecurityInput
+	GeoIPResolverConfig         = httpcontract.GeoIPResolverConfig
+	HTTPOperationsInput         = httpcontract.HTTPOperationsInput
+	TerminalDecisionPolicyInput = httpcontract.TerminalDecisionPolicyInput
+	HTTPModelInput              = httpcontract.HTTPModelInput
+	HTTPFrontendInput           = httpcontract.HTTPFrontendInput
 )
 
 func ComposeStandardHTTP(ctx context.Context, cfg *config.Config, log *slog.Logger, in StandardHTTPInput) (http.Handler, error) {

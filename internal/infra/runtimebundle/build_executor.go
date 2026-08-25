@@ -25,6 +25,7 @@ import (
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
@@ -73,9 +74,10 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector  *compactiondetect.Detector
-	CompactionScheduler *auxreq.BackgroundScheduler
-	GenerationRunner    *compactioncompose.GenerationExecutorRunner
+	CompactionDetector     *compactiondetect.Detector
+	CompactionScheduler    *auxreq.BackgroundScheduler
+	GenerationRunner       *compactioncompose.GenerationExecutorRunner
+	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -110,13 +112,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
 		seed = time.Now().UnixNano()
 	}
-	effGuardEarly := cfg.EffectiveAgentLoopGuard()
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
 		return nil, err
-	}
-	if effGuardEarly.Enabled {
-		streamRecovery.AllowPostOutputContinuation = true
 	}
 	tokenAccounting, err := bindTokenAccountingRuntime(in.AccountingStores, cfg, in.Model.Backends)
 	if err != nil {
@@ -238,10 +236,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
 
-	var execHolder *runtime.Executor
-	auxClientForGuard := auxreq.NewClient(func() auxreq.ExecutorRunner { return execHolder })
-	loopGuardFactory := buildLoopGuardFactory(cfg.EffectiveAgentLoopGuard(), auxClientForGuard, in.NowFn, newLoopGuardObserver(log))
-
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -266,13 +260,12 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Extension: runtime.ExtensionRuntime{
 			Bus:                              bctx.Bus,
 			RuntimeSnapshot:                  in.Ext.Snap,
+			TerminalDecisionPolicy:           in.TerminalDecisionPolicy,
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
-		Interleaved:      interleaved,
-		Compaction:       runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
-		LoopGuardFactory: loopGuardFactory,
+		Interleaved: interleaved,
+		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
 	})
-	execHolder = exec
 	genRunner.Bind(exec)
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {

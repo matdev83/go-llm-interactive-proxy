@@ -30,9 +30,6 @@ type Config struct {
 	Continuity     ContinuityConfig     `yaml:"continuity"`
 	SecureSession  SecureSessionConfig  `yaml:"secure_session"`
 	StreamRecovery StreamRecoveryConfig `yaml:"stream_recovery"`
-	// AgentLoopGuard is the opt-in provisional-terminal gate for recoverable
-	// backend stops. Disabled by default; see agent_loop_guard.go.
-	AgentLoopGuard AgentLoopGuardConfig `yaml:"agent_loop_guard"`
 	Hooks          HooksConfig          `yaml:"hooks"`
 	Accounting     AccountingConfig     `yaml:"accounting"`
 	Interleaved    InterleavedConfig    `yaml:"interleaved"`

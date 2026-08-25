@@ -148,6 +148,11 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx = ibt.projectContext(prepCtx)
 	pr.identity = ibt
 	pr.call = workingCall
+	terminalDecisionPolicy, terminalDecisionEnabled, err := e.snapshotTerminalDecisionPolicy(prepCtx, ibt)
+	if err != nil {
+		pr.finalize(err)
+		return nil, nil, noop, fmt.Errorf("executor: terminal decision policy admission: %w", err)
+	}
 	// Task 3.2: carry frozen snapshot+evidence from 3.1 seam; exactly once
 	// per logical turn. Fail closed already handled inside prepareIdentity.
 	// PreserveIngress fallback retains isolation.
@@ -275,6 +280,8 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		routePrefs:                   slices.Clone(execctx.RouteCandidatePreferences(prepCtx)),
 		secureTurn:                   ibt.secureTurn,
 		secureTurnOK:                 ibt.secureTurnOK,
+		terminalDecisionPolicy:       terminalDecisionPolicy,
+		terminalDecisionEnabled:      terminalDecisionEnabled,
 		boundRegistry:                boundReg,
 		boundRegistryOK:              boundRegOK,
 		boundCatalog:                 boundCat,
