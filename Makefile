@@ -466,7 +466,12 @@ qa-tests:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) qa-tests
 else
-	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...
+	@if [ "$$LIP_SKIP_QA_TESTS" = "1" ]; then \
+		echo "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged delta packages..."; \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/stdhttp/... ./internal/testkit/conformance/...; \
+	else \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...; \
+	fi
 endif
 
 vet:
