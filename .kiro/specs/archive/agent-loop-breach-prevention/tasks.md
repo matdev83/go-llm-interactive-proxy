@@ -206,3 +206,12 @@ Tasks 3, 4, 5, and 7 can proceed in parallel after the provider contract/configu
 | 9 | 1.1, 1.2, 2.2, 6.1, 6.2, 7.2, 8.1 |
 | 10 | 2.1, 4.1, 6.1, 7.1, 7.2, 8.2 |
 | 11 | 1.1, 1.2, 2.1, 2.2, 5.1, 5.2, 6.2, 7.2, 8.1, 8.2 |
+
+## Completion Status
+
+- [x] All 24 task entries are complete at branch baseline `eb1d85908d249cbf7300814b82be578b14572a08`.
+- [x] Focused SDK, policy, runtime, plugin, and architecture tests pass; `make quality-checks` passes on the exact rewritten tree.
+- [x] The concrete provider is removable: production core has no ALG import, provider-name branch, terminal authority, policy store, or hidden-content owner.
+- [x] The dependent terminal-decision platform tasks and removal ratchets are complete; no successor-only work is claimed by this spec.
+- [x] Windows race execution is unavailable in this worktree; Linux CI retains race ownership.
+- [x] This archive is intentionally included in the same implementation changeset and upcoming PR under user override, so merged-main SHA verification is pending PR delivery.

@@ -226,3 +226,12 @@ Wave 1 contains only characterization and schedule fixtures. After the provider 
 | 10 | 1.1, 2.1, 2.2, 3.2, 4.2, 5.2, 8.2, 9.1, 10.1, 10.2 |
 | 11 | 1.1, 8.2, 9.1, 10.1, 10.2 |
 | 12 | 2.2, 5.2, 9.1, 10.1, 10.2 |
+
+## Completion Status
+
+- [x] All 29 task entries are complete at branch baseline `eb1d85908d249cbf7300814b82be578b14572a08`.
+- [x] Focused SDK, policy, runtime, HTTP, lifecycle, plugin-integration, and architecture tests pass; `make quality-checks` passes on the exact rewritten tree.
+- [x] Final ROI evidence records one exclusive provider contribution, one core terminal chokepoint, one process policy owner, zero concrete ALG policy branches in core, and no generic runtime owner.
+- [x] No-provider compatibility and concrete-feature removal are covered; the dependent ALG implementation is complete in the same changeset.
+- [x] Windows race execution is unavailable in this worktree; Linux CI retains race ownership.
+- [x] This archive is intentionally included in the same implementation changeset and upcoming PR under user override, so merged-main SHA verification is pending PR delivery.
