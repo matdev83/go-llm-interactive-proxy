@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // archtestFS is an abstraction over file reading/walking to support both
@@ -71,14 +72,39 @@ type gitCommitFS struct {
 	files map[string][]byte
 }
 
+var (
+	gitCommitFSCacheMu sync.Mutex
+	gitCommitFSCache   = make(map[string]*gitCommitFSEntry)
+)
+
+type gitCommitFSEntry struct {
+	done chan struct{}
+	fs   *gitCommitFS
+	err  error
+}
+
 func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
+	key := root + "\x00" + sha
+	gitCommitFSCacheMu.Lock()
+	if entry, ok := gitCommitFSCache[key]; ok {
+		gitCommitFSCacheMu.Unlock()
+		<-entry.done
+		return entry.fs, entry.err
+	}
+	entry := &gitCommitFSEntry{done: make(chan struct{})}
+	gitCommitFSCache[key] = entry
+	gitCommitFSCacheMu.Unlock()
+
+	defer close(entry.done)
+
 	cmd := exec.Command("git", "-C", root, "archive", "--format=tar", sha)
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git archive for SHA %s failed: %w (stderr: %s)", sha, err, errOut.String())
+		entry.err = fmt.Errorf("git archive for SHA %s failed: %w (stderr: %s)", sha, err, errOut.String())
+		return nil, entry.err
 	}
 
 	files := make(map[string][]byte)
@@ -89,6 +115,7 @@ func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
 			break
 		}
 		if err != nil {
+			entry.err = err
 			return nil, err
 		}
 		if hdr.Typeflag != tar.TypeReg {
@@ -96,11 +123,13 @@ func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
 		}
 		var content bytes.Buffer
 		if _, err := io.Copy(&content, tr); err != nil {
+			entry.err = err
 			return nil, err
 		}
 		files[filepath.ToSlash(hdr.Name)] = content.Bytes()
 	}
-	return &gitCommitFS{sha: sha, files: files}, nil
+	entry.fs = &gitCommitFS{sha: sha, files: files}
+	return entry.fs, nil
 }
 
 func (g *gitCommitFS) ReadFile(rel string) ([]byte, error) {

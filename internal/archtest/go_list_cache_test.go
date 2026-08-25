@@ -1,7 +1,10 @@
 package archtest
 
 import (
+	"bytes"
+	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -14,9 +17,19 @@ type goListCacheEntry struct {
 	err  error
 }
 
+type packageJSONBlock struct {
+	importPath string
+	relDir     string
+	raw        []byte
+}
+
 var (
-	goListCacheMu sync.Mutex
-	goListCache   = make(map[string]*goListCacheEntry)
+	goListCacheMu  sync.Mutex
+	goListCache    = make(map[string]*goListCacheEntry)
+	moduleListOnce sync.Once
+	modulePackages []packageJSONBlock
+	moduleListErr  error
+	moduleRootPath string
 )
 
 // goListCacheKey canonicalizes equivalent `go list` argument lists into a
@@ -30,6 +43,125 @@ func goListCacheKey(args []string) string {
 	flags := append([]string(nil), args[:firstPositional]...)
 	sort.Strings(flags)
 	return strings.Join(append(flags, args[firstPositional:]...), "\x00")
+}
+
+func loadModulePackages(t *testing.T) ([]packageJSONBlock, error) {
+	t.Helper()
+	moduleListOnce.Do(func() {
+		moduleRootPath = repoRoot(t)
+		cmd := exec.CommandContext(t.Context(), "go", "list", "-json", "-test=false", "./...")
+		cmd.Dir = moduleRootPath
+		out, err := cmd.Output()
+		if err != nil {
+			moduleListErr = err
+			return
+		}
+		dec := json.NewDecoder(bytes.NewReader(out))
+		for dec.More() {
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
+				moduleListErr = err
+				return
+			}
+			var meta struct {
+				ImportPath string `json:"ImportPath"`
+				Dir        string `json:"Dir"`
+			}
+			if err := json.Unmarshal(raw, &meta); err != nil {
+				moduleListErr = err
+				return
+			}
+			rel, err := filepath.Rel(moduleRootPath, meta.Dir)
+			if err != nil {
+				rel = meta.Dir
+			}
+			rel = filepath.ToSlash(rel)
+			modulePackages = append(modulePackages, packageJSONBlock{
+				importPath: meta.ImportPath,
+				relDir:     rel,
+				raw:        raw,
+			})
+		}
+	})
+	return modulePackages, moduleListErr
+}
+
+func matchesPattern(pkg packageJSONBlock, pattern string) bool {
+	norm := filepath.ToSlash(strings.TrimPrefix(pattern, "./"))
+	if norm == "..." || pattern == "./..." {
+		return true
+	}
+	if prefix, ok := strings.CutSuffix(norm, "/..."); ok {
+		if pkg.relDir == prefix || strings.HasPrefix(pkg.relDir, prefix+"/") {
+			return true
+		}
+		if strings.HasSuffix(pkg.importPath, "/"+prefix) || strings.Contains(pkg.importPath, "/"+prefix+"/") {
+			return true
+		}
+		return false
+	}
+	// Exact match by relative directory or import path.
+	if pkg.relDir == norm {
+		return true
+	}
+	if pkg.importPath == norm || strings.HasSuffix(pkg.importPath, "/"+norm) {
+		return true
+	}
+	return false
+}
+
+func trySliceFromModuleCache(t *testing.T, args []string) ([]byte, bool, error) {
+	t.Helper()
+	firstPositional := 0
+	hasDeps := false
+	hasJSON := false
+	for firstPositional < len(args) && strings.HasPrefix(args[firstPositional], "-") {
+		f := args[firstPositional]
+		if f == "-deps" {
+			hasDeps = true
+		}
+		if f == "-json" {
+			hasJSON = true
+		}
+		if f != "-json" && f != "-test=false" && f != "-e" {
+			return nil, false, nil
+		}
+		firstPositional++
+	}
+	if hasDeps || !hasJSON {
+		return nil, false, nil
+	}
+
+	positionals := args[firstPositional:]
+	if len(positionals) == 0 {
+		return nil, false, nil
+	}
+
+	for _, p := range positionals {
+		if strings.HasPrefix(p, "-") {
+			return nil, false, nil
+		}
+	}
+
+	pkgs, err := loadModulePackages(t)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var buf bytes.Buffer
+	seen := make(map[string]bool)
+	for _, p := range positionals {
+		for _, pkg := range pkgs {
+			if matchesPattern(pkg, p) {
+				if !seen[pkg.importPath] {
+					seen[pkg.importPath] = true
+					buf.Write(pkg.raw)
+					buf.WriteByte('\n')
+				}
+			}
+		}
+	}
+	return buf.Bytes(), true, nil
 }
 
 func TestGoListCacheKeyCanonicalizesLeadingFlagsOnly(t *testing.T) {
@@ -59,6 +191,11 @@ func TestGoListCacheKeyCanonicalizesLeadingFlagsOnly(t *testing.T) {
 // and graph loading, which dominate this package's runtime on Windows.
 func cachedGoList(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
+
+	if out, ok, err := trySliceFromModuleCache(t, args); ok {
+		return out, err
+	}
+
 	key := goListCacheKey(args)
 
 	goListCacheMu.Lock()

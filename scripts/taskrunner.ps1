@@ -3,34 +3,39 @@ $ErrorActionPreference = "Stop"
 $TaskRunnerRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:TaskRunnerBinary = $null
 
-function Remove-TaskRunnerBinary {
-    if ($script:TaskRunnerBinary -and (Test-Path $script:TaskRunnerBinary)) {
-        Remove-Item -Force -ErrorAction SilentlyContinue $script:TaskRunnerBinary
-    }
-    $script:TaskRunnerBinary = $null
-}
-
-if ($env:LIP_TASKRUNNER_NO_CLEANUP -ne "1") {
-    Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { Remove-TaskRunnerBinary } | Out-Null
-}
-
 function Get-TaskRunnerBinary {
     if ($script:TaskRunnerBinary -and (Test-Path $script:TaskRunnerBinary)) {
         return $script:TaskRunnerBinary
     }
 
-    $name = "lip-taskrunner-{0}.exe" -f ([guid]::NewGuid().ToString("n"))
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) $name
-    Push-Location $TaskRunnerRoot
-    try {
-        # The helper is a local diagnostic executable; do not require repository
-        # VCS metadata merely to compile the process-tree boundary.
-        & go build -buildvcs=false -o $path ./tools/taskrunner/cmd/lip-taskrunner
-        if ($LASTEXITCODE -ne 0) {
-            throw "failed to build temporary lip-taskrunner (exit $LASTEXITCODE)"
+    $cacheDir = Join-Path ([System.IO.Path]::GetTempPath()) "golip-taskrunner"
+    if (-not (Test-Path $cacheDir)) {
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+    }
+    $path = Join-Path $cacheDir "lip-taskrunner.exe"
+
+    $needsBuild = $true
+    if (Test-Path $path) {
+        $binTime = (Get-Item $path).LastWriteTimeUtc
+        $srcDir = Join-Path $TaskRunnerRoot "tools/taskrunner"
+        $newestSrc = (Get-ChildItem -Path $srcDir -Recurse -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+        if ($newestSrc -and $binTime -gt $newestSrc.LastWriteTimeUtc) {
+            $needsBuild = $false
         }
-    } finally {
-        Pop-Location
+    }
+
+    if ($needsBuild) {
+        Push-Location $TaskRunnerRoot
+        try {
+            # The helper is a local diagnostic executable; do not require repository
+            # VCS metadata merely to compile the process-tree boundary.
+            & go build -buildvcs=false -o $path ./tools/taskrunner/cmd/lip-taskrunner
+            if ($LASTEXITCODE -ne 0) {
+                throw "failed to build temporary lip-taskrunner (exit $LASTEXITCODE)"
+            }
+        } finally {
+            Pop-Location
+        }
     }
     $script:TaskRunnerBinary = $path
     return $path

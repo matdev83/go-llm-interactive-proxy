@@ -104,20 +104,85 @@ function Run-Fuzz {
         @("FuzzDecodeLine", "./internal/product/protocol"), @("FuzzMapBridgeEvent", "./internal/product"),
         @("FuzzParseNDJSONLine", "./"), @("FuzzMapSessionUpdateToEvents", "./"), @("FuzzMergeHandshakeProfileExtensions", "./")
     )
-    foreach ($item in $fuzz) {
-        $cwd = $root
-        $env = @()
-        $package = $item[1]
-        if ($item[0] -in @("FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents", "FuzzMergeHandshakeProfileExtensions")) {
-            $cwd = Join-Path $root "connector-support/acp"
-            $env = @("GOWORK=off")
-            $package = "."
+    $runnerBinary = Get-TaskRunnerBinary
+    $concurrency = [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount))
+
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $concurrency, $sessionState, $Host)
+    $pool.Open()
+
+    $tasks = [System.Collections.Generic.List[PSObject]]::new()
+    try {
+        foreach ($item in $fuzz) {
+            $cwd = $root
+            $env = @()
+            $package = $item[1]
+            if ($item[0] -in @("FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents", "FuzzMergeHandshakeProfileExtensions")) {
+                $cwd = Join-Path $root "connector-support/acp"
+                $env = @("GOWORK=off")
+                $package = "."
+            }
+            elseif ($item[0] -in @("FuzzDecodeLine", "FuzzMapBridgeEvent")) {
+                $cwd = Join-Path $root "connectors/cursorsdk"
+                $env = @("GOWORK=off")
+            }
+
+            $ps = [System.Management.Automation.PowerShell]::Create()
+            $ps.RunspacePool = $pool
+            [void]$ps.AddScript({
+                param($runnerBinary, $label, $cwd, $envList, $cmdArgs)
+                $runnerArgs = @(
+                    "--label", $label,
+                    "--cwd", $cwd,
+                    "--timeout", "10m",
+                    "--output", "capture"
+                )
+                foreach ($e in $envList) {
+                    $runnerArgs += @("--env", $e)
+                }
+                $runnerArgs += "--"
+                $runnerArgs += $cmdArgs
+
+                $output = @(& $runnerBinary @runnerArgs 2>&1)
+                $exitCode = $LASTEXITCODE
+                return @{
+                    Label = $label
+                    ExitCode = $exitCode
+                    Output = $output
+                }
+            }).AddArgument($runnerBinary).AddArgument("test-fuzz:$($item[0])").AddArgument($cwd).AddArgument((@($localGoEnv) + @($env))).AddArgument(@("go", "test", "-fuzz=^$($item[0])$", "-fuzztime=$fuzzTime", "-run=^$", $package))
+
+            $asyncResult = $ps.BeginInvoke()
+            $tasks.Add([PSCustomObject]@{
+                PowerShell = $ps
+                AsyncResult = $asyncResult
+                Label = "test-fuzz:$($item[0])"
+            })
         }
-        elseif ($item[0] -in @("FuzzDecodeLine", "FuzzMapBridgeEvent")) {
-            $cwd = Join-Path $root "connectors/cursorsdk"
-            $env = @("GOWORK=off")
+
+        $failed = $false
+        foreach ($task in $tasks) {
+            $res = $task.PowerShell.EndInvoke($task.AsyncResult)
+            $task.PowerShell.Dispose()
+            if ($res) {
+                $exitCode = $res[0].ExitCode
+                $output = $res[0].Output
+                if ($exitCode -ne 0) {
+                    Write-Host "FAILED: $($task.Label) (exit $exitCode)" -ForegroundColor Red
+                    if ($output) { $output | ForEach-Object { Write-Host $_ -ForegroundColor Red } }
+                    $failed = $true
+                } else {
+                    Write-Host "PASS: $($task.Label)" -ForegroundColor Green
+                }
+            }
         }
-        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env (@($localGoEnv) + @($env)) -Command @("go", "test", "-fuzz=^$($item[0])$", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
+        if ($failed) {
+            throw "one or more fuzz tests failed"
+        }
+    }
+    finally {
+        $pool.Close()
+        $pool.Dispose()
     }
 }
 
