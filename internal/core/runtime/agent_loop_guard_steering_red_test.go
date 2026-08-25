@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopgate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // Point 1: Actionable CONTINUE invokes canonical SteeringStore/Writer Put exactly once
@@ -983,6 +984,58 @@ func TestAgentLoopGuard_Steering_DeactivationErrorHandling_FailClosed(t *testing
 		require.Error(t, err, "deactivation failure on unhandled hold must fail closed")
 		assert.Contains(t, err.Error(), "store deactivation timeout")
 	})
+
+	t.Run("close_deactivation_failure_fails_closed", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		require.NoError(t, err)
+		aLegRec, err := store.CreateALeg(context.Background(), "deact-fail-close-key")
+		require.NoError(t, err)
+		aLegID := aLegRec.ALegID
+
+		failingStore := &failingDeactivateStore{
+			Store:    store.ConversationViewStore(),
+			deactErr: errors.New("store deactivation failed during close"),
+		}
+
+		ex := TestExecutor()
+		ex.Store = store
+
+		rs := &retryRecvStream{
+			terminal: newTurnTerminal(),
+			facts: testRecvTurnFacts(recvTurnFacts{
+				baseline: lipapi.Call{
+					ID:         "deact-fail-close-call",
+					Route:      lipapi.RouteIntent{Selector: "openai:gpt-4"},
+					Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
+					Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming},
+				},
+				aLegID:  aLegID,
+				traceID: "trace-deact-fail-close",
+			}),
+			attempt: testAttemptSlot(b2bua.BLegRecord{BLegID: "b-deact-close-1", Seq: 1}, routing.AttemptCandidate{
+				Key:     "openai:gpt-4",
+				Primary: routing.Primary{Backend: "openai", Model: "gpt-4"},
+			}, authorityLifecycle{}),
+			responsePipeline: &responsePipeline{},
+		}
+		bindTestRuntimeOwners(rs, ex)
+		rs.terminal.steeringStore = failingStore
+
+		// Calling Close triggers closeClose -> terminalizeTurn (sole deactivation choke point).
+		require.NoError(t, rs.Close())
+		assert.Equal(t, 1, failingStore.deactivateCalls, "deactivate must be called exactly once without duplicate store I/O")
+		assert.True(t, rs.terminal.finished(), "terminal must be marked finished on Close")
+		out, ok := rs.terminal.requestTerminal().Owner().Outcome()
+		require.True(t, ok)
+		assert.Equal(t, sdkterminal.CommandClose, out.Command)
+		assert.NotEqual(t, sdkterminal.CommandNormalFinish, out.Command, "close terminal must not yield success NormalFinish")
+		attemptOut, ok := rs.attempt.snapshot().terminal.Owner().Outcome()
+		require.True(t, ok)
+		assert.Equal(t, sdkterminal.CommandClose, attemptOut.Command)
+		assert.NotEqual(t, sdkterminal.CommandNormalFinish, attemptOut.Command, "attempt terminal must not yield success NormalFinish")
+	})
 }
 
 // Point 8: Failure ordering when Put / Snapshot / Project / Open fails:
@@ -1275,10 +1328,12 @@ func TestAgentLoopGuard_Steering_StaleCleanupCallCountsAndIsolation(t *testing.T
 
 type failingDeactivateStore struct {
 	conversationview.Store
-	deactErr error
+	deactErr        error
+	deactivateCalls int
 }
 
 func (f *failingDeactivateStore) DeactivateSteering(ctx context.Context, aLegID string, overlayID string) (conversationview.SteeringState, error) {
+	f.deactivateCalls++
 	if f.deactErr != nil {
 		return conversationview.SteeringState{}, f.deactErr
 	}

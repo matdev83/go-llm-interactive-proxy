@@ -199,7 +199,6 @@ func ProjectItemsToLegacyView(call Call, target LegacyProjectionTarget) (LegacyP
 				Parts: []Part{{Kind: PartReasoning, Reasoning: cloneReasoningPart(item.Reasoning.Reasoning)}},
 			})
 		default:
-			inLeadingInstructions = false
 			return LegacyProjectionResult{}, projectionErr(ProjectionReasonUnsupportedItemKind, field, string(item.Kind))
 		}
 	}

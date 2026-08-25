@@ -393,7 +393,6 @@ func (t *turnTerminal) closeClose(ctx context.Context, request requestTerminalFa
 	if t == nil || p == nil || t.finished() {
 		return
 	}
-	t.deactivateGuardOverlay(ctx, request.aLegID)
 	snapshot := p.accumulatorSnapshot()
 	ev := t.makeBaseEvidence(request, attempt, p, &snapshot)
 	ev.Command = sdkterminal.CommandClose

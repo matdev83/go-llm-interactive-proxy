@@ -211,7 +211,7 @@ Parallel marker `(P)` is used only where the task owns distinct files/interfaces
     - _Depends on: 10.1, 10.2, 9.2, 8.3_
     - _Validation: all listed repository quality gates_
 
-- [ ] 11. Remediate canonical PR435 conversation-view steering integration
+- [x] 11. Remediate canonical PR435 conversation-view steering integration
   - [x] 11.1 (P) Add failing unit & contract tests for steering writer registration, anchor resolution, and snapshot isolation
     - Test `steering.Writer` registration on actionable `CONTINUE` using fixed `OverlayID("alg-rec")` within authoritative A-leg scope, message role `RoleDeveloper`, placement `AfterIngressTail`, anchor missing policy `FailClosed`, and reason `loop_guard_recovery`.
     - Test that `TrajectoryResolver` returns the accepted user ingress request call (`identityBoundTurn.ingressCall` or equivalent preserved ingress trajectory) plus committed snapshot, allowing `ResolveAfterIngressTailAnchor` to resolve `AfterIngressTail` to a fixed `MessageAnchor` on the terminal user message; assert that passing post-B1 calls ending in assistant output fails with `ErrTerminalNotUser`.
