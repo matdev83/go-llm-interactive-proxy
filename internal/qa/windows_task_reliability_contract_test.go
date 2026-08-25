@@ -208,13 +208,59 @@ func TestWindowsTaskReliability_DedicatedBackendSelectorsAreTaggedAndNonVacuous(
 func TestWindowsTaskReliability_FuzzAndParitySelectors(t *testing.T) {
 	t.Parallel()
 	makefile := readRepositoryFile(t, "Makefile")
-	for _, selector := range []string{
-		"FuzzJSONRoundTrip", "FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents",
-		"KillProcessTree_", "ProcessTree_CrossCompile", "TestParity_", "GOWORK=off",
-	} {
+
+	// Fuzz targets live in one canonical list (scripts/fuzz-targets.tsv)
+	// consumed by both platform routes; each row must be an exact Fuzz
+	// function selector so no route can expand into a fuzzy match.
+	tsv := readRepositoryFile(t, "scripts", "fuzz-targets.tsv")
+	tsvLines := strings.Split(strings.ReplaceAll(tsv, "\r\n", "\n"), "\n")
+	if len(tsvLines) == 0 || tsvLines[0] != "name\tpackage\tmodule" {
+		t.Fatal("scripts/fuzz-targets.tsv must start with the name/package/module header row")
+	}
+	seen := map[string]bool{}
+	for i, line := range tsvLines[1:] {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 3 {
+			t.Fatalf("fuzz target row %d is not three tab-separated fields: %q", i+2, line)
+		}
+		name, pkg, module := fields[0], fields[1], fields[2]
+		key := name + "|" + pkg + "|" + module
+		if seen[key] {
+			t.Errorf("duplicate fuzz target row %q", key)
+		}
+		seen[key] = true
+		if !strings.HasPrefix(name, "Fuzz") {
+			t.Errorf("fuzz target %q must be an exact Fuzz function selector", name)
+		}
+		if pkg != "." && !strings.HasPrefix(pkg, "./") {
+			t.Errorf("fuzz target %q package %q must be a rooted package pattern", name, pkg)
+		}
+		if module != "" {
+			if info, err := os.Stat(repositoryFile(t, filepath.FromSlash(module))); err != nil || !info.IsDir() {
+				t.Errorf("fuzz target %q references missing module directory %q", name, module)
+			}
+		}
+	}
+	for _, selector := range []string{"FuzzJSONRoundTrip", "FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents"} {
+		if !strings.Contains(tsv, selector+"\t") {
+			t.Errorf("approved fuzz selector %q is missing from scripts/fuzz-targets.tsv", selector)
+		}
+	}
+
+	// Parity batch selectors stay inline in the Makefile.
+	for _, selector := range []string{"KillProcessTree_", "ProcessTree_CrossCompile", "TestParity_", "GOWORK=off"} {
 		if !strings.Contains(makefile, selector) {
 			t.Errorf("approved selector %q is missing", selector)
 		}
+	}
+	if !strings.Contains(makefile, "scripts/fuzz-smoke.sh") {
+		t.Error("POSIX test-fuzz must delegate to scripts/fuzz-smoke.sh")
+	}
+	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), "fuzz-targets.tsv") {
+		t.Error("Windows test-fuzz must consume the canonical fuzz target list")
 	}
 	for _, forbidden := range []string{"cd ", "GOWORK=off ", "&&", "/dev/null"} {
 		if strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), forbidden) {
@@ -357,13 +403,29 @@ func TestWindowsTaskReliability_CallSiteAudit(t *testing.T) {
 	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), "-fuzztime=$fuzzTime") {
 		t.Fatal("windows fuzz route no longer uses a local FUZZTIME value")
 	}
-	for _, fuzzName := range []string{"FuzzParseSelector", "FuzzParseSelectorFromBytes", "FuzzSemanticExtensionValidation"} {
-		if !strings.Contains(readRepositoryFile(t, "Makefile"), "-fuzz=^"+fuzzName+"$$") {
-			t.Fatalf("Makefile fuzz target %s must use an exact fuzz-function selector", fuzzName)
+	// The POSIX fuzz smoke must route every target through the
+	// golang/go#75804-tolerant wrapper with an exact anchored selector and a
+	// local time budget; it must never shell out to bare `go test -fuzz`.
+	smokeLines := strings.Split(strings.ReplaceAll(readRepositoryFile(t, "scripts", "fuzz-smoke.sh"), "\r\n", "\n"), "\n")
+	var smokeCode strings.Builder
+	for _, line := range smokeLines {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			smokeCode.WriteString(line)
+			smokeCode.WriteString("\n")
 		}
 	}
-	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), `-fuzz=^$($item[0])$`) {
-		t.Fatal("Windows fuzz route must use an exact fuzz-function selector")
+	smoke := smokeCode.String()
+	if !strings.Contains(smoke, `bash "$script_dir/fuzz-run.sh"`) {
+		t.Fatal("scripts/fuzz-smoke.sh must route every fuzz invocation through the golang/go#75804-tolerant wrapper")
+	}
+	if strings.Contains(smoke, "go test -fuzz") {
+		t.Fatal("scripts/fuzz-smoke.sh must not bypass the wrapper with a bare 'go test -fuzz' call")
+	}
+	if !strings.Contains(smoke, `-fuzz="^${name}\$"`) || !strings.Contains(smoke, `-fuzztime="$fuzztime"`) {
+		t.Fatal("scripts/fuzz-smoke.sh must use an exact fuzz-function selector with a local FUZZTIME budget")
+	}
+	if !strings.Contains(readRepositoryFile(t, "scripts", "windows-task.ps1"), `-fuzz=^$($item.name)$`) {
+		t.Fatal("Windows fuzz route must use an exact fuzz-function selector from the canonical list")
 	}
 
 	prod := []string{

@@ -38,10 +38,15 @@ func TestCIIterationSpeed_LocalMakeGraphKeepsFastAndFullQualityContracts(t *test
 			t.Fatalf("Makefile missing local speed/coverage contract %q", needle)
 		}
 	}
-	if !strings.Contains(readRepositoryFile(t, "scripts", "test-staged.sh"), "go test -parallel=8 \"${pre_flags[@]}\" ./...") {
+	// The complete cached root graph is the invariant; the parallelism value
+	// intentionally tracks the machine (LIP_TEST_PARALLEL/core detection) so it
+	// is asserted as present rather than pinned to a fixed count.
+	stagedSh := readRepositoryFile(t, "scripts", "test-staged.sh")
+	if !strings.Contains(stagedSh, "\"${pre_flags[@]}\" ./...") || !strings.Contains(stagedSh, "-parallel=") {
 		t.Fatal("POSIX test-staged route must run the complete cached root graph")
 	}
-	if !strings.Contains(readRepositoryFile(t, "scripts", "test-staged.ps1"), "go test -parallel=8 @preFlags ./...") {
+	stagedPs1 := readRepositoryFile(t, "scripts", "test-staged.ps1")
+	if !strings.Contains(stagedPs1, "@preFlags ./...") || !strings.Contains(stagedPs1, "-parallel=") {
 		t.Fatal("Windows test-staged route must run the complete cached root graph")
 	}
 	for _, name := range []string{"scripts/quality-checks.sh", "scripts/quality-checks.ps1"} {

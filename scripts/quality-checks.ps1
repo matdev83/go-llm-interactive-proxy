@@ -5,6 +5,15 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
+# Test parallelism defaults to the machine's logical core count; override with
+# LIP_TEST_PARALLEL=<n> (mirrors GO_TEST_FLAGS in the Makefile and windows-task.ps1).
+$script:TestParallel = 0
+if (-not [int]::TryParse([string]$env:LIP_TEST_PARALLEL, [ref]$script:TestParallel) -or $script:TestParallel -lt 1) {
+    if (-not [int]::TryParse([string]$env:NUMBER_OF_PROCESSORS, [ref]$script:TestParallel) -or $script:TestParallel -lt 1) {
+        $script:TestParallel = 8
+    }
+}
+
 function Invoke-QualityChild {
     param([string]$Label, [string[]]$Command, [string[]]$Env = @(), [string]$Timeout = "2m")
     Invoke-TaskRunner -Label "quality-checks:$Label" -Cwd $RepositoryRoot -Timeout $Timeout -Env $Env -Command $Command | Out-Host
@@ -147,7 +156,7 @@ if ($env:LIP_SKIP_ARCHTEST -ne "1") {
     # Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
     # quality-checks archtest run shares Go's build/test cache with
     # subsequent `make test`/`make qa` executions (see #291).
-    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=8", "-timeout=10m", "./internal/archtest/...") }
+    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=$script:TestParallel", "-timeout=10m", "./internal/archtest/...") }
 }
 $runnerBinary = Get-TaskRunnerBinary
 $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()

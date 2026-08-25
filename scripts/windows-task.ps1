@@ -4,7 +4,18 @@ param(
 
 . "$PSScriptRoot/taskrunner.ps1"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$goTestFlags = @("-parallel=8", "-timeout=10m")
+
+# Test parallelism defaults to the machine's logical core count so t.Parallel-
+# heavy suites are not capped below available cores; override LIP_TEST_PARALLEL=<n>
+# (mirrors GO_TEST_FLAGS in the Makefile).
+function Get-TestParallel {
+    $value = 0
+    if ([int]::TryParse([string]$env:LIP_TEST_PARALLEL, [ref]$value) -and $value -ge 1) { return $value }
+    if ([int]::TryParse([string]$env:NUMBER_OF_PROCESSORS, [ref]$value) -and $value -ge 1) { return $value }
+    return 8
+}
+$testParallel = Get-TestParallel
+$goTestFlags = @("-parallel=$testParallel", "-timeout=10m")
 $localGoEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
 
 function Run-RootGoTest {
@@ -25,6 +36,101 @@ function Run-RootGoTestWithMatches {
         throw "$Label selector $Pattern matched zero tests in $Package"
     }
     Run-RootGoTest $Label $TestArgs $Env $Timeout
+}
+
+# Bounded-concurrency wrapper around Invoke-TaskRunner for independent batches
+# (nested modules, fuzz targets). Tasks are hashtables with Label/Cwd/Timeout/
+# Env/Command keys. All tasks run even when some fail; collected failures throw
+# at the end. Uses a runspace pool (lighter than Start-Job child processes and
+# Windows PowerShell 5.1 compatible) and one prebuilt lip-taskrunner binary
+# shared by every pooled invocation.
+function Invoke-PooledTaskRunner {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Tasks,
+        [Parameter(Mandatory = $true)][int]$MaxJobs
+    )
+
+    if ($Tasks.Count -eq 0) { return }
+
+    $runnerBinary = Get-TaskRunnerBinary
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, ([Math]::Max(1, $MaxJobs)), $sessionState, $Host)
+    $pool.Open()
+
+    $invocationScript = {
+        param($binaryPath, $task)
+        $runnerArgs = @(
+            "--label", $task.Label,
+            "--cwd", $task.Cwd,
+            "--timeout", $task.Timeout,
+            "--output", "capture"
+        )
+        foreach ($e in $task.Env) { $runnerArgs += @("--env", $e) }
+        $runnerArgs += "--"
+        $runnerArgs += $task.Command
+
+        $output = @(& $binaryPath @runnerArgs 2>&1)
+        return @{ ExitCode = $LASTEXITCODE; Output = $output }
+    }
+
+    $pending = [System.Collections.Generic.Queue[object]]::new()
+    foreach ($task in $Tasks) { $pending.Enqueue($task) }
+
+    $inFlight = [System.Collections.Generic.List[object]]::new()
+    $failedLabels = [System.Collections.Generic.List[string]]::new()
+
+    try {
+        while ($pending.Count -gt 0 -or $inFlight.Count -gt 0) {
+            while ($pending.Count -gt 0 -and $inFlight.Count -lt $MaxJobs) {
+                $task = $pending.Dequeue()
+                Write-Host "  started $($task.Label)"
+                $ps = [System.Management.Automation.PowerShell]::Create()
+                $ps.RunspacePool = $pool
+                [void]$ps.AddScript($invocationScript).AddArgument($runnerBinary).AddArgument($task)
+                $inFlight.Add([PSCustomObject]@{ PS = $ps; Label = $task.Label; Result = $ps.BeginInvoke() })
+            }
+
+            if ($inFlight.Count -eq 0) { break }
+
+            # Incremental drain: report each batch as it finishes instead of
+            # buffering everything until the whole pool completes.
+            $done = @($inFlight | Where-Object { $_.Result.IsCompleted })
+            if ($done.Count -eq 0) {
+                Start-Sleep -Milliseconds 200
+                continue
+            }
+            foreach ($entry in $done) {
+                $inFlight.Remove($entry) | Out-Null
+                $exitCode = 1
+                $output = @()
+                try {
+                    $res = $entry.PS.EndInvoke($entry.Result)
+                    if ($res -and $res.Count -gt 0) {
+                        $exitCode = [int]$res[0].ExitCode
+                        $output = $res[0].Output
+                    }
+                } catch {
+                    Write-Host ("ERROR {0}: {1}" -f $entry.Label, ($_ | Out-String).Trim()) -ForegroundColor Red
+                } finally {
+                    $entry.PS.Dispose()
+                }
+                Write-Host "--- $($entry.Label) ---"
+                foreach ($line in $output) { Write-Host $_ }
+                if ($exitCode -ne 0) {
+                    Write-Host "FAILED: $($entry.Label)" -ForegroundColor Red
+                    $failedLabels.Add($entry.Label)
+                }
+            }
+        }
+    } finally {
+        foreach ($entry in $inFlight) { try { $entry.PS.Dispose() } catch { } }
+        $pool.Close()
+        $pool.Dispose()
+    }
+
+    if ($failedLabels.Count -gt 0) {
+        throw ("pooled tasks failed ({0}): {1}" -f $failedLabels.Count, ($failedLabels -join ", "))
+    }
 }
 
 function Run-Parity {
@@ -77,74 +183,21 @@ function Run-NestedGoTestsInParallel {
         [Parameter(Mandatory = $true)][array]$Items,
         [string]$Timeout = "15m"
     )
-    $runnerBinary = Get-TaskRunnerBinary
-    $concurrency = [Math]::Max(2, [Math]::Min(6, $Items.Count))
-
-    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $concurrency, $sessionState, $Host)
-    $pool.Open()
-
-    $tasks = [System.Collections.Generic.List[PSObject]]::new()
-    try {
-        foreach ($item in $Items) {
-            $label = $item.Label
-            $dir = Join-Path $root $item.Directory
-            $cmdArgs = @("go", "test") + $item.TestArgs + @("./...")
-
-            $ps = [System.Management.Automation.PowerShell]::Create()
-            $ps.RunspacePool = $pool
-            [void]$ps.AddScript({
-                param($runnerBinary, $label, $cwd, $timeout, $envList, $cmdArgs)
-                $runnerArgs = @(
-                    "--label", $label,
-                    "--cwd", $cwd,
-                    "--timeout", $timeout,
-                    "--output", "capture"
-                )
-                foreach ($e in $envList) {
-                    $runnerArgs += @("--env", $e)
-                }
-                $runnerArgs += "--"
-                $runnerArgs += $cmdArgs
-
-                $output = @(& $runnerBinary @runnerArgs 2>&1)
-                $exitCode = $LASTEXITCODE
-                return @{
-                    Label = $label
-                    ExitCode = $exitCode
-                    Output = $output
-                }
-            }).AddArgument($runnerBinary).AddArgument($label).AddArgument($dir).AddArgument($Timeout).AddArgument((@($localGoEnv) + @("GOWORK=off"))).AddArgument($cmdArgs)
-
-            $asyncResult = $ps.BeginInvoke()
-            $tasks.Add([PSCustomObject]@{
-                PowerShell = $ps
-                AsyncResult = $asyncResult
-                Label = $label
-            })
-        }
-
-        $failed = $false
-        foreach ($task in $tasks) {
-            $res = $task.PowerShell.EndInvoke($task.AsyncResult)
-            $task.PowerShell.Dispose()
-            if ($res) {
-                $exitCode = $res[0].ExitCode
-                $output = $res[0].Output
-                if ($output) { $output | ForEach-Object { Write-Host $_ } }
-                if ($exitCode -ne 0) {
-                    $failed = $true
-                }
-            }
-        }
-        if ($failed) {
-            throw "one or more nested module tests failed"
+    $tasks = @()
+    foreach ($item in $Items) {
+        $tasks += @{
+            Label   = $item.Label
+            Cwd     = (Join-Path $root ($item.Directory -replace '/', '\'))
+            Timeout = $Timeout
+            Env     = (@($localGoEnv) + @("GOWORK=off"))
+            Command = (@("go", "test") + @($item.TestArgs) + @("./..."))
         }
     }
-    finally {
-        $pool.Close()
-        $pool.Dispose()
-    }
+    # Cap concurrent module batches: each batch itself fans out to
+    # -parallel=$testParallel goroutines internally, so a larger pool would
+    # oversubscribe the machine.
+    $maxJobs = [Math]::Min(4, [Math]::Max(2, $Items.Count))
+    Invoke-PooledTaskRunner -Tasks $tasks -MaxJobs $maxJobs
 }
 
 function Run-LocalCompatibleModules {
@@ -157,111 +210,42 @@ function Run-LocalCompatibleModules {
 }
 
 function Run-Fuzz {
+    # Canonical target list shared with the POSIX runner (scripts/fuzz-smoke.sh).
+    $targetsPath = Join-Path $PSScriptRoot "fuzz-targets.tsv"
+    if (-not (Test-Path -LiteralPath $targetsPath)) { throw "fuzz target list not found: $targetsPath" }
+    $targets = @(Import-Csv -LiteralPath $targetsPath -Delimiter "`t" | Where-Object { $_.name })
+    if ($targets.Count -eq 0) { throw "fuzz target list is empty: $targetsPath" }
+
     $fuzzTime = if ($env:FUZZTIME) { $env:FUZZTIME } else { "500ms" }
-    $fuzz = @(
-        @("FuzzJSONRoundTrip", "./internal/testkit"), @("FuzzParseSnapshot", "./internal/infra/modelcatalog/modelsdev"),
-        @("FuzzParseSelector", "./internal/core/routing"), @("FuzzParseSelectorFromBytes", "./internal/core/routing"),
-        @("FuzzDecodeCreateRequest", "./internal/plugins/frontends/openairesponses"), @("FuzzDecodeMessageRequest", "./internal/plugins/frontends/anthropic"),
-        @("FuzzDecodeGenerateContentRequest", "./internal/plugins/frontends/gemini"), @("FuzzDecodeChatRequest", "./internal/plugins/frontends/openailegacy"),
-        @("FuzzWriteNonStreamJSON_toolArguments", "./internal/plugins/frontends/anthropic"), @("FuzzBuildGenerateContentResponse_toolJSON", "./internal/plugins/frontends/gemini"),
-        @("FuzzCallValidateJSON", "./pkg/lipapi"), @("FuzzSemanticExtensionValidation", "./pkg/lipapi"), @("FuzzMergeRouteQueryGenerationOptions", "./pkg/lipapi"), @("FuzzCollectWithLimitsProgram", "./pkg/lipapi"),
-        @("FuzzStableCallIdentity", "./internal/core/diag"), @("FuzzParamsForCall", "./internal/plugins/backends/openairesponses"),
-        @("FuzzHandleResponseStreamUnion", "./internal/plugins/backends/openairesponses"), @("FuzzBuildToolsParametersJSON", "./internal/plugins/backends/openairesponses"),
-        @("FuzzHandleMessageStreamEventUnion", "./internal/plugins/backends/protocols/anthropicmessages"), @("FuzzToolInputSchemaParametersJSON", "./internal/plugins/backends/protocols/anthropicmessages"),
-        @("FuzzHandleChatCompletionChunk", "./internal/plugins/backends/openailegacy"), @("FuzzBuildChatToolsParametersJSON", "./internal/plugins/backends/openailegacy"),
-        @("FuzzHandleGenerateContentResponse", "./internal/plugins/backends/protocols/geminigenerate"), @("FuzzBuildToolsParametersJSON", "./internal/plugins/backends/protocols/geminigenerate"),
-        @("FuzzMessageToContentToolResultJSON", "./internal/plugins/backends/protocols/geminigenerate"), @("FuzzAssistantPartsToContentBlocksJSON", "./internal/plugins/backends/bedrock"),
-        @("FuzzHookMutationValidators", "./internal/core/hooks"), @("FuzzManifest", "./internal/infra/backendplugins/manifest"), @("FuzzServerFrame", "./pkg/lipsdk/backendplugin"),
-        @("FuzzAcceptClientUserAgent", "./internal/core/identity"), @("FuzzAcceptClientAppURL", "./internal/core/identity"), @("FuzzAcceptClientAppTitle", "./internal/core/identity"),
-        @("FuzzValidateIdentityYAML", "./internal/core/identity"), @("FuzzCaptureClientUserAgent", "./internal/plugins/frontends/identitywire"),
-        @("FuzzCompleteJSONSuffix", "./internal/core/toolcallrepair"), @("FuzzSchemaPreScanCompile", "./internal/core/toolcallrepair"), @("FuzzEngineRepair", "./internal/core/toolcallrepair"),
-        @("FuzzComputeAnchor", "./internal/plugins/features/reasoningpreservation"), @("FuzzDecodeConfig", "./internal/plugins/features/reasoningpreservation"),
-        @("FuzzLeaseSet_OccupiesCapacity", "./internal/core/concurrencyauthority/domain"), @("FuzzIsAmbiguousRenewError", "./internal/core/concurrencyauthority/app"),
-        @("FuzzWorkItem_TransitionSequence", "./internal/core/terminalwork"), @("FuzzOwner_CommandSequences", "./internal/core/terminal"), @("FuzzParseDecimalToNano", "./pkg/lipsdk/economics"),
-        @("FuzzPhase32_SourceEventKey_DelimiterSafety", "./pkg/lipsdk/metering"), @("FuzzPhase32_MoneyPresentCurrency", "./pkg/lipsdk/metering"),
-        @("FuzzDecodeLine", "./internal/product/protocol"), @("FuzzMapBridgeEvent", "./internal/product"),
-        @("FuzzParseNDJSONLine", "./"), @("FuzzMapSessionUpdateToEvents", "./"), @("FuzzMergeHandshakeProfileExtensions", "./")
-    )
-    $runnerBinary = Get-TaskRunnerBinary
-    $concurrency = [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount))
+    $jobsAllowed = [math]::Floor($testParallel / 2)
+    if ($jobsAllowed -lt 2) { $jobsAllowed = 2 }
+    if ($jobsAllowed -gt 8) { $jobsAllowed = 8 }
+    if ($env:LIP_FUZZ_JOBS -match '^\d+$' -and [int]$env:LIP_FUZZ_JOBS -ge 1) { $jobsAllowed = [int]$env:LIP_FUZZ_JOBS }
 
-    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $concurrency, $sessionState, $Host)
-    $pool.Open()
+    # The pool already occupies the machine with concurrent targets, so each
+    # fuzz process gets a small worker slice instead of the GOMAXPROCS default.
+    $workerParallel = 2
 
-    $tasks = [System.Collections.Generic.List[PSObject]]::new()
-    try {
-        foreach ($item in $fuzz) {
-            $cwd = $root
-            $env = @()
-            $package = $item[1]
-            if ($item[0] -in @("FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents", "FuzzMergeHandshakeProfileExtensions")) {
-                $cwd = Join-Path $root "connector-support/acp"
-                $env = @("GOWORK=off")
-                $package = "."
-            }
-            elseif ($item[0] -in @("FuzzDecodeLine", "FuzzMapBridgeEvent")) {
-                $cwd = Join-Path $root "connectors/cursorsdk"
-                $env = @("GOWORK=off")
-            }
+    Write-Host "Fuzz smoke (FUZZTIME=$fuzzTime): $jobsAllowed concurrent targets x $workerParallel workers each"
 
-            $ps = [System.Management.Automation.PowerShell]::Create()
-            $ps.RunspacePool = $pool
-            [void]$ps.AddScript({
-                param($runnerBinary, $label, $cwd, $envList, $cmdArgs)
-                $runnerArgs = @(
-                    "--label", $label,
-                    "--cwd", $cwd,
-                    "--timeout", "10m",
-                    "--output", "capture"
-                )
-                foreach ($e in $envList) {
-                    $runnerArgs += @("--env", $e)
-                }
-                $runnerArgs += "--"
-                $runnerArgs += $cmdArgs
-
-                $output = @(& $runnerBinary @runnerArgs 2>&1)
-                $exitCode = $LASTEXITCODE
-                return @{
-                    Label = $label
-                    ExitCode = $exitCode
-                    Output = $output
-                }
-            }).AddArgument($runnerBinary).AddArgument("test-fuzz:$($item[0])").AddArgument($cwd).AddArgument((@($localGoEnv) + @($env))).AddArgument(@("go", "test", "-fuzz=^$($item[0])$", "-fuzztime=$fuzzTime", "-run=^$", $package))
-
-            $asyncResult = $ps.BeginInvoke()
-            $tasks.Add([PSCustomObject]@{
-                PowerShell = $ps
-                AsyncResult = $asyncResult
-                Label = "test-fuzz:$($item[0])"
-            })
+    $tasks = @()
+    foreach ($item in $targets) {
+        $cwd = $root
+        $taskEnv = @()
+        if ($item.module) {
+            $cwd = Join-Path $root ($item.module -replace '/', '\')
+            $taskEnv = @("GOWORK=off")
         }
-
-        $failed = $false
-        foreach ($task in $tasks) {
-            $res = $task.PowerShell.EndInvoke($task.AsyncResult)
-            $task.PowerShell.Dispose()
-            if ($res) {
-                $exitCode = $res[0].ExitCode
-                $output = $res[0].Output
-                if ($exitCode -ne 0) {
-                    Write-Host "FAILED: $($task.Label) (exit $exitCode)" -ForegroundColor Red
-                    if ($output) { $output | ForEach-Object { Write-Host $_ -ForegroundColor Red } }
-                    $failed = $true
-                } else {
-                    Write-Host "PASS: $($task.Label)" -ForegroundColor Green
-                }
-            }
-        }
-        if ($failed) {
-            throw "one or more fuzz tests failed"
+        $tasks += @{
+            Label   = "test-fuzz:$($item.name)"
+            Cwd     = $cwd
+            Timeout = "10m"
+            Env     = (@($localGoEnv) + @($taskEnv))
+            Command = @("go", "test", "-fuzz=^$($item.name)$", "-fuzztime=$fuzzTime", "-run=^$", "-parallel=$workerParallel", $item.package)
         }
     }
-    finally {
-        $pool.Close()
-        $pool.Dispose()
-    }
+
+    Invoke-PooledTaskRunner -Tasks $tasks -MaxJobs $jobsAllowed
 }
 
 switch -Regex ($Target) {
@@ -278,9 +262,13 @@ switch -Regex ($Target) {
     }
     "^test-fuzz$" { Run-Fuzz; break }
     "^parity-checks$" {
-        Run-RootGoTest "parity-checks:contract" (@($goTestFlags) + @("./internal/testkit/contract/..."))
-        Run-RootGoTest "parity-checks:profiles" (@($goTestFlags) + @("./internal/providerprofiles/..."))
-        Run-RootGoTest "parity-checks:connector-contract" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/contracttest/..."))
+        # The three identically-flagged root contract batches run as one go
+        # test invocation: single tool startup plus cross-package pipelining.
+        Run-RootGoTest "parity-checks:contract-tcks" (@($goTestFlags) + @(
+                "./internal/testkit/contract/...",
+                "./internal/providerprofiles/...",
+                "./pkg/lipsdk/backendplugin/contracttest/..."
+            ))
         Run-RootGoTest "parity-checks:conformance" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/testkit/conformance/..."))
         Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity"))
 

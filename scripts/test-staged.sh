@@ -21,5 +21,9 @@ echo ""
 # Deliberately omit -count=1. Go can reuse both package builds and successful
 # test results, while ./... catches downstream packages that staged-only
 # selection would miss after a shared-package change.
-go test -parallel=8 "${pre_flags[@]}" ./...
+test_parallel="${LIP_TEST_PARALLEL:-}"
+if [ -z "$test_parallel" ]; then
+	test_parallel=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+fi
+go test "-parallel=$test_parallel" "${pre_flags[@]}" ./...
 exit $?

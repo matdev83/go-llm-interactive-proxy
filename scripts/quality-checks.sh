@@ -4,6 +4,13 @@
 
 set -euo pipefail
 
+# Test parallelism defaults to the machine's logical core count; override with
+# LIP_TEST_PARALLEL=<n> (mirrors GO_TEST_FLAGS in the Makefile).
+test_parallel="${LIP_TEST_PARALLEL:-}"
+if [ -z "$test_parallel" ]; then
+	test_parallel=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+fi
+
 under_nested_go_module() {
 	local file="$1"
 	local dir parent
@@ -177,7 +184,7 @@ if [ "${LIP_SKIP_ARCHTEST:-}" != "1" ]; then
 	# Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
 	# quality-checks archtest run shares Go's build/test cache with
 	# subsequent `make test`/`make qa` executions (see #291).
-	run_guard archtest go test -parallel=8 -timeout=10m ./internal/archtest/...
+	run_guard archtest go test "-parallel=$test_parallel" -timeout=10m ./internal/archtest/...
 fi
 
 status=0
