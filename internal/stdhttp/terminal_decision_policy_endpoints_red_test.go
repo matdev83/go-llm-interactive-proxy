@@ -296,8 +296,8 @@ func TestTerminalDecisionPolicyEndpoints_ErrorMatrixAndNoMutation_RED(t *testing
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			h := newEndpointHarness(t, 2)
 			if tc.configure != nil {
 				tc.configure(h)

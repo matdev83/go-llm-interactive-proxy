@@ -207,6 +207,7 @@ func TestFeatureBundle_ValidateTerminalDecisionProvider(t *testing.T) {
 	}
 	for name, provider := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			b := feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1, TerminalDecisionProvider: provider}
 			err := b.Validate()
 			if name == "nil" {
@@ -230,11 +231,11 @@ func TestFeatureBundle_ValidateTerminalDecisionProvider(t *testing.T) {
 
 func TestFeatureBundleTerminalDecisionContributionIsSingular(t *testing.T) {
 	t.Parallel()
-	field, ok := reflect.TypeOf(feature.FeatureBundle{}).FieldByName("TerminalDecisionProvider")
+	field, ok := reflect.TypeFor[feature.FeatureBundle]().FieldByName("TerminalDecisionProvider")
 	if !ok {
 		t.Fatal("FeatureBundle is missing TerminalDecisionProvider")
 	}
-	want := reflect.TypeOf((*terminaldecision.Provider)(nil)).Elem()
+	want := reflect.TypeFor[terminaldecision.Provider]()
 	if field.Type != want {
 		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
 	}

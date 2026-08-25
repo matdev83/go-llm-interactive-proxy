@@ -17,7 +17,6 @@ func TestProviderReturnsOnlyBoundedAllowStopOrContinue(t *testing.T) {
 	t.Parallel()
 
 	provider := NewProvider()
-	var _ terminaldecision.Provider = provider
 	if _, err := terminaldecision.ProviderIdentity(provider); err != nil {
 		t.Fatalf("provider identity is not bounded: %v", err)
 	}
@@ -30,7 +29,6 @@ func TestProviderReturnsOnlyBoundedAllowStopOrContinue(t *testing.T) {
 		terminaldecision.CandidateCauseCancellation,
 	}
 	for _, cause := range cases {
-		cause := cause
 		t.Run(string(cause), func(t *testing.T) {
 			t.Parallel()
 			decision, err := provider.Decide(context.Background(), algInput(cause))
@@ -81,6 +79,7 @@ func TestProviderSurfaceExposesNoPlatformAuthority(t *testing.T) {
 }
 
 func TestProviderActionableEvidenceReturnsBoundedContinuation(t *testing.T) {
+	t.Parallel()
 	provider := NewProvider()
 	in := algInput(terminaldecision.CandidateCauseNormal)
 	in.Candidate.OutputCommitted = true
@@ -105,6 +104,7 @@ func TestProviderActionableEvidenceReturnsBoundedContinuation(t *testing.T) {
 }
 
 func TestProviderConservativelyAllowsStopForUnsafeOrInsufficientEvidence(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(*terminaldecision.Input){
 		"authoritative cancellation": func(in *terminaldecision.Input) {
 			in.Candidate.Cause = terminaldecision.CandidateCauseCancellation
@@ -128,8 +128,8 @@ func TestProviderConservativelyAllowsStopForUnsafeOrInsufficientEvidence(t *test
 		},
 	}
 	for name, mutate := range cases {
-		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			provider := NewProvider()
 			in := algInput(terminaldecision.CandidateCauseNormal)
 			mutate(&in)
@@ -148,6 +148,7 @@ func TestProviderConservativelyAllowsStopForUnsafeOrInsufficientEvidence(t *test
 }
 
 func TestProviderCanceledContextAllowsStop(t *testing.T) {
+	t.Parallel()
 	provider := NewProvider()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

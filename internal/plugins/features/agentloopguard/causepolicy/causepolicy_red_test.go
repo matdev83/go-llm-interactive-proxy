@@ -9,6 +9,7 @@ import (
 )
 
 func TestEvaluateCanonicalCausePolicy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		input           terminaldecision.Input
@@ -95,6 +96,7 @@ func TestEvaluateCanonicalCausePolicy(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			got := Evaluate(test.input)
 			if got.Eligibility != test.wantEligibility || got.Reason != test.wantReason {
 				t.Fatalf("Evaluate() = %+v, want eligibility %q reason %q", got, test.wantEligibility, test.wantReason)

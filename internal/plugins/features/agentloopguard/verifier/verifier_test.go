@@ -36,6 +36,7 @@ func collectedText(value string) lipapi.Collected {
 }
 
 func TestVerifierBuildsBoundedDetachedPrivateRequest(t *testing.T) {
+	t.Parallel()
 	collector := &fakeCollector{}
 	verifier := New(collector, Config{Role: "semantic-check", Timeout: time.Minute})
 
@@ -80,6 +81,7 @@ func TestVerifierBuildsBoundedDetachedPrivateRequest(t *testing.T) {
 }
 
 func TestParseAcceptsStrictVerdictKinds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		raw  string
@@ -91,6 +93,7 @@ func TestParseAcceptsStrictVerdictKinds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			verdict, err := Parse(tc.raw)
 			if err != nil {
 				t.Fatalf("Parse() error = %v", err)
@@ -103,6 +106,7 @@ func TestParseAcceptsStrictVerdictKinds(t *testing.T) {
 }
 
 func TestParseRejectsMalformedOrUnboundedResponses(t *testing.T) {
+	t.Parallel()
 	const secret = "verifier-secret"
 	cases := map[string]string{
 		"leading prose":        `prefix {"kind":"COMPLETE"}`,
@@ -117,6 +121,7 @@ func TestParseRejectsMalformedOrUnboundedResponses(t *testing.T) {
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			_, err := Parse(raw)
 			if err == nil {
 				t.Fatal("Parse() unexpectedly accepted malformed response")
@@ -133,6 +138,7 @@ func TestParseRejectsMalformedOrUnboundedResponses(t *testing.T) {
 }
 
 func TestParseBoundsReasonAndObjectiveWithoutChainOfThought(t *testing.T) {
+	t.Parallel()
 	raw := `{"kind":"INCOMPLETE","reason":"` + strings.Repeat("r", MaxReasonBytes+100) + `","objective":"` + strings.Repeat("o", MaxObjectiveBytes+100) + `"}`
 	verdict, err := Parse(raw)
 	if err != nil {
@@ -144,6 +150,7 @@ func TestParseBoundsReasonAndObjectiveWithoutChainOfThought(t *testing.T) {
 }
 
 func TestVerifierErrorsAndTimeoutsBecomeUncertain(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(context.Context, auxiliary.Request) (lipapi.Collected, error){
 		"transport error": func(_ context.Context, _ auxiliary.Request) (lipapi.Collected, error) {
 			return lipapi.Collected{}, errors.New("transport detail")
@@ -158,6 +165,7 @@ func TestVerifierErrorsAndTimeoutsBecomeUncertain(t *testing.T) {
 	}
 	for name, collect := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			collector := &fakeCollector{collect: collect}
 			verifier := New(collector, Config{Timeout: time.Millisecond})
 			verdict, err := verifier.Verify(context.Background(), validInput())
@@ -172,6 +180,7 @@ func TestVerifierErrorsAndTimeoutsBecomeUncertain(t *testing.T) {
 }
 
 func TestVerifierCanceledContextDoesNotCallCollector(t *testing.T) {
+	t.Parallel()
 	collector := &fakeCollector{}
 	verifier := New(collector, Config{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -187,6 +196,7 @@ func TestVerifierCanceledContextDoesNotCallCollector(t *testing.T) {
 }
 
 func TestVerifierInvalidInputDoesNotCallCollector(t *testing.T) {
+	t.Parallel()
 	collector := &fakeCollector{}
 	verifier := New(collector, Config{})
 	in := validInput()

@@ -15,8 +15,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
-const continuationOverlayID = "terminal-decision-continuation"
-const continuationPendingReason = "terminal_decision_continuation_pending"
+const (
+	continuationOverlayID     = "terminal-decision-continuation"
+	continuationPendingReason = "terminal_decision_continuation_pending"
+)
 
 // runContinuationTransaction is the single publication boundary for a
 // semantic continuation. All fallible B2 work happens while B1 remains the

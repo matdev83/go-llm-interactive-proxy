@@ -77,8 +77,12 @@ func TestTerminalDecisionObservationIsBoundedAndPrivate(t *testing.T) {
 			t.Fatalf("observation leaked %q: %#v", secret, record)
 		}
 	}
-	if len(record.attrs["reason_code"].(string)) > terminaldecision.MaxReasonCodeBytes {
-		t.Fatalf("reason code exceeded bound: %d", len(record.attrs["reason_code"].(string)))
+	reasonCode, ok := record.attrs["reason_code"].(string)
+	if !ok {
+		t.Fatalf("reason code is not string: %#v", record.attrs["reason_code"])
+	}
+	if len(reasonCode) > terminaldecision.MaxReasonCodeBytes {
+		t.Fatalf("reason code exceeded bound: %d", len(reasonCode))
 	}
 }
 
@@ -200,10 +204,18 @@ func TestTerminalDecisionObservationCoversNormalizedOutcomes(t *testing.T) {
 			if record.attrs["reason_code"] != tc.wantReason {
 				t.Fatalf("reason code = %#v, want %q", record.attrs["reason_code"], tc.wantReason)
 			}
-			if len(record.attrs["candidate_cause"].(string)) > terminaldecision.MaxReasonCodeBytes {
+			candidateCause, ok := record.attrs["candidate_cause"].(string)
+			if !ok {
+				t.Fatalf("candidate cause is not string: %#v", record.attrs["candidate_cause"])
+			}
+			if len(candidateCause) > terminaldecision.MaxReasonCodeBytes {
 				t.Fatalf("candidate cause exceeded bound")
 			}
-			if len(record.attrs["reason_code"].(string)) > terminaldecision.MaxReasonCodeBytes {
+			reasonCode, ok := record.attrs["reason_code"].(string)
+			if !ok {
+				t.Fatalf("reason code is not string: %#v", record.attrs["reason_code"])
+			}
+			if len(reasonCode) > terminaldecision.MaxReasonCodeBytes {
 				t.Fatalf("reason code exceeded bound")
 			}
 			if record.contains(attackerReason) {

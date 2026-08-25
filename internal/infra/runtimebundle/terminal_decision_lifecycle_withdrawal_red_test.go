@@ -142,6 +142,8 @@ func TestTerminalDecisionLifecycle_WithdrawalQuiescesDrainsAndClosesBeforeProces
 	}
 }
 
-var _ runtimehost.PublishedRequestPlane = (*terminalDecisionWithdrawalPlane)(nil)
-var _ runtimehost.QuiesceCloser = (*terminalDecisionWithdrawalPlane)(nil)
-var _ runtimehost.OwnedCloser = (*terminalDecisionWithdrawalPlane)(nil)
+var (
+	_ runtimehost.PublishedRequestPlane = (*terminalDecisionWithdrawalPlane)(nil)
+	_ runtimehost.QuiesceCloser         = (*terminalDecisionWithdrawalPlane)(nil)
+	_ runtimehost.OwnedCloser           = (*terminalDecisionWithdrawalPlane)(nil)
+)

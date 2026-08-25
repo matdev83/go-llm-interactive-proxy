@@ -86,8 +86,8 @@ func TestDecodeConfig_EnabledRejectsInvalidProviderSettings(t *testing.T) {
 		{name: "no-progress exceeds bound", raw: "no_progress_limit: 65\n", want: "no_progress_limit"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var node yaml.Node
 			if err := yaml.Unmarshal([]byte(tc.raw), &node); err != nil {
 				t.Fatal(err)
@@ -111,7 +111,10 @@ func TestConfiguredProviderRetainsVerifierAndProgressSettings(t *testing.T) {
 		NoProgressLimit:          4,
 		ExplicitCompletionPolicy: ExplicitCompletionPolicyVerify,
 	}
-	got := NewProvider(configured).(provider)
+	got, ok := NewProvider(configured).(provider)
+	if !ok {
+		t.Fatalf("unexpected provider type %T", NewProvider(configured))
+	}
 	if got.cfg.VerifierRole != configured.VerifierRole || got.cfg.VerifierTimeoutSeconds != configured.VerifierTimeoutSeconds || got.cfg.VerifierTimeout != 8*time.Second || got.cfg.MaxSemanticContinuations != configured.MaxSemanticContinuations || got.cfg.NoProgressLimit != configured.NoProgressLimit || got.cfg.ExplicitCompletionPolicy != configured.ExplicitCompletionPolicy {
 		t.Fatalf("provider config=%+v, want %+v", got.cfg, configured)
 	}

@@ -11,6 +11,7 @@ import (
 )
 
 func TestFingerprintIgnoresVolatileIdentityAndAttemptFields(t *testing.T) {
+	t.Parallel()
 	base := progressInput()
 	want := Fingerprint(base, VerdictIncomplete)
 
@@ -39,6 +40,7 @@ func TestFingerprintIgnoresVolatileIdentityAndAttemptFields(t *testing.T) {
 }
 
 func TestFingerprintChangesMaterialOutputActionObjectiveAndVerdict(t *testing.T) {
+	t.Parallel()
 	base := progressInput()
 	want := Fingerprint(base, VerdictIncomplete)
 	cases := map[string]func(*terminaldecision.Input){
@@ -62,6 +64,7 @@ func TestFingerprintChangesMaterialOutputActionObjectiveAndVerdict(t *testing.T)
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			in := base
 			mutate(&in)
 			if got := Fingerprint(in, VerdictIncomplete); got == want {
@@ -75,6 +78,7 @@ func TestFingerprintChangesMaterialOutputActionObjectiveAndVerdict(t *testing.T)
 }
 
 func TestEvaluateEquivalentProgressTripsNoProgressWithoutResettingBudget(t *testing.T) {
+	t.Parallel()
 	input := progressInput()
 	input.Policy.MaxContinuationAttempts = 4
 	cfg := Config{NoProgressLimit: 2}
@@ -108,6 +112,7 @@ func TestEvaluateEquivalentProgressTripsNoProgressWithoutResettingBudget(t *test
 }
 
 func TestEvaluateNewProgressResetsOnlyConsecutiveCounter(t *testing.T) {
+	t.Parallel()
 	input := progressInput()
 	input.Policy.MaxContinuationAttempts = 4
 	cfg := Config{NoProgressLimit: 2}
@@ -140,9 +145,10 @@ func TestEvaluateNewProgressResetsOnlyConsecutiveCounter(t *testing.T) {
 }
 
 func TestEvaluateStopsForCompleteUserDependentAndUncertainVerdicts(t *testing.T) {
+	t.Parallel()
 	for _, verdict := range []Verdict{VerdictComplete, VerdictNeedsUser, VerdictUncertain} {
-		verdict := verdict
 		t.Run(string(verdict), func(t *testing.T) {
+			t.Parallel()
 			result, err := Evaluate(progressInput(), verdict, State{}, Config{})
 			if err != nil {
 				t.Fatalf("Evaluate() error = %v", err)
@@ -158,6 +164,7 @@ func TestEvaluateStopsForCompleteUserDependentAndUncertainVerdicts(t *testing.T)
 }
 
 func TestBuildIntentIsBoundedAndExplicitlyInternal(t *testing.T) {
+	t.Parallel()
 	in := progressInput()
 	in.Evidence.Objective = strings.Repeat("objective ", 300)
 	intent, ok := BuildIntent(in, VerdictIncomplete, strings.Repeat("reason ", 300))
@@ -192,6 +199,7 @@ func TestBuildIntentIsBoundedAndExplicitlyInternal(t *testing.T) {
 }
 
 func TestBuildIntentStopsWhenNoSafePointOrUserDependent(t *testing.T) {
+	t.Parallel()
 	noTrajectory := progressInput()
 	noTrajectory.Evidence.Lineage.TrajectoryRef = ""
 	noTrajectory.Continuation.TrajectoryRef = ""
@@ -207,6 +215,7 @@ func TestBuildIntentStopsWhenNoSafePointOrUserDependent(t *testing.T) {
 }
 
 func TestEvaluateInvalidInputFailsClosed(t *testing.T) {
+	t.Parallel()
 	in := progressInput()
 	in.Request.RequestID = ""
 	result, err := Evaluate(in, VerdictIncomplete, State{}, Config{})

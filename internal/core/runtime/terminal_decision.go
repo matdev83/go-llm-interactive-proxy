@@ -166,7 +166,7 @@ func evaluateTerminalDecisionWithLogger(ctx context.Context, provider terminalde
 		providerLabel = terminalDecisionObservationProviderBypass
 	}
 	defer func() {
-		emitTerminalDecisionObservation(observationLogger, ctx, input, providerLabel, out)
+		emitTerminalDecisionObservation(ctx, observationLogger, input, providerLabel, out)
 	}()
 	if provider == nil {
 		return out
@@ -275,7 +275,7 @@ const (
 	terminalDecisionObservationUnknown         = "unknown"
 )
 
-func emitTerminalDecisionObservation(logger *slog.Logger, ctx context.Context, input terminaldecision.Input, providerID string, outcome terminalDecisionOutcome) {
+func emitTerminalDecisionObservation(ctx context.Context, logger *slog.Logger, input terminaldecision.Input, providerID string, outcome terminalDecisionOutcome) {
 	if logger == nil {
 		return
 	}

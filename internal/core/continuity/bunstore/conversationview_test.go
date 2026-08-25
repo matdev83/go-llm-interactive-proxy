@@ -50,6 +50,7 @@ func newConversationViewDeps(t *testing.T) storecontract.Deps {
 		},
 	}
 }
+
 func TestConversationView_BunContract_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.Run(t, storecontract.Env{

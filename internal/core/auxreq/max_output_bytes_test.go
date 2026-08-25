@@ -65,7 +65,7 @@ func chunk(n int) string { return strings.Repeat("a", n) }
 
 func textEvents(chunkSize, chunks int) []lipapi.Event {
 	evs := []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}}
-	for i := 0; i < chunks; i++ {
+	for range chunks {
 		evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: chunk(chunkSize)})
 	}
 	evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -74,7 +74,7 @@ func textEvents(chunkSize, chunks int) []lipapi.Event {
 
 func reasoningEvents(chunkSize, chunks int) []lipapi.Event {
 	evs := []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}}
-	for i := 0; i < chunks; i++ {
+	for range chunks {
 		evs = append(evs, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: chunk(chunkSize)})
 	}
 	evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -83,7 +83,7 @@ func reasoningEvents(chunkSize, chunks int) []lipapi.Event {
 
 func toolArgsEvents(chunkSize, chunks int) []lipapi.Event {
 	evs := []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted}}
-	for i := 0; i < chunks; i++ {
+	for range chunks {
 		evs = append(evs, lipapi.Event{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call-1", Delta: chunk(chunkSize)})
 	}
 	evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})

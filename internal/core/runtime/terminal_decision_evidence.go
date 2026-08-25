@@ -69,9 +69,7 @@ func projectTerminalDecisionEvidence(request requestTerminalFacts, attempt *atte
 
 	actions := terminalDecisionActions(items, p)
 	evidence.ActionCount = uint8(len(actions))
-	for i := range actions {
-		evidence.Actions[i] = actions[i]
-	}
+	copy(evidence.Actions[:], actions)
 	return evidence
 }
 

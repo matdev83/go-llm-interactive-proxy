@@ -115,12 +115,9 @@ func Fingerprint(in terminaldecision.Input, verdict Verdict) string {
 	writeField("explicit", strconv.FormatBool(in.Evidence.ExplicitCompletion))
 	writeField("verdict", string(verdict))
 
-	count := int(in.Evidence.ActionCount)
-	if count > len(in.Evidence.Actions) {
-		count = len(in.Evidence.Actions)
-	}
+	count := min(int(in.Evidence.ActionCount), len(in.Evidence.Actions))
 	writeField("action_count", strconv.Itoa(count))
-	for i := 0; i < count; i++ {
+	for i := range count {
 		action := in.Evidence.Actions[i]
 		writeField("action_kind", string(action.Kind))
 		writeField("action_status", string(action.Status))
