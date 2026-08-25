@@ -1,7 +1,17 @@
 .PHONY: help test test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
-GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
+
+# Test parallelism defaults to the machine's logical core count. The previous
+# fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
+# suites (measured ~2.3x faster on a 16-core box). Override with
+# LIP_TEST_PARALLEL=<n>, or replace the whole flag string via GO_TEST_FLAGS.
+ifeq ($(OS),Windows_NT)
+LIP_TEST_PARALLEL ?= $(if $(NUMBER_OF_PROCESSORS),$(NUMBER_OF_PROCESSORS),8)
+else
+LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+endif
+GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
 
 ifeq ($(OS),Windows_NT)
 WINDOWS_TASK = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-task.ps1 -Target
@@ -162,6 +172,9 @@ else
 endif
 
 # Short fuzz smoke (extend FUZZTIME locally, e.g. FUZZTIME=30s make test-fuzz)
+# POSIX runs scripts/fuzz-smoke.sh: the canonical target list lives in
+# scripts/fuzz-targets.tsv (shared with the Windows runner) and targets execute
+# concurrently instead of paying per-target link/spawn cost serially.
 FUZZTIME ?= 500ms
 # Route each fuzz invocation through a wrapper that tolerates the Go fuzz
 # engine's spurious "context deadline exceeded" at -fuzztime expiry

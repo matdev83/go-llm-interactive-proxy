@@ -72,10 +72,88 @@ function Run-Parity {
     }
 }
 
-function Run-LocalCompatibleModules {
-    foreach ($module in @("connectors/llamacpp", "connectors/lmstudio", "connectors/vllm")) {
-        Run-NestedGoTest "test-local-compatible-plugin-modules:$module:test" $module (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+function Run-NestedGoTestsInParallel {
+    param(
+        [Parameter(Mandatory = $true)][array]$Items,
+        [string]$Timeout = "15m"
+    )
+    $runnerBinary = Get-TaskRunnerBinary
+    $concurrency = [Math]::Max(2, [Math]::Min(6, $Items.Count))
+
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $concurrency, $sessionState, $Host)
+    $pool.Open()
+
+    $tasks = [System.Collections.Generic.List[PSObject]]::new()
+    try {
+        foreach ($item in $Items) {
+            $label = $item.Label
+            $dir = Join-Path $root $item.Directory
+            $cmdArgs = @("go", "test") + $item.TestArgs + @("./...")
+
+            $ps = [System.Management.Automation.PowerShell]::Create()
+            $ps.RunspacePool = $pool
+            [void]$ps.AddScript({
+                param($runnerBinary, $label, $cwd, $timeout, $envList, $cmdArgs)
+                $runnerArgs = @(
+                    "--label", $label,
+                    "--cwd", $cwd,
+                    "--timeout", $timeout,
+                    "--output", "capture"
+                )
+                foreach ($e in $envList) {
+                    $runnerArgs += @("--env", $e)
+                }
+                $runnerArgs += "--"
+                $runnerArgs += $cmdArgs
+
+                $output = @(& $runnerBinary @runnerArgs 2>&1)
+                $exitCode = $LASTEXITCODE
+                return @{
+                    Label = $label
+                    ExitCode = $exitCode
+                    Output = $output
+                }
+            }).AddArgument($runnerBinary).AddArgument($label).AddArgument($dir).AddArgument($Timeout).AddArgument((@($localGoEnv) + @("GOWORK=off"))).AddArgument($cmdArgs)
+
+            $asyncResult = $ps.BeginInvoke()
+            $tasks.Add([PSCustomObject]@{
+                PowerShell = $ps
+                AsyncResult = $asyncResult
+                Label = $label
+            })
+        }
+
+        $failed = $false
+        foreach ($task in $tasks) {
+            $res = $task.PowerShell.EndInvoke($task.AsyncResult)
+            $task.PowerShell.Dispose()
+            if ($res) {
+                $exitCode = $res[0].ExitCode
+                $output = $res[0].Output
+                if ($output) { $output | ForEach-Object { Write-Host $_ } }
+                if ($exitCode -ne 0) {
+                    $failed = $true
+                }
+            }
+        }
+        if ($failed) {
+            throw "one or more nested module tests failed"
+        }
     }
+    finally {
+        $pool.Close()
+        $pool.Dispose()
+    }
+}
+
+function Run-LocalCompatibleModules {
+    $modules = @(
+        @{ Label = "test-local-compatible-plugin-modules:connectors/llamacpp:test"; Directory = "connectors/llamacpp"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+        @{ Label = "test-local-compatible-plugin-modules:connectors/lmstudio:test"; Directory = "connectors/lmstudio"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+        @{ Label = "test-local-compatible-plugin-modules:connectors/vllm:test"; Directory = "connectors/vllm"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) }
+    )
+    Run-NestedGoTestsInParallel $modules
 }
 
 function Run-Fuzz {
@@ -205,12 +283,17 @@ switch -Regex ($Target) {
         Run-RootGoTest "parity-checks:connector-contract" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/contracttest/..."))
         Run-RootGoTest "parity-checks:conformance" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/testkit/conformance/..."))
         Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity"))
-        Run-NestedGoTest "parity-checks:connector-support/acp" "connector-support/acp" (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted"))
-        Run-NestedGoTest "parity-checks:connectors/acp" "connectors/acp" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_"))
-        Run-NestedGoTest "parity-checks:connector-support/openaicompat" "connector-support/openaicompat" $goTestFlags
-        Run-NestedGoTest "parity-checks:connectors/openrouter" "connectors/openrouter" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_"))
-        Run-NestedGoTest "parity-checks:connectors/nvidia" "connectors/nvidia" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
-        Run-NestedGoTest "parity-checks:connectors/huggingface" "connectors/huggingface" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+
+        $nestedSuites = @(
+            @{ Label = "parity-checks:connector-support/acp"; Directory = "connector-support/acp"; TestArgs = (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted")) },
+            @{ Label = "parity-checks:connectors/acp"; Directory = "connectors/acp"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_")) },
+            @{ Label = "parity-checks:connector-support/openaicompat"; Directory = "connector-support/openaicompat"; TestArgs = $goTestFlags },
+            @{ Label = "parity-checks:connectors/openrouter"; Directory = "connectors/openrouter"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_")) },
+            @{ Label = "parity-checks:connectors/nvidia"; Directory = "connectors/nvidia"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+            @{ Label = "parity-checks:connectors/huggingface"; Directory = "connectors/huggingface"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) }
+        )
+        Run-NestedGoTestsInParallel $nestedSuites
+
         Run-RootGoTest "parity-checks:sentinel" (@($goTestFlags) + @("-tags=integration", "./internal/testkit/conformance", "-run", "^TestBoundedSentinel")); break
     }
     "^parity-|^test-local-compatible-plugin-modules$" {
