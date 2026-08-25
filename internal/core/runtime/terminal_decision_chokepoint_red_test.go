@@ -55,8 +55,8 @@ func TestTerminalDecisionChokepointCandidateCausesUseOneSeam(t *testing.T) {
 		{name: "provider error seam", cause: terminaldecision.CandidateCauseProviderError, wantKind: terminaldecision.DecisionContinue},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			provider := terminalDecisionProviderFunc{id: "candidate-provider", fn: func(_ context.Context, in terminaldecision.Input) (terminaldecision.Decision, error) {
 				if in.Candidate.Cause != tc.cause {
 					t.Fatalf("provider saw cause %v, want %v", in.Candidate.Cause, tc.cause)
@@ -91,7 +91,6 @@ func TestTerminalDecisionChokepointCommandCandidateCauseMapping(t *testing.T) {
 		{command: sdkterminal.CommandPartialError, want: terminaldecision.CandidateCauseProviderError},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(string(tc.command), func(t *testing.T) {
 			t.Parallel()
 			if got := decisionCandidateCause(tc.command); got != tc.want {
@@ -122,8 +121,8 @@ func TestTerminalDecisionChokepointProviderErrorPanicMalformedUnknownNormalizeBo
 		}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var calls atomic.Int32
 			provider := terminalDecisionProviderFunc{id: "failure-provider", fn: func(ctx context.Context, in terminaldecision.Input) (terminaldecision.Decision, error) {
 				calls.Add(1)
@@ -150,14 +149,15 @@ func TestTerminalDecisionChokepointProviderErrorPanicMalformedUnknownNormalizeBo
 }
 
 func TestTerminalDecisionChokepointCancellationIsAuthoritativeBeforeProvider(t *testing.T) {
+	t.Parallel()
 	for _, cause := range []terminaldecision.CandidateCause{
 		terminaldecision.CandidateCauseRefusal,
 		terminaldecision.CandidateCauseContentFilter,
 		terminaldecision.CandidateCauseCancellation,
 		terminaldecision.CandidateCauseAuthorityDenied,
 	} {
-		cause := cause
 		t.Run(string(cause), func(t *testing.T) {
+			t.Parallel()
 			var calls atomic.Int32
 			turn := newTurnTerminal()
 			attempt, _ := newAuthorityTerminalDecisionAttempt(t)

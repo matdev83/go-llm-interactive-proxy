@@ -4,7 +4,18 @@ param(
 
 . "$PSScriptRoot/taskrunner.ps1"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$goTestFlags = @("-parallel=8", "-timeout=10m")
+
+# Test parallelism defaults to the machine's logical core count so t.Parallel-
+# heavy suites are not capped below available cores; override LIP_TEST_PARALLEL=<n>
+# (mirrors GO_TEST_FLAGS in the Makefile).
+function Get-TestParallel {
+    $value = 0
+    if ([int]::TryParse([string]$env:LIP_TEST_PARALLEL, [ref]$value) -and $value -ge 1) { return $value }
+    if ([int]::TryParse([string]$env:NUMBER_OF_PROCESSORS, [ref]$value) -and $value -ge 1) { return $value }
+    return 8
+}
+$testParallel = Get-TestParallel
+$goTestFlags = @("-parallel=$testParallel", "-timeout=10m")
 $localGoEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
 
 function Run-RootGoTest {
@@ -25,6 +36,101 @@ function Run-RootGoTestWithMatches {
         throw "$Label selector $Pattern matched zero tests in $Package"
     }
     Run-RootGoTest $Label $TestArgs $Env $Timeout
+}
+
+# Bounded-concurrency wrapper around Invoke-TaskRunner for independent batches
+# (nested modules, fuzz targets). Tasks are hashtables with Label/Cwd/Timeout/
+# Env/Command keys. All tasks run even when some fail; collected failures throw
+# at the end. Uses a runspace pool (lighter than Start-Job child processes and
+# Windows PowerShell 5.1 compatible) and one prebuilt lip-taskrunner binary
+# shared by every pooled invocation.
+function Invoke-PooledTaskRunner {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Tasks,
+        [Parameter(Mandatory = $true)][int]$MaxJobs
+    )
+
+    if ($Tasks.Count -eq 0) { return }
+
+    $runnerBinary = Get-TaskRunnerBinary
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, ([Math]::Max(1, $MaxJobs)), $sessionState, $Host)
+    $pool.Open()
+
+    $invocationScript = {
+        param($binaryPath, $task)
+        $runnerArgs = @(
+            "--label", $task.Label,
+            "--cwd", $task.Cwd,
+            "--timeout", $task.Timeout,
+            "--output", "capture"
+        )
+        foreach ($e in $task.Env) { $runnerArgs += @("--env", $e) }
+        $runnerArgs += "--"
+        $runnerArgs += $task.Command
+
+        $output = @(& $binaryPath @runnerArgs 2>&1)
+        return @{ ExitCode = $LASTEXITCODE; Output = $output }
+    }
+
+    $pending = [System.Collections.Generic.Queue[object]]::new()
+    foreach ($task in $Tasks) { $pending.Enqueue($task) }
+
+    $inFlight = [System.Collections.Generic.List[object]]::new()
+    $failedLabels = [System.Collections.Generic.List[string]]::new()
+
+    try {
+        while ($pending.Count -gt 0 -or $inFlight.Count -gt 0) {
+            while ($pending.Count -gt 0 -and $inFlight.Count -lt $MaxJobs) {
+                $task = $pending.Dequeue()
+                Write-Host "  started $($task.Label)"
+                $ps = [System.Management.Automation.PowerShell]::Create()
+                $ps.RunspacePool = $pool
+                [void]$ps.AddScript($invocationScript).AddArgument($runnerBinary).AddArgument($task)
+                $inFlight.Add([PSCustomObject]@{ PS = $ps; Label = $task.Label; Result = $ps.BeginInvoke() })
+            }
+
+            if ($inFlight.Count -eq 0) { break }
+
+            # Incremental drain: report each batch as it finishes instead of
+            # buffering everything until the whole pool completes.
+            $done = @($inFlight | Where-Object { $_.Result.IsCompleted })
+            if ($done.Count -eq 0) {
+                Start-Sleep -Milliseconds 200
+                continue
+            }
+            foreach ($entry in $done) {
+                $inFlight.Remove($entry) | Out-Null
+                $exitCode = 1
+                $output = @()
+                try {
+                    $res = $entry.PS.EndInvoke($entry.Result)
+                    if ($res -and $res.Count -gt 0) {
+                        $exitCode = [int]$res[0].ExitCode
+                        $output = $res[0].Output
+                    }
+                } catch {
+                    Write-Host ("ERROR {0}: {1}" -f $entry.Label, ($_ | Out-String).Trim()) -ForegroundColor Red
+                } finally {
+                    $entry.PS.Dispose()
+                }
+                Write-Host "--- $($entry.Label) ---"
+                foreach ($line in $output) { Write-Host $_ }
+                if ($exitCode -ne 0) {
+                    Write-Host "FAILED: $($entry.Label)" -ForegroundColor Red
+                    $failedLabels.Add($entry.Label)
+                }
+            }
+        }
+    } finally {
+        foreach ($entry in $inFlight) { try { $entry.PS.Dispose() } catch { } }
+        $pool.Close()
+        $pool.Dispose()
+    }
+
+    if ($failedLabels.Count -gt 0) {
+        throw ("pooled tasks failed ({0}): {1}" -f $failedLabels.Count, ($failedLabels -join ", "))
+    }
 }
 
 function Run-Parity {
@@ -72,75 +178,110 @@ function Run-Parity {
     }
 }
 
-function Run-LocalCompatibleModules {
-    foreach ($module in @("connectors/llamacpp", "connectors/lmstudio", "connectors/vllm")) {
-        Run-NestedGoTest "test-local-compatible-plugin-modules:$module:test" $module (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+function Run-NestedGoTestsInParallel {
+    param(
+        [Parameter(Mandatory = $true)][array]$Items,
+        [string]$Timeout = "15m"
+    )
+    $tasks = @()
+    foreach ($item in $Items) {
+        $tasks += @{
+            Label   = $item.Label
+            Cwd     = (Join-Path $root ($item.Directory -replace '/', '\'))
+            Timeout = $Timeout
+            Env     = (@($localGoEnv) + @("GOWORK=off"))
+            Command = (@("go", "test") + @($item.TestArgs) + @("./..."))
+        }
     }
+    # Cap concurrent module batches: each batch itself fans out to
+    # -parallel=$testParallel goroutines internally, so a larger pool would
+    # oversubscribe the machine.
+    $maxJobs = [Math]::Min(4, [Math]::Max(2, $Items.Count))
+    Invoke-PooledTaskRunner -Tasks $tasks -MaxJobs $maxJobs
+}
+
+function Run-LocalCompatibleModules {
+    $modules = @(
+        @{ Label = "test-local-compatible-plugin-modules:connectors/llamacpp:test"; Directory = "connectors/llamacpp"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+        @{ Label = "test-local-compatible-plugin-modules:connectors/lmstudio:test"; Directory = "connectors/lmstudio"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+        @{ Label = "test-local-compatible-plugin-modules:connectors/vllm:test"; Directory = "connectors/vllm"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) }
+    )
+    Run-NestedGoTestsInParallel $modules
 }
 
 function Run-Fuzz {
+    # Canonical target list shared with the POSIX runner (scripts/fuzz-smoke.sh).
+    $targetsPath = Join-Path $PSScriptRoot "fuzz-targets.tsv"
+    if (-not (Test-Path -LiteralPath $targetsPath)) { throw "fuzz target list not found: $targetsPath" }
+    $targets = @(Import-Csv -LiteralPath $targetsPath -Delimiter "`t" | Where-Object { $_.name })
+    if ($targets.Count -eq 0) { throw "fuzz target list is empty: $targetsPath" }
+
     $fuzzTime = if ($env:FUZZTIME) { $env:FUZZTIME } else { "500ms" }
-    $fuzz = @(
-        @("FuzzJSONRoundTrip", "./internal/testkit"), @("FuzzParseSnapshot", "./internal/infra/modelcatalog/modelsdev"),
-        @("FuzzParseSelector", "./internal/core/routing"), @("FuzzParseSelectorFromBytes", "./internal/core/routing"),
-        @("FuzzDecodeCreateRequest", "./internal/plugins/frontends/openairesponses"), @("FuzzDecodeMessageRequest", "./internal/plugins/frontends/anthropic"),
-        @("FuzzDecodeGenerateContentRequest", "./internal/plugins/frontends/gemini"), @("FuzzDecodeChatRequest", "./internal/plugins/frontends/openailegacy"),
-        @("FuzzWriteNonStreamJSON_toolArguments", "./internal/plugins/frontends/anthropic"), @("FuzzBuildGenerateContentResponse_toolJSON", "./internal/plugins/frontends/gemini"),
-        @("FuzzCallValidateJSON", "./pkg/lipapi"), @("FuzzSemanticExtensionValidation", "./pkg/lipapi"), @("FuzzMergeRouteQueryGenerationOptions", "./pkg/lipapi"), @("FuzzCollectWithLimitsProgram", "./pkg/lipapi"),
-        @("FuzzStableCallIdentity", "./internal/core/diag"), @("FuzzParamsForCall", "./internal/plugins/backends/openairesponses"),
-        @("FuzzHandleResponseStreamUnion", "./internal/plugins/backends/openairesponses"), @("FuzzBuildToolsParametersJSON", "./internal/plugins/backends/openairesponses"),
-        @("FuzzHandleMessageStreamEventUnion", "./internal/plugins/backends/protocols/anthropicmessages"), @("FuzzToolInputSchemaParametersJSON", "./internal/plugins/backends/protocols/anthropicmessages"),
-        @("FuzzHandleChatCompletionChunk", "./internal/plugins/backends/openailegacy"), @("FuzzBuildChatToolsParametersJSON", "./internal/plugins/backends/openailegacy"),
-        @("FuzzHandleGenerateContentResponse", "./internal/plugins/backends/protocols/geminigenerate"), @("FuzzBuildToolsParametersJSON", "./internal/plugins/backends/protocols/geminigenerate"),
-        @("FuzzMessageToContentToolResultJSON", "./internal/plugins/backends/protocols/geminigenerate"), @("FuzzAssistantPartsToContentBlocksJSON", "./internal/plugins/backends/bedrock"),
-        @("FuzzHookMutationValidators", "./internal/core/hooks"), @("FuzzManifest", "./internal/infra/backendplugins/manifest"), @("FuzzServerFrame", "./pkg/lipsdk/backendplugin"),
-        @("FuzzAcceptClientUserAgent", "./internal/core/identity"), @("FuzzAcceptClientAppURL", "./internal/core/identity"), @("FuzzAcceptClientAppTitle", "./internal/core/identity"),
-        @("FuzzValidateIdentityYAML", "./internal/core/identity"), @("FuzzCaptureClientUserAgent", "./internal/plugins/frontends/identitywire"),
-        @("FuzzCompleteJSONSuffix", "./internal/core/toolcallrepair"), @("FuzzSchemaPreScanCompile", "./internal/core/toolcallrepair"), @("FuzzEngineRepair", "./internal/core/toolcallrepair"),
-        @("FuzzComputeAnchor", "./internal/plugins/features/reasoningpreservation"), @("FuzzDecodeConfig", "./internal/plugins/features/reasoningpreservation"),
-        @("FuzzLeaseSet_OccupiesCapacity", "./internal/core/concurrencyauthority/domain"), @("FuzzIsAmbiguousRenewError", "./internal/core/concurrencyauthority/app"),
-        @("FuzzWorkItem_TransitionSequence", "./internal/core/terminalwork"), @("FuzzOwner_CommandSequences", "./internal/core/terminal"), @("FuzzParseDecimalToNano", "./pkg/lipsdk/economics"),
-        @("FuzzPhase32_SourceEventKey_DelimiterSafety", "./pkg/lipsdk/metering"), @("FuzzPhase32_MoneyPresentCurrency", "./pkg/lipsdk/metering"),
-        @("FuzzDecodeLine", "./internal/product/protocol"), @("FuzzMapBridgeEvent", "./internal/product"),
-        @("FuzzParseNDJSONLine", "./"), @("FuzzMapSessionUpdateToEvents", "./"), @("FuzzMergeHandshakeProfileExtensions", "./")
-    )
-    foreach ($item in $fuzz) {
+    $jobsAllowed = [math]::Floor($testParallel / 2)
+    if ($jobsAllowed -lt 2) { $jobsAllowed = 2 }
+    if ($jobsAllowed -gt 8) { $jobsAllowed = 8 }
+    if ($env:LIP_FUZZ_JOBS -match '^\d+$' -and [int]$env:LIP_FUZZ_JOBS -ge 1) { $jobsAllowed = [int]$env:LIP_FUZZ_JOBS }
+
+    # The pool already occupies the machine with concurrent targets, so each
+    # fuzz process gets a small worker slice instead of the GOMAXPROCS default.
+    $workerParallel = 2
+
+    Write-Host "Fuzz smoke (FUZZTIME=$fuzzTime): $jobsAllowed concurrent targets x $workerParallel workers each"
+
+    $tasks = @()
+    foreach ($item in $targets) {
         $cwd = $root
-        $env = @()
-        $package = $item[1]
-        if ($item[0] -in @("FuzzParseNDJSONLine", "FuzzMapSessionUpdateToEvents", "FuzzMergeHandshakeProfileExtensions")) {
-            $cwd = Join-Path $root "connector-support/acp"
-            $env = @("GOWORK=off")
-            $package = "."
+        $taskEnv = @()
+        if ($item.module) {
+            $cwd = Join-Path $root ($item.module -replace '/', '\')
+            $taskEnv = @("GOWORK=off")
         }
-        elseif ($item[0] -in @("FuzzDecodeLine", "FuzzMapBridgeEvent")) {
-            $cwd = Join-Path $root "connectors/cursorsdk"
-            $env = @("GOWORK=off")
+        $tasks += @{
+            Label   = "test-fuzz:$($item.name)"
+            Cwd     = $cwd
+            Timeout = "10m"
+            Env     = (@($localGoEnv) + @($taskEnv))
+            Command = @("go", "test", "-fuzz=^$($item.name)$", "-fuzztime=$fuzzTime", "-run=^$", "-parallel=$workerParallel", $item.package)
         }
-        Invoke-TaskRunner -Label "test-fuzz:$($item[0])" -Cwd $cwd -Timeout "10m" -Env (@($localGoEnv) + @($env)) -Command @("go", "test", "-fuzz=^$($item[0])$", "-fuzztime=$fuzzTime", "-run=^$", $package) | Out-Host
     }
+
+    Invoke-PooledTaskRunner -Tasks $tasks -MaxJobs $jobsAllowed
 }
 
 switch -Regex ($Target) {
     "^test-unit$" { Run-RootGoTest "test-unit:root" (@($goTestFlags) + @("./...")); break }
     "^qa-tests$" {
         $envOverride = @("LIP_TEST_POSTGRES_DSN=", "LIP_TEST_POSTGRES_ADMIN_DSN=", "LIP_MANAGED_POSTGRES_DSN=", "LIP_MIGRATION_POSTGRES_DSN=")
+        if ($env:LIP_SKIP_QA_TESTS -match '^(?i:1|true|yes|on)$') {
+            Write-Host "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged precommit/integration delta packages only..." -ForegroundColor DarkGray
+            Run-RootGoTest "qa-tests:precommit-delta" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/qa/...", "./internal/core/runtime/...", "./internal/stdhttp/...")) $envOverride
+            break
+        }
         Run-RootGoTest "qa-tests:root" (@($goTestFlags) + @("-tags=precommit,integration", "./...")) $envOverride
         break
     }
     "^test-fuzz$" { Run-Fuzz; break }
     "^parity-checks$" {
-        Run-RootGoTest "parity-checks:contract" (@($goTestFlags) + @("./internal/testkit/contract/..."))
-        Run-RootGoTest "parity-checks:profiles" (@($goTestFlags) + @("./internal/providerprofiles/..."))
-        Run-RootGoTest "parity-checks:connector-contract" (@($goTestFlags) + @("./pkg/lipsdk/backendplugin/contracttest/..."))
+        # The three identically-flagged root contract batches run as one go
+        # test invocation: single tool startup plus cross-package pipelining.
+        Run-RootGoTest "parity-checks:contract-tcks" (@($goTestFlags) + @(
+                "./internal/testkit/contract/...",
+                "./internal/providerprofiles/...",
+                "./pkg/lipsdk/backendplugin/contracttest/..."
+            ))
         Run-RootGoTest "parity-checks:conformance" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/testkit/conformance/..."))
         Run-RootGoTest "parity-checks:compatible" (@($goTestFlags) + @("./internal/testkit/compatibleparity/...", "-run", "CompatibleParity"))
-        Run-NestedGoTest "parity-checks:connector-support/acp" "connector-support/acp" (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted"))
-        Run-NestedGoTest "parity-checks:connectors/acp" "connectors/acp" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_"))
-        Run-NestedGoTest "parity-checks:connector-support/openaicompat" "connector-support/openaicompat" $goTestFlags
-        Run-NestedGoTest "parity-checks:connectors/openrouter" "connectors/openrouter" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_"))
-        Run-NestedGoTest "parity-checks:connectors/nvidia" "connectors/nvidia" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
-        Run-NestedGoTest "parity-checks:connectors/huggingface" "connectors/huggingface" (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_"))
+
+        $nestedSuites = @(
+            @{ Label = "parity-checks:connector-support/acp"; Directory = "connector-support/acp"; TestArgs = (@($goTestFlags) + @("-run", "KillProcessTree_|ProcessTree_CrossCompile|PID|Pool|Cancel|Open_|MapSession|Scripted")) },
+            @{ Label = "parity-checks:connectors/acp"; Directory = "connectors/acp"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_")) },
+            @{ Label = "parity-checks:connector-support/openaicompat"; Directory = "connector-support/openaicompat"; TestArgs = $goTestFlags },
+            @{ Label = "parity-checks:connectors/openrouter"; Directory = "connectors/openrouter"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestBilling_")) },
+            @{ Label = "parity-checks:connectors/nvidia"; Directory = "connectors/nvidia"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) },
+            @{ Label = "parity-checks:connectors/huggingface"; Directory = "connectors/huggingface"; TestArgs = (@($goTestFlags) + @("-run", "TestParity_|TestDescribe_|TestConfigure_|TestInventory_")) }
+        )
+        Run-NestedGoTestsInParallel $nestedSuites
+
         Run-RootGoTest "parity-checks:sentinel" (@($goTestFlags) + @("-tags=integration", "./internal/testkit/conformance", "-run", "^TestBoundedSentinel")); break
     }
     "^parity-|^test-local-compatible-plugin-modules$" {

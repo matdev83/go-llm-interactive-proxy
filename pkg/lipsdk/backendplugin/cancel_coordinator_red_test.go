@@ -46,6 +46,7 @@ func (m *cancelUntilClosedManaged) Cancel(_ context.Context, cause lipapi.Cancel
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestRED_ForwardExecute_InBandCancel_ForceCloseJoinsGracefulCancel(t *testing.T) {
 	previous := fallbackCancelGrace
 	fallbackCancelGrace = 100 * time.Millisecond
@@ -82,6 +83,7 @@ func TestRED_ForwardExecute_InBandCancel_ForceCloseJoinsGracefulCancel(t *testin
 	}
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestEffectiveCancellationTiming_CapsPeerDeadlineByFallbackGrace(t *testing.T) {
 	previous := fallbackCancelGrace
 	fallbackCancelGrace = 50 * time.Millisecond
@@ -126,6 +128,7 @@ func (m *immediateCancelStuckRecvManaged) Cancel(context.Context, lipapi.CancelC
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t *testing.T) {
 	previous := fallbackCancelGrace
 	fallbackCancelGrace = 500 * time.Millisecond
@@ -202,6 +205,7 @@ func (m *panicCancelManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.
 	panic("adapter-private-panic-detail-4f37")
 }
 
+//nolint:paralleltest // mutates package-level fallbackCancelGrace
 func TestForwardExecute_PanickingCancelReturnsBoundedOutcome(t *testing.T) {
 	previous := fallbackCancelGrace
 	fallbackCancelGrace = 50 * time.Millisecond
@@ -270,6 +274,8 @@ func (m *eofAfterEventManaged) Cancel(context.Context, lipapi.CancelCause) lipap
 // TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF keeps both observations
 // ready after the control reader has received CANCEL. The terminal must not
 // win the select and suppress the exactly-once CancelOutcome.
+//
+//nolint:paralleltest // interacts with package-level cancellation timing
 func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -363,6 +369,7 @@ func (m *cancelThenEvidenceManaged) DrainAccountingEvidence() []AccountingEviden
 	return []AccountingEvidence{m.evidence}
 }
 
+//nolint:paralleltest // interacts with package-level cancellation timing
 func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

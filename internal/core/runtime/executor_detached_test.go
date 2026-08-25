@@ -225,7 +225,6 @@ func TestExecutor_detachedPrepareAlwaysAllocatesPrivateChildALeg(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := execctx.WithDetachedSession(context.Background(), execctx.DetachedSession{
 				ParentALegID: parentALegID,

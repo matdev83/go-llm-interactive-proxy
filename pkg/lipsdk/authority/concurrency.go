@@ -43,7 +43,7 @@ type LeaseAdmission struct {
 	RuleID         string                      `json:"rule_id,omitempty"`
 	Namespace      string                      `json:"namespace,omitempty"`
 	TTL            time.Duration               `json:"ttl,omitempty"`
-	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
+	BoundVersion   economics.PolicySnapshotRef `json:"bound_version"`
 	IdempotencyKey string                      `json:"idempotency_key,omitempty"`
 	// Lifecycle identifies auxiliary vs top-level logical request (requirement 10.10).
 	Lifecycle LifecycleScope `json:"lifecycle,omitempty"`
@@ -58,7 +58,7 @@ type LeaseOccupancy struct {
 	LeaseID         string          `json:"lease_id"`
 	Generation      int64           `json:"generation,omitempty"`
 	RuleID          string          `json:"rule_id,omitempty"`
-	ExpiresAt       time.Time       `json:"expires_at,omitempty"`
+	ExpiresAt       time.Time       `json:"expires_at,omitzero"`
 	RenewBefore     time.Duration   `json:"renew_before,omitempty"`
 	TTL             time.Duration   `json:"ttl,omitempty"`
 	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
@@ -73,11 +73,11 @@ type LeaseDecision struct {
 	Kind           LeaseDecisionKind           `json:"kind"`
 	LeaseID        string                      `json:"lease_id,omitempty"`
 	Generation     int64                       `json:"generation,omitempty"`
-	ExpiresAt      time.Time                   `json:"expires_at,omitempty"`
+	ExpiresAt      time.Time                   `json:"expires_at,omitzero"`
 	RemainingSlots int                         `json:"remaining_slots,omitempty"`
 	Readiness      Readiness                   `json:"readiness,omitempty"`
-	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
-	Evidence       SafeEvidence                `json:"evidence,omitempty"`
+	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitzero"`
+	Evidence       SafeEvidence                `json:"evidence,omitzero"`
 	// RenewBefore is the configured offset before ExpiresAt when heartbeat should renew.
 	RenewBefore time.Duration `json:"renew_before,omitempty"`
 	// TTL is the lease lifetime used for renew extensions.
@@ -121,7 +121,7 @@ type LeaseQuery struct {
 	RequestID string                   `json:"request_id,omitempty"`
 	LeaseID   string                   `json:"lease_id,omitempty"`
 	RuleID    string                   `json:"rule_id,omitempty"`
-	Scope     scope.PrincipalScopeView `json:"scope,omitempty"`
+	Scope     scope.PrincipalScopeView `json:"scope,omitzero"`
 	State     LeaseState               `json:"state,omitempty"`
 	Limit     int                      `json:"limit,omitempty"`
 	Cursor    string                   `json:"cursor,omitempty"`
@@ -133,10 +133,10 @@ type LeaseRecord struct {
 	RequestID    string                      `json:"request_id,omitempty"`
 	State        LeaseState                  `json:"state"`
 	Generation   int64                       `json:"generation,omitempty"`
-	ExpiresAt    time.Time                   `json:"expires_at,omitempty"`
-	ReleasedAt   time.Time                   `json:"released_at,omitempty"`
+	ExpiresAt    time.Time                   `json:"expires_at,omitzero"`
+	ReleasedAt   time.Time                   `json:"released_at,omitzero"`
 	RuleID       string                      `json:"rule_id,omitempty"`
-	Version      economics.PolicySnapshotRef `json:"version,omitempty"`
+	Version      economics.PolicySnapshotRef `json:"version,omitzero"`
 	DimensionKey string                      `json:"dimension_key,omitempty"` // safe scope correlation
 }
 

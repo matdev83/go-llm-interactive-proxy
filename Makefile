@@ -1,7 +1,17 @@
 .PHONY: help test test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
-GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
+
+# Test parallelism defaults to the machine's logical core count. The previous
+# fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
+# suites (measured ~2.3x faster on a 16-core box). Override with
+# LIP_TEST_PARALLEL=<n>, or replace the whole flag string via GO_TEST_FLAGS.
+ifeq ($(OS),Windows_NT)
+LIP_TEST_PARALLEL ?= $(if $(NUMBER_OF_PROCESSORS),$(NUMBER_OF_PROCESSORS),8)
+else
+LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+endif
+GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
 
 ifeq ($(OS),Windows_NT)
 WINDOWS_TASK = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-task.ps1 -Target
@@ -24,7 +34,7 @@ help:
 	@echo "  make test-authority-postgres - aggregate direct + pooled proof (pooled attestation required)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
-	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
+	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 2s per target in .github/workflows/race-fuzz-nightly.yml)"
 	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
 	@echo "  make test-cursor-sdk-live     - opt-in live Cursor SDK Node scenarios (CURSOR_SDK_LIVE=1 + CURSOR_API_KEY)"
 	@echo "  make test-cursor-sdk-live-bridge - opt-in GoÔćĺNode live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
@@ -162,6 +172,9 @@ else
 endif
 
 # Short fuzz smoke (extend FUZZTIME locally, e.g. FUZZTIME=30s make test-fuzz)
+# POSIX runs scripts/fuzz-smoke.sh: the canonical target list lives in
+# scripts/fuzz-targets.tsv (shared with the Windows runner) and targets execute
+# concurrently instead of paying per-target link/spawn cost serially.
 FUZZTIME ?= 500ms
 # Route each fuzz invocation through a wrapper that tolerates the Go fuzz
 # engine's spurious "context deadline exceeded" at -fuzztime expiry
@@ -188,76 +201,7 @@ test-fuzz:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) test-fuzz
 else
-	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
-	$(FUZZ_WRAPPER) -fuzz=^FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=^FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(FUZZ_WRAPPER) -fuzz=^FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=^FuzzSemanticExtensionValidation$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=^FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=^FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(FUZZ_WRAPPER) -fuzz=^FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(FUZZ_WRAPPER) -fuzz=^FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(FUZZ_WRAPPER) -fuzz=^FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=^FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(FUZZ_WRAPPER) -fuzz=^FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connector-support/acp && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ .
-	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product/protocol
-	cd connectors/cursorsdk && GOWORK=off $(FUZZ_WRAPPER) -fuzz=^FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/product
-	$(FUZZ_WRAPPER) -fuzz=^FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
-	$(FUZZ_WRAPPER) -fuzz=^FuzzManifest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/backendplugins/manifest
-	$(FUZZ_WRAPPER) -fuzz=^FuzzServerFrame$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/backendplugin
-	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientAppURL$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=^FuzzAcceptClientAppTitle$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=^FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
-	$(FUZZ_WRAPPER) -fuzz=^FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
-
-	# OpenResponses codec/state-machine/emulator fuzz smoke (spec Phase 8)
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeItem$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzSSEParser$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzStateMachine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzResourceBuilder$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/protocols/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseResponseResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCompactResource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseSSE$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refclient/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseCompactRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzBuildStream$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseWSTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/refbackend/openresponses
-	$(FUZZ_WRAPPER) -fuzz=^FuzzWebSocketDecodeTurn$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openresponses
-
-	$(FUZZ_WRAPPER) -fuzz=^FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=^FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=^FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
-	$(FUZZ_WRAPPER) -fuzz=^FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
-	$(FUZZ_WRAPPER) -fuzz=^FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
-	# Dual-plane Phase 7.2 state-machine / renew / work / owner / money / fact fuzz
-	$(FUZZ_WRAPPER) -fuzz=^FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
-	$(FUZZ_WRAPPER) -fuzz=^FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app
-	$(FUZZ_WRAPPER) -fuzz=^FuzzWorkItem_TransitionSequence$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminalwork
-	$(FUZZ_WRAPPER) -fuzz=^FuzzOwner_CommandSequences$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminal
-	$(FUZZ_WRAPPER) -fuzz=^FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
-	$(FUZZ_WRAPPER) -fuzz=^FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
-	$(FUZZ_WRAPPER) -fuzz=^FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	@bash "$(CURDIR)/scripts/fuzz-smoke.sh"
 endif
 
 test-cursor-sdk-live:
@@ -466,7 +410,12 @@ qa-tests:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) qa-tests
 else
-	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...
+	@if [ "$$LIP_SKIP_QA_TESTS" = "1" ]; then \
+		echo "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged delta packages..."; \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/stdhttp/... ./internal/testkit/conformance/...; \
+	else \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...; \
+	fi
 endif
 
 vet:

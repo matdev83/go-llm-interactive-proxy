@@ -37,15 +37,13 @@ func TestContinuationTransactionCancellationWinsAndJoinsOpenedWork(t *testing.T)
 		err       error
 	}, 1)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		published, err := runContinuationTransaction(ctx, terminalOwner, stream, continuationIntent())
 		result <- struct {
 			published bool
 			err       error
 		}{published: published, err: err}
-	}()
+	})
 	awaitSignal(t, started)
 	schedule.Cancel.Arrive()
 	cancel()
@@ -140,7 +138,7 @@ func TestContinuationTransactionSourceUsesCanonicalWriterAndNoDirectCallAppend(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	var source string
+	var source strings.Builder
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
@@ -150,13 +148,14 @@ func TestContinuationTransactionSourceUsesCanonicalWriterAndNoDirectCallAppend(t
 			t.Fatal(readErr)
 		}
 		if strings.Contains(string(data), "runContinuationTransaction") {
-			source += string(data)
+			source.Write(data)
 		}
 	}
-	if source == "" {
+	src := source.String()
+	if src == "" {
 		t.Fatal("missing Task 4.2 runContinuationTransaction implementation")
 	}
-	if !strings.Contains(source, "sdkadapter.NewWriter") && !strings.Contains(source, "NewWriterWithObserver") {
+	if !strings.Contains(src, "sdkadapter.NewWriter") && !strings.Contains(src, "NewWriterWithObserver") {
 		t.Fatal("continuation transaction does not use the canonical steering writer")
 	}
 	for _, forbidden := range []string{
@@ -165,7 +164,7 @@ func TestContinuationTransactionSourceUsesCanonicalWriterAndNoDirectCallAppend(t
 		"Messages = append",
 		"Items = append",
 	} {
-		if strings.Contains(source, forbidden) {
+		if strings.Contains(src, forbidden) {
 			t.Fatalf("continuation transaction directly appends hidden content with %q", forbidden)
 		}
 	}

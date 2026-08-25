@@ -5,11 +5,26 @@ param(
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$discoverBinary = Join-Path ([System.IO.Path]::GetTempPath()) ("golip-discover-modules-{0}.exe" -f ([guid]::NewGuid().ToString("n")))
-$cleanupDiscover = {
-    if (Test-Path $discoverBinary) { Remove-Item -Force -ErrorAction SilentlyContinue $discoverBinary }
+function Get-DiscoverBinary {
+    $cacheDir = Join-Path ([System.IO.Path]::GetTempPath()) "golip-discover-modules"
+    if (-not (Test-Path $cacheDir)) {
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+    }
+    $path = Join-Path $cacheDir "discover_modules.exe"
+    $needsBuild = $true
+    if (Test-Path $path) {
+        $binTime = (Get-Item $path).LastWriteTimeUtc
+        $srcDir = Join-Path $Root "tools/backendplugin/discover_modules"
+        $newestSrc = (Get-ChildItem -Path $srcDir -Recurse -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+        if ($newestSrc -and $binTime -gt $newestSrc.LastWriteTimeUtc) {
+            $needsBuild = $false
+        }
+    }
+    if ($needsBuild) {
+        Invoke-Go "backend-plugin-module-checks:discovery-build" $Root @("build", "-buildvcs=false", "-o", $path, "./tools/backendplugin/discover_modules") | Out-Host
+    }
+    return $path
 }
-$cleanupSubscription = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $cleanupDiscover
 
 # Robocopy has its own exit-code protocol: 0-7 are success (1 means files were
 # copied) and >=8 is a failure. The generic taskrunner rejects every non-zero
@@ -56,7 +71,7 @@ function Invoke-Go {
 }
 
 try {
-    Invoke-Go "backend-plugin-module-checks:discovery-build" $Root @("build", "-buildvcs=false", "-o", $discoverBinary, "./tools/backendplugin/discover_modules") | Out-Host
+    $discoverBinary = Get-DiscoverBinary
 
     Write-Host "== root go list/build/module graph =="
 Invoke-Go "backend-plugin-module-checks:root:list" $Root @("list", "./...") | Out-Host
@@ -117,6 +132,4 @@ try {
     Write-Host "OK backend-plugin-module-checks"
 }
 finally {
-    & $cleanupDiscover
-    if ($cleanupSubscription) { Unregister-Event -SubscriptionId $cleanupSubscription.Id -ErrorAction SilentlyContinue }
 }

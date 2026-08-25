@@ -662,7 +662,7 @@ func TestAttemptUsageEvidence_OverflowDoesNotRetainOrObserve(t *testing.T) {
 	t.Parallel()
 
 	sess := newAttemptSession(attemptSessionInput{})
-	for i := 0; i < maxAttemptAccumulatedUsage; i++ {
+	for i := range maxAttemptAccumulatedUsage {
 		sess.recordUsageEvidence(lipapi.Event{
 			Kind:         lipapi.EventUsageDelta,
 			OutputTokens: 1,

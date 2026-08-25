@@ -76,7 +76,7 @@ func (k ClampKind) IsKnown() bool {
 type Clamp struct {
 	Kind   ClampKind       `json:"kind"`
 	Value  int64           `json:"value,omitempty"`
-	Money  economics.Money `json:"money,omitempty"`
+	Money  economics.Money `json:"money,omitzero"`
 	RuleID string          `json:"rule_id,omitempty"`
 }
 
@@ -103,9 +103,9 @@ func (k SettlementKind) IsKnown() bool {
 type Settlement struct {
 	Kind          SettlementKind                `json:"kind"`
 	Handle        string                        `json:"handle,omitempty"`
-	Consumed      economics.Money               `json:"consumed,omitempty"`
-	Released      economics.Money               `json:"released,omitempty"`
-	Evidence      SafeEvidence                  `json:"evidence,omitempty"`
+	Consumed      economics.Money               `json:"consumed,omitzero"`
+	Released      economics.Money               `json:"released,omitzero"`
+	Evidence      SafeEvidence                  `json:"evidence,omitzero"`
 	BoundVersions []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 }
 
@@ -139,6 +139,6 @@ type Decision struct {
 	Readiness          Readiness                     `json:"readiness,omitempty"`
 	BoundVersions      []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 	RatingVersions     []economics.RatingSnapshotRef `json:"rating_versions,omitempty"`
-	Exposure           economics.ExposureBasis       `json:"exposure,omitempty"`
-	Evidence           SafeEvidence                  `json:"evidence,omitempty"`
+	Exposure           economics.ExposureBasis       `json:"exposure,omitzero"`
+	Evidence           SafeEvidence                  `json:"evidence,omitzero"`
 }

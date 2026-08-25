@@ -25,5 +25,11 @@ Write-Host ""
 # Deliberately omit -count=1. Go can reuse package builds and successful test
 # results, while ./... catches downstream packages that staged-only selection
 # would miss after a shared-package change.
-go test -parallel=8 @preFlags ./...
+$testParallel = 0
+if (-not [int]::TryParse([string]$env:LIP_TEST_PARALLEL, [ref]$testParallel) -or $testParallel -lt 1) {
+    if (-not [int]::TryParse([string]$env:NUMBER_OF_PROCESSORS, [ref]$testParallel) -or $testParallel -lt 1) {
+        $testParallel = 8
+    }
+}
+go test "-parallel=$testParallel" @preFlags ./...
 exit $LASTEXITCODE

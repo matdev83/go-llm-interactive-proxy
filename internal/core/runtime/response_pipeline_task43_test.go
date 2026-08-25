@@ -91,7 +91,7 @@ func TestResponsePipelineSnapshotDoesNotHoldResponseLockWhileReadingTerminalFlag
 
 func TestResponsePipelineKeepsOperatorEvidenceDistinctAndAttemptOwnsDedupe(t *testing.T) {
 	p := newResponsePipeline()
-	if _, duplicated := reflect.TypeOf(p).Elem().FieldByName("internalUsageKeys"); duplicated {
+	if _, duplicated := reflect.TypeFor[responsePipeline]().FieldByName("internalUsageKeys"); duplicated {
 		t.Fatal("response pipeline duplicated attempt-local usage dedupe truth")
 	}
 	provider := lipapi.Event{

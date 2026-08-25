@@ -13,6 +13,7 @@ import (
 )
 
 func TestInputValidateAcceptsBoundedCanonicalValue(t *testing.T) {
+	t.Parallel()
 	in := validInput()
 	if err := in.Validate(); err != nil {
 		t.Fatalf("valid input rejected: %v", err)
@@ -27,6 +28,7 @@ func TestInputValidateAcceptsBoundedCanonicalValue(t *testing.T) {
 }
 
 func TestInputValidateRejectsMissingRequiredCanonicalFields(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(*Input){
 		"candidate cause":  func(in *Input) { in.Candidate.Cause = CandidateCause("") },
 		"request identity": func(in *Input) { in.Request.RequestID = "" },
@@ -35,6 +37,7 @@ func TestInputValidateRejectsMissingRequiredCanonicalFields(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			in := validInput()
 			mutate(&in)
 			if err := in.Validate(); !errors.Is(err, ErrInvalidInput) {
@@ -45,6 +48,7 @@ func TestInputValidateRejectsMissingRequiredCanonicalFields(t *testing.T) {
 }
 
 func TestCandidateCauseContract(t *testing.T) {
+	t.Parallel()
 	causes := []struct {
 		cause         CandidateCause
 		authoritative bool
@@ -69,6 +73,7 @@ func TestCandidateCauseContract(t *testing.T) {
 }
 
 func TestInputValidateRejectsUnknownCandidateCauseWithoutRawText(t *testing.T) {
+	t.Parallel()
 	rawCause := strings.Repeat("attacker-cause-", 1024)
 	in := validInput()
 	in.Candidate.Cause = CandidateCause(rawCause)
@@ -85,6 +90,7 @@ func TestInputValidateRejectsUnknownCandidateCauseWithoutRawText(t *testing.T) {
 }
 
 func TestInputValidateEnforcesIdentifierBounds(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(*Input, string){
 		"candidate reference":  func(in *Input, value string) { in.Candidate.Reference = value },
 		"request id":           func(in *Input, value string) { in.Request.RequestID = value },
@@ -95,6 +101,7 @@ func TestInputValidateEnforcesIdentifierBounds(t *testing.T) {
 	}
 	for name, set := range cases {
 		t.Run(name+" at maximum", func(t *testing.T) {
+			t.Parallel()
 			in := validInput()
 			set(&in, strings.Repeat("x", MaxIdentifierBytes))
 			if err := in.Validate(); err != nil {
@@ -102,6 +109,7 @@ func TestInputValidateEnforcesIdentifierBounds(t *testing.T) {
 			}
 		})
 		t.Run(name+" over maximum", func(t *testing.T) {
+			t.Parallel()
 			in := validInput()
 			set(&in, strings.Repeat("x", MaxIdentifierBytes+1))
 			if err := in.Validate(); !errors.Is(err, ErrInvalidInput) {
@@ -112,6 +120,7 @@ func TestInputValidateEnforcesIdentifierBounds(t *testing.T) {
 }
 
 func TestInputValidateAcceptsBoundedEvidenceProjection(t *testing.T) {
+	t.Parallel()
 	in := validInput()
 	in.Evidence = Evidence{
 		Objective:     "finish the requested change",
@@ -158,6 +167,7 @@ func TestInputValidateAcceptsBoundedEvidenceProjection(t *testing.T) {
 }
 
 func TestInputValidateRejectsUnboundedOrMalformedEvidence(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(*Input){
 		"objective": func(in *Input) {
 			in.Evidence.Objective = strings.Repeat("o", MaxEvidenceTextBytes+1)
@@ -200,6 +210,7 @@ func TestInputValidateRejectsUnboundedOrMalformedEvidence(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			in := validInput()
 			mutate(&in)
 			if err := in.Validate(); !errors.Is(err, ErrInvalidInput) {
@@ -210,6 +221,7 @@ func TestInputValidateRejectsUnboundedOrMalformedEvidence(t *testing.T) {
 }
 
 func TestProviderIdentityIsStableAndBounded(t *testing.T) {
+	t.Parallel()
 	for _, id := range []string{"", "   ", strings.Repeat("p", MaxProviderIDBytes+1)} {
 		if err := ValidateProviderID(id); !errors.Is(err, ErrInvalidProvider) {
 			t.Fatalf("ValidateProviderID(%q) error = %v, want ErrInvalidProvider", id, err)
@@ -224,6 +236,7 @@ func TestProviderIdentityIsStableAndBounded(t *testing.T) {
 }
 
 func TestDecisionValidateAcceptsEachDecisionKind(t *testing.T) {
+	t.Parallel()
 	cases := []Decision{
 		{Kind: DecisionAllowStop, ReasonCode: "complete"},
 		{Kind: DecisionContinue, ReasonCode: "unfinished", Continue: &ContinuationIntent{
@@ -243,6 +256,7 @@ func TestDecisionValidateAcceptsEachDecisionKind(t *testing.T) {
 }
 
 func TestDecisionValidateRejectsUnknownAndEmptyKinds(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []DecisionKind{"", "unknown", "continue-ish"} {
 		decision := Decision{Kind: kind, ReasonCode: "reason"}
 		if err := decision.Validate(); !errors.Is(err, ErrInvalidDecision) {
@@ -252,6 +266,7 @@ func TestDecisionValidateRejectsUnknownAndEmptyKinds(t *testing.T) {
 }
 
 func TestDecisionValidateBoundsUnknownKindError(t *testing.T) {
+	t.Parallel()
 	attackerText := strings.Repeat("unknown-kind-payload-", 1024)
 	decision := Decision{Kind: DecisionKind(attackerText), ReasonCode: "reason"}
 	err := decision.Validate()
@@ -267,6 +282,7 @@ func TestDecisionValidateBoundsUnknownKindError(t *testing.T) {
 }
 
 func TestDecisionValidateRejectsInvalidContinuationCombinations(t *testing.T) {
+	t.Parallel()
 	validIntent := &ContinuationIntent{
 		TrajectoryRef: "trajectory-1",
 		Provenance:    "internal-control",
@@ -286,6 +302,7 @@ func TestDecisionValidateRejectsInvalidContinuationCombinations(t *testing.T) {
 }
 
 func TestDecisionValidateEnforcesReasonAndIntentBounds(t *testing.T) {
+	t.Parallel()
 	decision := Decision{Kind: DecisionAllowStop, ReasonCode: strings.Repeat("r", MaxReasonCodeBytes)}
 	if err := decision.Validate(); err != nil {
 		t.Fatalf("maximum reason code rejected: %v", err)
@@ -314,6 +331,7 @@ func TestDecisionValidateEnforcesReasonAndIntentBounds(t *testing.T) {
 		"control reference":    func(intent *ContinuationIntent, value string) { intent.ControlRef = value },
 	} {
 		t.Run(name+" at maximum", func(t *testing.T) {
+			t.Parallel()
 			intent := ContinuationIntent{
 				TrajectoryRef: "trajectory-1",
 				ControlRef:    "control-1",
@@ -326,6 +344,7 @@ func TestDecisionValidateEnforcesReasonAndIntentBounds(t *testing.T) {
 			}
 		})
 		t.Run(name+" over maximum", func(t *testing.T) {
+			t.Parallel()
 			intent := ContinuationIntent{
 				TrajectoryRef: "trajectory-1",
 				ControlRef:    "control-1",
@@ -341,7 +360,8 @@ func TestDecisionValidateEnforcesReasonAndIntentBounds(t *testing.T) {
 }
 
 func TestProviderSurfaceIsNarrowAndValueBounded(t *testing.T) {
-	providerType := reflect.TypeOf((*Provider)(nil)).Elem()
+	t.Parallel()
+	providerType := reflect.TypeFor[Provider]()
 	if providerType.NumMethod() != 2 {
 		t.Fatalf("Provider exposes %d methods, want exactly ID and Decide", providerType.NumMethod())
 	}
@@ -357,13 +377,13 @@ func TestProviderSurfaceIsNarrowAndValueBounded(t *testing.T) {
 		t.Fatal("Provider must not expose backend-opening capability")
 	}
 
-	assertNoMutablePublicFields(t, reflect.TypeOf(Input{}), "Input")
+	assertNoMutablePublicFields(t, reflect.TypeFor[Input](), "Input")
 }
 
 func TestProviderDecideUsesContextAndInputByValue(t *testing.T) {
+	t.Parallel()
 	var provider Provider = stubProvider{id: "provider.example"}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	decision, err := provider.Decide(ctx, validInput())
 	if err != nil {
 		t.Fatalf("Decide() error = %v", err)
@@ -409,20 +429,19 @@ func assertNoMutablePublicFields(t *testing.T, typ reflect.Type, path string) {
 	if typ.Kind() != reflect.Struct {
 		return
 	}
-	for index := 0; index < typ.NumField(); index++ {
-		field := typ.Field(index)
+	for field := range typ.Fields() {
 		if field.PkgPath != "" { // unexported implementation details are not SDK state.
 			continue
 		}
 		fieldPath := path + "." + field.Name
-		if field.Name == "Auxiliary" && field.Type == reflect.TypeOf((*auxiliary.Client)(nil)).Elem() {
+		if field.Name == "Auxiliary" && field.Type == reflect.TypeFor[auxiliary.Client]() {
 			continue
 		}
 		switch field.Type.Kind() {
 		case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Interface, reflect.Func, reflect.Chan:
 			t.Fatalf("%s exposes mutable/reference field type %s", fieldPath, field.Type)
 		case reflect.Struct:
-			if field.Type != reflect.TypeOf(time.Time{}) {
+			if field.Type != reflect.TypeFor[time.Time]() {
 				assertNoMutablePublicFields(t, field.Type, fieldPath)
 			}
 		}

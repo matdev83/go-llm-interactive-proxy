@@ -158,7 +158,7 @@ func TestMergedFeatureSurface_Append_LocalTurn(t *testing.T) {
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "x", ord: 5}},
 	}
-	m.Append(b)
+	require.NoError(t, m.Append(b))
 	require.Len(t, m.LocalTurnHandlers, 1)
 	require.Equal(t, "x", m.LocalTurnHandlers[0].ID())
 }

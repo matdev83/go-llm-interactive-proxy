@@ -5,6 +5,15 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
+# Test parallelism defaults to the machine's logical core count; override with
+# LIP_TEST_PARALLEL=<n> (mirrors GO_TEST_FLAGS in the Makefile and windows-task.ps1).
+$script:TestParallel = 0
+if (-not [int]::TryParse([string]$env:LIP_TEST_PARALLEL, [ref]$script:TestParallel) -or $script:TestParallel -lt 1) {
+    if (-not [int]::TryParse([string]$env:NUMBER_OF_PROCESSORS, [ref]$script:TestParallel) -or $script:TestParallel -lt 1) {
+        $script:TestParallel = 8
+    }
+}
+
 function Invoke-QualityChild {
     param([string]$Label, [string[]]$Command, [string[]]$Env = @(), [string]$Timeout = "2m")
     Invoke-TaskRunner -Label "quality-checks:$Label" -Cwd $RepositoryRoot -Timeout $Timeout -Env $Env -Command $Command | Out-Host
@@ -147,34 +156,66 @@ if ($env:LIP_SKIP_ARCHTEST -ne "1") {
     # Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
     # quality-checks archtest run shares Go's build/test cache with
     # subsequent `make test`/`make qa` executions (see #291).
-    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=8", "-timeout=10m", "./internal/archtest/...") }
+    $guardJobs += @{ Label = "archtest"; Command = @("go", "test", "-parallel=$script:TestParallel", "-timeout=10m", "./internal/archtest/...") }
 }
 $runnerBinary = Get-TaskRunnerBinary
-$jobResults = @()
-foreach ($guard in $guardJobs) {
-    $jobResults += Start-Job -ScriptBlock {
-        param($runnerScript, $runnerPath, $repoRoot, $label, $command)
-        $env:LIP_TASKRUNNER_NO_CLEANUP = "1"
-        . $runnerScript
-        $script:TaskRunnerBinary = $runnerPath
-        Invoke-TaskRunner -Label "quality-checks:$label" -Cwd $repoRoot -Timeout "5m" -Command $command | Out-Host
-    } -ArgumentList (Join-Path $PSScriptRoot "taskrunner.ps1"), $runnerBinary, $RepositoryRoot, $guard.Label, $guard.Command
-}
+$sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+$pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, [Math]::Max(1, $guardJobs.Count), $sessionState, $Host)
+$pool.Open()
 
-$guardFailure = $false
-foreach ($job in $jobResults) {
-    Wait-Job $job | Out-Null
-}
-foreach ($job in $jobResults) {
-    $jobOutput = @(Receive-Job $job -ErrorAction SilentlyContinue)
-    $jobOutput | ForEach-Object { Write-Host $_ }
-    if ($job.State -ne "Completed" -or @($job.ChildJobs | Where-Object { $_.State -ne "Completed" }).Count -gt 0) {
-        $guardFailure = $true
+$tasks = [System.Collections.Generic.List[PSObject]]::new()
+try {
+    foreach ($guard in $guardJobs) {
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $ps.RunspacePool = $pool
+        [void]$ps.AddScript({
+            param($runnerBinary, $repoRoot, $label, $cmdArgs)
+            $runnerArgs = @(
+                "--label", "quality-checks:$label",
+                "--cwd", $repoRoot,
+                "--timeout", "5m",
+                "--output", "capture"
+            )
+            $runnerArgs += "--"
+            $runnerArgs += $cmdArgs
+
+            $output = @(& $runnerBinary @runnerArgs 2>&1)
+            $exitCode = $LASTEXITCODE
+            return @{
+                Label = $label
+                ExitCode = $exitCode
+                Output = $output
+            }
+        }).AddArgument($runnerBinary).AddArgument($RepositoryRoot).AddArgument($guard.Label).AddArgument($guard.Command)
+
+        $asyncResult = $ps.BeginInvoke()
+        $tasks.Add([PSCustomObject]@{
+            PowerShell = $ps
+            AsyncResult = $asyncResult
+            Label = $guard.Label
+        })
     }
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+    $guardFailure = $false
+    foreach ($task in $tasks) {
+        $res = $task.PowerShell.EndInvoke($task.AsyncResult)
+        $task.PowerShell.Dispose()
+        if ($res) {
+            $exitCode = $res[0].ExitCode
+            $output = $res[0].Output
+            if ($output) { $output | ForEach-Object { Write-Host $_ } }
+            if ($exitCode -ne 0) {
+                $guardFailure = $true
+            }
+        }
+    }
+    if ($guardFailure) {
+        throw "one or more parallel quality guardrails failed"
+    }
 }
-if ($guardFailure) {
-    throw "one or more parallel quality guardrails failed"
+finally {
+    $pool.Close()
+    $pool.Dispose()
 }
 Write-Host ""
 

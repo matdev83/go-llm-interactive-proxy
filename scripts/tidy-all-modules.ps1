@@ -5,31 +5,9 @@ param(
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/taskrunner.ps1"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$taskRunnerScript = Join-Path $PSScriptRoot "taskrunner.ps1"
 $localEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
-$jobs = if ($env:LIP_MODULE_CHECK_JOBS) { [int]$env:LIP_MODULE_CHECK_JOBS } elseif ($env:CI_NODE_TOTAL) { [int]$env:CI_NODE_TOTAL } else { 4 }
+$jobs = if ($env:LIP_MODULE_CHECK_JOBS) { [int]$env:LIP_MODULE_CHECK_JOBS } elseif ($env:CI_NODE_TOTAL) { [int]$env:CI_NODE_TOTAL } else { [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount)) }
 if ($jobs -lt 1) { throw "LIP_MODULE_CHECK_JOBS must be a positive integer" }
-
-$pending = @{}
-$failed = @()
-$runnerBinary = $null
-
-function Start-TidyJob {
-    param([string]$Module)
-    $dir = if ($Module -eq ".") { $Root } else { Join-Path $Root $Module }
-    $label = "tidy-all-modules:$Module"
-    $envArgs = @($localEnv) + @("GOWORK=off")
-    $commandArgs = if ($Check) { @("go", "mod", "tidy", "-diff") } else { @("go", "mod", "tidy") }
-    Start-Job -ScriptBlock {
-        param($runnerScriptArg, $runnerBinaryArg, $labelArg, $cwdArg, $commandArg, $envArg)
-        # Child jobs share the parent's temporary binary; only the parent owns
-        # its cleanup after all jobs have been received and removed.
-        $env:LIP_TASKRUNNER_NO_CLEANUP = "1"
-        . $runnerScriptArg
-        $script:TaskRunnerBinary = $runnerBinaryArg
-        Invoke-TaskRunner -Label $labelArg -Cwd $cwdArg -Timeout "8m" -Env $envArg -Command $commandArg | ForEach-Object { Write-Output $_ }
-    } -ArgumentList $taskRunnerScript, $runnerBinary, $label, $dir, $commandArgs, $envArgs
-}
 
 try {
     $runnerBinary = Get-TaskRunnerBinary
@@ -41,45 +19,79 @@ try {
     })
 
     Write-Host ("Tidying {0} modules with up to {1} workers" -f $modules.Count, $jobs)
-    $next = 0
-    while ($next -lt $modules.Count -or $pending.Count -gt 0) {
-        while ($next -lt $modules.Count -and $pending.Count -lt $jobs) {
-            $module = $modules[$next]
-            $next++
-            $pending[$module] = Start-TidyJob $module
+
+    $commandArgs = if ($Check) { @("go", "mod", "tidy", "-diff") } else { @("go", "mod", "tidy") }
+    $envArgs = @($localEnv) + @("GOWORK=off")
+
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $jobs, $sessionState, $Host)
+    $pool.Open()
+
+    $tasks = [System.Collections.Generic.List[PSObject]]::new()
+    try {
+        foreach ($module in $modules) {
+            $dir = if ($module -eq ".") { $Root } else { Join-Path $Root $module }
+            $label = "tidy-all-modules:$module"
+
+            $ps = [System.Management.Automation.PowerShell]::Create()
+            $ps.RunspacePool = $pool
+            [void]$ps.AddScript({
+                param($runnerBinary, $label, $cwd, $envList, $cmdArgs)
+                $runnerArgs = @(
+                    "--label", $label,
+                    "--cwd", $cwd,
+                    "--timeout", "8m",
+                    "--output", "capture"
+                )
+                foreach ($e in $envList) {
+                    $runnerArgs += @("--env", $e)
+                }
+                $runnerArgs += "--"
+                $runnerArgs += $cmdArgs
+
+                $output = @(& $runnerBinary @runnerArgs 2>&1)
+                $exitCode = $LASTEXITCODE
+                return @{
+                    Module = $cwd
+                    Label = $label
+                    ExitCode = $exitCode
+                    Output = $output
+                }
+            }).AddArgument($runnerBinary).AddArgument($label).AddArgument($dir).AddArgument($envArgs).AddArgument($commandArgs)
+
+            $asyncResult = $ps.BeginInvoke()
+            $tasks.Add([PSCustomObject]@{
+                PowerShell = $ps
+                AsyncResult = $asyncResult
+                Module = $module
+                Label = $label
+            })
         }
 
-        $completed = @($pending.GetEnumerator() | Where-Object { $_.Value.State -in @("Completed", "Failed", "Stopped") })
-        if ($completed.Count -eq 0) {
-            Start-Sleep -Milliseconds 100
-            continue
-        }
-        foreach ($entry in $completed) {
-            $job = $entry.Value
-            $jobOutput = @(Receive-Job $job -ErrorAction Continue 2>&1)
-            $jobOutput | ForEach-Object { Write-Host $_ }
-            $childReason = $job.ChildJobs[0].JobStateInfo.Reason
-            if ($job.State -ne "Completed" -or $childReason) {
-                $reason = if ($childReason) { $childReason.Exception.Message } else { "taskrunner returned a non-zero exit code" }
-                $failed += ("{0}: {1}; output: {2}" -f $entry.Key, $reason, (($jobOutput | Out-String).Trim()))
+        $failed = @()
+        foreach ($task in $tasks) {
+            $res = $task.PowerShell.EndInvoke($task.AsyncResult)
+            $task.PowerShell.Dispose()
+            if ($res) {
+                $exitCode = $res[0].ExitCode
+                $output = $res[0].Output
+                if ($output) { $output | ForEach-Object { Write-Host $_ } }
+                if ($exitCode -ne 0) {
+                    $failed += ("{0}: exit {1}; output: {2}" -f $task.Module, $exitCode, (($output | Out-String).Trim()))
+                }
             }
-            Remove-Job $job -Force
-            $pending.Remove($entry.Key)
         }
-    }
 
-    if ($failed.Count -gt 0) {
-        throw ("module tidy failed: " + ($failed -join "; "))
+        if ($failed.Count -gt 0) {
+            throw ("module tidy failed: " + ($failed -join "; "))
+        }
+        if ($Check) { Write-Host "OK: all discovered Go modules are tidy" }
+        else { Write-Host "OK: all discovered Go modules synchronized" }
     }
-    if ($Check) { Write-Host "OK: all discovered Go modules are tidy" }
-    else { Write-Host "OK: all discovered Go modules synchronized" }
+    finally {
+        $pool.Close()
+        $pool.Dispose()
+    }
 }
 finally {
-    foreach ($entry in @($pending.GetEnumerator())) {
-        Stop-Job $entry.Value -ErrorAction SilentlyContinue
-        Remove-Job $entry.Value -Force -ErrorAction SilentlyContinue
-    }
-    if ($runnerBinary) {
-        Remove-TaskRunnerBinary
-    }
 }

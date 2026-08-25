@@ -3,7 +3,7 @@ package terminaldecisionpolicy
 import (
 	"errors"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -52,11 +52,8 @@ func TestPolicyEffectiveState_AllTriStatePairs(t *testing.T) {
 
 	states := []TriState{TriStateUnset, TriStateEnabled, TriStateDisabled}
 	for _, generationDefault := range []bool{false, true} {
-		generationDefault := generationDefault
 		for _, clientState := range states {
-			clientState := clientState
 			for _, operatorState := range states {
-				operatorState := operatorState
 				t.Run(testPolicyPairName(generationDefault, clientState, operatorState), func(t *testing.T) {
 					t.Parallel()
 					store := NewStore(policyConfig(1))
@@ -117,7 +114,7 @@ func boolString(value bool) string {
 func TestPolicyKeyContainsOnlySafeBoundedScopeIdentity(t *testing.T) {
 	t.Parallel()
 
-	keyType := reflect.TypeOf(Key{})
+	keyType := reflect.TypeFor[Key]()
 	wantFields := map[string]struct{}{
 		"SecureSessionIncarnation": {},
 		"ALegID":                   {},
@@ -126,8 +123,7 @@ func TestPolicyKeyContainsOnlySafeBoundedScopeIdentity(t *testing.T) {
 	if keyType.NumField() != len(wantFields) {
 		t.Fatalf("Key fields=%d, want exactly %d safe identity fields", keyType.NumField(), len(wantFields))
 	}
-	for i := 0; i < keyType.NumField(); i++ {
-		field := keyType.Field(i)
+	for field := range keyType.Fields() {
 		if _, ok := wantFields[field.Name]; !ok {
 			t.Fatalf("Key contains unexpected field %q", field.Name)
 		}
@@ -142,9 +138,8 @@ func TestPolicyKeyContainsOnlySafeBoundedScopeIdentity(t *testing.T) {
 		}
 	}
 
-	authorityType := reflect.TypeOf(Authority{})
-	for i := 0; i < authorityType.NumField(); i++ {
-		field := authorityType.Field(i)
+	authorityType := reflect.TypeFor[Authority]()
+	for field := range authorityType.Fields() {
 		if field.Type.Kind() != reflect.String && field.Type.Kind() != reflect.Bool {
 			t.Fatalf("Authority.%s kind=%s, want safe identity or authorization state", field.Name, field.Type.Kind())
 		}
@@ -197,11 +192,11 @@ func TestPolicyBoundsCapacityRejectNewWithoutMutation(t *testing.T) {
 		t.Fatalf("oversized bounded value error=%v, want ErrBounds", err)
 	}
 
-	configType := reflect.TypeOf(Config{})
-	for i := 0; i < configType.NumField(); i++ {
-		name := strings.ToLower(configType.Field(i).Name)
+	configType := reflect.TypeFor[Config]()
+	for field := range configType.Fields() {
+		name := strings.ToLower(field.Name)
 		if strings.Contains(name, "ttl") || strings.Contains(name, "evict") {
-			t.Fatalf("Config.%s introduces TTL/eviction semantics", configType.Field(i).Name)
+			t.Fatalf("Config.%s introduces TTL/eviction semantics", field.Name)
 		}
 	}
 }
@@ -233,15 +228,12 @@ func TestPolicyConcurrentActorWritesAreSerializedAndSnapshotsAtomic(t *testing.T
 		{actor: ActorClient, state: TriStateEnabled},
 		{actor: ActorOperator, state: TriStateDisabled},
 	} {
-		write := write
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ready <- struct{}{}
 			<-release
 			snapshot, err := store.Set(t.Context(), authority, key, write.actor, write.state)
 			results <- writeResult{snapshot: snapshot, err: err}
-		}()
+		})
 	}
 	waitPolicySignal(t, ready, "first writer")
 	waitPolicySignal(t, ready, "second writer")
@@ -262,7 +254,7 @@ func TestPolicyConcurrentActorWritesAreSerializedAndSnapshotsAtomic(t *testing.T
 	if len(revisions) != 2 {
 		t.Fatalf("write results=%d, want 2", len(revisions))
 	}
-	sort.Slice(revisions, func(i, j int) bool { return revisions[i] < revisions[j] })
+	slices.Sort(revisions)
 	if revisions[0] == revisions[1] {
 		t.Fatalf("concurrent writes reused revision %d", revisions[0])
 	}

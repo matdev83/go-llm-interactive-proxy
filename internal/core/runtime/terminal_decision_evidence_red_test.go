@@ -73,7 +73,7 @@ func TestProjectTerminalDecisionEvidenceUsesCanonicalFacts(t *testing.T) {
 
 func TestProjectTerminalDecisionEvidenceIsBoundedAndCopied(t *testing.T) {
 	items := make([]lipapi.Item, 0, terminaldecision.MaxEvidenceActions+4)
-	for i := 0; i < terminaldecision.MaxEvidenceActions+4; i++ {
+	for i := range terminaldecision.MaxEvidenceActions + 4 {
 		items = append(items, lipapi.Item{
 			Kind:   lipapi.ItemKindToolCall,
 			ID:     "item-" + string(rune('a'+i)),

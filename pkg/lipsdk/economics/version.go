@@ -7,8 +7,8 @@ import "time"
 type VersionRef struct {
 	ID          string    `json:"id"`
 	Version     string    `json:"version"`
-	EffectiveAt time.Time `json:"effective_at,omitempty"`
-	FetchedAt   time.Time `json:"fetched_at,omitempty"`
+	EffectiveAt time.Time `json:"effective_at,omitzero"`
+	FetchedAt   time.Time `json:"fetched_at,omitzero"`
 }
 
 // RatingSnapshotRef binds a rating/pricebook snapshot used for an admission or settlement.

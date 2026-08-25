@@ -122,7 +122,7 @@ func TestTerminalDecisionPlatformStopsAlwaysContinueProviderAtBoundedAttempt(t *
 	input := terminalDecisionInput(terminaldecision.CandidateCauseNormal, true)
 	input.Policy.MaxContinuationAttempts = 2
 
-	for attempt := uint8(0); attempt < 3; attempt++ {
+	for attempt := range uint8(3) {
 		input.Continuation.Attempt = attempt
 		outcome := evaluateTerminalDecision(context.Background(), provider, input)
 		if attempt < 2 && outcome.Decision.Kind != terminaldecision.DecisionContinue {

@@ -34,26 +34,26 @@ type OperatorCostInput struct {
 	Money                MoneyAmountInput   `json:"money,omitzero"`
 	BackendIngressTokens TokenQuantityInput `json:"backend_ingress_tokens,omitzero"`
 	BackendEgressTokens  TokenQuantityInput `json:"backend_egress_tokens,omitzero"`
-	ProviderReportedCost MoneyAmountInput   `json:"provider_reported_cost,omitempty"`
+	ProviderReportedCost MoneyAmountInput   `json:"provider_reported_cost,omitzero"`
 	RatingVersion        VersionRef         `json:"rating_version,omitzero"`
 }
 
 // CompressionReportInput exposes transformation lineage without raw content
 // (requirements 4.7, 14.6).
 type CompressionReportInput struct {
-	FrontendInput   TokenQuantityInput `json:"frontend_input,omitempty"`
-	BackendInput    TokenQuantityInput `json:"backend_input,omitempty"`
-	DeliveredOutput TokenQuantityInput `json:"delivered_output,omitempty"`
-	ProviderOutput  TokenQuantityInput `json:"provider_output,omitempty"`
-	ProviderCost    MoneyAmountInput   `json:"provider_cost,omitempty"`
+	FrontendInput   TokenQuantityInput `json:"frontend_input,omitzero"`
+	BackendInput    TokenQuantityInput `json:"backend_input,omitzero"`
+	DeliveredOutput TokenQuantityInput `json:"delivered_output,omitzero"`
+	ProviderOutput  TokenQuantityInput `json:"provider_output,omitzero"`
+	ProviderCost    MoneyAmountInput   `json:"provider_cost,omitzero"`
 }
 
 // RoutingOverheadInput holds routing overhead separately from direct attempt
 // costs (5.7).
 type RoutingOverheadInput struct {
-	AttemptCount        TokenQuantityInput `json:"attempt_count,omitempty"`
-	NonSurfacedAttempts TokenQuantityInput `json:"non_surfaced_attempts,omitempty"`
-	OverheadCost        MoneyAmountInput   `json:"overhead_cost,omitempty"`
+	AttemptCount        TokenQuantityInput `json:"attempt_count,omitzero"`
+	NonSurfacedAttempts TokenQuantityInput `json:"non_surfaced_attempts,omitzero"`
+	OverheadCost        MoneyAmountInput   `json:"overhead_cost,omitzero"`
 }
 
 // ReportCalculationType names an explicit cross-plane calculation. Customer
@@ -81,8 +81,8 @@ func (t ReportCalculationType) IsKnown() bool {
 // economics. It always carries an explicit ReportCalculationType (14.7).
 type CalculatedAmount struct {
 	Calculation ReportCalculationType `json:"calculation"`
-	Money       MoneyAmountInput      `json:"money,omitempty"`
-	Quantity    TokenQuantityInput    `json:"quantity,omitempty"`
+	Money       MoneyAmountInput      `json:"money,omitzero"`
+	Quantity    TokenQuantityInput    `json:"quantity,omitzero"`
 }
 
 // ReportCompleteness classifies whether reconstructed report inputs have the

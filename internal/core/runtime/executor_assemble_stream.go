@@ -18,7 +18,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	e := a.Executor
 	prep.ensureRecvTurnFacts(ctx)
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
-	if e != nil && e.RuntimeSnapshot != nil && prep.recvTurnFacts.terminalDecisionEnabled {
+	if e != nil && e.RuntimeSnapshot != nil && prep.terminalDecisionEnabled {
 		terminal.terminalDecisionProvider = e.RuntimeSnapshot.TerminalDecisionProvider()
 	}
 	if prep.call != nil {

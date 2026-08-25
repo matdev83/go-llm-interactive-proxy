@@ -248,7 +248,8 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	if len(merged.SubmitHooks) != 1 || merged.SubmitHooks[0].(testSubmitHook).tag != "existing" {
+	hook, ok := merged.SubmitHooks[0].(testSubmitHook)
+	if len(merged.SubmitHooks) != 1 || !ok || hook.tag != "existing" {
 		t.Fatalf("existing fields changed during provider merge: %#v", merged.SubmitHooks)
 	}
 }
@@ -289,11 +290,11 @@ func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *t
 
 func TestMergedFeatureSurfaceTerminalDecisionContributionIsSingular(t *testing.T) {
 	t.Parallel()
-	field, ok := reflect.TypeOf(MergedFeatureSurface{}).FieldByName("TerminalDecisionProvider")
+	field, ok := reflect.TypeFor[MergedFeatureSurface]().FieldByName("TerminalDecisionProvider")
 	if !ok {
 		t.Fatal("MergedFeatureSurface is missing TerminalDecisionProvider")
 	}
-	want := reflect.TypeOf((*terminaldecision.Provider)(nil)).Elem()
+	want := reflect.TypeFor[terminaldecision.Provider]()
 	if field.Type != want {
 		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
 	}

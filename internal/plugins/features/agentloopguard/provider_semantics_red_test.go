@@ -86,6 +86,7 @@ func TestProviderVerifierFailureAndUncertainFailClosed(t *testing.T) {
 		"malformed": &providerSemanticCollector{responses: []string{`not-json`}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			in := semanticProviderInput()
 			in.Evidence.ExplicitCompletion = true
 			in.Auxiliary = aux

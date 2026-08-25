@@ -38,9 +38,12 @@ echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged
 
-if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
+# Lint and vulnerability scans are opt-in per commit: they add ~50s to every
+# commit and are covered by `make qa` / PR CI. Opt in with LIP_PRECOMMIT_FULL=1
+# (or `make precommit-full`); LIP_SKIP_LINT / LIP_SKIP_VULN still force-skip.
+if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" && "${LIP_SKIP_LINT:-}" != "1" ]]; then
 	echo ""
-	echo "Running linter..."
+	echo "Running linter (precommit-full)..."
 	if command -v golangci-lint >/dev/null 2>&1; then
 		golangci-lint run
 	elif command -v staticcheck >/dev/null 2>&1; then
@@ -48,16 +51,22 @@ if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 	else
 		echo "Warning: golangci-lint/staticcheck not found, skipping (run: make lint or install golangci-lint)"
 	fi
+else
+	echo ""
+	echo "Skipping linter in fast pre-commit mode (opt in: LIP_PRECOMMIT_FULL=1 or 'make precommit-full'; CI runs it anyway)."
 fi
 
-if [[ "${LIP_SKIP_VULN:-}" != "1" ]]; then
+if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" && "${LIP_SKIP_VULN:-}" != "1" ]]; then
 	echo ""
-	echo "Running govulncheck..."
+	echo "Running govulncheck (precommit-full)..."
 	if command -v govulncheck >/dev/null 2>&1; then
 		govulncheck ./...
 	else
 		go tool govulncheck ./...
 	fi
+else
+	echo ""
+	echo "Skipping govulncheck in fast pre-commit mode (opt in: LIP_PRECOMMIT_FULL=1 or 'make precommit-full'; CI runs it anyway)."
 fi
 
 echo ""

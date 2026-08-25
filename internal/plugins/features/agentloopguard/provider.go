@@ -98,7 +98,7 @@ func (p provider) Decide(ctx context.Context, in terminaldecision.Input) (termin
 	projected := in
 	projected.Policy.MaxContinuationAttempts = effectiveSemanticCap(p.cfg.MaxSemanticContinuations, in.Policy.MaxContinuationAttempts)
 	verdict := progress.VerdictIncomplete
-	if !(p.cfg.ExplicitCompletionPolicy == ExplicitCompletionPolicyTrust && in.Evidence.ExplicitCompletion) {
+	if p.cfg.ExplicitCompletionPolicy != ExplicitCompletionPolicyTrust || !in.Evidence.ExplicitCompletion {
 		semantic, err := verifier.New(in.Auxiliary, verifier.Config{
 			Role:    p.cfg.VerifierRole,
 			Timeout: p.cfg.VerifierTimeout,
@@ -152,11 +152,8 @@ func (p provider) Decide(ctx context.Context, in terminaldecision.Input) (termin
 // shared cause policy owns candidate and tool safety; this only ensures the
 // continuation describes an actually unfinished canonical message.
 func hasConcreteUnfinishedWork(in terminaldecision.Input) bool {
-	count := int(in.Evidence.ActionCount)
-	if count > len(in.Evidence.Actions) {
-		count = len(in.Evidence.Actions)
-	}
-	for i := 0; i < count; i++ {
+	count := min(int(in.Evidence.ActionCount), len(in.Evidence.Actions))
+	for i := range count {
 		action := in.Evidence.Actions[i]
 		if action.Kind == lipapi.ItemKindMessage && action.Status == lipapi.ItemStatusInProgress {
 			return true
@@ -181,10 +178,7 @@ func effectiveSemanticCap(configCap int, platformCap uint8) uint8 {
 
 func decodeProgressState(in terminaldecision.Input) (progress.State, bool) {
 	ref := strings.TrimSpace(in.Evidence.Lineage.ProgressRef)
-	attempt := in.Continuation.Attempt
-	if in.Evidence.Lineage.Attempt > attempt {
-		attempt = in.Evidence.Lineage.Attempt
-	}
+	attempt := max(in.Continuation.Attempt, in.Evidence.Lineage.Attempt)
 	if ref == "" {
 		return progress.State{}, attempt <= 1
 	}
