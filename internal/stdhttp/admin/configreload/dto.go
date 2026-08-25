@@ -26,8 +26,8 @@ type ResultDTO struct {
 type StatusDTO struct {
 	ActiveGeneration    int64     `json:"active_generation"`
 	LastResult          ResultDTO `json:"last_result"`
-	LastSuccess         ResultDTO `json:"last_success,omitempty"`
-	LastFailure         ResultDTO `json:"last_failure,omitempty"`
+	LastSuccess         ResultDTO `json:"last_success,omitzero"`
+	LastFailure         ResultDTO `json:"last_failure,omitzero"`
 	SourceIntegrity     string    `json:"source_integrity,omitempty"`
 	RetainedGenerations int       `json:"retained_generations,omitempty"`
 	RetentionPressure   bool      `json:"retention_pressure,omitempty"`

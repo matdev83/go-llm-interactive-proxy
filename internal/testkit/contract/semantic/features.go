@@ -60,7 +60,7 @@ type SubjectDescriptor struct {
 	Kind         SubjectKind           `json:"kind"`
 	Profile      string                `json:"profile,omitempty"`
 	Capabilities []lipapi.Capability   `json:"capabilities,omitempty"`
-	Dialects     lipapi.DialectSupport `json:"dialects,omitempty"`
+	Dialects     lipapi.DialectSupport `json:"dialects,omitzero"`
 	// Transports lists the transports supported by this subject. An empty list
 	// means the subject accepts the scenario's declared transport.
 	Transports []ScenarioTransport `json:"transports,omitempty"`
@@ -101,7 +101,7 @@ type Certification struct {
 	SubjectKind  SubjectKind           `json:"subject_kind"`
 	Profile      string                `json:"profile,omitempty"`
 	Capabilities []lipapi.Capability   `json:"capabilities,omitempty"`
-	Dialects     lipapi.DialectSupport `json:"dialects,omitempty"`
+	Dialects     lipapi.DialectSupport `json:"dialects,omitzero"`
 	Transports   []ScenarioTransport   `json:"transports,omitempty"`
 	Passed       []ScenarioID          `json:"passed"`
 	Negative     []ScenarioID          `json:"negative"`

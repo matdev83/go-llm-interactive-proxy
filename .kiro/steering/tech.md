@@ -2,7 +2,7 @@
 
 ## Core Stack Summary
 
-- **Toolchain**: Go `1.26.5` pinned in `go.mod`.
+- **Toolchain**: Go `1.26.6` pinned in `go.mod`.
 - **HTTP**: `net/http` stdlib server and client primitives.
 - **Logging**: `log/slog` with `samber/slog-*` multi-handler helpers.
 - **JSON**: `encoding/json` stdlib. Presence semantics: [`internal/core/jsonpresence`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/jsonpresence). Size/shape preflight: [`internal/core/jsonshape`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/jsonshape) (8 MiB req / 256 KiB schema / 64 KiB args).

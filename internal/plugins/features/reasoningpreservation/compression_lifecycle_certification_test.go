@@ -349,7 +349,6 @@ func TestCertification_MultiSession_ReservationsAttachmentsNeverExceedTotals(t *
 		results := make([]error, 5)
 		wg.Add(5)
 		for i := range 5 {
-			i := i
 			go func() {
 				defer wg.Done()
 				p := reasoningpreservation.NewSessionPartition("conc-" + string(rune('0'+i)))

@@ -71,6 +71,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - No transparent retry/failover after first downstream content event.
 - Capability mismatches fail explicitly; never silently drop required semantics.
 - Request/response mutation belongs behind hooks/extensions, not core branching.
+- Terminal decisions flow through one core chokepoint with a single exclusive provider slot; core never imports or branches on concrete providers (e.g., Agent Loop Guard); removal restores generic no-provider behavior.
 - Use explicit construction/registration; no DI containers, reflection registries, globals, or Go native `plugin` in v1.
 - Hybrid backends ([ADR 0008](docs/adr/0008-hybrid-backend-connector-plugins.md)): essential builtins are static; optional backends are executable gRPC connectors under `connectors/` (manifest-driven discovery). Do not add optional connectors to essential/`standard_table` fixed tables. Core keeps orchestration/B2BUA.
 - Compatible-provider growth is data-driven (`internal/providerprofiles`) plus contract TCKs, not a Cartesian frontend×backend product or a new in-process backend per vendor.
@@ -87,7 +88,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - `internal/core/billing/`: BillingCallID, quote/exposure policy, immutable usage contracts, post-usage rating, journal commands (no SQL, no provider SDKs).
 - `internal/plugins/frontends/`: OpenResponses, OpenAI Responses, OpenAI legacy, Anthropic, Gemini frontends.
 - `internal/plugins/backends/`: essential hosted/custom-compatible adapters and shared helpers only; essential kinds in `internal/standardplugins` (`EssentialBackendBundle` / tables). Optional connectors are not root-module packages.
-- `connectors/`, `connector-support/`: independent modules for optional executable backend plugins and shared connector support.
+- `connectors/`, `connector-support/`: independent modules for optional executable backend plugins and shared connector support; host-side connector runtime in `internal/infra/backendplugins/`.
 - `internal/plugins/features/`: official feature and reference plugins.
 - `internal/pluginreg/`, `internal/standardplugins/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`: standard distribution composition and discovery registration.
 - `internal/infra/billingstore/`, `internal/infra/billingcompose/`, `internal/infra/billingadmission/`: Bun journal, snapshot catalog, admission adapter.

@@ -29,7 +29,7 @@ Five-zone modular design: stable public contracts at the edge, a policy-owning i
 ### 1. Public Contracts (Stable Surface)
 
 - `pkg/lipapi/` — Protocol-neutral canonical request, item, part, tool, event, capability, limit, and error types, including name-derived tool classification. Zero provider SDK or HTTP dependencies.
-- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`, `compaction`).
+- `pkg/lipsdk/` — Plugin registration contracts, frontend/backend/hook interfaces, SDK facades (`auth`, `session`, `workspace`, `request`, `routehint`, `toolcatalog`, `toolpolicy`, `completion`, `auxiliary`, `state`, `traffic`, `usage`, `modelinventory`, `securesession`, `continuation`, `compaction`). Newer seams follow the same trusted-producer/explicit-construction pattern: conversation-view producers (`localturn`, `nonforwardable`, `steering`), terminal decisions (`terminaldecision`), prompt-cache prefixes (`promptcache`), principal/scope attribution (`scope`), and terminal ownership contracts (`terminal`).
   - `pkg/lipsdk/secretguard/` — Ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
   - `pkg/lipsdk/configreload/` — Secret-safe runtime reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`).
   - `pkg/lipsdk/backendplugin/` — Versioned gRPC connector ABI, DTOs, and table-driven converter helpers.
@@ -46,13 +46,13 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
   - `authorityattribution/` — Leg attribution tracking.
   - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
   - `metering/` — Usage/cost metering models.
-- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`)
-- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher)
+- **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`), `conversationview/` (`sdkadapter/`, `storecontract/` — replay-stable message identity, `never_backend` exclusion classification, and persistent client-hidden/model-visible steering projected at the A-leg/B-leg boundary; persisted through its own store contract over Memory/SQLite/PostgreSQL)
+- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher), `geoip/` (protocol-neutral ingress GeoIP policy semantics)
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `toolcallrepair/`, `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
-- **Observability/Detection**: `compactiondetect/` (process-owned coding-agent session compaction detector; emits typed observations through `pkg/lipsdk/compaction` observers)
-- **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`
-- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform)
-- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`
+- **Observability/Detection**: `compactiondetect/` (process-owned coding-agent session compaction detector; emits typed observations through `pkg/lipsdk/compaction` observers), `compactioncontinuity/` (process-owned branch coordinator — `BranchKey`/`BranchState` CAS authority for compaction-continuity capsules committed via background auxiliary jobs)
+- **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`, `localstream/` (generic canonical proxy-local response streams backing local turns)
+- **Hooks & Extensions**: `hooks/` (stage evaluation), `extensions/` (stage-four extension platform), `terminaldecisionpolicy/` (process-owned bounded session policy store for terminal-decision feature overrides). The runtime enforces the shared terminal-decision chokepoint over the single exclusive `pkg/lipsdk/terminaldecision` provider slot with core-owned continuation transactions; generic no-provider behavior is preserved when no provider is installed.
+- **Core State & Accounting**: `auxreq/`, `state/`, `traffic/`, `workspace/`, `modelcatalog/`, `modelregistry/`, `accounting/`, `billing/`, `tokenaccounting/`, `keepwarm/` (keep-warm accounting)
   - `billing/` owns BillingCallID, quote/exposure policy, immutable per-call/per-leg usage contracts (including authoritative persisted `AttemptSeq`), post-usage rating, journal settlement, and billing reports. Runtime performs cheap credit screening and atomic operational exposure admission, then appends terminal usage; it must not enrich prices or write the legacy token ledger. Customer rating resolves customer pricing and model cards only, independent of provider/operator-rate readiness; runtime billing bookkeeping is `BillingCallID`-scoped (no executor-global call registry).
   - `tokenaccounting/` remains a protocol/quota usage projection and admin counting surface only; it is not a financial balance or journal input.
   - Durable money persistence is `internal/infra/billingstore` (Bun). Host injection is `internal/infra/billingcompose` (snapshot catalog + identity) plus `runtimebundle.ComposeBilling`. Admission adapter is `internal/infra/billingadmission`. Public `pkg/lipruntime.Options` stays non-money.
@@ -63,7 +63,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
 - `internal/standardplugins/` — Built-in bundle tables (`standard_table.go`), `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`.
 - `internal/featurebundle/` — Feature merge engine (`MergeFeatureSurface`).
 - `internal/infra/runtimebundle/` — Process `Host` builder (`runtimebundle.BuildHost`), immutable generation management (`GenerationRuntime`), shutdown coordinator; the host lifecycle ends through `Host.Close`. Authoritative billing is injected through `ComposeBilling` → `BuildHostInput.Production`; `cmd/lipstd` does not open a billing journal.
-- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports and routing-override admin mounts are composition-gated.
+- `internal/stdhttp/` — Standard HTTP surface, route mounting, auth attachment, diagnostics, access logs. Optional billing reports, routing-override admin mounts, and terminal-decision session-feature policy endpoints (generic authenticated client `/v1/lip/session/features/{feature_id}` and diagnostics-secret operator surfaces) are composition-gated.
 - `internal/jsonbody/` — Bounded HTTP JSON decode policy for standard/admin adapters: byte cap, request-envelope shape preflight, exactly-one-document admission. Consumers: `internal/stdhttp/admin/billing`, `keepwarm`, `tokenaccounting`.
 - `internal/providerprofiles/` — Declarative compatible-provider catalog (`lip.provider-profile/v1`); composition compiles profiles onto protocol-family adapters. Do not grow a new in-process backend package per compatible vendor.
 
@@ -79,11 +79,13 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 - **Custom-Compatible Helpers**: `openresponsescompat/`, `openaicompat/`, `compatmode/`, `transporterr/`, `checkcfg/`, `credpool/`, `httpidentity/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `protocols/`, `streampeek/`
 - **Protocol Protocols**: `internal/plugins/protocols/openairesponsesitem` (exact OpenAI Responses reasoning-item Opaque schema).
 - **Optional Backend Connectors** (`connectors/` — independent modules, gRPC ABI over IPC): `acp`, `agycliacp`, `codex`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `huggingface`, `llamacpp`, `lmstudio`, `localstub`, `nvidia`, `ollama`, `opencode`, `openrouter`, `vllm`.
-- **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`).
+- **Connector Support**: `connector-support/` (`acp/`, `openaicompat/`), plus host-side executable-connector infrastructure in `internal/infra/backendplugins/` (`adapter/`, `catalog/`, `discovery/`, `manifest/`, `processhost/`, security/trust).
 
 ### 5. Official Feature Plugins (`internal/plugins/features/`)
 
-- `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects).
+- `reasoningpreservation/` — Default-on reasoning output capture/restore (`EventReasoningPart` + Chat/Anthropic/Codex dialects), plus opt-in semantic compression of canonically compressible plain-text reasoning (immutable compression claims through reservation→egress→adoption; fails closed; disabled unless explicitly configured).
+- `agentloopguard/` — Opt-in removable Agent Loop Guard terminal-decision provider: bounded verification, progress detection, and conservative continuation policy behind the exclusive provider slot.
+- `compactioncontinuity/` — Coding-agent compaction capsule continuity (preview/response merge via background auxiliary jobs over the process-owned branch coordinator).
 - `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
 - `secretguard/` — Ingress credential scanner & enforcement Guard.
 - `toolcallrepair/` — Malformed tool-call YAML auto-repair.
@@ -125,6 +127,9 @@ The architecture gates also include the deterministic change-surface reporter at
 | Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
 | Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
 | Detect coding-agent session compaction | `internal/core/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
+| Change compaction-continuity capsule state | `internal/core/compactioncontinuity/`, feature merge via `internal/infra/compactioncompose/` |
+| Tag content non-forwardable / add local turns or persistent steering | `internal/core/conversationview/`; trusted producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn` |
+| Add a terminal-decision feature provider (e.g., loop guards) | contract `pkg/lipsdk/terminaldecision`, provider plugin under `internal/plugins/features/`, policy endpoints in `internal/stdhttp/` |
 
 ---
 
@@ -147,6 +152,7 @@ The architecture gates also include the deterministic change-surface reporter at
 - Non-streaming code must not become a second execution path.
 - B2BUA continuity must stay isolated from protocol codec packages.
 - Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
+- Core must not import or branch on concrete terminal-decision providers: one exclusive provider slot, generic no-provider fallback, and provider removal preserves default behavior.
 - Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
 - Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.

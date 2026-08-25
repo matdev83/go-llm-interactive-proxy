@@ -57,6 +57,15 @@ Runtime has exactly two billing touch points: a cheap settled-credit screen befo
 
 ---
 
+## Attempt Publication, Terminal Ownership & Cancellation
+
+- **Sole Terminal Owner**: `attemptSession.TerminalizeAttempt` is the only physical attempt terminal owner; terminalization is at-most-once via terminal CAS over one converged protocol (detach, cancel/close, observers, authority, metering, B-leg, billing, evidence, local state).
+- **Gated Publication**: Slot publication requires the single-use `ReadyAttempt` capability; readiness (sideband drain + final stream observation) completes before publication and initial assembly is atomic. No transitional abort/rollback shims: losing arms are terminalized exactly once by the serial reducer.
+- **Linearizable Cancellation**: A-leg cancellation vs B-leg provider activation is linearizable (close-backed cancellation deadlines, CANCEL/EOF race handling). Cancel acknowledgment/outcome negotiation is truthful; force-close coordination is bounded.
+- **Evidence Precedence**: Canceled or losing attempts still drain bounded, secret-safe terminal evidence; provider-only sideband evidence survives through terminal billing with exactly-once precedence. Committed output and completed tool effects are never replayed.
+
+---
+
 ## Authority Coordination & Control Plane
 
 - **[`internal/core/authoritycoord`](file:///C:/Users/Mateusz/source/repos/go-llm-interactive-proxy/internal/core/authoritycoord)**: `stage_evaluator.go` enforces execution stage budgets and records attempt-stage settle failures.

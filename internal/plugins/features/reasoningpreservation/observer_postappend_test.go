@@ -377,7 +377,6 @@ func TestPostAppend_noContentInCorrelationStruct(t *testing.T) {
 	t.Parallel()
 	typ := reflect.TypeFor[reasoningpreservation.PostAppendCorrelation]()
 	for f := range typ.Fields() {
-		f := f
 		lower := f.Name
 		if lower == "Text" || lower == "Content" || lower == "Reasoning" || lower == "ReasoningBytes" {
 			t.Fatalf("correlation struct must not contain content field %q", f.Name)
@@ -392,7 +391,6 @@ func TestPostAppend_noContentInCorrelationStruct(t *testing.T) {
 	hook := func(_ context.Context, corr reasoningpreservation.PostAppendCorrelation) error {
 		val := reflect.ValueOf(corr)
 		for _, f := range val.Fields() {
-			f := f
 			if f.Kind() == reflect.String {
 				assert.NotContains(t, f.String(), sensitive)
 				assert.NotContains(t, f.String(), "eligible")

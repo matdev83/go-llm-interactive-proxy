@@ -54,7 +54,7 @@ func TestContentFree_stateAndEvents(t *testing.T) {
 		if ls.releaseText.Len() != 0 {
 			t.Fatalf("stored state for leg %q retained %d release-text bytes", id, ls.releaseText.Len())
 		}
-		stateBytes := []byte(fmt.Sprintf("%+v", ls))
+		stateBytes := fmt.Appendf(nil, "%+v", ls)
 		stateBytes = append(stateBytes, ls.releaseText.String()...)
 		for _, hash := range ls.lastFP.TailHashes {
 			stateBytes = append(stateBytes, hash[:]...)

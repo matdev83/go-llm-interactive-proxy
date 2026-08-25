@@ -26,8 +26,8 @@ type fileKey struct {
 
 type fileEntry struct {
 	Record             lipcont.ContinuationRecord `json:"record"`
-	ExpiresAt          time.Time                  `json:"expires_at,omitempty"`
-	ReservationExpires time.Time                  `json:"reservation_expires_at,omitempty"`
+	ExpiresAt          time.Time                  `json:"expires_at,omitzero"`
+	ReservationExpires time.Time                  `json:"reservation_expires_at,omitzero"`
 	Bytes              int64                      `json:"bytes,omitempty"`
 }
 

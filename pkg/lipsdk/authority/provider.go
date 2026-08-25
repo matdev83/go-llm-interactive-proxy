@@ -120,7 +120,7 @@ type AttemptSettlement struct {
 	ALegID           string                        `json:"a_leg_id,omitempty"`
 	BackendID        string                        `json:"backend_id,omitempty"`
 	Model            string                        `json:"model,omitempty"`
-	Scope            scope.PrincipalScopeView      `json:"scope,omitempty"`
+	Scope            scope.PrincipalScopeView      `json:"scope,omitzero"`
 	BackendAttempted bool                          `json:"backend_attempted,omitempty"`
 	OutputCommitted  bool                          `json:"output_committed,omitempty"`
 	ClientCanceled   bool                          `json:"client_canceled,omitempty"`
