@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 type requestTerminalFacts struct {
@@ -28,6 +29,8 @@ type requestTerminalFacts struct {
 	requestAuth                  *requestAuthorityState
 	secureTurn                   execctx.SecureSessionTurn
 	secureTurnOK                 bool
+	terminalDecisionPolicy       terminaldecision.PolicySnapshot
+	terminalDecisionEnabled      bool
 	replacementBlocked           bool
 	routePrefs                   []string
 	recvViews                    execctx.Views
@@ -35,6 +38,8 @@ type requestTerminalFacts struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
+	continuationIntent           continuationIntentFacts
 }
 
 // attemptTerminalEvidence is a value snapshot of the current B-leg identity.
@@ -80,12 +85,16 @@ func (f recvTurnFacts) terminalFacts() requestTerminalFacts {
 		requestAuth:                  f.requestAuth,
 		secureTurn:                   f.secureTurn,
 		secureTurnOK:                 f.secureTurnOK,
+		terminalDecisionPolicy:       f.terminalDecisionPolicy,
+		terminalDecisionEnabled:      f.terminalDecisionEnabled,
 		routePrefs:                   slices.Clone(f.routePrefs),
 		recvViews:                    f.recvViews,
 		metering:                     f.metering,
 		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
 		conversationProvenance:       slices.Clone(f.conversationProvenance),
 		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
+		ingressCall:                  lipapi.CloneCall(f.ingressCall),
+		continuationIntent:           f.continuationIntent,
 	}
 }
 

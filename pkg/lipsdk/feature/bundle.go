@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -79,6 +80,11 @@ type FeatureBundle struct {
 	// Each handler is ordered via Handler.Order/ID; nil entries are rejected by Validate.
 	LocalTurnHandlers []localturn.Handler
 
+	// TerminalDecisionProvider contributes one provider-neutral provisional-terminal
+	// decision evaluator (optional; schema V1). Generation composition rejects
+	// contributions from more than one enabled feature.
+	TerminalDecisionProvider terminaldecision.Provider
+
 	Lifecycles []lipplugin.Lifecycle
 }
 
@@ -107,6 +113,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.CompactionPreservers) == 0 &&
 		len(b.SecretGuards) == 0 &&
 		len(b.LocalTurnHandlers) == 0 &&
+		b.TerminalDecisionProvider == nil &&
 		len(b.Lifecycles) == 0
 }
 
@@ -114,6 +121,11 @@ func (b FeatureBundle) empty() bool {
 // SchemaVersion 0 (unset) or SchemaVersionV1; any non-empty bundle must declare SchemaVersionV1.
 // Negative ToolCallFinalizationMaxArgsBytes is always invalid.
 func (b FeatureBundle) Validate() error {
+	if b.TerminalDecisionProvider != nil {
+		if _, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err != nil {
+			return fmt.Errorf("feature: FeatureBundle: TerminalDecisionProvider: %w", err)
+		}
+	}
 	if b.ToolCallFinalizationMaxArgsBytes < 0 {
 		return fmt.Errorf("feature: FeatureBundle: ToolCallFinalizationMaxArgsBytes must be >= 0, got %d", b.ToolCallFinalizationMaxArgsBytes)
 	}

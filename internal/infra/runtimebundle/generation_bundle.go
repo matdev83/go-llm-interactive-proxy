@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -49,8 +50,9 @@ type generationModelViews struct {
 }
 
 type generationOperations struct {
-	terminalProviders *terminalworkapp.FrozenTerminalProviders
-	readiness         controlplane.ReadinessReportReader
+	terminalProviders        *terminalworkapp.FrozenTerminalProviders
+	terminalDecisionProvider terminaldecision.Provider
+	readiness                controlplane.ReadinessReportReader
 }
 
 type GenerationBundle struct {
@@ -103,6 +105,16 @@ func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderV
 		return terminalworkapp.SnapshotTerminalProviders(nil)
 	}
 	return b.operations.terminalProviders
+}
+
+// TerminalDecisionProvider returns the provider frozen into this generation.
+// The returned instance is never rebound while the generation is published;
+// request admission snapshots the same value for the request lifetime.
+func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider {
+	if b == nil {
+		return nil
+	}
+	return b.operations.terminalDecisionProvider
 }
 
 func (b *GenerationBundle) Handler() http.Handler {
@@ -280,27 +292,29 @@ func newGenerationBundle(in generationBundleInput) *GenerationBundle {
 			catalog: in.catalog,
 		},
 		operations: generationOperations{
-			terminalProviders: in.terminalProviders,
-			readiness:         in.readiness,
+			terminalProviders:        in.terminalProviders,
+			terminalDecisionProvider: in.terminalDecisionProvider,
+			readiness:                in.readiness,
 		},
 		ledger: in.ledger,
 	}
 }
 
 type generationBundleInput struct {
-	handler           http.Handler
-	executor          *runtime.Executor
-	routing           FrozenRoutingView
-	frontends         []config.PluginConfig
-	registrations     []lipsdk.Registration
-	httpAuth          []httpauth.Provider
-	models            *modelregistry.Runtime
-	catalog           *modelcatalog.CatalogRuntime
-	backendIDs        []string
-	ledger            *ResourceLedger
-	terminalProviders *terminalworkapp.FrozenTerminalProviders
-	readiness         controlplane.ReadinessReportReader
-	keepwarm          *keepwarm.Manager
-	keepwarmRegistry  *keepwarm.ManagerRegistry
-	keepwarmID        uint64
+	handler                  http.Handler
+	executor                 *runtime.Executor
+	routing                  FrozenRoutingView
+	frontends                []config.PluginConfig
+	registrations            []lipsdk.Registration
+	httpAuth                 []httpauth.Provider
+	models                   *modelregistry.Runtime
+	catalog                  *modelcatalog.CatalogRuntime
+	backendIDs               []string
+	ledger                   *ResourceLedger
+	terminalProviders        *terminalworkapp.FrozenTerminalProviders
+	terminalDecisionProvider terminaldecision.Provider
+	readiness                controlplane.ReadinessReportReader
+	keepwarm                 *keepwarm.Manager
+	keepwarmRegistry         *keepwarm.ManagerRegistry
+	keepwarmID               uint64
 }

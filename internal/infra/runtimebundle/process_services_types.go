@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
@@ -43,28 +44,33 @@ type ProcessTracing struct {
 // ProcessServices owns process-scoped resources constructed once per process.
 // Generation compilation receives a non-owning reference and must not Close it.
 type ProcessServices struct {
-	Logger                *slog.Logger
-	FactoryCatalog        *pluginreg.Registry
-	Tracing               ProcessTracing
-	Metrics               *metrics.Bundle
-	GeoIP                 *geoip.Service
-	DatabasePools         *db.PoolRegistry
-	Continuity            b2bua.Store
-	RouteOverrideStore    routeoverride.Store
-	SecureSessions        ssessionapp.Store
-	DecodeAdmission       lipsdk.DecodeAdmission
-	ALegLifecycle         *leglifecycle.Coordinator
-	AffinityStore         affinity.Store
-	CandidateHealth       policy.CandidateHealth
-	KeepwarmPolicy        *keepwarm.PolicyStore
-	KeepwarmRegistry      *keepwarm.ManagerRegistry
-	ExtensionState        lipstate.Store
-	MeteringRecorder      metering.Recorder
-	UsageAuthority        *authorityapp.Service
-	Concurrency           *concurrencyapp.Service
-	SnapshotGeneration    *snapshotgen.Publisher
-	SnapshotController    *SnapshotController
-	MeteringQuerier       metering.Querier
+	Logger             *slog.Logger
+	FactoryCatalog     *pluginreg.Registry
+	Tracing            ProcessTracing
+	Metrics            *metrics.Bundle
+	GeoIP              *geoip.Service
+	DatabasePools      *db.PoolRegistry
+	Continuity         b2bua.Store
+	RouteOverrideStore routeoverride.Store
+	SecureSessions     ssessionapp.Store
+	DecodeAdmission    lipsdk.DecodeAdmission
+	ALegLifecycle      *leglifecycle.Coordinator
+	AffinityStore      affinity.Store
+	CandidateHealth    policy.CandidateHealth
+	KeepwarmPolicy     *keepwarm.PolicyStore
+	KeepwarmRegistry   *keepwarm.ManagerRegistry
+	ExtensionState     lipstate.Store
+	MeteringRecorder   metering.Recorder
+	UsageAuthority     *authorityapp.Service
+	Concurrency        *concurrencyapp.Service
+	SnapshotGeneration *snapshotgen.Publisher
+	SnapshotController *SnapshotController
+	MeteringQuerier    metering.Querier
+
+	// TerminalDecisionPolicy is the single process-owned policy store used by
+	// request admission across all immutable generations.
+	TerminalDecisionPolicy *terminaldecisionpolicy.Store
+
 	TerminalWorkProcessor *terminalworkapp.Processor
 	TerminalWorkRegistry  *terminalworkapp.Registry
 	TerminalWorkQueries   *terminalworkapp.QueryService

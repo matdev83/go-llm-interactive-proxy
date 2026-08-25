@@ -27,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -196,6 +197,9 @@ type ObservabilityRuntime struct {
 type ExtensionRuntime struct {
 	Bus             *hooks.Bus
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
+	// TerminalDecisionPolicy is process-owned and read once during request
+	// admission to freeze the policy projection for the request lifetime.
+	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 
 	// ToolCallFinalizationMaxArgsBytes is the assembler buffer cap from merged
 	// feature bundles (0 means default at assembler construction).

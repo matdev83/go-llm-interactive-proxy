@@ -99,6 +99,23 @@ func TestDecodeMessage_stream(t *testing.T) {
 	}
 }
 
+func TestDecodeMessage_operationAnthropicMessages(t *testing.T) {
+	t.Parallel()
+	for _, stream := range []bool{false, true} {
+		body := []byte(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
+		if stream {
+			body = []byte(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+		}
+		d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{RouteSelector: "stub:x"})
+		if err != nil {
+			t.Fatalf("stream=%v: %v", stream, err)
+		}
+		if d.Call.Invocation.Operation != lipapi.OperationAnthropicMessages {
+			t.Fatalf("stream=%v operation %q want %q", stream, d.Call.Invocation.Operation, lipapi.OperationAnthropicMessages)
+		}
+	}
+}
+
 func TestDecodeMessage_invalidJSON(t *testing.T) {
 	t.Parallel()
 	_, err := anthropic.DecodeMessageRequest([]byte(`{`), anthropic.DecodeOptions{

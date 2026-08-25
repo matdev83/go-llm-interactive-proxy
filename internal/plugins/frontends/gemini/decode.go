@@ -112,6 +112,7 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 		Options:      genOpts,
 		Extensions:   ext,
 		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationGeminiGenerateContent,
 			DeliveryMode: lipapi.DeliveryModeFromClientStream(opts.Stream),
 		},
 	}

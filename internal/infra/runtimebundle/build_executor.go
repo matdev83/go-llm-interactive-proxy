@@ -25,6 +25,7 @@ import (
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
@@ -73,9 +74,10 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector  *compactiondetect.Detector
-	CompactionScheduler *auxreq.BackgroundScheduler
-	GenerationRunner    *compactioncompose.GenerationExecutorRunner
+	CompactionDetector     *compactiondetect.Detector
+	CompactionScheduler    *auxreq.BackgroundScheduler
+	GenerationRunner       *compactioncompose.GenerationExecutorRunner
+	TerminalDecisionPolicy *terminaldecisionpolicy.Store
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -233,6 +235,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	if in.CompactionScheduler != nil {
 		compactionBackground = in.CompactionScheduler.BindRunner(genRunner)
 	}
+
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -257,6 +260,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Extension: runtime.ExtensionRuntime{
 			Bus:                              bctx.Bus,
 			RuntimeSnapshot:                  in.Ext.Snap,
+			TerminalDecisionPolicy:           in.TerminalDecisionPolicy,
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,

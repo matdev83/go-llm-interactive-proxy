@@ -81,6 +81,12 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 		} else if prep.identity != nil && prep.identity.conversationFilteredBaseline != nil {
 			filtered = lipapi.CloneCall(*prep.identity.conversationFilteredBaseline)
 		}
+		var ingress lipapi.Call
+		if prep.identity != nil && prep.identity.ingressCall != nil {
+			ingress = lipapi.CloneCall(*prep.identity.ingressCall)
+		} else if prep.call != nil {
+			ingress = lipapi.CloneCall(*prep.call)
+		}
 		prep.recvTurnFacts = newRecvTurnFacts(ctx, recvTurnFactsInput{
 			baseline:                     *prep.call,
 			traceID:                      prep.identity.traceID,
@@ -92,6 +98,7 @@ func (prep *preparedRequest) ensureRecvTurnFacts(ctx context.Context) {
 			conversationSnapshot:         cloneSnapshot(snap),
 			conversationProvenance:       slices.Clone(prov),
 			conversationFilteredBaseline: lipapi.CloneCall(filtered),
+			ingressCall:                  ingress,
 		})
 	}
 }
@@ -141,6 +148,11 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	prepCtx = ibt.projectContext(prepCtx)
 	pr.identity = ibt
 	pr.call = workingCall
+	terminalDecisionPolicy, terminalDecisionEnabled, err := e.snapshotTerminalDecisionPolicy(prepCtx, ibt)
+	if err != nil {
+		pr.finalize(err)
+		return nil, nil, noop, fmt.Errorf("executor: terminal decision policy admission: %w", err)
+	}
 	// Task 3.2: carry frozen snapshot+evidence from 3.1 seam; exactly once
 	// per logical turn. Fail closed already handled inside prepareIdentity.
 	// PreserveIngress fallback retains isolation.
@@ -253,6 +265,12 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 	} else if ibt.conversationFilteredBaseline != nil {
 		filtered = lipapi.CloneCall(*ibt.conversationFilteredBaseline)
 	}
+	var ingress lipapi.Call
+	if ibt.ingressCall != nil {
+		ingress = lipapi.CloneCall(*ibt.ingressCall)
+	} else {
+		ingress = lipapi.CloneCall(*workingCall)
+	}
 	pr.recvTurnFacts = newRecvTurnFacts(prepCtx, recvTurnFactsInput{
 		baseline:                     *workingCall,
 		traceID:                      ibt.traceID,
@@ -262,6 +280,8 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		routePrefs:                   slices.Clone(execctx.RouteCandidatePreferences(prepCtx)),
 		secureTurn:                   ibt.secureTurn,
 		secureTurnOK:                 ibt.secureTurnOK,
+		terminalDecisionPolicy:       terminalDecisionPolicy,
+		terminalDecisionEnabled:      terminalDecisionEnabled,
 		boundRegistry:                boundReg,
 		boundRegistryOK:              boundRegOK,
 		boundCatalog:                 boundCat,
@@ -280,6 +300,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		conversationSnapshot:         cloneSnapshot(pr.conversationSnapshot),
 		conversationProvenance:       slices.Clone(prov),
 		conversationFilteredBaseline: lipapi.CloneCall(filtered),
+		ingressCall:                  ingress,
 	})
 	return pr, prepCtx, guard.Close, nil
 }

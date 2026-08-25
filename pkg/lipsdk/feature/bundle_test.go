@@ -2,7 +2,10 @@ package feature_test
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -15,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -153,6 +157,86 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	}
 	if b.CompactionPreservers != nil {
 		t.Fatal("expected CompactionPreservers nil on zero value")
+	}
+}
+
+type terminalDecisionProvider struct{ id string }
+
+func (p terminalDecisionProvider) ID() string { return p.id }
+
+func (terminalDecisionProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
+}
+
+type terminalDecisionPtrProvider struct{}
+
+func (*terminalDecisionPtrProvider) ID() string { return "provider.example" }
+
+func (*terminalDecisionPtrProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
+}
+
+type terminalDecisionPanicProvider struct{}
+
+func (*terminalDecisionPanicProvider) ID() string { panic("unbounded provider detail") }
+
+func (*terminalDecisionPanicProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{}, nil
+}
+
+func TestFeatureBundle_ValidateTerminalDecisionProvider(t *testing.T) {
+	t.Parallel()
+	valid := feature.FeatureBundle{
+		SchemaVersion:            feature.SchemaVersionV1,
+		TerminalDecisionProvider: terminalDecisionProvider{id: "provider.example"},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid provider rejected: %v", err)
+	}
+
+	cases := map[string]terminaldecision.Provider{
+		"nil": nil,
+		"typed nil": func() terminaldecision.Provider {
+			var p *terminalDecisionPtrProvider
+			return p
+		}(),
+		"blank id":     terminalDecisionProvider{id: "   "},
+		"invalid utf8": terminalDecisionProvider{id: string([]byte{0xff})},
+		"oversized id": terminalDecisionProvider{id: strings.Repeat("p", terminaldecision.MaxProviderIDBytes+1)},
+		"panicking id": &terminalDecisionPanicProvider{},
+	}
+	for name, provider := range cases {
+		t.Run(name, func(t *testing.T) {
+			b := feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1, TerminalDecisionProvider: provider}
+			err := b.Validate()
+			if name == "nil" {
+				if err != nil {
+					t.Fatalf("nil provider changed zero-provider validation: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() accepted invalid provider")
+			}
+			if !errors.Is(err, terminaldecision.ErrInvalidProvider) {
+				t.Fatalf("Validate() error = %v, want ErrInvalidProvider", err)
+			}
+			if strings.Contains(err.Error(), "unbounded provider detail") {
+				t.Fatal("provider panic detail leaked into validation error")
+			}
+		})
+	}
+}
+
+func TestFeatureBundleTerminalDecisionContributionIsSingular(t *testing.T) {
+	t.Parallel()
+	field, ok := reflect.TypeOf(feature.FeatureBundle{}).FieldByName("TerminalDecisionProvider")
+	if !ok {
+		t.Fatal("FeatureBundle is missing TerminalDecisionProvider")
+	}
+	want := reflect.TypeOf((*terminaldecision.Provider)(nil)).Elem()
+	if field.Type != want {
+		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
 	}
 }
 

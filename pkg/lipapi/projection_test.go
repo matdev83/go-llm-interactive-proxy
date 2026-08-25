@@ -522,3 +522,156 @@ func TestProjectItemsToLegacyView_deterministicRejectionReasonsTable(t *testing.
 		})
 	}
 }
+
+func TestProjectItemsToLegacyView_developerPlacementAndOrderPreservation(t *testing.T) {
+	t.Parallel()
+
+	target := lipapi.DefaultLegacyProjectionTarget(
+		lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		lipapi.ReasoningReplaySupport{},
+	)
+
+	t.Run("leading_developer_projects_to_instructions", func(t *testing.T) {
+		t.Parallel()
+		call := lipapi.Call{
+			Items: []lipapi.Item{
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "dev-leading",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleDeveloper,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "system prompt"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "user-1",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleUser,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "user question"}},
+				},
+			},
+		}
+
+		proj, err := lipapi.ProjectItemsToLegacyView(call, target)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(proj.Instructions) != 1 {
+			t.Fatalf("expected 1 instruction, got %d", len(proj.Instructions))
+		}
+		if proj.Instructions[0].Role != lipapi.RoleDeveloper || proj.Instructions[0].Parts[0].Text != "system prompt" {
+			t.Fatalf("unexpected instruction: %#v", proj.Instructions[0])
+		}
+		if len(proj.Messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(proj.Messages))
+		}
+		if proj.Messages[0].Role != lipapi.RoleUser || proj.Messages[0].Parts[0].Text != "user question" {
+			t.Fatalf("unexpected message: %#v", proj.Messages[0])
+		}
+	})
+
+	t.Run("mid_trajectory_developer_preserves_position_in_messages", func(t *testing.T) {
+		t.Parallel()
+		call := lipapi.Call{
+			Items: []lipapi.Item{
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "user-1",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleUser,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "start turn"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "dev-recovery",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleDeveloper,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "<automated-recovery>continue</automated-recovery>"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "asst-1",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleAssistant,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "recovered answer"}},
+				},
+			},
+		}
+
+		proj, err := lipapi.ProjectItemsToLegacyView(call, target)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(proj.Instructions) != 0 {
+			t.Fatalf("expected 0 instructions, got %d", len(proj.Instructions))
+		}
+		if len(proj.Messages) != 3 {
+			t.Fatalf("expected 3 messages, got %d", len(proj.Messages))
+		}
+		if proj.Messages[0].Role != lipapi.RoleUser || proj.Messages[0].Parts[0].Text != "start turn" {
+			t.Errorf("messages[0] mismatch: %#v", proj.Messages[0])
+		}
+		if proj.Messages[1].Role != lipapi.RoleDeveloper || proj.Messages[1].Parts[0].Text != "<automated-recovery>continue</automated-recovery>" {
+			t.Errorf("messages[1] mid-trajectory developer mismatch: %#v", proj.Messages[1])
+		}
+		if proj.Messages[2].Role != lipapi.RoleAssistant || proj.Messages[2].Parts[0].Text != "recovered answer" {
+			t.Errorf("messages[2] mismatch: %#v", proj.Messages[2])
+		}
+	})
+
+	t.Run("leading_and_mid_trajectory_mixed_order_preservation", func(t *testing.T) {
+		t.Parallel()
+		call := lipapi.Call{
+			Items: []lipapi.Item{
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "sys-leading",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleSystem,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "base system"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "user-1",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleUser,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "user query"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "dev-steering",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleDeveloper,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "steering injection"}},
+				},
+				{
+					Kind:    lipapi.ItemKindMessage,
+					ID:      "user-2",
+					Status:  lipapi.ItemStatusCompleted,
+					Role:    lipapi.RoleUser,
+					Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "user follow-up"}},
+				},
+			},
+		}
+
+		proj, err := lipapi.ProjectItemsToLegacyView(call, target)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(proj.Instructions) != 1 || proj.Instructions[0].Role != lipapi.RoleSystem {
+			t.Fatalf("expected 1 leading system instruction, got %#v", proj.Instructions)
+		}
+		if len(proj.Messages) != 3 {
+			t.Fatalf("expected 3 messages, got %d", len(proj.Messages))
+		}
+		if proj.Messages[0].Role != lipapi.RoleUser || proj.Messages[0].Parts[0].Text != "user query" {
+			t.Errorf("messages[0] mismatch: %#v", proj.Messages[0])
+		}
+		if proj.Messages[1].Role != lipapi.RoleDeveloper || proj.Messages[1].Parts[0].Text != "steering injection" {
+			t.Errorf("messages[1] mid-trajectory developer mismatch: %#v", proj.Messages[1])
+		}
+		if proj.Messages[2].Role != lipapi.RoleUser || proj.Messages[2].Parts[0].Text != "user follow-up" {
+			t.Errorf("messages[2] mismatch: %#v", proj.Messages[2])
+		}
+	})
+}

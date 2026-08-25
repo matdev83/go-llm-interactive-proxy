@@ -95,7 +95,9 @@ func acceptsCreateOperation(op lipapi.Operation) bool {
 	switch op {
 	case "", lipapi.OperationOpenResponsesCreate,
 		lipapi.OperationOpenAIChatCompletions,
-		lipapi.OperationOpenAIResponses:
+		lipapi.OperationOpenAIResponses,
+		lipapi.OperationAnthropicMessages,
+		lipapi.OperationGeminiGenerateContent:
 		return true
 	default:
 		return false

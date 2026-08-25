@@ -36,14 +36,17 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if AtomicOwnedResourceLifecycleOverlayMax != 92 {
 		t.Fatalf("atomic owned resource lifecycle overlay cap drift: %d", AtomicOwnedResourceLifecycleOverlayMax)
 	}
-	if len(pathMarkerOverlaySpecs) != 7 {
-		t.Fatalf("path-marker overlay table drift: got %d specs, want 7", len(pathMarkerOverlaySpecs))
+	if len(pathMarkerOverlaySpecs) != 8 {
+		t.Fatalf("path-marker overlay table drift: got %d specs, want 8", len(pathMarkerOverlaySpecs))
 	}
 	if GeoIPIngressOverlayMax != 700 {
 		t.Fatalf("GeoIP ingress overlay cap drift: %d", GeoIPIngressOverlayMax)
 	}
 	if ReasoningSemanticCompressionOverlayMax != 366 {
 		t.Fatalf("reasoning semantic compression overlay cap drift: %d", ReasoningSemanticCompressionOverlayMax)
+	}
+	if TerminalDecisionFeatureExtensionOverlayMax != 622 {
+		t.Fatalf("terminal decision feature extension overlay cap drift: %d", TerminalDecisionFeatureExtensionOverlayMax)
 	}
 	want := []AffectedSurfaceBaseline{
 		{Tree: "internal/infra/runtimebundle", BaselineLines: 9898},
@@ -258,6 +261,8 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Atomic owned resource lifecycle overlay lines:",
 		"Keep-warm orchestration overlay lines:",
 		"Backend resource pool overlay lines:",
+		"GeoIP ingress overlay lines:",
+		"Terminal decision feature extension overlay lines:",
 		"Convergence delta (raw − overlays):",
 		"Required: convergence delta ≤ -800",
 	} {

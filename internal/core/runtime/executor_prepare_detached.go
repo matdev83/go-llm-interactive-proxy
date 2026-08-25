@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -47,12 +48,22 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	outCtx = execctx.WithoutRouteCandidatePreferences(outCtx)
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
 
-	// Create a fresh, unkeyed A-leg. A detached child must never replace or
-	// resolve the parent continuity key, and route overrides are intentionally
-	// not read for this private leg.
-	aLeg, err := e.Store.CreateALeg(outCtx, "")
+	// Detached children with captured parent A-leg lineage always receive a
+	// private A-leg. An explicitly targeted A-leg without captured parent
+	// lineage is genuine external ingress and may reuse that A-leg so ingress
+	// cleanup (including stale steering) applies to the intended owner.
+	parentMeta, _ := execctx.DetachedSessionFromContext(outCtx)
+	var aLeg b2bua.ALegRecord
+	if strings.TrimSpace(work.Session.ALegID) != "" && strings.TrimSpace(parentMeta.ParentALegID) == "" {
+		aLeg, err = e.Store.FetchALeg(outCtx, work.Session.ALegID)
+		if err != nil {
+			aLeg, err = e.Store.CreateALeg(outCtx, "")
+		}
+	} else {
+		aLeg, err = e.Store.CreateALeg(outCtx, "")
+	}
 	if err != nil {
-		return nil, nil, outCtx, fmt.Errorf("executor: create detached a-leg: %w", err)
+		return nil, nil, outCtx, fmt.Errorf("executor: prepare detached a-leg: %w", err)
 	}
 	work.Session = lipapi.SessionRef{ALegID: aLeg.ALegID}
 

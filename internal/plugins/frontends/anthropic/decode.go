@@ -107,6 +107,7 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 		ToolChoice:   toolChoice,
 		Extensions:   ext,
 		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationAnthropicMessages,
 			DeliveryMode: lipapi.DeliveryModeFromClientStream(w.Stream),
 		},
 		Options: lipapi.GenerationOptions{

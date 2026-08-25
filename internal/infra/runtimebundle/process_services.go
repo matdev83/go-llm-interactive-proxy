@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminaldecisionpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
@@ -66,13 +67,14 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		return nil, fmt.Errorf("runtimebundle: keep-warm policy store: %w", err)
 	}
 	ps := &ProcessServices{
-		Logger:           in.Log,
-		FactoryCatalog:   in.Opts.PluginRegistry,
-		Tracing:          in.Tracing,
-		KeepwarmPolicy:   keepwarmPolicy,
-		KeepwarmRegistry: keepwarm.NewManagerRegistry(),
-		cfg:              in.Cfg,
-		opts:             in.Opts,
+		Logger:                 in.Log,
+		FactoryCatalog:         in.Opts.PluginRegistry,
+		Tracing:                in.Tracing,
+		KeepwarmPolicy:         keepwarmPolicy,
+		KeepwarmRegistry:       keepwarm.NewManagerRegistry(),
+		TerminalDecisionPolicy: terminaldecisionpolicy.NewStore(terminaldecisionpolicy.Config{}),
+		cfg:                    in.Cfg,
+		opts:                   in.Opts,
 	}
 
 	register := func(c func() error) {
@@ -80,6 +82,7 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 			ps.closers = append(ps.closers, c)
 		}
 	}
+	register(ps.TerminalDecisionPolicy.Close)
 	adoptBackgroundAuxAndDetector(parent, &in, ps, register)
 	owner := &processResourceOwner{register: register}
 	fail := func(err error) (*ProcessServices, error) {

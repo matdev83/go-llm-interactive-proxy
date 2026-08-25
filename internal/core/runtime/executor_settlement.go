@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // persistCancellationBilling settles non-money usage-authority reservations for a
@@ -192,7 +193,7 @@ func (t *turnTerminal) finalizeTokenAccounting(ctx context.Context, attempt *att
 // advisory apply runs on a non-canceled context so post-output accounting completes after
 // client cancellation, and is idempotent via the store source key (duplicate finalize calls
 // are no-ops at the runtime guard and at the store).
-func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline) (lipapi.Event, bool, error) {
+func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, continuation ...func(context.Context, terminaldecision.ContinuationIntent) (bool, error)) (lipapi.Event, bool, error) {
 	if attempt == nil || t == nil || p == nil {
 		return lipapi.Event{}, false, nil
 	}
@@ -200,6 +201,28 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 		return lipapi.Event{}, false, nil
 	}
 	snapshot := p.accumulatorSnapshot()
+	decision := t.sharedTerminalDecision(ctx, t.terminalDecisionProvider, t.terminalDecisionInput(sdkterminal.CommandNormalFinish, request, attempt, p, snapshot))
+	if decision.Decision.Kind == terminaldecision.DecisionContinue {
+		if len(continuation) == 0 || continuation[0] == nil || decision.Decision.Continue == nil {
+			// Callers without a receive transaction preserve the provisional
+			// behavior until they can supply the generic publication boundary.
+			return lipapi.Event{}, false, nil
+		}
+		published, err := continuation[0](ctx, *decision.Decision.Continue)
+		if published {
+			if err != nil {
+				return lipapi.Event{}, false, fmt.Errorf("%w: %v", errTerminalDecisionContinuationPublished, err)
+			}
+			return lipapi.Event{}, false, errTerminalDecisionContinuationPublished
+		}
+		return lipapi.Event{}, false, err
+	}
+	terminalCommand := sdkterminal.CommandNormalFinish
+	terminalIntent := IntentSuccess
+	if decision.Decision.Kind == terminaldecision.DecisionSurfaceFailure {
+		terminalCommand = sdkterminal.CommandPartialError
+		terminalIntent = IntentSurfacedFailure
+	}
 	// Token accounting and observe must happen inside the attempt terminal winner
 	// so concurrent losers wait for the winner's effects via streamTerminal.
 	var preparedUsageEv lipapi.Event
@@ -207,7 +230,7 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 	var preparedOK bool
 	var preparedErr error
 	evidence := attemptEvidence{
-		Command:        sdkterminal.CommandNormalFinish,
+		Command:        terminalCommand,
 		LegOutcome:     billing.LegOutcomeWinner,
 		Usage:          lipapi.Event{},
 		ObsOutcome:     response.OutcomeSuccessReleased,
@@ -241,7 +264,12 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 			return usageEv, authorityEv, ok, nil
 		},
 	}
-	resOuter := attempt.TerminalizeAttempt(ctx, IntentSuccess, evidence)
+	if terminalIntent == IntentSurfacedFailure {
+		evidence.LegOutcome = billing.LegOutcomeFailed
+		evidence.ObsOutcome = response.OutcomeFailed
+		evidence.RecordOutcome = lipapi.AttemptSurfacedFailure
+	}
+	resOuter := attempt.TerminalizeAttempt(ctx, terminalIntent, evidence)
 	if !resOuter.Result.Won {
 		return lipapi.Event{}, false, terminalLossError(resOuter.Result)
 	}
@@ -262,13 +290,13 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 	// However billing leg is now owned by the attempt terminal winner, so we only handoff the call closure here.
 	var r terminal.Result
 	if t.isInterleavedThinker() {
-		r = terminal.Result{Won: true, Outcome: terminal.Outcome{Command: sdkterminal.CommandNormalFinish}, State: sdkterminal.StateReleased}
+		r = terminal.Result{Won: true, Outcome: terminal.Outcome{Command: terminalCommand}, State: sdkterminal.StateReleased}
 	} else {
-		r = t.terminalizeRequest(ctx, sdkterminal.CommandNormalFinish, snapshot, func(cctx context.Context, _ terminal.Outcome) error {
+		r = t.claimRequestTerminal(ctx, terminalCommand, snapshot, func(cctx context.Context, _ terminal.Outcome) error {
 			if err := t.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv, request, p); err != nil {
 				return err
 			}
-			t.handoffBillingTurn(cctx, request, sdkterminal.CommandNormalFinish)
+			t.handoffBillingTurn(cctx, request, terminalCommand)
 			return nil
 		})
 	}

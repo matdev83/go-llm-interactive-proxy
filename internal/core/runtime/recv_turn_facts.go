@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 func (f recvTurnFacts) attemptDiagAttrs(attempt *attemptSession) diag.AttrOpts {
@@ -57,6 +58,9 @@ type recvTurnFactsInput struct {
 	secureTurn   execctx.SecureSessionTurn
 	secureTurnOK bool
 
+	terminalDecisionPolicy  terminaldecision.PolicySnapshot
+	terminalDecisionEnabled bool
+
 	boundRegistry   modelregistry.BoundView
 	boundRegistryOK bool
 	boundCatalog    modelcatalog.BoundView
@@ -78,6 +82,8 @@ type recvTurnFactsInput struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
+	continuationIntent           continuationIntentFacts
 }
 
 // recvTurnFacts is the request-lifetime authority for facts needed after stream
@@ -96,6 +102,9 @@ type recvTurnFacts struct {
 	secureTurn   execctx.SecureSessionTurn
 	secureTurnOK bool
 
+	terminalDecisionPolicy  terminaldecision.PolicySnapshot
+	terminalDecisionEnabled bool
+
 	boundRegistry   modelregistry.BoundView
 	boundRegistryOK bool
 	boundCatalog    modelcatalog.BoundView
@@ -117,6 +126,8 @@ type recvTurnFacts struct {
 	conversationSnapshot         conversationview.Snapshot
 	conversationProvenance       []conversationview.OverlayProvenance
 	conversationFilteredBaseline lipapi.Call
+	ingressCall                  lipapi.Call
+	continuationIntent           continuationIntentFacts
 }
 
 func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts {
@@ -126,6 +137,8 @@ func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts
 		aLegID:                       f.aLegID,
 		secureTurn:                   f.secureTurn,
 		secureTurnOK:                 f.secureTurnOK,
+		terminalDecisionPolicy:       f.terminalDecisionPolicy,
+		terminalDecisionEnabled:      f.terminalDecisionEnabled,
 		billingCallID:                f.billingCallID,
 		billingCallState:             f.billingState,
 		billingAccountID:             f.accountID,
@@ -140,12 +153,19 @@ func (f requestTerminalFacts) toRecvTurnFacts(ctx context.Context) recvTurnFacts
 		conversationSnapshot:         cloneSnapshot(f.conversationSnapshot),
 		conversationProvenance:       slices.Clone(f.conversationProvenance),
 		conversationFilteredBaseline: lipapi.CloneCall(f.conversationFilteredBaseline),
+		ingressCall:                  lipapi.CloneCall(f.ingressCall),
+		continuationIntent:           f.continuationIntent,
 	})
 }
 
 func newRecvTurnFacts(ctx context.Context, in recvTurnFactsInput) recvTurnFacts {
 	f := recvTurnFacts(in)
 	f.baseline = lipapi.CloneCall(in.baseline)
+	if len(in.ingressCall.Items) > 0 || len(in.ingressCall.Messages) > 0 {
+		f.ingressCall = lipapi.CloneCall(in.ingressCall)
+	} else {
+		f.ingressCall = lipapi.CloneCall(in.baseline)
+	}
 	f.recvViews = cloneRecvViews(in.recvViews)
 	f.routePrefs = slices.Clone(in.routePrefs)
 	f.conversationSnapshot = cloneSnapshot(in.conversationSnapshot)

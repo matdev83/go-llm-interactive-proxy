@@ -23,6 +23,7 @@ import (
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -84,6 +85,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
+	}
+	if err := validateTerminalDecisionProvider(ext.TerminalDecisionProvider); err != nil {
+		return nil, fmt.Errorf("runtimebundle: terminal decision provider: %w", err)
 	}
 	bus := in.Bus
 	if bus == nil {
@@ -171,21 +175,22 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
 	}
 	bundle := newGenerationBundle(generationBundleInput{
-		handler:           handler,
-		executor:          cand.execution.executor,
-		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
-		frontends:         frozen.Plugins.Frontends,
-		registrations:     regs,
-		httpAuth:          authProviders,
-		models:            cand.models.registryRuntime,
-		catalog:           cand.models.catalog,
-		backendIDs:        backendIDsOf(cand.execution.executor),
-		ledger:            ledger,
-		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
-		readiness:         cand.operations.readinessReport,
-		keepwarm:          keepwarmManager,
-		keepwarmRegistry:  cand.process.keepwarmRegistry,
-		keepwarmID:        keepwarmID,
+		handler:                  handler,
+		executor:                 cand.execution.executor,
+		routing:                  FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
+		frontends:                frozen.Plugins.Frontends,
+		registrations:            regs,
+		httpAuth:                 authProviders,
+		models:                   cand.models.registryRuntime,
+		catalog:                  cand.models.catalog,
+		backendIDs:               backendIDsOf(cand.execution.executor),
+		ledger:                   ledger,
+		terminalProviders:        terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
+		terminalDecisionProvider: ext.TerminalDecisionProvider,
+		readiness:                cand.operations.readinessReport,
+		keepwarm:                 keepwarmManager,
+		keepwarmRegistry:         cand.process.keepwarmRegistry,
+		keepwarmID:               keepwarmID,
 	})
 	return bundle, nil
 }
@@ -269,6 +274,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			KeepwarmAdmin:           keepwarmAdmin,
 			KeepwarmAdminEnabled:    keepwarmAdminEnabled,
 			Registrations:           httpcontract.CloneRegistrations(regs),
+			TerminalDecisionPolicy:  terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
 		},
 		Models: httpcontract.HTTPModelInput{
 			CatalogRuntime:       cand.models.catalog,
@@ -324,6 +330,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 		TrafficRedactors:                 append(merged.TrafficRedactors[:0:0], merged.TrafficRedactors...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
+		TerminalDecisionProvider:         merged.TerminalDecisionProvider,
 	}
 	if processOpts != nil {
 		ext.TrafficObservers = append(ext.TrafficObservers, processOpts.Production.TrafficObservers...)
@@ -361,10 +368,21 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.TrafficRedactors = append(dst.TrafficRedactors, src.TrafficRedactors...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
+	if dst.TerminalDecisionProvider == nil {
+		dst.TerminalDecisionProvider = src.TerminalDecisionProvider
+	}
 	if src.SecretGuardEnvironment != nil {
 		dst.SecretGuardEnvironment = src.SecretGuardEnvironment
 	}
 	if src.SecretDecisionObserver != nil {
 		dst.SecretDecisionObserver = src.SecretDecisionObserver
 	}
+}
+
+func validateTerminalDecisionProvider(provider terminaldecision.Provider) error {
+	if provider == nil {
+		return nil
+	}
+	_, err := terminaldecision.ProviderIdentity(provider)
+	return err
 }

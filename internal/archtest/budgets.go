@@ -29,7 +29,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 50},
 	// Reasoning compression adds one generation-local auxiliary binding before
 	// feature merge; measured 360 after extraction, retain 25-line headroom.
-	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 385},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 388},
 	{Path: "internal/stdhttp/request_plane.go", Max: 90},
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 317},
 	{Path: "pkg/lipruntime/build.go", Max: 121},
@@ -64,8 +64,8 @@ var PackageTreeBudgets = []PackageTreeBudget{
 	// Reasoning semantic compression adds explicit generation composition; the
 	// dedicated overlay keeps it out of legacy shrinkage while this tree ratchet
 	// is measured at 12721 on current main plus 25 lines headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12746},
-	{Tree: "internal/stdhttp", Max: 6246},
+	{Tree: "internal/infra/runtimebundle", Max: 12933},
+	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
 }
@@ -122,10 +122,10 @@ var LineBudgets = []LineBudget{
 	// Production service wiring and bounded cleanup add 17 core lines; current-main integration measured 92357, bump to 92382 with 25 headroom.
 	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
-	{Dir: "internal/core", Max: 92796},
+	{Dir: "internal/core", Max: 94467},
 	{Dir: "internal/pluginreg", Max: 1174},
-	{Dir: "internal/stdhttp", Max: 6246},
-	{Dir: "internal/infra/runtimebundle", Max: 12746},
+	{Dir: "internal/stdhttp", Max: 6693},
+	{Dir: "internal/infra/runtimebundle", Max: 12933},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

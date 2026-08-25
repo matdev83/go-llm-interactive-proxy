@@ -121,6 +121,20 @@ func TestDecodeGenerateContent_nonStreamFlag(t *testing.T) {
 	}
 }
 
+func TestDecodeGenerateContent_operationGeminiGenerateContent(t *testing.T) {
+	t.Parallel()
+	for _, stream := range []bool{false, true} {
+		body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{RouteSelector: "stub:x", Model: "gemini-2.0-flash", Stream: stream})
+		if err != nil {
+			t.Fatalf("stream=%v: %v", stream, err)
+		}
+		if d.Call.Invocation.Operation != lipapi.OperationGeminiGenerateContent {
+			t.Fatalf("stream=%v operation %q want %q", stream, d.Call.Invocation.Operation, lipapi.OperationGeminiGenerateContent)
+		}
+	}
+}
+
 func TestDecodeGenerateContent_invalidJSON(t *testing.T) {
 	t.Parallel()
 	_, err := gemini.DecodeGenerateContentRequest([]byte(`{`), gemini.DecodeOptions{

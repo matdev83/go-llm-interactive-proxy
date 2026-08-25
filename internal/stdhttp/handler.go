@@ -39,6 +39,7 @@ func prepareStandardHandler(
 	}); err != nil {
 		return nil, err
 	}
+	installTerminalDecisionPolicy(mux, cfg, in.Operations.TerminalDecisionPolicy)
 
 	mountKeepwarmAdmin(mountAccountingAdminInput{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log,
