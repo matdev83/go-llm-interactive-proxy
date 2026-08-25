@@ -1,6 +1,9 @@
 package featurebundle
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -15,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -52,11 +56,44 @@ type MergedFeatureSurface struct {
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
 	LocalTurnHandlers                []localturn.Handler
+	TerminalDecisionProvider         terminaldecision.Provider
+	terminalDecisionProviderID       string
 }
+
+// ErrTerminalDecisionProviderConflict reports an attempted second provider
+// contribution to one immutable feature surface.
+var ErrTerminalDecisionProviderConflict = errors.New("featurebundle: terminal-decision provider conflict")
 
 // Append concatenates all fields from bundle b into the receiver. This is the single
 // merge point: every new FeatureBundle field requires exactly one append line here.
-func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
+// Exclusive-provider validation runs before any receiver field is changed.
+func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
+	if m == nil {
+		return errors.New("featurebundle: nil merged feature surface")
+	}
+	var providerID string
+	if m.TerminalDecisionProvider != nil {
+		providerID = m.terminalDecisionProviderID
+		if providerID == "" {
+			var err error
+			providerID, err = terminaldecision.ProviderIdentity(m.TerminalDecisionProvider)
+			if err != nil {
+				return fmt.Errorf("featurebundle: merged terminal-decision provider: %w", err)
+			}
+		} else if err := terminaldecision.ValidateProviderID(providerID); err != nil {
+			return fmt.Errorf("featurebundle: merged terminal-decision provider: %w", err)
+		}
+	}
+	if b.TerminalDecisionProvider != nil {
+		incomingID, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider)
+		if err != nil {
+			return fmt.Errorf("featurebundle: contributed terminal-decision provider: %w", err)
+		}
+		if m.TerminalDecisionProvider != nil {
+			return fmt.Errorf("%w: %q and %q", ErrTerminalDecisionProviderConflict, providerID, incomingID)
+		}
+		providerID = incomingID
+	}
 	m.SubmitHooks = append(m.SubmitHooks, b.SubmitHooks...)
 	m.RequestPartHooks = append(m.RequestPartHooks, b.RequestPartHooks...)
 	m.ResponsePartHooks = append(m.ResponsePartHooks, b.ResponsePartHooks...)
@@ -88,16 +125,33 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
 	m.LocalTurnHandlers = append(m.LocalTurnHandlers, b.LocalTurnHandlers...)
+	if b.TerminalDecisionProvider != nil {
+		m.TerminalDecisionProvider = b.TerminalDecisionProvider
+		m.terminalDecisionProviderID = providerID
+	}
+	return nil
 }
 
 // MergeBundles concatenates one or more FeatureBundles into a single MergedFeatureSurface,
 // preserving bundle order across all slice fields.
 func MergeBundles(bundles ...lipfeature.FeatureBundle) MergedFeatureSurface {
-	var out MergedFeatureSurface
-	for _, b := range bundles {
-		out.Append(b)
+	out, err := MergeBundlesChecked(bundles...)
+	if err != nil {
+		panic(err)
 	}
 	return out
+}
+
+// MergeBundlesChecked merges bundles and rejects invalid or conflicting
+// terminal-decision provider contributions before returning a candidate.
+func MergeBundlesChecked(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, error) {
+	var out MergedFeatureSurface
+	for _, b := range bundles {
+		if err := out.Append(b); err != nil {
+			return MergedFeatureSurface{}, err
+		}
+	}
+	return out, nil
 }
 
 // buildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
@@ -132,5 +186,5 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 	if err != nil {
 		return MergedFeatureSurface{}, err
 	}
-	return MergeBundles(bundles...), nil
+	return MergeBundlesChecked(bundles...)
 }

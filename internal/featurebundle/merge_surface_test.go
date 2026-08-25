@@ -2,6 +2,9 @@ package featurebundle
 
 import (
 	"context"
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -15,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -197,6 +201,14 @@ func (testRedactor) Redact(_ context.Context, _ traffic.Leg, _ traffic.CaptureMe
 
 type testSecretGuard struct{ tag string }
 
+type testTerminalDecisionProvider struct{ tag string }
+
+func (p testTerminalDecisionProvider) ID() string { return p.tag }
+
+func (testTerminalDecisionProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
+}
+
 func (g testSecretGuard) ID() string                         { return g.tag }
 func (testSecretGuard) Order() int                           { return 0 }
 func (testSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
@@ -211,6 +223,79 @@ func TestMergeBundles_empty(t *testing.T) {
 	m := MergeBundles()
 	if len(m.SubmitHooks) != 0 || len(m.SessionOpeners) != 0 || len(m.TrafficObservers) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
+	}
+}
+
+func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
+	t.Parallel()
+	empty, err := MergeBundlesChecked()
+	if err != nil {
+		t.Fatalf("empty merge error: %v", err)
+	}
+	if empty.TerminalDecisionProvider != nil {
+		t.Fatal("empty merge unexpectedly contributed provider")
+	}
+
+	provider := testTerminalDecisionProvider{tag: "provider.example"}
+	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+		SchemaVersion:            lipfeature.SchemaVersionV1,
+		SubmitHooks:              []sdkhooks.SubmitHook{testSubmitHook{tag: "existing"}},
+		TerminalDecisionProvider: provider,
+	})
+	if err != nil {
+		t.Fatalf("one-provider merge error: %v", err)
+	}
+	if merged.TerminalDecisionProvider != provider {
+		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
+	}
+	if len(merged.SubmitHooks) != 1 || merged.SubmitHooks[0].(testSubmitHook).tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.SubmitHooks)
+	}
+}
+
+func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
+	t.Parallel()
+	first := testTerminalDecisionProvider{tag: "provider.first"}
+	second := testTerminalDecisionProvider{tag: "provider.second"}
+	merged, err := MergeBundlesChecked(
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: first},
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: second},
+	)
+	if err == nil {
+		t.Fatal("duplicate providers were accepted")
+	}
+	if !errors.Is(err, ErrTerminalDecisionProviderConflict) {
+		t.Fatalf("conflict error = %v, want ErrTerminalDecisionProviderConflict", err)
+	}
+	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
+		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
+	}
+	if merged.TerminalDecisionProvider != nil || len(merged.SubmitHooks) != 0 {
+		t.Fatalf("candidate was published after conflict: %#v", merged)
+	}
+}
+
+func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
+	t.Parallel()
+	var typedNil *testTerminalDecisionProvider
+	_, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+		SchemaVersion:            lipfeature.SchemaVersionV1,
+		TerminalDecisionProvider: typedNil,
+	})
+	if !errors.Is(err, terminaldecision.ErrInvalidProvider) {
+		t.Fatalf("typed-nil provider error = %v, want ErrInvalidProvider", err)
+	}
+}
+
+func TestMergedFeatureSurfaceTerminalDecisionContributionIsSingular(t *testing.T) {
+	t.Parallel()
+	field, ok := reflect.TypeOf(MergedFeatureSurface{}).FieldByName("TerminalDecisionProvider")
+	if !ok {
+		t.Fatal("MergedFeatureSurface is missing TerminalDecisionProvider")
+	}
+	want := reflect.TypeOf((*terminaldecision.Provider)(nil)).Elem()
+	if field.Type != want {
+		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
 	}
 }
 
