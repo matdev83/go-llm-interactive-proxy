@@ -8,9 +8,12 @@ import (
 
 // ContributionSet accumulates typed, validated contributions from plugins.
 type ContributionSet struct {
+	// TEST-ONLY: map-backed storage is test-only interim for planes without production generated bindings.
+	// Task 2.3 replaces with typed struct + ordinal dispatch (zero maps, zero reflection).
 	values     map[string]any
 	identities map[string]string
 	pluginIDs  map[string]string
+	generated  *generatedContributions
 }
 
 // NewContributionSet creates a new empty ContributionSet.
@@ -45,9 +48,14 @@ func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	}
 	identitiesCopy := make(map[string]string, len(s.identities))
 	maps.Copy(identitiesCopy, s.identities)
+	var genFrozen *generatedFrozen
+	if s.generated != nil && s.generated.freeze != nil {
+		genFrozen = s.generated.freeze()
+	}
 	return FrozenPlaneSet{
 		values:     valuesCopy,
 		identities: identitiesCopy,
+		frozen:     genFrozen,
 	}
 }
 
@@ -81,7 +89,32 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 		}
 	}
 
-	// TODO(Task 2.2): Enforce NilPolicy (NilReject, NilSkip) and diagnostics validation before combination.
+	// 1. Apply NilPolicy before Validate and Combine.
+	isNil := false
+	if p.IsNil != nil {
+		isNil = p.IsNil(v)
+	} else {
+		var anyVal any = v
+		isNil = (anyVal == nil)
+	}
+
+	if isNil {
+		switch p.NilPolicy {
+		case NilReject:
+			return &AttributedError{
+				PluginID: pluginID,
+				PlaneID:  p.ID,
+				Err:      fmt.Errorf("%w: nil contribution rejected by policy on plane %q", ErrNilContribution, p.ID),
+			}
+		case NilSkip:
+			// Omit consistently from combination and diagnostics (leave set untouched)
+			return nil
+		case NilNotApplicable:
+			// Continue to Validate / Combine
+		}
+	}
+
+	// 2. Validate incoming contribution.
 	if p.Validate != nil {
 		if err := p.Validate(v); err != nil {
 			return &AttributedError{
@@ -92,18 +125,29 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 		}
 	}
 
-	incoming := cloneValue(v)
-
-	if rule == CombExclusive {
-		incomingID, ok := p.Identity(v)
-		if !ok || incomingID == "" {
+	// 3. Identity extraction and validation (if plane requires it or declares an identity extractor).
+	var incomingID string
+	var hasID bool
+	if p.Identity != nil {
+		incomingID, hasID = p.Identity(v)
+		if (rule == CombExclusive || rule == CombReplaceByIdentity) && (!hasID || incomingID == "") {
+			if rule == CombExclusive {
+				return &AttributedError{
+					PluginID: pluginID,
+					PlaneID:  p.ID,
+					Err:      fmt.Errorf("%w: failed to extract identity from exclusive contribution", ErrInvalidContribution),
+				}
+			}
 			return &AttributedError{
 				PluginID: pluginID,
 				PlaneID:  p.ID,
-				Err:      fmt.Errorf("%w: failed to extract identity from exclusive contribution", ErrInvalidContribution),
+				Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 			}
 		}
+	}
 
+	// 4. Exclusive conflict check.
+	if rule == CombExclusive {
 		if existingID, occupied := s.identities[p.ID]; occupied {
 			conflictErr := fmt.Errorf("%w: %q and %q", ErrExclusiveConflict, existingID, incomingID)
 			return &AttributedError{
@@ -112,7 +156,29 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 				Err:      conflictErr,
 			}
 		}
+	}
 
+	// 5. Generated storage path: pure storage, closures are NOT responsible for identity validation or conflict checks.
+	if p.generated.contribute != nil && s.generated != nil {
+		if err := p.generated.contribute(s.generated, pluginID, v); err != nil {
+			return &AttributedError{
+				PluginID: pluginID,
+				PlaneID:  p.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if hasID && incomingID != "" {
+			s.identities[p.ID] = incomingID
+		}
+		s.pluginIDs[p.ID] = pluginID
+		return nil
+	}
+
+	// 6. Test-only map-backed storage path (Combine): replaced by generated typed storage in task 2.3.
+	// TEST-ONLY: replaced by generated typed storage in task 2.3; no production plane will use this path.
+	incoming := cloneValue(v)
+
+	if rule == CombExclusive {
 		var zero P
 		combined, err := p.Combine(SourceFeature, zero, incoming)
 		if err != nil {
@@ -150,10 +216,8 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 
 	s.values[p.ID] = cloneValue(combined)
 	s.pluginIDs[p.ID] = pluginID
-	if p.Identity != nil {
-		if id, ok := p.Identity(v); ok {
-			s.identities[p.ID] = id
-		}
+	if hasID && incomingID != "" {
+		s.identities[p.ID] = incomingID
 	}
 	return nil
 }

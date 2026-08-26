@@ -57,7 +57,7 @@
   - _Boundary: SDK/public contract_
   - _Depends: 1.1, 1.2, 1.3, 1.4_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.2 Define identity/nil, diagnostics, and generic access contracts
+- [x] 2.2 Define identity/nil, diagnostics, and generic access contracts
   - Require identity metadata for exclusive and replace-by-identity rules; expose validated frozen identity through a generated metadata accessor.
   - Define explicit `reject`/`skip` typed-nil policies plus stage/coalescing/materialization/privilege descriptors, with nil policy applied before validation/combination and diagnostics observing the retained frozen value.
   - Use package-level generic `Contribute`/`Get` functions; no generic methods, runtime reflection, unsafe casts, mutable registration, maps, or key-search loops on request paths.
