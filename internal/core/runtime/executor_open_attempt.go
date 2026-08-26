@@ -373,6 +373,19 @@ func (e *Executor) evaluateCandidate(
 	}
 	attempt = shapeRes.Call
 	e.logInterleavedMemoShape(ctx, rf.traceID, "", plan.cand, shapeRes)
+	// Overlay lifecycle self-healing (#391): when shaping classifies the memo as
+	// expired, or the memo body is gone while a reference is still linked
+	// (process-local memo loss across restart), retire any still-active memo
+	// steering overlay so projection cannot present unbounded stale guidance.
+	// Both paths are best-effort and idempotent.
+	switch shapeRes.MemoOutcome {
+	case interleavedthinking.MemoOutcomeExpired:
+		e.deactivateMemoSteeringOverlay(ctx, rf.aLegID)
+	case interleavedthinking.MemoOutcomeSkippedMissing:
+		if interleaved.MemoRef != nil {
+			e.deactivateMemoSteeringOverlay(ctx, rf.aLegID)
+		}
+	}
 	be, ok := e.Backends[plan.cand.Primary.Backend]
 	if !ok {
 		return zero, fmt.Errorf("executor: unknown backend %q", plan.cand.Primary.Backend)

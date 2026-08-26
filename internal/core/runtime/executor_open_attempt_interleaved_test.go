@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -117,6 +118,7 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{
 		"thinker-be": *interleavedBackend(
@@ -192,6 +194,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{
 		"exec-be": *interleavedBackend(
@@ -217,6 +220,8 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	}
 
 	// Seed a memo for the A-leg scope and record its reference on the A-leg interleaved state.
+	// Since #391 the memo is presented to executors exclusively through the
+	// conversation-view steering overlay, so that overlay is seeded below too.
 	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "plan: do the thing",
 		SourceSelector:        "[thinker]exec-be:m^exec-be:m",
@@ -243,6 +248,34 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 		ClientSessionID:        first.Session.ClientSessionID,
 		ResumeToken:            first.Session.ResumeToken,
 	}
+	// Seed the memo steering overlay anchored after the ingress terminal user
+	// message, mirroring what a thinker capture publishes since #391.
+	anchor, err := conversationview.ResolveAfterIngressTailAnchor(*second, conversationview.Snapshot{})
+	if err != nil {
+		t.Fatalf("resolve memo anchor: %v", err)
+	}
+	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+		OverlayID: "interleaved-thinking-memo",
+		Message: conversationview.StoredMessageV1{
+			Role: lipapi.RoleUser,
+			Text: interleavedthinking.SessionSteeringGuidanceHeader + "\n" + "plan: do the thing",
+		},
+		Placement: conversationview.StoredPlacement{
+			Kind:   conversationview.PlacementAfterMessage,
+			Anchor: &anchor,
+		},
+		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+		Reason:              "interleaved_thinking_memo",
+	}); err != nil {
+		t.Fatalf("seed memo steering overlay: %v", err)
+	}
+	seededSnapshot, err := st.ConversationViewStore().Snapshot(context.Background(), aLegID)
+	if err != nil {
+		t.Fatalf("snapshot seeded memo steering overlay: %v", err)
+	}
+	if len(seededSnapshot.Steering) != 1 || !seededSnapshot.Steering[0].Active {
+		t.Fatalf("memo steering overlay not active before executor turn: %+v", seededSnapshot.Steering)
+	}
 	stream, err := ex.Execute(context.Background(), second)
 	if err != nil {
 		t.Fatalf("second execute: %v", err)
@@ -258,16 +291,26 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 	if len(shaped.Messages) == 0 {
 		t.Fatal("executor call must reach backend Open with conversation messages")
 	}
-	tail := shaped.Messages[len(shaped.Messages)-1]
-	if !strings.Contains(textOf(tail), "plan: do the thing") {
-		t.Fatalf("memo not injected into executor call: %+v", tail)
+	// #391: the memo must arrive as a standalone synthetic user message
+	// projected from the steering overlay; the original messages stay intact.
+	var steeringMsgs []lipapi.Message
+	for _, m := range shaped.Messages {
+		if strings.Contains(textOf(m), interleavedthinking.SessionSteeringGuidanceHeader) {
+			steeringMsgs = append(steeringMsgs, m)
+		}
 	}
-	if !strings.Contains(textOf(tail), interleavedthinking.SessionSteeringGuidanceHeader) {
-		t.Fatalf("injected memo must carry the steering guidance header: %+v", tail)
+	if len(steeringMsgs) != 1 {
+		t.Fatalf("executor call must carry exactly one projected steering message, got %d (requested a-leg %q, resolved a-leg %q): %+v", len(steeringMsgs), aLegID, second.Session.ALegID, shaped.Messages)
 	}
-	if tail.Metadata["source"] != interleavedthinking.MetadataSourceInterleavedThinking ||
-		tail.Metadata["kind"] != interleavedthinking.MetadataKindThinkerMemoTail {
-		t.Fatalf("injected tail must carry traceability metadata: %+v", tail.Metadata)
+	if steeringMsgs[0].Role != lipapi.RoleUser {
+		t.Fatalf("projected steering must be a user message, got %q", steeringMsgs[0].Role)
+	}
+	if !strings.Contains(textOf(steeringMsgs[0]), "plan: do the thing") {
+		t.Fatalf("projected steering missing memo body: %+v", steeringMsgs[0])
+	}
+	if strings.Contains(textOf(shaped.Messages[len(shaped.Messages)-1]), "plan this\n[") ||
+		len(shaped.Messages[len(shaped.Messages)-1].Parts) != 1 {
+		t.Fatalf("original ingress tail must stay byte-identical: %+v", shaped.Messages[len(shaped.Messages)-1])
 	}
 	if len(shaped.Tools) != 1 {
 		t.Fatalf("executor call must keep tools, got %d", len(shaped.Tools))
@@ -320,6 +363,7 @@ func TestExecutor_OpenAttempt_ThinkerCycleCursorAdvancesAfterSuccessfulOpen(t *t
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{
 		"bad": recoverableInterleavedBackend(capture("bad")),
@@ -404,6 +448,7 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{
 		"bad": recoverableInterleavedBackend(nil),
@@ -445,6 +490,25 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 
 	second := interleavedBaseCall("[thinker]thinker-be:m^bad:m^ok:m")
 	resumeInterleavedCall(call, second)
+	anchor, err := conversationview.ResolveAfterIngressTailAnchor(*second, conversationview.Snapshot{})
+	if err != nil {
+		t.Fatalf("resolve memo anchor: %v", err)
+	}
+	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+		OverlayID: "interleaved-thinking-memo",
+		Message: conversationview.StoredMessageV1{
+			Role: lipapi.RoleUser,
+			Text: interleavedthinking.SessionSteeringGuidanceHeader + "\n" + "memo survives failed open",
+		},
+		Placement: conversationview.StoredPlacement{
+			Kind:   conversationview.PlacementAfterMessage,
+			Anchor: &anchor,
+		},
+		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+		Reason:              "interleaved_thinking_memo",
+	}); err != nil {
+		t.Fatalf("seed memo steering overlay: %v", err)
+	}
 	stream, err := ex.Execute(context.Background(), second)
 	if err != nil {
 		t.Fatalf("execute with failover: %v", err)
@@ -460,7 +524,7 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 	if len(openedCopy) != 1 || openedCopy[0] != "ok" {
 		t.Fatalf("expected only successful backend to open, got %+v", openedCopy)
 	}
-	if len(shaped.Messages) == 0 || !strings.Contains(textOf(shaped.Messages[len(shaped.Messages)-1]), "memo survives failed open") {
+	if msg := findMemoSteeringMessage(t, shaped); msg == nil || !strings.Contains(textOf(*msg), "memo survives failed open") {
 		t.Fatalf("successful backend must receive memo after failed candidate, got %+v", shaped.Messages)
 	}
 	state, err := st.FetchInterleavedState(context.Background(), aLegID)

@@ -21,7 +21,6 @@ func TestMemoSkipReason_MapsEveryOutcome(t *testing.T) {
 		want    string
 	}{
 		{interleavedthinking.MemoOutcomeSkippedVisible, "visible"},
-		{interleavedthinking.MemoOutcomeSkippedDuplicate, "duplicate"},
 		{interleavedthinking.MemoOutcomeSkippedEmpty, "empty"},
 		{interleavedthinking.MemoOutcomeSkippedMissing, "missing"},
 		{interleavedthinking.MemoOutcomeInjected, ""},
@@ -104,7 +103,7 @@ func TestPersistCapturedMemo_ReplacesMemoAndDeletesPrevious(t *testing.T) {
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	state := interleavedstate.State{}
 
-	state, err = ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "first"})
+	state, err = ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "first"}, capturedMemoSource{TraceID: "tr-1", Ingress: lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("plan")}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +115,7 @@ func TestPersistCapturedMemo_ReplacesMemoAndDeletesPrevious(t *testing.T) {
 		t.Fatalf("first memo must exist: ok=%v err=%v", ok, err)
 	}
 
-	state, err = ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "second"})
+	state, err = ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "second"}, capturedMemoSource{Ingress: lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("plan")}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
 	}
 	state := interleavedstate.State{MemoRef: &oldRef}
 
-	resultState, err := ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "orphan"})
+	resultState, err := ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "orphan"}, capturedMemoSource{})
 	if !errors.Is(err, errInjectedCyclePersist) {
 		t.Fatalf("want errInjectedCyclePersist, got %v", err)
 	}
@@ -178,6 +177,59 @@ func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
 	orphanRef := interleavedstate.MemoRef{Key: "memo-2", Version: 1}
 	if _, ok, err := memoStore.Get(ctx, scope, orphanRef); err == nil && ok {
 		t.Fatal("orphan memo must be deleted when interleaved state persist fails")
+	}
+}
+
+func TestCommitMemoInjection_DeactivatesExhaustedOverlay(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aLeg, err := st.CreateALeg(ctx, "memo-exhausted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex := TestExecutor()
+	ex.Store = st
+	ex.MemoStore = memoStore
+
+	state, err := ex.persistCapturedMemo(ctx, aLeg.ALegID, interleavedstate.State{}, interleavedthinking.MemoState{
+		Memo:                  "one use",
+		RegularTurnsRemaining: 1,
+	}, capturedMemoSource{Ingress: lipapi.Call{Messages: []lipapi.Message{{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{lipapi.TextPart("plan")},
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.MemoRef == nil {
+		t.Fatal("expected memo ref after capture")
+	}
+	memo, ok, err := memoStore.Get(ctx, interleavedthinking.Scope(aLeg.ALegID), *state.MemoRef)
+	if err != nil || !ok {
+		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
+	}
+	memo.RegularTurnsRemaining = 0
+	memo.InjectedCount++
+	state, err = ex.commitMemoInjection(ctx, aLeg.ALegID, state, &interleavedthinking.PendingMemoUpdate{
+		Ref:   *state.MemoRef,
+		State: memo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := st.ConversationViewStore().Snapshot(ctx, aLeg.ALegID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, overlay := range snap.Steering {
+		if overlay.OverlayID == interleavedMemoOverlayID && overlay.Active {
+			t.Fatalf("exhausted memo overlay remains active: %+v", overlay)
+		}
 	}
 }
 

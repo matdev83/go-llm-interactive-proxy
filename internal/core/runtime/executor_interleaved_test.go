@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -68,6 +69,7 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
@@ -157,17 +159,22 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	if len(continuationExec.call.Tools) != 1 {
 		t.Fatalf("executor continuation: must keep tools, got %d", len(continuationExec.call.Tools))
 	}
-	tail := continuationExec.call.Messages[len(continuationExec.call.Messages)-1]
-	injected := textOf(tail)
+	// #391: the memo reaches the executor as a standalone synthetic user message
+	// projected from the conversation-view steering overlay; existing messages
+	// (including any tool output) stay byte-identical.
+	steeringMsg := findMemoSteeringMessage(t, continuationExec.call)
+	if steeringMsg == nil {
+		t.Fatal("executor continuation: memo steering overlay must be projected into the call")
+	}
+	injected := textOf(*steeringMsg)
 	if !strings.Contains(injected, memoBody) {
 		t.Fatalf("executor continuation: memo not injected: %q", injected)
 	}
 	if !strings.Contains(injected, interleavedthinking.SessionSteeringGuidanceHeader) {
 		t.Fatalf("executor continuation: steering guidance header missing: %q", injected)
 	}
-	if tail.Metadata["source"] != interleavedthinking.MetadataSourceInterleavedThinking ||
-		tail.Metadata["kind"] != interleavedthinking.MetadataKindThinkerMemoTail {
-		t.Fatalf("executor continuation: injected tail must carry traceability metadata: %+v", tail.Metadata)
+	if countMemoSteeringMessages(t, continuationExec.call) != 1 {
+		t.Fatal("executor continuation: steering overlay must appear exactly once")
 	}
 
 	if got := collected.Reasoning.String(); got != "" {
@@ -293,6 +300,7 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 		RegularTurnsRemaining: 2,
 	}
 	ex.MemoStore = memoStore
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -509,6 +517,7 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
@@ -602,12 +611,19 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	if len(laterExec.call.Messages) == 0 {
 		t.Fatal("later normal executor must carry conversation messages")
 	}
-	injected := textOf(laterExec.call.Messages[len(laterExec.call.Messages)-1])
-	if !strings.Contains(injected, interleavedthinking.SessionSteeringGuidanceHeader) {
-		t.Fatalf("later normal executor must inject steering guidance header: %q", injected)
+	steeringMsg := findMemoSteeringMessage(t, laterExec.call)
+	if steeringMsg == nil {
+		t.Fatal("later normal executor must project the memo steering overlay")
 	}
-	if !strings.Contains(injected, memoBody) {
-		t.Fatalf("later normal executor must inject memo body: %q", injected)
+	projected := textOf(*steeringMsg)
+	if !strings.Contains(projected, interleavedthinking.SessionSteeringGuidanceHeader) {
+		t.Fatalf("later normal executor steering must carry guidance header: %q", projected)
+	}
+	if !strings.Contains(projected, memoBody) {
+		t.Fatalf("later normal executor steering must carry memo body: %q", projected)
+	}
+	if countMemoSteeringMessages(t, laterExec.call) != 1 {
+		t.Fatal("later normal executor: steering overlay must appear exactly once")
 	}
 
 	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *mustMemoRef(t, st, aLegID))
@@ -632,4 +648,33 @@ func mustMemoRef(t *testing.T, st *b2bua.MemoryStore, aLegID string) *interleave
 		t.Fatal("memo reference missing")
 	}
 	return state.MemoRef
+}
+
+// findMemoSteeringMessage returns the projected synthetic steering user message
+// in an opened backend call (#391), or nil when absent.
+func findMemoSteeringMessage(t *testing.T, call lipapi.Call) *lipapi.Message {
+	t.Helper()
+	for i := range call.Messages {
+		m := &call.Messages[i]
+		if strings.Contains(textOf(*m), interleavedthinking.SessionSteeringGuidanceHeader) {
+			if m.Role != lipapi.RoleUser {
+				t.Fatalf("memo steering must project as a standalone user message, got role %q", m.Role)
+			}
+			return m
+		}
+	}
+	return nil
+}
+
+// countMemoSteeringMessages counts messages carrying the steering guidance
+// header; projection must present the memo exactly once per call.
+func countMemoSteeringMessages(t *testing.T, call lipapi.Call) int {
+	t.Helper()
+	count := 0
+	for _, m := range call.Messages {
+		if strings.Contains(textOf(m), interleavedthinking.SessionSteeringGuidanceHeader) {
+			count++
+		}
+	}
+	return count
 }

@@ -910,8 +910,8 @@ func TestAdversarial_LateTransform_InterleavedThinkerExecutor(t *testing.T) {
 	}
 	verifyRepaired(t, taggedID, steeringText, tc[0])
 	verifyRepaired(t, taggedID, steeringText, ec[0])
-	if reader.Count() != 1 {
-		t.Fatalf("interleaved logical turn must use one frozen snapshot for both B-legs, got %d", reader.Count())
+	if reader.Count() != 2 {
+		t.Fatalf("interleaved logical turn must read once at admission and once after publishing memo steering, got %d", reader.Count())
 	}
 	ptbCalls := ptbObs.PTBCalls(t)
 	if len(ptbCalls) != 2 {

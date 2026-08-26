@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -143,9 +144,47 @@ func (e *Executor) newThinkerRecorder(c routing.AttemptCandidate, call lipapi.Ca
 	}
 }
 
-func (e *Executor) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error) {
+// persistCapturedMemo publishes the captured memo as a persistent conversation-view
+// steering overlay and stores the memo bookkeeping state for the A-leg.
+//
+// The overlay is the only presentation path (#391): executor context receives
+// the memo through conversation-view projection as a standalone synthetic user
+// message anchored after the current ingress tail. If steering cannot be
+// published, the memo is not linked for presentation and the turn continues
+// without it; accounting then never presents steering that projection cannot
+// inject.
+//
+// Memo bodies remain process-local: the standard runtime persists the ref so
+// in-process turns can consume it, while restart loss degrades to no memo (and
+// best-effort cleanup of any still-active overlay). A store that does not
+// implement [b2bua.InterleavedStateStore] rejects non-empty state so callers
+// fail closed instead of silently dropping authoritative interleaved state.
+// capturedMemoSource carries the frozen turn view needed to publish the memo
+// as a conversation-view steering overlay. TraceID feeds bounded diagnostics
+// only; Ingress/Snapshot resolve the after_ingress_tail anchor at Put time.
+type capturedMemoSource struct {
+	TraceID  string
+	Ingress  lipapi.Call
+	Snapshot conversationview.Snapshot
+}
+
+func (e *Executor) persistCapturedMemo(
+	ctx context.Context,
+	aLegID string,
+	state interleavedstate.State,
+	memo interleavedthinking.MemoState,
+	src capturedMemoSource,
+) (interleavedstate.State, error) {
 	if e == nil || e.MemoStore == nil {
 		return state, fmt.Errorf("executor: memo store required for interleaved capture")
+	}
+	var overlayPublished bool
+	if strings.TrimSpace(memo.Memo) != "" {
+		if err := e.publishMemoSteeringOverlay(ctx, aLegID, src.Ingress, src.Snapshot, memo.Memo); err != nil {
+			e.logInterleavedMemoSteeringSkipped(ctx, src.TraceID)
+		} else {
+			overlayPublished = true
+		}
 	}
 	oldRef := state.MemoRef
 	ref, err := e.MemoStore.Put(ctx, interleavedthinking.Scope(aLegID), memo)
@@ -155,6 +194,9 @@ func (e *Executor) persistCapturedMemo(ctx context.Context, aLegID string, state
 	state.MemoRef = &ref
 	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
 		state.MemoRef = oldRef
+		if overlayPublished {
+			e.deactivateMemoSteeringOverlay(ctx, aLegID)
+		}
 		scope := interleavedthinking.Scope(aLegID)
 		if delErr := e.MemoStore.Delete(ctx, scope, ref); delErr != nil {
 			return state, fmt.Errorf("executor: persist memo reference: %w (rollback delete: %v)", err, delErr)
@@ -169,6 +211,10 @@ func (e *Executor) persistCapturedMemo(ctx context.Context, aLegID string, state
 	return state, nil
 }
 
+// commitMemoInjection commits the memo budget mutation once a shaped executor
+// attempt becomes authoritative. When the budget reaches zero the persistent
+// memo steering overlay is deactivated so projection stops presenting an
+// expired memo (#391).
 func (e *Executor) commitMemoInjection(ctx context.Context, aLegID string, state interleavedstate.State, update *interleavedthinking.PendingMemoUpdate) (interleavedstate.State, error) {
 	if update == nil {
 		return state, nil
@@ -184,6 +230,9 @@ func (e *Executor) commitMemoInjection(ctx context.Context, aLegID string, state
 	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
 		return state, fmt.Errorf("executor: persist interleaved memo reference: %w", err)
 	}
+	if update.State.RegularTurnsRemaining <= 0 {
+		e.deactivateMemoSteeringOverlay(ctx, aLegID)
+	}
 	return state, nil
 }
 
@@ -192,11 +241,19 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		return nil, fmt.Errorf("executor: invalid interleaved continuation arguments")
 	}
 	facts := from.facts
+	// The memo steering overlay was published after this logical turn's
+	// conversation-view snapshot froze. Refresh the frozen view so the executor
+	// continuation plans and reasserts against the projected baseline that
+	// includes it; visible-mode immediate continuations keep the memo excluded.
+	// Interleaved continuations always run under immediate-continuation
+	// suppression semantics, so suppression here depends only on whether the
+	// captured memo was surfaced to the client.
+	facts = e.refreshMemoSteeringFacts(ctx, facts, state, true)
 	// A continuation may be opened from Recv with a bare caller context after
 	// model/catalog refresh. Reattach the logical request's frozen views before
 	// any planning, capability resolution, or backend open; copying them onto the
 	// resulting stream afterward is too late.
-	boundCtx := from.facts.projectContext(ctx, from.responsePipeline.log)
+	boundCtx := projectRefreshedMemoContext(facts, ctx, from.responsePipeline.log)
 	boundCtx = from.responsePipeline.withDecisionEvidence(boundCtx, from.terminal)
 	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
 	if from.recovery == nil {
@@ -217,7 +274,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	}
 	terminal := newTurnTerminalWithSharedALeg(from.terminal)
 	rs := &retryRecvStream{
-		facts:            from.facts.clone(),
+		facts:            cloneRefreshedMemoFacts(facts),
 		recovery:         from.recovery,
 		responsePipeline: responsePipeline,
 		attempt:          attemptSlot{},
