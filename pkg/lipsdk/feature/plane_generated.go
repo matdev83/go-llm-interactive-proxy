@@ -3,8 +3,6 @@
 package feature
 
 import (
-	"slices"
-
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -93,30 +91,30 @@ func newGeneratedContributions() *generatedContributions {
 	gc := &generatedContributions{}
 	gc.freeze = func() *generatedFrozen {
 		gf := &generatedFrozen{
-			submitHooks:                      slices.Clone(gc.submitHooks),
-			requestPartHooks:                 slices.Clone(gc.requestPartHooks),
-			responsePartHooks:                slices.Clone(gc.responsePartHooks),
-			toolReactors:                     slices.Clone(gc.toolReactors),
-			sessionOpeners:                   slices.Clone(gc.sessionOpeners),
-			workspaceResolvers:               slices.Clone(gc.workspaceResolvers),
-			toolCatalogFilters:               slices.Clone(gc.toolCatalogFilters),
-			toolCallPolicies:                 slices.Clone(gc.toolCallPolicies),
-			toolCallFinalizers:               slices.Clone(gc.toolCallFinalizers),
+			submitHooks:                      cloneSlice(gc.submitHooks),
+			requestPartHooks:                 cloneSlice(gc.requestPartHooks),
+			responsePartHooks:                cloneSlice(gc.responsePartHooks),
+			toolReactors:                     cloneSlice(gc.toolReactors),
+			sessionOpeners:                   cloneSlice(gc.sessionOpeners),
+			workspaceResolvers:               cloneSlice(gc.workspaceResolvers),
+			toolCatalogFilters:               cloneSlice(gc.toolCatalogFilters),
+			toolCallPolicies:                 cloneSlice(gc.toolCallPolicies),
+			toolCallFinalizers:               cloneSlice(gc.toolCallFinalizers),
 			toolCallFinalizationMaxArgsBytes: gc.toolCallFinalizationMaxArgsBytes,
-			requestTransforms:                slices.Clone(gc.requestTransforms),
-			preRequestHandlers:               slices.Clone(gc.preRequestHandlers),
-			routeHintProviders:               slices.Clone(gc.routeHintProviders),
-			completionGates:                  slices.Clone(gc.completionGates),
-			attemptTransforms:                slices.Clone(gc.attemptTransforms),
-			streamObserverFactories:          slices.Clone(gc.streamObserverFactories),
-			trafficObservers:                 slices.Clone(gc.trafficObservers),
-			usageObservers:                   slices.Clone(gc.usageObservers),
-			rawCaptureSinks:                  slices.Clone(gc.rawCaptureSinks),
-			trafficRedactors:                 slices.Clone(gc.trafficRedactors),
-			compactionObservers:              slices.Clone(gc.compactionObservers),
-			compactionPreservers:             slices.Clone(gc.compactionPreservers),
-			secretGuards:                     slices.Clone(gc.secretGuards),
-			localTurnHandlers:                slices.Clone(gc.localTurnHandlers),
+			requestTransforms:                cloneSlice(gc.requestTransforms),
+			preRequestHandlers:               cloneSlice(gc.preRequestHandlers),
+			routeHintProviders:               cloneSlice(gc.routeHintProviders),
+			completionGates:                  cloneSlice(gc.completionGates),
+			attemptTransforms:                cloneSlice(gc.attemptTransforms),
+			streamObserverFactories:          cloneSlice(gc.streamObserverFactories),
+			trafficObservers:                 cloneSlice(gc.trafficObservers),
+			usageObservers:                   cloneSlice(gc.usageObservers),
+			rawCaptureSinks:                  cloneSlice(gc.rawCaptureSinks),
+			trafficRedactors:                 cloneSlice(gc.trafficRedactors),
+			compactionObservers:              cloneSlice(gc.compactionObservers),
+			compactionPreservers:             cloneSlice(gc.compactionPreservers),
+			secretGuards:                     cloneSlice(gc.secretGuards),
+			localTurnHandlers:                cloneSlice(gc.localTurnHandlers),
 			terminalDecisionProvider:         gc.terminalDecisionProvider,
 			terminalDecisionProviderID:       gc.terminalDecisionProviderID,
 			terminalDecisionProviderHasID:    gc.terminalDecisionProviderHasID,
@@ -129,146 +127,191 @@ func newGeneratedContributions() *generatedContributions {
 func init() {
 	PlaneSubmitHooks.generated = generatedAccess[[]hooks.SubmitHook]{
 		contribute: func(gc *generatedContributions, pluginID string, v []hooks.SubmitHook) error {
-			combined, err := PlaneSubmitHooks.Combine(SourceFeature, gc.submitHooks, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.submitHooks)
+			combined, err := PlaneSubmitHooks.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.submitHooks = combined
+			if (v != nil || gc.submitHooks != nil) && combined == nil {
+				combined = make([]hooks.SubmitHook, 0)
+			}
+			gc.submitHooks = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []hooks.SubmitHook {
 			if gf == nil {
 				return nil
 			}
-			return gf.submitHooks
+			return cloneSlice(gf.submitHooks)
 		},
 	}
 	PlaneRequestPartHooks.generated = generatedAccess[[]hooks.RequestPartHook]{
 		contribute: func(gc *generatedContributions, pluginID string, v []hooks.RequestPartHook) error {
-			combined, err := PlaneRequestPartHooks.Combine(SourceFeature, gc.requestPartHooks, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.requestPartHooks)
+			combined, err := PlaneRequestPartHooks.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.requestPartHooks = combined
+			if (v != nil || gc.requestPartHooks != nil) && combined == nil {
+				combined = make([]hooks.RequestPartHook, 0)
+			}
+			gc.requestPartHooks = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []hooks.RequestPartHook {
 			if gf == nil {
 				return nil
 			}
-			return gf.requestPartHooks
+			return cloneSlice(gf.requestPartHooks)
 		},
 	}
 	PlaneResponsePartHooks.generated = generatedAccess[[]hooks.ResponsePartHook]{
 		contribute: func(gc *generatedContributions, pluginID string, v []hooks.ResponsePartHook) error {
-			combined, err := PlaneResponsePartHooks.Combine(SourceFeature, gc.responsePartHooks, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.responsePartHooks)
+			combined, err := PlaneResponsePartHooks.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.responsePartHooks = combined
+			if (v != nil || gc.responsePartHooks != nil) && combined == nil {
+				combined = make([]hooks.ResponsePartHook, 0)
+			}
+			gc.responsePartHooks = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []hooks.ResponsePartHook {
 			if gf == nil {
 				return nil
 			}
-			return gf.responsePartHooks
+			return cloneSlice(gf.responsePartHooks)
 		},
 	}
 	PlaneToolReactors.generated = generatedAccess[[]hooks.ToolReactor]{
 		contribute: func(gc *generatedContributions, pluginID string, v []hooks.ToolReactor) error {
-			combined, err := PlaneToolReactors.Combine(SourceFeature, gc.toolReactors, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.toolReactors)
+			combined, err := PlaneToolReactors.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.toolReactors = combined
+			if (v != nil || gc.toolReactors != nil) && combined == nil {
+				combined = make([]hooks.ToolReactor, 0)
+			}
+			gc.toolReactors = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []hooks.ToolReactor {
 			if gf == nil {
 				return nil
 			}
-			return gf.toolReactors
+			return cloneSlice(gf.toolReactors)
 		},
 	}
 	PlaneSessionOpeners.generated = generatedAccess[[]session.Opener]{
 		contribute: func(gc *generatedContributions, pluginID string, v []session.Opener) error {
-			combined, err := PlaneSessionOpeners.Combine(SourceFeature, gc.sessionOpeners, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.sessionOpeners)
+			combined, err := PlaneSessionOpeners.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.sessionOpeners = combined
+			if (v != nil || gc.sessionOpeners != nil) && combined == nil {
+				combined = make([]session.Opener, 0)
+			}
+			gc.sessionOpeners = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []session.Opener {
 			if gf == nil {
 				return nil
 			}
-			return gf.sessionOpeners
+			return cloneSlice(gf.sessionOpeners)
 		},
 	}
 	PlaneWorkspaceResolvers.generated = generatedAccess[[]workspace.Resolver]{
 		contribute: func(gc *generatedContributions, pluginID string, v []workspace.Resolver) error {
-			combined, err := PlaneWorkspaceResolvers.Combine(SourceFeature, gc.workspaceResolvers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.workspaceResolvers)
+			combined, err := PlaneWorkspaceResolvers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.workspaceResolvers = combined
+			if (v != nil || gc.workspaceResolvers != nil) && combined == nil {
+				combined = make([]workspace.Resolver, 0)
+			}
+			gc.workspaceResolvers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []workspace.Resolver {
 			if gf == nil {
 				return nil
 			}
-			return gf.workspaceResolvers
+			return cloneSlice(gf.workspaceResolvers)
 		},
 	}
 	PlaneToolCatalogFilters.generated = generatedAccess[[]toolcatalog.Filter]{
 		contribute: func(gc *generatedContributions, pluginID string, v []toolcatalog.Filter) error {
-			combined, err := PlaneToolCatalogFilters.Combine(SourceFeature, gc.toolCatalogFilters, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.toolCatalogFilters)
+			combined, err := PlaneToolCatalogFilters.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.toolCatalogFilters = combined
+			if (v != nil || gc.toolCatalogFilters != nil) && combined == nil {
+				combined = make([]toolcatalog.Filter, 0)
+			}
+			gc.toolCatalogFilters = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []toolcatalog.Filter {
 			if gf == nil {
 				return nil
 			}
-			return gf.toolCatalogFilters
+			return cloneSlice(gf.toolCatalogFilters)
 		},
 	}
 	PlaneToolCallPolicies.generated = generatedAccess[[]toolpolicy.Policy]{
 		contribute: func(gc *generatedContributions, pluginID string, v []toolpolicy.Policy) error {
-			combined, err := PlaneToolCallPolicies.Combine(SourceFeature, gc.toolCallPolicies, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.toolCallPolicies)
+			combined, err := PlaneToolCallPolicies.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.toolCallPolicies = combined
+			if (v != nil || gc.toolCallPolicies != nil) && combined == nil {
+				combined = make([]toolpolicy.Policy, 0)
+			}
+			gc.toolCallPolicies = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []toolpolicy.Policy {
 			if gf == nil {
 				return nil
 			}
-			return gf.toolCallPolicies
+			return cloneSlice(gf.toolCallPolicies)
 		},
 	}
 	PlaneToolCallFinalizers.generated = generatedAccess[[]toolcall.Finalizer]{
 		contribute: func(gc *generatedContributions, pluginID string, v []toolcall.Finalizer) error {
-			combined, err := PlaneToolCallFinalizers.Combine(SourceFeature, gc.toolCallFinalizers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.toolCallFinalizers)
+			combined, err := PlaneToolCallFinalizers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.toolCallFinalizers = combined
+			if (v != nil || gc.toolCallFinalizers != nil) && combined == nil {
+				combined = make([]toolcall.Finalizer, 0)
+			}
+			gc.toolCallFinalizers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []toolcall.Finalizer {
 			if gf == nil {
 				return nil
 			}
-			return gf.toolCallFinalizers
+			return cloneSlice(gf.toolCallFinalizers)
 		},
 	}
 	PlaneToolCallFinalizationMaxArgsBytes.generated = generatedAccess[int]{
@@ -289,82 +332,107 @@ func init() {
 	}
 	PlaneRequestTransforms.generated = generatedAccess[[]request.Transform]{
 		contribute: func(gc *generatedContributions, pluginID string, v []request.Transform) error {
-			combined, err := PlaneRequestTransforms.Combine(SourceFeature, gc.requestTransforms, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.requestTransforms)
+			combined, err := PlaneRequestTransforms.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.requestTransforms = combined
+			if (v != nil || gc.requestTransforms != nil) && combined == nil {
+				combined = make([]request.Transform, 0)
+			}
+			gc.requestTransforms = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []request.Transform {
 			if gf == nil {
 				return nil
 			}
-			return gf.requestTransforms
+			return cloneSlice(gf.requestTransforms)
 		},
 	}
 	PlanePreRequestHandlers.generated = generatedAccess[[]prerequest.Handler]{
 		contribute: func(gc *generatedContributions, pluginID string, v []prerequest.Handler) error {
-			combined, err := PlanePreRequestHandlers.Combine(SourceFeature, gc.preRequestHandlers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.preRequestHandlers)
+			combined, err := PlanePreRequestHandlers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.preRequestHandlers = combined
+			if (v != nil || gc.preRequestHandlers != nil) && combined == nil {
+				combined = make([]prerequest.Handler, 0)
+			}
+			gc.preRequestHandlers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []prerequest.Handler {
 			if gf == nil {
 				return nil
 			}
-			return gf.preRequestHandlers
+			return cloneSlice(gf.preRequestHandlers)
 		},
 	}
 	PlaneRouteHintProviders.generated = generatedAccess[[]routehint.Provider]{
 		contribute: func(gc *generatedContributions, pluginID string, v []routehint.Provider) error {
-			combined, err := PlaneRouteHintProviders.Combine(SourceFeature, gc.routeHintProviders, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.routeHintProviders)
+			combined, err := PlaneRouteHintProviders.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.routeHintProviders = combined
+			if (v != nil || gc.routeHintProviders != nil) && combined == nil {
+				combined = make([]routehint.Provider, 0)
+			}
+			gc.routeHintProviders = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []routehint.Provider {
 			if gf == nil {
 				return nil
 			}
-			return gf.routeHintProviders
+			return cloneSlice(gf.routeHintProviders)
 		},
 	}
 	PlaneCompletionGates.generated = generatedAccess[[]completion.Gate]{
 		contribute: func(gc *generatedContributions, pluginID string, v []completion.Gate) error {
-			combined, err := PlaneCompletionGates.Combine(SourceFeature, gc.completionGates, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.completionGates)
+			combined, err := PlaneCompletionGates.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.completionGates = combined
+			if (v != nil || gc.completionGates != nil) && combined == nil {
+				combined = make([]completion.Gate, 0)
+			}
+			gc.completionGates = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []completion.Gate {
 			if gf == nil {
 				return nil
 			}
-			return gf.completionGates
+			return cloneSlice(gf.completionGates)
 		},
 	}
 	PlaneAttemptTransforms.generated = generatedAccess[[]request.AttemptTransform]{
 		contribute: func(gc *generatedContributions, pluginID string, v []request.AttemptTransform) error {
-			combined, err := PlaneAttemptTransforms.Combine(SourceFeature, gc.attemptTransforms, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.attemptTransforms)
+			combined, err := PlaneAttemptTransforms.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.attemptTransforms = combined
+			if (v != nil || gc.attemptTransforms != nil) && combined == nil {
+				combined = make([]request.AttemptTransform, 0)
+			}
+			gc.attemptTransforms = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []request.AttemptTransform {
 			if gf == nil {
 				return nil
 			}
-			return gf.attemptTransforms
+			return cloneSlice(gf.attemptTransforms)
 		},
 		identity: func(gf *generatedFrozen) (string, bool) {
 			if gf == nil {
@@ -375,18 +443,23 @@ func init() {
 	}
 	PlaneStreamObserverFactories.generated = generatedAccess[[]response.StreamObserverFactory]{
 		contribute: func(gc *generatedContributions, pluginID string, v []response.StreamObserverFactory) error {
-			combined, err := PlaneStreamObserverFactories.Combine(SourceFeature, gc.streamObserverFactories, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.streamObserverFactories)
+			combined, err := PlaneStreamObserverFactories.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.streamObserverFactories = combined
+			if (v != nil || gc.streamObserverFactories != nil) && combined == nil {
+				combined = make([]response.StreamObserverFactory, 0)
+			}
+			gc.streamObserverFactories = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []response.StreamObserverFactory {
 			if gf == nil {
 				return nil
 			}
-			return gf.streamObserverFactories
+			return cloneSlice(gf.streamObserverFactories)
 		},
 		identity: func(gf *generatedFrozen) (string, bool) {
 			if gf == nil {
@@ -397,98 +470,128 @@ func init() {
 	}
 	PlaneTrafficObservers.generated = generatedAccess[[]traffic.Observer]{
 		contribute: func(gc *generatedContributions, pluginID string, v []traffic.Observer) error {
-			combined, err := PlaneTrafficObservers.Combine(SourceFeature, gc.trafficObservers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.trafficObservers)
+			combined, err := PlaneTrafficObservers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.trafficObservers = combined
+			if (v != nil || gc.trafficObservers != nil) && combined == nil {
+				combined = make([]traffic.Observer, 0)
+			}
+			gc.trafficObservers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []traffic.Observer {
 			if gf == nil {
 				return nil
 			}
-			return gf.trafficObservers
+			return cloneSlice(gf.trafficObservers)
 		},
 	}
 	PlaneUsageObservers.generated = generatedAccess[[]usage.Observer]{
 		contribute: func(gc *generatedContributions, pluginID string, v []usage.Observer) error {
-			combined, err := PlaneUsageObservers.Combine(SourceFeature, gc.usageObservers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.usageObservers)
+			combined, err := PlaneUsageObservers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.usageObservers = combined
+			if (v != nil || gc.usageObservers != nil) && combined == nil {
+				combined = make([]usage.Observer, 0)
+			}
+			gc.usageObservers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []usage.Observer {
 			if gf == nil {
 				return nil
 			}
-			return gf.usageObservers
+			return cloneSlice(gf.usageObservers)
 		},
 	}
 	PlaneRawCaptureSinks.generated = generatedAccess[[]traffic.RawCaptureSink]{
 		contribute: func(gc *generatedContributions, pluginID string, v []traffic.RawCaptureSink) error {
-			combined, err := PlaneRawCaptureSinks.Combine(SourceFeature, gc.rawCaptureSinks, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.rawCaptureSinks)
+			combined, err := PlaneRawCaptureSinks.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.rawCaptureSinks = combined
+			if (v != nil || gc.rawCaptureSinks != nil) && combined == nil {
+				combined = make([]traffic.RawCaptureSink, 0)
+			}
+			gc.rawCaptureSinks = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []traffic.RawCaptureSink {
 			if gf == nil {
 				return nil
 			}
-			return gf.rawCaptureSinks
+			return cloneSlice(gf.rawCaptureSinks)
 		},
 	}
 	PlaneTrafficRedactors.generated = generatedAccess[[]traffic.Redactor]{
 		contribute: func(gc *generatedContributions, pluginID string, v []traffic.Redactor) error {
-			combined, err := PlaneTrafficRedactors.Combine(SourceFeature, gc.trafficRedactors, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.trafficRedactors)
+			combined, err := PlaneTrafficRedactors.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.trafficRedactors = combined
+			if (v != nil || gc.trafficRedactors != nil) && combined == nil {
+				combined = make([]traffic.Redactor, 0)
+			}
+			gc.trafficRedactors = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []traffic.Redactor {
 			if gf == nil {
 				return nil
 			}
-			return gf.trafficRedactors
+			return cloneSlice(gf.trafficRedactors)
 		},
 	}
 	PlaneCompactionObservers.generated = generatedAccess[[]compaction.Observer]{
 		contribute: func(gc *generatedContributions, pluginID string, v []compaction.Observer) error {
-			combined, err := PlaneCompactionObservers.Combine(SourceFeature, gc.compactionObservers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.compactionObservers)
+			combined, err := PlaneCompactionObservers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.compactionObservers = combined
+			if (v != nil || gc.compactionObservers != nil) && combined == nil {
+				combined = make([]compaction.Observer, 0)
+			}
+			gc.compactionObservers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []compaction.Observer {
 			if gf == nil {
 				return nil
 			}
-			return gf.compactionObservers
+			return cloneSlice(gf.compactionObservers)
 		},
 	}
 	PlaneCompactionPreservers.generated = generatedAccess[[]compaction.Preserver]{
 		contribute: func(gc *generatedContributions, pluginID string, v []compaction.Preserver) error {
-			combined, err := PlaneCompactionPreservers.Combine(SourceFeature, gc.compactionPreservers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.compactionPreservers)
+			combined, err := PlaneCompactionPreservers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.compactionPreservers = combined
+			if (v != nil || gc.compactionPreservers != nil) && combined == nil {
+				combined = make([]compaction.Preserver, 0)
+			}
+			gc.compactionPreservers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []compaction.Preserver {
 			if gf == nil {
 				return nil
 			}
-			return gf.compactionPreservers
+			return cloneSlice(gf.compactionPreservers)
 		},
 		identity: func(gf *generatedFrozen) (string, bool) {
 			if gf == nil {
@@ -499,34 +602,44 @@ func init() {
 	}
 	PlaneSecretGuards.generated = generatedAccess[[]secretguard.Guard]{
 		contribute: func(gc *generatedContributions, pluginID string, v []secretguard.Guard) error {
-			combined, err := PlaneSecretGuards.Combine(SourceFeature, gc.secretGuards, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.secretGuards)
+			combined, err := PlaneSecretGuards.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.secretGuards = combined
+			if (v != nil || gc.secretGuards != nil) && combined == nil {
+				combined = make([]secretguard.Guard, 0)
+			}
+			gc.secretGuards = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []secretguard.Guard {
 			if gf == nil {
 				return nil
 			}
-			return gf.secretGuards
+			return cloneSlice(gf.secretGuards)
 		},
 	}
 	PlaneLocalTurnHandlers.generated = generatedAccess[[]localturn.Handler]{
 		contribute: func(gc *generatedContributions, pluginID string, v []localturn.Handler) error {
-			combined, err := PlaneLocalTurnHandlers.Combine(SourceFeature, gc.localTurnHandlers, v)
+			incoming := cloneSlice(v)
+			current := cloneSlice(gc.localTurnHandlers)
+			combined, err := PlaneLocalTurnHandlers.Combine(SourceFeature, current, incoming)
 			if err != nil {
 				return err
 			}
-			gc.localTurnHandlers = combined
+			if (v != nil || gc.localTurnHandlers != nil) && combined == nil {
+				combined = make([]localturn.Handler, 0)
+			}
+			gc.localTurnHandlers = cloneSlice(combined)
 			return nil
 		},
 		get: func(gf *generatedFrozen) []localturn.Handler {
 			if gf == nil {
 				return nil
 			}
-			return gf.localTurnHandlers
+			return cloneSlice(gf.localTurnHandlers)
 		},
 	}
 	PlaneTerminalDecisionProvider.generated = generatedAccess[terminaldecision.Provider]{

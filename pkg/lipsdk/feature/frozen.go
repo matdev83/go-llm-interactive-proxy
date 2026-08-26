@@ -9,6 +9,15 @@ type FrozenPlaneSet struct {
 	frozen     *generatedFrozen
 }
 
+// cloneSlice returns a copy of slice s with its own backing array,
+// preserving nil vs non-nil empty slice semantics.
+func cloneSlice[T any](s []T) []T {
+	if s == nil {
+		return nil
+	}
+	return append(make([]T, 0, len(s)), s...)
+}
+
 // Get retrieves the typed value for plane p from the frozen set.
 // For planes bound to generated storage, Get dispatches directly via generated.get with zero map lookups,
 // zero reflection, and zero type assertions on the request path.
@@ -25,7 +34,7 @@ func Get[P any](s FrozenPlaneSet, p Plane[P]) P {
 	if s.values != nil {
 		if val, ok := s.values[p.ID]; ok {
 			if typed, ok := val.(P); ok {
-				return typed
+				return cloneValue(typed)
 			}
 		}
 	}

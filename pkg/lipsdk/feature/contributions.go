@@ -223,7 +223,19 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 		}
 	}
 
-	s.values[p.ID] = cloneValue(combined)
+	clonedCombined := cloneValue(combined)
+	if anyVal := any(v); anyVal != nil {
+		rv := reflect.ValueOf(anyVal)
+		if rv.Kind() == reflect.Slice && !rv.IsNil() {
+			if anyComb := any(clonedCombined); anyComb == nil || isReflectNil(reflect.ValueOf(anyComb)) {
+				if typedEmpty, ok := reflect.MakeSlice(rv.Type(), 0, 0).Interface().(P); ok {
+					clonedCombined = cloneValue(typedEmpty)
+				}
+			}
+		}
+	}
+
+	s.values[p.ID] = clonedCombined
 	s.pluginIDs[p.ID] = pluginID
 	if hasID && incomingID != "" {
 		s.identities[p.ID] = incomingID
@@ -270,5 +282,17 @@ func cloneAny(v any) any {
 		return out.Interface()
 	default:
 		return v
+	}
+}
+
+func isReflectNil(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Slice, reflect.UnsafePointer:
+		return v.IsNil()
+	default:
+		return false
 	}
 }

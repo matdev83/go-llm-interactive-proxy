@@ -81,7 +81,7 @@
   - _Boundary: build tooling, architecture gates/tests_
   - _Depends: 2.3_
   - **Validation:** `go run ./scripts/generate-feature-planes.go -check && make quality-checks`
-- [ ] 2.5 Implement candidate contribution and freeze semantics in the SDK
+- [x] 2.5 Implement candidate contribution and freeze semantics in the SDK
   - Validate and combine contributions into a candidate before freezing; preserve non-nil empty semantics and backing-array isolation.
   - Observable completion: SDK table tests prove fail-before-mutate behavior, normalization, immutable frozen values, and independent backing arrays.
   - _Requirements: 1.3, 1.4, 1.5, 3.2, 4.4_
