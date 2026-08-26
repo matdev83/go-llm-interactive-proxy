@@ -74,7 +74,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/core/securesession/storecontract -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.3 Normalize control-plane ledger parity entry points (P)
+- [x] 2.3 Normalize control-plane ledger parity entry points (P)
   - Reuse the current ledger `contract.RunSuite` for both engines and wrap it in stable parity test names.
   - Ensure the common contract exercises filters, pagination, dedupe/source-key behavior, projections, retention, redaction, error mapping, and BOOLEAN/INTEGER presence semantics so the store's manual placeholder/bind adaptation is covered by both engines.
   - Keep PostgreSQL-specific schema/catalog assertions separate from common behavior while mapping them to common logical invariants in Phase 3.
