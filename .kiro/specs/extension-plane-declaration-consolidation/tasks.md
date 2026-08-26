@@ -22,7 +22,7 @@
   - _Requirements: 1.4, 4.5, 5.1_
   - _Boundary: composition root, internal/infra/compactioncompose, internal/testkit_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/infra/compactioncompose ./internal/testkit/...`
-- [ ] 1.4 Capture secret-guard and interface typed-nil parity
+- [x] 1.4 Capture secret-guard and interface typed-nil parity
   - Characterize secret-guard uniqueness/host-capability rules, terminal-provider typed-nil behavior, and nil policy for ordered interface-valued planes.
   - Preserve operator-visible error classifications/text and generation rollback behavior in fixtures.
   - Observable completion: deterministic tests fail before candidate mutation on invalid interface values and pin each nil/source policy.
