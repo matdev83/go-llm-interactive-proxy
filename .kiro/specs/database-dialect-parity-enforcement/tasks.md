@@ -29,7 +29,7 @@
   - _Depends: none_
   - _Validation: repository search + focused inventory test added in 1.2_
 
-- [ ] 1.2 Implement `internal/testkit/dbparity` typed catalog and invariants
+- [x] 1.2 Implement `internal/testkit/dbparity` typed catalog and invariants
   - Add static Go metadata for component IDs, source/test/migration roots, consumer-contract IDs, capability rows, and backend classes (`common`, SQLite-specific, PostgreSQL-direct/distributed/pooler as needed).
   - Require non-common capability rows to include rationale and an automated evidence anchor; reject duplicate IDs, duplicate ownership, missing paths, empty common evidence, and nondeterministic ordering.
   - Keep migration IDs out of hand-maintained metadata; catalog owns roots and discovery owns versioned files.
