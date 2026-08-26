@@ -27,6 +27,9 @@ help:
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make billing-convergence-certify - fail-fast final billing architecture, integration, quality, docs, and race certification"
+	@echo "  make test-db-parity-sqlite - canonical SQLite database parity tests across all registered components"
+	@echo "  make test-db-parity-postgres-direct - repository-wide fail-closed direct PostgreSQL parity (DSN; Make sets LIP_REQUIRE_POSTGRES=1)"
+	@echo "  make test-db-parity  - sequential repository-wide SQLite and direct PostgreSQL parity gate"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
 	@echo "  PostgreSQL gates are intentional opt-in: make test-authority-postgres-direct needs only a configured DSN (Make sets LIP_REQUIRE_POSTGRES=1); pooled/aggregate proof also requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1"
 	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof (DSN; Make sets require flag)"
@@ -129,6 +132,26 @@ ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) test-unit
 else
 	$(GO) test $(GO_TEST_FLAGS) ./...
+endif
+
+# Canonical repository-wide database dialect parity targets.
+# Delegated directly to the catalog-driven runner (no duplicate package lists).
+.PHONY: test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity
+test-db-parity-sqlite:
+	$(GO) run ./internal/testkit/dbparity/cmd sqlite
+
+test-db-parity-postgres-direct:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd postgres-direct"
+else
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct
+endif
+
+test-db-parity:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd all"
+else
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}" $(GO) run ./internal/testkit/dbparity/cmd all
 endif
 
 # PostgreSQL is the required proof surface for cross-instance authority

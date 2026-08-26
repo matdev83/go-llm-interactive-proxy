@@ -76,6 +76,122 @@ func TestMakefile_AuthorityPostgresDirectSkipsPooled(t *testing.T) {
 	})
 }
 
+func TestMakefile_DBParityTargetsDelegation(t *testing.T) {
+	root := moduleRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+
+	forbiddenPkgSubstrings := []string{
+		"usageauthority",
+		"concurrencyauthority",
+		"journalstore",
+		"workstore",
+		"internal/infra",
+		"internal/core/continuity",
+	}
+
+	// 1. test-db-parity-sqlite delegates to runner in sqlite mode without hardcoded package lists
+	assertMakefileTarget(t, text, "test-db-parity-sqlite:", func(t *testing.T, rest string) {
+		t.Helper()
+		if !strings.Contains(rest, "./internal/testkit/dbparity/cmd sqlite") {
+			t.Fatalf("test-db-parity-sqlite must delegate to dbparity runner with 'sqlite' mode, got:\n%s", rest)
+		}
+		for _, forbidden := range forbiddenPkgSubstrings {
+			if strings.Contains(rest, forbidden) {
+				t.Fatalf("test-db-parity-sqlite must not hardcode package list (found %q in %s)", forbidden, rest)
+			}
+		}
+	})
+
+	// 2. test-db-parity-postgres-direct sets LIP_REQUIRE_POSTGRES=1 and delegates to runner in postgres-direct mode
+	assertMakefileTarget(t, text, "test-db-parity-postgres-direct:", func(t *testing.T, rest string) {
+		t.Helper()
+		if !strings.Contains(rest, "./internal/testkit/dbparity/cmd postgres-direct") {
+			t.Fatalf("test-db-parity-postgres-direct must delegate to dbparity runner with 'postgres-direct' mode, got:\n%s", rest)
+		}
+		if !strings.Contains(rest, "LIP_REQUIRE_POSTGRES=1") {
+			t.Fatalf("test-db-parity-postgres-direct must set LIP_REQUIRE_POSTGRES=1 on POSIX branch")
+		}
+		if !strings.Contains(rest, `[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process')`) {
+			t.Fatalf("test-db-parity-postgres-direct must set LIP_REQUIRE_POSTGRES=1 on Windows branch")
+		}
+		if !strings.Contains(rest, "LIP_TEST_POSTGRES_ADMIN_DSN") {
+			t.Fatalf("test-db-parity-postgres-direct must support LIP_TEST_POSTGRES_ADMIN_DSN fallback")
+		}
+		for _, forbidden := range forbiddenPkgSubstrings {
+			if strings.Contains(rest, forbidden) {
+				t.Fatalf("test-db-parity-postgres-direct must not hardcode package list (found %q in %s)", forbidden, rest)
+			}
+		}
+	})
+
+	// 3. test-db-parity delegates to canonical runner in 'all' mode with LIP_REQUIRE_POSTGRES=1 wiring per branch
+	assertMakefileTarget(t, text, "test-db-parity:", func(t *testing.T, rest string) {
+		t.Helper()
+		assertTargetNoPrerequisites(t, rest, "test-db-parity:")
+
+		winBranch, posixBranch := splitMakefileBranches(t, rest)
+
+		// Windows branch: delegates with 'all' mode and fail-closed env wiring
+		if !strings.Contains(winBranch, "./internal/testkit/dbparity/cmd all") {
+			t.Fatalf("test-db-parity Windows branch must invoke dbparity runner with 'all' mode, got:\n%s", winBranch)
+		}
+		if !strings.Contains(winBranch, `[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process')`) {
+			t.Fatalf("test-db-parity Windows branch must set LIP_REQUIRE_POSTGRES=1 via SetEnvironmentVariable, got:\n%s", winBranch)
+		}
+		if !strings.Contains(winBranch, "LIP_TEST_POSTGRES_ADMIN_DSN") || !strings.Contains(winBranch, `SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN'`) {
+			t.Fatalf("test-db-parity Windows branch must support LIP_TEST_POSTGRES_ADMIN_DSN fallback, got:\n%s", winBranch)
+		}
+
+		// POSIX branch: delegates with 'all' mode and fail-closed env wiring
+		if !strings.Contains(posixBranch, "./internal/testkit/dbparity/cmd all") {
+			t.Fatalf("test-db-parity POSIX branch must invoke dbparity runner with 'all' mode, got:\n%s", posixBranch)
+		}
+		if !strings.Contains(posixBranch, "LIP_REQUIRE_POSTGRES=1") {
+			t.Fatalf("test-db-parity POSIX branch must set LIP_REQUIRE_POSTGRES=1 prefix, got:\n%s", posixBranch)
+		}
+		if !strings.Contains(posixBranch, `LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}"`) {
+			t.Fatalf("test-db-parity POSIX branch must contain LIP_TEST_POSTGRES_DSN fallback expression, got:\n%s", posixBranch)
+		}
+
+		for _, forbidden := range forbiddenPkgSubstrings {
+			if strings.Contains(rest, forbidden) {
+				t.Fatalf("test-db-parity must not hardcode package list (found %q in %s)", forbidden, rest)
+			}
+		}
+	})
+}
+
+func TestMakefile_DBParityHelpDistinction(t *testing.T) {
+	root := moduleRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+
+	assertMakefileTarget(t, text, "help:", func(t *testing.T, rest string) {
+		t.Helper()
+		requiredHelpEntries := []string{
+			"make test-db-parity-sqlite",
+			"make test-db-parity-postgres-direct",
+			"make test-db-parity",
+			"make test-authority-postgres-direct",
+			"make test-authority-postgres-pooled",
+			"make test-postgres-migrations",
+			"make billing-convergence-certify",
+		}
+		for _, entry := range requiredHelpEntries {
+			if !strings.Contains(rest, entry) {
+				t.Errorf("Makefile help must document %q", entry)
+			}
+		}
+	})
+}
+
 func assertMakefileTarget(t *testing.T, text, target string, check func(*testing.T, string)) {
 	t.Helper()
 	idx := strings.Index(text, target)
@@ -87,6 +203,56 @@ func assertMakefileTarget(t *testing.T, text, target string, check func(*testing
 		rest = rest[:len(target)+end]
 	}
 	check(t, rest)
+}
+
+func assertTargetNoPrerequisites(t *testing.T, recipe, targetPrefix string) {
+	t.Helper()
+	normalized := strings.ReplaceAll(recipe, "\r\n", "\n")
+	firstLine := strings.Split(normalized, "\n")[0]
+	if !strings.HasPrefix(firstLine, targetPrefix) {
+		t.Fatalf("target line does not start with %q: %q", targetPrefix, firstLine)
+	}
+	prereqs := strings.TrimSpace(strings.TrimPrefix(firstLine, targetPrefix))
+	if prereqs != "" {
+		t.Fatalf("target %q must have no prerequisites on declaration line, found: %q", targetPrefix, prereqs)
+	}
+}
+
+func splitMakefileBranches(t *testing.T, recipe string) (winBranch, posixBranch string) {
+	t.Helper()
+	normalized := strings.ReplaceAll(recipe, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	var winLines, posixLines []string
+	inWin := false
+	inPosix := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ifeq ($(OS),Windows_NT)") {
+			inWin = true
+			inPosix = false
+			continue
+		}
+		if trimmed == "else" {
+			inWin = false
+			inPosix = true
+			continue
+		}
+		if trimmed == "endif" {
+			inWin = false
+			inPosix = false
+			continue
+		}
+		if inWin {
+			winLines = append(winLines, line)
+		} else if inPosix {
+			posixLines = append(posixLines, line)
+		}
+	}
+	if len(winLines) == 0 || len(posixLines) == 0 {
+		t.Fatalf("failed to extract both Windows and POSIX branches from recipe:\n%s", recipe)
+	}
+	return strings.Join(winLines, "\n"), strings.Join(posixLines, "\n")
 }
 
 func moduleRoot(t *testing.T) string {
@@ -107,3 +273,4 @@ func moduleRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
