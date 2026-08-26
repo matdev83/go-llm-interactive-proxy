@@ -9,7 +9,7 @@
   - _Requirements: 1.1, 1.3, 5.1_
   - _Boundary: internal/featurebundle, internal/infra/runtimebundle, internal/testkit_
   - **Validation:** `go test ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 1.2 Capture scalar, exclusive, and test-overlay parity
+- [x] 1.2 Capture scalar, exclusive, and test-overlay parity
   - Characterize finalizer-cap min reduction, exclusive-provider identity/conflict text, and every field's current test-overlay rule, including omitted fields and finalizer-cap overwrite.
   - Record an explicit preserve-or-remove decision for the test-only overlay seam for W4 execution.
   - Observable completion: focused fixtures pin scalar/exclusive behavior and produce a decision record for every overlay discrepancy.

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,14 @@ func (projTrafficObs) OnObservation(context.Context, traffic.Observation) error 
 type projUsageObs struct{ tag string }
 
 func (projUsageObs) OnUsage(context.Context, usage.Event) error { return nil }
+
+type projTerminalProvider struct{ tag string }
+
+func (p projTerminalProvider) ID() string { return p.tag }
+
+func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
+}
 
 // projMerged builds a merged surface with one tagged element on the planes the
 // projection tests observe.
@@ -232,9 +241,15 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 
 	t.Run("terminal_decision_slot_is_first_wins", func(t *testing.T) {
 		t.Parallel()
+		firstProv := projTerminalProvider{tag: "first-provider"}
+		secondProv := projTerminalProvider{tag: "second-provider"}
+		dstWithFirst := &ExtensionsOptions{TerminalDecisionProvider: firstProv}
+		srcWithSecond := ExtensionsOptions{TerminalDecisionProvider: secondProv}
+		overlayExtensions(dstWithFirst, srcWithSecond)
+		require.Equal(t, firstProv, dstWithFirst.TerminalDecisionProvider)
+
 		emptyDst := &ExtensionsOptions{}
-		srcWithProvider := ExtensionsOptions{}
-		overlayExtensions(emptyDst, srcWithProvider)
-		require.Nil(t, emptyDst.TerminalDecisionProvider)
+		overlayExtensions(emptyDst, srcWithSecond)
+		require.Equal(t, secondProv, emptyDst.TerminalDecisionProvider)
 	})
 }
