@@ -65,7 +65,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/core/continuity/bunstore -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.2 Normalize secure-session parity entry points (P)
+- [x] 2.2 Normalize secure-session parity entry points (P)
   - Reuse the existing `storecontract.RunAll` as the canonical behavioral contract rather than copying it.
   - Add/rename thin SQLite and PostgreSQL-direct wrappers to the stable parity entry-point convention and include restart/durability plus current optional store capabilities that are promised by both durable backends.
   - Preserve backend-specific fixture isolation and secret-safe PostgreSQL DSN handling.
