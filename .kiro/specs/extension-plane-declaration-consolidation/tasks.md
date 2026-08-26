@@ -98,7 +98,7 @@
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/testkit/...`
 
 - [ ] 3. Establish progressive architecture and ROI gates before migration
-- [ ] 3.1 Define the exact forbidden-mirror predicate and progressive whitelist
+- [x] 3.1 Define the exact forbidden-mirror predicate and progressive whitelist
   - Reject hand-authored plane fields/branches in `FeatureBundle`, `MergedFeatureSurface`, merge/copy/overlay/hook projections, `ExtensionsOptions`, generation operations, and diagnostics; allow generated fields, explicit stage consumers, and thin compatibility delegates only.
   - Scope each migrated family so its old mirrors must reach zero before that wave completes.
   - Observable completion: self-tests inject every forbidden shape and each is rejected without false-positiveing allowed stage integrations.
