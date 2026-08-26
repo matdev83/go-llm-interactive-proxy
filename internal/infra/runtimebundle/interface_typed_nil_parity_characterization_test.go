@@ -343,14 +343,14 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		// Seed receiver with some initial data
-		m.SubmitHooks = []sdkhooks.SubmitHook{charStubSubmitHook{tag: "initial-hook"}}
+		m.SessionOpeners = []session.Opener{charStubOpener{tag: "initial-opener"}}
 		m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
 
 		snapshotBefore := m // value copy
 
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "incoming-hook"}},
+			SessionOpeners:           []session.Opener{charStubOpener{tag: "incoming-opener"}},
 			TerminalDecisionProvider: typedNilProvider,
 		}
 
@@ -361,8 +361,8 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 
 		// Fail-before-mutate assertion: receiver is unchanged
 		assert.True(t, reflect.DeepEqual(snapshotBefore, m), "MergedFeatureSurface receiver must not be mutated on validation error")
-		assert.Len(t, m.SubmitHooks, 1)
-		assert.Equal(t, "initial-hook", m.SubmitHooks[0].ID())
+		assert.Len(t, m.SessionOpeners, 1)
+		assert.Equal(t, "initial-opener", m.SessionOpeners[0].ID())
 	})
 
 	t.Run("incoming_typed_nil_fails_identity_before_conflict_check", func(t *testing.T) {
@@ -526,17 +526,17 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:      lipfeature.SchemaVersionV1,
-			SubmitHooks:        []sdkhooks.SubmitHook{charStubSubmitHook{tag: "h1"}, nil, charStubSubmitHook{tag: "h2"}},
+			SessionOpeners:     []session.Opener{charStubOpener{tag: "o1"}, nil, charStubOpener{tag: "o2"}},
 			RequestTransforms:  []request.Transform{nil, &charStubTransform{tag: "t1"}},
 			SecretGuards:       []sdksg.Guard{nil, &charStubSGGuard{id: "sg1", ord: 1}, nil},
 			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
 		}
 
 		require.NoError(t, m.Append(b))
-		require.Len(t, m.SubmitHooks, 3)
-		assert.NotNil(t, m.SubmitHooks[0])
-		assert.Nil(t, m.SubmitHooks[1])
-		assert.NotNil(t, m.SubmitHooks[2])
+		require.Len(t, m.SessionOpeners, 3)
+		assert.NotNil(t, m.SessionOpeners[0])
+		assert.Nil(t, m.SessionOpeners[1])
+		assert.NotNil(t, m.SessionOpeners[2])
 
 		require.Len(t, m.RequestTransforms, 2)
 		assert.Nil(t, m.RequestTransforms[0])
@@ -741,14 +741,14 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
-			m.SubmitHooks = []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-1"}}
+			m.SessionOpeners = []session.Opener{charStubOpener{tag: "opener-1"}}
 			m.TrafficObservers = []traffic.Observer{charStubTrafficObs{tag: "obs-1"}}
 
 			snapBefore := m // value copy
 
 			b := lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-2"}},
+				SessionOpeners:           []session.Opener{charStubOpener{tag: "opener-2"}},
 				TerminalDecisionProvider: tc.provider,
 			}
 

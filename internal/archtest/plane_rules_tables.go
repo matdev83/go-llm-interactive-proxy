@@ -113,7 +113,19 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TrafficPortBundle":           true,
 		"internal/core/extensions.CompletionGatesFromContext":                            true,
 	}
+
+	// AllowedHookProjections is the exact-name allowlist of hook-bus projection functions.
+	// Any other function whose body reads hook-family fields on MergedFeatureSurface past Wave 1 is forbidden.
+	AllowedHookProjections = map[string]bool{
+		"HooksConfigFromGenerated": true,
+		"HooksConfigFromFrozen":    true,
+	}
 )
+
+// IsAllowedHookProjection reports whether funcName is in the exact-name allowlist for hook projection.
+func IsAllowedHookProjection(funcName string) bool {
+	return AllowedHookProjections[funcName]
+}
 
 // IsAllowedStageConsumer checks if a fully-qualified Go symbol is explicitly recorded in AllowedStageConsumers.
 func IsAllowedStageConsumer(qualifiedSymbol string) bool {

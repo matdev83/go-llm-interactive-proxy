@@ -25,12 +25,17 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 	return out
 }
 `
-	findingsIf := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", forbiddenIfSrc, Wave4_Tools)
+	findingsIf := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", forbiddenIfSrc, Wave5c_Residual)
 	if len(findingsIf) == 0 {
-		t.Fatalf("expected forbidden diagnostics arm finding for ToolCatalogFilters at Wave4 (if stmt)")
+		t.Fatalf("expected forbidden diagnostics arm finding for ToolCatalogFilters at Wave5c (if stmt)")
 	}
 	if findingsIf[0].ShapeKind != MirrorDiagArm || findingsIf[0].PlaneID != "tool_catalog_filters" {
 		t.Fatalf("unexpected finding for if stmt: %+v", findingsIf[0])
+	}
+	// At earlier waves (Wave1-Wave5b), diagnostics field reads from FeatureBundle are allowed until Wave5c
+	findingsIfW1 := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", forbiddenIfSrc, Wave1_HookBus)
+	if len(findingsIfW1) != 0 {
+		t.Fatalf("expected 0 findings at Wave1 for diagnostics arm, got %+v", findingsIfW1)
 	}
 
 	// 2. Switch statement arm on plane field is rejected
@@ -46,9 +51,9 @@ func stageOccupancyFromBundleSwitch(b lipfeature.FeatureBundle, stage string) in
 	}
 }
 `
-	findingsSwitch := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", forbiddenSwitchSrc, Wave4_Tools)
+	findingsSwitch := scanSyntheticSource(t, "internal/core/diag/inventory_extensions.go", forbiddenSwitchSrc, Wave5c_Residual)
 	if len(findingsSwitch) == 0 {
-		t.Fatalf("expected forbidden diagnostics switch arm finding for ToolCatalogFilters at Wave4 (switch stmt)")
+		t.Fatalf("expected forbidden diagnostics switch arm finding for ToolCatalogFilters at Wave5c (switch stmt)")
 	}
 	if findingsSwitch[0].ShapeKind != MirrorDiagArm || findingsSwitch[0].PlaneID != "tool_catalog_filters" {
 		t.Fatalf("unexpected finding for switch stmt: %+v", findingsSwitch[0])

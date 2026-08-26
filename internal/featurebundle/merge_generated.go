@@ -24,10 +24,6 @@ type GeneratedMergeSurface struct {
 // via lipfeature.FrozenIdentity.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
-		SubmitHooks:                      lipfeature.Get(g.Frozen, lipfeature.PlaneSubmitHooks),
-		RequestPartHooks:                 lipfeature.Get(g.Frozen, lipfeature.PlaneRequestPartHooks),
-		ResponsePartHooks:                lipfeature.Get(g.Frozen, lipfeature.PlaneResponsePartHooks),
-		ToolReactors:                     lipfeature.Get(g.Frozen, lipfeature.PlaneToolReactors),
 		SessionOpeners:                   lipfeature.Get(g.Frozen, lipfeature.PlaneSessionOpeners),
 		WorkspaceResolvers:               lipfeature.Get(g.Frozen, lipfeature.PlaneWorkspaceResolvers),
 		ToolCatalogFilters:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCatalogFilters),

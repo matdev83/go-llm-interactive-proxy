@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,14 +40,7 @@ func TestExtensionPlanesManifestStatus(t *testing.T) {
 		"terminal_decision_provider",
 	}
 	for _, expected := range expectedPlanes {
-		found := false
-		for _, id := range status.PlaneIDs {
-			if id == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(status.PlaneIDs, expected) {
 			t.Errorf("expected plane %q in manifest status plane IDs, got %v", expected, status.PlaneIDs)
 		}
 	}

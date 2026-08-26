@@ -13,30 +13,10 @@ import (
 )
 
 // AssertMergedSurfacesEqual verifies that a legacy MergedFeatureSurface and a GeneratedMergeSurface
-// have byte-equivalent values and ordering across all 25 declared extension planes and the
+// have byte-equivalent values and ordering across unmigrated declared extension planes and the
 // Lifecycles side channel.
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
-
-	// 1. SubmitHooks
-	genSubmitHooks := lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks)
-	assert.Equal(tb, legacy.SubmitHooks, genSubmitHooks, "SubmitHooks mismatch")
-	assert.Equal(tb, legacy.SubmitHooks == nil, genSubmitHooks == nil, "SubmitHooks nilness mismatch")
-
-	// 2. RequestPartHooks
-	genRequestPartHooks := lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestPartHooks)
-	assert.Equal(tb, legacy.RequestPartHooks, genRequestPartHooks, "RequestPartHooks mismatch")
-	assert.Equal(tb, legacy.RequestPartHooks == nil, genRequestPartHooks == nil, "RequestPartHooks nilness mismatch")
-
-	// 3. ResponsePartHooks
-	genResponsePartHooks := lipfeature.Get(gen.Frozen, lipfeature.PlaneResponsePartHooks)
-	assert.Equal(tb, legacy.ResponsePartHooks, genResponsePartHooks, "ResponsePartHooks mismatch")
-	assert.Equal(tb, legacy.ResponsePartHooks == nil, genResponsePartHooks == nil, "ResponsePartHooks nilness mismatch")
-
-	// 4. ToolReactors
-	genToolReactors := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors)
-	assert.Equal(tb, legacy.ToolReactors, genToolReactors, "ToolReactors mismatch")
-	assert.Equal(tb, legacy.ToolReactors == nil, genToolReactors == nil, "ToolReactors nilness mismatch")
 
 	// 5. SessionOpeners
 	genSessionOpeners := lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)

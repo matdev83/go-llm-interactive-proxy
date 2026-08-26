@@ -165,7 +165,7 @@ func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*
 	t.Helper()
 	merged := featurebundle.MergeBundles(bundle)
 	bus := hooks.New(hooks.Config{
-		ResponsePartHooks: merged.ResponsePartHooks,
+		ResponsePartHooks: bundle.ResponsePartHooks,
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates:         merged.CompletionGates,

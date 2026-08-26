@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -30,11 +29,6 @@ import (
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order (session openers and workspace resolvers preserve bundle order within each plugin).
 type MergedFeatureSurface struct {
-	SubmitHooks                      []sdk.SubmitHook
-	RequestPartHooks                 []sdk.RequestPartHook
-	ResponsePartHooks                []sdk.ResponsePartHook
-	ToolReactors                     []sdk.ToolReactor
-	ToolReactorErrorPolicy           sdk.ToolReactorErrorPolicy
 	Lifecycles                       []lipplugin.Lifecycle
 	SessionOpeners                   []session.Opener
 	WorkspaceResolvers               []workspace.Resolver
@@ -94,10 +88,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		}
 		providerID = incomingID
 	}
-	m.SubmitHooks = append(m.SubmitHooks, b.SubmitHooks...)
-	m.RequestPartHooks = append(m.RequestPartHooks, b.RequestPartHooks...)
-	m.ResponsePartHooks = append(m.ResponsePartHooks, b.ResponsePartHooks...)
-	m.ToolReactors = append(m.ToolReactors, b.ToolReactors...)
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
 	m.SessionOpeners = append(m.SessionOpeners, b.SessionOpeners...)
 	m.WorkspaceResolvers = append(m.WorkspaceResolvers, b.WorkspaceResolvers...)
@@ -154,8 +144,8 @@ func MergeBundlesChecked(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurf
 	return out, nil
 }
 
-// buildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
-func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+// BuildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
+func BuildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
 	nFeat := 0
 	for _, regEntry := range registrations {
 		if regEntry.Kind == lipsdk.PluginKindFeature && regEntry.Enabled {
@@ -177,6 +167,10 @@ func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 	return bundles, nil
 }
 
+func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+	return BuildEnabledFeatureBundles(reg, registrations)
+}
+
 // MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
 // It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
 // Secrets-guard uniqueness is enforced at the runtimebundle composition root
@@ -187,4 +181,22 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 		return MergedFeatureSurface{}, err
 	}
 	return MergeBundlesChecked(bundles...)
+}
+
+// MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
+// and GeneratedMergeSurface using the same bundle instances.
+func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	m, err := MergeBundlesChecked(bundles...)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	g, err := MergeBundlesGenerated(bundles...)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	return m, g, nil
 }

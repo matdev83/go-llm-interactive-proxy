@@ -193,7 +193,7 @@ func memoProjectionBaseline(source recvTurnFacts) lipapi.Call {
 	return source.baseline
 }
 
-func projectRefreshedMemoContext(source recvTurnFacts, ctx context.Context, log *slog.Logger) context.Context {
+func projectRefreshedMemoContext(ctx context.Context, source recvTurnFacts, log *slog.Logger) context.Context {
 	return source.projectContext(ctx, log)
 }
 

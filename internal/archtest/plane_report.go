@@ -140,7 +140,8 @@ func MeasureManifestStatus(root string) (ExtensionPlaneManifestStatus, error) {
 	slices.Sort(planeIDs)
 
 	generatedBytes, err := os.ReadFile(generatedAbs)
-	isUpToDate, currencyStr := false, "missing"
+	var isUpToDate bool
+	var currencyStr string
 	if err == nil {
 		expectedBytes, genErr := GenerateFeaturePlanesCode(manifestBytes)
 		if genErr != nil {

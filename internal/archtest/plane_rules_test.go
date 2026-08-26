@@ -21,18 +21,18 @@ type FeatureBundle struct {
 	SubmitHooks   []hooks.SubmitHook
 }
 `
-	findings := scanSyntheticSource(t, "pkg/lipsdk/feature/bundle.go", forbiddenSrc, Wave1_HookBus)
+	findings := scanSyntheticSource(t, "pkg/lipsdk/feature/bundle.go", forbiddenSrc, Wave5c_Residual)
 	if len(findings) == 0 {
-		t.Fatalf("expected forbidden FeatureBundle field finding for SubmitHooks at Wave1")
+		t.Fatalf("expected forbidden FeatureBundle field finding for SubmitHooks at Wave5c")
 	}
 	if findings[0].ShapeKind != MirrorFeatureBundleField || findings[0].PlaneID != "submit_hooks" {
 		t.Fatalf("unexpected finding: %+v", findings[0])
 	}
 
-	// At Wave0 (baseline), Wave1 field is whitelisted
-	findingsW0 := scanSyntheticSource(t, "pkg/lipsdk/feature/bundle.go", forbiddenSrc, Wave0_Baseline)
-	if len(findingsW0) != 0 {
-		t.Fatalf("expected 0 findings at Wave0 baseline, got %+v", findingsW0)
+	// At Wave1 (and Wave0), FeatureBundle SDK contract fields are allowed until Wave5c residual removal
+	findingsW1 := scanSyntheticSource(t, "pkg/lipsdk/feature/bundle.go", forbiddenSrc, Wave1_HookBus)
+	if len(findingsW1) != 0 {
+		t.Fatalf("expected 0 findings at Wave1 for FeatureBundle SDK field, got %+v", findingsW1)
 	}
 
 	// Whitelisted fields (SchemaVersion, Lifecycles, contributions) pass at all waves
@@ -296,6 +296,93 @@ type FeatureBundle struct {
 	findings := scanSyntheticSource(t, "pkg/lipsdk/feature/plane_generated.go", generatedSrc, Wave5c_Residual)
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 findings for generated file, got %+v", findings)
+	}
+}
+
+// TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing verifies that exact
+// hook projections (HooksConfigFromGenerated, HooksConfigFromFrozen) are allowed, while
+// adversarial variants (HooksConfigFromMerged, HooksConfigFromMerged2, HooksConfigfromX)
+// reading SubmitHooks from MergedFeatureSurface are strictly rejected under Wave1.
+func TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing(t *testing.T) {
+	t.Parallel()
+
+	// 1. Adversarial HooksConfigFromMerged reading MergedFeatureSurface.SubmitHooks is REJECTED
+	adversarialUpperSrc := `package runtimebundle
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+)
+
+func HooksConfigFromMerged(m featurebundle.MergedFeatureSurface) hooks.Config {
+	return hooks.Config{
+		SubmitHooks: m.SubmitHooks,
+	}
+}
+`
+	findingsUpper := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", adversarialUpperSrc, Wave1_HookBus)
+	if len(findingsUpper) == 0 {
+		t.Fatalf("expected forbidden finding for uppercase adversarial HooksConfigFromMerged at Wave1")
+	}
+	if findingsUpper[0].ShapeKind != MirrorProjectionBranch || findingsUpper[0].PlaneID != "submit_hooks" {
+		t.Fatalf("unexpected finding for HooksConfigFromMerged: %+v", findingsUpper[0])
+	}
+
+	// 2. Spoofed variants HooksConfigFromMerged2 and HooksConfigfromX are REJECTED
+	spoofVariants := []struct {
+		name     string
+		funcName string
+	}{
+		{name: "numbered spoof", funcName: "HooksConfigFromMerged2"},
+		{name: "casing spoof", funcName: "HooksConfigfromX"},
+	}
+
+	for _, tc := range spoofVariants {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := `package runtimebundle
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+)
+
+func ` + tc.funcName + `(m featurebundle.MergedFeatureSurface) hooks.Config {
+	return hooks.Config{
+		SubmitHooks: m.SubmitHooks,
+	}
+}
+`
+			findings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", src, Wave1_HookBus)
+			if len(findings) == 0 {
+				t.Fatalf("expected forbidden finding for spoofed %s (%s) at Wave1", tc.name, tc.funcName)
+			}
+			if findings[0].ShapeKind != MirrorProjectionBranch || findings[0].PlaneID != "submit_hooks" {
+				t.Fatalf("unexpected finding for %s: %+v", tc.funcName, findings[0])
+			}
+		})
+	}
+
+	// 3. Legitimate exact allowlist functions (HooksConfigFromGenerated, HooksConfigFromFrozen) are ALLOWED
+	allowedHookSrc := `package runtimebundle
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+)
+
+func HooksConfigFromGenerated(g featurebundle.GeneratedMergeSurface, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
+	return HooksConfigFromFrozen(g.Frozen, p)
+}
+
+func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
+	return hooks.Config{
+		SubmitHooks: lipfeature.Get(f, lipfeature.PlaneSubmitHooks),
+	}
+}
+`
+	allowedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", allowedHookSrc, Wave1_HookBus)
+	if len(allowedFindings) != 0 {
+		t.Fatalf("expected 0 findings for allowed exact hook projection functions, got: %+v", allowedFindings)
 	}
 }
 

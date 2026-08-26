@@ -115,14 +115,14 @@
   - **Validation:** `make arch-report`
 
 - [ ] 4. Migrate the hook-bus family as W1
-- [ ] 4.1 Migrate submit, request-part, and response-part hook contributions without deleting mirrors
+- [x] 4.1 Migrate submit, request-part, and response-part hook contributions without deleting mirrors
   - Use ordered plane declarations while preserving sorting, panic behavior, and dual-path parity; keep legacy mirrors until the hook view is fully derived.
   - Observable completion: all three hook families run through generated contributions and parity stays green with no production behavior switch yet.
   - _Requirements: 1.1, 5.1, 5.3_
   - _Boundary: SDK/public contract, internal/featurebundle, internal/testkit_
   - _Depends: 2.6, 3.1_
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/testkit/...`
-- [ ] 4.2 Migrate tool-reactor contributions and derive the hook-bus view
+- [x] 4.2 Migrate tool-reactor contributions and derive the hook-bus view
   - Migrate tool reactors while preserving sorting, panic/error behavior, and evidence semantics.
   - Project config-owned `ToolReactorErrorPolicy` directly from frozen config rather than treating it as a feature contribution.
   - Observable completion: `hooks.Config` is derived through generated adapters and focused parity remains green before mirror deletion.
@@ -130,7 +130,7 @@
   - _Boundary: SDK/public contract, internal/infra/runtimebundle/build_feature_hooks.go, core/hooks_
   - _Depends: 4.1_
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... -run 'FeatureHooks|ToolReactor|PlaneParity'`
-- [ ] 4.3 Close W1 by deleting hook mirrors and activating the progressive ratchet
+- [x] 4.3 Close W1 by deleting hook mirrors and activating the progressive ratchet
   - Delete hand-written hook projections only after all W1 consumers use the generated view.
   - Observable completion: the ratchet reports zero W1 remnants and the default unit/QA suites pass.
   - _Requirements: 2.2, 5.3, 5.5, 8.1_
