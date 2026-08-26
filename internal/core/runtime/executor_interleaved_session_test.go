@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -62,6 +63,7 @@ func interleavedSecureExecutor(t *testing.T, backends map[string]execbackend.Bac
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.RuntimeSnapshot = snap
 	ex.SecureSession = mgr
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
@@ -343,6 +345,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	ex := runtime.TestExecutor()
 	ex.Store = st
 	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{
 		"exec-be": *interleavedBackendWithStream(caps, capture, func() lipapi.ManagedEventStream {
@@ -391,6 +394,22 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 
 	second := interleavedBaseCall(newSelector)
 	resumeInterleavedCall(first, second)
+	anchor, err := conversationview.ResolveAfterIngressTailAnchor(*second, conversationview.Snapshot{})
+	if err != nil {
+		t.Fatalf("resolve memo anchor: %v", err)
+	}
+	if _, err := st.ConversationViewStore().PutSteering(context.Background(), aLegID, conversationview.PutSteeringRequest{
+		OverlayID: "interleaved-thinking-memo",
+		Message: conversationview.StoredMessageV1{
+			Role: lipapi.RoleUser,
+			Text: interleavedthinking.SessionSteeringGuidanceHeader + "\n" + memoBody,
+		},
+		Placement:           conversationview.StoredPlacement{Kind: conversationview.PlacementAfterMessage, Anchor: &anchor},
+		AnchorMissingPolicy: conversationview.AnchorStablePrefixFallback,
+		Reason:              "interleaved_thinking_memo",
+	}); err != nil {
+		t.Fatalf("seed memo steering overlay: %v", err)
+	}
 	stream, err := ex.Execute(context.Background(), second)
 	if err != nil {
 		t.Fatalf("selector-change execute: %v", err)
@@ -399,8 +418,8 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 		t.Fatalf("collect: %v", err)
 	}
 
-	if len(gotCall.Messages) == 0 || !strings.Contains(textOf(gotCall.Messages[len(gotCall.Messages)-1]), memoBody) {
-		t.Fatalf("stale cycle reset must still inject memo at the tail: %+v", gotCall.Messages)
+	if msg := findMemoSteeringMessage(t, gotCall); msg == nil || !strings.Contains(textOf(*msg), memoBody) {
+		t.Fatalf("stale cycle reset must still project memo steering: %+v", gotCall.Messages)
 	}
 
 	postState, err := st.FetchInterleavedState(context.Background(), aLegID)

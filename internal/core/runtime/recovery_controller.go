@@ -31,7 +31,7 @@ type recoveryEnvironment interface {
 	logInterleavedMemoStoreSkipped(ctx context.Context, traceID, reason string, interrupted bool)
 	logInterleavedMemoCaptured(ctx context.Context, traceID string, memo interleavedthinking.MemoState)
 	logInterleavedPhaseTransition(ctx context.Context, traceID string)
-	persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error)
+	persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState, src capturedMemoSource) (interleavedstate.State, error)
 	openInterleavedExecutorContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error)
 	logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error)
 	noteRouteDecision(ctx context.Context, traceID, decision, detail string)
@@ -430,11 +430,11 @@ func (r *recoveryController) logPhaseTransition(ctx context.Context, traceID str
 	}
 }
 
-func (r *recoveryController) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState) (interleavedstate.State, error) {
+func (r *recoveryController) persistCapturedMemo(ctx context.Context, aLegID string, state interleavedstate.State, memo interleavedthinking.MemoState, src capturedMemoSource) (interleavedstate.State, error) {
 	if r == nil || r.e == nil {
 		return state, errors.New("runtime: interleaved memo persistence unavailable")
 	}
-	return r.e.persistCapturedMemo(ctx, aLegID, state, memo)
+	return r.e.persistCapturedMemo(ctx, aLegID, state, memo, src)
 }
 
 func (r *recoveryController) openInterleavedContinuation(ctx context.Context, from *retryRecvStream, state interleavedstate.State) (*retryRecvStream, error) {

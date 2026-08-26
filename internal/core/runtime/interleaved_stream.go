@@ -244,7 +244,11 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 	if !interrupted {
 		s.thinker.recovery.logPhaseTransition(persistCtx, s.thinker.facts.traceID)
 	}
-	state, err := s.thinker.recovery.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo)
+	state, err := s.thinker.recovery.persistCapturedMemo(persistCtx, s.thinker.facts.aLegID, state, memo, capturedMemoSource{
+		TraceID:  s.thinker.facts.traceID,
+		Ingress:  s.thinker.facts.ingressCall,
+		Snapshot: s.thinker.facts.conversationSnapshot,
+	})
 	if err != nil {
 		s.mu.Lock()
 		s.memoPersisted = false
