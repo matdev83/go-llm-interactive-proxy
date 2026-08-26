@@ -8,3 +8,6 @@ docs/dogfood-local.md whitespace=cr-at-eol
 
 # JSON fixtures and spec metadata intentionally retain CRLF on Windows.
 *.json whitespace=cr-at-eol
+
+# Generated feature plane storage — keep LF on Windows so -check byte-compare passes.
+/pkg/lipsdk/feature/plane_generated.go text eol=lf

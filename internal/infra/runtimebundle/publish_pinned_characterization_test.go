@@ -1,0 +1,651 @@
+package runtimebundle_test
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
+	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
+)
+
+// --- Extension Stubs for RuntimeBundle Pinned Concurrency Characterization ---
+
+type charBundleSessionOpener struct{ id string }
+
+func (s charBundleSessionOpener) ID() string { return s.id }
+func (charBundleSessionOpener) Open(context.Context, session.OpenInput) (session.OpenResult, error) {
+	return session.OpenResult{}, nil
+}
+
+type charBundleToolCatalogFilter struct{ id string }
+
+func (c charBundleToolCatalogFilter) ID() string                      { return c.id }
+func (charBundleToolCatalogFilter) Order() int                        { return 0 }
+func (charBundleToolCatalogFilter) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleToolCatalogFilter) Handle(context.Context, *lipapi.Call, toolcatalog.CatalogMeta, toolcatalog.Services) error {
+	return nil
+}
+
+type charBundleToolCallPolicy struct {
+	id  string
+	ord int
+}
+
+func (p charBundleToolCallPolicy) ID() string                      { return p.id }
+func (p charBundleToolCallPolicy) Order() int                      { return p.ord }
+func (charBundleToolCallPolicy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleToolCallPolicy) Handle(context.Context, lipapi.ToolEvent, toolpolicy.Meta, toolpolicy.Services) (toolpolicy.Decision, error) {
+	return toolpolicy.DecisionAllow, nil
+}
+
+type charBundleToolCallFinalizer struct {
+	id  string
+	ord int
+}
+
+func (f charBundleToolCallFinalizer) ID() string { return f.id }
+func (f charBundleToolCallFinalizer) Order() int { return f.ord }
+func (charBundleToolCallFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass}, nil
+}
+
+type charBundleRequestTransform struct{ id string }
+
+func (r charBundleRequestTransform) ID() string                      { return r.id }
+func (charBundleRequestTransform) Order() int                        { return 0 }
+func (charBundleRequestTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleRequestTransform) Handle(context.Context, *lipapi.Call, request.RequestMeta, request.Services) error {
+	return nil
+}
+
+type charBundlePreRequestHandler struct{ id string }
+
+func (p charBundlePreRequestHandler) ID() string                      { return p.id }
+func (charBundlePreRequestHandler) Order() int                        { return 0 }
+func (charBundlePreRequestHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundlePreRequestHandler) Handle(context.Context, *lipapi.Call, prerequest.Meta, prerequest.Services) (prerequest.Decision, error) {
+	return prerequest.Allow(), nil
+}
+
+type charBundleRouteHintProvider struct{ id string }
+
+func (rh charBundleRouteHintProvider) ID() string                     { return rh.id }
+func (charBundleRouteHintProvider) Order() int                        { return 0 }
+func (charBundleRouteHintProvider) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleRouteHintProvider) Hint(context.Context, routehint.Input) (routehint.Result, error) {
+	return routehint.Result{}, nil
+}
+
+type charBundleCompletionGate struct{ id string }
+
+func (g charBundleCompletionGate) ID() string                      { return g.id }
+func (charBundleCompletionGate) Order() int                        { return 0 }
+func (charBundleCompletionGate) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleCompletionGate) Handle(context.Context, completion.Meta, completion.Buffered, completion.Services) (completion.Outcome, error) {
+	return completion.PassOriginalOutcome(), nil
+}
+
+type charBundleAttemptTransform struct{ id string }
+
+func (a charBundleAttemptTransform) ID() string                      { return a.id }
+func (charBundleAttemptTransform) Order() int                        { return 0 }
+func (charBundleAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (charBundleAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+}
+
+type charBundleStreamObserverFactory struct{ id string }
+
+func (s charBundleStreamObserverFactory) ID() string                      { return s.id }
+func (charBundleStreamObserverFactory) Order() int                        { return 0 }
+func (charBundleStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (charBundleStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
+type charBundleTrafficRedactor struct{ id string }
+
+func (tr charBundleTrafficRedactor) ID() string { return tr.id }
+func (charBundleTrafficRedactor) Redact(context.Context, sdktraffic.Leg, sdktraffic.CaptureMeta, []byte) ([]byte, error) {
+	return nil, nil
+}
+
+type charBundleSecretGuard struct {
+	id  string
+	ord int
+}
+
+func (sg charBundleSecretGuard) ID() string { return sg.id }
+func (sg charBundleSecretGuard) Order() int { return sg.ord }
+func (charBundleSecretGuard) FailureMode() secretguard.FailureMode {
+	return secretguard.FailClosed
+}
+
+func (charBundleSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+type charBundleLocalTurnHandler struct {
+	id  string
+	ord int
+}
+
+func (lt charBundleLocalTurnHandler) ID() string { return lt.id }
+func (lt charBundleLocalTurnHandler) Order() int { return lt.ord }
+func (charBundleLocalTurnHandler) FailureMode() sdkhooks.FailureMode {
+	return sdkhooks.FailClosed
+}
+
+func (charBundleLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
+	return localturn.MatchResult{Claimed: false}, nil
+}
+
+func (charBundleLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
+	return localturn.Reply{Text: "char-bundle-local-turn"}, nil
+}
+
+type charBundleTerminalProvider struct{ id string }
+
+func (p *charBundleTerminalProvider) ID() string {
+	if p == nil {
+		return ""
+	}
+	return p.id
+}
+
+func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "char-done"}, nil
+}
+
+// buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
+func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
+	return runtimebundle.ExtensionsOptions{
+		SessionOpeners: []session.Opener{
+			charBundleSessionOpener{id: label + "-session"},
+		},
+		ToolCatalogFilters: []toolcatalog.Filter{
+			charBundleToolCatalogFilter{id: label + "-catalog"},
+		},
+		ToolCallPolicies: []toolpolicy.Policy{
+			charBundleToolCallPolicy{id: label + "-policy", ord: int(gen)},
+		},
+		ToolCallFinalizers: []toolcall.Finalizer{
+			charBundleToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
+		},
+		RequestTransforms: []request.Transform{
+			charBundleRequestTransform{id: label + "-reqxform"},
+		},
+		PreRequestHandlers: []prerequest.Handler{
+			charBundlePreRequestHandler{id: label + "-prereq"},
+		},
+		RouteHintProviders: []routehint.Provider{
+			charBundleRouteHintProvider{id: label + "-routehint"},
+		},
+		CompletionGates: []completion.Gate{
+			charBundleCompletionGate{id: label + "-gate"},
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			charBundleAttemptTransform{id: label + "-attxform"},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			charBundleStreamObserverFactory{id: label + "-streamobs"},
+		},
+		TrafficRedactors: []sdktraffic.Redactor{
+			charBundleTrafficRedactor{id: label + "-redactor"},
+		},
+		SecretGuards: []secretguard.Guard{
+			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
+		},
+		LocalTurnHandlers: []localturn.Handler{
+			charBundleLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
+		},
+		TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
+	}
+}
+
+// assertGenerationPlanesMatch verifies that all planes exposed by a GenerationBundle
+// and its RuntimeSnapshot match expectedLabel.
+func assertGenerationPlanesMatch(t *testing.T, bundle runtimebundle.GenerationRuntime, expectedLabel string) bool {
+	t.Helper()
+	if !assert.NotNil(t, bundle) {
+		return false
+	}
+
+	// 1. GenerationBundle-level terminal decision provider if concrete bundle
+	if gb, ok := bundle.(*runtimebundle.GenerationBundle); ok {
+		td := gb.TerminalDecisionProvider()
+		if assert.NotNil(t, td) {
+			assert.Equal(t, expectedLabel+"-terminal", td.ID())
+		}
+	}
+
+	// 2. Extract runtime snapshot from the executor view
+	exProvider, ok := bundle.(runtimehost.ExecutorProvider)
+	if !assert.True(t, ok, "bundle must implement ExecutorProvider") {
+		return false
+	}
+	exView := exProvider.ExecutorView()
+	if !assert.NotNil(t, exView) {
+		return false
+	}
+	executor, ok := exView.(*coreruntime.Executor)
+	if !assert.True(t, ok, "executor view must be *coreruntime.Executor") {
+		return false
+	}
+	snap := executor.RuntimeSnapshot
+	if !assert.NotNil(t, snap) {
+		return false
+	}
+
+	sess := snap.SessionOpeners()
+	if assert.Len(t, sess, 1) {
+		assert.Equal(t, expectedLabel+"-session", sess[0].ID())
+	}
+
+	cat := snap.ToolCatalogFilters()
+	if assert.Len(t, cat, 1) {
+		assert.Equal(t, expectedLabel+"-catalog", cat[0].ID())
+	}
+
+	pols := snap.ToolCallPolicies()
+	if assert.Len(t, pols, 1) {
+		assert.Equal(t, expectedLabel+"-policy", pols[0].ID())
+	}
+
+	polsExec := snap.ToolCallPoliciesExecution()
+	if assert.Len(t, polsExec, 1) {
+		assert.Equal(t, expectedLabel+"-policy", polsExec[0].ID())
+	}
+
+	fins := snap.ToolCallFinalizers()
+	if assert.Len(t, fins, 1) {
+		assert.Equal(t, expectedLabel+"-finalizer", fins[0].ID())
+	}
+
+	rx := snap.RequestTransforms()
+	if assert.Len(t, rx, 1) {
+		assert.Equal(t, expectedLabel+"-reqxform", rx[0].ID())
+	}
+
+	pr := snap.PreRequestHandlers()
+	if assert.Len(t, pr, 1) {
+		assert.Equal(t, expectedLabel+"-prereq", pr[0].ID())
+	}
+
+	rh := snap.RouteHintProviders()
+	if assert.Len(t, rh, 1) {
+		assert.Equal(t, expectedLabel+"-routehint", rh[0].ID())
+	}
+
+	cg := snap.CompletionGates()
+	if assert.Len(t, cg, 1) {
+		assert.Equal(t, expectedLabel+"-gate", cg[0].ID())
+	}
+
+	at := snap.AttemptTransforms()
+	if assert.Len(t, at, 1) {
+		assert.Equal(t, expectedLabel+"-attxform", at[0].ID())
+	}
+
+	so := snap.StreamObserverFactories()
+	if assert.Len(t, so, 1) {
+		assert.Equal(t, expectedLabel+"-streamobs", so[0].ID())
+	}
+
+	tr := snap.TrafficRedactors()
+	if assert.Len(t, tr, 1) {
+		assert.Equal(t, expectedLabel+"-redactor", tr[0].ID())
+	}
+
+	sg := snap.SecretGuardPlane()
+	if assert.Len(t, sg.Guards, 1) {
+		assert.Equal(t, expectedLabel+"-sg", sg.Guards[0].ID())
+	}
+
+	lt := snap.LocalTurnHandlers()
+	if assert.Len(t, lt, 1) {
+		assert.Equal(t, expectedLabel+"-localturn", lt[0].ID())
+	}
+
+	snapTD := snap.TerminalDecisionProvider()
+	if assert.NotNil(t, snapTD) {
+		assert.Equal(t, expectedLabel+"-terminal", snapTD.ID())
+	}
+	return !t.Failed()
+}
+
+// TestGenerationPublish_PinnedRequestRetainsFrozenExtensionSurface pins Requirement 1.5:
+//   - Proves that while a request holds a lease on Generation 1, publishing candidate Generation 2
+//     leaves Generation 1's frozen extension surface completely intact.
+//   - The pinned in-flight request continues executing against Generation 1's planes end-to-end,
+//     while newly arriving requests immediately observe Generation 2.
+func TestGenerationPublish_PinnedRequestRetainsFrozenExtensionSurface(t *testing.T) {
+	t.Parallel()
+
+	// 1. Establish ProcessServices
+	ps := newProcessForGeneration(t)
+
+	// 2. Compile Generation 1 with Gen 1 extensions
+	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	gen1Extensions := buildBundleExtensions(1, "gen1")
+	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: gen1Cfg,
+		CandidateOpts: &runtimebundle.BuildOptions{
+			Extensions: gen1Extensions,
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	require.NoError(t, err)
+
+	mgr := runtimehost.NewManager(8, nil)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mgr.ShutdownDetached(shutdownCtx)
+	})
+
+	publishedGen1 := publishTestGeneration(t, mgr, gen1Bundle, "gen1")
+	require.Equal(t, int64(1), publishedGen1.ID())
+	require.Equal(t, int64(1), mgr.Active().ID())
+
+	// 3. Coordinate concurrent in-flight request and publisher using channel gates (no sleeps)
+	req1Started := make(chan struct{})
+	req1Stage1Done := make(chan struct{})
+	gen2Published := make(chan struct{})
+	req1Completed := make(chan struct{})
+	req2Completed := make(chan struct{})
+
+	// 4. In-flight Request 1 goroutine (pinned to Gen 1)
+	go func() {
+		defer func() {
+			close(req1Completed)
+		}()
+
+		// Acquire lease on Generation 1
+		lease1, ok := mgr.Acquire()
+		if !assert.True(t, ok, "must acquire lease on active generation 1") {
+			return
+		}
+		defer lease1.Release()
+
+		close(req1Started)
+
+		// Assert Generation 1 planes on lease
+		bundle1, ok := lease1.RequestPlane().(runtimebundle.GenerationRuntime)
+		if !assert.True(t, ok) {
+			return
+		}
+		assertGenerationPlanesMatch(t, bundle1, "gen1")
+
+		// Verify initial HTTP handler output on Gen 1
+		res1 := postResponses(t, lease1.Handler(), "gen-1-backend:stub-default")
+		assert.Contains(t, res1, "serving-gen1")
+
+		close(req1Stage1Done)
+
+		// Wait until Generation 2 has completed publication
+		<-gen2Published
+
+		// Invariant: In-flight request STILL observes Generation 1's frozen extension surface
+		assertGenerationPlanesMatch(t, bundle1, "gen1")
+
+		// In-flight request continues serving through Gen 1 handler seamlessly
+		res1Again := postResponses(t, lease1.Handler(), "gen-1-backend:stub-default")
+		assert.Contains(t, res1Again, "serving-gen1")
+	}()
+
+	// 5. Publisher goroutine: compiles and publishes Generation 2 concurrently
+	go func() {
+		defer func() {
+			close(gen2Published)
+		}()
+
+		<-req1Stage1Done
+
+		gen2Cfg := stubCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", []config.PluginConfig{
+			{ID: "openai-responses", Enabled: true},
+		})
+		gen2Extensions := buildBundleExtensions(2, "gen2")
+		gen2Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+			Process:   ps,
+			Candidate: gen2Cfg,
+			CandidateOpts: &runtimebundle.BuildOptions{
+				Extensions: gen2Extensions,
+			},
+			Compose: stdhttp.ComposeStandardHTTP,
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		publishedGen2 := publishTestGeneration(t, mgr, gen2Bundle, "gen2")
+		assert.Equal(t, int64(2), publishedGen2.ID())
+		assert.Equal(t, int64(2), mgr.Active().ID())
+	}()
+
+	// 6. Request 2 goroutine: arrives AFTER Generation 2 publication and observes Gen 2
+	go func() {
+		defer func() {
+			close(req2Completed)
+		}()
+
+		<-gen2Published
+
+		lease2, ok := mgr.Acquire()
+		if !assert.True(t, ok, "must acquire lease on newly published generation 2") {
+			return
+		}
+		defer lease2.Release()
+
+		assert.Equal(t, int64(2), lease2.Generation().ID())
+
+		bundle2, ok := lease2.RequestPlane().(runtimebundle.GenerationRuntime)
+		if !assert.True(t, ok) {
+			return
+		}
+		assertGenerationPlanesMatch(t, bundle2, "gen2")
+
+		res2 := postResponses(t, lease2.Handler(), "gen-2-backend:stub-default")
+		assert.Contains(t, res2, "serving-gen2")
+	}()
+
+	// Wait for all participants to finish cleanly
+	<-req1Started
+	<-req1Completed
+	<-req2Completed
+}
+
+// TestGenerationPublish_PinnedRequest_RepeatedPublishAcrossInterleavings pins Requirement 1.5:
+//   - Proves that repeated candidate publications (Gen 2 .. Gen 6) never mutate or rebind an
+//     already-pinned snapshot held via TransferPin/RetainPin.
+func TestGenerationPublish_PinnedRequest_RepeatedPublishAcrossInterleavings(t *testing.T) {
+	t.Parallel()
+
+	ps := newProcessForGeneration(t)
+	mgr := runtimehost.NewManager(16, nil)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mgr.ShutdownDetached(shutdownCtx)
+	})
+
+	// Publish Generation 1
+	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: gen1Cfg,
+		CandidateOpts: &runtimebundle.BuildOptions{
+			Extensions: buildBundleExtensions(1, "gen1"),
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	require.NoError(t, err)
+
+	publishTestGeneration(t, mgr, gen1Bundle, "gen1")
+
+	// Pinned in-flight lease converted to async pin
+	lease, ok := mgr.Acquire()
+	require.True(t, ok)
+	pin, ok := lease.TransferPin(runtimehost.PinAsync)
+	require.True(t, ok)
+	defer pin.Release()
+
+	pinnedBundle, ok := pin.Generation().RequestPlane().(runtimebundle.GenerationRuntime)
+	require.True(t, ok)
+
+	// Repeatedly compile and publish successive candidate generations
+	const numPublishes = 5
+	for i := 2; i <= numPublishes+1; i++ {
+		genLabel := fmt.Sprintf("gen%d", i)
+		backendID := fmt.Sprintf("gen-%d-backend", i)
+		route := fmt.Sprintf("%s:stub-default", backendID)
+
+		candCfg := stubCandidateConfig(t, backendID, "serving-"+genLabel, route, []config.PluginConfig{
+			{ID: "openai-responses", Enabled: true},
+		})
+		candBundle, compileErr := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+			Process:   ps,
+			Candidate: candCfg,
+			CandidateOpts: &runtimebundle.BuildOptions{
+				Extensions: buildBundleExtensions(int64(i), genLabel),
+			},
+			Compose: stdhttp.ComposeStandardHTTP,
+		})
+		require.NoError(t, compileErr)
+
+		published := publishTestGeneration(t, mgr, candBundle, genLabel)
+		assert.Equal(t, int64(i), published.ID())
+		assert.Equal(t, int64(i), mgr.Active().ID())
+
+		// Verify that pinned Gen 1 bundle remains 100% frozen with zero drift
+		assertGenerationPlanesMatch(t, pinnedBundle, "gen1")
+	}
+
+	// Final verification of pinned Gen 1 bundle
+	assertGenerationPlanesMatch(t, pinnedBundle, "gen1")
+}
+
+// TestGenerationPublish_FrozenGenerationLeakCheck verifies Requirement 1.5:
+//   - Rigorously validates goroutine and service leak safety under concurrent publish and pinning.
+//   - Ensures all managers, generations, and process services close cleanly with zero goroutine leaks.
+func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
+	// Goroutine leak detector ensuring zero background worker leaks across publication cycles
+	defer goleak.VerifyNone(
+		t,
+		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
+		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
+	)
+
+	ps := newProcessForGeneration(t)
+	mgr := runtimehost.NewManager(16, nil)
+
+	// Publish Generation 1
+	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: gen1Cfg,
+		CandidateOpts: &runtimebundle.BuildOptions{
+			Extensions: buildBundleExtensions(1, "gen1"),
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	require.NoError(t, err)
+
+	g1 := publishTestGeneration(t, mgr, gen1Bundle, "gen1")
+
+	// Concurrently hold leases and pins across multiple goroutines
+	var wg sync.WaitGroup
+	const concurrentPins = 8
+	ready := make(chan struct{})
+
+	for i := range concurrentPins {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			lease, ok := mgr.Acquire()
+			if !ok {
+				return
+			}
+			defer lease.Release()
+
+			<-ready
+
+			// Exercise pin conversions
+			pin, ok := lease.RetainPin(runtimehost.PinSSE)
+			if ok {
+				defer pin.Release()
+				bundle, ok := pin.Generation().RequestPlane().(runtimebundle.GenerationRuntime)
+				if ok {
+					assertGenerationPlanesMatch(t, bundle, "gen1")
+				}
+			}
+		}(i)
+	}
+
+	// Publish Generation 2 concurrently while leases are being acquired and pinned
+	gen2Cfg := stubCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	gen2Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: gen2Cfg,
+		CandidateOpts: &runtimebundle.BuildOptions{
+			Extensions: buildBundleExtensions(2, "gen2"),
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
+	})
+	require.NoError(t, err)
+
+	close(ready)
+	g2 := publishTestGeneration(t, mgr, gen2Bundle, "gen2")
+	require.Equal(t, int64(2), g2.ID())
+
+	wg.Wait()
+
+	// Shutdown manager and sweep all closed generations
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, mgr.ShutdownDetached(shutdownCtx))
+	<-g1.Drained()
+	<-g2.Drained()
+
+	// Verify manager reports no open generations
+	mgr.SweepClosed()
+	assert.False(t, mgr.HasOpenGenerations(), "manager must report no open generations after shutdown and sweep")
+
+	// Close ProcessServices
+	require.NoError(t, ps.Close())
+	assert.True(t, ps.Closed(), "process services must report closed")
+}

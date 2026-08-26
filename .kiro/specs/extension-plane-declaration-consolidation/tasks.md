@@ -3,45 +3,45 @@
 > Execute each migration wave as a standalone PR-sized checkpoint. Keep the default suite green and the Go-source change count within the repository gate. Physical core relocation and #394 performance optimization remain out of boundary.
 
 - [ ] 1. Characterize the current extension surface before introducing the manifest
-- [ ] 1.1 Capture ordered-merge and lifecycle-side-channel parity
+- [x] 1.1 Capture ordered-merge and lifecycle-side-channel parity
   - Characterize registration ordering, disabled-feature behavior, nil versus empty slices, backing-array isolation, and lifecycle side-channel behavior for ordered feature contributions.
   - Observable completion: table-driven tests fail on any ordered-merge or lifecycle transport change and pass on the unmodified legacy path.
   - _Requirements: 1.1, 1.3, 5.1_
   - _Boundary: internal/featurebundle, internal/infra/runtimebundle, internal/testkit_
   - **Validation:** `go test ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 1.2 Capture scalar, exclusive, and test-overlay parity
+- [x] 1.2 Capture scalar, exclusive, and test-overlay parity
   - Characterize finalizer-cap min reduction, exclusive-provider identity/conflict text, and every field's current test-overlay rule, including omitted fields and finalizer-cap overwrite.
   - Record an explicit preserve-or-remove decision for the test-only overlay seam for W4 execution.
   - Observable completion: focused fixtures pin scalar/exclusive behavior and produce a decision record for every overlay discrepancy.
   - _Requirements: 1.2, 4.2, 4.4, 5.1_
   - _Boundary: internal/featurebundle, internal/infra/runtimebundle, internal/testkit_
   - **Validation:** `go test ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... -run 'Finalizer|TerminalDecision|Overlay|PlaneParity'`
-- [ ] 1.3 Capture generation-binder replacement parity
+- [x] 1.3 Capture generation-binder replacement parity
   - Characterize reasoning-compression replace-by-identity behavior/idempotence and compaction-continuity preserver replacement order/panic safety.
   - Observable completion: deterministic tests pin both binder rules and prove failures leave the candidate surface unmodified.
   - _Requirements: 1.4, 4.5, 5.1_
   - _Boundary: composition root, internal/infra/compactioncompose, internal/testkit_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/infra/compactioncompose ./internal/testkit/...`
-- [ ] 1.4 Capture secret-guard and interface typed-nil parity
+- [x] 1.4 Capture secret-guard and interface typed-nil parity
   - Characterize secret-guard uniqueness/host-capability rules, terminal-provider typed-nil behavior, and nil policy for ordered interface-valued planes.
   - Preserve operator-visible error classifications/text and generation rollback behavior in fixtures.
   - Observable completion: deterministic tests fail before candidate mutation on invalid interface values and pin each nil/source policy.
   - _Requirements: 1.2, 1.4, 4.2, 4.5, 5.1_
   - _Boundary: composition root, secret-guard runtime, internal/testkit_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... -run 'SecretGuard|TypedNil|TerminalDecision|PlaneParity'`
-- [ ] 1.5 Capture diagnostics and privilege inventory goldens
+- [x] 1.5 Capture diagnostics and privilege inventory goldens
   - Record stage coalescing, family-specific ordering, occupant labels, nil filtering, and privilege flags for a populated multi-feature configuration.
   - Observable completion: a stable golden captures byte-equivalent operator inventory output before any plane migration.
   - _Requirements: 6.1_
   - _Boundary: core/runtime diagnostics, internal/testkit_
   - **Validation:** `go test ./internal/core/diag ./internal/testkit/...`
-- [ ] 1.6 Capture request-path seam-view benchmark baselines
+- [x] 1.6 Capture request-path seam-view benchmark baselines
   - Benchmark completion-gate, traffic, secret-guard, compaction, and terminal-provider seam reads with absolute ns/op, B/op, allocs/op; document which accessors defensively clone.
   - Observable completion: benchmark evidence can be compared after every wave and identifies OBSERVE, DELTA-allocation, and HOLD scenarios that #394 must refresh if baseline capture starts early.
   - _Requirements: 7.1_
   - _Boundary: core/runtime, architecture gates/tests_
   - **Validation:** `go test -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem ./internal/core/extensions/...`
-- [ ] 1.7 Capture deterministic publish-versus-pinned-request concurrency behavior
+- [x] 1.7 Capture deterministic publish-versus-pinned-request concurrency behavior
   - Exercise immutable generation publication/request pinning under deterministic scheduling, leak checks, and the race detector on Linux CI.
   - Treat Linux CI evidence as required completion evidence rather than silently skipping the Windows-unavailable race gate.
   - Observable completion: old requests keep the old frozen set while the candidate publishes, and race/leak evidence is attached to the characterization checkpoint.
@@ -50,14 +50,14 @@
   - **Validation:** `go test ./internal/core/extensions ./internal/infra/runtimebundle -run 'Publish.*Pinned|Frozen.*Generation'; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
 
 - [ ] 2. Build the single hand-authored manifest and deterministic typed adapters
-- [ ] 2.1 Define multiplicity, source-rule, fallible-combine, and attribution contracts
+- [x] 2.1 Define multiplicity, source-rule, fallible-combine, and attribution contracts
   - Define ordered/exclusive multiplicity, an explicit unsupported source-rule sentinel, per-source combination rules, validation, attributed errors, and fail-before-mutate behavior.
   - Observable completion: RED/GREEN contract tests reject incomplete source rules and preserve both validated identities on exclusive conflict.
   - _Requirements: 2.4, 3.2, 4.1, 4.2, 4.4, 4.5_
   - _Boundary: SDK/public contract_
   - _Depends: 1.1, 1.2, 1.3, 1.4_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.2 Define identity/nil, diagnostics, and generic access contracts
+- [x] 2.2 Define identity/nil, diagnostics, and generic access contracts
   - Require identity metadata for exclusive and replace-by-identity rules; expose validated frozen identity through a generated metadata accessor.
   - Define explicit `reject`/`skip` typed-nil policies plus stage/coalescing/materialization/privilege descriptors, with nil policy applied before validation/combination and diagnostics observing the retained frozen value.
   - Use package-level generic `Contribute`/`Get` functions; no generic methods, runtime reflection, unsafe casts, mutable registration, maps, or key-search loops on request paths.
@@ -67,28 +67,28 @@
   - _Boundary: SDK/public contract_
   - _Depends: 1.5, 2.1_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.3 Generate typed contribution, frozen-storage, and dispatch adapters
+- [x] 2.3 Generate typed contribution, frozen-storage, and dispatch adapters
   - Generate typed storage plus manifest-ordinal read/write closure bindings with no runtime type discovery.
   - Observable completion: two generation runs are byte-identical and generated dispatch contains no `any`, type assertions, reflection, unsafe, map, or key-search code.
   - _Requirements: 2.1, 2.2, 3.3, 6.2_
   - _Boundary: SDK/public contract, build tooling_
   - _Depends: 2.2_
   - **Validation:** `go run ./scripts/generate-feature-planes.go && go test ./pkg/lipsdk/feature/...`
-- [ ] 2.4 Add stale-output check mode and quality-gate wiring
+- [x] 2.4 Add stale-output check mode and quality-gate wiring
   - Reject stale generated output and illegal manifests before the normal quality-check test body.
   - Observable completion: intentionally corrupting generated output makes `make quality-checks` fail at the generator step; a clean tree passes.
   - _Requirements: 2.4, 8.1_
   - _Boundary: build tooling, architecture gates/tests_
   - _Depends: 2.3_
   - **Validation:** `go run ./scripts/generate-feature-planes.go -check && make quality-checks`
-- [ ] 2.5 Implement candidate contribution and freeze semantics in the SDK
+- [x] 2.5 Implement candidate contribution and freeze semantics in the SDK
   - Validate and combine contributions into a candidate before freezing; preserve non-nil empty semantics and backing-array isolation.
   - Observable completion: SDK table tests prove fail-before-mutate behavior, normalization, immutable frozen values, and independent backing arrays.
   - _Requirements: 1.3, 1.4, 1.5, 3.2, 4.4_
   - _Boundary: SDK/public contract_
   - _Depends: 2.1, 2.3_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.6 Implement the generated merge path and dual-path parity switch
+- [x] 2.6 Implement the generated merge path and dual-path parity switch
   - Merge feature contributions in registration order through the generated adapters.
   - Keep lifecycle ownership on the existing separate side channel; it is not a feature plane.
   - Observable completion: the W0 parity suite runs through both legacy and generated paths with byte-equivalent results and fail-before-mutate errors.
@@ -98,7 +98,7 @@
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/testkit/...`
 
 - [ ] 3. Establish progressive architecture and ROI gates before migration
-- [ ] 3.1 Define the exact forbidden-mirror predicate and progressive whitelist
+- [x] 3.1 Define the exact forbidden-mirror predicate and progressive whitelist
   - Reject hand-authored plane fields/branches in `FeatureBundle`, `MergedFeatureSurface`, merge/copy/overlay/hook projections, `ExtensionsOptions`, generation operations, and diagnostics; allow generated fields, explicit stage consumers, and thin compatibility delegates only.
   - Scope each migrated family so its old mirrors must reach zero before that wave completes.
   - Observable completion: self-tests inject every forbidden shape and each is rejected without false-positiveing allowed stage integrations.
@@ -106,7 +106,7 @@
   - _Boundary: architecture gates/tests_
   - _Depends: 2.4_
   - **Validation:** `go test ./internal/archtest/...`
-- [ ] 3.2 Extend deterministic mirror/baseline reporting
+- [x] 3.2 Extend deterministic mirror/baseline reporting
   - Integrate manifest/generated-output status and mirror measurements into the existing one-command architecture report; generated-path change-surface classification remains owned by task 10.1's ROI probe.
   - Observable completion: two report runs produce byte-identical output and generated paths are reported separately from hand-authored integration paths.
   - _Requirements: 8.2_

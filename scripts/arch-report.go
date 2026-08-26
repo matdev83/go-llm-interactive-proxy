@@ -81,13 +81,27 @@ func main() {
 	writeFanInReport(&b, pkgs, modPath)
 	writeExportedSymbolsReport(&b, root)
 	writeBaselineClassifications(&b, root)
+	writeExtensionPlanesReport(&b, root)
 	writeRuntimeConvergenceDeletedInventory(&b)
+
+	if err := archtest.WriteExtensionPlanesBaseline(root); err != nil {
+		fmt.Fprintf(os.Stderr, "arch-report: write extension planes baseline warning: %v\n", err)
+	}
 
 	fmt.Print(b.String())
 	if !shrinkagePass {
 		fmt.Fprintln(os.Stderr, "arch-report: Requirement 11.5 net shrinkage gate FAILED (see Runtime-convergence net shrinkage section)")
 		os.Exit(1)
 	}
+}
+
+func writeExtensionPlanesReport(b *strings.Builder, root string) {
+	section, err := archtest.FormatExtensionPlanesReport(root)
+	if err != nil {
+		fmt.Fprintf(b, "## Extension plane declaration and generation status\n\n(could not measure: %v)\n\n", err)
+		return
+	}
+	fmt.Fprint(b, section)
 }
 
 func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
