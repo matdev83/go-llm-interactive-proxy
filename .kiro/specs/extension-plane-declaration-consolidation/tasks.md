@@ -74,7 +74,7 @@
   - _Boundary: SDK/public contract, build tooling_
   - _Depends: 2.2_
   - **Validation:** `go run ./scripts/generate-feature-planes.go && go test ./pkg/lipsdk/feature/...`
-- [ ] 2.4 Add stale-output check mode and quality-gate wiring
+- [x] 2.4 Add stale-output check mode and quality-gate wiring
   - Reject stale generated output and illegal manifests before the normal quality-check test body.
   - Observable completion: intentionally corrupting generated output makes `make quality-checks` fail at the generator step; a clean tree passes.
   - _Requirements: 2.4, 8.1_

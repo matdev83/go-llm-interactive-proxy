@@ -275,3 +275,242 @@ func findRepoRoot(t *testing.T) string {
 	t.Fatal("could not locate repository root containing go.mod")
 	return ""
 }
+
+// TestGenerator_RejectsIllegalManifests verifies that the generator CLI rejects
+// illegal manifests including duplicate IDs, incomplete source rules, missing combine functions,
+// and invalid multiplicity before any code is generated.
+func TestGenerator_RejectsIllegalManifests(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	scriptPath := filepath.Join(repoRoot, "scripts", "generate-feature-planes.go")
+
+	cases := []struct {
+		name        string
+		manifestSrc string
+		expectedErr string
+	}{
+		{
+			name: "duplicate_plane_id",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneOne = Plane[[]hooks.SubmitHook]{
+	ID: "duplicate_id",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var PlaneTwo = Plane[[]hooks.SubmitHook]{
+	ID: "duplicate_id",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneOne,
+	PlaneTwo,
+}
+`,
+			expectedErr: `duplicate plane ID "duplicate_id"`,
+		},
+		{
+			name: "incomplete_source_rules",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneIncomplete = Plane[[]hooks.SubmitHook]{
+	ID: "incomplete_rules_plane",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneIncomplete,
+}
+`,
+			expectedErr: "at least one source rule must be specified",
+		},
+		{
+			name: "missing_combine_function",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneNoCombine = Plane[[]hooks.SubmitHook]{
+	ID: "no_combine_plane",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoCombine,
+}
+`,
+			expectedErr: "combine function is required",
+		},
+		{
+			name: "nil_combine_function",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneNilCombine = Plane[[]hooks.SubmitHook]{
+	ID: "nil_combine_plane",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: nil,
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNilCombine,
+}
+`,
+			expectedErr: "combine function is required",
+		},
+		{
+			name: "missing_plane_id",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneNoID = Plane[[]hooks.SubmitHook]{
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoID,
+}
+`,
+			expectedErr: "plane ID is required and must not be empty",
+		},
+		{
+			name: "exclusive_plane_with_concatenate",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneBadExclusive = Plane[[]hooks.SubmitHook]{
+	ID: "bad_exclusive",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneBadExclusive,
+}
+`,
+			expectedErr: "exclusive plane cannot use concatenate or reduce rule",
+		},
+		{
+			name: "exclusive_plane_without_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNoIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_no_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoIdentityExclusive,
+}
+`,
+			expectedErr: "identity function is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "exclusive_plane_with_nil_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNilIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_nil_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Identity: nil,
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNilIdentityExclusive,
+}
+`,
+			expectedErr: "identity function is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "replace_by_identity_without_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneReplaceNoIdentity = Plane[[]hooks.SubmitHook]{
+	ID: "replace_no_identity",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{
+		Feature: CombConcatenate,
+		GenerationBinder: CombReplaceByIdentity,
+	},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneReplaceNoIdentity,
+}
+`,
+			expectedErr: "identity function is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "diagnostics_missing_stage_id",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneNoStageID = Plane[[]hooks.SubmitHook]{
+	ID: "no_stage_id_plane",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{Feature: CombConcatenate},
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+	Diagnostics: DiagnosticDescriptor[[]hooks.SubmitHook]{
+		StageID: "",
+		Materialize: func(v []hooks.SubmitHook) []DiagnosticOccupant { return nil },
+	},
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoStageID,
+}
+`,
+			expectedErr: "diagnostics StageID must not be empty",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			manifestFile := filepath.Join(tmpDir, "plane_manifest.go")
+			outFile := filepath.Join(tmpDir, "plane_generated.go")
+
+			err := os.WriteFile(manifestFile, []byte(tc.manifestSrc), 0o644)
+			require.NoError(t, err)
+
+			cmd := exec.Command("go", "run", scriptPath, "-manifest", manifestFile, "-out", outFile)
+			cmd.Dir = repoRoot
+			out, err := cmd.CombinedOutput()
+			assert.Error(t, err, "generator must fail on illegal manifest %s", tc.name)
+			assert.Contains(t, string(out), tc.expectedErr, "generator output must contain expected error for %s", tc.name)
+		})
+	}
+}

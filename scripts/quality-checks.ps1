@@ -86,7 +86,12 @@ Write-Host ""
 Write-Host "Quality scope: $($qualityPackages -join ' ')" -ForegroundColor DarkGray
 Write-Host ""
 
-Write-Host "[1/7] Checking Go formatting..." -ForegroundColor Yellow
+Write-Host "[1/8] Checking generated feature planes..." -ForegroundColor Yellow
+$null = Invoke-QualityChild "generate-feature-planes" @("go", "run", "./scripts/generate-feature-planes.go", "-check") -Timeout "2m"
+Write-Host "OK: Generated feature planes check passed" -ForegroundColor Green
+Write-Host ""
+
+Write-Host "[2/8] Checking Go formatting..." -ForegroundColor Yellow
 $unformatted = @(Invoke-TaskRunner -Label "quality-checks:gofmt" -Cwd $RepositoryRoot -Timeout "2m" -Output capture -Command @("gofmt", "-l", ".") 2>$null |
     Where-Object { $_ -and -not (Test-AgentSkillPath ($_ -replace '\\', '/')) })
 if ($unformatted.Count -gt 0) {
@@ -98,7 +103,7 @@ if ($unformatted.Count -gt 0) {
 Write-Host "OK: Format check passed" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "[2/7] Checking Go modules..." -ForegroundColor Yellow
+Write-Host "[3/8] Checking Go modules..." -ForegroundColor Yellow
 $preTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
 $preTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
 $null = Invoke-QualityChild "go-mod-tidy" @("go", "mod", "tidy") -Timeout "3m"
@@ -136,18 +141,18 @@ Write-Host ""
 if ($env:LIP_SKIP_GO_COMPILE_CHECKS -eq "1") {
     Write-Host "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks." -ForegroundColor DarkGray
 } else {
-    Write-Host "[3/7] Checking build..." -ForegroundColor Yellow
+    Write-Host "[4/8] Checking build..." -ForegroundColor Yellow
     $null = Invoke-QualityChild "build" (@("go", "build") + $qualityPackages)
     Write-Host "OK: Build check passed" -ForegroundColor Green
     Write-Host ""
 
-    Write-Host "[4/7] Running go vet..." -ForegroundColor Yellow
+    Write-Host "[5/8] Running go vet..." -ForegroundColor Yellow
     $null = Invoke-QualityChild "vet" (@("go", "vet") + $qualityPackages)
     Write-Host "OK: Vet check passed" -ForegroundColor Green
     Write-Host ""
 }
 
-Write-Host "[5-7/7] Running independent guardrails in parallel..." -ForegroundColor Yellow
+Write-Host "[6-8/8] Running independent guardrails in parallel..." -ForegroundColor Yellow
 $guardJobs = @(
     @{ Label = "adhoc-goroutines"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1") },
     @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") }

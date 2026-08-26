@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -17,6 +19,7 @@ import (
 
 type planeInfo struct {
 	varName     string // e.g. PlaneSubmitHooks
+	planeID     string // e.g. "submit_hooks"
 	fieldName   string // e.g. submitHooks
 	typeExpr    string // e.g. []hooks.SubmitHook
 	isExclusive bool   // e.g. terminaldecision.Provider
@@ -83,7 +86,7 @@ func main() {
 			os.Exit(1)
 		}
 		if !bytes.Equal(existing, formatted) {
-			fmt.Fprintf(os.Stderr, "generated file %s is stale or differs from manifest\n", outPath)
+			fmt.Fprintf(os.Stderr, "ERROR: generated file %s is stale or differs from manifest\nRun 'go run ./scripts/generate-feature-planes.go' to regenerate.\n", outPath)
 			os.Exit(1)
 		}
 		fmt.Println("plane_generated.go is up to date.")
@@ -196,16 +199,16 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	}
 
 	orderedPlanes := make([]planeInfo, 0, len(standardPlanesElts))
-	seen := make(map[string]bool, len(standardPlanesElts))
+	seenVars := make(map[string]bool, len(standardPlanesElts))
 	for _, elt := range standardPlanesElts {
 		ident, ok := elt.(*ast.Ident)
 		if !ok {
 			return nil, fmt.Errorf("expected identifier in StandardPlanes, got %T", elt)
 		}
-		if seen[ident.Name] {
+		if seenVars[ident.Name] {
 			return nil, fmt.Errorf("duplicate plane %s in StandardPlanes", ident.Name)
 		}
-		seen[ident.Name] = true
+		seenVars[ident.Name] = true
 		info, ok := declaredPlanes[ident.Name]
 		if !ok {
 			return nil, fmt.Errorf("plane %s referenced in StandardPlanes was not declared in manifest", ident.Name)
@@ -214,9 +217,17 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	}
 
 	for name := range declaredPlanes {
-		if !seen[name] {
+		if !seenVars[name] {
 			return nil, fmt.Errorf("declared plane %s is not present in StandardPlanes", name)
 		}
+	}
+
+	seenIDs := make(map[string]string, len(orderedPlanes))
+	for _, info := range orderedPlanes {
+		if prevVar, exists := seenIDs[info.planeID]; exists {
+			return nil, fmt.Errorf("duplicate plane ID %q declared in %s and %s", info.planeID, prevVar, info.varName)
+		}
+		seenIDs[info.planeID] = info.varName
 	}
 
 	return orderedPlanes, nil
@@ -250,9 +261,21 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		fieldName = string(runes)
 	}
 
-	// Check if this plane is exclusive or has identity
-	isExclusive := false
-	hasIdentity := false
+	var planeID string
+	var multiplicity string
+	var hasRules bool
+	var hasFeatureRule bool
+	var featureRule string
+	var hasHostRule bool
+	var hostRule string
+	var hasGenBinderRule bool
+	var genBinderRule string
+	var hasCombine bool
+	var hasIdentity bool
+	var hasDiagStageID bool
+	var hasDiagMaterialize bool
+	var hasDiagPrivileges bool
+	var hasDiagCoalesce bool
 
 	for _, elt := range compLit.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
@@ -264,27 +287,155 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 			continue
 		}
 		switch kIdent.Name {
-		case "Multiplicity":
-			multStr := string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
-			if strings.Contains(multStr, "MultExclusive") {
-				isExclusive = true
+		case "ID":
+			if basicLit, ok := kv.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+				planeID = strings.Trim(basicLit.Value, `"`)
+			} else {
+				planeID = strings.Trim(strings.TrimSpace(string(src[kv.Value.Pos()-1:kv.Value.End()-1])), `"`)
 			}
+		case "Multiplicity":
+			multiplicity = string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
 		case "Identity":
-			hasIdentity = true
-		case "Rules":
-			rulesStr := string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
-			if strings.Contains(rulesStr, "CombExclusive") || strings.Contains(rulesStr, "CombReplaceByIdentity") {
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+				hasIdentity = false
+			} else {
 				hasIdentity = true
+			}
+		case "Combine":
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+				hasCombine = false
+			} else {
+				hasCombine = true
+			}
+		case "Rules":
+			hasRules = true
+			if rulesLit, ok := kv.Value.(*ast.CompositeLit); ok {
+				for _, rElt := range rulesLit.Elts {
+					if rKV, ok := rElt.(*ast.KeyValueExpr); ok {
+						if rKIdent, ok := rKV.Key.(*ast.Ident); ok {
+							valStr := string(src[rKV.Value.Pos()-1 : rKV.Value.End()-1])
+							switch rKIdent.Name {
+							case "Feature":
+								hasFeatureRule = true
+								featureRule = valStr
+							case "Host":
+								hasHostRule = true
+								hostRule = valStr
+							case "GenerationBinder":
+								hasGenBinderRule = true
+								genBinderRule = valStr
+							}
+						}
+					}
+				}
+			}
+		case "Diagnostics":
+			if diagLit, ok := kv.Value.(*ast.CompositeLit); ok {
+				for _, dElt := range diagLit.Elts {
+					if dKV, ok := dElt.(*ast.KeyValueExpr); ok {
+						if dKIdent, ok := dKV.Key.(*ast.Ident); ok {
+							switch dKIdent.Name {
+							case "StageID":
+								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+									val := strings.Trim(basicLit.Value, `"`)
+									if val != "" {
+										hasDiagStageID = true
+									}
+								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+									hasDiagStageID = false
+								} else {
+									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
+									if valStr != "" && valStr != `""` {
+										hasDiagStageID = true
+									}
+								}
+							case "Materialize":
+								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+									hasDiagMaterialize = false
+								} else {
+									hasDiagMaterialize = true
+								}
+							case "Privileges":
+								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+									hasDiagPrivileges = false
+								} else {
+									hasDiagPrivileges = true
+								}
+							case "CoalesceGroup":
+								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+									val := strings.Trim(basicLit.Value, `"`)
+									if val != "" {
+										hasDiagCoalesce = true
+									}
+								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+									hasDiagCoalesce = false
+								} else {
+									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
+									if valStr != "" && valStr != `""` {
+										hasDiagCoalesce = true
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
 
+	if planeID == "" {
+		return planeInfo{}, fmt.Errorf("plane ID is required and must not be empty")
+	}
+
+	isExclusive := strings.Contains(multiplicity, "MultExclusive")
+	isOrdered := strings.Contains(multiplicity, "MultOrdered")
+
+	if !isExclusive && !isOrdered {
+		return planeInfo{}, fmt.Errorf("invalid or missing Multiplicity: %s", multiplicity)
+	}
+
+	if !hasRules || (!hasFeatureRule && !hasHostRule && !hasGenBinderRule) {
+		return planeInfo{}, fmt.Errorf("at least one source rule must be specified in Rules")
+	}
+
 	if isExclusive {
-		hasIdentity = true
+		if strings.Contains(featureRule, "CombConcatenate") || strings.Contains(featureRule, "CombReduce") {
+			return planeInfo{}, fmt.Errorf("exclusive plane cannot use concatenate or reduce rule on feature source")
+		}
+		if !strings.Contains(featureRule, "CombExclusive") {
+			return planeInfo{}, fmt.Errorf("exclusive plane must use CombExclusive on feature source")
+		}
+	}
+
+	if isOrdered {
+		if strings.Contains(featureRule, "CombExclusive") {
+			return planeInfo{}, fmt.Errorf("ordered plane cannot use CombExclusive rule on feature source")
+		}
+	}
+
+	requiresIdentity := isExclusive ||
+		strings.Contains(featureRule, "CombReplaceByIdentity") ||
+		strings.Contains(hostRule, "CombReplaceByIdentity") ||
+		strings.Contains(genBinderRule, "CombReplaceByIdentity")
+
+	if requiresIdentity && !hasIdentity {
+		return planeInfo{}, fmt.Errorf("identity function is required for exclusive or replace-by-identity plane")
+	}
+
+	if !hasCombine {
+		return planeInfo{}, fmt.Errorf("combine function is required")
+	}
+
+	if hasDiagStageID && !hasDiagMaterialize {
+		return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
+	}
+	if !hasDiagStageID && (hasDiagMaterialize || hasDiagPrivileges || hasDiagCoalesce) {
+		return planeInfo{}, fmt.Errorf("diagnostics StageID must not be empty when diagnostics metadata is provided")
 	}
 
 	return planeInfo{
 		varName:     varName,
+		planeID:     planeID,
 		fieldName:   fieldName,
 		typeExpr:    typeArgStr,
 		isExclusive: isExclusive,

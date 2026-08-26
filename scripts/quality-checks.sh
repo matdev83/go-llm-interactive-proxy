@@ -86,7 +86,15 @@ echo ""
 echo "=== Quality Checks ==="
 echo ""
 
-echo "[1/7] Checking Go formatting..."
+echo "[1/8] Checking generated feature planes..."
+if ! go run ./scripts/generate-feature-planes.go -check; then
+	echo "ERROR: Feature planes generation check failed"
+	exit 1
+fi
+echo "OK: Generated feature planes check passed"
+echo ""
+
+echo "[2/8] Checking Go formatting..."
 unformatted=$(gofmt -l . 2>/dev/null | while IFS= read -r file; do
 	file=${file//\\//}
 	if ! is_agent_skill_path "$file"; then
@@ -102,7 +110,7 @@ fi
 echo "OK: Format check passed"
 echo ""
 
-echo "[2/7] Checking Go modules..."
+echo "[3/8] Checking Go modules..."
 pre_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
 pre_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
 go mod tidy
@@ -148,7 +156,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 if [ "${LIP_SKIP_GO_COMPILE_CHECKS:-}" = "1" ]; then
 	echo "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks."
 else
-	echo "[3/7] Checking build..."
+	echo "[4/8] Checking build..."
 	if ! go build "${QUALITY_PACKAGES[@]}"; then
 		echo "ERROR: Build failed"
 		exit 1
@@ -156,7 +164,7 @@ else
 	echo "OK: Build check passed"
 	echo ""
 
-	echo "[4/7] Running go vet..."
+	echo "[5/8] Running go vet..."
 	if ! go vet "${QUALITY_PACKAGES[@]}"; then
 		echo "ERROR: go vet failed"
 		exit 1
@@ -165,7 +173,7 @@ else
 	echo ""
 fi
 
-echo "[5-7/7] Running independent guardrails in parallel..."
+echo "[6-8/8] Running independent guardrails in parallel..."
 guard_tmp=$(mktemp -d "${TMPDIR:-/tmp}/lip-quality.XXXXXX")
 guard_cleanup() { rm -rf "$guard_tmp"; }
 trap guard_cleanup EXIT
