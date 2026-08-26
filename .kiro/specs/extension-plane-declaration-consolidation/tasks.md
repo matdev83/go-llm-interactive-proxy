@@ -41,7 +41,7 @@
   - _Requirements: 7.1_
   - _Boundary: core/runtime, architecture gates/tests_
   - **Validation:** `go test -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem ./internal/core/extensions/...`
-- [ ] 1.7 Capture deterministic publish-versus-pinned-request concurrency behavior
+- [x] 1.7 Capture deterministic publish-versus-pinned-request concurrency behavior
   - Exercise immutable generation publication/request pinning under deterministic scheduling, leak checks, and the race detector on Linux CI.
   - Treat Linux CI evidence as required completion evidence rather than silently skipping the Windows-unavailable race gate.
   - Observable completion: old requests keep the old frozen set while the candidate publishes, and race/leak evidence is attached to the characterization checkpoint.
