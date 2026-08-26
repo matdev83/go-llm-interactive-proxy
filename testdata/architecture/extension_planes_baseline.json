@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
-  "active_wave": "W0_Baseline",
-  "active_wave_ordinal": 0,
+  "active_wave": "W1_HookBus",
+  "active_wave_ordinal": 1,
   "total_planes": 25,
-  "total_remaining_mirrors": 239,
+  "total_remaining_mirrors": 200,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -63,7 +63,7 @@
         "response_part_hooks",
         "tool_reactors"
       ],
-      "measured_mirrors": 37,
+      "measured_mirrors": 20,
       "active_forbidden": 0
     },
     {
@@ -79,7 +79,7 @@
         "traffic_redactors",
         "stream_observer_factories"
       ],
-      "measured_mirrors": 48,
+      "measured_mirrors": 43,
       "active_forbidden": 0
     },
     {
@@ -97,7 +97,7 @@
         "session_openers",
         "workspace_resolvers"
       ],
-      "measured_mirrors": 68,
+      "measured_mirrors": 61,
       "active_forbidden": 0
     },
     {
@@ -112,7 +112,7 @@
         "tool_call_finalizers",
         "tool_call_finalization_max_args_bytes"
       ],
-      "measured_mirrors": 40,
+      "measured_mirrors": 36,
       "active_forbidden": 0
     },
     {
@@ -126,7 +126,7 @@
         "compaction_observers",
         "compaction_preservers"
       ],
-      "measured_mirrors": 19,
+      "measured_mirrors": 16,
       "active_forbidden": 0
     },
     {
@@ -139,7 +139,7 @@
         "local_turn_handlers",
         "terminal_decision_provider"
       ],
-      "measured_mirrors": 27,
+      "measured_mirrors": 24,
       "active_forbidden": 0
     },
     {

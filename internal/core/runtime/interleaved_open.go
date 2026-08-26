@@ -266,7 +266,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	// model/catalog refresh. Reattach the logical request's frozen views before
 	// any planning, capability resolution, or backend open; copying them onto the
 	// resulting stream afterward is too late.
-	boundCtx := projectRefreshedMemoContext(facts, ctx, from.responsePipeline.log)
+	boundCtx := projectRefreshedMemoContext(ctx, facts, from.responsePipeline.log)
 	boundCtx = from.responsePipeline.withDecisionEvidence(boundCtx, from.terminal)
 	e.logInterleavedThinkerSuppressed(boundCtx, facts.traceID)
 	if from.recovery == nil {

@@ -157,7 +157,7 @@ func rpHasReasoningText(call lipapi.Call, want string) bool {
 func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
 	m := featurebundle.MergeBundles(bundle)
-	bus := hooks.New(hooks.Config{ResponsePartHooks: m.ResponsePartHooks})
+	bus := hooks.New(hooks.Config{ResponsePartHooks: bundle.ResponsePartHooks})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		RequestTransforms:       m.RequestTransforms,
 		CompletionGates:         m.CompletionGates,

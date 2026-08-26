@@ -130,7 +130,7 @@
   - _Boundary: SDK/public contract, internal/infra/runtimebundle/build_feature_hooks.go, core/hooks_
   - _Depends: 4.1_
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... -run 'FeatureHooks|ToolReactor|PlaneParity'`
-- [ ] 4.3 Close W1 by deleting hook mirrors and activating the progressive ratchet
+- [x] 4.3 Close W1 by deleting hook mirrors and activating the progressive ratchet
   - Delete hand-written hook projections only after all W1 consumers use the generated view.
   - Observable completion: the ratchet reports zero W1 remnants and the default unit/QA suites pass.
   - _Requirements: 2.2, 5.3, 5.5, 8.1_

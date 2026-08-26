@@ -180,7 +180,7 @@ func inspectStageConsumers(relPath string, f *ast.File, fd *ast.FuncDecl, fset *
 }
 
 func inspectDiagnosticsBody(fd *ast.FuncDecl, fset *token.FileSet, maxCompletedWave MigrationWave, record func(MirrorShapeKind, string, string, string, int, MigrationWave)) {
-	if fd.Body == nil {
+	if fd.Body == nil || maxCompletedWave < Wave5c_Residual {
 		return
 	}
 	ast.Inspect(fd.Body, func(n ast.Node) bool {

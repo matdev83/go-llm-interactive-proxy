@@ -79,7 +79,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, err
 	}
-	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
+	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
 	ext := extensionsFromMerged(merged, ps.opts)
 	if in.CandidateOpts != nil {
@@ -91,7 +91,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(HooksConfigFromGenerated(genMerged, merged.ToolReactorErrorPolicy))
+		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,

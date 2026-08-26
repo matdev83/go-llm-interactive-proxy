@@ -319,38 +319,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 		name string
 		got  func(MergedFeatureSurface) []string
 	}{
-		{"SubmitHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.SubmitHooks, func(h sdkhooks.SubmitHook) string {
-				if sh, ok := h.(charSubmitHook); ok {
-					return sh.tag
-				}
-				return ""
-			})
-		}},
-		{"RequestPartHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestPartHooks, func(h sdkhooks.RequestPartHook) string {
-				if rh, ok := h.(charRequestPartHook); ok {
-					return rh.tag
-				}
-				return ""
-			})
-		}},
-		{"ResponsePartHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.ResponsePartHooks, func(h sdkhooks.ResponsePartHook) string {
-				if rh, ok := h.(charResponsePartHook); ok {
-					return rh.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolReactors", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolReactors, func(h sdkhooks.ToolReactor) string {
-				if tr, ok := h.(charToolReactor); ok {
-					return tr.tag
-				}
-				return ""
-			})
-		}},
 		{"Lifecycles", func(m MergedFeatureSurface) []string {
 			return charTags(m.Lifecycles, func(l lipplugin.Lifecycle) string {
 				if lc, ok := l.(charLifecycle); ok {
@@ -587,9 +555,9 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.SubmitHooks, 2)
+		require.Len(t, merged.SessionOpeners, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.SubmitHooks).IsNil())
+		require.False(t, reflect.ValueOf(merged.SessionOpeners).IsNil())
 	})
 }
 

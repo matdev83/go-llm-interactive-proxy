@@ -77,9 +77,6 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(m.ToolCatalogFilters) < need {
 		t.Fatalf("catalog: %d", len(m.ToolCatalogFilters))
 	}
-	if len(m.ToolReactors) < need {
-		t.Fatalf("reactors: %d", len(m.ToolReactors))
-	}
 	if len(m.WorkspaceResolvers) < need {
 		t.Fatalf("workspace: %d", len(m.WorkspaceResolvers))
 	}

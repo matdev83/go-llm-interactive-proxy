@@ -221,7 +221,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.SubmitHooks) != 0 || len(m.SessionOpeners) != 0 || len(m.TrafficObservers) != 0 {
+	if len(m.SessionOpeners) != 0 || len(m.TrafficObservers) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -239,7 +239,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
 	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		SubmitHooks:              []sdkhooks.SubmitHook{testSubmitHook{tag: "existing"}},
+		SessionOpeners:           []session.Opener{testOpener{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
@@ -248,9 +248,9 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	hook, ok := merged.SubmitHooks[0].(testSubmitHook)
-	if len(merged.SubmitHooks) != 1 || !ok || hook.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.SubmitHooks)
+	opener, ok := merged.SessionOpeners[0].(testOpener)
+	if len(merged.SessionOpeners) != 1 || !ok || opener.tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.SessionOpeners)
 	}
 }
 
@@ -271,7 +271,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.SubmitHooks) != 0 {
+	if merged.TerminalDecisionProvider != nil || len(merged.SessionOpeners) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
@@ -358,10 +358,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		name string
 		got  int
 	}{
-		{"SubmitHooks", len(m.SubmitHooks)},
-		{"RequestPartHooks", len(m.RequestPartHooks)},
-		{"ResponsePartHooks", len(m.ResponsePartHooks)},
-		{"ToolReactors", len(m.ToolReactors)},
 		{"SessionOpeners", len(m.SessionOpeners)},
 		{"WorkspaceResolvers", len(m.WorkspaceResolvers)},
 		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},

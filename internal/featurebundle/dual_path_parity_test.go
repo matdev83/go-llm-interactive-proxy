@@ -1015,8 +1015,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		legacyMerged, err := featurebundle.MergeBundlesChecked(b1, b2, b3)
-		require.NoError(t, err)
+		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), b1.ToolReactors...), b2.ToolReactors...), b3.ToolReactors...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -1038,7 +1037,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		}
 
 		legacyBus := corehooks.New(corehooks.Config{
-			ToolReactors: legacyMerged.ToolReactors,
+			ToolReactors: legacyReactors,
 		})
 		bus := corehooks.New(corehooks.Config{
 			ToolReactors: lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
@@ -1095,8 +1094,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			},
 		}
 
-		legacyMerged, err := featurebundle.MergeBundlesChecked(bPanic, bFollower)
-		require.NoError(t, err)
+		legacyReactors := append(append([]sdkhooks.ToolReactor(nil), bPanic.ToolReactors...), bFollower.ToolReactors...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(bPanic, bFollower)
 		require.NoError(t, err)
@@ -1136,7 +1134,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
 		busFailOpenLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactors:           legacyReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
 		busFailOpen := corehooks.New(corehooks.Config{
@@ -1167,7 +1165,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
 		busFailClosedLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactors:           legacyReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailClosed,
 		})
 		busFailClosed := corehooks.New(corehooks.Config{
@@ -1200,7 +1198,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
 		busSwallowLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactors:           legacyReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsSwallowEvent,
 		})
 		busSwallow := corehooks.New(corehooks.Config{
@@ -1283,8 +1281,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			},
 		}
 
-		legacyMerged, err := featurebundle.MergeBundlesChecked(b1, b2, b3)
-		require.NoError(t, err)
+		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), b1.ToolReactors...), b2.ToolReactors...), b3.ToolReactors...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -1306,7 +1303,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		}
 
 		legacyBus := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactors:           legacyReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
 		genBus := corehooks.New(corehooks.Config{

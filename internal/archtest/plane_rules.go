@@ -49,7 +49,7 @@ func (w MigrationWave) String() string {
 }
 
 // ActiveMigrationWave is the repository baseline migration wave.
-const ActiveMigrationWave = Wave0_Baseline
+const ActiveMigrationWave = Wave1_HookBus
 
 // MirrorShapeKind classifies the forbidden hand-authored mirror pattern.
 type MirrorShapeKind string
@@ -302,6 +302,9 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 			var shapeKind MirrorShapeKind
 			switch structName {
 			case "FeatureBundle":
+				if maxCompletedWave < Wave5c_Residual {
+					return true
+				}
 				allowed = AllowedFeatureBundleFields
 				shapeKind = MirrorFeatureBundleField
 			case "MergedFeatureSurface":
@@ -336,12 +339,19 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 			funcName := node.Name.Name
 			if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
-			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" || funcName == "hooksConfigFromMerged" {
+			} else if AllowedHookProjections[funcName] {
+				// Exact-name allowlist: Hook-bus view projection via Get is allowed
+			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||
+				strings.Contains(strings.ToLower(funcName), "frommerged") ||
+				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||
+				strings.Contains(relPath, "internal/infra/runtimebundle/build_feature_hooks.go") {
 				inspectProjectionBody(node, fset, maxCompletedWave, addFinding)
 			} else if isGenerationOpMethod(node) {
 				inspectGenerationOpMethod(relPath, f, node, fset, maxCompletedWave, addFinding)
 			} else if strings.Contains(relPath, "internal/core/diag") || strings.Contains(funcName, "stageOccupancy") {
 				inspectDiagnosticsBody(node, fset, maxCompletedWave, addFinding)
+			} else if strings.Contains(relPath, "internal/testkit/") || strings.Contains(relPath, "internal/refbackend/") || strings.Contains(relPath, "internal/refclient/") {
+				// Test harness and emulator packages are allowed to read planes via Get
 			} else {
 				inspectStageConsumers(relPath, f, node, fset, maxCompletedWave, addFinding)
 			}

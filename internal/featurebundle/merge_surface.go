@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -30,11 +29,6 @@ import (
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order (session openers and workspace resolvers preserve bundle order within each plugin).
 type MergedFeatureSurface struct {
-	SubmitHooks                      []sdk.SubmitHook
-	RequestPartHooks                 []sdk.RequestPartHook
-	ResponsePartHooks                []sdk.ResponsePartHook
-	ToolReactors                     []sdk.ToolReactor
-	ToolReactorErrorPolicy           sdk.ToolReactorErrorPolicy
 	Lifecycles                       []lipplugin.Lifecycle
 	SessionOpeners                   []session.Opener
 	WorkspaceResolvers               []workspace.Resolver
@@ -94,10 +88,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		}
 		providerID = incomingID
 	}
-	m.SubmitHooks = append(m.SubmitHooks, b.SubmitHooks...)
-	m.RequestPartHooks = append(m.RequestPartHooks, b.RequestPartHooks...)
-	m.ResponsePartHooks = append(m.ResponsePartHooks, b.ResponsePartHooks...)
-	m.ToolReactors = append(m.ToolReactors, b.ToolReactors...)
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
 	m.SessionOpeners = append(m.SessionOpeners, b.SessionOpeners...)
 	m.WorkspaceResolvers = append(m.WorkspaceResolvers, b.WorkspaceResolvers...)

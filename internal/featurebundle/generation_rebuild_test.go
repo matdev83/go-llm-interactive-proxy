@@ -5,41 +5,38 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
-type genSubmitHook struct{ id string }
+type genOpener struct{ id string }
 
-func (h genSubmitHook) ID() string                      { return h.id }
-func (genSubmitHook) Order() int                        { return 0 }
-func (genSubmitHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (genSubmitHook) Handle(context.Context, *lipapi.Call, *sdkhooks.SubmitMeta) (sdkhooks.SubmitDecision, error) {
-	return sdkhooks.SubmitDecision{}, nil
+func (g genOpener) ID() string { return g.id }
+func (genOpener) Open(context.Context, session.OpenInput) (session.OpenResult, error) {
+	return session.OpenResult{}, nil
 }
 
 // TestMergeFeatureSurface_GenerationRebuildIsolated proves candidate feature
-// merges do not share hook slice backing arrays across generations.
+// merges do not share slice backing arrays across generations.
 func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
 	a := featurebundle.MergeBundles(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks:   []sdkhooks.SubmitHook{genSubmitHook{id: "gen-a"}},
+		SchemaVersion:  lipfeature.SchemaVersionV1,
+		SessionOpeners: []session.Opener{genOpener{id: "gen-a"}},
 	})
 	b := featurebundle.MergeBundles(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks:   []sdkhooks.SubmitHook{genSubmitHook{id: "gen-b"}},
+		SchemaVersion:  lipfeature.SchemaVersionV1,
+		SessionOpeners: []session.Opener{genOpener{id: "gen-b"}},
 	})
-	if len(a.SubmitHooks) != 1 || a.SubmitHooks[0].ID() != "gen-a" {
-		t.Fatalf("A hooks=%v", a.SubmitHooks)
+	if len(a.SessionOpeners) != 1 || a.SessionOpeners[0].ID() != "gen-a" {
+		t.Fatalf("A openers=%v", a.SessionOpeners)
 	}
-	if len(b.SubmitHooks) != 1 || b.SubmitHooks[0].ID() != "gen-b" {
-		t.Fatalf("B hooks=%v", b.SubmitHooks)
+	if len(b.SessionOpeners) != 1 || b.SessionOpeners[0].ID() != "gen-b" {
+		t.Fatalf("B openers=%v", b.SessionOpeners)
 	}
 	// Mutating one merged surface must not affect the other candidate.
-	a.SubmitHooks = append(a.SubmitHooks, genSubmitHook{id: "mutated"})
-	if len(b.SubmitHooks) != 1 {
-		t.Fatalf("B leaked A mutation: %d", len(b.SubmitHooks))
+	a.SessionOpeners = append(a.SessionOpeners, genOpener{id: "mutated"})
+	if len(b.SessionOpeners) != 1 {
+		t.Fatalf("B leaked A mutation: %d", len(b.SessionOpeners))
 	}
 }
