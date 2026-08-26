@@ -122,7 +122,7 @@
   - _Boundary: SDK/public contract, internal/featurebundle, internal/testkit_
   - _Depends: 2.6, 3.1_
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/testkit/...`
-- [ ] 4.2 Migrate tool-reactor contributions and derive the hook-bus view
+- [x] 4.2 Migrate tool-reactor contributions and derive the hook-bus view
   - Migrate tool reactors while preserving sorting, panic/error behavior, and evidence semantics.
   - Project config-owned `ToolReactorErrorPolicy` directly from frozen config rather than treating it as a feature contribution.
   - Observable completion: `hooks.Config` is derived through generated adapters and focused parity remains green before mirror deletion.

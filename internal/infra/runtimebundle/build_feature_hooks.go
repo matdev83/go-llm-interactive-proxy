@@ -5,27 +5,26 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
-// hooksConfigFromMerged builds a [hooks.Config] at the composition root from a
-// [featurebundle.MergedFeatureSurface].
-func hooksConfigFromMerged(m featurebundle.MergedFeatureSurface) hooks.Config {
-	return hooks.Config{
-		SubmitHooks:            m.SubmitHooks,
-		RequestPartHooks:       m.RequestPartHooks,
-		ResponsePartHooks:      m.ResponsePartHooks,
-		ToolReactors:           m.ToolReactors,
-		ToolReactorErrorPolicy: m.ToolReactorErrorPolicy,
-	}
+// HooksConfigFromGenerated derives [hooks.Config] from [featurebundle.GeneratedMergeSurface].
+func HooksConfigFromGenerated(g featurebundle.GeneratedMergeSurface, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
+	return HooksConfigFromFrozen(g.Frozen, p)
 }
 
-// BuildFeatureHooks merges enabled feature plugins into hook bus configuration (brownfield API).
-// For the full surface including session openers and workspace resolvers, use [featurebundle.MergeFeatureSurface].
+// HooksConfigFromFrozen derives [hooks.Config] from [lipfeature.FrozenPlaneSet].
+func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
+	return hooks.Config{SubmitHooks: lipfeature.Get(f, lipfeature.PlaneSubmitHooks), RequestPartHooks: lipfeature.Get(f, lipfeature.PlaneRequestPartHooks), ResponsePartHooks: lipfeature.Get(f, lipfeature.PlaneResponsePartHooks), ToolReactors: lipfeature.Get(f, lipfeature.PlaneToolReactors), ToolReactorErrorPolicy: p}
+}
+
+// BuildFeatureHooks merges enabled feature plugins into hook bus configuration.
 func BuildFeatureHooks(reg *pluginreg.Registry, registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
-	m, err := featurebundle.MergeFeatureSurface(reg, registrations)
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, registrations)
 	if err != nil {
 		return hooks.Config{}, nil, err
 	}
-	return hooksConfigFromMerged(m), m.Lifecycles, nil
+	return HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified), gen.Lifecycles, nil
 }

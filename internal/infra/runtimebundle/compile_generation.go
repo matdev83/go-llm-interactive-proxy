@@ -41,9 +41,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	src := in.Candidate
 	if src == nil {
 		src = ps.cfg
-	}
-	if src == nil {
-		return nil, fmt.Errorf("runtimebundle: nil candidate config")
+		if src == nil {
+			return nil, fmt.Errorf("runtimebundle: nil candidate config")
+		}
 	}
 	frozen, err := freezeConfig(src)
 	if err != nil {
@@ -67,7 +67,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged, err := featurebundle.MergeFeatureSurface(ps.FactoryCatalog, regs)
+	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(ps.FactoryCatalog, regs)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
@@ -91,7 +91,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(hooksConfigFromMerged(merged))
+		bus = hooks.New(HooksConfigFromGenerated(genMerged, merged.ToolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process:   ps,

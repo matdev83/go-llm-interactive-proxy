@@ -154,8 +154,8 @@ func MergeBundlesChecked(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurf
 	return out, nil
 }
 
-// buildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
-func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+// BuildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
+func BuildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
 	nFeat := 0
 	for _, regEntry := range registrations {
 		if regEntry.Kind == lipsdk.PluginKindFeature && regEntry.Enabled {
@@ -177,6 +177,10 @@ func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 	return bundles, nil
 }
 
+func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+	return BuildEnabledFeatureBundles(reg, registrations)
+}
+
 // MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
 // It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
 // Secrets-guard uniqueness is enforced at the runtimebundle composition root
@@ -187,4 +191,22 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 		return MergedFeatureSurface{}, err
 	}
 	return MergeBundlesChecked(bundles...)
+}
+
+// MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
+// and GeneratedMergeSurface using the same bundle instances.
+func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	m, err := MergeBundlesChecked(bundles...)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	g, err := MergeBundlesGenerated(bundles...)
+	if err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	return m, g, nil
 }

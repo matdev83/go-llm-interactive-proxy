@@ -2,6 +2,7 @@ package featurebundle_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -918,5 +919,468 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 		// Subsequent Get must return untampered slice
 		h2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks)
 		require.Equal(t, "sub-b1-10", h2[0].ID(), "frozen set backing array must be isolated from caller mutations")
+	})
+}
+
+type trackingToolReactor struct {
+	id       string
+	order    int
+	decision sdkhooks.ToolDecision
+	mutateFn func(ev lipapi.ToolEvent) lipapi.ToolEvent
+	err      error
+	panics   bool
+	log      *[]string
+	mu       *sync.Mutex
+}
+
+func (r trackingToolReactor) ID() string { return r.id }
+func (r trackingToolReactor) Order() int { return r.order }
+func (r trackingToolReactor) HandleToolEvent(ctx context.Context, ev lipapi.ToolEvent, meta sdkhooks.ToolMeta) (sdkhooks.ToolDecision, lipapi.ToolEvent, error) {
+	if r.mu != nil && r.log != nil {
+		r.mu.Lock()
+		*r.log = append(*r.log, r.id)
+		r.mu.Unlock()
+	}
+	if r.panics {
+		panic(r.id + " boom")
+	}
+	if r.err != nil {
+		return sdkhooks.ToolPass, ev, r.err
+	}
+	outEv := ev
+	if r.mutateFn != nil {
+		outEv = r.mutateFn(ev)
+	}
+	dec := r.decision
+	if dec == 0 {
+		dec = sdkhooks.ToolPass
+	}
+	return dec, outEv, nil
+}
+
+func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	makeBundles := func(execLog *[]string, mu *sync.Mutex) (lipfeature.FeatureBundle, lipfeature.FeatureBundle, lipfeature.FeatureBundle) {
+		b1 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				trackingToolReactor{id: "reactor-b1-10", order: 10, log: execLog, mu: mu},
+				trackingToolReactor{id: "reactor-b1-5", order: 5, log: execLog, mu: mu},
+			},
+		}
+
+		b2 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				trackingToolReactor{id: "reactor-b2-5", order: 5, log: execLog, mu: mu},
+				trackingToolReactor{id: "reactor-b2-1", order: 1, log: execLog, mu: mu},
+			},
+		}
+
+		b3 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				trackingToolReactor{id: "reactor-b3-1", order: 1, log: execLog, mu: mu},
+			},
+		}
+		return b1, b2, b3
+	}
+
+	t.Run("dual_path_parity_and_registration_order", func(t *testing.T) {
+		t.Parallel()
+
+		var execLog []string
+		var mu sync.Mutex
+		b1, b2, b3 := makeBundles(&execLog, &mu)
+
+		planeparity.AssertDualPathParity(t, b1, b2, b3)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
+		require.NoError(t, err)
+
+		reactors := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors)
+		require.Len(t, reactors, 5)
+		require.Equal(t, "reactor-b1-10", reactors[0].ID())
+		require.Equal(t, "reactor-b1-5", reactors[1].ID())
+		require.Equal(t, "reactor-b2-5", reactors[2].ID())
+		require.Equal(t, "reactor-b2-1", reactors[3].ID())
+		require.Equal(t, "reactor-b3-1", reactors[4].ID())
+	})
+
+	t.Run("hook_bus_stable_sorting_and_execution", func(t *testing.T) {
+		t.Parallel()
+
+		var execLog []string
+		var mu sync.Mutex
+		b1, b2, b3 := makeBundles(&execLog, &mu)
+
+		legacyMerged, err := featurebundle.MergeBundlesChecked(b1, b2, b3)
+		require.NoError(t, err)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
+		require.NoError(t, err)
+
+		type evidenceEntry struct {
+			providerID    string
+			decision      sdkhooks.ToolDecision
+			err           error
+			validationErr error
+		}
+		var legacyEvidence, genEvidence []evidenceEntry
+		var evMu sync.Mutex
+		recordEvidence := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
+			return func(_ context.Context, providerID string, dec sdkhooks.ToolDecision, err error, validationErr error) {
+				evMu.Lock()
+				defer evMu.Unlock()
+				*dest = append(*dest, evidenceEntry{providerID: providerID, decision: dec, err: err, validationErr: validationErr})
+			}
+		}
+
+		legacyBus := corehooks.New(corehooks.Config{
+			ToolReactors: legacyMerged.ToolReactors,
+		})
+		bus := corehooks.New(corehooks.Config{
+			ToolReactors: lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
+		})
+
+		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEvidence))
+		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEvidence))
+		ev := lipapi.ToolEvent{
+			Kind:       lipapi.ToolEventStarted,
+			ToolCallID: "call-1",
+			ToolName:   "search",
+		}
+
+		// Tool reactors: sorted by Order asc, ID asc, regIdx asc
+		// Expected: reactor-b2-1 (order 1), reactor-b3-1 (order 1), reactor-b1-5 (order 5), reactor-b2-5 (order 5), reactor-b1-10 (order 10)
+		execLog = nil
+		outLegacy := legacyBus.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
+		execLogLegacy := append([]string(nil), execLog...)
+
+		execLog = nil
+		out := bus.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
+		require.NoError(t, out.Err)
+		require.True(t, out.Emit)
+		require.Equal(t, ev, out.Event)
+		require.Equal(t, outLegacy, out)
+		require.Equal(t, []string{"reactor-b2-1", "reactor-b3-1", "reactor-b1-5", "reactor-b2-5", "reactor-b1-10"}, execLog)
+		require.Equal(t, execLogLegacy, execLog)
+		require.Equal(t, legacyEvidence, genEvidence)
+		require.Len(t, genEvidence, 5)
+		for i, id := range []string{"reactor-b2-1", "reactor-b3-1", "reactor-b1-5", "reactor-b2-5", "reactor-b1-10"} {
+			require.Equal(t, id, genEvidence[i].providerID)
+			require.Equal(t, sdkhooks.ToolPass, genEvidence[i].decision)
+			require.NoError(t, genEvidence[i].err)
+			require.NoError(t, genEvidence[i].validationErr)
+		}
+	})
+
+	t.Run("panic_and_error_policy_behavior", func(t *testing.T) {
+		t.Parallel()
+
+		var execLog []string
+		var mu sync.Mutex
+
+		bPanic := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				trackingToolReactor{id: "reactor-panic", order: 1, log: &execLog, mu: &mu, panics: true},
+			},
+		}
+		bFollower := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				trackingToolReactor{id: "reactor-follower", order: 2, log: &execLog, mu: &mu},
+			},
+		}
+
+		legacyMerged, err := featurebundle.MergeBundlesChecked(bPanic, bFollower)
+		require.NoError(t, err)
+
+		gen, err := featurebundle.MergeBundlesGenerated(bPanic, bFollower)
+		require.NoError(t, err)
+
+		type evidenceEntry struct {
+			providerID    string
+			decision      sdkhooks.ToolDecision
+			hasPanicErr   bool
+			validationErr error
+		}
+		var legacyEv, genEv []evidenceEntry
+		var evMu sync.Mutex
+		recordEvidence := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
+			return func(_ context.Context, providerID string, dec sdkhooks.ToolDecision, err error, validationErr error) {
+				evMu.Lock()
+				defer evMu.Unlock()
+				var pe *safety.PanicError
+				*dest = append(*dest, evidenceEntry{
+					providerID:    providerID,
+					decision:      dec,
+					hasPanicErr:   errors.As(err, &pe),
+					validationErr: validationErr,
+				})
+			}
+		}
+
+		ev := lipapi.ToolEvent{
+			Kind:       lipapi.ToolEventStarted,
+			ToolCallID: "call-1",
+			ToolName:   "search",
+		}
+
+		// 1. FailOpen policy (default/unspecified): follower still runs, no error returned
+		execLog = nil
+		legacyEv, genEv = nil, nil
+		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
+
+		busFailOpenLegacy := corehooks.New(corehooks.Config{
+			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
+		})
+		busFailOpen := corehooks.New(corehooks.Config{
+			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
+		})
+		outOpenLegacy := busFailOpenLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
+		execLogLegacy := append([]string(nil), execLog...)
+
+		execLog = nil
+		outOpen := busFailOpen.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
+		require.NoError(t, outOpen.Err)
+		require.True(t, outOpen.Emit)
+		require.Equal(t, outOpenLegacy, outOpen)
+		require.Equal(t, []string{"reactor-panic", "reactor-follower"}, execLog, "follower must run after fail-open panic")
+		require.Equal(t, execLogLegacy, execLog)
+		require.Equal(t, legacyEv, genEv)
+		require.Len(t, genEv, 2)
+		require.Equal(t, "reactor-panic", genEv[0].providerID)
+		require.True(t, genEv[0].hasPanicErr)
+		require.Equal(t, "reactor-follower", genEv[1].providerID)
+		require.False(t, genEv[1].hasPanicErr)
+
+		// 2. FailClosed policy: panic surfaces as *safety.PanicError, follower does NOT run
+		execLog = nil
+		legacyEv, genEv = nil, nil
+		ctxLegacy = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
+
+		busFailClosedLegacy := corehooks.New(corehooks.Config{
+			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailClosed,
+		})
+		busFailClosed := corehooks.New(corehooks.Config{
+			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailClosed,
+		})
+		outClosedLegacy := busFailClosedLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
+		execLogLegacy = append([]string(nil), execLog...)
+
+		execLog = nil
+		outClosed := busFailClosed.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
+		require.Error(t, outClosed.Err)
+		require.Error(t, outClosedLegacy.Err)
+		require.Equal(t, outClosedLegacy.Emit, outClosed.Emit)
+		var pe *safety.PanicError
+		require.ErrorAs(t, outClosed.Err, &pe)
+		var peLegacy *safety.PanicError
+		require.ErrorAs(t, outClosedLegacy.Err, &peLegacy)
+		require.Equal(t, []string{"reactor-panic"}, execLog, "follower must not run after fail-closed panic")
+		require.Equal(t, execLogLegacy, execLog)
+		require.Equal(t, legacyEv, genEv)
+		require.Len(t, genEv, 1)
+		require.Equal(t, "reactor-panic", genEv[0].providerID)
+		require.True(t, genEv[0].hasPanicErr)
+
+		// 3. SwallowEvent policy: panic swallows event (Emit=false), follower does NOT run, no error
+		execLog = nil
+		legacyEv, genEv = nil, nil
+		ctxLegacy = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
+
+		busSwallowLegacy := corehooks.New(corehooks.Config{
+			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsSwallowEvent,
+		})
+		busSwallow := corehooks.New(corehooks.Config{
+			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsSwallowEvent,
+		})
+		outSwallowLegacy := busSwallowLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
+		execLogLegacy = append([]string(nil), execLog...)
+
+		execLog = nil
+		outSwallow := busSwallow.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
+		require.NoError(t, outSwallow.Err)
+		require.False(t, outSwallow.Emit, "swallow policy must drop event on panic")
+		require.Equal(t, outSwallowLegacy, outSwallow)
+		require.Equal(t, []string{"reactor-panic"}, execLog)
+		require.Equal(t, execLogLegacy, execLog)
+		require.Equal(t, legacyEv, genEv)
+		require.Len(t, genEv, 1)
+		require.Equal(t, "reactor-panic", genEv[0].providerID)
+		require.True(t, genEv[0].hasPanicErr)
+	})
+
+	t.Run("evidence_semantics_and_decision_parity", func(t *testing.T) {
+		t.Parallel()
+
+		type evidenceEntry struct {
+			providerID    string
+			decision      sdkhooks.ToolDecision
+			hasErr        bool
+			hasValidation bool
+		}
+
+		b1 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				// Order 1: valid rewrite
+				trackingToolReactor{
+					id:       "reactor-rewrite",
+					order:    1,
+					decision: sdkhooks.ToolRewrite,
+					mutateFn: func(ev lipapi.ToolEvent) lipapi.ToolEvent {
+						ev.ArgsDelta = `{"query":"modified"}`
+						return ev
+					},
+				},
+			},
+		}
+
+		b2 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				// Order 2: invalid rewrite (fails validation because ToolCallID is cleared)
+				trackingToolReactor{
+					id:       "reactor-invalid-rewrite",
+					order:    2,
+					decision: sdkhooks.ToolRewrite,
+					mutateFn: func(ev lipapi.ToolEvent) lipapi.ToolEvent {
+						ev.ToolCallID = "" // invalid: empty tool call id
+						return ev
+					},
+				},
+				// Order 3: reactor returning error
+				trackingToolReactor{
+					id:    "reactor-err",
+					order: 3,
+					err:   errors.New("reactor failure"),
+				},
+			},
+		}
+
+		b3 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors: []sdkhooks.ToolReactor{
+				// Order 4: reactor pass
+				trackingToolReactor{
+					id:       "reactor-pass",
+					order:    4,
+					decision: sdkhooks.ToolPass,
+				},
+			},
+		}
+
+		legacyMerged, err := featurebundle.MergeBundlesChecked(b1, b2, b3)
+		require.NoError(t, err)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
+		require.NoError(t, err)
+
+		var legacyEvEntries, genEvEntries []evidenceEntry
+		var mu sync.Mutex
+
+		record := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
+			return func(_ context.Context, providerID string, dec sdkhooks.ToolDecision, err error, vErr error) {
+				mu.Lock()
+				defer mu.Unlock()
+				*dest = append(*dest, evidenceEntry{
+					providerID:    providerID,
+					decision:      dec,
+					hasErr:        err != nil,
+					hasValidation: vErr != nil,
+				})
+			}
+		}
+
+		legacyBus := corehooks.New(corehooks.Config{
+			ToolReactors:           legacyMerged.ToolReactors,
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
+		})
+		genBus := corehooks.New(corehooks.Config{
+			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
+			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
+		})
+
+		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), record(&legacyEvEntries))
+		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), record(&genEvEntries))
+
+		inputEvent := lipapi.ToolEvent{
+			Kind:       lipapi.ToolEventArgsDelta,
+			ToolCallID: "call-42",
+			ToolName:   "search",
+			ArgsDelta:  `{"query":"initial"}`,
+		}
+
+		outLegacy := legacyBus.ApplyToolReactors(ctxLegacy, inputEvent, sdkhooks.ToolMeta{})
+		outGen := genBus.ApplyToolReactors(ctxGen, inputEvent, sdkhooks.ToolMeta{})
+
+		// Dual-path parity checks
+		require.Equal(t, outLegacy, outGen, "output from ApplyToolReactors must match across legacy and generated paths")
+		require.Equal(t, legacyEvEntries, genEvEntries, "evidence records must match across legacy and generated paths")
+
+		// Observable evidence assertions
+		require.Len(t, genEvEntries, 4)
+
+		// 1. reactor-rewrite: ToolRewrite, no err, no validationErr
+		require.Equal(t, "reactor-rewrite", genEvEntries[0].providerID)
+		require.Equal(t, sdkhooks.ToolRewrite, genEvEntries[0].decision)
+		require.False(t, genEvEntries[0].hasErr)
+		require.False(t, genEvEntries[0].hasValidation)
+
+		// 2. reactor-invalid-rewrite: ToolRewrite, no err, HAS validationErr
+		require.Equal(t, "reactor-invalid-rewrite", genEvEntries[1].providerID)
+		require.Equal(t, sdkhooks.ToolRewrite, genEvEntries[1].decision)
+		require.False(t, genEvEntries[1].hasErr)
+		require.True(t, genEvEntries[1].hasValidation, "invalid rewrite must record validation error in evidence")
+
+		// 3. reactor-err: HAS err, no validationErr
+		require.Equal(t, "reactor-err", genEvEntries[2].providerID)
+		require.True(t, genEvEntries[2].hasErr, "failing reactor must record error in evidence")
+		require.False(t, genEvEntries[2].hasValidation)
+
+		// 4. reactor-pass: ToolPass, no err, no validationErr
+		require.Equal(t, "reactor-pass", genEvEntries[3].providerID)
+		require.Equal(t, sdkhooks.ToolPass, genEvEntries[3].decision)
+		require.False(t, genEvEntries[3].hasErr)
+		require.False(t, genEvEntries[3].hasValidation)
+
+		// Final event retained rewrite from reactor 1 (since reactor 2 invalid rewrite was rejected in fail-open)
+		require.True(t, outGen.Emit)
+		require.Equal(t, `{"query":"modified"}`, outGen.Event.ArgsDelta)
+		require.Equal(t, "call-42", outGen.Event.ToolCallID)
+	})
+
+	t.Run("backing_array_isolation", func(t *testing.T) {
+		t.Parallel()
+
+		var execLog []string
+		var mu sync.Mutex
+		b1, b2, _ := makeBundles(&execLog, &mu)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
+		require.NoError(t, err)
+
+		r1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors)
+		require.Len(t, r1, 4)
+
+		// Mutate slice elements in r1
+		r1[0] = trackingToolReactor{id: "mutated", order: 999}
+
+		// Subsequent Get must return untampered slice
+		r2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors)
+		require.Equal(t, "reactor-b1-10", r2[0].ID(), "frozen set backing array must be isolated from caller mutations")
 	})
 }

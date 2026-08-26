@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
@@ -145,7 +144,7 @@ func TestBuildFeatureHooks_mergeFailureReturnsZeroConfigAndNilLifecycles(t *test
 		{Kind: lipsdk.PluginKindFeature, ID: "inst-p2", FactoryKind: facP2, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, featurebundle.ErrTerminalDecisionProviderConflict)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 	require.Contains(t, err.Error(), "sc.p1")
 	require.Contains(t, err.Error(), "sc.p2")
 	require.Equal(t, hooks.Config{}, hookCfg)
