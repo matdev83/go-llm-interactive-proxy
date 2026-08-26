@@ -16,7 +16,7 @@
   - _Requirements: 1.2, 4.2, 4.4, 5.1_
   - _Boundary: internal/featurebundle, internal/infra/runtimebundle, internal/testkit_
   - **Validation:** `go test ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... -run 'Finalizer|TerminalDecision|Overlay|PlaneParity'`
-- [ ] 1.3 Capture generation-binder replacement parity
+- [x] 1.3 Capture generation-binder replacement parity
   - Characterize reasoning-compression replace-by-identity behavior/idempotence and compaction-continuity preserver replacement order/panic safety.
   - Observable completion: deterministic tests pin both binder rules and prove failures leave the candidate surface unmodified.
   - _Requirements: 1.4, 4.5, 5.1_
