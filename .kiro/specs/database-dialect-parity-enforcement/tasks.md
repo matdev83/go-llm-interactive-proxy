@@ -194,7 +194,7 @@
 
 - [ ] 4. Certify the current tree on real SQLite and PostgreSQL before turning enforcement on.
 
-- [ ] 4.1 Add a temporary/local implementation-time full-matrix command and execute the untouched baseline
+- [x] 4.1 Add a temporary/local implementation-time full-matrix command and execute the untouched baseline
   - Using the catalog package list and stable wrappers, execute all SQLite parity suites.
   - Execute all PostgreSQL-direct parity suites against a real direct PostgreSQL endpoint with `LIP_REQUIRE_POSTGRES=1`; set admin/runtime DSNs explicitly and exclude pooler-only tests by selection, not by accidental skip.
   - Record each component result and every common-contract/schema/migration failure in the implementation PR notes or test logs; do not add permanent scratch artifacts to the spec directory.
@@ -203,7 +203,7 @@
   - _Depends: 2.1–3.5_
   - _Validation: implementation-time parity runner on real SQLite/PostgreSQL_
 
-- [ ] 4.2 Repair common behavioral/transactional divergences revealed by the baseline
+- [x] 4.2 Repair common behavioral/transactional divergences revealed by the baseline
   - For each failure, classify whether the canonical contract is correct, stale, or missing an intentional capability distinction before editing production code.
   - Fix real parity defects at the owning adapter/migration boundary; add RED regression subtests to the shared common suite before the fix.
   - Run focused `-race` tests when fixing sequence/locking/lost-update/idempotency concurrency behavior.
@@ -214,7 +214,7 @@
   - _Depends: 4.1_
   - _Validation: affected component parity wrappers + targeted `-race`_
 
-- [ ] 4.3 Repair migration/schema divergences revealed by the baseline
+- [x] 4.3 Repair migration/schema divergences revealed by the baseline
   - Fix missing columns/constraints/indexes/immutability protections/history registration or incorrect schema verifiers exposed by Phase 4.1.
   - Preserve existing operator data compatibility; use additive/idempotent migration repairs consistent with each component's migration policy rather than destructive test-only shortcuts.
   - If a difference is intentional and backend-specific, add the explicit capability/invariant classification and dedicated evidence rather than weakening the common schema contract.
@@ -224,7 +224,7 @@
   - _Depends: 4.1_
   - _Validation: affected component parity wrappers + migration tests_
 
-- [ ] 4.4 Freeze the certified catalog baseline
+- [x] 4.4 Freeze the certified catalog baseline
   - Re-run architecture discovery and full SQLite/PostgreSQL-direct parity after all repairs.
   - Confirm no remaining unclassified skip/exception exists for a common capability and no registered component is red.
   - Update catalog capability rationale/evidence only for verified intentional differences.
