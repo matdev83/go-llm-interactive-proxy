@@ -62,6 +62,11 @@ func VerifySchema(ctx context.Context, database *bun.DB) error {
 	if database == nil {
 		return fmt.Errorf("billingstore: nil database")
 	}
+	if retiredHolds, err := authorizationHoldsTableExists(ctx, database); err != nil {
+		return fmt.Errorf("billingstore: retired authorization holds verification: %w", err)
+	} else if retiredHolds {
+		return fmt.Errorf("billingstore: retired authorization_holds table is still present")
+	}
 	if retiredOutbox, err := usageAppendOutboxTableExists(ctx, database); err != nil {
 		return fmt.Errorf("billingstore: retired usage append outbox verification: %w", err)
 	} else if retiredOutbox {
