@@ -102,8 +102,8 @@ func TestExecutor_InterleavedDiagnostics_HiddenFlowObservesTransitionsWithoutMem
 		t.Fatalf("missing second-turn cycle position in logs:\n%s", out)
 	}
 	// Injection observability: tail-anchored mode and the post-decrement budget.
-	if !strings.Contains(out, `"injection_mode":"tail_anchored"`) {
-		t.Fatalf("missing injection_mode=tail_anchored in logs:\n%s", out)
+	if !strings.Contains(out, `"injection_mode":"conversation_view_overlay"`) {
+		t.Fatalf("missing injection_mode=conversation_view_overlay in logs:\n%s", out)
 	}
 	if !strings.Contains(out, `"turns_remaining":1`) {
 		t.Fatalf("missing turns_remaining in logs:\n%s", out)

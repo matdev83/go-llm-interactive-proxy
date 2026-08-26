@@ -25,7 +25,7 @@ type InterleavedTransition struct {
 	CycleTotal int
 	// Target is the normalized selector key of the selected branch/leaf.
 	Target string
-	// InjectionMode identifies how a memo was injected ("tail_anchored").
+	// InjectionMode identifies how a memo was presented (for example, "conversation_view_overlay").
 	InjectionMode string
 	// TurnsRemaining is the memo injection budget after the reported decision.
 	TurnsRemaining int

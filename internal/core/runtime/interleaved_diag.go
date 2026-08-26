@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -72,7 +73,7 @@ func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID 
 				Role:           string(c.InterleavedRole),
 				MemoPresent:    true,
 				MemoInjected:   true,
-				InjectionMode:  interleavedthinking.MemoInjectionModeTailAnchored,
+				InjectionMode:  interleavedthinking.MemoInjectionModeConversationView,
 				TurnsRemaining: turns,
 			},
 		)
@@ -82,7 +83,6 @@ func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID 
 			diag.InterleavedTransition{Phase: "executor", Role: string(c.InterleavedRole), MemoPresent: true, MemoExpired: true},
 		)
 	case interleavedthinking.MemoOutcomeSkippedVisible,
-		interleavedthinking.MemoOutcomeSkippedDuplicate,
 		interleavedthinking.MemoOutcomeSkippedMissing,
 		interleavedthinking.MemoOutcomeSkippedEmpty:
 		diag.LogInterleavedTransition(
@@ -142,6 +142,49 @@ func (e *Executor) logInterleavedMemoStoreSkipped(ctx context.Context, traceID, 
 	)
 }
 
+// logInterleavedMemoSteeringSkipped reports a captured memo that could not be
+// published as a conversation-view steering overlay. The turn continues without
+// memo presentation; the bounded reason distinguishes this from content skips.
+func (e *Executor) logInterleavedMemoSteeringSkipped(ctx context.Context, traceID string) {
+	if e == nil || !e.interleavedEnabled() {
+		return
+	}
+	diag.LogInterleavedTransition(
+		ctx, e.Log, "interleaved_memo_store_skipped", diag.AttrOpts{CallID: traceID},
+		diag.InterleavedTransition{
+			Phase:      "thinker",
+			Role:       string(interleavedstate.RoleThinker),
+			SkipReason: "steering_unavailable",
+		},
+	)
+}
+
+// logMemoSteeringRefreshFailure reports a soft-failed same-turn steering
+// refresh for the interleaved executor continuation. stage is a bounded enum
+// value (snapshot|projection|filter); the continuation proceeds on its frozen
+// pre-capture view and the next logical turn picks the overlay up.
+func (e *Executor) logMemoSteeringRefreshFailure(ctx context.Context, traceID, stage string, err error) {
+	if e == nil || e.Log == nil || err == nil {
+		return
+	}
+	diag.LogError(
+		ctx, e.Log, "interleaved_memo_steering_refresh_failed",
+		diag.AttrOpts{CallID: traceID}, err, slog.String("stage", stage),
+	)
+}
+
+// logMemoSteeringDeactivateFailed reports a failed best-effort deactivation of
+// the memo steering overlay after budget exhaustion or divergence cleanup.
+func (e *Executor) logMemoSteeringDeactivateFailed(ctx context.Context, aLegID string, err error) {
+	if e == nil || e.Log == nil || err == nil {
+		return
+	}
+	diag.LogError(
+		diag.EnsureCallDiag(ctx, diag.TraceID(ctx), aLegID), e.Log, "interleaved_memo_steering_deactivate_failed",
+		diag.AttrOpts{}, err,
+	)
+}
+
 func (e *Executor) logInterleavedPhaseTransition(ctx context.Context, traceID string) {
 	if e == nil || !e.interleavedEnabled() {
 		return
@@ -174,8 +217,6 @@ func memoSkipReason(outcome interleavedthinking.MemoOutcome) string {
 	switch outcome {
 	case interleavedthinking.MemoOutcomeSkippedVisible:
 		return "visible"
-	case interleavedthinking.MemoOutcomeSkippedDuplicate:
-		return "duplicate"
 	case interleavedthinking.MemoOutcomeSkippedEmpty:
 		return "empty"
 	case interleavedthinking.MemoOutcomeSkippedMissing:
