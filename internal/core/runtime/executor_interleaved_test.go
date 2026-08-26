@@ -176,6 +176,7 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	if countMemoSteeringMessages(t, continuationExec.call) != 1 {
 		t.Fatal("executor continuation: steering overlay must appear exactly once")
 	}
+	assertStandaloneMemoSteering(t, continuationExec.call, memoBody)
 
 	if got := collected.Reasoning.String(); got != "" {
 		t.Fatalf("stream output: hidden mode must not surface reasoning, got %q", got)
@@ -625,6 +626,7 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	if countMemoSteeringMessages(t, laterExec.call) != 1 {
 		t.Fatal("later normal executor: steering overlay must appear exactly once")
 	}
+	assertStandaloneMemoSteering(t, laterExec.call, memoBody)
 
 	stored, ok, err := memoStore.Get(context.Background(), interleavedthinking.Scope(aLegID), *mustMemoRef(t, st, aLegID))
 	if err != nil || !ok {
@@ -677,4 +679,19 @@ func countMemoSteeringMessages(t *testing.T, call lipapi.Call) int {
 		}
 	}
 	return count
+}
+
+func assertStandaloneMemoSteering(t *testing.T, call lipapi.Call, memo string) {
+	t.Helper()
+	if len(call.Messages) < 2 {
+		t.Fatalf("memo projection must add a standalone message: %+v", call.Messages)
+	}
+	wantOriginal := interleavedBaseCall(call.Route.Selector).Messages
+	if len(wantOriginal) != 1 || textOf(call.Messages[0]) != textOf(wantOriginal[0]) || call.Messages[0].Role != wantOriginal[0].Role {
+		t.Fatalf("memo projection mutated ingress message: got %+v want %+v", call.Messages[0], wantOriginal[0])
+	}
+	steering := findMemoSteeringMessage(t, call)
+	if steering == nil || steering.Role != lipapi.RoleUser || !strings.Contains(textOf(*steering), memo) {
+		t.Fatalf("memo projection missing standalone user steering: %+v", call.Messages)
+	}
 }

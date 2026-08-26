@@ -182,20 +182,27 @@ func (e *Executor) persistCapturedMemo(
 	if strings.TrimSpace(memo.Memo) != "" {
 		if err := e.publishMemoSteeringOverlay(ctx, aLegID, src.Ingress, src.Snapshot, memo.Memo); err != nil {
 			e.logInterleavedMemoSteeringSkipped(ctx, src.TraceID)
-		} else {
-			overlayPublished = true
+			return state, nil
 		}
+		overlayPublished = true
 	}
 	oldRef := state.MemoRef
 	ref, err := e.MemoStore.Put(ctx, interleavedthinking.Scope(aLegID), memo)
 	if err != nil {
+		if overlayPublished {
+			if restoreErr := e.restoreMemoSteeringOverlay(ctx, aLegID, oldRef, src); restoreErr != nil {
+				return state, fmt.Errorf("executor: store thinker memo: %w (restore steering: %v)", err, restoreErr)
+			}
+		}
 		return state, fmt.Errorf("executor: store thinker memo: %w", err)
 	}
 	state.MemoRef = &ref
 	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
 		state.MemoRef = oldRef
 		if overlayPublished {
-			e.deactivateMemoSteeringOverlay(ctx, aLegID)
+			if restoreErr := e.restoreMemoSteeringOverlay(ctx, aLegID, oldRef, src); restoreErr != nil {
+				return state, fmt.Errorf("executor: persist memo reference: %w (restore steering: %v)", err, restoreErr)
+			}
 		}
 		scope := interleavedthinking.Scope(aLegID)
 		if delErr := e.MemoStore.Delete(ctx, scope, ref); delErr != nil {
@@ -231,7 +238,9 @@ func (e *Executor) commitMemoInjection(ctx context.Context, aLegID string, state
 		return state, fmt.Errorf("executor: persist interleaved memo reference: %w", err)
 	}
 	if update.State.RegularTurnsRemaining <= 0 {
-		e.deactivateMemoSteeringOverlay(ctx, aLegID)
+		if err := e.deactivateMemoSteeringOverlay(ctx, aLegID); err != nil {
+			return state, fmt.Errorf("executor: deactivate exhausted memo steering: %w", err)
+		}
 	}
 	return state, nil
 }
@@ -248,7 +257,11 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	// Interleaved continuations always run under immediate-continuation
 	// suppression semantics, so suppression here depends only on whether the
 	// captured memo was surfaced to the client.
-	facts = e.refreshMemoSteeringFacts(ctx, facts, state, true)
+	var refreshed bool
+	facts, refreshed = e.refreshMemoSteeringFacts(ctx, facts, state, true)
+	if !refreshed {
+		state.MemoRef = nil
+	}
 	// A continuation may be opened from Recv with a bare caller context after
 	// model/catalog refresh. Reattach the logical request's frozen views before
 	// any planning, capability resolution, or backend open; copying them onto the

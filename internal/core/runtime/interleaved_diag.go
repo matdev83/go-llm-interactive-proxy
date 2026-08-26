@@ -180,8 +180,8 @@ func (e *Executor) logMemoSteeringDeactivateFailed(ctx context.Context, aLegID s
 		return
 	}
 	diag.LogError(
-		ctx, e.Log, "interleaved_memo_steering_deactivate_failed",
-		diag.AttrOpts{BLegID: aLegID}, err,
+		diag.EnsureCallDiag(ctx, diag.TraceID(ctx), aLegID), e.Log, "interleaved_memo_steering_deactivate_failed",
+		diag.AttrOpts{}, err,
 	)
 }
 

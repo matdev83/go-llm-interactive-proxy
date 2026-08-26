@@ -80,19 +80,37 @@ func (e *Executor) publishMemoSteeringOverlay(
 // budget is exhausted or the memo bookkeeping can no longer guarantee bounded
 // presentation. Best-effort and idempotent: a missing overlay or A-leg is not
 // an error.
-func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID string) {
+func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID string) error {
 	if e == nil || ctx == nil || aLegID == "" {
-		return
+		return nil
 	}
 	store := e.conversationViewSteeringStore()
 	if store == nil {
-		return
+		return errors.New("executor: conversation-view steering capability unavailable")
 	}
-	if _, err := store.DeactivateSteering(ctx, aLegID, interleavedMemoOverlayID); err != nil &&
-		!errors.Is(err, conversationview.ErrOverlayNotFound) &&
-		!errors.Is(err, conversationview.ErrALegNotFound) {
+	_, err := store.DeactivateSteering(ctx, aLegID, interleavedMemoOverlayID)
+	if err != nil && !errors.Is(err, conversationview.ErrOverlayNotFound) && !errors.Is(err, conversationview.ErrALegNotFound) {
 		e.logMemoSteeringDeactivateFailed(ctx, aLegID, err)
+		return err
 	}
+	return nil
+}
+
+// restoreMemoSteeringOverlay restores the previously linked memo after a
+// replacement transaction fails, or deactivates the newly published overlay
+// when no prior memo existed.
+func (e *Executor) restoreMemoSteeringOverlay(ctx context.Context, aLegID string, oldRef *interleavedstate.MemoRef, src capturedMemoSource) error {
+	if oldRef == nil || oldRef.Key == "" || e.MemoStore == nil {
+		return e.deactivateMemoSteeringOverlay(ctx, aLegID)
+	}
+	oldMemo, ok, err := e.MemoStore.Get(ctx, interleavedthinking.Scope(aLegID), *oldRef)
+	if err != nil {
+		return err
+	}
+	if !ok || strings.TrimSpace(oldMemo.Memo) == "" {
+		return e.deactivateMemoSteeringOverlay(ctx, aLegID)
+	}
+	return e.publishMemoSteeringOverlay(ctx, aLegID, src.Ingress, src.Snapshot, oldMemo.Memo)
 }
 
 // refreshMemoSteeringFacts rebuilds the request facts for the same-turn
@@ -110,25 +128,25 @@ func (e *Executor) refreshMemoSteeringFacts(
 	facts recvTurnFacts,
 	state interleavedstate.State,
 	suppressVisibleMemo bool,
-) recvTurnFacts {
+) (recvTurnFacts, bool) {
 	if e == nil || ctx == nil {
-		return facts
+		return facts, false
 	}
 	reader := e.conversationViewReader()
 	if reader == nil {
-		return facts
+		return facts, false
 	}
 	snap, err := reader.Snapshot(ctx, facts.aLegID)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "snapshot", err)
-		return facts
+		return facts, false
 	}
 	memoVisibleSuppressed := suppressVisibleMemo && e.memoStateVisibleToClient(ctx, facts.aLegID, state)
 	if memoVisibleSuppressed {
 		snap = stripMemoSteeringOverlay(snap)
 	}
 	if snap.StateRevision == conversationRevision(facts) && !memoVisibleSuppressed {
-		return facts
+		return facts, true
 	}
 	ingress := memoProjectionIngress(facts)
 	if len(ingress.Items) == 0 && len(ingress.Messages) == 0 {
@@ -137,12 +155,12 @@ func (e *Executor) refreshMemoSteeringFacts(
 	projected, ev, err := conversationview.Project(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "projection", err)
-		return facts
+		return facts, false
 	}
 	filtered, err := conversationview.FilterNeverBackend(ingress, snap)
 	if err != nil {
 		e.logMemoSteeringRefreshFailure(ctx, facts.traceID, "filter", err)
-		return facts
+		return facts, false
 	}
 	updated := cloneRefreshedMemoFacts(facts)
 	// Projection owns conversation authority only. Apply its trajectory to the
@@ -156,7 +174,7 @@ func (e *Executor) refreshMemoSteeringFacts(
 		updated.conversationProvenance = ev.Provenance
 	}
 	updated.conversationFilteredBaseline = filtered
-	return updated
+	return updated, true
 }
 
 func cloneRefreshedMemoFacts(source recvTurnFacts) recvTurnFacts {

@@ -30,6 +30,18 @@ const SessionSteeringGuidanceHeader = "[Session Steering Guidance]"
 // synthetic user messages at a fixed activation anchor (#391).
 const MemoInjectionModeConversationView = "conversation_view_overlay"
 
+const (
+	// MemoInjectionModeTailAnchored is retained for source compatibility.
+	// Deprecated: conversation-view projection no longer emits this mode.
+	MemoInjectionModeTailAnchored = "tail_anchored"
+	// MetadataSourceInterleavedThinking is retained for source compatibility.
+	// Deprecated: conversation-view projection does not emit tail metadata.
+	MetadataSourceInterleavedThinking = "interleaved_thinking"
+	// MetadataKindThinkerMemoTail is retained for source compatibility.
+	// Deprecated: conversation-view projection does not emit tail metadata.
+	MetadataKindThinkerMemoTail = "thinker_memo_tail"
+)
+
 // ShapeConfig carries the resolved interleaved-thinking settings needed to shape
 // a candidate call. Instructions is the resolved thinker planning text (loaded
 // from the configured instructions source by the runtime). Non-thinker
@@ -80,6 +92,9 @@ const (
 	MemoOutcomeSkippedVisible MemoOutcome = "skipped_visible"
 	MemoOutcomeSkippedMissing MemoOutcome = "skipped_missing"
 	MemoOutcomeSkippedEmpty   MemoOutcome = "skipped_empty"
+	// MemoOutcomeSkippedDuplicate is retained for source compatibility.
+	// Deprecated: the conversation-view store owns overlay de-duplication.
+	MemoOutcomeSkippedDuplicate MemoOutcome = "skipped_duplicate"
 )
 
 // PendingMemoUpdate is the memo-store mutation that should be committed once a
@@ -190,6 +205,9 @@ func shapeExecutor(ctx context.Context, out lipapi.Call, in ShapeInput) (ShapeRe
 		state.RegularTurnsRemaining = 0
 	}
 	pending := &PendingMemoUpdate{Ref: *in.MemoRef, State: state}
+	if err := out.Validate(); err != nil {
+		return ShapeResult{}, fmt.Errorf("interleavedthinking: shaped executor call invalid: %w", err)
+	}
 	// No conversation mutation here (#391): the memo reaches executor context
 	// exclusively as a persistent conversation-view steering overlay projected
 	// by the runtime. Shaping only classifies the memo and authorizes the

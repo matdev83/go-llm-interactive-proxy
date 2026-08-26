@@ -380,10 +380,14 @@ func (e *Executor) evaluateCandidate(
 	// Both paths are best-effort and idempotent.
 	switch shapeRes.MemoOutcome {
 	case interleavedthinking.MemoOutcomeExpired:
-		e.deactivateMemoSteeringOverlay(ctx, rf.aLegID)
+		if err := e.deactivateMemoSteeringOverlay(ctx, rf.aLegID); err != nil {
+			return zero, fmt.Errorf("executor: deactivate expired memo steering: %w", err)
+		}
 	case interleavedthinking.MemoOutcomeSkippedMissing:
 		if interleaved.MemoRef != nil {
-			e.deactivateMemoSteeringOverlay(ctx, rf.aLegID)
+			if err := e.deactivateMemoSteeringOverlay(ctx, rf.aLegID); err != nil {
+				return zero, fmt.Errorf("executor: deactivate missing memo steering: %w", err)
+			}
 		}
 	}
 	be, ok := e.Backends[plan.cand.Primary.Backend]
