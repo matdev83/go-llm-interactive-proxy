@@ -106,7 +106,7 @@
   - _Boundary: architecture gates/tests_
   - _Depends: 2.4_
   - **Validation:** `go test ./internal/archtest/...`
-- [ ] 3.2 Extend deterministic mirror/baseline reporting
+- [x] 3.2 Extend deterministic mirror/baseline reporting
   - Integrate manifest/generated-output status and mirror measurements into the existing one-command architecture report; generated-path change-surface classification remains owned by task 10.1's ROI probe.
   - Observable completion: two report runs produce byte-identical output and generated paths are reported separately from hand-authored integration paths.
   - _Requirements: 8.2_
