@@ -213,7 +213,6 @@ func DefaultCatalog() Catalog {
 				},
 				TestPackages: []string{
 					"internal/infra/controlplane/ledgerstore",
-					"internal/infra/controlplane/ledgerstore/contract",
 				},
 				StoreContracts: []string{
 					"internal/core/controlplane.Store",
@@ -376,7 +375,6 @@ func DefaultCatalog() Catalog {
 				},
 				TestPackages: []string{
 					"internal/infra/usageauthority/authoritystore",
-					"internal/infra/usageauthority/authoritystore/contract",
 				},
 				StoreContracts: []string{
 					"internal/core/usageauthority/app.Store",

@@ -53,7 +53,7 @@
 
 ## Phase 2 — Normalize Canonical Component Parity Entry Points
 
-- [ ] 2. Make every registered component expose the same stable SQLite/PostgreSQL-direct proof shape.
+- [x] 2. Make every registered component expose the same stable SQLite/PostgreSQL-direct proof shape.
 
 - [x] 2.1 Standardize continuity parity contracts
   - Consolidate A-leg lifecycle, B-leg allocation/order, attempt lineage, restart persistence, interleaved-state, conversation-view, and route-override common assertions into reusable component-owned suites, reusing existing `b2buatest` and routeoverride storecontract helpers.
@@ -130,7 +130,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/billingstore -run '^TestDBParity_SQLite$'`; direct PostgreSQL and billing convergence remain available_
 
-- [ ] 2.9 Add architecture checks for stable wrapper coverage after component normalization
+- [x] 2.9 Add architecture checks for stable wrapper coverage after component normalization
   - Extend the discovery guard to verify that every catalog component has exactly the required stable SQLite and PostgreSQL-direct parity entry point(s) in its registered test package(s).
   - Verify non-common capability evidence anchors resolve to real tests and cannot be represented by a missing/empty pattern.
   - Add a negative fixture for a cataloged component with a missing PostgreSQL wrapper.

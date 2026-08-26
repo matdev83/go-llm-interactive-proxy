@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 )
 
 var versionedMigrationRegex = regexp.MustCompile(`^\d{14}_.*\.go$`)
@@ -265,3 +267,176 @@ func mapKeys(m map[string]bool) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// PackageParityWrappers records discovered parity test wrappers in a package directory.
+type PackageParityWrappers struct {
+	PackageDir              string
+	HasSQLite               bool
+	SQLiteFile              string
+	SQLiteDeclCount         int
+	HasPostgresDirect       bool
+	PostgresDirectFile      string
+	PostgresDirectDeclCount int
+	PostgresHasBuildTag     bool
+}
+
+// HasIntegrationBuildTag checks if the source code contains //go:build integration or // +build integration.
+func HasIntegrationBuildTag(src []byte) bool {
+	lines := strings.Split(string(src), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "package ") {
+			break
+		}
+		if strings.HasPrefix(trimmed, "//go:build ") && strings.Contains(trimmed, "integration") {
+			return true
+		}
+		if strings.HasPrefix(trimmed, "// +build ") && strings.Contains(trimmed, "integration") {
+			return true
+		}
+	}
+	return false
+}
+
+// DiscoverPackageParityWrappers inspects all _test.go files in pkgDir (relative to repoRoot).
+func DiscoverPackageParityWrappers(repoRoot, pkgDir string) (PackageParityWrappers, error) {
+	absDir := filepath.Join(repoRoot, filepath.FromSlash(pkgDir))
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		return PackageParityWrappers{}, fmt.Errorf("read package dir %s: %w", pkgDir, err)
+	}
+
+	result := PackageParityWrappers{
+		PackageDir: pkgDir,
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		filePath := filepath.Join(absDir, entry.Name())
+		relFile := filepath.ToSlash(filepath.Join(pkgDir, entry.Name()))
+		src, err := os.ReadFile(filePath)
+		if err != nil {
+			return PackageParityWrappers{}, fmt.Errorf("read test file %s: %w", relFile, err)
+		}
+
+		_, f, err := ParseGoSource(filePath, src)
+		if err != nil {
+			return PackageParityWrappers{}, fmt.Errorf("parse test file %s: %w", relFile, err)
+		}
+
+		isIntegrationTagged := HasIntegrationBuildTag(src)
+
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name == nil {
+				continue
+			}
+			if fn.Name.Name == "TestDBParity_SQLite" {
+				result.HasSQLite = true
+				result.SQLiteFile = relFile
+				result.SQLiteDeclCount++
+			}
+			if fn.Name.Name == "TestDBParity_PostgresDirect" {
+				result.HasPostgresDirect = true
+				result.PostgresDirectFile = relFile
+				result.PostgresDirectDeclCount++
+				if isIntegrationTagged {
+					result.PostgresHasBuildTag = true
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// ValidateCapabilityEvidence validates that a capability's evidence anchor:
+// - is non-empty / not blank
+// - resolves to an existing file (not a directory) within repoRoot
+// - the file is non-empty (> 0 bytes)
+// - if a symbol anchor is specified (:SymbolName), the symbol exists in the file AST
+// - for non-common capabilities, Rationale is non-empty
+func ValidateCapabilityEvidence(repoRoot string, cap dbparity.Capability) error {
+	trimmedEvidence := strings.TrimSpace(cap.Evidence)
+	if trimmedEvidence == "" {
+		return fmt.Errorf("capability %q has empty evidence anchor", cap.ID)
+	}
+	if trimmedEvidence == "." || trimmedEvidence == "/" {
+		return fmt.Errorf("capability %q evidence anchor %q is not a file", cap.ID, trimmedEvidence)
+	}
+
+	if cap.Class != dbparity.Common {
+		if strings.TrimSpace(cap.Rationale) == "" {
+			return fmt.Errorf("non-common capability %q (class %s) must have a non-empty rationale", cap.ID, cap.Class)
+		}
+	}
+
+	rawPath, symbol, hasSymbol := strings.Cut(trimmedEvidence, ":")
+	rawPath = strings.TrimSpace(rawPath)
+	symbol = strings.TrimSpace(symbol)
+
+	if rawPath == "" {
+		return fmt.Errorf("capability %q evidence file path is empty", cap.ID)
+	}
+	if hasSymbol && symbol == "" {
+		return fmt.Errorf("capability %q evidence specifies empty symbol anchor %q", cap.ID, trimmedEvidence)
+	}
+
+	absPath := filepath.Join(repoRoot, filepath.FromSlash(rawPath))
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("capability %q evidence file %q does not exist: %w", cap.ID, rawPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("capability %q evidence path %q is a directory, must be a file", cap.ID, rawPath)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("capability %q evidence file %q is empty (0 bytes)", cap.ID, rawPath)
+	}
+
+	if symbol != "" && strings.HasSuffix(rawPath, ".go") {
+		src, err := os.ReadFile(absPath)
+		if err != nil {
+			return fmt.Errorf("read evidence file %q: %w", rawPath, err)
+		}
+		_, f, err := ParseGoSource(absPath, src)
+		if err != nil {
+			return fmt.Errorf("parse evidence file %q: %w", rawPath, err)
+		}
+		if !fileDeclaresSymbol(f, symbol) {
+			return fmt.Errorf("capability %q evidence symbol %q not found in %q", cap.ID, symbol, rawPath)
+		}
+	}
+
+	return nil
+}
+
+func fileDeclaresSymbol(f *ast.File, symbol string) bool {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name != nil && d.Name.Name == symbol {
+				return true
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					if s.Name != nil && s.Name.Name == symbol {
+						return true
+					}
+				case *ast.ValueSpec:
+					for _, name := range s.Names {
+						if name != nil && name.Name == symbol {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
