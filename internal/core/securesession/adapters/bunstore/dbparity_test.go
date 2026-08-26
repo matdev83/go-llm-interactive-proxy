@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -91,4 +92,24 @@ func (f *bunstoreSQLiteFixture) ReopenStore(t *testing.T) (app.Store, func() app
 func TestDBParity_SQLite(t *testing.T) {
 	t.Parallel()
 	storecontract.RunParitySuite(t, &bunstoreSQLiteFixture{})
+
+	t.Run("MigrationAndSchemaParity", func(t *testing.T) {
+		id := bunstoreParityMemSeq.Add(1)
+		dsn := fmt.Sprintf("file:bunstoreschemaparity%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
+		sqlDB, err := sql.Open("sqlite", dsn)
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+		require.NoError(t, err)
+		defer bunDB.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+		_, err = bunstore.NewWithContext(ctx, bunDB)
+		require.NoError(t, err)
+
+		_, thisFile, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		runSecureSessionMigrationAndSchemaParity(t, bunDB, filepath.Dir(thisFile))
+	})
 }

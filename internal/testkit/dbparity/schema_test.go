@@ -565,3 +565,159 @@ func TestVerifySchema_NilValidation(t *testing.T) {
 		t.Error("VerifyPostgresSchema(nil db) should error")
 	}
 }
+
+func TestVerifySchema_SQLite_NamedIndex_Validation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("uniqueness mismatch: expected unique got non-unique", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); CREATE INDEX idx_users_email ON users(email);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"email"}, Unique: true},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "uniqueness mismatch") {
+			t.Fatalf("expected uniqueness mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("uniqueness mismatch: expected non-unique got unique", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); CREATE UNIQUE INDEX idx_users_email ON users(email);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"email"}, Unique: false},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "uniqueness mismatch") {
+			t.Fatalf("expected uniqueness mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("columns mismatch: wrong columns", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, name TEXT); CREATE INDEX idx_users_email ON users(email);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"name"}},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "columns mismatch") {
+			t.Fatalf("expected columns mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("columns mismatch: wrong order", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, a TEXT, b TEXT); CREATE INDEX idx_users_ab ON users(a, b);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_ab", Table: "users", Columns: []string{"b", "a"}},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "columns mismatch") {
+			t.Fatalf("expected columns mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("owning table mismatch", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); CREATE TABLE accounts (id TEXT PRIMARY KEY); CREATE INDEX idx_users_email ON users(email);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "accounts", Columns: []string{"email"}},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "owning table mismatch") {
+			t.Fatalf("expected owning table mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("missing predicate on partial spec", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); CREATE INDEX idx_users_email ON users(email);"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"email"}, Predicate: "email != ''"},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "missing predicate") {
+			t.Fatalf("expected missing predicate error, got: %v", err)
+		}
+	})
+
+	t.Run("unexpected predicate on non-partial spec", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); CREATE INDEX idx_users_email ON users(email) WHERE email != '';"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"email"}},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "unexpected partial predicate") {
+			t.Fatalf("expected unexpected partial predicate error, got: %v", err)
+		}
+	})
+
+	t.Run("predicate expression mismatch", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, status TEXT); CREATE INDEX idx_users_email ON users(email) WHERE status = 'active';"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_users_email", Table: "users", Columns: []string{"email"}, Predicate: "status = 'pending'"},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "predicate mismatch") {
+			t.Fatalf("expected predicate mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("predicate containment rejected: stronger actual predicate fails", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, "CREATE TABLE sessions (id TEXT PRIMARY KEY, a_leg_id TEXT, extra_flag INTEGER); CREATE INDEX idx_sessions_a_leg ON sessions(a_leg_id) WHERE a_leg_id != '' AND extra_flag = 1;"); err != nil {
+			t.Fatalf("create table/index: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_sessions_a_leg", Table: "sessions", Columns: []string{"a_leg_id"}, Predicate: "a_leg_id != ''"},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected predicate mismatch error for stronger actual predicate, got nil")
+		}
+		if !strings.Contains(err.Error(), "predicate mismatch") {
+			t.Fatalf("expected error containing 'predicate mismatch', got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "a_leg_id != '' AND extra_flag = 1") || !strings.Contains(err.Error(), "a_leg_id != ''") {
+			t.Fatalf("expected error naming both actual and expected fragments, got: %v", err)
+		}
+	})
+}
+

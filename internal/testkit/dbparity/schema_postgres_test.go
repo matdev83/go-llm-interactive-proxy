@@ -268,4 +268,100 @@ CREATE TABLE items (
 			t.Fatalf("expected retired column error, got: %v", err)
 		}
 	})
+
+	t.Run("index uniqueness mismatch", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_balance", Table: "accounts", Columns: []string{"balance"}, Unique: true},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_balance ON accounts(balance);")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "uniqueness mismatch") {
+			t.Fatalf("expected uniqueness mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("index columns mismatch", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_balance_col", Table: "accounts", Columns: []string{"id"}},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_balance_col ON accounts(balance);")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "columns mismatch") {
+			t.Fatalf("expected columns mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("index owning table mismatch", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_tbl", Table: "items", Columns: []string{"balance"}},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_tbl ON accounts(balance);")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "owning table mismatch") {
+			t.Fatalf("expected owning table mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("index missing predicate", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_pred_miss", Table: "accounts", Columns: []string{"balance"}, Predicate: "balance > 0"},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_pred_miss ON accounts(balance);")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "missing predicate") {
+			t.Fatalf("expected missing predicate error, got: %v", err)
+		}
+	})
+
+	t.Run("index unexpected partial predicate", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_pred_unexp", Table: "accounts", Columns: []string{"balance"}},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_pred_unexp ON accounts(balance) WHERE balance > 0;")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "unexpected partial predicate") {
+			t.Fatalf("expected unexpected partial predicate error, got: %v", err)
+		}
+	})
+
+	t.Run("index predicate mismatch", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_test_accounts_pred_diff", Table: "accounts", Columns: []string{"balance"}, Predicate: "balance > 100"},
+			},
+		}
+		_, err := bunDB.ExecContext(ctx, "CREATE INDEX idx_test_accounts_pred_diff ON accounts(balance) WHERE balance > 0;")
+		if err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		err = dbparity.VerifyPostgresSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "predicate mismatch") {
+			t.Fatalf("expected predicate mismatch error, got: %v", err)
+		}
+	})
 }

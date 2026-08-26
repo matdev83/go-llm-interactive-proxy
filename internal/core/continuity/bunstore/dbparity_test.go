@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	routeoverrideStorecontract "github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride/storecontract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/b2buatest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -648,6 +650,40 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 			require.Len(t, snapAfter.Steering, 1)
 			assert.Equal(t, steeringText, snapAfter.Steering[0].Message.Text)
 		})
+	})
+
+	t.Run("MigrationAndSchemaParity", func(t *testing.T) {
+		st := f.NewStore(t)
+		require.NoError(t, dbparity.VerifySchema(ctx, st.db, ContinuityLogicalSchemaSpec()))
+
+		_, thisFile, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		discovered, err := dbparity.DiscoverMigrations(filepath.Dir(thisFile))
+		require.NoError(t, err)
+		require.NotEmpty(t, discovered)
+
+		var names []string
+		rows, err := st.db.QueryContext(ctx, "SELECT name FROM bun_continuity_migrations")
+		require.NoError(t, err)
+		defer rows.Close()
+		recorded := make(map[string]bool)
+		for rows.Next() {
+			var name string
+			require.NoError(t, rows.Scan(&name))
+			names = append(names, name)
+			id := name
+			if len(name) >= 14 {
+				id = name[:14]
+			}
+			recorded[id] = true
+		}
+		require.NoError(t, dbparity.AssertMigrationHistoryIDs(dbparity.MigrationIDs(discovered), recorded))
+
+		// Verify migration rerun idempotency
+		require.NoError(t, runContinuitySchemaMigrate(ctx, st.db))
+		var countAfter int
+		require.NoError(t, st.db.NewRaw("SELECT count(*) FROM bun_continuity_migrations").Scan(ctx, &countAfter))
+		require.Equal(t, len(names), countAfter)
 	})
 }
 

@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -205,5 +207,54 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 		runtimeDSN: runtimeDSN,
 		adminDSN:   adminDSN,
 		pool:       pool,
+	})
+
+	t.Run("MigrationAndSchemaParity", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cancel()
+
+		bunstorePGBuildMu.Lock()
+		seq := bunstorePGSchemaSeq.Add(1)
+		schemaName := fmt.Sprintf("ss_bun_mig_%d_%d", time.Now().UnixNano(), seq)
+		bootstrap, err := db.OpenPostgresBun(ctx, adminDSN, pool)
+		require.NoError(t, err)
+		_, err = bootstrap.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %q", schemaName))
+		_ = bootstrap.Close()
+		require.NoError(t, err)
+
+		schemaDSN, err := setPostgresSearchPathForBun(runtimeDSN, schemaName)
+		if err != nil {
+			bunstorePGBuildMu.Unlock()
+			t.Fatal(err)
+		}
+		bunDB, err := db.OpenPostgresBun(ctx, schemaDSN, pool)
+		if err != nil {
+			bunstorePGBuildMu.Unlock()
+			t.Fatal(err)
+		}
+		if _, err := bunDB.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schemaName)); err != nil {
+			_ = bunDB.Close()
+			bunstorePGBuildMu.Unlock()
+			t.Fatal(err)
+		}
+		_, err = bunstore.NewWithContext(ctx, bunDB)
+		bunstorePGBuildMu.Unlock()
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_ = bunDB.Close()
+			dropCtx, dropCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer dropCancel()
+			dropper, derr := db.OpenPostgresBun(dropCtx, adminDSN, pool)
+			if derr != nil {
+				return
+			}
+			defer dropper.Close()
+			_, _ = dropper.ExecContext(dropCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+		})
+
+		_, thisFile, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		runSecureSessionMigrationAndSchemaParity(t, bunDB, filepath.Dir(thisFile))
 	})
 }

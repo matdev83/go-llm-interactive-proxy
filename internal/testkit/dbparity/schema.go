@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -310,24 +311,61 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 	// 3. Check required indexes
 	for _, idx := range spec.Indexes {
 		if idx.Name != "" {
-			var count int
-			if err := database.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?`, idx.Name).Scan(ctx, &count); err != nil || count == 0 {
-				if err != nil {
+			var tblName string
+			var idxSQL sql.NullString
+			if err := database.NewRaw(`SELECT tbl_name, sql FROM sqlite_master WHERE type = 'index' AND name = ?`, idx.Name).Scan(ctx, &tblName, &idxSQL); err != nil || tblName == "" {
+				if err != nil && err != sql.ErrNoRows {
 					return fmt.Errorf("dbparity: sqlite check index %q: %w", idx.Name, err)
 				}
 				return fmt.Errorf("dbparity: missing SQLite index %q on table %q", idx.Name, idx.Table)
 			}
-			if idx.Predicate != "" {
-				var idxSQL string
-				if err := database.NewRaw(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`, idx.Name).Scan(ctx, &idxSQL); err != nil {
-					return fmt.Errorf("dbparity: sqlite get index SQL %q: %w", idx.Name, err)
-				}
-				if !strings.Contains(strings.ToLower(idxSQL), strings.ToLower(idx.Predicate)) {
-					return fmt.Errorf("dbparity: SQLite index %q on table %q missing predicate %q", idx.Name, idx.Table, idx.Predicate)
+
+			if !strings.EqualFold(tblName, idx.Table) {
+				return fmt.Errorf("dbparity: SQLite index %q owning table mismatch: got table %q, want table %q", idx.Name, tblName, idx.Table)
+			}
+
+			entries, err := sqliteGetIndexList(ctx, database, tblName)
+			if err != nil {
+				return fmt.Errorf("dbparity: sqlite get index list for %q: %w", tblName, err)
+			}
+			var foundEntry *sqliteIndexEntry
+			for _, entry := range entries {
+				if strings.EqualFold(entry.name, idx.Name) {
+					e := entry
+					foundEntry = &e
+					break
 				}
 			}
+			if foundEntry == nil {
+				return fmt.Errorf("dbparity: SQLite index %q not found in table %q index list", idx.Name, idx.Table)
+			}
+
+			if foundEntry.unique != idx.Unique {
+				return fmt.Errorf("dbparity: SQLite index %q on table %q uniqueness mismatch: got unique=%v, want unique=%v", idx.Name, idx.Table, foundEntry.unique, idx.Unique)
+			}
+
+			if len(idx.Columns) > 0 {
+				actualCols, err := sqliteIndexColumns(ctx, database, idx.Name)
+				if err != nil {
+					return fmt.Errorf("dbparity: sqlite query columns for index %q: %w", idx.Name, err)
+				}
+				if !equalFoldSlice(actualCols, idx.Columns) {
+					return fmt.Errorf("dbparity: SQLite index %q on table %q columns mismatch: got %v, want %v", idx.Name, idx.Table, actualCols, idx.Columns)
+				}
+			}
+
+			if idx.Predicate != "" {
+				if !foundEntry.partial {
+					return fmt.Errorf("dbparity: SQLite index %q on table %q missing predicate: expected %q, but index is not partial", idx.Name, idx.Table, idx.Predicate)
+				}
+				if !idxSQL.Valid || !matchPredicate(idx.Predicate, idxSQL.String) {
+					return fmt.Errorf("dbparity: SQLite index %q on table %q predicate mismatch: got %q, want matching %q", idx.Name, idx.Table, extractWhereClause(idxSQL.String), idx.Predicate)
+				}
+			} else if foundEntry.partial {
+				return fmt.Errorf("dbparity: SQLite index %q on table %q unexpected partial predicate: got %q, want non-partial index", idx.Name, idx.Table, extractWhereClause(idxSQL.String))
+			}
 		} else {
-			if !sqliteHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique) {
+			if !sqliteHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate) {
 				return fmt.Errorf("dbparity: table %q missing index on %v (unique=%v)", idx.Table, idx.Columns, idx.Unique)
 			}
 		}
@@ -586,55 +624,44 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 	// 3. Check required indexes
 	for _, idx := range spec.Indexes {
 		if idx.Name != "" {
-			var indexDef string
-			if err := database.NewRaw(`SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, idx.Name).Scan(ctx, &indexDef); err != nil {
+			info, err := postgresGetIndexDetailed(ctx, database, idx.Name)
+			if err != nil || info == nil {
+				if err != nil {
+					return fmt.Errorf("dbparity: postgres check index %q: %w", idx.Name, err)
+				}
 				return fmt.Errorf("dbparity: missing PostgreSQL index %q on table %q", idx.Name, idx.Table)
 			}
-			lowerDef := strings.ToLower(indexDef)
-			if idx.Unique && !strings.Contains(lowerDef, "unique") {
-				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q must be UNIQUE", idx.Name, idx.Table)
+
+			if !strings.EqualFold(info.tableName, idx.Table) {
+				return fmt.Errorf("dbparity: PostgreSQL index %q owning table mismatch: got table %q, want table %q", idx.Name, info.tableName, idx.Table)
 			}
-			for _, col := range idx.Columns {
-				if !strings.Contains(lowerDef, strings.ToLower(col)) {
-					return fmt.Errorf("dbparity: PostgreSQL index %q on table %q missing column %q", idx.Name, idx.Table, col)
+
+			if info.unique != idx.Unique {
+				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q uniqueness mismatch: got unique=%v, want unique=%v", idx.Name, idx.Table, info.unique, idx.Unique)
+			}
+
+			if len(idx.Columns) > 0 {
+				if !equalFoldSlice(info.columns, idx.Columns) {
+					return fmt.Errorf("dbparity: PostgreSQL index %q on table %q columns mismatch: got %v, want %v", idx.Name, idx.Table, info.columns, idx.Columns)
 				}
 			}
-			if idx.Predicate != "" && !strings.Contains(lowerDef, strings.ToLower(idx.Predicate)) {
-				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q missing predicate %q", idx.Name, idx.Table, idx.Predicate)
+
+			if idx.Predicate != "" {
+				if !info.partial {
+					return fmt.Errorf("dbparity: PostgreSQL index %q on table %q missing predicate: expected %q, but index is not partial", idx.Name, idx.Table, idx.Predicate)
+				}
+				predSource := info.predicate
+				if predSource == "" {
+					predSource = info.indexDef
+				}
+				if !matchPredicate(idx.Predicate, predSource) {
+					return fmt.Errorf("dbparity: PostgreSQL index %q on table %q predicate mismatch: got %q, want matching %q", idx.Name, idx.Table, info.predicate, idx.Predicate)
+				}
+			} else if info.partial {
+				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q unexpected partial predicate: got %q, want non-partial index", idx.Name, idx.Table, info.predicate)
 			}
 		} else {
-			var idxDefs []string
-			rows, err := database.QueryContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?`, idx.Table)
-			if err != nil {
-				return fmt.Errorf("dbparity: postgres query indexes for table %q: %w", idx.Table, err)
-			}
-			for rows.Next() {
-				var idef string
-				if err := rows.Scan(&idef); err == nil {
-					idxDefs = append(idxDefs, idef)
-				}
-			}
-			_ = rows.Close()
-
-			found := false
-			for _, idef := range idxDefs {
-				lowerDef := strings.ToLower(idef)
-				if idx.Unique && !strings.Contains(lowerDef, "unique") {
-					continue
-				}
-				allCols := true
-				for _, col := range idx.Columns {
-					if !strings.Contains(lowerDef, strings.ToLower(col)) {
-						allCols = false
-						break
-					}
-				}
-				if allCols {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !postgresHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate) {
 				return fmt.Errorf("dbparity: table %q missing index on %v (unique=%v)", idx.Table, idx.Columns, idx.Unique)
 			}
 		}
@@ -686,20 +713,45 @@ func sqliteTableColumns(ctx context.Context, database *bun.DB, tableName string)
 	return cols, nil
 }
 
+type sqliteIndexEntry struct {
+	name    string
+	unique  bool
+	partial bool
+}
+
+func sqliteGetIndexList(ctx context.Context, database *bun.DB, tableName string) ([]sqliteIndexEntry, error) {
+	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list('%s')", escapeIdentifier(tableName)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []sqliteIndexEntry
+	for rows.Next() {
+		var seq int
+		var idxName string
+		var isUnique int
+		var origin string
+		var partial int
+		if err := rows.Scan(&seq, &idxName, &isUnique, &origin, &partial); err == nil {
+			entries = append(entries, sqliteIndexEntry{
+				name:    idxName,
+				unique:  isUnique == 1,
+				partial: partial == 1,
+			})
+		}
+	}
+	return entries, nil
+}
+
 func sqliteHasUniqueConstraint(ctx context.Context, database *bun.DB, tableName string, columns []string, lowerDDL string) bool {
 	// Check PRAGMA index_list
-	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list('%s')", escapeIdentifier(tableName)))
+	entries, err := sqliteGetIndexList(ctx, database, tableName)
 	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var seq int
-			var idxName string
-			var unique int
-			var origin string
-			var partial int
-			if err := rows.Scan(&seq, &idxName, &unique, &origin, &partial); err == nil && unique == 1 {
+		for _, entry := range entries {
+			if entry.unique {
 				// Check index columns
-				idxCols, err := sqliteIndexColumns(ctx, database, idxName)
+				idxCols, err := sqliteIndexColumns(ctx, database, entry.name)
 				if err == nil && equalFoldSlice(idxCols, columns) {
 					return true
 				}
@@ -733,28 +785,34 @@ func sqliteIndexColumns(ctx context.Context, database *bun.DB, indexName string)
 	return cols, nil
 }
 
-func sqliteHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool) bool {
-	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list('%s')", escapeIdentifier(tableName)))
+func sqliteHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) bool {
+	entries, err := sqliteGetIndexList(ctx, database, tableName)
 	if err != nil {
 		return false
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var seq int
-		var idxName string
-		var isUnique int
-		var origin string
-		var partial int
-		if err := rows.Scan(&seq, &idxName, &isUnique, &origin, &partial); err == nil {
-			if unique && isUnique != 1 {
+	for _, entry := range entries {
+		if entry.unique != unique {
+			continue
+		}
+		if predicate != "" && !entry.partial {
+			continue
+		}
+		if predicate == "" && entry.partial {
+			continue
+		}
+		idxCols, err := sqliteIndexColumns(ctx, database, entry.name)
+		if err != nil || !equalFoldSlice(idxCols, columns) {
+			continue
+		}
+		if predicate != "" {
+			var idxSQL sql.NullString
+			_ = database.NewRaw(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`, entry.name).Scan(ctx, &idxSQL)
+			if !idxSQL.Valid || !matchPredicate(predicate, idxSQL.String) {
 				continue
 			}
-			idxCols, err := sqliteIndexColumns(ctx, database, idxName)
-			if err == nil && equalFoldSlice(idxCols, columns) {
-				return true
-			}
 		}
+		return true
 	}
 	return false
 }
@@ -953,4 +1011,169 @@ func equalFoldSlice(a, b []string) bool {
 
 func escapeIdentifier(ident string) string {
 	return strings.ReplaceAll(ident, "'", "''")
+}
+
+type pgIndexDetailed struct {
+	name      string
+	tableName string
+	unique    bool
+	partial   bool
+	columns   []string
+	predicate string
+	indexDef  string
+}
+
+func postgresGetIndexDetailed(ctx context.Context, database *bun.DB, indexName string) (*pgIndexDetailed, error) {
+	var info pgIndexDetailed
+	row := database.QueryRowContext(ctx, `
+SELECT 
+    c.relname AS index_name,
+    t.relname AS table_name,
+    i.indisunique AS is_unique,
+    i.indpred IS NOT NULL AS is_partial,
+    COALESCE(pg_get_expr(i.indpred, i.indrelid), '') AS predicate,
+    COALESCE(pi.indexdef, '') AS indexdef
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_indexes pi ON pi.schemaname = n.nspname AND pi.indexname = c.relname
+WHERE n.nspname = current_schema()
+  AND c.relname = ?`, indexName)
+
+	if err := row.Scan(&info.name, &info.tableName, &info.unique, &info.partial, &info.predicate, &info.indexDef); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("dbparity: postgres query index %q: %w", indexName, err)
+	}
+
+	cols, err := postgresIndexColumns(ctx, database, indexName)
+	if err != nil {
+		return nil, err
+	}
+	info.columns = cols
+	return &info, nil
+}
+
+func postgresIndexColumns(ctx context.Context, database *bun.DB, indexName string) ([]string, error) {
+	rows, err := database.QueryContext(ctx, `
+SELECT a.attname
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+WHERE n.nspname = current_schema()
+  AND c.relname = ?
+ORDER BY k.ord`, indexName)
+	if err != nil {
+		return nil, fmt.Errorf("dbparity: postgres query index columns for %q: %w", indexName, err)
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			return nil, fmt.Errorf("dbparity: postgres scan index column: %w", err)
+		}
+		cols = append(cols, col)
+	}
+	return cols, nil
+}
+
+func postgresHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) bool {
+	rows, err := database.QueryContext(ctx, `
+SELECT c.relname
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = ?`, tableName)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	var indexNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			indexNames = append(indexNames, name)
+		}
+	}
+	for _, idxName := range indexNames {
+		info, err := postgresGetIndexDetailed(ctx, database, idxName)
+		if err != nil || info == nil {
+			continue
+		}
+		if info.unique != unique {
+			continue
+		}
+		if predicate != "" && !info.partial {
+			continue
+		}
+		if predicate == "" && info.partial {
+			continue
+		}
+		if !equalFoldSlice(info.columns, columns) {
+			continue
+		}
+		if predicate != "" {
+			predSource := info.predicate
+			if predSource == "" {
+				predSource = info.indexDef
+			}
+			if !matchPredicate(predicate, predSource) {
+				continue
+			}
+		}
+		return true
+	}
+	return false
+}
+
+var typeCastRegex = regexp.MustCompile(`::[a-zA-Z0-9_]+`)
+
+func normalizePredicate(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if idx := strings.Index(s, "where "); idx >= 0 {
+		s = s[idx+len("where "):]
+	}
+	s = typeCastRegex.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "!=", " <> ")
+	s = strings.ReplaceAll(s, "(", " ")
+	s = strings.ReplaceAll(s, ")", " ")
+	s = strings.ReplaceAll(s, "<>", " __NE__ ")
+	s = strings.ReplaceAll(s, "<=", " __LE__ ")
+	s = strings.ReplaceAll(s, ">=", " __GE__ ")
+	s = strings.ReplaceAll(s, "=", " = ")
+	s = strings.ReplaceAll(s, "<", " < ")
+	s = strings.ReplaceAll(s, ">", " > ")
+	s = strings.ReplaceAll(s, "__NE__", " <> ")
+	s = strings.ReplaceAll(s, "__LE__", " <= ")
+	s = strings.ReplaceAll(s, "__GE__", " >= ")
+	fields := strings.Fields(s)
+	return strings.Join(fields, " ")
+}
+
+func matchPredicate(expected, actual string) bool {
+	normExpected := normalizePredicate(expected)
+	normActual := normalizePredicate(actual)
+	if normExpected == "" && normActual == "" {
+		return true
+	}
+	if normExpected == "" || normActual == "" {
+		return false
+	}
+	return normExpected == normActual
+}
+
+func extractWhereClause(sqlStr string) string {
+	if idx := strings.Index(strings.ToLower(sqlStr), "where "); idx >= 0 {
+		return strings.TrimSpace(sqlStr[idx+len("where "):])
+	}
+	return strings.TrimSpace(sqlStr)
 }

@@ -163,7 +163,7 @@
   - _Depends: 2.1–2.8, 3.1_
   - _Validation: focused component schema test packages_
 
-- [ ] 3.3 Strengthen continuity and secure-session schema parity (P)
+- [x] 3.3 Strengthen continuity and secure-session schema parity (P)
   - Verify both engines contain equivalent logical A-leg/B-leg/attempt, interleaved-state, route-override, conversation-view, secure-session, transcript/audit/usage/attempt/quarantine structures and correctness-critical indexes/constraints after all migrations.
   - Verify migration history contains every discovered migration ID and rerunning migration is idempotent.
   - Exercise existing legacy SQLite compatibility fixtures and add PostgreSQL upgrade/current-state evidence where the same logical migration contract applies.
