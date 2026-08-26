@@ -721,3 +721,103 @@ func TestVerifySchema_SQLite_NamedIndex_Validation(t *testing.T) {
 	})
 }
 
+func TestVerifySchema_SQLite_DefaultValue_Validation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("exact default passes", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, `
+CREATE TABLE items (
+	id TEXT PRIMARY KEY,
+	status TEXT NOT NULL DEFAULT 'active',
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	flag INTEGER NOT NULL DEFAULT 1,
+	empty_str TEXT NOT NULL DEFAULT '',
+	json_meta TEXT NOT NULL DEFAULT '{}'
+);`); err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "items",
+					Columns: []dbparity.ColumnSpec{
+						{Name: "id", Type: dbparity.TypeText, PrimaryKey: true},
+						{Name: "status", Type: dbparity.TypeText, Default: "'active'"},
+						{Name: "retry_count", Type: dbparity.TypeInteger, Default: "0"},
+						{Name: "flag", Type: dbparity.TypeInteger, Default: "1"},
+						{Name: "empty_str", Type: dbparity.TypeText, Default: "''"},
+						{Name: "json_meta", Type: dbparity.TypeText, Default: "'{}'"},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected exact defaults to pass, got: %v", err)
+		}
+	})
+
+	t.Run("default present but different fails naming expected and got", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, `
+CREATE TABLE items (
+	id TEXT PRIMARY KEY,
+	retry_count INTEGER NOT NULL DEFAULT 0
+);`); err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "items",
+					Columns: []dbparity.ColumnSpec{
+						{Name: "id", Type: dbparity.TypeText, PrimaryKey: true},
+						{Name: "retry_count", Type: dbparity.TypeInteger, Default: "5"},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected default mismatch error, got nil")
+		}
+		if !strings.Contains(err.Error(), "default mismatch") {
+			t.Fatalf("expected error containing 'default mismatch', got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "got \"0\"") || !strings.Contains(err.Error(), "want \"5\"") {
+			t.Fatalf("expected error naming got '0' and want '5', got: %v", err)
+		}
+	})
+
+	t.Run("default removed fails", func(t *testing.T) {
+		bunDB := newSQLiteTestDB(t)
+		if _, err := bunDB.ExecContext(ctx, `
+CREATE TABLE items (
+	id TEXT PRIMARY KEY,
+	retry_count INTEGER NOT NULL
+);`); err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "items",
+					Columns: []dbparity.ColumnSpec{
+						{Name: "id", Type: dbparity.TypeText, PrimaryKey: true},
+						{Name: "retry_count", Type: dbparity.TypeInteger, Default: "0"},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected default mismatch error when default is removed, got nil")
+		}
+		if !strings.Contains(err.Error(), "default mismatch") || !strings.Contains(err.Error(), "got no default") {
+			t.Fatalf("expected error naming 'got no default', got: %v", err)
+		}
+	})
+}
+
+

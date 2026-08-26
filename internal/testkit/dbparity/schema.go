@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/uptrace/bun"
@@ -33,11 +34,23 @@ func PtrBool(b bool) *bool {
 
 // ColumnSpec describes expected column-level invariants.
 type ColumnSpec struct {
-	Name         string       `json:"name"`
-	Type         SemanticType `json:"type,omitempty"`          // Optional semantic type category
-	Nullable     *bool        `json:"nullable,omitempty"`      // Optional nullability expectation
-	PrimaryKey   bool         `json:"primary_key,omitempty"`   // Part of primary key
-	DefaultValue string       `json:"default_value,omitempty"` // Expected default fragment
+	Name            string       `json:"name"`
+	Type            SemanticType `json:"type,omitempty"`             // Optional semantic type category
+	Nullable        *bool        `json:"nullable,omitempty"`         // Optional nullability expectation
+	PrimaryKey      bool         `json:"primary_key,omitempty"`      // Part of primary key
+	Default         string       `json:"default,omitempty"`          // Expected default fragment ("" means no assertion)
+	DefaultValue    string       `json:"default_value,omitempty"`    // Deprecated alias / backwards compatibility for Default
+	DefaultPostgres string       `json:"default_postgres,omitempty"` // Optional engine-specific default override for PostgreSQL
+}
+
+func (c ColumnSpec) expectedDefault(isPostgres bool) string {
+	if isPostgres && c.DefaultPostgres != "" {
+		return c.DefaultPostgres
+	}
+	if c.Default != "" {
+		return c.Default
+	}
+	return c.DefaultValue
 }
 
 // ForeignKeySpec describes expected foreign key constraints.
@@ -245,9 +258,12 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 				return fmt.Errorf("dbparity: table %q: column %q must be part of primary key", tbl.Name, col.Name)
 			}
 
-			if col.DefaultValue != "" {
-				if !info.dflt.Valid || !strings.Contains(strings.ToLower(info.dflt.String), strings.ToLower(col.DefaultValue)) {
-					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got %q, want containing %q", tbl.Name, col.Name, info.dflt.String, col.DefaultValue)
+			if expDefault := col.expectedDefault(false); expDefault != "" {
+				if !info.dflt.Valid {
+					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got no default, want %q", tbl.Name, col.Name, expDefault)
+				}
+				if normalizeDefault(info.dflt.String) != normalizeDefault(expDefault) {
+					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got %q, want %q", tbl.Name, col.Name, info.dflt.String, expDefault)
 				}
 			}
 		}
@@ -499,9 +515,12 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 				return fmt.Errorf("dbparity: table %q: column %q must be part of primary key", tbl.Name, col.Name)
 			}
 
-			if col.DefaultValue != "" {
-				if !info.columnDefault.Valid || !strings.Contains(strings.ToLower(info.columnDefault.String), strings.ToLower(col.DefaultValue)) {
-					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got %q, want containing %q", tbl.Name, col.Name, info.columnDefault.String, col.DefaultValue)
+			if expDefault := col.expectedDefault(true); expDefault != "" {
+				if !info.columnDefault.Valid {
+					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got no default, want %q", tbl.Name, col.Name, expDefault)
+				}
+				if normalizeDefault(info.columnDefault.String) != normalizeDefault(expDefault) {
+					return fmt.Errorf("dbparity: table %q: column %q default mismatch: got %q, want %q", tbl.Name, col.Name, info.columnDefault.String, expDefault)
 				}
 			}
 		}
@@ -1177,3 +1196,40 @@ func extractWhereClause(sqlStr string) string {
 	}
 	return strings.TrimSpace(sqlStr)
 }
+
+func normalizeDefault(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ToLower(s)
+	s = typeCastRegex.ReplaceAllString(s, "")
+	s = strings.TrimSpace(s)
+
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		inner = typeCastRegex.ReplaceAllString(inner, "")
+		s = strings.TrimSpace(inner)
+	}
+
+	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
+		s = s[1 : len(s)-1]
+		s = strings.ReplaceAll(s, "''", "'")
+	}
+	s = strings.TrimSpace(s)
+
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		s = strings.TrimSpace(inner)
+	}
+
+	if intVal, err := strconv.ParseInt(s, 10, 64); err == nil {
+		s = strconv.FormatInt(intVal, 10)
+	} else if floatVal, err := strconv.ParseFloat(s, 64); err == nil && !strings.ContainsAny(s, "eE") {
+		s = strconv.FormatFloat(floatVal, 'f', -1, 64)
+	}
+
+	fields := strings.Fields(s)
+	return strings.Join(fields, " ")
+}
+

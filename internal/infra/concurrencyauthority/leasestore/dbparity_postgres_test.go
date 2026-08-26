@@ -3,8 +3,11 @@
 package leasestore_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -14,8 +17,20 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 	runLeaseParitySuite(t, func(t *testing.T) *leaseStoreFactory {
 		t.Helper()
 		storeID := "parity-pg-" + testkit.UniquePostgresStoreID("lease")
-		store := newPostgresStore(t, dsn, storeID)
+		ensureDirectLeaseSchema(t, dsn)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+		bunDB := testkit.OpenPostgresBunForTest(t, dsn, 4)
+		store, err := leasestore.NewDurable(ctx, bunDB, leasestore.DurableConfig{StoreID: storeID})
+		if err != nil {
+			_ = bunDB.Close()
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
 		t.Cleanup(func() { testkit.CleanupPostgresStoreByID(t, dsn, storeID, testkit.PostgresComponentAuthority) })
-		return &leaseStoreFactory{store: store}
+		return &leaseStoreFactory{
+			store: store,
+			db:    bunDB,
+		}
 	})
 }
