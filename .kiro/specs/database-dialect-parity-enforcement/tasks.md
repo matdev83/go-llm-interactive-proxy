@@ -238,7 +238,7 @@
 
 - [ ] 5. Implement the durable developer/CI entry points without duplicate package lists.
 
-- [ ] 5.1 Implement the typed database-parity runner
+- [x] 5.1 Implement the typed database-parity runner
   - Add the internal runner with `list`, `sqlite`, `postgres-direct`, and `all` modes.
   - Construct `go test` package lists and stable `-run` selectors from the catalog; direct mode adds integration tags, fail-closed PostgreSQL environment, and explicit pooled-test exclusion.
   - Preserve repository test parallelism/timeouts where appropriate; propagate subprocess failures/cancellation exactly.
@@ -249,7 +249,7 @@
   - _Depends: 4.4_
   - _Validation: `go test ./internal/testkit/dbparity/...` plus runner `list`/SQLite smoke_
 
-- [ ] 5.2 Add canonical Makefile targets and preserve specialized PostgreSQL gates
+- [x] 5.2 Add canonical Makefile targets and preserve specialized PostgreSQL gates
   - Add `test-db-parity-sqlite`, `test-db-parity-postgres-direct`, and `test-db-parity` targets that delegate to the runner and do not repeat component package lists.
   - Add Makefile help text distinguishing repository-wide direct parity from the existing `test-authority-postgres-direct`, `test-authority-postgres-pooled`, `test-postgres-migrations`, and billing-convergence/release gates.
   - Keep current pooler normal-parallelism/fail-closed assertions green and add policy tests proving the new general targets delegate to the catalog runner.
