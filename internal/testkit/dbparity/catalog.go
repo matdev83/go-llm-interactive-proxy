@@ -417,8 +417,10 @@ func DefaultCatalog() Catalog {
 			},
 		},
 		SharedInfra: []string{
+			"internal/infra/billingspool",
 			"internal/infra/db",
 			"internal/infra/dbmigrate",
+			"internal/infra/runtimebundle",
 		},
 	}
 }

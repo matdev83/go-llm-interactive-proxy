@@ -40,7 +40,7 @@
   - _Depends: 1.1_
   - _Validation: `go test ./internal/testkit/dbparity/...`_
 
-- [ ] 1.3 Implement the fail-closed database-parity architecture discovery guard
+- [x] 1.3 Implement the fail-closed database-parity architecture discovery guard
   - Add `internal/archtest/database_parity_test.go` using Go AST/filesystem rules to discover Bun migration registries/versioned migration files, dual SQLite/PostgreSQL composition candidates, and dialect-sensitive source ownership.
   - Detect explicit dialect names, SQLite/PostgreSQL schema metadata, driver-specific SQLite error handling, raw dialect placeholder/locking constructs, and equivalent implementation-time patterns with narrow deterministic rules; classify `internal/infra/db` as shared infrastructure.
   - Compare discovered dual-dialect candidates/migration roots against the catalog; fail on unregistered candidates, stale catalog paths, multiple owners, or migration files outside declared roots.

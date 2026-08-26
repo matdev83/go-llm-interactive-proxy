@@ -21,6 +21,9 @@ type ReportingStore interface {
 	QueryOpenExposures(context.Context, string, PageRequest) (ExposurePage, error)
 	QueryReconcileRequired(context.Context, PageRequest) (AccountStatePage, error)
 }
+
+// ReportsStore is an alias for ReportingStore to align with canonical store naming.
+type ReportsStore = ReportingStore
 type AuthoritativeBilling interface {
 	CallSettlementStore
 	ReportingStore

@@ -37,6 +37,9 @@ type StateStore interface {
 	CheckReadiness(ctx context.Context) (domain.AuthorityStatus, error)
 }
 
+// Store is an alias for StateStore to align with canonical store naming.
+type Store = StateStore
+
 // ActiveLimitQuery resolves one configured rule's current live row using the
 // same normalized dimensions and window time as reservation matching.
 type ActiveLimitQuery struct {

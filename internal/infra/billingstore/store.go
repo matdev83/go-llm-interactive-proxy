@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -24,6 +25,25 @@ type DurableStore struct {
 	storeID             string
 	settlementFaultHook func(string) error
 }
+
+var (
+	_ billing.AccountStore          = (*DurableStore)(nil)
+	_ billing.AccountProvisioner    = (*DurableStore)(nil)
+	_ billing.CreditScreenStore     = (*DurableStore)(nil)
+	_ billing.CallUsageStore        = (*DurableStore)(nil)
+	_ billing.CallUsageReader       = (*DurableStore)(nil)
+	_ billing.CallLegUsageReader    = (*DurableStore)(nil)
+	_ billing.ExposureStore         = (*DurableStore)(nil)
+	_ billing.ExposureAdmissionStore = (*DurableStore)(nil)
+	_ billing.JournalStore          = (*DurableStore)(nil)
+	_ billing.ProviderCostStore     = (*DurableStore)(nil)
+	_ billing.ProviderCostWorkStore = (*DurableStore)(nil)
+	_ billing.ReportsStore          = (*DurableStore)(nil)
+	_ billing.ReportingStore        = (*DurableStore)(nil)
+	_ billing.CallSettlementStore   = (*DurableStore)(nil)
+	_ billing.CompleteCallClaimer   = (*DurableStore)(nil)
+	_ billing.AuthoritativeBilling = (*DurableStore)(nil)
+)
 
 func Migrate(ctx context.Context, database *bun.DB) error {
 	if ctx == nil {

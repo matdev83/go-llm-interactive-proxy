@@ -12,6 +12,12 @@ var (
 	ErrInsufficientSpendable = errors.New("billing: insufficient spendable balance")
 )
 
+// AccountStore combines account lookup and provisioner capabilities.
+type AccountStore interface {
+	CreditScreenStore
+	AccountProvisioner
+}
+
 type AccountMode string
 
 const (

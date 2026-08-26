@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,11 @@ var (
 )
 
 const JournalFingerprintPrefix = "journal-fp:v2:"
+
+// JournalStore is the query port for reading an account's posted journals.
+type JournalStore interface {
+	JournalTransactions(ctx context.Context, accountID string) ([]JournalTransaction, error)
+}
 
 type JournalBook string
 

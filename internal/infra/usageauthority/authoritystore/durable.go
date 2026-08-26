@@ -69,6 +69,11 @@ type DurableStore struct {
 var errDurableFlushFailed = errors.New("authoritystore: durable flush failed")
 
 var (
+	_ app.Store      = (*DurableStore)(nil)
+	_ app.StateStore = (*DurableStore)(nil)
+)
+
+var (
 	errConcurrentReservationCreate = errors.New("authoritystore: concurrent reservation create")
 	errConcurrentUsageFactMutation = errors.New("authoritystore: concurrent usage fact mutation")
 	errConcurrentLimitRowCreate    = errors.New("authoritystore: concurrent limit row create")

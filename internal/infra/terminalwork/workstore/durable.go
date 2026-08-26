@@ -11,11 +11,17 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 	_ "modernc.org/sqlite" // register sqlite driver for durable terminal-work stores
+)
+
+var (
+	_ terminalworkapp.WorkStore     = (*DurableStore)(nil)
+	_ terminalworkapp.RecoveryStore = (*DurableStore)(nil)
 )
 
 type DurableConfig struct {
