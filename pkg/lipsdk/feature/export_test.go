@@ -41,18 +41,3 @@ func NewGeneratedContributionsForTest(freeze func() *generatedFrozen) *generated
 		freeze: freeze,
 	}
 }
-
-// NewGeneratedFrozenForTest creates a new generatedFrozen with underlying data for testing.
-func NewGeneratedFrozenForTest(data any) *generatedFrozen {
-	return &generatedFrozen{
-		data: data,
-	}
-}
-
-// GeneratedFrozenDataForTest retrieves test data stored on generatedFrozen.
-func GeneratedFrozenDataForTest(gf *generatedFrozen) any {
-	if gf == nil {
-		return nil
-	}
-	return gf.data
-}

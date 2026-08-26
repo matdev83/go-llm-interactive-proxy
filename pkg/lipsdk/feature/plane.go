@@ -153,14 +153,6 @@ type DiagnosticDescriptor[T any] struct {
 	Privileges    func(T) PrivilegeProjection
 }
 
-type generatedContributions struct {
-	freeze func() *generatedFrozen
-}
-
-type generatedFrozen struct {
-	data any
-}
-
 type generatedAccess[T any] struct {
 	contribute func(*generatedContributions, string, T) error
 	get        func(*generatedFrozen) T

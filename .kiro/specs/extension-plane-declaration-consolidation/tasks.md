@@ -67,7 +67,7 @@
   - _Boundary: SDK/public contract_
   - _Depends: 1.5, 2.1_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.3 Generate typed contribution, frozen-storage, and dispatch adapters
+- [x] 2.3 Generate typed contribution, frozen-storage, and dispatch adapters
   - Generate typed storage plus manifest-ordinal read/write closure bindings with no runtime type discovery.
   - Observable completion: two generation runs are byte-identical and generated dispatch contains no `any`, type assertions, reflection, unsafe, map, or key-search code.
   - _Requirements: 2.1, 2.2, 3.3, 6.2_

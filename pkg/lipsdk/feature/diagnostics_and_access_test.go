@@ -1,13 +1,17 @@
 package feature_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 type dummyHandler interface {
@@ -20,6 +24,27 @@ type testDummyHandler struct {
 
 func (h testDummyHandler) HandlerID() string {
 	return h.id
+}
+
+type dummySubmitHook struct {
+	id  string
+	ord int
+}
+
+func (h dummySubmitHook) ID() string                     { return h.id }
+func (h dummySubmitHook) Order() int                     { return h.ord }
+func (h dummySubmitHook) FailureMode() hooks.FailureMode { return hooks.FailClosed }
+func (h dummySubmitHook) Handle(ctx context.Context, call *lipapi.Call, meta *hooks.SubmitMeta) (hooks.SubmitDecision, error) {
+	return hooks.SubmitDecision{}, nil
+}
+
+type dummyTerminalProvider struct {
+	id string
+}
+
+func (p dummyTerminalProvider) ID() string { return p.id }
+func (p dummyTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{}, nil
 }
 
 func TestPlaneDeclarationValidation_DiagnosticsCompleteness(t *testing.T) {
@@ -563,199 +588,76 @@ func TestPlaneDeclarationValidation_GeneratedIdentityRequiredWhenBound(t *testin
 func TestGenericAccess_GeneratedBypassesMapStorage(t *testing.T) {
 	t.Parallel()
 
-	type genStorage struct {
-		val string
-		id  string
-	}
+	cset := feature.NewContributionSet()
 
-	testPlane := feature.Plane[string]{
-		ID:           "test.generated.bypass_map",
-		Multiplicity: feature.MultExclusive,
-		Rules: feature.SourceRules{
-			Feature: feature.CombExclusive,
-		},
-		Identity: func(v string) (string, bool) {
-			return v, true
-		},
-		Combine: func(source feature.SourceKind, cur, inc string) (string, error) {
-			return inc, nil
-		},
-	}
-
-	testPlane = feature.BindGeneratedAccessForTest(
-		testPlane,
-		nil,
-		func(gf *feature.GeneratedFrozenForTest) string {
-			if gf == nil {
-				return ""
-			}
-			data := feature.GeneratedFrozenDataForTest(gf)
-			if s, ok := data.(*genStorage); ok {
-				return s.val
-			}
-			return ""
-		},
-		func(gf *feature.GeneratedFrozenForTest) (string, bool) {
-			if gf == nil {
-				return "", false
-			}
-			data := feature.GeneratedFrozenDataForTest(gf)
-			if s, ok := data.(*genStorage); ok {
-				return s.id, true
-			}
-			return "", false
-		},
-	)
-
-	// Create a frozen set with generated storage
-	genFrozen := feature.NewGeneratedFrozenForTest(&genStorage{
-		val: "val_from_generated",
-		id:  "id_from_generated",
+	// Contribute to PlaneSubmitHooks (slice plane), PlaneTerminalDecisionProvider (exclusive plane),
+	// and PlaneToolCallFinalizationMaxArgsBytes (scalar plane) using real production generated fields.
+	err := feature.Contribute(cset, feature.PlaneSubmitHooks, "plugin-1", []hooks.SubmitHook{
+		dummySubmitHook{id: "hook-1", ord: 1},
 	})
-	frozen := feature.NewFrozenPlaneSetWithGeneratedForTest(genFrozen)
+	require.NoError(t, err)
 
-	// Get and FrozenIdentity must return values from generated storage with zero map access
-	gotVal := feature.Get(frozen, testPlane)
-	assert.Equal(t, "val_from_generated", gotVal)
+	err = feature.Contribute(cset, feature.PlaneTerminalDecisionProvider, "plugin-alpha", terminaldecision.Provider(dummyTerminalProvider{
+		id: "provider-alpha",
+	}))
+	require.NoError(t, err)
 
-	gotID, ok := feature.FrozenIdentity(frozen, testPlane)
+	err = feature.Contribute(cset, feature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-args", 1024)
+	require.NoError(t, err)
+
+	frozen := cset.Freeze()
+
+	// Direct typed Get and FrozenIdentity resolve through generated storage with zero runtime map discovery
+	submitHooks := feature.Get(frozen, feature.PlaneSubmitHooks)
+	require.Len(t, submitHooks, 1)
+	assert.Equal(t, "hook-1", submitHooks[0].ID())
+
+	termProvider := feature.Get(frozen, feature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, termProvider)
+	assert.Equal(t, "provider-alpha", termProvider.ID())
+
+	termID, ok := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
 	assert.True(t, ok)
-	assert.Equal(t, "id_from_generated", gotID)
+	assert.Equal(t, "provider-alpha", termID)
+
+	maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+	assert.Equal(t, 1024, maxArgs)
 }
 
 func TestGenericAccess_FreezingImmutability(t *testing.T) {
 	t.Parallel()
 
-	type testCandidateStorage struct {
-		submitHooks  []string
-		exclusiveVal testDummyHandler
-	}
+	cset := feature.NewContributionSet()
 
-	type testFrozenStorage struct {
-		submitHooks  []string
-		exclusiveVal testDummyHandler
-		exclusiveID  string
-	}
-
-	candidate := &testCandidateStorage{}
-
-	hooksPlane := feature.Plane[[]string]{
-		ID:           "test.immutability.hooks",
-		Multiplicity: feature.MultOrdered,
-		Rules: feature.SourceRules{
-			Feature: feature.CombConcatenate,
-		},
-		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
-			return append(cur, inc...), nil
-		},
-	}
-
-	hooksPlane = feature.BindGeneratedAccessForTest(
-		hooksPlane,
-		func(gc *feature.GeneratedContributionsForTest, pluginID string, v []string) error {
-			// Pure storage: append to candidate
-			candidate.submitHooks = append(candidate.submitHooks, v...)
-			return nil
-		},
-		func(gf *feature.GeneratedFrozenForTest) []string {
-			if gf == nil {
-				return nil
-			}
-			data := feature.GeneratedFrozenDataForTest(gf)
-			if s, ok := data.(*testFrozenStorage); ok {
-				return s.submitHooks
-			}
-			return nil
-		},
-		func(gf *feature.GeneratedFrozenForTest) (string, bool) {
-			return "", false
-		},
-	)
-
-	exclusivePlane := feature.Plane[testDummyHandler]{
-		ID:           "test.immutability.exclusive",
-		Multiplicity: feature.MultExclusive,
-		Rules: feature.SourceRules{
-			Feature: feature.CombExclusive,
-		},
-		Identity: func(v testDummyHandler) (string, bool) {
-			if v.id == "" {
-				return "", false
-			}
-			return v.id, true
-		},
-		Combine: func(source feature.SourceKind, cur, inc testDummyHandler) (testDummyHandler, error) {
-			return inc, nil
-		},
-	}
-
-	exclusivePlane = feature.BindGeneratedAccessForTest(
-		exclusivePlane,
-		func(gc *feature.GeneratedContributionsForTest, pluginID string, v testDummyHandler) error {
-			// Pure storage: closure does not do conflict checks or identity extraction
-			candidate.exclusiveVal = v
-			return nil
-		},
-		func(gf *feature.GeneratedFrozenForTest) testDummyHandler {
-			if gf == nil {
-				return testDummyHandler{}
-			}
-			data := feature.GeneratedFrozenDataForTest(gf)
-			if s, ok := data.(*testFrozenStorage); ok {
-				return s.exclusiveVal
-			}
-			return testDummyHandler{}
-		},
-		func(gf *feature.GeneratedFrozenForTest) (string, bool) {
-			if gf == nil {
-				return "", false
-			}
-			data := feature.GeneratedFrozenDataForTest(gf)
-			if s, ok := data.(*testFrozenStorage); ok {
-				return s.exclusiveID, s.exclusiveID != ""
-			}
-			return "", false
-		},
-	)
-
-	// Create contribution set with snapshot freeze function
-	freezeFn := func() *feature.GeneratedFrozenForTest {
-		hooksCopy := make([]string, len(candidate.submitHooks))
-		copy(hooksCopy, candidate.submitHooks)
-		return feature.NewGeneratedFrozenForTest(&testFrozenStorage{
-			submitHooks:  hooksCopy,
-			exclusiveVal: candidate.exclusiveVal,
-			exclusiveID:  candidate.exclusiveVal.id,
-		})
-	}
-
-	genContrib := feature.NewGeneratedContributionsForTest(freezeFn)
-	cset := feature.NewContributionSetWithGeneratedForTest(genContrib)
-
-	// Contribute to hooksPlane
-	err := feature.Contribute(cset, hooksPlane, "plugin-1", []string{"h1", "h2"})
+	// Contribute to PlaneSubmitHooks
+	err := feature.Contribute(cset, feature.PlaneSubmitHooks, "plugin-1", []hooks.SubmitHook{
+		dummySubmitHook{id: "h1"},
+		dummySubmitHook{id: "h2"},
+	})
 	require.NoError(t, err)
 
-	// Contribute to exclusivePlane
-	err = feature.Contribute(cset, exclusivePlane, "plugin-alpha", testDummyHandler{id: "provider-alpha"})
+	// Contribute to PlaneTerminalDecisionProvider
+	err = feature.Contribute(cset, feature.PlaneTerminalDecisionProvider, "plugin-alpha", terminaldecision.Provider(dummyTerminalProvider{id: "provider-alpha"}))
 	require.NoError(t, err)
 
 	// Freeze first snapshot
 	frozen1 := cset.Freeze()
 
 	// Verify frozen1 state
-	assert.Equal(t, []string{"h1", "h2"}, feature.Get(frozen1, hooksPlane))
-	assert.Equal(t, "provider-alpha", feature.Get(frozen1, exclusivePlane).HandlerID())
-	id1, ok1 := feature.FrozenIdentity(frozen1, exclusivePlane)
+	assert.Len(t, feature.Get(frozen1, feature.PlaneSubmitHooks), 2)
+	assert.Equal(t, "provider-alpha", feature.Get(frozen1, feature.PlaneTerminalDecisionProvider).ID())
+	id1, ok1 := feature.FrozenIdentity(frozen1, feature.PlaneTerminalDecisionProvider)
 	assert.True(t, ok1)
 	assert.Equal(t, "provider-alpha", id1)
 
-	// Mutate candidate via another contribution to hooksPlane on cset
-	err = feature.Contribute(cset, hooksPlane, "plugin-2", []string{"h3"})
+	// Mutate cset via another contribution to PlaneSubmitHooks
+	err = feature.Contribute(cset, feature.PlaneSubmitHooks, "plugin-2", []hooks.SubmitHook{
+		dummySubmitHook{id: "h3"},
+	})
 	require.NoError(t, err)
 
 	// Second contribution to exclusive plane fails with conflict error in Contribute (before closure)
-	err = feature.Contribute(cset, exclusivePlane, "plugin-beta", testDummyHandler{id: "provider-beta"})
+	err = feature.Contribute(cset, feature.PlaneTerminalDecisionProvider, "plugin-beta", terminaldecision.Provider(dummyTerminalProvider{id: "provider-beta"}))
 	require.Error(t, err)
 	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
 	assert.Contains(t, err.Error(), `"provider-alpha" and "provider-beta"`)
@@ -764,10 +666,15 @@ func TestGenericAccess_FreezingImmutability(t *testing.T) {
 	frozen2 := cset.Freeze()
 
 	// PROVE IMMUTABILITY: frozen1 is completely unmodified by subsequent contributions to cset!
-	assert.Equal(t, []string{"h1", "h2"}, feature.Get(frozen1, hooksPlane))
-	assert.Equal(t, "provider-alpha", feature.Get(frozen1, exclusivePlane).HandlerID())
+	assert.Len(t, feature.Get(frozen1, feature.PlaneSubmitHooks), 2)
+	assert.Equal(t, "h1", feature.Get(frozen1, feature.PlaneSubmitHooks)[0].ID())
+	assert.Equal(t, "h2", feature.Get(frozen1, feature.PlaneSubmitHooks)[1].ID())
+	assert.Equal(t, "provider-alpha", feature.Get(frozen1, feature.PlaneTerminalDecisionProvider).ID())
 
 	// frozen2 reflects the new hooks contribution
-	assert.Equal(t, []string{"h1", "h2", "h3"}, feature.Get(frozen2, hooksPlane))
-	assert.Equal(t, "provider-alpha", feature.Get(frozen2, exclusivePlane).HandlerID())
+	assert.Len(t, feature.Get(frozen2, feature.PlaneSubmitHooks), 3)
+	assert.Equal(t, "h1", feature.Get(frozen2, feature.PlaneSubmitHooks)[0].ID())
+	assert.Equal(t, "h2", feature.Get(frozen2, feature.PlaneSubmitHooks)[1].ID())
+	assert.Equal(t, "h3", feature.Get(frozen2, feature.PlaneSubmitHooks)[2].ID())
+	assert.Equal(t, "provider-alpha", feature.Get(frozen2, feature.PlaneTerminalDecisionProvider).ID())
 }

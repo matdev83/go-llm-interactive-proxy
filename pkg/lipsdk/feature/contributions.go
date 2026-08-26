@@ -22,16 +22,25 @@ func NewContributionSet() *ContributionSet {
 		values:     make(map[string]any),
 		identities: make(map[string]string),
 		pluginIDs:  make(map[string]string),
+		generated:  newGeneratedContributions(),
 	}
 }
 
 // Has reports whether a contribution for planeID exists in the set.
 func (s *ContributionSet) Has(planeID string) bool {
-	if s == nil || s.values == nil {
+	if s == nil {
 		return false
 	}
-	_, ok := s.values[planeID]
-	return ok
+	if s.pluginIDs != nil {
+		if _, ok := s.pluginIDs[planeID]; ok {
+			return true
+		}
+	}
+	if s.values != nil {
+		_, ok := s.values[planeID]
+		return ok
+	}
+	return false
 }
 
 // Freeze produces an immutable FrozenPlaneSet from the accumulated contributions.
