@@ -3,7 +3,7 @@
 > Execute each migration wave as a standalone PR-sized checkpoint. Keep the default suite green and the Go-source change count within the repository gate. Physical core relocation and #394 performance optimization remain out of boundary.
 
 - [ ] 1. Characterize the current extension surface before introducing the manifest
-- [ ] 1.1 Capture ordered-merge and lifecycle-side-channel parity
+- [x] 1.1 Capture ordered-merge and lifecycle-side-channel parity
   - Characterize registration ordering, disabled-feature behavior, nil versus empty slices, backing-array isolation, and lifecycle side-channel behavior for ordered feature contributions.
   - Observable completion: table-driven tests fail on any ordered-merge or lifecycle transport change and pass on the unmodified legacy path.
   - _Requirements: 1.1, 1.3, 5.1_
