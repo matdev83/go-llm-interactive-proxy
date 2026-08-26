@@ -70,6 +70,7 @@ func (h *charStubLocalTurnHandler) ID() string {
 	}
 	return h.id
 }
+
 func (h *charStubLocalTurnHandler) Order() int {
 	if h == nil {
 		return 0
@@ -80,6 +81,7 @@ func (h *charStubLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return s
 func (h *charStubLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (h *charStubLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{}, nil
 }
@@ -264,6 +266,7 @@ func (h *charStubRedactor) ID() string {
 	}
 	return h.tag
 }
+
 func (h *charStubRedactor) Redact(context.Context, traffic.Leg, traffic.CaptureMeta, []byte) ([]byte, error) {
 	return nil, nil
 }
@@ -278,9 +281,11 @@ func (p charStubCompactionPreserver) ID() string { return p.tag }
 func (charStubCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (charStubCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (charStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
@@ -296,6 +301,7 @@ func (g *charStubSGGuard) ID() string {
 	}
 	return g.id
 }
+
 func (g *charStubSGGuard) Order() int {
 	if g == nil {
 		return 0

@@ -105,6 +105,7 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 		{
 			name: "exclusive_terminal_provider_conflict",
 			setupRegistry: func(t *testing.T, reg *pluginreg.Registry) {
+				t.Helper()
 				provA := &charRollbackTerminalProvider{id: "term-provider-a"}
 				provB := &charRollbackTerminalProvider{id: "term-provider-b"}
 
@@ -122,6 +123,7 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				}))
 			},
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
 				cand.Plugins.Features = append(cand.Plugins.Features,
 					config.PluginConfig{ID: "term-feat-a", Kind: "term-feat-a", Enabled: true},
 					config.PluginConfig{ID: "term-feat-b", Kind: "term-feat-b", Enabled: true},
@@ -143,6 +145,7 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 		{
 			name: "duplicate_enabled_secrets_guard_registrations",
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
 				cand.Plugins.Features = append(cand.Plugins.Features,
 					config.PluginConfig{ID: "sg-1", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: log\n")},
 					config.PluginConfig{ID: "sg-2", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: redact\n")},
@@ -153,6 +156,7 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 		{
 			name: "invalid_secrets_guard_config_unknown_action",
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
 				cand.Plugins.Features = append(cand.Plugins.Features,
 					config.PluginConfig{ID: "sg-bad", Kind: "secrets-guard", Enabled: true, Config: parseTestYAMLNode(t, "action: bogus_action\n")},
 				)
@@ -167,6 +171,7 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				cfg.Server.AuthMode = config.AuthModeExternal
 			},
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
 				cand.Access = config.AccessConfig{Mode: "multi_user"}
 				cand.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
 				cand.Server.AuthMode = config.AuthModeExternal

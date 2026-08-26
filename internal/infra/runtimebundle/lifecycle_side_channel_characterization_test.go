@@ -109,7 +109,9 @@ func TestBuildFeatureHooks_LifecycleSideChannelRegistrationOrderSkipsDisabled(t 
 	require.Same(t, lifeB1, lifes[1])
 	require.Same(t, lifeB2, lifes[2])
 	for _, life := range lifes {
-		require.Zero(t, life.(*sideChannelLife).starts.Load(), "BuildFeatureHooks must not start lifecycles")
+		sideLife, ok := life.(*sideChannelLife)
+		require.True(t, ok)
+		require.Zero(t, sideLife.starts.Load(), "BuildFeatureHooks must not start lifecycles")
 	}
 }
 

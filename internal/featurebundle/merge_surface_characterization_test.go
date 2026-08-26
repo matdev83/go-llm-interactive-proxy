@@ -222,6 +222,7 @@ func (charLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks
 func (charLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{}, nil
 }
+
 func (charLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{}, nil
 }

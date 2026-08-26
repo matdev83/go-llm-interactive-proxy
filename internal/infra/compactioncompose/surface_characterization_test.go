@@ -26,9 +26,11 @@ func (p charPreserver) ID() string { return p.id }
 func (charPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (charPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (charPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
@@ -43,12 +45,15 @@ func (p panickingPreserver) ID() string {
 	}
 	panic("panicking preserver")
 }
+
 func (panickingPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (panickingPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (panickingPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }

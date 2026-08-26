@@ -74,6 +74,7 @@ func (charMatcher) ScanString(context.Context, string) ([]sdk.Finding, error) { 
 func (charMatcher) RedactBytes(_ context.Context, b []byte) ([]byte, []sdk.Finding, error) {
 	return b, nil, nil
 }
+
 func (charMatcher) RedactString(_ context.Context, s string) (string, []sdk.Finding, error) {
 	return s, nil, nil
 }
@@ -221,7 +222,6 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			merged := featurebundle.MergedFeatureSurface{
@@ -285,7 +285,7 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	require.Len(t, res2.AttemptTransforms, 3)
 	require.Len(t, res3.AttemptTransforms, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		assert.Equal(t, res1.StreamObserverFactories[i].ID(), res2.StreamObserverFactories[i].ID())
 		assert.Equal(t, res1.StreamObserverFactories[i].ID(), res3.StreamObserverFactories[i].ID())
 		assert.Equal(t, res1.AttemptTransforms[i].ID(), res2.AttemptTransforms[i].ID())

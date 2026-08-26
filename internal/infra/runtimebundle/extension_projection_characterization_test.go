@@ -140,11 +140,15 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 	ext.TrafficObservers = append(ext.TrafficObservers, extraTraffic)
 	ext.SessionOpeners[0] = projOpener{tag: "mutated"}
 	require.Len(t, merged.TrafficObservers, 1)
-	require.Equal(t, "feat-traffic", merged.TrafficObservers[0].(projTrafficObs).tag)
+	trafficObs, trafficObsOK := merged.TrafficObservers[0].(projTrafficObs)
+	require.True(t, trafficObsOK)
+	require.Equal(t, "feat-traffic", trafficObs.tag)
 	require.Equal(t, "opener", merged.SessionOpeners[0].ID())
 
 	merged.UsageObservers[0] = projUsageObs{tag: "mutated-source"}
-	require.Equal(t, "feat-usage", ext.UsageObservers[0].(projUsageObs).tag)
+	extUsage, extUsageOK := ext.UsageObservers[0].(projUsageObs)
+	require.True(t, extUsageOK)
+	require.Equal(t, "feat-usage", extUsage.tag)
 
 	featureExtra := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
@@ -179,12 +183,16 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	ext := extensionsFromMerged(merged, opts)
 	gotTraffic := make([]string, 0, len(ext.TrafficObservers))
 	for _, o := range ext.TrafficObservers {
-		gotTraffic = append(gotTraffic, o.(projTrafficObs).tag)
+		obs, ok := o.(projTrafficObs)
+		require.True(t, ok)
+		gotTraffic = append(gotTraffic, obs.tag)
 	}
 	require.Equal(t, []string{"feat-1", "feat-2", "host-1"}, gotTraffic)
 	gotUsage := make([]string, 0, len(ext.UsageObservers))
 	for _, o := range ext.UsageObservers {
-		gotUsage = append(gotUsage, o.(projUsageObs).tag)
+		obs, ok := o.(projUsageObs)
+		require.True(t, ok)
+		gotUsage = append(gotUsage, obs.tag)
 	}
 	require.Equal(t, []string{"feat-u", "host-u", "host-u2"}, gotUsage)
 
