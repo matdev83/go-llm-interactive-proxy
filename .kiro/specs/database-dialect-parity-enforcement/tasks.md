@@ -55,7 +55,7 @@
 
 - [ ] 2. Make every registered component expose the same stable SQLite/PostgreSQL-direct proof shape.
 
-- [ ] 2.1 Standardize continuity parity contracts
+- [x] 2.1 Standardize continuity parity contracts
   - Consolidate A-leg lifecycle, B-leg allocation/order, attempt lineage, restart persistence, interleaved-state, conversation-view, and route-override common assertions into reusable component-owned suites, reusing existing `b2buatest` and routeoverride storecontract helpers.
   - Add thin stable `TestDBParity_SQLite` and integration-tagged `TestDBParity_PostgresDirect` entry points that invoke the same common suites with backend-specific fixtures.
   - Ensure the common suite explicitly covers concurrent/monotonic B-leg allocation so both PostgreSQL `UPDATE ... RETURNING` and SQLite transaction serialization are tested against the same logical invariant.
