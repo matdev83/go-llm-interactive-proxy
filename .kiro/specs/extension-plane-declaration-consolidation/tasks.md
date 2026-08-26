@@ -35,7 +35,7 @@
   - _Requirements: 6.1_
   - _Boundary: core/runtime diagnostics, internal/testkit_
   - **Validation:** `go test ./internal/core/diag ./internal/testkit/...`
-- [ ] 1.6 Capture request-path seam-view benchmark baselines
+- [x] 1.6 Capture request-path seam-view benchmark baselines
   - Benchmark completion-gate, traffic, secret-guard, compaction, and terminal-provider seam reads with absolute ns/op, B/op, allocs/op; document which accessors defensively clone.
   - Observable completion: benchmark evidence can be compared after every wave and identifies OBSERVE, DELTA-allocation, and HOLD scenarios that #394 must refresh if baseline capture starts early.
   - _Requirements: 7.1_
