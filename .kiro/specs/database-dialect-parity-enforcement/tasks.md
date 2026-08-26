@@ -181,7 +181,7 @@
   - _Depends: 3.1–3.2_
   - _Validation: stable parity wrappers plus focused component migration tests_
 
-- [ ] 3.5 Reconcile billing migration/schema parity with the catalog (P)
+- [x] 3.5 Reconcile billing migration/schema parity with the catalog (P)
   - Reuse the existing deep SQLite/PostgreSQL `VerifySchema` logic and required migration protections rather than reimplementing them in testkit.
   - Connect discovered migration-file inventory to the billing parity wrapper so adding a migration file without registration/history/schema evidence fails.
   - Confirm retired tables/columns, immutable ledger protections, unique indexes, sequence/nullability semantics, and provider-maintenance integrity are verified on both engines at the current contract level.
