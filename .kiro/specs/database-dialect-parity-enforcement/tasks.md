@@ -83,7 +83,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/controlplane/ledgerstore -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.4 Normalize usage-authority parity entry points (P)
+- [x] 2.4 Normalize usage-authority parity entry points (P)
   - Reuse the existing authority `contract.RunSuite` for common behavior on both engines.
   - Include idempotent reserve/settle/release/apply-usage, replay/fact convergence, lost-update prevention, typed capacity failures, and common query/readiness semantics.
   - Preserve PostgreSQL cross-instance strict tests as `postgres-distributed` capability evidence and SQLite `BEGIN IMMEDIATE`/single-node behavior as SQLite posture evidence.
@@ -93,7 +93,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/usageauthority/authoritystore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.5 Normalize concurrency-authority parity entry points (P)
+- [x] 2.5 Normalize concurrency-authority parity entry points (P)
   - Extract/reuse the existing five-slot/acquire-renew-release-reclaim contract as the common logical suite for SQLite and PostgreSQL-direct.
   - Add stable parity wrappers and ensure common idempotency/CAS/capacity/query behaviors execute on both engines.
   - Catalog and retain PostgreSQL distributed-strict multi-instance/row-lock evidence separately from SQLite's explicitly single-node serialized-writer posture.
@@ -103,7 +103,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/concurrencyauthority/leasestore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.6 Normalize metering-journal parity entry points (P)
+- [x] 2.6 Normalize metering-journal parity entry points (P)
   - Identify the canonical common journal behaviors across existing phase/contract tests and consolidate them behind stable SQLite/PostgreSQL-direct wrappers without duplicating domain assertions.
   - Cover append/idempotency, corrections/reconcile-relevant persistence, query/readback, restart durability, store-scoped filters/keys, and common error semantics.
   - Keep SQLite BUSY/LOCKED bounded retry behavior as explicit SQLite-specific capability evidence and PostgreSQL pooled support as explicit pooler evidence.
@@ -112,7 +112,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/metering/journalstore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.7 Normalize terminal-work parity entry points (P)
+- [x] 2.7 Normalize terminal-work parity entry points (P)
   - Consolidate the durable work-store behaviors promised on both engines into one common suite and stable SQLite/PostgreSQL-direct wrappers.
   - Cover append/state-transition/idempotency, generation/instance identity persistence, restart/readback, contention-sensitive claims where common, and current migration compatibility.
   - Preserve PostgreSQL pooled/topology-specific evidence separately.
@@ -121,7 +121,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/terminalwork/workstore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.8 Normalize billing-store parity entry points (P)
+- [x] 2.8 Normalize billing-store parity entry points (P)
   - Inventory the existing billing store contract/invariant tests and identify the smallest canonical common suite covering persisted financial-record semantics without re-running every unrelated billing orchestration test.
   - Add stable SQLite/PostgreSQL-direct wrappers covering common account/opening/snapshot/exposure/usage/journal/provider-maintenance persistence invariants, idempotency/uniqueness, and error behavior already promised by the store.
   - Preserve existing billing-convergence certification as stronger domain evidence; the new parity wrapper must not replace financial correctness gates with a weaker generic test.
