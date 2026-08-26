@@ -153,7 +153,7 @@
   - _Depends: 1.2–1.3, 2.9_
   - _Validation: `go test ./internal/testkit/dbparity/... ./internal/archtest -run 'Migration|DatabaseParity'`_
 
-- [ ] 3.2 Define common logical schema invariant sets per component
+- [x] 3.2 Define common logical schema invariant sets per component
   - Inventory the correctness-relevant tables, columns, nullability/defaults, PK/FK/unique/check constraints, partial/correctness-critical indexes, immutability protections, and retired artifacts relied upon by each component.
   - Reuse existing `VerifySchema`/migration tests where they already express those invariants; billing's dual-engine schema verification is the reference pattern.
   - Keep invariant declarations component-owned; do not create a generic table-schema DSL more complex than the current need.
