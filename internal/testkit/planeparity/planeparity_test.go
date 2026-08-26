@@ -23,6 +23,24 @@ func (harnessHook) Handle(context.Context, *lipapi.Call, *sdkhooks.SubmitMeta) (
 	return sdkhooks.SubmitDecision{}, nil
 }
 
+type harnessRequestPartHook struct{ id string }
+
+func (h harnessRequestPartHook) ID() string                      { return h.id }
+func (harnessRequestPartHook) Order() int                        { return 0 }
+func (harnessRequestPartHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (harnessRequestPartHook) HandleRequestParts(context.Context, *lipapi.Call, sdkhooks.PartMeta) error {
+	return nil
+}
+
+type harnessResponsePartHook struct{ id string }
+
+func (h harnessResponsePartHook) ID() string                      { return h.id }
+func (harnessResponsePartHook) Order() int                        { return 0 }
+func (harnessResponsePartHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (harnessResponsePartHook) HandleEvent(context.Context, *lipapi.Event, sdkhooks.PartMeta) error {
+	return nil
+}
+
 type harnessLifecycle struct{ id string }
 
 func (harnessLifecycle) Start(context.Context) error { return nil }
@@ -41,12 +59,16 @@ func TestAssertDualPathParity_Success(t *testing.T) {
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:                    lipfeature.SchemaVersionV1,
 		SubmitHooks:                      []sdkhooks.SubmitHook{harnessHook{id: "hook-1"}},
+		RequestPartHooks:                 []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "reqpart-1"}},
+		ResponsePartHooks:                []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "resppart-1"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 		Lifecycles:                       []lipplugin.Lifecycle{harnessLifecycle{id: "life-1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:                    lipfeature.SchemaVersionV1,
 		SubmitHooks:                      []sdkhooks.SubmitHook{harnessHook{id: "hook-2"}},
+		RequestPartHooks:                 []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "reqpart-2"}},
+		ResponsePartHooks:                []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "resppart-2"}},
 		ToolCallFinalizationMaxArgsBytes: 2048,
 		TerminalDecisionProvider:         harnessTerminalProvider{id: "term-1"},
 		Lifecycles:                       []lipplugin.Lifecycle{harnessLifecycle{id: "life-2"}},
@@ -76,6 +98,8 @@ func TestMergeBundlesViaGenerated_Equivalence(t *testing.T) {
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:                    lipfeature.SchemaVersionV1,
 		SubmitHooks:                      []sdkhooks.SubmitHook{harnessHook{id: "h1"}},
+		RequestPartHooks:                 []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "rp1"}},
+		ResponsePartHooks:                []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "rsp1"}},
 		ToolCallFinalizationMaxArgsBytes: 8192,
 		TerminalDecisionProvider:         harnessTerminalProvider{id: "term-1"},
 		Lifecycles:                       []lipplugin.Lifecycle{harnessLifecycle{id: "l1"}},
@@ -83,6 +107,8 @@ func TestMergeBundlesViaGenerated_Equivalence(t *testing.T) {
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:                    lipfeature.SchemaVersionV1,
 		SubmitHooks:                      []sdkhooks.SubmitHook{harnessHook{id: "h2"}},
+		RequestPartHooks:                 []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "rp2"}},
+		ResponsePartHooks:                []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "rsp2"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 		Lifecycles:                       []lipplugin.Lifecycle{harnessLifecycle{id: "l2"}},
 	}

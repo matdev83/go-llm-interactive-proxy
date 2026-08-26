@@ -115,7 +115,7 @@
   - **Validation:** `make arch-report`
 
 - [ ] 4. Migrate the hook-bus family as W1
-- [ ] 4.1 Migrate submit, request-part, and response-part hook contributions without deleting mirrors
+- [x] 4.1 Migrate submit, request-part, and response-part hook contributions without deleting mirrors
   - Use ordered plane declarations while preserving sorting, panic behavior, and dual-path parity; keep legacy mirrors until the hook view is fully derived.
   - Observable completion: all three hook families run through generated contributions and parity stays green with no production behavior switch yet.
   - _Requirements: 1.1, 5.1, 5.3_
