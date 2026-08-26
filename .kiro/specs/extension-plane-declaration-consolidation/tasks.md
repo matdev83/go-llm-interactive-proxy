@@ -29,7 +29,7 @@
   - _Requirements: 1.2, 1.4, 4.2, 4.5, 5.1_
   - _Boundary: composition root, secret-guard runtime, internal/testkit_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... -run 'SecretGuard|TypedNil|TerminalDecision|PlaneParity'`
-- [ ] 1.5 Capture diagnostics and privilege inventory goldens
+- [x] 1.5 Capture diagnostics and privilege inventory goldens
   - Record stage coalescing, family-specific ordering, occupant labels, nil filtering, and privilege flags for a populated multi-feature configuration.
   - Observable completion: a stable golden captures byte-equivalent operator inventory output before any plane migration.
   - _Requirements: 6.1_
