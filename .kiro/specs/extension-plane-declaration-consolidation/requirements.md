@@ -67,7 +67,7 @@ The consolidation is a maintainability change: every externally observable behav
 **Objective:** As an operator diagnosing a deployment, I want the extension inventory to stay complete and accurate, so that consolidation does not create observability blind spots.
 
 #### Acceptance Criteria
-1. When a generation is built, the diagnostics inventory shall report every enabled contribution per plane with content equivalent to the pre-consolidation inventory.
+1. When a generation is built, the diagnostics inventory shall report every materialized occupant retained by each plane's frozen combined value, with content equivalent to the pre-consolidation inventory.
 2. When a new plane is declared, diagnostics coverage shall extend to it without per-plane hand-written inventory code.
 
 ### Requirement 7: Request Hot-Path Neutrality

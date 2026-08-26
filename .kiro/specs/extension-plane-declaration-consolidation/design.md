@@ -116,7 +116,8 @@ internal/featurebundle/
 ├── merge_surface.go       # Modified: Append = generated typed dispatch over catalog; fallible conflict/reduce centralized; lifecycles remain a separately owned lifecycle channel
 internal/infra/runtimebundle/
 ├── build_extension.go     # Modified: ExtensionsOptions built by generic projection; host pseudo-contributor applied here
-├── compile_generation.go  # Modified: extensionsFromMerged/overlayExtensions deleted; hooksConfigFromMerged replaced by derived hook view
+├── build_feature_hooks.go # Modified: hooksConfigFromMerged implementation replaced by generated hook-view projection; focused hook tests migrate here
+├── compile_generation.go  # Modified: extensionsFromMerged/overlayExtensions deleted; remains the caller of the derived hook view
 ├── generation_bundle.go   # Modified: operations hold FrozenPlaneSet; nil-safe accessors delegate
 ├── options.go             # Modified: ExtensionsOptions slimmed to frozen set + non-plane host/config capabilities
 ├── reasoning_preservation_compression.go # Modified: generation binder uses declared replacement operations
@@ -200,7 +201,7 @@ Key decisions: merging happens once per candidate compile (not per request); exc
 ```go
 type SourceKind uint8   // SourceFeature, SourceHost, SourceGenerationBinder
 type Multiplicity uint8 // MultOrdered, MultExclusive
-type Combination  uint8 // CombConcatenate, CombExclusive, CombReduce, CombReplaceByIdentity
+type Combination  uint8 // CombUnsupported zero value, CombConcatenate, CombExclusive, CombReduce, CombReplaceByIdentity
 
 type SourceRules struct {
     Feature          Combination
@@ -219,9 +220,10 @@ type Plane[T any] struct {
     ID           string      // stable, unique, diagnostic-facing
     Multiplicity Multiplicity
     Rules        SourceRules // fixed explicit sources; zero means unsupported
+    NilPolicy    NilPolicy   // NilNotApplicable, NilReject, NilSkip
     Validate     func(v T) error
     Combine      func(source SourceKind, current, incoming T) (T, error)
-    Identity     func(v T) (string, bool) // optional provider-identity/replace key
+    Identity     func(v T) (string, bool) // required for exclusive/replace-by-identity rules
     Diagnostics  DiagnosticDescriptor[T]
     generated    generatedAccess[T] // unexported closure binding to generated typed storage
 }
@@ -229,16 +231,18 @@ type Plane[T any] struct {
 type generatedAccess[T any] struct {
     contribute func(*generatedContributions, string, T) error
     get        func(*generatedFrozen) T
+    identity   func(*generatedFrozen) (string, bool)
 }
 
 // Go methods cannot take type parameters; both operations are package-level functions.
 func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) error
 func Get[P any](s FrozenPlaneSet, p Plane[P]) P
+func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool)
 ```
 
-- Preconditions: manifest contains exactly one entry per `ID`; generation/check output is current; every source accepted by a plane has a declared rule; diagnostics metadata is complete for inventory-visible planes. Manifest generation binds each `Plane[T]` to unexported typed closures selecting its generated field; generated dispatch may not use `any`, type assertions, reflection, unsafe, or key lookup.
+- Preconditions: manifest contains exactly one entry per `ID`; generation/check output is current; `CombUnsupported` is the only unsupported-source value; every supported source has a nonzero compatible rule; exclusive/replace-by-identity rules have an identity extractor and generated frozen-identity accessor; diagnostics metadata is complete for inventory-visible planes. Manifest generation binds each `Plane[T]` to unexported typed closures selecting its generated value and metadata fields; generated dispatch may not use `any`, type assertions, reflection, unsafe, or key lookup.
 - Postconditions: `FrozenPlaneSet` values never mutate after publication; empty ordered results normalize to non-nil slices.
-- Invariants: exclusive slots hold at most one value with recorded validated identity; fallible combinations validate before mutating the candidate; reduce applies in registration order; generated storage has one typed field per plane but no hand-maintained mirrors.
+- Invariants: exclusive slots hold at most one value with recorded validated identity; fallible combinations validate before mutating the candidate; reduce applies in registration order; generated storage has one typed value field plus required metadata per plane but no hand-maintained mirrors. For interface-valued planes, generated contribution handling applies `NilPolicy` before `Validate`, then `Combine`; diagnostics materialization observes only the retained post-policy frozen value. `NilReject` fails before candidate mutation, while `NilSkip` omits the value consistently from combination and diagnostics.
 
 #### ContributionSet
 
@@ -279,7 +283,7 @@ func Contribute[T any](c *ContributionSet, p Plane[T], pluginID string, v T) err
 ### Observability & Gates Layer
 
 #### Diagnostics projector
-- Iterates generated diagnostics descriptors; descriptors carry stage/coalescing identity, occupant-label materialization, nil filtering, family-specific ordering, and privilege projection. The projector emits byte-equivalent `InventoryStageOccupancy` and privilege records; adding a plane with complete metadata requires no projector branch (6.1, 6.2).
+- Iterates generated diagnostics descriptors over each plane's retained frozen value; descriptors carry stage/coalescing identity, occupant-label materialization, nil filtering, family-specific ordering, and privilege projection. The projector emits byte-equivalent `InventoryStageOccupancy` and privilege records for materialized occupants; adding a plane with complete metadata requires no projector branch (6.1, 6.2).
 
 #### Archtest ratchets (`internal/archtest/plane_rules.go`)
 - Scan rejects these exact shapes outside generated files and the explicit compatibility/stage-consumer whitelist: named `FeatureBundle` plane fields after their wave; named `MergedFeatureSurface` plane fields; per-plane branches in `Append`, `extensionsFromMerged`, `overlayExtensions`, and `hooksConfigFromMerged`; named `ExtensionsOptions` plane fields after their wave; generation-operation plane fields/accessors not delegating to `Get`; and diagnostics switch/if arms keyed to plane fields. Generated typed fields are the only allowed projection.
@@ -348,7 +352,7 @@ Rollback: each wave is a standalone revertible PR; parity harness remains author
 
 ## Security Considerations
 
-No new auth surfaces or data flows. Secret-guard evaluation semantics untouched; only its wiring route changes. Exclusive-provider removal restores generic no-provider behavior (verified by E2E 9).
+No new auth surfaces or data flows. Secret-guard evaluation semantics untouched; only its wiring route changes. Exclusive-provider removal restores generic no-provider behavior (verified by E2E 11).
 
 ## Performance & Scalability
 
