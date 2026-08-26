@@ -18,7 +18,7 @@
 
 - [ ] 1. Establish the typed parity catalog and deterministic repository discovery.
 
-- [ ] 1.1 Re-audit the implementation-time tree and freeze the initial component/contract inventory
+- [x] 1.1 Re-audit the implementation-time tree and freeze the initial component/contract inventory
   - Re-run searches for Bun migration families, SQLite/PostgreSQL runtime store branches, dialect-sensitive store packages, PostgreSQL integration tests, and compile-time store-interface assertions against current `main`.
   - Reconcile the eight current candidate families: continuity, secure sessions, control-plane ledger, usage authority, concurrency authority, metering journal, terminal work, and billing. Add/remove candidates only when the live code proves support changed since this spec was written.
   - For each component, record production `SourceRoots`, executable `TestPackages`, migration roots, important consumer-owned store interfaces/capabilities, and existing shared contract assets.
