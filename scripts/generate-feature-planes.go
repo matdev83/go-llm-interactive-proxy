@@ -46,7 +46,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error reading existing generated file %s: %v\n", outPath, err)
 			os.Exit(1)
 		}
-		if !bytes.Equal(existing, formatted) {
+		// Normalize CRLF → LF for Windows checkouts where git may have converted line endings.
+		normExisting := bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n"))
+		normFormatted := bytes.ReplaceAll(formatted, []byte("\r\n"), []byte("\n"))
+		if !bytes.Equal(normExisting, normFormatted) {
 			fmt.Fprintf(os.Stderr, "ERROR: generated file %s is stale or differs from manifest\nRun 'go run ./scripts/generate-feature-planes.go' to regenerate.\n", outPath)
 			os.Exit(1)
 		}
