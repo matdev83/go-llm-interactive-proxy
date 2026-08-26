@@ -50,7 +50,7 @@
   - **Validation:** `go test ./internal/core/extensions ./internal/infra/runtimebundle -run 'Publish.*Pinned|Frozen.*Generation'; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
 
 - [ ] 2. Build the single hand-authored manifest and deterministic typed adapters
-- [ ] 2.1 Define multiplicity, source-rule, fallible-combine, and attribution contracts
+- [x] 2.1 Define multiplicity, source-rule, fallible-combine, and attribution contracts
   - Define ordered/exclusive multiplicity, an explicit unsupported source-rule sentinel, per-source combination rules, validation, attributed errors, and fail-before-mutate behavior.
   - Observable completion: RED/GREEN contract tests reject incomplete source rules and preserve both validated identities on exclusive conflict.
   - _Requirements: 2.4, 3.2, 4.1, 4.2, 4.4, 4.5_
