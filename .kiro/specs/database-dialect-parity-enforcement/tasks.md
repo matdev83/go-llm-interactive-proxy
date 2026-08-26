@@ -143,7 +143,7 @@
 
 - [ ] 3. Build dual-engine migration/schema proof for every registered component.
 
-- [ ] 3.1 Implement reusable migration-file discovery and applied-history assertions
+- [x] 3.1 Implement reusable migration-file discovery and applied-history assertions
   - Discover versioned migration IDs from each catalog `MigrationRoot` using the repository's timestamped Go migration naming convention, excluding `_test.go` and explicitly recognized non-migration files deterministically.
   - Give each component parity suite a helper that verifies every discovered migration ID is recorded after empty-to-current migration on SQLite and PostgreSQL.
   - Fail on a new versioned migration file that is not exercised/applied by the component's migration registry on either backend.

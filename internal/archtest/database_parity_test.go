@@ -301,4 +301,69 @@ func TestDatabaseParity_SharedInfraClassification(t *testing.T) {
 	}
 }
 
+// TestDatabaseParity_MigrationIDDiscoveryConsistency verifies that discovering versioned migrations
+// via dbparity.DiscoverMigrations for each catalog migration root yields valid, strictly ascending
+// migration IDs, that every migration file found by the AST/filesystem scanner DiscoverMigrationRoots
+// is accounted for, and that no migration root is empty.
+func TestDatabaseParity_MigrationIDDiscoveryConsistency(t *testing.T) {
+	t.Parallel()
+	repoRoot := repoRoot(t)
+	catalog := dbparity.DefaultCatalog()
+
+	discoveredRoots, err := DiscoverMigrationRoots(repoRoot)
+	if err != nil {
+		t.Fatalf("DiscoverMigrationRoots: %v", err)
+	}
+
+	for _, comp := range catalog.Components {
+		for _, migRoot := range comp.MigrationRoots {
+			absDir := filepath.Join(repoRoot, filepath.FromSlash(migRoot))
+			migrations, err := dbparity.DiscoverMigrations(absDir)
+			if err != nil {
+				t.Fatalf("Component %q: DiscoverMigrations(%s): %v", comp.ID, migRoot, err)
+			}
+			if len(migrations) == 0 {
+				t.Errorf("Component %q: migration root %q has 0 discovered migrations", comp.ID, migRoot)
+				continue
+			}
+
+			// Verify consistency with DiscoverMigrationRoots
+			expectedFiles, found := discoveredRoots[migRoot]
+			if !found {
+				t.Errorf("Component %q: migration root %q not found in DiscoverMigrationRoots", comp.ID, migRoot)
+				continue
+			}
+
+			// Verify strictly ascending timestamps and valid 14-digit format
+			discoveredIDSet := make(map[string]bool, len(migrations))
+			var prevID string
+			for _, m := range migrations {
+				if len(m.ID) != 14 {
+					t.Errorf("Component %q migration %q has invalid timestamp ID %q (length %d != 14)",
+						comp.ID, m.Filename, m.ID, len(m.ID))
+				}
+				if prevID != "" && m.ID <= prevID {
+					t.Errorf("Component %q migration %q (ID %s) is not strictly after previous migration (ID %s)",
+						comp.ID, m.Filename, m.ID, prevID)
+				}
+				prevID = m.ID
+				discoveredIDSet[m.ID] = true
+			}
+
+			// Ensure every physical migration file found by the scanner is covered by a discovered migration ID
+			for _, expFile := range expectedFiles {
+				base := filepath.Base(expFile)
+				if len(base) < 14 {
+					continue
+				}
+				fileID := base[:14]
+				if !discoveredIDSet[fileID] {
+					t.Errorf("Component %q: scanner migration file %q (ID %s) is missing from dbparity.DiscoverMigrations",
+						comp.ID, expFile, fileID)
+				}
+			}
+		}
+	}
+}
+
 
