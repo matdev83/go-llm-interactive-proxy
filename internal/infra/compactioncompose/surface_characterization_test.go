@@ -138,7 +138,6 @@ func TestBindFeatureSurface_PreserverReplacementOrder(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			merged := featurebundle.MergedFeatureSurface{
@@ -353,7 +352,7 @@ func TestBindFeatureSurface_Idempotence(t *testing.T) {
 	require.Len(t, res2.CompactionPreservers, 3)
 	require.Len(t, res3.CompactionPreservers, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		assert.Equal(t, res1.CompactionPreservers[i].ID(), res2.CompactionPreservers[i].ID())
 		assert.Equal(t, res1.CompactionPreservers[i].ID(), res3.CompactionPreservers[i].ID())
 	}

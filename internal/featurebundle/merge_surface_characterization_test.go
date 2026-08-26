@@ -320,80 +320,201 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 		got  func(MergedFeatureSurface) []string
 	}{
 		{"SubmitHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.SubmitHooks, func(h sdkhooks.SubmitHook) string { return h.(charSubmitHook).tag })
+			return charTags(m.SubmitHooks, func(h sdkhooks.SubmitHook) string {
+				if sh, ok := h.(charSubmitHook); ok {
+					return sh.tag
+				}
+				return ""
+			})
 		}},
 		{"RequestPartHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestPartHooks, func(h sdkhooks.RequestPartHook) string { return h.(charRequestPartHook).tag })
+			return charTags(m.RequestPartHooks, func(h sdkhooks.RequestPartHook) string {
+				if rh, ok := h.(charRequestPartHook); ok {
+					return rh.tag
+				}
+				return ""
+			})
 		}},
 		{"ResponsePartHooks", func(m MergedFeatureSurface) []string {
-			return charTags(m.ResponsePartHooks, func(h sdkhooks.ResponsePartHook) string { return h.(charResponsePartHook).tag })
+			return charTags(m.ResponsePartHooks, func(h sdkhooks.ResponsePartHook) string {
+				if rh, ok := h.(charResponsePartHook); ok {
+					return rh.tag
+				}
+				return ""
+			})
 		}},
 		{"ToolReactors", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolReactors, func(h sdkhooks.ToolReactor) string { return h.(charToolReactor).tag })
+			return charTags(m.ToolReactors, func(h sdkhooks.ToolReactor) string {
+				if tr, ok := h.(charToolReactor); ok {
+					return tr.tag
+				}
+				return ""
+			})
 		}},
 		{"Lifecycles", func(m MergedFeatureSurface) []string {
-			return charTags(m.Lifecycles, func(l lipplugin.Lifecycle) string { return l.(charLifecycle).tag })
+			return charTags(m.Lifecycles, func(l lipplugin.Lifecycle) string {
+				if lc, ok := l.(charLifecycle); ok {
+					return lc.tag
+				}
+				return ""
+			})
 		}},
 		{"SessionOpeners", func(m MergedFeatureSurface) []string {
-			return charTags(m.SessionOpeners, func(o session.Opener) string { return o.(charOpener).tag })
+			return charTags(m.SessionOpeners, func(o session.Opener) string {
+				if op, ok := o.(charOpener); ok {
+					return op.tag
+				}
+				return ""
+			})
 		}},
 		{"WorkspaceResolvers", func(m MergedFeatureSurface) []string {
-			return charTags(m.WorkspaceResolvers, func(r lipworkspace.Resolver) string { return r.(charResolver).tag })
+			return charTags(m.WorkspaceResolvers, func(r lipworkspace.Resolver) string {
+				if wr, ok := r.(charResolver); ok {
+					return wr.tag
+				}
+				return ""
+			})
 		}},
 		{"ToolCatalogFilters", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCatalogFilters, func(f toolcatalog.Filter) string { return f.(charCatalogFilter).tag })
+			return charTags(m.ToolCatalogFilters, func(f toolcatalog.Filter) string {
+				if cf, ok := f.(charCatalogFilter); ok {
+					return cf.tag
+				}
+				return ""
+			})
 		}},
 		{"ToolCallPolicies", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallPolicies, func(p toolpolicy.Policy) string { return p.(charPolicy).tag })
+			return charTags(m.ToolCallPolicies, func(p toolpolicy.Policy) string {
+				if cp, ok := p.(charPolicy); ok {
+					return cp.tag
+				}
+				return ""
+			})
 		}},
 		{"ToolCallFinalizers", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallFinalizers, func(f toolcall.Finalizer) string { return f.(charFinalizer).tag })
+			return charTags(m.ToolCallFinalizers, func(f toolcall.Finalizer) string {
+				if cf, ok := f.(charFinalizer); ok {
+					return cf.tag
+				}
+				return ""
+			})
 		}},
 		{"RequestTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestTransforms, func(tr request.Transform) string { return tr.(charTransform).tag })
+			return charTags(m.RequestTransforms, func(tr request.Transform) string {
+				if rt, ok := tr.(charTransform); ok {
+					return rt.tag
+				}
+				return ""
+			})
 		}},
 		{"PreRequestHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.PreRequestHandlers, func(h prerequest.Handler) string { return h.(charPreReq).tag })
+			return charTags(m.PreRequestHandlers, func(h prerequest.Handler) string {
+				if pr, ok := h.(charPreReq); ok {
+					return pr.tag
+				}
+				return ""
+			})
 		}},
 		{"RouteHintProviders", func(m MergedFeatureSurface) []string {
-			return charTags(m.RouteHintProviders, func(p routehint.Provider) string { return p.(charRouteHint).tag })
+			return charTags(m.RouteHintProviders, func(p routehint.Provider) string {
+				if rh, ok := p.(charRouteHint); ok {
+					return rh.tag
+				}
+				return ""
+			})
 		}},
 		{"CompletionGates", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompletionGates, func(g completion.Gate) string { return g.(charCompGate).tag })
+			return charTags(m.CompletionGates, func(g completion.Gate) string {
+				if cg, ok := g.(charCompGate); ok {
+					return cg.tag
+				}
+				return ""
+			})
 		}},
 		{"AttemptTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.AttemptTransforms, func(tr request.AttemptTransform) string { return tr.(charAttemptTransform).tag })
+			return charTags(m.AttemptTransforms, func(tr request.AttemptTransform) string {
+				if at, ok := tr.(charAttemptTransform); ok {
+					return at.tag
+				}
+				return ""
+			})
 		}},
 		{"StreamObserverFactories", func(m MergedFeatureSurface) []string {
-			return charTags(m.StreamObserverFactories, func(f response.StreamObserverFactory) string { return f.(charStreamObserverFactory).tag })
+			return charTags(m.StreamObserverFactories, func(f response.StreamObserverFactory) string {
+				if so, ok := f.(charStreamObserverFactory); ok {
+					return so.tag
+				}
+				return ""
+			})
 		}},
 		{"TrafficObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.TrafficObservers, func(o traffic.Observer) string { return o.(charTrafficObs).tag })
+			return charTags(m.TrafficObservers, func(o traffic.Observer) string {
+				if to, ok := o.(charTrafficObs); ok {
+					return to.tag
+				}
+				return ""
+			})
 		}},
 		{"UsageObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.UsageObservers, func(o usage.Observer) string { return o.(charUsageObs).tag })
+			return charTags(m.UsageObservers, func(o usage.Observer) string {
+				if uo, ok := o.(charUsageObs); ok {
+					return uo.tag
+				}
+				return ""
+			})
 		}},
 		{"RawCaptureSinks", func(m MergedFeatureSurface) []string {
-			return charTags(m.RawCaptureSinks, func(s traffic.RawCaptureSink) string { return s.(charRawSink).tag })
+			return charTags(m.RawCaptureSinks, func(s traffic.RawCaptureSink) string {
+				if rs, ok := s.(charRawSink); ok {
+					return rs.tag
+				}
+				return ""
+			})
 		}},
 		{"TrafficRedactors", func(m MergedFeatureSurface) []string {
-			return charTags(m.TrafficRedactors, func(r traffic.Redactor) string { return r.(charRedactor).tag })
+			return charTags(m.TrafficRedactors, func(r traffic.Redactor) string {
+				if tr, ok := r.(charRedactor); ok {
+					return tr.tag
+				}
+				return ""
+			})
 		}},
 		{"CompactionObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionObservers, func(o compaction.Observer) string { return o.(charCompactionObs).tag })
+			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
+				if co, ok := o.(charCompactionObs); ok {
+					return co.tag
+				}
+				return ""
+			})
 		}},
 		{"CompactionPreservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionPreservers, func(p compaction.Preserver) string { return p.(charCompactionPreserver).tag })
+			return charTags(m.CompactionPreservers, func(p compaction.Preserver) string {
+				if cp, ok := p.(charCompactionPreserver); ok {
+					return cp.tag
+				}
+				return ""
+			})
 		}},
 		{"SecretGuards", func(m MergedFeatureSurface) []string {
-			return charTags(m.SecretGuards, func(g secretguard.Guard) string { return g.(charSecretGuard).tag })
+			return charTags(m.SecretGuards, func(g secretguard.Guard) string {
+				if sg, ok := g.(charSecretGuard); ok {
+					return sg.tag
+				}
+				return ""
+			})
 		}},
 		{"LocalTurnHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string { return h.(charLocalTurnHandler).tag })
+			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string {
+				if lh, ok := h.(charLocalTurnHandler); ok {
+					return lh.tag
+				}
+				return ""
+			})
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			require.Equal(t, want, tt.got(merged))
 		})
 	}

@@ -88,7 +88,7 @@
   - _Boundary: SDK/public contract_
   - _Depends: 2.1, 2.3_
   - **Validation:** `go test ./pkg/lipsdk/feature/...`
-- [ ] 2.6 Implement the generated merge path and dual-path parity switch
+- [x] 2.6 Implement the generated merge path and dual-path parity switch
   - Merge feature contributions in registration order through the generated adapters.
   - Keep lifecycle ownership on the existing separate side channel; it is not a feature plane.
   - Observable completion: the W0 parity suite runs through both legacy and generated paths with byte-equivalent results and fail-before-mutate errors.
