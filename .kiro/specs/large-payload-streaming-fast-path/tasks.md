@@ -195,26 +195,28 @@ This is a regression-sensitive brownfield optimization. Follow these rules for e
   - _Requirements: 1, 4, 14_
 
 - [ ] 5.2 Implement exact threshold/admission branching with no below-threshold regression
-  - Order: existing handler auth/content-type → feature/profile/executor gate → positive known length below threshold → old canonical `reqbody.ReadAll` path.
-  - Unknown/chunked requests may enter capture, but if final decoded size is below threshold they must materialize and use canonical decode.
+  - Order: existing handler auth/content-type → feature/profile/executor gate → **frontend-owned request traffic gate** → positive known length below threshold → old canonical `reqbody.ReadAll` path.
+  - If `frontendpipe.Spec.TrafficPorts` (or the current equivalent frontend ingress traffic bundle) is non-noop and its request emission still requires a complete `[]byte`, select the ordinary canonical path **before creating a capture/spool**. This preserves the existing frontend-owned `traffic.Emit` order; do not defer this adapter fact to core or skip the emission inside `Canonicalize`.
+  - Unknown/chunked requests may enter capture only after that frontend traffic gate, but if final decoded size is below threshold they must materialize and use canonical decode.
   - Existing `MaxRequestBodyBytes` remains the request admission ceiling; optimization threshold is never a second acceptance limit.
   - For this wave, gzip always goes directly to the existing canonical gzip path.
-  - Add allocation tests proving disabled/nil-profile/below-threshold requests do not create spool files or materially increase allocations.
+  - Add tests proving non-noop frontend ingress traffic selects canonical processing, emits exactly once in the current order, and never calls `ExecuteLargeBody`.
+  - Add allocation tests proving disabled/nil-profile/frontend-traffic-blocked/below-threshold requests do not create spool files or materially increase allocations.
   - _Boundary: frontend plugin infrastructure_
   - _Depends: 3.4, 5.1_
   - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 1, 2, 10, 15, 16_
+  - _Requirements: 1, 2, 5, 10, 12, 15, 16_
 
 - [ ] 5.3 Wire capture + scanner + profile proof and construct a trusted `Canonicalize` callback
   - Consume the body to EOF under the existing request limit before creating a wire execution request.
   - Scanner/profile uncertainty must materialize capture and invoke the existing `jsonguard` + `Spec.Decode` + `Call.Validate` + `AfterDecode`/frontend validation order, not create a new approximate error.
-  - `Canonicalize` must reopen/materialize the completed capture and execute the same existing decoder/validator functions. It must not write HTTP output or begin executor/session work.
+  - `Canonicalize` must reopen/materialize the completed capture and execute the same existing decoder/validator functions. It must not write HTTP output, emit frontend ingress traffic that was already ruled out by 5.2, or begin executor/session work.
   - On proven eligibility, transfer source ownership exactly once to `LargeBodyExecutorView.ExecuteLargeBody` and route the returned canonical event stream through the existing frontend response encoder.
   - Add ownership tests proving no source leak on ExecuteLargeBody error or stream close.
   - _Boundary: frontend plugin infrastructure_
   - _Depends: 3.4, 4.3, 5.2_
   - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/...`_
-  - _Requirements: 1, 3, 4, 6, 13_
+  - _Requirements: 1, 3, 4, 6, 12, 13_
 
 ## 6. Split Canonical Executor Preparation Safely, With Characterization Tests as a Hard Gate
 
@@ -270,8 +272,9 @@ This is a regression-sensitive brownfield optimization. Follow these rules for e
   - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/core/extensions/... ./internal/archtest/...`_
   - _Requirements: 5, 12, 16_
 
-- [ ] 7.3 Add static core eligibility blockers that can be evaluated before `BeginTurn`
-  - Check feature disabled/profile unsupported, access-summary blockers, request-side traffic capture/redactor/observer contracts requiring `[]byte`, and other generation-global canonical-content authorities.
+- [ ] 7.3 Add static **core-owned** eligibility blockers that can be evaluated before `BeginTurn`
+  - Check feature disabled/profile unsupported, access-summary blockers, core canonical/CTP traffic capture or redaction/observation contracts that require a canonical/full body, and other generation-global core authorities.
+  - Do **not** move the frontend adapter's `frontendpipe.Spec.TrafficPorts` decision here; Task 5.2 owns that earlier gate so the current frontend ingress emission order cannot be skipped.
   - Add explicit conservative checks for billing/account/pricing/token-estimator/caps-resolver callbacks that still accept only `lipapi.Call` and can affect authorization/routing.
   - Return bounded fallback reasons, not errors.
   - Prove static fallback occurs before `BeginTurn` with counters from the Task 6 harness.
@@ -568,7 +571,7 @@ This is a regression-sensitive brownfield optimization. Follow these rules for e
 
 - [ ] 16.3 Re-run the canonical characterization suite with the feature disabled and with every forced-fallback condition
   - Feature disabled must reproduce Task 1 behavior and benchmark shape within expected noise.
-  - Force each fallback reason at least once: below threshold, unsupported frontend/profile, gzip pre-Wave-2 path, extension stage, traffic capture, billing/call-only estimator, conversation projection, incompatible route/backend, replay/race incompatibility, unsafe rewrite, spool budget.
+  - Force each fallback reason at least once: below threshold, unsupported frontend/profile, **frontend ingress traffic capture**, gzip pre-Wave-2 path, extension/core traffic stage, billing/call-only estimator, conversation projection, incompatible route/backend, replay/race incompatibility, unsafe rewrite, spool budget.
   - Assert none of these conditions changes client-visible behavior versus direct canonical execution.
   - _Boundary: regression / conformance tests_
   - _Depends: 15, 16.2_
