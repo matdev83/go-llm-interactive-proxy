@@ -71,7 +71,7 @@ V1 does not use a deep `Canonicalize` callback from core and does not split secu
 Instead the optional executor seam is conceptually:
 
 ```go
-// Illustrative public/provider-neutral shape.
+// Illustrative internal/provider-neutral shape. Public lipsdk.ExecutorView is unchanged in V1.
 type LargeBodyExecutorView interface {
     AssessLargeBody(context.Context, AssessmentRequest) (Assessment, error)
     ExecuteLargeBody(context.Context, ExecuteRequest) (ExecutionResult, error)
@@ -97,7 +97,7 @@ exact canonical identity digest + bounded wire facts
 core AssessLargeBody(wire facts)
 ```
 
-`AssessLargeBody` is side-effect-free: no `BeginTurn`, store mutation, DB write, billing reservation, provider network call, or per-turn allocation with externally visible lifecycle semantics. It reads only immutable/frozen generation composition and calls pure backend wire-support functions.
+`AssessLargeBody` is side-effect-free: no `BeginTurn`, store read or mutation, DB I/O, billing reservation, provider network call, spill filesystem work, client-body wait, or arbitrary unbounded plugin work. It reads only immutable/frozen generation composition and calls pure backend wire-support functions. Its additional decode-permit hold is explicitly benchmarked and bounded by generation-sized data structures.
 
 ### Decline
 
@@ -133,7 +133,7 @@ No expected condition after this point requires a canonical Call. If execution f
 
 ### Assessment stamp
 
-Assessment returns an opaque provider-neutral stamp, e.g. generation ID + digest/token over immutable assessment inputs. Execution validates that it is running on the same executor/generation and that the proof inputs have not changed. Backend-specific plan objects do not cross the SDK boundary; execution may recompute pure support checks and assert identical results.
+Assessment returns an opaque provider-neutral stamp, e.g. generation ID + digest/token over immutable assessment inputs. Execution validates that it is running on the same executor/generation and that the proof inputs have not changed. Backend-specific plan objects do not cross the internal frontend/core seam, and the public SDK remains unchanged; execution may recompute pure support checks and assert identical results.
 
 ---
 
@@ -165,7 +165,7 @@ Rules:
 
 ## 4. Replayable Body Source
 
-Provider-neutral SDK contract:
+Internal provider-neutral V1 contract; this is not new public SDK surface:
 
 ```go
 type Span struct {
@@ -179,6 +179,8 @@ type Source struct {
     Close func() error
 }
 ```
+
+All first-wave consumers are built-in frontend/core/backend packages. Existing public `lipsdk.ExecutorView` and external/manual executors remain unchanged and canonical-only. Promotion of these low-level replay/proof/assessment types to `pkg/lipsdk` would require a separate API/ABI/versioning review once a concrete external consumer exists.
 
 Capture state:
 
@@ -198,6 +200,16 @@ Invariants:
 - root close marks deletion pending; last tracked reader performs final file removal;
 - no goroutine per body chunk and no cleanup-wait goroutine;
 - every consumed byte remains recoverable until frontend chooses canonical fallback or ownership transfers to wire execution.
+
+Mid-capture optimization failure has an explicit no-rewind contract. Capture retains the current input chunk until its destination write has fully succeeded. On a short/partial file or memory write, only the written prefix is treated as durable and the unwritten suffix stays owned by capture. A canonical-continuation reader then presents exactly:
+
+```text
+successfully retained memory/file prefix
++ current unwritten suffix
++ still-unread client body
+```
+
+under the existing request-size ceiling. It may materialize the ordinary canonical `[]byte` because the optimization has been abandoned, but it must never restart or reread the client socket. Reservation decline, file-create failure, partial write, exact-limit boundaries, cancellation, and randomized chunk splits are fault-tested byte-for-byte against direct canonical reading.
 
 Capture computes an incremental **source digest** over decoded identity bytes. This is useful for immutability/replay/widening evidence but is distinct from the canonical semantic identity digest described later.
 
@@ -385,7 +397,7 @@ It performs only pure/frozen work:
 9. validate replay/parallel/model-rewrite requirements;
 10. return a generation-bound assessment stamp.
 
-No secure-session store lookup, route-override store read, token reservation, DB write, provider request, or other turn side effect occurs here.
+No secure-session store lookup, route-override store read, token reservation, DB I/O, provider request, spill I/O, client-body wait, or other turn side effect occurs here.
 
 If accounting/token preflight needs an exact input count and no wire counter exists, assessment declines now while the same decode permit is still held.
 
@@ -424,11 +436,11 @@ A heterogeneous generation containing a canonical-only backend may make the rout
 
 ## 11. Backend Wire Contract
 
-Backends need both exact-candidate and, where necessary, domain-wide proof. Illustrative shape:
+Backends need both exact-candidate and, where necessary, domain-wide proof. Illustrative internal shape:
 
 ```go
 type WireRequestFacts struct {
-    ProfileID            requestbody.ProfileID
+    ProfileID            largebody.ProfileID
     Operation            lipapi.Operation
     DeliveryMode         lipapi.DeliveryMode
     ProtocolRequirements lipapi.ProtocolRequirements
@@ -438,7 +450,7 @@ type WireRequestFacts struct {
 }
 
 type WireDomainFacts struct {
-    ProfileID            requestbody.ProfileID
+    ProfileID            largebody.ProfileID
     Operation            lipapi.Operation
     DeliveryMode         lipapi.DeliveryMode
     ProtocolRequirements lipapi.ProtocolRequirements
@@ -706,6 +718,7 @@ All threshold/reservation limits are decoded bytes.
 | Stage | Decode permit held? | Turn begun? | Provider body committed? | Outcome |
 |---|---:|---:|---:|---|
 | body limit/shared JSON error | no | no | no | existing frontend error |
+| mid-capture replay/spill decline | no | no | no | lossless stitched canonical continuation; existing path |
 | decode admission reject | no permit acquired | no | no | existing 429/503 semantics |
 | semantic profile decline | yes | no | no | canonical Decode under same permit |
 | core assessment decline | yes | no | no | canonical Decode under same permit |
@@ -749,7 +762,7 @@ No backend/model/user/session IDs in metric labels and no body/path/resume token
 
 Benchmarks compare disabled canonical vs wire for 32 KiB, 256 KiB, 1 MiB, 5 MiB, and test-only 20 MiB bodies. Measure allocs/B/op, CPU, GC/heap under concurrency, file I/O, replay, malformed/late metadata, giant strings, slow uploads, and spool saturation.
 
-Measure the decode permit's additional hold across `AssessLargeBody`; it must remain bounded/pure and must never include client upload, DB access, or provider I/O.
+Measure the decode permit's additional hold across `AssessLargeBody`; it must remain bounded/pure and must never include client upload, DB/store access, spill I/O, or provider I/O.
 
 Publish realistic eligibility for:
 
@@ -771,7 +784,8 @@ Tests/codegen fail if:
 
 - a production typed plane is unclassified;
 - a production hook/non-plane request authority is absent from wire eligibility inventory;
-- provider names/types enter core/requestbody SDK contracts;
+- provider names/types enter core/internal large-body contracts;
+- V1 low-level replay/proof/assessment types are promoted to public SDK without explicit API/ABI review;
 - protocol semantic proof runs outside decode admission;
 - assessment performs turn/store/provider side effects;
 - expected canonical fallback is added after wire commit;
@@ -789,7 +803,7 @@ Tests/codegen fail if:
 No production profile advertises wire support until these are green:
 
 1. canonical ingress/decode-admission/lifecycle/response/economic identity characterization;
-2. replay source + shared scanner differential/fuzz suite;
+2. replay source + mid-capture continuation + shared scanner differential/fuzz suite;
 3. exact canonical identity-digest differential suite;
 4. typed plane + hook + non-plane frozen eligibility summary/ratchets;
 5. standard secure-session wire input/recorder/session-response-carrier parity;
