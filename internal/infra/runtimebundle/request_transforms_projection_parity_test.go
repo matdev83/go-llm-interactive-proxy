@@ -200,9 +200,9 @@ func TestRequestTransformsProjection_NilVsEmptySemantics(t *testing.T) {
 		opts := &BuildOptions{FeaturePlanes: gen.Frozen}
 		snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
 
-		assert.Empty(t, snap.RequestTransforms())
-		assert.Empty(t, snap.PreRequestHandlers())
-		assert.Empty(t, snap.AttemptTransforms())
+		assert.Nil(t, snap.RequestTransforms())
+		assert.Nil(t, snap.PreRequestHandlers())
+		assert.Nil(t, snap.AttemptTransforms())
 	})
 
 	t.Run("explicitly_empty_slices_normalize_properly", func(t *testing.T) {
@@ -216,13 +216,17 @@ func TestRequestTransformsProjection_NilVsEmptySemantics(t *testing.T) {
 		gen, err := featurebundle.MergeBundlesGenerated(b)
 		require.NoError(t, err)
 
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms))
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers))
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms))
+
 		bus := hooks.New(hooks.Config{})
 		opts := &BuildOptions{FeaturePlanes: gen.Frozen}
 		snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
 
-		assert.Empty(t, snap.RequestTransforms())
-		assert.Empty(t, snap.PreRequestHandlers())
-		assert.Empty(t, snap.AttemptTransforms())
+		assert.Nil(t, snap.RequestTransforms())
+		assert.Nil(t, snap.PreRequestHandlers())
+		assert.Nil(t, snap.AttemptTransforms())
 	})
 }
 
@@ -264,10 +268,39 @@ func TestRequestTransformsProjection_BackingArrayIsolation(t *testing.T) {
 	assert.Equal(t, "rt-orig", snapRT2[0].ID())
 }
 
+func TestRequestTransformsProjection_RequestTransformsTypedNilRejection(t *testing.T) {
+	t.Parallel()
+
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{nil},
+	}
+
+	_, err := featurebundle.MergeBundlesGenerated(b)
+	require.Error(t, err, "nil RequestTransforms element must fail MergeBundlesGenerated")
+	var attrErr *lipfeature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, lipfeature.PlaneRequestTransforms.ID, attrErr.PlaneID)
+}
+
+func TestRequestTransformsProjection_PreRequestHandlersTypedNilRejection(t *testing.T) {
+	t.Parallel()
+
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		PreRequestHandlers: []prerequest.Handler{nil},
+	}
+
+	_, err := featurebundle.MergeBundlesGenerated(b)
+	require.Error(t, err, "nil PreRequestHandlers element must fail MergeBundlesGenerated")
+	var attrErr *lipfeature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, lipfeature.PlanePreRequestHandlers.ID, attrErr.PlaneID)
+}
+
 func TestRequestTransformsProjection_AttemptTransformsTypedNilRejection(t *testing.T) {
 	t.Parallel()
 
-	// AttemptTransforms rejects nil entries under PlaneAttemptTransforms.Validate
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		AttemptTransforms: []request.AttemptTransform{nil},
@@ -512,7 +545,361 @@ func TestCompileGeneration_DisabledFeatureContributesNothing(t *testing.T) {
 	snap := ex.RuntimeSnapshot
 	require.NotNil(t, snap)
 
-	assert.Empty(t, snap.RequestTransforms())
-	assert.Empty(t, snap.PreRequestHandlers())
-	assert.Empty(t, snap.AttemptTransforms())
+	assert.Nil(t, snap.RequestTransforms())
+	assert.Nil(t, snap.PreRequestHandlers())
+	assert.Nil(t, snap.AttemptTransforms())
+}
+
+func TestCompileGeneration_CandidateFeaturePlanesOverlayShaping(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	var executedTransforms []string
+	var executedPreReqs []string
+	var executedAttempts []string
+	var mu sync.Mutex
+
+	candBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{
+			stubReqTransform{
+				id:     "cand-tx-prefix",
+				ord:    1,
+				events: &executedTransforms,
+				mu:     &mu,
+				mutate: func(c *lipapi.Call) {
+					if len(c.Messages) > 0 && len(c.Messages[0].Parts) > 0 {
+						c.Messages[0].Parts[0].Text = "[CAND_PREFIX] " + c.Messages[0].Parts[0].Text
+					}
+				},
+			},
+		},
+		PreRequestHandlers: []prerequest.Handler{
+			stubPreReqHandler{id: "cand-pr-check", ord: 1, events: &executedPreReqs, mu: &mu},
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			stubAttemptTransform{
+				id:     "cand-at-modify",
+				ord:    1,
+				events: &executedAttempts,
+				mu:     &mu,
+				mutate: func(c *lipapi.Call) {
+					if len(c.Messages) > 0 && len(c.Messages[0].Parts) > 0 {
+						c.Messages[0].Parts[0].Text = c.Messages[0].Parts[0].Text + " [CAND_ATTEMPT]"
+					}
+				},
+			},
+		},
+	}
+	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
+	require.NoError(t, err)
+
+	cand := obsTestCandidateConfig(t)
+
+	var gotMu sync.Mutex
+	var capturedCall lipapi.Call
+	var capturedCallsCount atomic.Int64
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		CandidateOpts: &BuildOptions{
+			FeaturePlanes: candGen.Frozen,
+		},
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok, "genRuntime must be *GenerationBundle")
+	ex := bundle.execution.executor
+	require.NotNil(t, ex)
+
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				gotMu.Lock()
+				capturedCall = call
+				gotMu.Unlock()
+				capturedCallsCount.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "candidate input"}}},
+		},
+	}
+
+	stream, execErr := ex.Execute(context.Background(), inputCall)
+	require.NoError(t, execErr)
+	require.NotNil(t, stream)
+
+	_, collectErr := lipapi.Collect(context.Background(), stream)
+	require.NoError(t, collectErr)
+
+	assert.Equal(t, int64(1), capturedCallsCount.Load())
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, executedTransforms, "cand-tx-prefix")
+	assert.Contains(t, executedPreReqs, "cand-pr-check")
+	assert.Contains(t, executedAttempts, "cand-at-modify")
+
+	gotMu.Lock()
+	defer gotMu.Unlock()
+	require.Len(t, capturedCall.Messages, 1)
+	require.Len(t, capturedCall.Messages[0].Parts, 1)
+	assert.Equal(t, "[CAND_PREFIX] candidate input [CAND_ATTEMPT]", capturedCall.Messages[0].Parts[0].Text)
+}
+
+func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreservation(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+
+	var executionSequence []string
+	var mu sync.Mutex
+
+	// Register plugin feature: contributes plugin-rt
+	require.NoError(t, reg.RegisterFeature("plugin-shaping", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{
+				stubReqTransform{
+					id:     "plugin-rt",
+					ord:    1,
+					events: &executionSequence,
+					mu:     &mu,
+				},
+			},
+		}, nil
+	}))
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	// Candidate overlay: contributes cand-rt and cand-at
+	candBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{
+			stubReqTransform{
+				id:     "cand-rt",
+				ord:    2,
+				events: &executionSequence,
+				mu:     &mu,
+			},
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			stubAttemptTransform{
+				id:     "cand-at",
+				ord:    1,
+				events: &executionSequence,
+				mu:     &mu,
+			},
+		},
+	}
+	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
+	require.NoError(t, err)
+
+	cand := obsTestCandidateConfig(t, "plugin-shaping")
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		CandidateOpts: &BuildOptions{
+			FeaturePlanes: candGen.Frozen,
+		},
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	ex := bundle.execution.executor
+	require.NotNil(t, ex)
+
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "order test"}}},
+		},
+	}
+
+	stream, execErr := ex.Execute(context.Background(), inputCall)
+	require.NoError(t, execErr)
+	require.NotNil(t, stream)
+
+	_, collectErr := lipapi.Collect(context.Background(), stream)
+	require.NoError(t, collectErr)
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Ordering: plugin-rt (from registrations) executed before cand-rt (from candidate overlay), then cand-at
+	require.Len(t, executionSequence, 3)
+	assert.Equal(t, "plugin-rt", executionSequence[0])
+	assert.Equal(t, "cand-rt", executionSequence[1])
+	assert.Equal(t, "cand-at", executionSequence[2])
+}
+
+func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+
+	var txCalled, atCalled, backendCalled bool
+	var mu sync.Mutex
+
+	require.NoError(t, reg.RegisterFeature("test-deny-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			PreRequestHandlers: []prerequest.Handler{
+				stubPreReqHandler{id: "pr-deny-gate", ord: 1, deny: true},
+			},
+			RequestTransforms: []request.Transform{
+				stubReqTransform{
+					id:  "tx-should-not-run",
+					ord: 1,
+					mutate: func(c *lipapi.Call) {
+						mu.Lock()
+						txCalled = true
+						mu.Unlock()
+					},
+				},
+			},
+			AttemptTransforms: []request.AttemptTransform{
+				stubAttemptTransform{
+					id:  "at-should-not-run",
+					ord: 1,
+					mutate: func(c *lipapi.Call) {
+						mu.Lock()
+						atCalled = true
+						mu.Unlock()
+					},
+				},
+			},
+		}, nil
+	}))
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	cand := obsTestCandidateConfig(t, "test-deny-feature")
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	ex := bundle.execution.executor
+	require.NotNil(t, ex)
+
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				mu.Lock()
+				backendCalled = true
+				mu.Unlock()
+				return nil, nil
+			},
+		},
+	}
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "should deny"}}},
+		},
+	}
+
+	_, execErr := ex.Execute(context.Background(), inputCall)
+	require.Error(t, execErr, "pre-request deny must fail execution")
+	assert.Contains(t, execErr.Error(), "denied by pr-deny-gate")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.True(t, txCalled, "request transform runs before pre-request stage")
+	assert.False(t, atCalled, "attempt transform must not run when pre-request denies")
+	assert.False(t, backendCalled, "backend must not run when pre-request denies")
 }

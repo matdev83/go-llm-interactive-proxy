@@ -275,6 +275,12 @@ func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) err
 	return ContributeSource(s, p, SourceFeature, pluginID, v)
 }
 
+// ContributeCandidate contributes candidate planes under SourceFeature.
+func (s *ContributionSet) ContributeCandidate(cand FrozenPlaneSet) error {
+	return cand.ContributeTo(s, SourceFeature, "candidate")
+}
+
+
 func cloneValue[T any](v T) T {
 	var anyVal any = v
 	if anyVal == nil {

@@ -474,20 +474,12 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cat := stdFactoryCatalog(t)
-	err := cat.RegisterFeature("cand-rt-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
-		}, nil
-	})
-	require.NoError(t, err)
 
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg: cfg,
 		Log: testkit.DiscardLogger(),
 		Opts: &runtimebundle.BuildOptions{
-			PluginRegistry: cat,
+			PluginRegistry: stdFactoryCatalog(t),
 			FeaturePlanes:  frozenRequestTransform(countTransform{id: "startup-hook", n: &startupHook}),
 		},
 		Tracing: runtimebundle.ProcessTracing{Shutdown: func(context.Context) error { return nil }},
@@ -497,17 +489,15 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	candCfgA := stubCandidateConfig(t, "rt-a", "a", "rt-a:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
-	candCfgA.Plugins.Features = []config.PluginConfig{
-		{ID: "cand-rt-feature", Enabled: true},
-	}
-
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process:   ps,
-		Candidate: candCfgA,
-		Compose:   stdhttp.ComposeStandardHTTP,
+		Process: ps,
+		Candidate: stubCandidateConfig(t, "rt-a", "a", "rt-a:stub-default", []config.PluginConfig{
+			{ID: "openai-responses", Enabled: true},
+		}),
+		CandidateOpts: &runtimebundle.BuildOptions{
+			FeaturePlanes: frozenRequestTransform(countTransform{id: "cand-hook", n: &candHook}),
+		},
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile A: %v", err)

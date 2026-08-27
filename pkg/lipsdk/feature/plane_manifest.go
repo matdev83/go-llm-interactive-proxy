@@ -336,19 +336,33 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy: NilReject,
+	Validate: func(v []request.Transform) error {
+		for i, tr := range v {
+			if tr == nil {
+				return fmt.Errorf("RequestTransforms[%d] must not be nil", i)
+			}
+		}
+		return nil
+	},
 	Combine: func(source SourceKind, current, incoming []request.Transform) ([]request.Transform, error) {
 		return append(current, incoming...), nil
 	},
 	Diagnostics: DiagnosticDescriptor[[]request.Transform]{
 		StageID: StageIDRequestWide,
 		Materialize: func(v []request.Transform) []DiagnosticOccupant {
-			sorted := request.MaterializeSorted(v)
+			nonNil := make([]request.Transform, 0, len(v))
+			for _, tr := range v {
+				if tr != nil {
+					nonNil = append(nonNil, tr)
+				}
+			}
+			if len(nonNil) == 0 {
+				return nil
+			}
+			sorted := request.MaterializeSorted(nonNil)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
 			for _, tr := range sorted {
-				if tr == nil {
-					continue
-				}
 				occupants = append(occupants, DiagnosticOccupant{Label: "request_transform:" + tr.ID()})
 			}
 			return occupants
@@ -369,19 +383,33 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy: NilReject,
+	Validate: func(v []prerequest.Handler) error {
+		for i, h := range v {
+			if h == nil {
+				return fmt.Errorf("PreRequestHandlers[%d] must not be nil", i)
+			}
+		}
+		return nil
+	},
 	Combine: func(source SourceKind, current, incoming []prerequest.Handler) ([]prerequest.Handler, error) {
 		return append(current, incoming...), nil
 	},
 	Diagnostics: DiagnosticDescriptor[[]prerequest.Handler]{
 		StageID: StageIDPreRequest,
 		Materialize: func(v []prerequest.Handler) []DiagnosticOccupant {
-			sorted := prerequest.MaterializeSorted(v)
+			nonNil := make([]prerequest.Handler, 0, len(v))
+			for _, h := range v {
+				if h != nil {
+					nonNil = append(nonNil, h)
+				}
+			}
+			if len(nonNil) == 0 {
+				return nil
+			}
+			sorted := prerequest.MaterializeSorted(nonNil)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
 			for _, h := range sorted {
-				if h == nil {
-					continue
-				}
 				occupants = append(occupants, DiagnosticOccupant{Label: "pre_request:" + h.ID()})
 			}
 			return occupants

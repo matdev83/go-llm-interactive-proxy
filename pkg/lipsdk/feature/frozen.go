@@ -98,3 +98,28 @@ func (s FrozenPlaneSet) ToContributions() *ContributionSet {
 func ContributionSetFromFrozen(s FrozenPlaneSet) *ContributionSet {
 	return s.ToContributions()
 }
+
+// ContributeTo contributes all non-zero plane values in s into dst under the given source and contributor ID.
+func (s FrozenPlaneSet) ContributeTo(dst *ContributionSet, source SourceKind, contributorID string) error {
+	if s.IsZero() || dst == nil {
+		return nil
+	}
+	if s.frozen != nil && dst.generated != nil {
+		if err := s.frozen.contributeTo(dst.generated, source, contributorID); err != nil {
+			return err
+		}
+		for k, v := range s.identities {
+			dst.identities[k] = v
+		}
+		return nil
+	}
+	// Test-only map-backed storage fallback:
+	for k, v := range s.values {
+		dst.values[k] = cloneAny(v)
+	}
+	for k, v := range s.identities {
+		dst.identities[k] = v
+	}
+	return nil
+}
+

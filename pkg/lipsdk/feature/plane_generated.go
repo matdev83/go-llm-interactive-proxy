@@ -195,6 +195,138 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	return gc
 }
 
+func (gf *generatedFrozen) contributeTo(gc *generatedContributions, source SourceKind, contributorID string) error {
+	if gf == nil || gc == nil {
+		return nil
+	}
+	if len(gf.submitHooks) > 0 {
+		if err := PlaneSubmitHooks.generated.contribute(gc, source, contributorID, gf.submitHooks); err != nil {
+			return err
+		}
+	}
+	if len(gf.requestPartHooks) > 0 {
+		if err := PlaneRequestPartHooks.generated.contribute(gc, source, contributorID, gf.requestPartHooks); err != nil {
+			return err
+		}
+	}
+	if len(gf.responsePartHooks) > 0 {
+		if err := PlaneResponsePartHooks.generated.contribute(gc, source, contributorID, gf.responsePartHooks); err != nil {
+			return err
+		}
+	}
+	if len(gf.toolReactors) > 0 {
+		if err := PlaneToolReactors.generated.contribute(gc, source, contributorID, gf.toolReactors); err != nil {
+			return err
+		}
+	}
+	if len(gf.sessionOpeners) > 0 {
+		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+			return err
+		}
+	}
+	if len(gf.workspaceResolvers) > 0 {
+		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+			return err
+		}
+	}
+	if len(gf.toolCatalogFilters) > 0 {
+		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+			return err
+		}
+	}
+	if len(gf.toolCallPolicies) > 0 {
+		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+			return err
+		}
+	}
+	if len(gf.toolCallFinalizers) > 0 {
+		if err := PlaneToolCallFinalizers.generated.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 {
+		if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
+			return err
+		}
+	}
+	if len(gf.requestTransforms) > 0 {
+		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
+			return err
+		}
+	}
+	if len(gf.preRequestHandlers) > 0 {
+		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
+			return err
+		}
+	}
+	if len(gf.routeHintProviders) > 0 {
+		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+			return err
+		}
+	}
+	if len(gf.completionGates) > 0 {
+		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+			return err
+		}
+	}
+	if len(gf.attemptTransforms) > 0 {
+		if err := PlaneAttemptTransforms.generated.contribute(gc, source, contributorID, gf.attemptTransforms); err != nil {
+			return err
+		}
+	}
+	if len(gf.streamObserverFactories) > 0 {
+		if err := PlaneStreamObserverFactories.generated.contribute(gc, source, contributorID, gf.streamObserverFactories); err != nil {
+			return err
+		}
+	}
+	if len(gf.trafficObservers) > 0 {
+		if err := PlaneTrafficObservers.generated.contribute(gc, source, contributorID, gf.trafficObservers); err != nil {
+			return err
+		}
+	}
+	if len(gf.usageObservers) > 0 {
+		if err := PlaneUsageObservers.generated.contribute(gc, source, contributorID, gf.usageObservers); err != nil {
+			return err
+		}
+	}
+	if len(gf.rawCaptureSinks) > 0 {
+		if err := PlaneRawCaptureSinks.generated.contribute(gc, source, contributorID, gf.rawCaptureSinks); err != nil {
+			return err
+		}
+	}
+	if len(gf.trafficRedactors) > 0 {
+		if err := PlaneTrafficRedactors.generated.contribute(gc, source, contributorID, gf.trafficRedactors); err != nil {
+			return err
+		}
+	}
+	if len(gf.compactionObservers) > 0 {
+		if err := PlaneCompactionObservers.generated.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
+			return err
+		}
+	}
+	if len(gf.compactionPreservers) > 0 {
+		if err := PlaneCompactionPreservers.generated.contribute(gc, source, contributorID, gf.compactionPreservers); err != nil {
+			return err
+		}
+	}
+	if len(gf.secretGuards) > 0 {
+		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+			return err
+		}
+	}
+	if len(gf.localTurnHandlers) > 0 {
+		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+			return err
+		}
+	}
+	if gf.terminalDecisionProvider != nil {
+		if err := PlaneTerminalDecisionProvider.generated.contribute(gc, source, contributorID, gf.terminalDecisionProvider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func init() {
 	PlaneSubmitHooks.generated = generatedAccess[[]hooks.SubmitHook]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.SubmitHook) error {

@@ -105,6 +105,25 @@ func (g GeneratedMergeSurface) BindCompactionPreservers(contributorID string, pr
 	}, nil
 }
 
+// MergeCandidatePlanes merges candidate feature planes under SourceFeature into the surface.
+// If candidate planes are zero/empty, the surface is returned unmodified.
+// If validation or combination fails, the surface is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneSet) (GeneratedMergeSurface, error) {
+	if cand.IsZero() {
+		return g, nil
+	}
+	working := g.workingSet()
+	if err := working.ContributeCandidate(cand); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
+}
+
+
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
 // accessing each plane value via lipfeature.Get and the terminal-decision provider identity
 // via lipfeature.FrozenIdentity.

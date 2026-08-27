@@ -78,6 +78,12 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
+	if in.CandidateOpts != nil && !in.CandidateOpts.FeaturePlanes.IsZero() {
+		genMerged, err = genMerged.MergeCandidatePlanes(in.CandidateOpts.FeaturePlanes)
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: candidate feature planes: %w", err)
+		}
+	}
 	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
 		return nil, err
 	}
