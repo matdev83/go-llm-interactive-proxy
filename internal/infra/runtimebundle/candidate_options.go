@@ -10,25 +10,26 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 	if process == nil {
 		return overlay
 	}
-	if overlay == nil {
-		return process
-	}
 	out := *process
-	if overlay.ReplaceCandidateSurface {
-		out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		out.Extensions = overlay.Extensions
-		out.FeaturePlanes = overlay.FeaturePlanes
-	} else {
-		if overlay.FeatureLifecycles != nil {
+	if overlay != nil {
+		if overlay.ReplaceCandidateSurface {
 			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		}
-		if hasExtensionOverlay(overlay.Extensions) {
 			out.Extensions = overlay.Extensions
+			out.FeaturePlanes = overlay.FeaturePlanes
+		} else {
+			if overlay.FeatureLifecycles != nil {
+				out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
+			}
+			if hasExtensionOverlay(overlay.Extensions) {
+				out.Extensions = overlay.Extensions
+			}
+			if !overlay.FeaturePlanes.IsZero() {
+				out.FeaturePlanes = overlay.FeaturePlanes
+			}
 		}
-		out.FeaturePlanes = overlay.FeaturePlanes
-	}
-	if overlay.WireModel != nil {
-		out.WireModel = overlay.WireModel
+		if overlay.WireModel != nil {
+			out.WireModel = overlay.WireModel
+		}
 	}
 	// Always keep process factory catalog / infra / testing / production / auth.
 	out.PluginRegistry = process.PluginRegistry
