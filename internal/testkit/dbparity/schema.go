@@ -1045,7 +1045,7 @@ type pgIndexDetailed struct {
 func postgresGetIndexDetailed(ctx context.Context, database *bun.DB, indexName string) (*pgIndexDetailed, error) {
 	var info pgIndexDetailed
 	row := database.QueryRowContext(ctx, `
-SELECT 
+SELECT
     c.relname AS index_name,
     t.relname AS table_name,
     i.indisunique AS is_unique,
