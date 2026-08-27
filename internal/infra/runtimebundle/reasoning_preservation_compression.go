@@ -68,10 +68,10 @@ func appendReasoningCompressionBundle(merged featurebundle.MergedFeatureSurface,
 	return merged, nil
 }
 
-func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.MergedFeatureSurface, error) {
+func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface, error) {
 	bindings, err := decodedReasoningCompressionBindings(ps, regs, client, poller)
 	if err != nil {
-		return featurebundle.MergedFeatureSurface{}, err
+		return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
 	}
 	for _, b := range bindings {
 		svc := reasoningpreservation.CompressionServices{
@@ -82,14 +82,20 @@ func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurf
 		}
 		_, bundle, err := reasoningpreservation.FeatureBundleWithPartsAndCompression(b.cfg, svc, standardplugins.CodexCompanionPolicy())
 		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
+			return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
 		}
 		merged, err = appendReasoningCompressionBundle(merged, bundle)
 		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, err
+			return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
+		}
+		if len(bundle.StreamObserverFactories) > 0 {
+			genMerged, err = genMerged.BindStreamObserverFactories(reasoningpreservation.ID, bundle.StreamObserverFactories)
+			if err != nil {
+				return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
+			}
 		}
 	}
-	return merged, nil
+	return merged, genMerged, nil
 }
 
 func lookupReasoningEgressPolicy(ps *ProcessServices, ref string) (reasoningpreservation.EgressPolicy, bool) {

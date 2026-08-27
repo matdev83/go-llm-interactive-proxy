@@ -228,6 +228,7 @@ func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsd
 	g := GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
+		set:        cs,
 	}
 	return m, g, nil
 }

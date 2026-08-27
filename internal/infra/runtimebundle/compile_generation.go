@@ -93,7 +93,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
 		return nil, err
 	}
-	if merged, err = bindReasoningPreservationCompression(merged, ps, regs, boundClient, boundPoller); err != nil {
+	if merged, genMerged, err = bindReasoningPreservationCompression(merged, genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)

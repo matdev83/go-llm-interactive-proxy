@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -47,6 +48,37 @@ func ContributeHost(cs *lipfeature.ContributionSet, host HostContributions) erro
 type GeneratedMergeSurface struct {
 	Frozen     lipfeature.FrozenPlaneSet
 	Lifecycles []lipplugin.Lifecycle
+	set        *lipfeature.ContributionSet
+}
+
+// BindStreamObserverFactories replaces stream observer factories contributed by contributorID
+// in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
+// If validation or combination fails, the candidate is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) BindStreamObserverFactories(contributorID string, factories []response.StreamObserverFactory) (GeneratedMergeSurface, error) {
+	if g.set != nil {
+		if err := lipfeature.ContributeSource(g.set, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceGenerationBinder, contributorID, factories); err != nil {
+			return GeneratedMergeSurface{}, err
+		}
+		return GeneratedMergeSurface{
+			Frozen:     g.set.Freeze(),
+			Lifecycles: g.Lifecycles,
+			set:        g.set,
+		}, nil
+	}
+	cs := lipfeature.NewContributionSet()
+	if current := lipfeature.Get(g.Frozen, lipfeature.PlaneStreamObserverFactories); len(current) > 0 {
+		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceFeature, "existing", current); err != nil {
+			return GeneratedMergeSurface{}, err
+		}
+	}
+	if err := lipfeature.ContributeSource(cs, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceGenerationBinder, contributorID, factories); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     cs.Freeze(),
+		Lifecycles: g.Lifecycles,
+		set:        cs,
+	}, nil
 }
 
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
@@ -240,6 +272,7 @@ func MergeBundlesGenerated(bundles ...lipfeature.FeatureBundle) (GeneratedMergeS
 	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
+		set:        cs,
 	}, nil
 }
 
@@ -285,6 +318,7 @@ func MergeFeatureSurfaceGenerated(reg *pluginreg.Registry, registrations []lipsd
 	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
+		set:        cs,
 	}, nil
 }
 
