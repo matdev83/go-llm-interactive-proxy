@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -25,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
+	"gopkg.in/yaml.v3"
 )
 
 // --- Test helpers (minimal no-op implementations for each interface) ---
@@ -439,5 +442,102 @@ func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	o2, ok := m.SessionOpeners[2].(testOpener)
 	if !ok || o2.tag != "third" {
 		t.Fatalf("third opener: %#v", m.SessionOpeners[2])
+	}
+}
+
+func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
+	t.Parallel()
+
+	reg := pluginreg.NewRegistry()
+	err := reg.RegisterFeature("test-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{
+				testTrafficObs{tag: "feat-to"},
+			},
+			UsageObservers: []usage.Observer{
+				testUsageObs{tag: "feat-uo"},
+			},
+			RawCaptureSinks: []traffic.RawCaptureSink{
+				testRawSink{tag: "feat-raw"},
+			},
+			TrafficRedactors: []traffic.Redactor{
+				testRedactor{tag: "feat-red"},
+			},
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	regs := []lipsdk.Registration{
+		{
+			Kind:        lipsdk.PluginKindFeature,
+			ID:          "inst-feature",
+			FactoryKind: "test-feature",
+			Enabled:     true,
+		},
+	}
+
+	host := HostContributions{
+		TrafficObservers: []traffic.Observer{
+			testTrafficObs{tag: "host-to"},
+		},
+		UsageObservers: []usage.Observer{
+			testUsageObs{tag: "host-uo"},
+		},
+	}
+
+	candExtra := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			testTrafficObs{tag: "cand-to"},
+		},
+		UsageObservers: []usage.Observer{
+			testUsageObs{tag: "cand-uo"},
+		},
+		RawCaptureSinks: []traffic.RawCaptureSink{
+			testRawSink{tag: "cand-raw"},
+		},
+		TrafficRedactors: []traffic.Redactor{
+			testRedactor{tag: "cand-red"},
+		},
+	}
+
+	_, gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, candExtra)
+	if err != nil {
+		t.Fatalf("MergeFeatureSurfacesWithHost error: %v", err)
+	}
+
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	if len(to) != 3 {
+		t.Fatalf("TrafficObservers len = %d, want 3", len(to))
+	}
+	if to[0].(testTrafficObs).tag != "feat-to" || to[1].(testTrafficObs).tag != "host-to" || to[2].(testTrafficObs).tag != "cand-to" {
+		t.Fatalf("TrafficObservers order = %#v, want [feat-to, host-to, cand-to]", to)
+	}
+
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	if len(uo) != 3 {
+		t.Fatalf("UsageObservers len = %d, want 3", len(uo))
+	}
+	if uo[0].(testUsageObs).tag != "feat-uo" || uo[1].(testUsageObs).tag != "host-uo" || uo[2].(testUsageObs).tag != "cand-uo" {
+		t.Fatalf("UsageObservers order = %#v, want [feat-uo, host-uo, cand-uo]", uo)
+	}
+
+	raw := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+	if len(raw) != 2 {
+		t.Fatalf("RawCaptureSinks len = %d, want 2", len(raw))
+	}
+	if raw[0].(testRawSink).tag != "feat-raw" || raw[1].(testRawSink).tag != "cand-raw" {
+		t.Fatalf("RawCaptureSinks order = %#v, want [feat-raw, cand-raw]", raw)
+	}
+
+	red := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+	if len(red) != 2 {
+		t.Fatalf("TrafficRedactors len = %d, want 2", len(red))
+	}
+	if red[0].ID() != "feat-red" || red[1].ID() != "cand-red" {
+		t.Fatalf("TrafficRedactors order = %#v, want [feat-red, cand-red]", red)
 	}
 }

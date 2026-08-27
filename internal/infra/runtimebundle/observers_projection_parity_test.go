@@ -197,6 +197,51 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 	assert.Equal(t, "host-uo-1", ext.UsageObservers[1].(stubUsageObs).id)
 }
 
+func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
+	t.Parallel()
+
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "feat-to-1"},
+		},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "feat-uo-1"},
+		},
+	}))
+	require.NoError(t, featurebundle.ContributeHost(cs, featurebundle.HostContributions{
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "host-to-1"},
+		},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "host-uo-1"},
+		},
+	}))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "cand-to-1"},
+		},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "cand-uo-1"},
+		},
+	}))
+
+	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+
+	require.Len(t, ext.TrafficObservers, 3)
+	assert.Equal(t, "feat-to-1", ext.TrafficObservers[0].(stubTrafficObs).id)
+	assert.Equal(t, "host-to-1", ext.TrafficObservers[1].(stubTrafficObs).id)
+	assert.Equal(t, "cand-to-1", ext.TrafficObservers[2].(stubTrafficObs).id)
+
+	require.Len(t, ext.UsageObservers, 3)
+	assert.Equal(t, "feat-uo-1", ext.UsageObservers[0].(stubUsageObs).id)
+	assert.Equal(t, "host-uo-1", ext.UsageObservers[1].(stubUsageObs).id)
+	assert.Equal(t, "cand-uo-1", ext.UsageObservers[2].(stubUsageObs).id)
+}
+
 func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 	t.Parallel()
 
@@ -583,6 +628,82 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		t.Cleanup(func() { _ = bundle.Close() })
 
 		require.Equal(t, []string{"feat-to", "host-to"}, events)
+	})
+
+	t.Run("feature_process_host_candidate_extension_three_source_order", func(t *testing.T) {
+		t.Parallel()
+		var trafficEvents []string
+		var usageEvents []string
+		var mu sync.Mutex
+
+		reg := obsTestFactoryCatalog(t)
+		err := reg.RegisterFeature("three-source-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				TrafficObservers: []traffic.Observer{
+					stubTrafficObs{id: "feat-to", events: &trafficEvents, mu: &mu},
+				},
+				UsageObservers: []usage.Observer{
+					stubUsageObs{id: "feat-uo", events: &usageEvents, mu: &mu},
+				},
+			}, nil
+		})
+		require.NoError(t, err)
+
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: reg,
+				Production: ProductionOptions{
+					TrafficObservers: []traffic.Observer{
+						stubTrafficObs{id: "host-to", events: &trafficEvents, mu: &mu},
+					},
+					UsageObservers: []usage.Observer{
+						stubUsageObs{id: "host-uo", events: &usageEvents, mu: &mu},
+					},
+				},
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t, "three-source-feature")
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			CandidateOpts: &BuildOptions{
+				Extensions: ExtensionsOptions{
+					TrafficObservers: []traffic.Observer{
+						stubTrafficObs{id: "cand-to", events: &trafficEvents, mu: &mu},
+					},
+					UsageObservers: []usage.Observer{
+						stubUsageObs{id: "cand-uo", events: &usageEvents, mu: &mu},
+					},
+				},
+			},
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				obs := in.Frontends.TrafficPorts.Obs
+				require.NotNil(t, obs)
+				require.NoError(t, obs.OnObservation(ctx, traffic.Observation{Leg: traffic.LegCTP}))
+
+				uobs := in.Core.Executor.RuntimeSnapshot.UsageObserver()
+				require.NotNil(t, uobs)
+				require.NoError(t, uobs.OnUsage(ctx, usage.Event{}))
+
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+
+		require.Equal(t, []string{"feat-to", "host-to", "cand-to"}, trafficEvents, "traffic observers must execute in feature -> host -> candidate order")
+		require.Equal(t, []string{"feat-uo", "host-uo", "cand-uo"}, usageEvents, "usage observers must execute in feature -> host -> candidate order")
 	})
 
 	t.Run("candidate_production_options_ignored", func(t *testing.T) {

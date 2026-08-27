@@ -179,9 +179,9 @@ func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Regist
 	return MergeFeatureSurfacesWithHost(reg, registrations, HostContributions{})
 }
 
-// MergeFeatureSurfacesWithHost merges enabled feature plugins, optional candidate feature bundles, and host contributions into
-// legacy MergedFeatureSurface and GeneratedMergeSurface. Feature bundles are contributed under SourceFeature,
-// and host observer contributions are contributed under SourceHost.
+// MergeFeatureSurfacesWithHost merges enabled feature plugins, host contributions, and optional candidate feature bundles into
+// legacy MergedFeatureSurface and GeneratedMergeSurface. Feature bundles are contributed under SourceFeature (plugins first, candidate extras last),
+// and host observer contributions are contributed under SourceHost between initial feature plugins and candidate extras.
 func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
 	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
@@ -213,6 +213,9 @@ func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsd
 		}
 		lifecycles = append(lifecycles, b.Lifecycles...)
 	}
+	if err := ContributeHost(cs, host); err != nil {
+		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
 	for i, eb := range extraFeatureBundles {
 		extraID := fmt.Sprintf("candidate-feature-%d", i)
 		if eb.TerminalDecisionProvider != nil {
@@ -224,9 +227,6 @@ func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsd
 			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 		}
 		lifecycles = append(lifecycles, eb.Lifecycles...)
-	}
-	if err := ContributeHost(cs, host); err != nil {
-		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 	}
 	g := GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
