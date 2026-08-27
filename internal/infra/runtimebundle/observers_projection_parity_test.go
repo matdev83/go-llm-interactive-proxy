@@ -154,33 +154,30 @@ func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 	t.Parallel()
 
-	gen, err := featurebundle.MergeBundlesGenerated(
-		lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
-				stubTrafficObs{id: "feat-to-1"},
-				stubTrafficObs{id: "feat-to-2"},
-			},
-			UsageObservers: []usage.Observer{
-				stubUsageObs{id: "feat-uo-1"},
-			},
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "feat-to-1"},
+			stubTrafficObs{id: "feat-to-2"},
 		},
-	)
-	require.NoError(t, err)
-
-	opts := &BuildOptions{
-		Production: ProductionOptions{
-			TrafficObservers: []traffic.Observer{
-				stubTrafficObs{id: "host-to-1"},
-				stubTrafficObs{id: "host-to-2"},
-			},
-			UsageObservers: []usage.Observer{
-				stubUsageObs{id: "host-uo-1"},
-			},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "feat-uo-1"},
 		},
-	}
+	}))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "host-to-1"},
+			stubTrafficObs{id: "host-to-2"},
+		},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "host-uo-1"},
+		},
+	}))
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, opts)
+	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
 
 	// Feature-then-host ordering for TrafficObservers
 	require.Len(t, ext.TrafficObservers, 4)
@@ -207,7 +204,7 @@ func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 		assert.Nil(t, ext.TrafficRedactors)
 	})
 
-	t.Run("empty_explicit_slices_project_empty_slices", func(t *testing.T) {
+	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
 		t.Parallel()
 		gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
 			SchemaVersion:    lipfeature.SchemaVersionV1,
@@ -219,11 +216,45 @@ func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 		require.NoError(t, err)
 
 		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-		assert.Empty(t, ext.TrafficObservers)
-		assert.Empty(t, ext.UsageObservers)
-		assert.Empty(t, ext.RawCaptureSinks)
-		assert.Empty(t, ext.TrafficRedactors)
+		assert.Nil(t, ext.TrafficObservers, "TrafficObservers must normalize explicit empty to nil")
+		assert.Nil(t, ext.UsageObservers, "UsageObservers must normalize explicit empty to nil")
+		assert.Nil(t, ext.RawCaptureSinks, "RawCaptureSinks must normalize explicit empty to nil")
+		assert.Nil(t, ext.TrafficRedactors, "TrafficRedactors must normalize explicit empty to nil")
 	})
+}
+
+func TestObserversProjection_OverlayBranchesOmitted(t *testing.T) {
+	t.Parallel()
+
+	dst := &ExtensionsOptions{
+		TrafficObservers: []traffic.Observer{stubTrafficObs{id: "dst-to"}},
+		UsageObservers:   []usage.Observer{stubUsageObs{id: "dst-uo"}},
+		RawCaptureSinks:  []traffic.RawCaptureSink{stubRawSink{id: "dst-raw"}},
+		TrafficRedactors: []traffic.Redactor{stubRedactor{id: "dst-red"}},
+	}
+	src := ExtensionsOptions{
+		TrafficObservers: []traffic.Observer{stubTrafficObs{id: "src-to"}},
+		UsageObservers:   []usage.Observer{stubUsageObs{id: "src-uo"}},
+		RawCaptureSinks:  []traffic.RawCaptureSink{stubRawSink{id: "src-raw"}},
+		TrafficRedactors: []traffic.Redactor{stubRedactor{id: "src-red"}},
+	}
+
+	overlayExtensions(dst, src)
+
+	// Since observer families are consolidated through generated plane adapters,
+	// overlayExtensions must not contain hand-coded append branches for them.
+	// dst must retain its original slices without source appending.
+	require.Len(t, dst.TrafficObservers, 1, "overlayExtensions must not append TrafficObservers")
+	assert.Equal(t, "dst-to", dst.TrafficObservers[0].(stubTrafficObs).id)
+
+	require.Len(t, dst.UsageObservers, 1, "overlayExtensions must not append UsageObservers")
+	assert.Equal(t, "dst-uo", dst.UsageObservers[0].(stubUsageObs).id)
+
+	require.Len(t, dst.RawCaptureSinks, 1, "overlayExtensions must not append RawCaptureSinks")
+	assert.Equal(t, "dst-raw", dst.RawCaptureSinks[0].(stubRawSink).id)
+
+	require.Len(t, dst.TrafficRedactors, 1, "overlayExtensions must not append TrafficRedactors")
+	assert.Equal(t, "dst-red", dst.TrafficRedactors[0].ID())
 }
 
 func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
@@ -306,23 +337,24 @@ func TestObserversProjection_EndToEndSnapshotDispatch(t *testing.T) {
 		},
 	}
 
-	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
-	require.NoError(t, err)
-
-	opts := &BuildOptions{
-		Production: ProductionOptions{
-			TrafficObservers: []traffic.Observer{
-				stubTrafficObs{id: "host-to", events: &trafficEvents, mu: &mu},
-			},
-			UsageObservers: []usage.Observer{
-				stubUsageObs{id: "host-uo", events: &usageEvents, mu: &mu},
-			},
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, featurebundle.ContributeBundle(cs, "b1", b1))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "b2", b2))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{id: "host-to", events: &trafficEvents, mu: &mu},
 		},
-	}
+		UsageObservers: []usage.Observer{
+			stubUsageObs{id: "host-uo", events: &usageEvents, mu: &mu},
+		},
+	}))
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, opts)
+	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
 
 	bus := hooks.New(hooks.Config{})
+	var err error
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, &BuildOptions{Extensions: ext}, time.Now, nil, &controlPlaneRuntime{}, nil, extensions.SecretGuardPlane{}, nil)
 	require.NotNil(t, snap)
 

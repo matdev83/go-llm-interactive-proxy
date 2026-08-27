@@ -176,6 +176,12 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 // MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
 // and GeneratedMergeSurface using the same bundle instances.
 func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+	return MergeFeatureSurfacesWithHost(reg, registrations, lipfeature.FeatureBundle{})
+}
+
+// MergeFeatureSurfacesWithHost merges enabled feature plugins and host contributions into
+// legacy MergedFeatureSurface and GeneratedMergeSurface.
+func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsdk.Registration, host lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
 	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
@@ -184,7 +190,8 @@ func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Regist
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 	}
-	g, err := MergeBundlesGenerated(bundles...)
+	allBundles := append(bundles, host)
+	g, err := MergeBundlesGenerated(allBundles...)
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 	}

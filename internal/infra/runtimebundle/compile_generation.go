@@ -68,16 +68,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(ps.FactoryCatalog, regs)
+	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, compileHostBundle(ps.opts, in.CandidateOpts))
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
-	merged, err = bindCompactionContinuity(merged, ps, regs)
-	if err != nil {
+	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
 		return nil, err
 	}
-	merged, err = bindReasoningPreservationCompression(merged, ps, regs, boundClient, boundPoller)
-	if err != nil {
+	if merged, err = bindReasoningPreservationCompression(merged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
@@ -95,9 +93,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
-		Process:   ps,
-		Bus:       bus,
-		Candidate: frozen,
+		Process: ps, Bus: bus, Candidate: frozen,
 		CandidateOpts: &BuildOptions{
 			FeatureLifecycles:       lifecycles,
 			Extensions:              ext,
@@ -217,11 +213,13 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		billingProvisioner = cand.operations.billingProvisioner
 		billingExposureRecovery = cand.operations.billingExposureRecovery
 	}
-	var maxBody int64
-	var preKA lipsdk.FrontendKeepaliveConfig
-	var geoInput httpcontract.GeoIPSecurityInput
-	var httpHeaders lipsdk.HTTPHeaders
-	var streamKA time.Duration
+	var (
+		maxBody     int64
+		preKA       lipsdk.FrontendKeepaliveConfig
+		geoInput    httpcontract.GeoIPSecurityInput
+		httpHeaders lipsdk.HTTPHeaders
+		streamKA    time.Duration
+	)
 	if frozen != nil {
 		maxBody = frozen.Server.EffectiveMaxRequestBodyBytes()
 		ka := frozen.Server.EffectivePreRequestKeepalive()
@@ -237,9 +235,7 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			geoObs = cand.process.metrics.GeoIP
 		}
 		geoInput = httpcontract.GeoIPSecurityInput{
-			Policy:   cand.security.geoip.Policy(),
-			Lookup:   cand.process.geoip,
-			Observer: geoObs,
+			Policy: cand.security.geoip.Policy(), Lookup: cand.process.geoip, Observer: geoObs,
 			Resolver: httpcontract.GeoIPResolverConfig{
 				Source:         cand.security.geoip.ClientIPSource(),
 				TrustedProxies: cand.security.geoip.TrustedProxies(),
@@ -261,24 +257,20 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			GeoIP:                geoInput,
 		},
 		Operations: httpcontract.HTTPOperationsInput{
-			BillingReports:          billingReports,
-			BillingReportsPath:      billingReportsPath,
-			BillingProvisioner:      billingProvisioner,
-			BillingExposureRecovery: billingExposureRecovery,
-			Metrics:                 cand.process.metrics,
-			Store:                   cand.process.store,
-			SecretGuardInventory:    cand.operations.secretGuardInventory,
-			ControlPlaneQueries:     cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
-			ReadinessReport:         cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
-			TokenAccountingAdmin:    adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
-			KeepwarmAdmin:           keepwarmAdmin,
-			KeepwarmAdminEnabled:    keepwarmAdminEnabled,
-			Registrations:           httpcontract.CloneRegistrations(regs),
-			TerminalDecisionPolicy:  terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
+			BillingReports: billingReports, BillingReportsPath: billingReportsPath,
+			BillingProvisioner: billingProvisioner, BillingExposureRecovery: billingExposureRecovery,
+			Metrics:              cand.process.metrics,
+			Store:                cand.process.store,
+			SecretGuardInventory: cand.operations.secretGuardInventory,
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
+			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdminEnabled,
+			Registrations:          httpcontract.CloneRegistrations(regs),
+			TerminalDecisionPolicy: terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
 		},
 		Models: httpcontract.HTTPModelInput{
-			CatalogRuntime:       cand.models.catalog,
-			ModelRegistryRuntime: cand.models.registryRuntime,
+			CatalogRuntime: cand.models.catalog, ModelRegistryRuntime: cand.models.registryRuntime,
 		},
 		Frontends: httpcontract.HTTPFrontendInput{
 			Executor:                  cand.execution.executor,
@@ -333,8 +325,6 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		TerminalDecisionProvider:         merged.TerminalDecisionProvider,
 	}
 	if processOpts != nil {
-		ext.TrafficObservers = append(ext.TrafficObservers, processOpts.Production.TrafficObservers...)
-		ext.UsageObservers = append(ext.UsageObservers, processOpts.Production.UsageObservers...)
 		ext.SecretGuardEnvironment = processOpts.Extensions.SecretGuardEnvironment
 		ext.SecretGuardInputs = processOpts.Extensions.SecretGuardInputs
 		ext.SecretDecisionObserver = processOpts.Extensions.SecretDecisionObserver
@@ -362,10 +352,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
 	dst.AttemptTransforms = append(dst.AttemptTransforms, src.AttemptTransforms...)
 	dst.StreamObserverFactories = append(dst.StreamObserverFactories, src.StreamObserverFactories...)
-	dst.TrafficObservers = append(dst.TrafficObservers, src.TrafficObservers...)
-	dst.UsageObservers = append(dst.UsageObservers, src.UsageObservers...)
-	dst.RawCaptureSinks = append(dst.RawCaptureSinks, src.RawCaptureSinks...)
-	dst.TrafficRedactors = append(dst.TrafficRedactors, src.TrafficRedactors...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {
@@ -385,4 +371,16 @@ func validateTerminalDecisionProvider(provider terminaldecision.Provider) error 
 	}
 	_, err := terminaldecision.ProviderIdentity(provider)
 	return err
+}
+
+func compileHostBundle(processOpts *BuildOptions, candOpts *BuildOptions) (b lipfeature.FeatureBundle) {
+	if processOpts != nil {
+		b.TrafficObservers, b.UsageObservers = processOpts.Production.TrafficObservers, processOpts.Production.UsageObservers
+	}
+	if candOpts != nil {
+		b.TrafficObservers = append(b.TrafficObservers, append(candOpts.Production.TrafficObservers, candOpts.Extensions.TrafficObservers...)...)
+		b.UsageObservers = append(b.UsageObservers, append(candOpts.Production.UsageObservers, candOpts.Extensions.UsageObservers...)...)
+		b.RawCaptureSinks, b.TrafficRedactors = candOpts.Extensions.RawCaptureSinks, candOpts.Extensions.TrafficRedactors
+	}
+	return b
 }

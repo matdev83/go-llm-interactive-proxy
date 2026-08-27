@@ -164,16 +164,17 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 		UsageObservers:   []usage.Observer{projUsageObs{tag: "feat-u"}},
 	}
 	merged := featurebundle.MergeBundles(b)
-	gen, err := featurebundle.MergeBundlesGenerated(b)
-	require.NoError(t, err)
-	opts := &BuildOptions{
-		Production: ProductionOptions{
-			TrafficObservers: []traffic.Observer{projTrafficObs{tag: "host-1"}},
-			UsageObservers:   []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}},
-		},
-	}
 
-	ext := extensionsFromMerged(merged, gen, opts)
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat", b))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
+		SchemaVersion:    lipfeature.SchemaVersionV1,
+		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "host-1"}},
+		UsageObservers:   []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}},
+	}))
+	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
+
+	ext := extensionsFromMerged(merged, gen, nil)
 	gotTraffic := make([]string, 0, len(ext.TrafficObservers))
 	for _, o := range ext.TrafficObservers {
 		obs, ok := o.(projTrafficObs)
@@ -189,7 +190,9 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	}
 	require.Equal(t, []string{"feat-u", "host-u", "host-u2"}, gotUsage)
 
-	extNoHosts := extensionsFromMerged(merged, gen, nil)
+	genFeatOnly, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err)
+	extNoHosts := extensionsFromMerged(merged, genFeatOnly, nil)
 	require.Len(t, extNoHosts.TrafficObservers, 2)
 	require.Len(t, extNoHosts.UsageObservers, 1)
 }
@@ -203,13 +206,11 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 	dst := &ExtensionsOptions{
 		SessionOpeners:                   []session.Opener{projOpener{tag: "d-open"}},
 		RequestTransforms:                []request.Transform{projTransform{tag: "d-tr"}},
-		TrafficObservers:                 []traffic.Observer{projTrafficObs{tag: "d-t"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 	}
 	src := ExtensionsOptions{
 		SessionOpeners:                   []session.Opener{projOpener{tag: "s-open"}},
 		RequestTransforms:                []request.Transform{projTransform{tag: "s-tr"}},
-		TrafficObservers:                 []traffic.Observer{projTrafficObs{tag: "s-t"}},
 		ToolCallFinalizationMaxArgsBytes: 1024,
 	}
 
@@ -218,7 +219,6 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 		[]string{dst.SessionOpeners[0].ID(), dst.SessionOpeners[1].ID()})
 	require.Equal(t, []string{"d-tr", "s-tr"},
 		[]string{dst.RequestTransforms[0].ID(), dst.RequestTransforms[1].ID()})
-	require.Len(t, dst.TrafficObservers, 2)
 
 	tests := []struct {
 		name string
