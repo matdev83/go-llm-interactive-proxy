@@ -134,8 +134,6 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 		ToolCallPolicies:                 lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallPolicies),
 		ToolCallFinalizers:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizers),
 		ToolCallFinalizationMaxArgsBytes: lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes),
-		RouteHintProviders:               lipfeature.Get(g.Frozen, lipfeature.PlaneRouteHintProviders),
-		CompletionGates:                  lipfeature.Get(g.Frozen, lipfeature.PlaneCompletionGates),
 		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
 		CompactionPreservers:             lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
 		SecretGuards:                     lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
@@ -221,12 +219,12 @@ func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeat
 			return err
 		}
 	}
-	if len(b.RouteHintProviders) > 0 {
+	if b.RouteHintProviders != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, pluginID, b.RouteHintProviders); err != nil {
 			return err
 		}
 	}
-	if len(b.CompletionGates) > 0 {
+	if b.CompletionGates != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, pluginID, b.CompletionGates); err != nil {
 			return err
 		}

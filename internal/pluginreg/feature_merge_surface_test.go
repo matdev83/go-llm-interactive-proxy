@@ -142,14 +142,15 @@ func TestMergeFeatureSurface_concatCompletionGates(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.CompletionGates) != 1 {
-		t.Fatalf("completion gates=%d", len(m.CompletionGates))
+	gates := feature.Get(gen.Frozen, feature.PlaneCompletionGates)
+	if len(gates) != 1 {
+		t.Fatalf("completion gates=%d", len(gates))
 	}
 }
 
@@ -229,14 +230,15 @@ func TestMergeFeatureSurface_concatRouteHints(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.RouteHintProviders) != 1 {
-		t.Fatalf("route hints=%d", len(m.RouteHintProviders))
+	routeHints := feature.Get(gen.Frozen, feature.PlaneRouteHintProviders)
+	if len(routeHints) != 1 {
+		t.Fatalf("route hints=%d", len(routeHints))
 	}
 }
 

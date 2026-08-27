@@ -884,5 +884,7 @@ var StandardPlanes = []PlaneDeclaration{
 var StandardCandidatePlanes = []string{
 	"request_transforms",
 	"pre_request_handlers",
+	"route_hint_providers",
+	"completion_gates",
 	"attempt_transforms",
 }

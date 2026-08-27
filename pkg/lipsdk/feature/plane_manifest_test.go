@@ -99,6 +99,8 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 	expected := []string{
 		"request_transforms",
 		"pre_request_handlers",
+		"route_hint_providers",
+		"completion_gates",
 		"attempt_transforms",
 	}
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)

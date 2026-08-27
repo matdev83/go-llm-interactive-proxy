@@ -93,7 +93,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)) < need {
 		t.Fatalf("red: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)))
 	}
-	if len(m.CompletionGates) < need {
-		t.Fatalf("gates: %d", len(m.CompletionGates))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)) < need {
+		t.Fatalf("gates: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)))
 	}
 }

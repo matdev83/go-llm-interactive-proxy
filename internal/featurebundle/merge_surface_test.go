@@ -358,8 +358,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},
 		{"ToolCallPolicies", len(m.ToolCallPolicies)},
 		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
-		{"RouteHintProviders", len(m.RouteHintProviders)},
-		{"CompletionGates", len(m.CompletionGates)},
 		{"CompactionObservers", len(m.CompactionObservers)},
 		{"CompactionPreservers", len(m.CompactionPreservers)},
 		{"SecretGuards", len(m.SecretGuards)},

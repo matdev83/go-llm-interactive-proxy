@@ -367,22 +367,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"RouteHintProviders", func(m MergedFeatureSurface) []string {
-			return charTags(m.RouteHintProviders, func(p routehint.Provider) string {
-				if rh, ok := p.(charRouteHint); ok {
-					return rh.tag
-				}
-				return ""
-			})
-		}},
-		{"CompletionGates", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompletionGates, func(g completion.Gate) string {
-				if cg, ok := g.(charCompGate); ok {
-					return cg.tag
-				}
-				return ""
-			})
-		}},
 		{"CompactionObservers", func(m MergedFeatureSurface) []string {
 			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
 				if co, ok := o.(charCompactionObs); ok {

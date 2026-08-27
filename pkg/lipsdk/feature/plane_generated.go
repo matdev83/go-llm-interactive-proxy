@@ -209,6 +209,16 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			return err
 		}
 	}
+	if len(gf.routeHintProviders) > 0 {
+		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+			return err
+		}
+	}
+	if len(gf.completionGates) > 0 {
+		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+			return err
+		}
+	}
 	if len(gf.attemptTransforms) > 0 {
 		if err := PlaneAttemptTransforms.generated.contribute(gc, source, contributorID, gf.attemptTransforms); err != nil {
 			return err

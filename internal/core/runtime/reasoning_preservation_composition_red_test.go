@@ -156,7 +156,6 @@ func rpHasReasoningText(call lipapi.Call, want string) bool {
 
 func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	m := featurebundle.MergeBundles(bundle)
 	gen, err := featurebundle.MergeBundlesGenerated(bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +163,7 @@ func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensi
 	bus := hooks.New(hooks.Config{ResponsePartHooks: bundle.ResponsePartHooks})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		RequestTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
-		CompletionGates:         m.CompletionGates,
+		CompletionGates:         lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates),
 		AttemptTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
 		StreamObserverFactories: bundle.StreamObserverFactories,
 	})

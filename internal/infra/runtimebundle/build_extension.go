@@ -11,10 +11,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -105,20 +103,14 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.ToolCallFinalizers) > 0 {
 		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
 	}
-	var routeHints []routehint.Provider
-	if len(opts.Extensions.RouteHintProviders) > 0 {
-		routeHints = slices.Clone(opts.Extensions.RouteHintProviders)
-	}
-	var compGates []completion.Gate
-	if len(opts.Extensions.CompletionGates) > 0 {
-		compGates = slices.Clone(opts.Extensions.CompletionGates)
-	}
 	var frozen lipfeature.FrozenPlaneSet
 	if opts != nil {
 		frozen = opts.FeaturePlanes
 	}
 	reqTransforms := lipfeature.Get(frozen, lipfeature.PlaneRequestTransforms)
 	preReqs := lipfeature.Get(frozen, lipfeature.PlanePreRequestHandlers)
+	routeHints := lipfeature.Get(frozen, lipfeature.PlaneRouteHintProviders)
+	compGates := lipfeature.Get(frozen, lipfeature.PlaneCompletionGates)
 	attemptXforms := lipfeature.Get(frozen, lipfeature.PlaneAttemptTransforms)
 	streamObs := lipfeature.Get(frozen, lipfeature.PlaneStreamObserverFactories)
 	var trafficObs traffic.Observer = traffic.NoopObserver{}

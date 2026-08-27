@@ -51,8 +51,6 @@ func hasExtensionOverlay(e ExtensionsOptions) bool {
 		len(e.ToolCallPolicies) > 0 ||
 		len(e.ToolCallFinalizers) > 0 ||
 		e.ToolCallFinalizationMaxArgsBytes > 0 ||
-		len(e.RouteHintProviders) > 0 ||
-		len(e.CompletionGates) > 0 ||
 		len(e.SecretGuards) > 0 ||
 		e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil

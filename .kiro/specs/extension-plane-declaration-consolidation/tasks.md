@@ -169,7 +169,7 @@
   - _Boundary: composition root, core/runtime_
   - _Depends: 5.3_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 6.2 Migrate completion gates and route hints
+- [x] 6.2 Migrate completion gates and route hints
   - Preserve non-nil empty completion-gate semantics and route-hint ordering/error evidence.
   - Observable completion: seam views remain source-compatible and mirror branches reach zero.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 7.1_

@@ -321,8 +321,6 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		ToolCallPolicies:                 append(merged.ToolCallPolicies[:0:0], merged.ToolCallPolicies...),
 		ToolCallFinalizers:               append(merged.ToolCallFinalizers[:0:0], merged.ToolCallFinalizers...),
 		ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
-		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
-		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
@@ -348,8 +346,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if src.ToolCallFinalizationMaxArgsBytes > 0 {
 		dst.ToolCallFinalizationMaxArgsBytes = src.ToolCallFinalizationMaxArgsBytes
 	}
-	dst.RouteHintProviders = append(dst.RouteHintProviders, src.RouteHintProviders...)
-	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {

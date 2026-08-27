@@ -47,16 +47,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	genFinalizationCap := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
 	assert.Equal(tb, legacy.ToolCallFinalizationMaxArgsBytes, genFinalizationCap, "ToolCallFinalizationMaxArgsBytes mismatch")
 
-	// 13. RouteHintProviders
-	genRouteHintProviders := lipfeature.Get(gen.Frozen, lipfeature.PlaneRouteHintProviders)
-	assert.Equal(tb, legacy.RouteHintProviders, genRouteHintProviders, "RouteHintProviders mismatch")
-	assert.Equal(tb, legacy.RouteHintProviders == nil, genRouteHintProviders == nil, "RouteHintProviders nilness mismatch")
-
-	// 14. CompletionGates
-	genCompletionGates := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)
-	assert.Equal(tb, legacy.CompletionGates, genCompletionGates, "CompletionGates mismatch")
-	assert.Equal(tb, legacy.CompletionGates == nil, genCompletionGates == nil, "CompletionGates nilness mismatch")
-
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
 	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")

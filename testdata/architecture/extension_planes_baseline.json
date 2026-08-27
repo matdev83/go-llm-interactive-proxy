@@ -4,7 +4,7 @@
   "active_wave": "W2_Observers",
   "active_wave_ordinal": 2,
   "total_planes": 25,
-  "total_remaining_mirrors": 158,
+  "total_remaining_mirrors": 148,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -97,7 +97,7 @@
         "session_openers",
         "workspace_resolvers"
       ],
-      "measured_mirrors": 46,
+      "measured_mirrors": 36,
       "active_forbidden": 0
     },
     {

@@ -7,11 +7,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
@@ -31,8 +29,6 @@ type MergedFeatureSurface struct {
 	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
-	RouteHintProviders               []routehint.Provider
-	CompletionGates                  []completion.Gate
 	CompactionObservers              []compaction.Observer
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
@@ -88,8 +84,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 			m.ToolCallFinalizationMaxArgsBytes = b.ToolCallFinalizationMaxArgsBytes
 		}
 	}
-	m.RouteHintProviders = append(m.RouteHintProviders, b.RouteHintProviders...)
-	m.CompletionGates = append(m.CompletionGates, b.CompletionGates...)
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)

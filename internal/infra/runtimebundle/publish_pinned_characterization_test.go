@@ -199,12 +199,6 @@ func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOpti
 		ToolCallFinalizers: []toolcall.Finalizer{
 			charBundleToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
 		},
-		RouteHintProviders: []routehint.Provider{
-			charBundleRouteHintProvider{id: label + "-routehint"},
-		},
-		CompletionGates: []completion.Gate{
-			charBundleCompletionGate{id: label + "-gate"},
-		},
 		SecretGuards: []secretguard.Guard{
 			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
 		},
@@ -231,6 +225,12 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 			},
 			PreRequestHandlers: []prerequest.Handler{
 				charBundlePreRequestHandler{id: label + "-prereq"},
+			},
+			RouteHintProviders: []routehint.Provider{
+				charBundleRouteHintProvider{id: label + "-routehint"},
+			},
+			CompletionGates: []completion.Gate{
+				charBundleCompletionGate{id: label + "-gate"},
 			},
 			AttemptTransforms: []request.AttemptTransform{
 				charBundleAttemptTransform{id: label + "-attxform"},
