@@ -120,11 +120,22 @@ var (
 		"HooksConfigFromGenerated": true,
 		"HooksConfigFromFrozen":    true,
 	}
+
+	// AllowedObserverProjections is the exact-name allowlist of observer projection functions.
+	// Any other function whose body reads observer planes via Get past Wave 2 is forbidden.
+	AllowedObserverProjections = map[string]bool{
+		"buildRuntimeSnapshot": true,
+	}
 )
 
 // IsAllowedHookProjection reports whether funcName is in the exact-name allowlist for hook projection.
 func IsAllowedHookProjection(funcName string) bool {
 	return AllowedHookProjections[funcName]
+}
+
+// IsAllowedObserverProjection reports whether funcName is in the exact-name allowlist for observer projection.
+func IsAllowedObserverProjection(funcName string) bool {
+	return AllowedObserverProjections[funcName]
 }
 
 // IsAllowedStageConsumer checks if a fully-qualified Go symbol is explicitly recorded in AllowedStageConsumers.

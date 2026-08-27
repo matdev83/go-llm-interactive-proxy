@@ -172,30 +172,27 @@ func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-
-	// Verify all 4 planes project identically to lipfeature.Get on gen.Frozen
-	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers), ext.TrafficObservers)
-	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers), ext.UsageObservers)
-	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks), ext.RawCaptureSinks)
-	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors), ext.TrafficRedactors)
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	raw := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+	red := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
 
 	// Verify counts and identities
-	require.Len(t, ext.TrafficObservers, 2)
-	assert.Equal(t, "to-1", ext.TrafficObservers[0].(stubTrafficObs).id)
-	assert.Equal(t, "to-2", ext.TrafficObservers[1].(stubTrafficObs).id)
+	require.Len(t, to, 2)
+	assert.Equal(t, "to-1", to[0].(stubTrafficObs).id)
+	assert.Equal(t, "to-2", to[1].(stubTrafficObs).id)
 
-	require.Len(t, ext.UsageObservers, 2)
-	assert.Equal(t, "uo-1", ext.UsageObservers[0].(stubUsageObs).id)
-	assert.Equal(t, "uo-2", ext.UsageObservers[1].(stubUsageObs).id)
+	require.Len(t, uo, 2)
+	assert.Equal(t, "uo-1", uo[0].(stubUsageObs).id)
+	assert.Equal(t, "uo-2", uo[1].(stubUsageObs).id)
 
-	require.Len(t, ext.RawCaptureSinks, 2)
-	assert.Equal(t, "raw-1", ext.RawCaptureSinks[0].(stubRawSink).id)
-	assert.Equal(t, "raw-2", ext.RawCaptureSinks[1].(stubRawSink).id)
+	require.Len(t, raw, 2)
+	assert.Equal(t, "raw-1", raw[0].(stubRawSink).id)
+	assert.Equal(t, "raw-2", raw[1].(stubRawSink).id)
 
-	require.Len(t, ext.TrafficRedactors, 2)
-	assert.Equal(t, "red-1", ext.TrafficRedactors[0].ID())
-	assert.Equal(t, "red-2", ext.TrafficRedactors[1].ID())
+	require.Len(t, red, 2)
+	assert.Equal(t, "red-1", red[0].ID())
+	assert.Equal(t, "red-2", red[1].ID())
 }
 
 func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
@@ -223,19 +220,18 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 	}))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
 
-	// Feature-then-host ordering for TrafficObservers
-	require.Len(t, ext.TrafficObservers, 4)
-	assert.Equal(t, "feat-to-1", ext.TrafficObservers[0].(stubTrafficObs).id)
-	assert.Equal(t, "feat-to-2", ext.TrafficObservers[1].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", ext.TrafficObservers[2].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-2", ext.TrafficObservers[3].(stubTrafficObs).id)
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	require.Len(t, to, 4)
+	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
+	assert.Equal(t, "feat-to-2", to[1].(stubTrafficObs).id)
+	assert.Equal(t, "host-to-1", to[2].(stubTrafficObs).id)
+	assert.Equal(t, "host-to-2", to[3].(stubTrafficObs).id)
 
-	// Feature-then-host ordering for UsageObservers
-	require.Len(t, ext.UsageObservers, 2)
-	assert.Equal(t, "feat-uo-1", ext.UsageObservers[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", ext.UsageObservers[1].(stubUsageObs).id)
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	require.Len(t, uo, 2)
+	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
+	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
 }
 
 func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
@@ -270,17 +266,18 @@ func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
 	}))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
 
-	require.Len(t, ext.TrafficObservers, 3)
-	assert.Equal(t, "feat-to-1", ext.TrafficObservers[0].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", ext.TrafficObservers[1].(stubTrafficObs).id)
-	assert.Equal(t, "cand-to-1", ext.TrafficObservers[2].(stubTrafficObs).id)
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	require.Len(t, to, 3)
+	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
+	assert.Equal(t, "host-to-1", to[1].(stubTrafficObs).id)
+	assert.Equal(t, "cand-to-1", to[2].(stubTrafficObs).id)
 
-	require.Len(t, ext.UsageObservers, 3)
-	assert.Equal(t, "feat-uo-1", ext.UsageObservers[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", ext.UsageObservers[1].(stubUsageObs).id)
-	assert.Equal(t, "cand-uo-1", ext.UsageObservers[2].(stubUsageObs).id)
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	require.Len(t, uo, 3)
+	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
+	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
+	assert.Equal(t, "cand-uo-1", uo[2].(stubUsageObs).id)
 }
 
 func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
@@ -288,11 +285,11 @@ func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 
 	t.Run("zero_generated_surface_projects_nil_slices", func(t *testing.T) {
 		t.Parallel()
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
-		assert.Nil(t, ext.TrafficObservers)
-		assert.Nil(t, ext.UsageObservers)
-		assert.Nil(t, ext.RawCaptureSinks)
-		assert.Nil(t, ext.TrafficRedactors)
+		var gen featurebundle.GeneratedMergeSurface
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers))
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers))
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks))
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors))
 	})
 
 	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
@@ -306,46 +303,11 @@ func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-		assert.Nil(t, ext.TrafficObservers, "TrafficObservers must normalize explicit empty to nil")
-		assert.Nil(t, ext.UsageObservers, "UsageObservers must normalize explicit empty to nil")
-		assert.Nil(t, ext.RawCaptureSinks, "RawCaptureSinks must normalize explicit empty to nil")
-		assert.Nil(t, ext.TrafficRedactors, "TrafficRedactors must normalize explicit empty to nil")
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers), "TrafficObservers must normalize explicit empty to nil")
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers), "UsageObservers must normalize explicit empty to nil")
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks), "RawCaptureSinks must normalize explicit empty to nil")
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors), "TrafficRedactors must normalize explicit empty to nil")
 	})
-}
-
-func TestObserversProjection_OverlayBranchesOmitted(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		TrafficObservers: []traffic.Observer{stubTrafficObs{id: "dst-to"}},
-		UsageObservers:   []usage.Observer{stubUsageObs{id: "dst-uo"}},
-		RawCaptureSinks:  []traffic.RawCaptureSink{stubRawSink{id: "dst-raw"}},
-		TrafficRedactors: []traffic.Redactor{stubRedactor{id: "dst-red"}},
-	}
-	src := ExtensionsOptions{
-		TrafficObservers: []traffic.Observer{stubTrafficObs{id: "src-to"}},
-		UsageObservers:   []usage.Observer{stubUsageObs{id: "src-uo"}},
-		RawCaptureSinks:  []traffic.RawCaptureSink{stubRawSink{id: "src-raw"}},
-		TrafficRedactors: []traffic.Redactor{stubRedactor{id: "src-red"}},
-	}
-
-	overlayExtensions(dst, src)
-
-	// Since observer families are consolidated through generated plane adapters,
-	// overlayExtensions must not contain hand-coded append branches for them.
-	// dst must retain its original slices without source appending.
-	require.Len(t, dst.TrafficObservers, 1, "overlayExtensions must not append TrafficObservers")
-	assert.Equal(t, "dst-to", dst.TrafficObservers[0].(stubTrafficObs).id)
-
-	require.Len(t, dst.UsageObservers, 1, "overlayExtensions must not append UsageObservers")
-	assert.Equal(t, "dst-uo", dst.UsageObservers[0].(stubUsageObs).id)
-
-	require.Len(t, dst.RawCaptureSinks, 1, "overlayExtensions must not append RawCaptureSinks")
-	assert.Equal(t, "dst-raw", dst.RawCaptureSinks[0].(stubRawSink).id)
-
-	require.Len(t, dst.TrafficRedactors, 1, "overlayExtensions must not append TrafficRedactors")
-	assert.Equal(t, "dst-red", dst.TrafficRedactors[0].ID())
 }
 
 func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
@@ -368,13 +330,16 @@ func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	raw := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+	red := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
 
-	// Mutate projected slices
-	ext.TrafficObservers[0] = stubTrafficObs{id: "mutated-to"}
-	ext.UsageObservers[0] = stubUsageObs{id: "mutated-uo"}
-	ext.RawCaptureSinks[0] = stubRawSink{id: "mutated-raw"}
-	ext.TrafficRedactors[0] = stubRedactor{id: "mutated-red"}
+	// Mutate retrieved slices
+	to[0] = stubTrafficObs{id: "mutated-to"}
+	uo[0] = stubUsageObs{id: "mutated-uo"}
+	raw[0] = stubRawSink{id: "mutated-raw"}
+	red[0] = stubRedactor{id: "mutated-red"}
 
 	// Re-reading from Frozen must return untouched original values
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
@@ -445,7 +410,7 @@ func TestObserversProjection_EndToEndSnapshotDispatch(t *testing.T) {
 
 	bus := hooks.New(hooks.Config{})
 	var err error
-	snap := buildRuntimeSnapshot(bus, &config.Config{}, &BuildOptions{Extensions: ext}, time.Now, nil, &controlPlaneRuntime{}, nil, extensions.SecretGuardPlane{}, nil)
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, &BuildOptions{Extensions: ext, FeaturePlanes: gen.Frozen}, time.Now, nil, &controlPlaneRuntime{}, nil, extensions.SecretGuardPlane{}, nil)
 	require.NotNil(t, snap)
 
 	// 1. Dispatch TrafficObserver
@@ -519,11 +484,12 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-	require.Len(t, ext.TrafficObservers, 1)
-	require.Len(t, ext.UsageObservers, 1)
-	assert.Equal(t, "reg-to", ext.TrafficObservers[0].(stubTrafficObs).id)
-	assert.Equal(t, "reg-uo", ext.UsageObservers[0].(stubUsageObs).id)
+	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	require.Len(t, to, 1)
+	require.Len(t, uo, 1)
+	assert.Equal(t, "reg-to", to[0].(stubTrafficObs).id)
+	assert.Equal(t, "reg-uo", uo[0].(stubUsageObs).id)
 
 	// Disabled plugin contributes nothing
 	genDisabled, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
@@ -532,9 +498,10 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	extDisabled := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, genDisabled, nil)
-	require.Len(t, extDisabled.TrafficObservers, 1)
-	require.Empty(t, extDisabled.UsageObservers, "disabled usage plugin must not contribute to usage observers")
+	toDisabled := lipfeature.Get(genDisabled.Frozen, lipfeature.PlaneTrafficObservers)
+	uoDisabled := lipfeature.Get(genDisabled.Frozen, lipfeature.PlaneUsageObservers)
+	require.Len(t, toDisabled, 1)
+	require.Empty(t, uoDisabled, "disabled usage plugin must not contribute to usage observers")
 }
 
 func obsTestProcessConfig() *config.Config {
@@ -689,6 +656,17 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 				},
 			}, nil
 		})
+		err = reg.RegisterFeature("three-source-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				TrafficObservers: []traffic.Observer{
+					stubTrafficObs{id: "cand-to", events: &trafficEvents, mu: &mu},
+				},
+				UsageObservers: []usage.Observer{
+					stubUsageObs{id: "cand-uo", events: &usageEvents, mu: &mu},
+				},
+			}, nil
+		})
 		require.NoError(t, err)
 
 		cfg := obsTestProcessConfig()
@@ -714,20 +692,13 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		t.Cleanup(func() { _ = ps.Close() })
 
 		cand := obsTestCandidateConfig(t, "three-source-feature")
+		cand.Plugins.Features = append(cand.Plugins.Features, config.PluginConfig{
+			ID: "three-source-cand", Enabled: true,
+		})
 
 		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
 			Process:   ps,
 			Candidate: cand,
-			CandidateOpts: &BuildOptions{
-				Extensions: ExtensionsOptions{
-					TrafficObservers: []traffic.Observer{
-						stubTrafficObs{id: "cand-to", events: &trafficEvents, mu: &mu},
-					},
-					UsageObservers: []usage.Observer{
-						stubUsageObs{id: "cand-uo", events: &usageEvents, mu: &mu},
-					},
-				},
-			},
 			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
 				obs := in.Frontends.TrafficPorts.Obs
 				require.NotNil(t, obs)
@@ -743,8 +714,8 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = bundle.Close() })
 
-		require.Equal(t, []string{"feat-to", "host-to", "cand-to"}, trafficEvents, "traffic observers must execute in feature -> host -> candidate order")
-		require.Equal(t, []string{"feat-uo", "host-uo", "cand-uo"}, usageEvents, "usage observers must execute in feature -> host -> candidate order")
+		require.Equal(t, []string{"feat-to", "cand-to", "host-to"}, trafficEvents, "traffic observers must execute in feature -> candidate -> host order")
+		require.Equal(t, []string{"feat-uo", "cand-uo", "host-uo"}, usageEvents, "usage observers must execute in feature -> candidate -> host order")
 	})
 
 	t.Run("candidate_production_options_ignored", func(t *testing.T) {
@@ -813,6 +784,17 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 				},
 			}, nil
 		})
+		err = reg.RegisterFeature("cand-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				RawCaptureSinks: []traffic.RawCaptureSink{
+					stubRawSink{id: "cand-raw", events: &rawEvents, mu: &mu},
+				},
+				TrafficRedactors: []traffic.Redactor{
+					stubRedactor{id: "2-cand-red", prefix: "cand", events: &redEvents, mu: &mu},
+				},
+			}, nil
+		})
 		require.NoError(t, err)
 
 		cfg := obsTestProcessConfig()
@@ -830,20 +812,13 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		t.Cleanup(func() { _ = ps.Close() })
 
 		cand := obsTestCandidateConfig(t, "feature-raw-red")
+		cand.Plugins.Features = append(cand.Plugins.Features, config.PluginConfig{
+			ID: "cand-raw-red", Enabled: true,
+		})
 
 		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
 			Process:   ps,
 			Candidate: cand,
-			CandidateOpts: &BuildOptions{
-				Extensions: ExtensionsOptions{
-					RawCaptureSinks: []traffic.RawCaptureSink{
-						stubRawSink{id: "cand-raw", events: &rawEvents, mu: &mu},
-					},
-					TrafficRedactors: []traffic.Redactor{
-						stubRedactor{id: "2-cand-red", prefix: "cand", events: &redEvents, mu: &mu},
-					},
-				},
-			},
 			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
 				raw := in.Frontends.TrafficPorts.Raw
 				require.NotNil(t, raw)
@@ -952,34 +927,10 @@ func TestStreamObserverFactoriesProjection_ParityWithFrozenAndExpectedConfig(t *
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-
-	// Verify plane projects identically to lipfeature.Get on gen.Frozen
-	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories), ext.StreamObserverFactories)
-
-	// Verify counts and identities
-	require.Len(t, ext.StreamObserverFactories, 2)
-	assert.Equal(t, "so-1", ext.StreamObserverFactories[0].ID())
-	assert.Equal(t, "so-2", ext.StreamObserverFactories[1].ID())
-}
-
-func TestStreamObserverFactoriesProjection_OverlayBranchesOmitted(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{stubStreamObsFactory{id: "dst-so"}},
-	}
-	src := ExtensionsOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{stubStreamObsFactory{id: "src-so"}},
-	}
-
-	overlayExtensions(dst, src)
-
-	// Since StreamObserverFactories is consolidated through generated plane adapters,
-	// overlayExtensions must not contain hand-coded append branches for it.
-	// dst must retain its original slices without source appending.
-	require.Len(t, dst.StreamObserverFactories, 1, "overlayExtensions must not append StreamObserverFactories")
-	assert.Equal(t, "dst-so", dst.StreamObserverFactories[0].ID())
+	so := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+	require.Len(t, so, 2)
+	assert.Equal(t, "so-1", so[0].ID())
+	assert.Equal(t, "so-2", so[1].ID())
 }
 
 func TestStreamObserverFactoriesProjection_CandidateOverlayOrdering(t *testing.T) {
@@ -992,6 +943,16 @@ func TestStreamObserverFactoriesProjection_CandidateOverlayOrdering(t *testing.T
 			StreamObserverFactories: []response.StreamObserverFactory{
 				stubStreamObsFactory{id: "1-feat-so-1", ord: 1},
 				stubStreamObsFactory{id: "2-feat-so-2", ord: 2},
+			},
+		}, nil
+	})
+	require.NoError(t, err)
+
+	err = reg.RegisterFeature("feature-so-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{
+				stubStreamObsFactory{id: "3-cand-so-1", ord: 3},
 			},
 		}, nil
 	})
@@ -1012,18 +973,14 @@ func TestStreamObserverFactoriesProjection_CandidateOverlayOrdering(t *testing.T
 	t.Cleanup(func() { _ = ps.Close() })
 
 	cand := obsTestCandidateConfig(t, "feature-so")
+	cand.Plugins.Features = append(cand.Plugins.Features, config.PluginConfig{
+		ID: "feature-so-cand", Enabled: true,
+	})
 	var snap *extensions.RequestRuntimeSnapshot
 
 	bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		CandidateOpts: &BuildOptions{
-			Extensions: ExtensionsOptions{
-				StreamObserverFactories: []response.StreamObserverFactory{
-					stubStreamObsFactory{id: "3-cand-so-1", ord: 3},
-				},
-			},
-		},
 		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
 			snap = in.Core.Executor.RuntimeSnapshot
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
@@ -1059,11 +1016,11 @@ func TestStreamObserverFactoriesProjection_ThreeSourceOrdering(t *testing.T) {
 	}))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
 
-	require.Len(t, ext.StreamObserverFactories, 2)
-	assert.Equal(t, "feat-so-1", ext.StreamObserverFactories[0].ID())
-	assert.Equal(t, "cand-so-1", ext.StreamObserverFactories[1].ID())
+	so := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+	require.Len(t, so, 2)
+	assert.Equal(t, "feat-so-1", so[0].ID())
+	assert.Equal(t, "cand-so-1", so[1].ID())
 }
 
 func TestStreamObserverFactoriesProjection_LazyLifecycleAndInvocation(t *testing.T) {
@@ -1162,11 +1119,11 @@ func TestStreamObserverFactoriesProjection_BackingArrayIsolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-	require.Len(t, ext.StreamObserverFactories, 1)
+	so := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+	require.Len(t, so, 1)
 
 	// Mutate returned slice
-	ext.StreamObserverFactories[0] = stubStreamObsFactory{id: "mutated-so"}
+	so[0] = stubStreamObsFactory{id: "mutated-so"}
 
 	// Re-reading from Frozen should not reflect mutation
 	frozenAgain := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
@@ -1179,8 +1136,8 @@ func TestStreamObserverFactoriesProjection_ExactNilAndEmptySemantics(t *testing.
 
 	t.Run("zero_generated_surface_projects_nil_slices", func(t *testing.T) {
 		t.Parallel()
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
-		assert.Nil(t, ext.StreamObserverFactories)
+		var gen featurebundle.GeneratedMergeSurface
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories))
 	})
 
 	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
@@ -1191,8 +1148,7 @@ func TestStreamObserverFactoriesProjection_ExactNilAndEmptySemantics(t *testing.
 		})
 		require.NoError(t, err)
 
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
-		assert.Nil(t, ext.StreamObserverFactories, "StreamObserverFactories must normalize explicit empty to nil")
+		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories), "StreamObserverFactories must normalize explicit empty to nil")
 	})
 }
 

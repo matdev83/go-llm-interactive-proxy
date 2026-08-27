@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
@@ -265,13 +266,17 @@ compression:
 	if len(bDisabled.AttemptTransforms) == 0 || len(bDisabled.StreamObserverFactories) == 0 {
 		t.Fatalf("disabled should have participants")
 	}
-	// Simulate merged surface that already contains placeholder
-	merged := featurebundle.MergedFeatureSurface{
-		AttemptTransforms: bDisabled.AttemptTransforms,
+	genSurface, err := featurebundle.MergeBundlesGenerated(bDisabled)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
 	}
-	merged2 := removeReasoningParticipants(merged)
-	if len(merged2.AttemptTransforms) != 0 {
-		t.Fatalf("remove should strip reasoning participants, got %d transforms", len(merged2.AttemptTransforms))
+	genSurface2, err := genSurface.BindAttemptTransforms(reasoningpreservation.ID, bDisabled.AttemptTransforms)
+	if err != nil {
+		t.Fatalf("BindAttemptTransforms: %v", err)
+	}
+	xforms2 := lipfeature.Get(genSurface2.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(xforms2) != 1 {
+		t.Fatalf("bind should replace reasoning participants, got %d transforms", len(xforms2))
 	}
 	// Now test that bind does not duplicate when called via CompileGeneration
 	// Use full CompileGeneration with enabled config and ensure only one set
@@ -293,13 +298,13 @@ compression:
 		t.Fatalf("NewProcessServices: %v", err)
 	}
 	t.Cleanup(func() { _ = ps.Close() })
-	mergedForDup := featurebundle.MergedFeatureSurface{
-		AttemptTransforms: bDisabled.AttemptTransforms,
+	genSurface3, err := genSurface2.BindAttemptTransforms(reasoningpreservation.ID, bDisabled.AttemptTransforms)
+	if err != nil {
+		t.Fatalf("BindAttemptTransforms 3: %v", err)
 	}
-	mergedForDup2 := removeReasoningParticipants(mergedForDup)
-	mergedForDup3 := removeReasoningParticipants(mergedForDup2)
-	if len(mergedForDup3.AttemptTransforms) != len(mergedForDup2.AttemptTransforms) {
-		t.Fatalf("remove should be idempotent")
+	xforms3 := lipfeature.Get(genSurface3.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(xforms3) != len(xforms2) {
+		t.Fatalf("bind should be idempotent")
 	}
 }
 

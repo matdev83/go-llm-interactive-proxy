@@ -17,6 +17,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 	if overlay.ReplaceCandidateSurface {
 		out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
 		out.Extensions = overlay.Extensions
+		out.FeaturePlanes = overlay.FeaturePlanes
 	} else {
 		if overlay.FeatureLifecycles != nil {
 			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
@@ -24,6 +25,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 		if hasExtensionOverlay(overlay.Extensions) {
 			out.Extensions = overlay.Extensions
 		}
+		out.FeaturePlanes = overlay.FeaturePlanes
 	}
 	if overlay.WireModel != nil {
 		out.WireModel = overlay.WireModel
@@ -53,11 +55,6 @@ func hasExtensionOverlay(e ExtensionsOptions) bool {
 		len(e.RouteHintProviders) > 0 ||
 		len(e.CompletionGates) > 0 ||
 		len(e.AttemptTransforms) > 0 ||
-		len(e.StreamObserverFactories) > 0 ||
-		len(e.TrafficObservers) > 0 ||
-		len(e.UsageObservers) > 0 ||
-		len(e.RawCaptureSinks) > 0 ||
-		len(e.TrafficRedactors) > 0 ||
 		len(e.SecretGuards) > 0 ||
 		e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil

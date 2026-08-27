@@ -102,8 +102,6 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		ext := extensionsFromMerged(merged, gen, nil)
 		require.Len(t, ext.SessionOpeners, len(merged.SessionOpeners))
 		require.Len(t, ext.RequestTransforms, len(merged.RequestTransforms))
-		require.Len(t, ext.TrafficObservers, len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)))
-		require.Len(t, ext.UsageObservers, len(lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)))
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
 		assert.Equal(t, "opener", ext.SessionOpeners[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
@@ -136,8 +134,6 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 	merged, gen := projMerged(t)
 	ext := extensionsFromMerged(merged, gen, nil)
 
-	extraTraffic := projTrafficObs{tag: "extra"}
-	ext.TrafficObservers = append(ext.TrafficObservers, extraTraffic)
 	ext.SessionOpeners[0] = projOpener{tag: "mutated"}
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, toFrozen, 1)
@@ -147,9 +143,7 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 	require.Equal(t, "opener", merged.SessionOpeners[0].ID())
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
-	extUsage, extUsageOK := ext.UsageObservers[0].(projUsageObs)
-	require.True(t, extUsageOK)
-	require.Equal(t, "feat-usage", extUsage.tag)
+	require.Len(t, uoFrozen, 1)
 	require.Equal(t, "feat-usage", uoFrozen[0].(projUsageObs).tag)
 }
 
@@ -163,7 +157,6 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}},
 		UsageObservers:   []usage.Observer{projUsageObs{tag: "feat-u"}},
 	}
-	merged := featurebundle.MergeBundles(b)
 
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, featurebundle.ContributeBundle(cs, "feat", b))
@@ -174,16 +167,18 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	}))
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
-	ext := extensionsFromMerged(merged, gen, nil)
-	gotTraffic := make([]string, 0, len(ext.TrafficObservers))
-	for _, o := range ext.TrafficObservers {
+	trafficFromFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	gotTraffic := make([]string, 0, len(trafficFromFrozen))
+	for _, o := range trafficFromFrozen {
 		obs, ok := o.(projTrafficObs)
 		require.True(t, ok)
 		gotTraffic = append(gotTraffic, obs.tag)
 	}
 	require.Equal(t, []string{"feat-1", "feat-2", "host-1"}, gotTraffic)
-	gotUsage := make([]string, 0, len(ext.UsageObservers))
-	for _, o := range ext.UsageObservers {
+
+	usageFromFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+	gotUsage := make([]string, 0, len(usageFromFrozen))
+	for _, o := range usageFromFrozen {
 		obs, ok := o.(projUsageObs)
 		require.True(t, ok)
 		gotUsage = append(gotUsage, obs.tag)
@@ -192,9 +187,8 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 
 	genFeatOnly, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
-	extNoHosts := extensionsFromMerged(merged, genFeatOnly, nil)
-	require.Len(t, extNoHosts.TrafficObservers, 2)
-	require.Len(t, extNoHosts.UsageObservers, 1)
+	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneTrafficObservers), 2)
+	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneUsageObservers), 1)
 }
 
 // Pins overlayExtensions legacy semantics: source contributions append after

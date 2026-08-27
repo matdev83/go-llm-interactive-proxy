@@ -60,3 +60,8 @@ func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
 	}
 	return "", false
 }
+
+// IsZero reports whether s is an uninitialized, zero-value FrozenPlaneSet.
+func (s FrozenPlaneSet) IsZero() bool {
+	return s.frozen == nil && s.values == nil && s.identities == nil
+}

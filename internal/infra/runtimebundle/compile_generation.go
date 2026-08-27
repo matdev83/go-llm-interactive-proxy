@@ -74,18 +74,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
 	}
 	var extraBundles []lipfeature.FeatureBundle
-	if in.CandidateOpts != nil {
-		if c := in.CandidateOpts.Extensions; len(c.TrafficObservers) > 0 || len(c.UsageObservers) > 0 || len(c.RawCaptureSinks) > 0 || len(c.TrafficRedactors) > 0 || len(c.StreamObserverFactories) > 0 {
-			extraBundles = append(extraBundles, lipfeature.FeatureBundle{
-				SchemaVersion:           lipfeature.SchemaVersionV1,
-				TrafficObservers:        slices.Clone(c.TrafficObservers),
-				UsageObservers:          slices.Clone(c.UsageObservers),
-				RawCaptureSinks:         slices.Clone(c.RawCaptureSinks),
-				TrafficRedactors:        slices.Clone(c.TrafficRedactors),
-				StreamObserverFactories: slices.Clone(c.StreamObserverFactories),
-			})
-		}
-	}
 	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host, extraBundles...)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
@@ -115,6 +103,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		CandidateOpts: &BuildOptions{
 			FeatureLifecycles:       lifecycles,
 			Extensions:              ext,
+			FeaturePlanes:           genMerged.Frozen,
 			ReplaceCandidateSurface: true,
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
@@ -331,12 +320,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
 		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
 		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
-		StreamObserverFactories:          lipfeature.Get(genMerged.Frozen, lipfeature.PlaneStreamObserverFactories),
-		TrafficObservers:                 lipfeature.Get(genMerged.Frozen, lipfeature.PlaneTrafficObservers),
-		UsageObservers:                   lipfeature.Get(genMerged.Frozen, lipfeature.PlaneUsageObservers),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
-		RawCaptureSinks:                  lipfeature.Get(genMerged.Frozen, lipfeature.PlaneRawCaptureSinks),
-		TrafficRedactors:                 lipfeature.Get(genMerged.Frozen, lipfeature.PlaneTrafficRedactors),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 		TerminalDecisionProvider:         merged.TerminalDecisionProvider,

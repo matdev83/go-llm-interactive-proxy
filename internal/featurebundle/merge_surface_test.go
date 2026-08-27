@@ -538,3 +538,79 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 		t.Fatalf("TrafficRedactors order = %#v, want [feat-red, cand-red]", red)
 	}
 }
+
+func TestGeneratedMergeSurface_BindAttemptTransforms_ReplaceByIdentity(t *testing.T) {
+	t.Parallel()
+
+	initBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{
+			testAttemptTransform{tag: "xform-1"},
+			testAttemptTransform{tag: "reasoning-preservation-transform"},
+			testAttemptTransform{tag: "xform-2"},
+		},
+	}
+
+	gen, err := MergeBundlesGenerated(initBundle)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
+	}
+
+	xformsBefore := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(xformsBefore) != 3 {
+		t.Fatalf("xforms before len = %d, want 3", len(xformsBefore))
+	}
+
+	boundXform := testAttemptTransform{tag: "reasoning-preservation-transform"}
+	updatedGen, err := gen.BindAttemptTransforms("reasoning-preservation", []request.AttemptTransform{boundXform})
+	if err != nil {
+		t.Fatalf("BindAttemptTransforms: %v", err)
+	}
+
+	xformsAfter := lipfeature.Get(updatedGen.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(xformsAfter) != 3 {
+		t.Fatalf("xforms after len = %d, want 3", len(xformsAfter))
+	}
+	if xformsAfter[0].ID() != "xform-1" || xformsAfter[1].ID() != "xform-2" || xformsAfter[2].ID() != "reasoning-preservation-transform" {
+		t.Fatalf("unexpected replacement order: %v, %v, %v", xformsAfter[0].ID(), xformsAfter[1].ID(), xformsAfter[2].ID())
+	}
+
+	// Idempotent: rebinding doesn't duplicate
+	reboundGen, err := updatedGen.BindAttemptTransforms("reasoning-preservation", []request.AttemptTransform{boundXform})
+	if err != nil {
+		t.Fatalf("rebound: %v", err)
+	}
+	xformsRebound := lipfeature.Get(reboundGen.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(xformsRebound) != 3 {
+		t.Fatalf("xforms rebound len = %d, want 3", len(xformsRebound))
+	}
+	if xformsRebound[0].ID() != "xform-1" || xformsRebound[1].ID() != "xform-2" || xformsRebound[2].ID() != "reasoning-preservation-transform" {
+		t.Fatalf("unexpected rebound order: %v, %v, %v", xformsRebound[0].ID(), xformsRebound[1].ID(), xformsRebound[2].ID())
+	}
+}
+
+func TestGeneratedMergeSurface_BindAttemptTransforms_NilReject(t *testing.T) {
+	t.Parallel()
+
+	initBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{
+			testAttemptTransform{tag: "xform-1"},
+		},
+	}
+
+	gen, err := MergeBundlesGenerated(initBundle)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
+	}
+
+	// Rejects slice containing nil element
+	_, err = gen.BindAttemptTransforms("reasoning-preservation", []request.AttemptTransform{nil})
+	if err == nil {
+		t.Fatalf("expected error for nil transform element, got nil")
+	}
+	if !strings.Contains(err.Error(), "must not be nil") {
+		t.Fatalf("error = %v, want 'must not be nil'", err)
+	}
+}
+

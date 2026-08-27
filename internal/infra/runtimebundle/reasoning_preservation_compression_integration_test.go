@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -417,16 +418,21 @@ func TestReasoningPreservation_OrdinaryStreamObserversPreservedWithCompression(t
 		stubStreamObsFactory{id: "ordinary-obs-1"},
 		stubStreamObsFactory{id: "ordinary-obs-2"},
 	}
+	err = reg.RegisterFeature("ordinary-features", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: ordinaryFactories,
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Plugins.Features = append(cfg.Plugins.Features, config.PluginConfig{ID: "ordinary-features", Enabled: true})
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
-		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				StreamObserverFactories: ordinaryFactories,
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)

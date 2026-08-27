@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -60,18 +59,13 @@ func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, reg
 	return err
 }
 
-func appendReasoningCompressionBundle(merged featurebundle.MergedFeatureSurface, bundle lipfeature.FeatureBundle) (featurebundle.MergedFeatureSurface, error) {
-	merged = removeReasoningParticipants(merged)
-	if err := merged.Append(bundle); err != nil {
-		return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression merge: %w", err)
-	}
-	return merged, nil
-}
-
 func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface, error) {
 	bindings, err := decodedReasoningCompressionBindings(ps, regs, client, poller)
 	if err != nil {
 		return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
+	}
+	if len(bindings) == 0 {
+		return merged, genMerged, nil
 	}
 	for _, b := range bindings {
 		svc := reasoningpreservation.CompressionServices{
@@ -84,9 +78,11 @@ func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurf
 		if err != nil {
 			return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
 		}
-		merged, err = appendReasoningCompressionBundle(merged, bundle)
-		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
+		if len(bundle.AttemptTransforms) > 0 {
+			genMerged, err = genMerged.BindAttemptTransforms(reasoningpreservation.ID, bundle.AttemptTransforms)
+			if err != nil {
+				return featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, err
+			}
 		}
 		if len(bundle.StreamObserverFactories) > 0 {
 			genMerged, err = genMerged.BindStreamObserverFactories(reasoningpreservation.ID, bundle.StreamObserverFactories)
@@ -95,6 +91,7 @@ func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurf
 			}
 		}
 	}
+	merged.AttemptTransforms = lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms)
 	return merged, genMerged, nil
 }
 
@@ -139,19 +136,6 @@ func isNilReasoningCapability(v any) bool {
 	default:
 		return false
 	}
-}
-
-func removeReasoningParticipants(m featurebundle.MergedFeatureSurface) featurebundle.MergedFeatureSurface {
-	xformID := reasoningpreservation.ID + "-transform"
-	filteredX := make([]request.AttemptTransform, 0, len(m.AttemptTransforms))
-	for _, x := range m.AttemptTransforms {
-		if x != nil && x.ID() == xformID {
-			continue
-		}
-		filteredX = append(filteredX, x)
-	}
-	m.AttemptTransforms = filteredX
-	return m
 }
 
 func newReasoningCompressionGenerationRunner(ps *ProcessServices) (*compactioncompose.GenerationExecutorRunner, auxiliary.BackgroundClient, auxiliary.BackgroundPoller, error) {

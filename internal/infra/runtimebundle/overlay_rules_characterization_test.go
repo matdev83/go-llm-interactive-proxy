@@ -414,27 +414,6 @@ func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 		overlayExtensions(dst, src)
 		require.Equal(t, 10, dst.SecretGuardInputs.SingleUser.MinSecretBytes, "SecretGuardInputs is omitted from overlay and not modified")
 	})
-
-	t.Run("migrated_observer_families_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{
-			TrafficObservers: []traffic.Observer{overTrafficObs{tag: "d-traffic"}},
-			UsageObservers:   []usage.Observer{overUsageObs{tag: "d-usage"}},
-			RawCaptureSinks:  []traffic.RawCaptureSink{overRawSink{tag: "d-raw"}},
-			TrafficRedactors: []traffic.Redactor{overRedactor{tag: "d-redact"}},
-		}
-		src := ExtensionsOptions{
-			TrafficObservers: []traffic.Observer{overTrafficObs{tag: "s-traffic"}},
-			UsageObservers:   []usage.Observer{overUsageObs{tag: "s-usage"}},
-			RawCaptureSinks:  []traffic.RawCaptureSink{overRawSink{tag: "s-raw"}},
-			TrafficRedactors: []traffic.Redactor{overRedactor{tag: "s-redact"}},
-		}
-		overlayExtensions(dst, src)
-		require.Len(t, dst.TrafficObservers, 1, "TrafficObservers is omitted from overlay")
-		require.Len(t, dst.UsageObservers, 1, "UsageObservers is omitted from overlay")
-		require.Len(t, dst.RawCaptureSinks, 1, "RawCaptureSinks is omitted from overlay")
-		require.Len(t, dst.TrafficRedactors, 1, "TrafficRedactors is omitted from overlay")
-	})
 }
 
 // --- Acceptance Criteria 3: Nil Safety ---

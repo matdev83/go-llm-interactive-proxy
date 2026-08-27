@@ -2,7 +2,6 @@ package runtimebundle
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"reflect"
 	"testing"
@@ -231,6 +230,9 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 			if len(tc.initialObs) > 0 {
 				require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "char-init", tc.initialObs))
 			}
+			if len(tc.initialXforms) > 0 {
+				require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-init", tc.initialXforms))
+			}
 			genMerged := featurebundle.GeneratedMergeSurface{
 				Frozen: cs.Freeze(),
 			}
@@ -244,6 +246,14 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 				gotObsIDs[i] = f.ID()
 			}
 			assert.Equal(t, tc.wantObsIDs, gotObsIDs)
+
+			gotXforms := lipfeature.Get(resGen.Frozen, lipfeature.PlaneAttemptTransforms)
+			gotXformGenIDs := make([]string, len(gotXforms))
+			for i, x := range gotXforms {
+				require.NotNil(t, x)
+				gotXformGenIDs[i] = x.ID()
+			}
+			assert.Equal(t, tc.wantXformIDs, gotXformGenIDs)
 
 			gotXformIDs := make([]string, len(resMerged.AttemptTransforms))
 			for i, x := range resMerged.AttemptTransforms {
@@ -270,6 +280,11 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 		},
 	}
 	cs := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-init", []request.AttemptTransform{
+		charAttemptTransform{id: "custom-xform-1"},
+		charAttemptTransform{id: reasoningXformID},
+		charAttemptTransform{id: "custom-xform-2"},
+	}))
 	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "char-init", []response.StreamObserverFactory{
 		charObserverFactory{id: "custom-obs-1"},
 		charObserverFactory{id: reasoningObsID},
@@ -292,6 +307,13 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	require.Len(t, res2.AttemptTransforms, 3)
 	require.Len(t, res3.AttemptTransforms, 3)
 
+	genXforms1 := lipfeature.Get(resGen1.Frozen, lipfeature.PlaneAttemptTransforms)
+	genXforms2 := lipfeature.Get(resGen2.Frozen, lipfeature.PlaneAttemptTransforms)
+	genXforms3 := lipfeature.Get(resGen3.Frozen, lipfeature.PlaneAttemptTransforms)
+	require.Len(t, genXforms1, 3)
+	require.Len(t, genXforms2, 3)
+	require.Len(t, genXforms3, 3)
+
 	obs1 := lipfeature.Get(resGen1.Frozen, lipfeature.PlaneStreamObserverFactories)
 	obs2 := lipfeature.Get(resGen2.Frozen, lipfeature.PlaneStreamObserverFactories)
 	obs3 := lipfeature.Get(resGen3.Frozen, lipfeature.PlaneStreamObserverFactories)
@@ -302,14 +324,11 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	for i := range 3 {
 		assert.Equal(t, res1.AttemptTransforms[i].ID(), res2.AttemptTransforms[i].ID())
 		assert.Equal(t, res1.AttemptTransforms[i].ID(), res3.AttemptTransforms[i].ID())
+		assert.Equal(t, genXforms1[i].ID(), genXforms2[i].ID())
+		assert.Equal(t, genXforms1[i].ID(), genXforms3[i].ID())
 		assert.Equal(t, obs1[i].ID(), obs2[i].ID())
 		assert.Equal(t, obs1[i].ID(), obs3[i].ID())
 	}
-
-	// Also test removeReasoningParticipants idempotence directly
-	rem1 := removeReasoningParticipants(initial)
-	rem2 := removeReasoningParticipants(rem1)
-	assert.Equal(t, len(rem1.AttemptTransforms), len(rem2.AttemptTransforms))
 }
 
 func TestReasoningCompression_FailBeforeMutate_CandidateUnmodified(t *testing.T) {
@@ -332,19 +351,13 @@ func TestReasoningCompression_FailBeforeMutate_CandidateUnmodified(t *testing.T)
 	snapshot := initialSurface
 	snapshotGen := initialGen
 
-	t.Run("appendReasoningCompressionBundle rejects conflicting provider leaving candidate unmodified", func(t *testing.T) {
+	t.Run("BindAttemptTransforms rejects nil elements leaving candidate unmodified", func(t *testing.T) {
 		t.Parallel()
-		cand := initialSurface
-		conflictingBundle := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: charTerminalProvider{id: "conflicting-provider"},
-		}
-
-		res, err := appendReasoningCompressionBundle(cand, conflictingBundle)
+		candGen := initialGen
+		resG, err := candGen.BindAttemptTransforms("invalid-provider", []request.AttemptTransform{nil})
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, featurebundle.ErrTerminalDecisionProviderConflict))
-		assert.Equal(t, featurebundle.MergedFeatureSurface{}, res, "failed composition must return empty surface")
-		assert.Equal(t, snapshot, cand, "original candidate must remain unmodified")
+		assert.Equal(t, featurebundle.GeneratedMergeSurface{}, resG, "failed composition must return empty surface")
+		assert.Equal(t, snapshotGen.Frozen, candGen.Frozen, "original candidate must remain unmodified")
 	})
 
 	t.Run("invalid config yaml returns error and empty surface leaving candidate unmodified", func(t *testing.T) {
@@ -437,37 +450,27 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 	reasoningObsID := reasoningpreservation.ID + "-observer"
 	reasoningXformID := reasoningpreservation.ID + "-transform"
 
-	t.Run("removeReasoningParticipants handles nil elements safely", func(t *testing.T) {
+	t.Run("BindAttemptTransforms rejects nil elements under NilReject policy", func(t *testing.T) {
 		t.Parallel()
-		m := featurebundle.MergedFeatureSurface{
-			AttemptTransforms: []request.AttemptTransform{
-				nil,
-				charAttemptTransform{id: "custom-xform"},
-				nil,
-				charAttemptTransform{id: reasoningXformID},
-				nil,
-			},
-		}
-
-		cleaned := removeReasoningParticipants(m)
-		// nils and custom elements are preserved; only reasoning elements removed
-		require.Len(t, cleaned.AttemptTransforms, 4)
-		assert.Nil(t, cleaned.AttemptTransforms[0])
-		assert.Equal(t, "custom-xform", cleaned.AttemptTransforms[1].ID())
-		assert.Nil(t, cleaned.AttemptTransforms[2])
-		assert.Nil(t, cleaned.AttemptTransforms[3])
+		genMerged := featurebundle.GeneratedMergeSurface{}
+		_, err := genMerged.BindAttemptTransforms(reasoningpreservation.ID, []request.AttemptTransform{nil})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not be nil")
 	})
 
-	t.Run("bindReasoningPreservationCompression handles nil elements in attempt transforms safely", func(t *testing.T) {
+	t.Run("bindReasoningPreservationCompression replaces reasoning participants in attempt transforms and observer factories safely", func(t *testing.T) {
 		t.Parallel()
 		m := featurebundle.MergedFeatureSurface{
 			AttemptTransforms: []request.AttemptTransform{
-				nil,
 				charAttemptTransform{id: "custom-xform"},
 				charAttemptTransform{id: reasoningXformID},
 			},
 		}
 		cs := lipfeature.NewContributionSet()
+		require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-init", []request.AttemptTransform{
+			charAttemptTransform{id: "custom-xform"},
+			charAttemptTransform{id: reasoningXformID},
+		}))
 		require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "char-init", []response.StreamObserverFactory{
 			charObserverFactory{id: "custom-obs"},
 			charObserverFactory{id: reasoningObsID},
@@ -479,10 +482,9 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 		res, resGen, err := bindReasoningPreservationCompression(m, genMerged, ps, []lipsdk.Registration{reg}, client, poller)
 		require.NoError(t, err)
 
-		require.Len(t, res.AttemptTransforms, 3)
-		assert.Nil(t, res.AttemptTransforms[0])
-		assert.Equal(t, "custom-xform", res.AttemptTransforms[1].ID())
-		assert.Equal(t, reasoningXformID, res.AttemptTransforms[2].ID())
+		require.Len(t, res.AttemptTransforms, 2)
+		assert.Equal(t, "custom-xform", res.AttemptTransforms[0].ID())
+		assert.Equal(t, reasoningXformID, res.AttemptTransforms[1].ID())
 
 		obs := lipfeature.Get(resGen.Frozen, lipfeature.PlaneStreamObserverFactories)
 		require.Len(t, obs, 2)
@@ -509,6 +511,9 @@ func TestReasoningCompression_DisabledNoOp(t *testing.T) {
 		},
 	}
 	cs := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-init", []request.AttemptTransform{
+		charAttemptTransform{id: "custom-xform"},
+	}))
 	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "char-init", []response.StreamObserverFactory{
 		charObserverFactory{id: "custom-obs"},
 	}))
