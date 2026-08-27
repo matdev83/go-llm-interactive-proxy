@@ -190,27 +190,141 @@ func TestPlan_PostgresDirectMode(t *testing.T) {
 	}
 }
 
-func TestPlan_PostgresDirectMode_PreservesExplicitTestDSN(t *testing.T) {
-	baseEnv := []string{
-		"LIP_TEST_POSTGRES_DSN=postgres://runtime:runpass@localhost:5432/runtime_db",
-		"LIP_TEST_POSTGRES_ADMIN_DSN=postgres://admin:adminpass@localhost:5432/admin_db",
+func TestPlan_PostgresDirect_DSNPrecedenceAndChildEnv(t *testing.T) {
+	testDSN := "postgres://runtime:runpass@localhost:5432/runtime_db"
+	legacyDSN := "postgres://legacy:legacypass@localhost:5432/legacy_db"
+	adminDSN := "postgres://admin:adminpass@localhost:5432/admin_db"
+
+	tests := []struct {
+		name         string
+		baseEnv      []string
+		wantDSN      string
+		expectedDesc string
+	}{
+		{
+			name: "case 1: test DSN only",
+			baseEnv: []string{
+				"PATH=/usr/bin",
+				"LIP_TEST_POSTGRES_DSN=" + testDSN,
+			},
+			wantDSN:      testDSN,
+			expectedDesc: "direct test DSN",
+		},
+		{
+			name: "case 2: managed legacy DSN only",
+			baseEnv: []string{
+				"PATH=/usr/bin",
+				"LIP_MANAGED_POSTGRES_DSN=" + legacyDSN,
+			},
+			wantDSN:      legacyDSN,
+			expectedDesc: "legacy managed DSN promoted to canonical test DSN",
+		},
+		{
+			name: "case 3: admin DSN fallback only",
+			baseEnv: []string{
+				"PATH=/usr/bin",
+				"LIP_TEST_POSTGRES_ADMIN_DSN=" + adminDSN,
+			},
+			wantDSN:      adminDSN,
+			expectedDesc: "admin DSN fallback promoted to canonical test DSN",
+		},
+		{
+			name: "precedence: test DSN beats managed legacy and admin fallback",
+			baseEnv: []string{
+				"PATH=/usr/bin",
+				"LIP_TEST_POSTGRES_ADMIN_DSN=" + adminDSN,
+				"LIP_MANAGED_POSTGRES_DSN=" + legacyDSN,
+				"LIP_TEST_POSTGRES_DSN=" + testDSN,
+			},
+			wantDSN:      testDSN,
+			expectedDesc: "highest precedence test DSN wins",
+		},
+		{
+			name: "precedence: managed legacy beats admin fallback",
+			baseEnv: []string{
+				"PATH=/usr/bin",
+				"LIP_TEST_POSTGRES_ADMIN_DSN=" + adminDSN,
+				"LIP_MANAGED_POSTGRES_DSN=" + legacyDSN,
+			},
+			wantDSN:      legacyDSN,
+			expectedDesc: "legacy managed DSN beats admin fallback",
+		},
 	}
 
-	plans, err := dbparity.Plan(dbparity.ModePostgresDirect, dbparity.PlanOptions{
-		BaseEnv: baseEnv,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			plans, err := dbparity.Plan(dbparity.ModePostgresDirect, dbparity.PlanOptions{
+				BaseEnv: tc.baseEnv,
+			})
+			if err != nil {
+				t.Fatalf("unexpected Plan error for %s: %v", tc.expectedDesc, err)
+			}
+			if len(plans) == 0 {
+				t.Fatalf("expected non-empty plans for %s", tc.expectedDesc)
+			}
 
-	if len(plans) == 0 {
-		t.Fatal("expected non-empty plans")
-	}
+			for i, plan := range plans {
+				// 1. plan.Env must ALWAYS contain LIP_TEST_POSTGRES_DSN=<effective> and LIP_REQUIRE_POSTGRES=1
+				foundPlanTestDSN := false
+				var planDSNVal string
+				foundPlanRequire := false
+				for _, env := range plan.Env {
+					k, v, ok := strings.Cut(env, "=")
+					if !ok {
+						continue
+					}
+					if strings.EqualFold(k, "LIP_TEST_POSTGRES_DSN") {
+						foundPlanTestDSN = true
+						planDSNVal = v
+					}
+					if strings.EqualFold(k, "LIP_REQUIRE_POSTGRES") && v == "1" {
+						foundPlanRequire = true
+					}
+				}
 
-	for _, env := range plans[0].Env {
-		if strings.HasPrefix(env, "LIP_TEST_POSTGRES_DSN=") {
-			t.Errorf("plan.Env should not override already-present LIP_TEST_POSTGRES_DSN, got %q", env)
-		}
+				if !foundPlanTestDSN {
+					t.Errorf("plan[%d].Env missing LIP_TEST_POSTGRES_DSN for %s", i, tc.expectedDesc)
+				} else if planDSNVal != tc.wantDSN {
+					t.Errorf("plan[%d].Env LIP_TEST_POSTGRES_DSN = %q, want %q for %s", i, planDSNVal, tc.wantDSN, tc.expectedDesc)
+				}
+				if !foundPlanRequire {
+					t.Errorf("plan[%d].Env missing LIP_REQUIRE_POSTGRES=1 for %s", i, tc.expectedDesc)
+				}
+
+				// 2. Cmd(ctx, baseEnv).Env must contain LIP_TEST_POSTGRES_DSN=<effective> exactly once
+				cmd := plan.Cmd(context.Background(), tc.baseEnv)
+				if cmd == nil {
+					t.Fatalf("plan[%d].Cmd returned nil", i)
+				}
+
+				dsnCount := 0
+				var cmdDSNVal string
+				requireCount := 0
+				for _, env := range cmd.Env {
+					k, v, ok := strings.Cut(env, "=")
+					if !ok {
+						continue
+					}
+					if strings.EqualFold(k, "LIP_TEST_POSTGRES_DSN") {
+						dsnCount++
+						cmdDSNVal = v
+					}
+					if strings.EqualFold(k, "LIP_REQUIRE_POSTGRES") {
+						requireCount++
+					}
+				}
+
+				if dsnCount != 1 {
+					t.Errorf("plan[%d] cmd.Env expected exactly 1 LIP_TEST_POSTGRES_DSN, got %d for %s", i, dsnCount, tc.expectedDesc)
+				}
+				if cmdDSNVal != tc.wantDSN {
+					t.Errorf("plan[%d] cmd.Env LIP_TEST_POSTGRES_DSN = %q, want %q for %s", i, cmdDSNVal, tc.wantDSN, tc.expectedDesc)
+				}
+				if requireCount != 1 {
+					t.Errorf("plan[%d] cmd.Env expected exactly 1 LIP_REQUIRE_POSTGRES, got %d for %s", i, requireCount, tc.expectedDesc)
+				}
+			}
+		})
 	}
 }
 
@@ -386,9 +500,69 @@ func TestRedactDSN(t *testing.T) {
 			expected: "url postgres://user@localhost:5432/db",
 		},
 		{
-			name:     "key value DSN with password",
+			name:     "key value DSN with unquoted password",
 			input:    "host=localhost port=5432 user=app password=mysecret dbname=appdb",
 			expected: "host=localhost port=5432 user=app password=*** dbname=appdb",
+		},
+		{
+			name:     "key value DSN with single-quoted password and spaces",
+			input:    "host=localhost password = 'secret value' user=app",
+			expected: "host=localhost password = '***' user=app",
+		},
+		{
+			name:     "key value DSN with uppercase double-quoted password",
+			input:    `PASSWORD="secret value" dbname=test`,
+			expected: `PASSWORD="***" dbname=test`,
+		},
+		{
+			name:     "key value DSN with spaced unquoted password",
+			input:    "password = secret",
+			expected: "password = ***",
+		},
+		{
+			name:     "key value DSN with mixed casing and quotes",
+			input:    "Password = 'secret value'",
+			expected: "Password = '***'",
+		},
+		{
+			name:     "key value DSN with empty quotes",
+			input:    `password="" password=''`,
+			expected: `password="***" password='***'`,
+		},
+		{
+			name:     "avoid over-redacting notpassword",
+			input:    "notpassword=secret not_password='secret'",
+			expected: "notpassword=secret not_password='secret'",
+		},
+		{
+			name:     "mixed surrounding text with multiple passwords",
+			input:    `error connecting: PASSWORD = "another secret" and password=unquoted in logs`,
+			expected: `error connecting: PASSWORD = "***" and password=*** in logs`,
+		},
+		{
+			name:     "single-quoted password with escaped quote",
+			input:    "password = 'secret\\'quote' dbname=appdb",
+			expected: "password = '***' dbname=appdb",
+		},
+		{
+			name:     "double-quoted password with escaped quote",
+			input:    `PASSWORD="secret\"quote" dbname=appdb`,
+			expected: `PASSWORD="***" dbname=appdb`,
+		},
+		{
+			name:     "single-quoted password with escaped backslash",
+			input:    `password='secret\\value' dbname=appdb`,
+			expected: `password='***' dbname=appdb`,
+		},
+		{
+			name:     "unterminated single-quoted password redacts to end",
+			input:    "failed with password='unterminated secret value",
+			expected: "failed with password='***",
+		},
+		{
+			name:     "unterminated double-quoted password redacts to end",
+			input:    `failed with PASSWORD="unterminated secret value`,
+			expected: `failed with PASSWORD="***`,
 		},
 		{
 			name:     "non-sensitive error message",
@@ -402,6 +576,9 @@ func TestRedactDSN(t *testing.T) {
 			got := dbparity.RedactDSN(tc.input)
 			if got != tc.expected {
 				t.Errorf("RedactDSN(%q)\ngot:  %q\nwant: %q", tc.input, got, tc.expected)
+			}
+			if !strings.Contains(tc.expected, "secret") && strings.Contains(got, "secret") {
+				t.Errorf("RedactDSN(%q) leaked secret: %q", tc.input, got)
 			}
 		})
 	}
@@ -1485,8 +1662,8 @@ func TestPlan_PostgresDirect_DuplicateAliasesAndPrecedence(t *testing.T) {
 		for _, envVar := range cmd.Env {
 			if strings.HasPrefix(strings.ToUpper(envVar), "LIP_TEST_POSTGRES_DSN=") {
 				count++
-				if envVar != "lip_test_postgres_dsn=postgres://second:pass@localhost:5432/second" {
-					t.Errorf("expected effective value to be second DSN, got: %s", envVar)
+				if envVar != "LIP_TEST_POSTGRES_DSN=postgres://second:pass@localhost:5432/second" {
+					t.Errorf("expected effective value to be second DSN with canonical key, got: %s", envVar)
 				}
 			}
 		}

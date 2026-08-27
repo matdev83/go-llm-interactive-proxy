@@ -161,16 +161,90 @@ type PlanOptions struct {
 	CmdRunner   func(cmd *exec.Cmd) error // Optional test hook to override cmd.Run() execution (defaults to cmd.Run if nil)
 }
 
-var (
-	dsnURLRegex = regexp.MustCompile(`(?i)(postgres(?:ql)?://)([^:@/\s]*):([^@/\s]+)@`)
-	dsnKVRegex  = regexp.MustCompile(`(?i)\b(password=)[^\s"']+(\b|$)`)
-)
+var dsnURLRegex = regexp.MustCompile(`(?i)(postgres(?:ql)?://)([^:@/\s]*):([^@/\s]+)@`)
+
+func isIdentChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func redactKVPassword(s string) string {
+	var sb strings.Builder
+	last := 0
+	i := 0
+	for i < len(s) {
+		if i+8 <= len(s) && strings.EqualFold(s[i:i+8], "password") {
+			if i == 0 || !isIdentChar(s[i-1]) {
+				j := i + 8
+				for j < len(s) && isSpace(s[j]) {
+					j++
+				}
+				if j < len(s) && s[j] == '=' {
+					j++
+					for j < len(s) && isSpace(s[j]) {
+						j++
+					}
+					sb.WriteString(s[last:j])
+					valStart := j
+					if valStart >= len(s) {
+						sb.WriteString("***")
+						last = len(s)
+						i = len(s)
+						break
+					}
+
+					quote := s[valStart]
+					if quote == '\'' || quote == '"' {
+						sb.WriteByte(quote)
+						sb.WriteString("***")
+						k := valStart + 1
+						closed := false
+						for k < len(s) {
+							if s[k] == '\\' {
+								k += 2
+								continue
+							}
+							if s[k] == quote {
+								closed = true
+								k++
+								break
+							}
+							k++
+						}
+						if closed {
+							sb.WriteByte(quote)
+						}
+						last = k
+						i = k
+						continue
+					} else {
+						k := valStart
+						for k < len(s) && !isSpace(s[k]) {
+							k++
+						}
+						sb.WriteString("***")
+						last = k
+						i = k
+						continue
+					}
+				}
+			}
+		}
+		i++
+	}
+	if last < len(s) {
+		sb.WriteString(s[last:])
+	}
+	return sb.String()
+}
 
 // RedactDSN scrubs sensitive credentials (passwords in URLs and key-value strings) from output.
 func RedactDSN(s string) string {
 	s = dsnURLRegex.ReplaceAllString(s, "${1}${2}:***@")
-	s = dsnKVRegex.ReplaceAllString(s, "${1}***$2")
-	return s
+	return redactKVPassword(s)
 }
 
 // Environment variable names for PostgreSQL DSNs and mandatory parity enforcement.
@@ -181,16 +255,32 @@ const (
 	EnvRequirePostgres      = "LIP_REQUIRE_POSTGRES"
 )
 
+// EffectivePostgresDSN returns the effective PostgreSQL DSN from env using precedence:
+// 1. LIP_TEST_POSTGRES_DSN (direct test DSN)
+// 2. LIP_MANAGED_POSTGRES_DSN (legacy managed DSN)
+// 3. LIP_TEST_POSTGRES_ADMIN_DSN (admin DSN fallback)
+// Returns empty string if none is configured.
+func EffectivePostgresDSN(env []string) string {
+	if env == nil {
+		env = os.Environ()
+	}
+	if dsn := envLookup(env, EnvTestPostgresDSN); dsn != "" {
+		return dsn
+	}
+	if dsn := envLookup(env, EnvManagedPostgresDSN); dsn != "" {
+		return dsn
+	}
+	if dsn := envLookup(env, EnvTestPostgresAdminDSN); dsn != "" {
+		return dsn
+	}
+	return ""
+}
+
 // PreflightPostgresDirect checks whether a direct PostgreSQL DSN is configured in baseEnv.
 // If baseEnv is nil, os.Environ() is used. Returns an actionable error naming the accepted
 // environment variables if no direct DSN exists.
 func PreflightPostgresDirect(baseEnv []string) error {
-	if baseEnv == nil {
-		baseEnv = os.Environ()
-	}
-	hasRuntimeDSN := envLookup(baseEnv, EnvTestPostgresDSN) != "" || envLookup(baseEnv, EnvManagedPostgresDSN) != ""
-	adminDSN := envLookup(baseEnv, EnvTestPostgresAdminDSN)
-	if !hasRuntimeDSN && adminDSN == "" {
+	if EffectivePostgresDSN(baseEnv) == "" {
 		return fmt.Errorf("postgres-direct parity requires PostgreSQL DSN: set %s, %s, or legacy %s",
 			EnvTestPostgresDSN, EnvTestPostgresAdminDSN, EnvManagedPostgresDSN)
 	}
@@ -292,13 +382,10 @@ func planPostgresDirect(components []Component, opts PlanOptions, goBin string) 
 		baseEnv = os.Environ()
 	}
 
-	var pgEnv []string
-	pgEnv = append(pgEnv, EnvRequirePostgres+"=1")
-
-	hasRuntimeDSN := envLookup(baseEnv, EnvTestPostgresDSN) != "" || envLookup(baseEnv, EnvManagedPostgresDSN) != ""
-	adminDSN := envLookup(baseEnv, EnvTestPostgresAdminDSN)
-	if !hasRuntimeDSN && adminDSN != "" {
-		pgEnv = append(pgEnv, EnvTestPostgresDSN+"="+adminDSN)
+	effectiveDSN := EffectivePostgresDSN(baseEnv)
+	pgEnv := []string{
+		EnvRequirePostgres + "=1",
+		EnvTestPostgresDSN + "=" + effectiveDSN,
 	}
 
 	for _, comp := range components {

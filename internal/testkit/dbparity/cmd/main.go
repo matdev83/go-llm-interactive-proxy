@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,62 +15,82 @@ import (
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	code := runCLI(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var (
 		modeFlag      string
 		componentFlag string
-		onlyFlag      string
 		formatFlag    string
 		jsonFlag      bool
 		testFlags     string
 	)
 
-	flag.StringVar(&modeFlag, "mode", "", "Runner mode (list, sqlite, postgres-direct, all)")
-	flag.StringVar(&componentFlag, "component", "", "Filter to a specific component ID")
-	flag.StringVar(&onlyFlag, "only", "", "Alias for -component")
-	flag.StringVar(&formatFlag, "format", "text", "List output format: text or json (list mode only)")
-	flag.StringVar(&formatFlag, "list-format", "text", "Alias for -format")
-	flag.BoolVar(&jsonFlag, "json", false, "Output list mode in JSON format")
-	flag.StringVar(&testFlags, "flags", "", "Extra flags passed through to go test (overrides GO_TEST_FLAGS env if set)")
+	fs := flag.NewFlagSet("dbparity", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: dbparity [flags] [mode]\n\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "Modes:\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  list             Show catalog component and test package inventory\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  sqlite           Execute canonical SQLite parity tests\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  postgres-direct  Execute canonical PostgreSQL direct parity tests (fail-closed)\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  all              Execute SQLite followed by PostgreSQL direct parity tests (default)\n\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n")
-		flag.PrintDefaults()
+	fs.StringVar(&modeFlag, "mode", "", "Runner mode (list, sqlite, postgres-direct, all)")
+	fs.StringVar(&componentFlag, "component", "", "Filter to a specific component ID")
+	fs.StringVar(&componentFlag, "only", "", "Alias for -component")
+	fs.StringVar(&formatFlag, "format", "text", "List output format: text or json (list mode only)")
+	fs.StringVar(&formatFlag, "list-format", "text", "Alias for -format")
+	fs.BoolVar(&jsonFlag, "json", false, "Output list mode in JSON format")
+	fs.StringVar(&testFlags, "flags", "", "Extra flags passed through to go test (overrides GO_TEST_FLAGS env if set)")
+
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: dbparity [flags] [mode]\n\n")
+		fmt.Fprintf(stderr, "Modes:\n")
+		fmt.Fprintf(stderr, "  list             Show catalog component and test package inventory\n")
+		fmt.Fprintf(stderr, "  sqlite           Execute canonical SQLite parity tests\n")
+		fmt.Fprintf(stderr, "  postgres-direct  Execute canonical PostgreSQL direct parity tests (fail-closed)\n")
+		fmt.Fprintf(stderr, "  all              Execute SQLite followed by PostgreSQL direct parity tests (default)\n\n")
+		fmt.Fprintf(stderr, "Flags:\n")
+		fs.PrintDefaults()
 	}
 
-	flag.Parse()
+	reordered, err := dbparity.ReorderCLIArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		fs.Usage()
+		return 2
+	}
 
-	// Mode and trailing flag resolution: allow flags before or after mode arg
-	modeStr := strings.TrimSpace(modeFlag)
-	for i := 0; i < flag.NArg(); i++ {
-		arg := strings.TrimSpace(flag.Arg(i))
-		switch {
-		case arg == "-json" || arg == "--json":
-			jsonFlag = true
-		case strings.HasPrefix(arg, "-format="):
-			formatFlag = strings.TrimPrefix(arg, "-format=")
-		case strings.HasPrefix(arg, "--format="):
-			formatFlag = strings.TrimPrefix(arg, "--format=")
-		case strings.HasPrefix(arg, "-list-format="):
-			formatFlag = strings.TrimPrefix(arg, "-list-format=")
-		case strings.HasPrefix(arg, "--list-format="):
-			formatFlag = strings.TrimPrefix(arg, "--list-format=")
-		case strings.HasPrefix(arg, "-component="):
-			componentFlag = strings.TrimPrefix(arg, "-component=")
-		case strings.HasPrefix(arg, "--component="):
-			componentFlag = strings.TrimPrefix(arg, "--component=")
-		case strings.HasPrefix(arg, "-only="):
-			onlyFlag = strings.TrimPrefix(arg, "-only=")
-		case strings.HasPrefix(arg, "--only="):
-			onlyFlag = strings.TrimPrefix(arg, "--only=")
-		case !strings.HasPrefix(arg, "-") && modeStr == "":
-			modeStr = arg
+	if err := fs.Parse(reordered); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
 		}
+		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		fs.Usage()
+		return 2
+	}
+
+	var positionalMode string
+	if fs.NArg() > 0 {
+		positionalMode = strings.TrimSpace(fs.Arg(0))
+		if fs.NArg() > 1 {
+			msg := fmt.Sprintf("Error: unexpected extra positional argument %q\n", fs.Arg(1))
+			fmt.Fprint(stderr, dbparity.RedactDSN(msg))
+			fs.Usage()
+			return 2
+		}
+	}
+
+	modeStr := strings.TrimSpace(modeFlag)
+	if modeStr != "" && positionalMode != "" {
+		msg := fmt.Sprintf("Error: cannot specify both -mode flag (%q) and positional mode (%q)\n", modeStr, positionalMode)
+		fmt.Fprint(stderr, dbparity.RedactDSN(msg))
+		fs.Usage()
+		return 2
+	}
+	if modeStr == "" {
+		modeStr = positionalMode
 	}
 	if modeStr == "" {
 		modeStr = string(dbparity.ModeAll)
@@ -77,31 +98,28 @@ func main() {
 
 	mode, err := dbparity.ParseRunnerMode(modeStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
-		flag.Usage()
-		os.Exit(2)
+		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		fs.Usage()
+		return 2
 	}
 
 	// Component filter resolution
 	component := strings.TrimSpace(componentFlag)
-	if component == "" {
-		component = strings.TrimSpace(onlyFlag)
-	}
 
 	// Test flags resolution
 	var goTestFlags []string
 	if strings.TrimSpace(testFlags) != "" {
 		parsedFlags, parseErr := dbparity.ParseFlagWords(testFlags)
 		if parseErr != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid -flags argument: %s\n", dbparity.RedactDSN(parseErr.Error()))
-			os.Exit(2)
+			fmt.Fprintf(stderr, "Error: invalid -flags argument: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			return 2
 		}
 		goTestFlags = parsedFlags
 	} else if envFlags := strings.TrimSpace(os.Getenv("GO_TEST_FLAGS")); envFlags != "" {
 		parsedFlags, parseErr := dbparity.ParseFlagWords(envFlags)
 		if parseErr != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid GO_TEST_FLAGS environment variable: %s\n", dbparity.RedactDSN(parseErr.Error()))
-			os.Exit(2)
+			fmt.Fprintf(stderr, "Error: invalid GO_TEST_FLAGS environment variable: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			return 2
 		}
 		goTestFlags = parsedFlags
 	}
@@ -113,18 +131,15 @@ func main() {
 		if jsonFlag || strings.EqualFold(formatFlag, "json") {
 			jsonOut, jsonErr := dbparity.FormatListJSON(cat)
 			if jsonErr != nil {
-				fmt.Fprintf(os.Stderr, "Error formatting JSON: %s\n", dbparity.RedactDSN(jsonErr.Error()))
-				os.Exit(1)
+				fmt.Fprintf(stderr, "Error formatting JSON: %s\n", dbparity.RedactDSN(jsonErr.Error()))
+				return 1
 			}
-			fmt.Println(jsonOut)
-			return
+			fmt.Fprintln(stdout, jsonOut)
+			return 0
 		}
-		fmt.Println(dbparity.FormatList(cat))
-		return
+		fmt.Fprintln(stdout, dbparity.FormatList(cat))
+		return 0
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
 	opts := dbparity.PlanOptions{
 		Catalog:     cat,
@@ -133,17 +148,19 @@ func main() {
 		BaseEnv:     os.Environ(),
 	}
 
-	if runErr := dbparity.Run(ctx, mode, opts, os.Stdout, os.Stderr); runErr != nil {
+	if runErr := dbparity.Run(ctx, mode, opts, stdout, stderr); runErr != nil {
 		var stepErr *dbparity.RunStepError
 		if errors.As(runErr, &stepErr) {
 			exitCode := dbparity.MapExitStatus(stepErr)
-			fmt.Fprintf(os.Stderr, "\ndbparity: test failed for component %q package %q (backend: %s, exit code: %d)\n",
+			fmt.Fprintf(stderr, "\ndbparity: test failed for component %q package %q (backend: %s, exit code: %d)\n",
 				stepErr.Component, stepErr.Package, stepErr.Backend, exitCode)
-			os.Exit(exitCode)
+			return exitCode
 		}
 
 		exitCode := dbparity.MapExitStatus(runErr)
-		fmt.Fprintf(os.Stderr, "\nError: %s\n", dbparity.RedactDSN(runErr.Error()))
-		os.Exit(exitCode)
+		fmt.Fprintf(stderr, "\nError: %s\n", dbparity.RedactDSN(runErr.Error()))
+		return exitCode
 	}
+
+	return 0
 }
