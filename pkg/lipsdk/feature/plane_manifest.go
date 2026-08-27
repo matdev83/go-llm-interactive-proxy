@@ -884,6 +884,8 @@ var StandardPlanes = []PlaneDeclaration{
 var StandardCandidatePlanes = []string{
 	"session_openers",
 	"workspace_resolvers",
+	"tool_catalog_filters",
+	"tool_call_policies",
 	"request_transforms",
 	"pre_request_handlers",
 	"route_hint_providers",

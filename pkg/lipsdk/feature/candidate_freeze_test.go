@@ -795,6 +795,8 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		src := feature.NewContributionSet()
 		require.NoError(t, feature.Contribute(src, feature.PlaneSessionOpeners, "cand", []session.Opener{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneWorkspaceResolvers, "cand", []workspace.Resolver{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCatalogFilters, "cand", []toolcatalog.Filter{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallPolicies, "cand", []toolpolicy.Policy{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRequestTransforms, "cand", []request.Transform{}))
 		require.NoError(t, feature.Contribute(src, feature.PlanePreRequestHandlers, "cand", []prerequest.Handler{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRouteHintProviders, "cand", []routehint.Provider{}))
@@ -815,6 +817,14 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		wr := feature.Get(dstFrozen, feature.PlaneWorkspaceResolvers)
 		assert.NotNil(t, wr)
 		assert.Empty(t, wr)
+
+		cat := feature.Get(dstFrozen, feature.PlaneToolCatalogFilters)
+		assert.NotNil(t, cat)
+		assert.Empty(t, cat)
+
+		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
+		assert.NotNil(t, pol)
+		assert.Empty(t, pol)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)
@@ -844,6 +854,8 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 			map[string]any{
 				feature.PlaneSessionOpeners.ID:     []session.Opener{},
 				feature.PlaneWorkspaceResolvers.ID: []workspace.Resolver{},
+				feature.PlaneToolCatalogFilters.ID: []toolcatalog.Filter{},
+				feature.PlaneToolCallPolicies.ID:   []toolpolicy.Policy{},
 				feature.PlaneRequestTransforms.ID:  []request.Transform{},
 				feature.PlanePreRequestHandlers.ID: []prerequest.Handler{},
 				feature.PlaneRouteHintProviders.ID: []routehint.Provider{},
@@ -865,6 +877,14 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		wr := feature.Get(dstFrozen, feature.PlaneWorkspaceResolvers)
 		assert.NotNil(t, wr)
 		assert.Empty(t, wr)
+
+		cat := feature.Get(dstFrozen, feature.PlaneToolCatalogFilters)
+		assert.NotNil(t, cat)
+		assert.Empty(t, cat)
+
+		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
+		assert.NotNil(t, pol)
+		assert.Empty(t, pol)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)

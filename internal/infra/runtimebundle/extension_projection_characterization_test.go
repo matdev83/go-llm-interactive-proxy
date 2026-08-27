@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -57,6 +58,14 @@ type projTerminalProvider struct{ tag string }
 
 func (p projTerminalProvider) ID() string { return p.tag }
 
+type projFinalizer struct{ id string }
+
+func (f projFinalizer) ID() string { return f.id }
+func (projFinalizer) Order() int   { return 0 }
+func (projFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{}, nil
+}
+
 func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
@@ -67,7 +76,7 @@ func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle
 	t.Helper()
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{projCatalogFilter{id: "filter"}},
+		ToolCallFinalizers: []toolcall.Finalizer{projFinalizer{id: "finalizer"}},
 		RequestTransforms:  []request.Transform{projTransform{tag: "transform"}},
 		TrafficObservers:   []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
 		UsageObservers:     []usage.Observer{projUsageObs{tag: "feat-usage"}},
@@ -110,22 +119,22 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		t.Parallel()
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
-		require.Len(t, ext.ToolCatalogFilters, len(merged.ToolCatalogFilters))
+		require.Len(t, ext.ToolCallFinalizers, len(merged.ToolCallFinalizers))
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
-		assert.Equal(t, "filter", ext.ToolCatalogFilters[0].ID())
+		assert.Equal(t, "finalizer", ext.ToolCallFinalizers[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
 	})
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
 		merged := featurebundle.MergedFeatureSurface{
-			ToolCatalogFilters: []toolcatalog.Filter{},
+			ToolCallFinalizers: []toolcall.Finalizer{},
 			LocalTurnHandlers:  []localturn.Handler{},
 		}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		for name, got := range map[string]any{
-			"ToolCatalogFilters": ext.ToolCatalogFilters,
+			"ToolCallFinalizers": ext.ToolCallFinalizers,
 			"LocalTurnHandlers":  ext.LocalTurnHandlers,
 		} {
 			rv := reflect.ValueOf(got)
@@ -210,17 +219,17 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "d-open"}},
+		ToolCallFinalizers:               []toolcall.Finalizer{projFinalizer{id: "d-open"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 	}
 	src := ExtensionsOptions{
-		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "s-open"}},
+		ToolCallFinalizers:               []toolcall.Finalizer{projFinalizer{id: "s-open"}},
 		ToolCallFinalizationMaxArgsBytes: 1024,
 	}
 
 	overlayExtensions(dst, src)
 	require.Equal(t, []string{"d-open", "s-open"},
-		[]string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
+		[]string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})
 
 	tests := []struct {
 		name string

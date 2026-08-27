@@ -286,16 +286,12 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
 		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
 		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "d-guard"}},
 		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
 	}
 
 	src := ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
 		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
 		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "s-guard"}},
 		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
@@ -303,8 +299,6 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 
 	overlayExtensions(dst, src)
 
-	require.Equal(t, []string{"d-filter", "s-filter"}, []string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
-	require.Equal(t, []string{"d-pol", "s-pol"}, []string{dst.ToolCallPolicies[0].ID(), dst.ToolCallPolicies[1].ID()})
 	require.Equal(t, []string{"d-fin", "s-fin"}, []string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})
 	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
 	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})

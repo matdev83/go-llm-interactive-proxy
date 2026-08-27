@@ -16,8 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -75,21 +73,15 @@ func buildRuntimeSnapshot(
 	sgPlane extensions.SecretGuardPlane,
 	extensionState lipstate.Store,
 ) *extensions.RequestRuntimeSnapshot {
-	var catalogFilters []toolcatalog.Filter
-	if len(opts.Extensions.ToolCatalogFilters) > 0 {
-		catalogFilters = slices.Clone(opts.Extensions.ToolCatalogFilters)
-	}
-	var toolPolicies []toolpolicy.Policy
-	if len(opts.Extensions.ToolCallPolicies) > 0 {
-		toolPolicies = slices.Clone(opts.Extensions.ToolCallPolicies)
-	}
-	var toolFinalizers []toolcall.Finalizer
-	if len(opts.Extensions.ToolCallFinalizers) > 0 {
-		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
-	}
 	var frozen lipfeature.FrozenPlaneSet
 	if opts != nil {
 		frozen = opts.FeaturePlanes
+	}
+	catalogFilters := lipfeature.Get(frozen, lipfeature.PlaneToolCatalogFilters)
+	toolPolicies := lipfeature.Get(frozen, lipfeature.PlaneToolCallPolicies)
+	var toolFinalizers []toolcall.Finalizer
+	if len(opts.Extensions.ToolCallFinalizers) > 0 {
+		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
 	}
 	wsResolvers := lipfeature.Get(frozen, lipfeature.PlaneWorkspaceResolvers)
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}

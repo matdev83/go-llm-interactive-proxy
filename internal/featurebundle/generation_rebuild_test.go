@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 )
 
@@ -20,27 +21,59 @@ func (genFilter) Handle(context.Context, *lipapi.Call, toolcatalog.CatalogMeta, 
 	return nil
 }
 
+type genFinalizer struct{ id string }
+
+func (g genFinalizer) ID() string { return g.id }
+func (genFinalizer) Order() int   { return 0 }
+func (genFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{}, nil
+}
+
 // TestMergeFeatureSurface_GenerationRebuildIsolated proves candidate feature
 // merges do not share slice backing arrays across generations.
 func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
 	a := featurebundle.MergeBundles(lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-a"}},
+		ToolCallFinalizers: []toolcall.Finalizer{genFinalizer{id: "gen-a"}},
 	})
 	b := featurebundle.MergeBundles(lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-b"}},
+		ToolCallFinalizers: []toolcall.Finalizer{genFinalizer{id: "gen-b"}},
 	})
-	if len(a.ToolCatalogFilters) != 1 || a.ToolCatalogFilters[0].ID() != "gen-a" {
-		t.Fatalf("A filters=%v", a.ToolCatalogFilters)
+	if len(a.ToolCallFinalizers) != 1 || a.ToolCallFinalizers[0].ID() != "gen-a" {
+		t.Fatalf("A finalizers=%v", a.ToolCallFinalizers)
 	}
-	if len(b.ToolCatalogFilters) != 1 || b.ToolCatalogFilters[0].ID() != "gen-b" {
-		t.Fatalf("B filters=%v", b.ToolCatalogFilters)
+	if len(b.ToolCallFinalizers) != 1 || b.ToolCallFinalizers[0].ID() != "gen-b" {
+		t.Fatalf("B finalizers=%v", b.ToolCallFinalizers)
 	}
 	// Mutating one merged surface must not affect the other candidate.
-	a.ToolCatalogFilters = append(a.ToolCatalogFilters, genFilter{id: "mutated"})
-	if len(b.ToolCatalogFilters) != 1 {
-		t.Fatalf("B leaked A mutation: %d", len(b.ToolCatalogFilters))
+	a.ToolCallFinalizers = append(a.ToolCallFinalizers, genFinalizer{id: "mutated"})
+	if len(b.ToolCallFinalizers) != 1 {
+		t.Fatalf("B leaked A mutation: %d", len(b.ToolCallFinalizers))
+	}
+
+	// Also verify generated path isolation for migrated ToolCatalogFilters
+	genA, errA := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-a"}},
+	})
+	if errA != nil {
+		t.Fatalf("genA error: %v", errA)
+	}
+	genB, errB := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-b"}},
+	})
+	if errB != nil {
+		t.Fatalf("genB error: %v", errB)
+	}
+	fA := lipfeature.Get(genA.Frozen, lipfeature.PlaneToolCatalogFilters)
+	fB := lipfeature.Get(genB.Frozen, lipfeature.PlaneToolCatalogFilters)
+	if len(fA) != 1 || fA[0].ID() != "gen-a" {
+		t.Fatalf("genA filters=%v", fA)
+	}
+	if len(fB) != 1 || fB[0].ID() != "gen-b" {
+		t.Fatalf("genB filters=%v", fB)
 	}
 }

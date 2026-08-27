@@ -24,8 +24,6 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -139,10 +137,6 @@ type SecretGuardInputs struct {
 	SingleUser coresg.SingleUserOptions
 }
 type ExtensionsOptions struct {
-	// ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, and RequestTransforms
-	// are merged from enabled feature bundles.
-	ToolCatalogFilters               []toolcatalog.Filter
-	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
 	CompactionObservers              []compaction.Observer

@@ -18,16 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 7. ToolCatalogFilters
-	genToolCatalogFilters := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)
-	assert.Equal(tb, legacy.ToolCatalogFilters, genToolCatalogFilters, "ToolCatalogFilters mismatch")
-	assert.Equal(tb, legacy.ToolCatalogFilters == nil, genToolCatalogFilters == nil, "ToolCatalogFilters nilness mismatch")
-
-	// 8. ToolCallPolicies
-	genToolCallPolicies := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallPolicies)
-	assert.Equal(tb, legacy.ToolCallPolicies, genToolCallPolicies, "ToolCallPolicies mismatch")
-	assert.Equal(tb, legacy.ToolCallPolicies == nil, genToolCallPolicies == nil, "ToolCallPolicies nilness mismatch")
-
 	// 9. ToolCallFinalizers
 	genToolCallFinalizers := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
 	assert.Equal(tb, legacy.ToolCallFinalizers, genToolCallFinalizers, "ToolCallFinalizers mismatch")

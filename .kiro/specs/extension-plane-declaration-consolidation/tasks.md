@@ -185,7 +185,7 @@
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/core/diag ./internal/infra/runtimebundle ./internal/testkit/... ./internal/qa`
 
 - [ ] 7. Migrate tool planes as W4
-- [ ] 7.1 Migrate tool-catalog filters and admission/execution policy planes
+- [x] 7.1 Migrate tool-catalog filters and admission/execution policy planes
   - Preserve sorting, nil policy, decision evidence, and diagnostics coalescing with tool reactors/finalizers.
   - Observable completion: focused runtime and inventory parity tests pass with the named mirrors removed.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_

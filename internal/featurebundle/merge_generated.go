@@ -128,8 +128,6 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 // via lipfeature.FrozenIdentity.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
-		ToolCatalogFilters:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCatalogFilters),
-		ToolCallPolicies:                 lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallPolicies),
 		ToolCallFinalizers:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizers),
 		ToolCallFinalizationMaxArgsBytes: lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes),
 		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),

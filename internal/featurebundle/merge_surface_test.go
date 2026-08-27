@@ -226,7 +226,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.ToolCatalogFilters) != 0 {
+	if len(m.ToolCallFinalizers) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -244,7 +244,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
 	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		ToolCatalogFilters:       []toolcatalog.Filter{testCatalogFilter{tag: "existing"}},
+		ToolCallFinalizers:       []toolcall.Finalizer{testFinalizer{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
@@ -253,9 +253,9 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	filter, ok := merged.ToolCatalogFilters[0].(testCatalogFilter)
-	if len(merged.ToolCatalogFilters) != 1 || !ok || filter.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.ToolCatalogFilters)
+	fin, ok := merged.ToolCallFinalizers[0].(testFinalizer)
+	if len(merged.ToolCallFinalizers) != 1 || !ok || fin.tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.ToolCallFinalizers)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.ToolCatalogFilters) != 0 {
+	if merged.TerminalDecisionProvider != nil || len(merged.ToolCallFinalizers) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
@@ -353,8 +353,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		name string
 		got  int
 	}{
-		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},
-		{"ToolCallPolicies", len(m.ToolCallPolicies)},
 		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
 		{"CompactionObservers", len(m.CompactionObservers)},
 		{"CompactionPreservers", len(m.CompactionPreservers)},
@@ -409,31 +407,31 @@ func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "first"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "first"}},
 	}
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "second"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "second"}},
 	}
 	b3 := lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "third"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "third"}},
 	}
 	m := MergeBundles(b1, b2, b3)
-	if len(m.ToolCatalogFilters) != 3 {
-		t.Fatalf("ToolCatalogFilters: got %d want 3", len(m.ToolCatalogFilters))
+	if len(m.ToolCallFinalizers) != 3 {
+		t.Fatalf("ToolCallFinalizers: got %d want 3", len(m.ToolCallFinalizers))
 	}
-	f0, ok := m.ToolCatalogFilters[0].(testCatalogFilter)
+	f0, ok := m.ToolCallFinalizers[0].(testFinalizer)
 	if !ok || f0.tag != "first" {
-		t.Fatalf("first filter: %#v", m.ToolCatalogFilters[0])
+		t.Fatalf("first finalizer: %#v", m.ToolCallFinalizers[0])
 	}
-	f1, ok := m.ToolCatalogFilters[1].(testCatalogFilter)
+	f1, ok := m.ToolCallFinalizers[1].(testFinalizer)
 	if !ok || f1.tag != "second" {
-		t.Fatalf("second filter: %#v", m.ToolCatalogFilters[1])
+		t.Fatalf("second finalizer: %#v", m.ToolCallFinalizers[1])
 	}
-	f2, ok := m.ToolCatalogFilters[2].(testCatalogFilter)
+	f2, ok := m.ToolCallFinalizers[2].(testFinalizer)
 	if !ok || f2.tag != "third" {
-		t.Fatalf("third filter: %#v", m.ToolCatalogFilters[2])
+		t.Fatalf("third finalizer: %#v", m.ToolCallFinalizers[2])
 	}
 }
 

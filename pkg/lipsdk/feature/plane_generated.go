@@ -229,6 +229,34 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			return err
 		}
 	}
+	if gf.toolCatalogFilters != nil {
+		if PlaneToolCatalogFilters.Validate != nil {
+			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if PlaneToolCallPolicies.Validate != nil {
+			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+			return err
+		}
+	}
 	if gf.requestTransforms != nil {
 		if PlaneRequestTransforms.Validate != nil {
 			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
@@ -333,6 +361,36 @@ func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, sourc
 				}
 			}
 			if err := ContributeSource(dst, PlaneWorkspaceResolvers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCatalogFilters.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolcatalog.Filter)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: expected []toolcatalog.Filter, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCatalogFilters, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallPolicies.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolpolicy.Policy)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: expected []toolpolicy.Policy, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCallPolicies, source, contributorID, typed); err != nil {
 				return err
 			}
 		}
