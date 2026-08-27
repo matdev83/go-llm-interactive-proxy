@@ -13,6 +13,7 @@
 AGENTS.md
 Makefile
 README.md
+LICENSE
 config.yaml
 go.mod
 go.sum
