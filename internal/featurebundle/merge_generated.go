@@ -105,22 +105,33 @@ func (g GeneratedMergeSurface) BindCompactionPreservers(contributorID string, pr
 	}, nil
 }
 
+// MergeCandidatePlanes merges candidate feature planes under SourceFeature into the surface.
+// If candidate planes are zero/empty, the surface is returned unmodified.
+// If validation or combination fails, the surface is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneSet) (GeneratedMergeSurface, error) {
+	if cand.IsZero() {
+		return g, nil
+	}
+	working := g.workingSet()
+	if err := working.ContributeCandidate(cand); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
+}
+
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
 // accessing each plane value via lipfeature.Get and the terminal-decision provider identity
 // via lipfeature.FrozenIdentity.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
-		SessionOpeners:                   lipfeature.Get(g.Frozen, lipfeature.PlaneSessionOpeners),
-		WorkspaceResolvers:               lipfeature.Get(g.Frozen, lipfeature.PlaneWorkspaceResolvers),
 		ToolCatalogFilters:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCatalogFilters),
 		ToolCallPolicies:                 lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallPolicies),
 		ToolCallFinalizers:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizers),
 		ToolCallFinalizationMaxArgsBytes: lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes),
-		RequestTransforms:                lipfeature.Get(g.Frozen, lipfeature.PlaneRequestTransforms),
-		PreRequestHandlers:               lipfeature.Get(g.Frozen, lipfeature.PlanePreRequestHandlers),
-		RouteHintProviders:               lipfeature.Get(g.Frozen, lipfeature.PlaneRouteHintProviders),
-		CompletionGates:                  lipfeature.Get(g.Frozen, lipfeature.PlaneCompletionGates),
-		AttemptTransforms:                lipfeature.Get(g.Frozen, lipfeature.PlaneAttemptTransforms),
 		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
 		CompactionPreservers:             lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
 		SecretGuards:                     lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
@@ -166,12 +177,12 @@ func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeat
 			return err
 		}
 	}
-	if len(b.SessionOpeners) > 0 {
+	if b.SessionOpeners != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, pluginID, b.SessionOpeners); err != nil {
 			return err
 		}
 	}
-	if len(b.WorkspaceResolvers) > 0 {
+	if b.WorkspaceResolvers != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, pluginID, b.WorkspaceResolvers); err != nil {
 			return err
 		}
@@ -206,12 +217,12 @@ func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeat
 			return err
 		}
 	}
-	if len(b.RouteHintProviders) > 0 {
+	if b.RouteHintProviders != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, pluginID, b.RouteHintProviders); err != nil {
 			return err
 		}
 	}
-	if len(b.CompletionGates) > 0 {
+	if b.CompletionGates != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, pluginID, b.CompletionGates); err != nil {
 			return err
 		}

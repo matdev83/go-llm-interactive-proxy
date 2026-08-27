@@ -336,19 +336,24 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
 	Combine: func(source SourceKind, current, incoming []request.Transform) ([]request.Transform, error) {
 		return append(current, incoming...), nil
 	},
 	Diagnostics: DiagnosticDescriptor[[]request.Transform]{
 		StageID: StageIDRequestWide,
 		Materialize: func(v []request.Transform) []DiagnosticOccupant {
-			sorted := request.MaterializeSorted(v)
+			nonNil := make([]request.Transform, 0, len(v))
+			for _, tr := range v {
+				if !isNilValue(tr) {
+					nonNil = append(nonNil, tr)
+				}
+			}
+			if len(nonNil) == 0 {
+				return nil
+			}
+			sorted := request.MaterializeSorted(nonNil)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
 			for _, tr := range sorted {
-				if tr == nil {
-					continue
-				}
 				occupants = append(occupants, DiagnosticOccupant{Label: "request_transform:" + tr.ID()})
 			}
 			return occupants
@@ -369,19 +374,24 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
 	Combine: func(source SourceKind, current, incoming []prerequest.Handler) ([]prerequest.Handler, error) {
 		return append(current, incoming...), nil
 	},
 	Diagnostics: DiagnosticDescriptor[[]prerequest.Handler]{
 		StageID: StageIDPreRequest,
 		Materialize: func(v []prerequest.Handler) []DiagnosticOccupant {
-			sorted := prerequest.MaterializeSorted(v)
+			nonNil := make([]prerequest.Handler, 0, len(v))
+			for _, h := range v {
+				if !isNilValue(h) {
+					nonNil = append(nonNil, h)
+				}
+			}
+			if len(nonNil) == 0 {
+				return nil
+			}
+			sorted := prerequest.MaterializeSorted(nonNil)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
 			for _, h := range sorted {
-				if h == nil {
-					continue
-				}
 				occupants = append(occupants, DiagnosticOccupant{Label: "pre_request:" + h.ID()})
 			}
 			return occupants
@@ -465,14 +475,14 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 	},
 	NilPolicy: NilReject,
 	Identity: func(v []request.AttemptTransform) (string, bool) {
-		if len(v) > 0 && v[0] != nil {
+		if len(v) > 0 && !isNilValue(v[0]) {
 			return v[0].ID(), true
 		}
 		return "", false
 	},
 	Validate: func(v []request.AttemptTransform) error {
 		for i, at := range v {
-			if at == nil {
+			if isNilValue(at) {
 				return fmt.Errorf("AttemptTransforms[%d] must not be nil", i)
 			}
 		}
@@ -480,13 +490,13 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 	},
 	Combine: func(source SourceKind, current, incoming []request.AttemptTransform) ([]request.AttemptTransform, error) {
 		if source == SourceGenerationBinder {
-			if len(incoming) == 0 || incoming[0] == nil {
+			if len(incoming) == 0 || isNilValue(incoming[0]) {
 				return current, nil
 			}
 			incID := incoming[0].ID()
 			out := make([]request.AttemptTransform, 0, len(current)+len(incoming))
 			for _, t := range current {
-				if t != nil && t.ID() == incID {
+				if !isNilValue(t) && t.ID() == incID {
 					continue
 				}
 				out = append(out, t)
@@ -501,7 +511,7 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		Materialize: func(v []request.AttemptTransform) []DiagnosticOccupant {
 			nonNil := make([]request.AttemptTransform, 0, len(v))
 			for _, tr := range v {
-				if tr != nil {
+				if !isNilValue(tr) {
 					nonNil = append(nonNil, tr)
 				}
 			}
@@ -868,4 +878,15 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneSecretGuards,
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
+}
+
+// StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.
+var StandardCandidatePlanes = []string{
+	"session_openers",
+	"workspace_resolvers",
+	"request_transforms",
+	"pre_request_handlers",
+	"route_hint_providers",
+	"completion_gates",
+	"attempt_transforms",
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -160,15 +159,13 @@ func contributeStreamObserverBundle(t *testing.T, factory response.StreamObserve
 	return b
 }
 
-// wireMergedObserverSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	merged := featurebundle.MergeBundles(bundle)
 	bus := hooks.New(hooks.Config{
 		ResponsePartHooks: bundle.ResponsePartHooks,
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         merged.CompletionGates,
+		CompletionGates:         bundle.CompletionGates,
 		StreamObserverFactories: bundle.StreamObserverFactories,
 	})
 	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {

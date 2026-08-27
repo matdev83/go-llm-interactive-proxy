@@ -18,16 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 5. SessionOpeners
-	genSessionOpeners := lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)
-	assert.Equal(tb, legacy.SessionOpeners, genSessionOpeners, "SessionOpeners mismatch")
-	assert.Equal(tb, legacy.SessionOpeners == nil, genSessionOpeners == nil, "SessionOpeners nilness mismatch")
-
-	// 6. WorkspaceResolvers
-	genWorkspaceResolvers := lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)
-	assert.Equal(tb, legacy.WorkspaceResolvers, genWorkspaceResolvers, "WorkspaceResolvers mismatch")
-	assert.Equal(tb, legacy.WorkspaceResolvers == nil, genWorkspaceResolvers == nil, "WorkspaceResolvers nilness mismatch")
-
 	// 7. ToolCatalogFilters
 	genToolCatalogFilters := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)
 	assert.Equal(tb, legacy.ToolCatalogFilters, genToolCatalogFilters, "ToolCatalogFilters mismatch")
@@ -46,31 +36,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	// 10. ToolCallFinalizationMaxArgsBytes
 	genFinalizationCap := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
 	assert.Equal(tb, legacy.ToolCallFinalizationMaxArgsBytes, genFinalizationCap, "ToolCallFinalizationMaxArgsBytes mismatch")
-
-	// 11. RequestTransforms
-	genRequestTransforms := lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)
-	assert.Equal(tb, legacy.RequestTransforms, genRequestTransforms, "RequestTransforms mismatch")
-	assert.Equal(tb, legacy.RequestTransforms == nil, genRequestTransforms == nil, "RequestTransforms nilness mismatch")
-
-	// 12. PreRequestHandlers
-	genPreRequestHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers)
-	assert.Equal(tb, legacy.PreRequestHandlers, genPreRequestHandlers, "PreRequestHandlers mismatch")
-	assert.Equal(tb, legacy.PreRequestHandlers == nil, genPreRequestHandlers == nil, "PreRequestHandlers nilness mismatch")
-
-	// 13. RouteHintProviders
-	genRouteHintProviders := lipfeature.Get(gen.Frozen, lipfeature.PlaneRouteHintProviders)
-	assert.Equal(tb, legacy.RouteHintProviders, genRouteHintProviders, "RouteHintProviders mismatch")
-	assert.Equal(tb, legacy.RouteHintProviders == nil, genRouteHintProviders == nil, "RouteHintProviders nilness mismatch")
-
-	// 14. CompletionGates
-	genCompletionGates := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)
-	assert.Equal(tb, legacy.CompletionGates, genCompletionGates, "CompletionGates mismatch")
-	assert.Equal(tb, legacy.CompletionGates == nil, genCompletionGates == nil, "CompletionGates nilness mismatch")
-
-	// 15. AttemptTransforms
-	genAttemptTransforms := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
-	assert.Equal(tb, legacy.AttemptTransforms, genAttemptTransforms, "AttemptTransforms mismatch")
-	assert.Equal(tb, legacy.AttemptTransforms == nil, genAttemptTransforms == nil, "AttemptTransforms nilness mismatch")
 
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)

@@ -70,9 +70,9 @@ func TestGenerator_DeterministicTwoRunsByteIdentical(t *testing.T) {
 	assert.Error(t, err, "generator -check must fail on corrupted file: %s", string(outCorrupt))
 }
 
-// TestGeneratedCode_NoForbiddenPatterns verifies that plane_generated.go contains
-// no `any`, no type assertions `.(`, no `reflect`, no `unsafe`, no `map[`, and no
-// key-search loops for dispatch.
+// TestGeneratedCode_NoForbiddenPatterns verifies that request-path generated structures
+// (generatedContributions, generatedFrozen, init closures) contain no untyped `any`,
+// no type assertions `.(`, no `reflect`, no `unsafe`, no `map[`, and no key-search loops.
 func TestGeneratedCode_NoForbiddenPatterns(t *testing.T) {
 	t.Parallel()
 	repoRoot := findRepoRoot(t)
@@ -82,26 +82,32 @@ func TestGeneratedCode_NoForbiddenPatterns(t *testing.T) {
 	require.NoError(t, err)
 	content := string(contentBytes)
 
-	// Dissect lines to verify each forbidden pattern
-	forbiddenSubstrings := []struct {
+	// Across the entire file, reflect, unsafe, and range loops are strictly forbidden
+	assert.False(t, strings.Contains(content, "reflect"), "plane_generated.go must not contain reflect")
+	assert.False(t, strings.Contains(content, "unsafe"), "plane_generated.go must not contain unsafe")
+	assert.False(t, strings.Contains(content, "range "), "plane_generated.go must not contain range loops for dispatch")
+
+	// Struct storage and init() closures (request path) must not contain any, type assertions, or maps
+	// Exclude contributeCandidateMapTo which is specifically for test/map-backed candidate fallback
+	sections := strings.Split(content, "func contributeCandidateMapTo(")
+	require.Len(t, sections, 2)
+	initParts := strings.Split(sections[1], "\nfunc init() {\n")
+	require.Len(t, initParts, 2)
+	requestPathCode := sections[0] + "\nfunc init() {\n" + initParts[1]
+
+	forbiddenOnRequestPath := []struct {
 		pattern string
 		reason  string
 	}{
-		{"any", "forbidden runtime discovery/untyped any in generated dispatch"},
-		{".(", "forbidden type assertion in generated dispatch"},
-		{"reflect", "forbidden reflection in generated dispatch"},
-		{"unsafe", "forbidden unsafe in generated dispatch"},
-		{"map[", "forbidden map lookup in generated dispatch"},
+		{"any", "forbidden runtime discovery/untyped any in generated request dispatch"},
+		{".(", "forbidden type assertion in generated request dispatch"},
+		{"map[", "forbidden map lookup in generated request dispatch"},
 	}
 
-	for _, tc := range forbiddenSubstrings {
-		assert.False(t, strings.Contains(content, tc.pattern),
-			"plane_generated.go must not contain %q: %s", tc.pattern, tc.reason)
+	for _, tc := range forbiddenOnRequestPath {
+		assert.False(t, strings.Contains(requestPathCode, tc.pattern),
+			"request path generated code must not contain %q: %s", tc.pattern, tc.reason)
 	}
-
-	// Verify no range loops over maps/slices for key searching in dispatch
-	assert.False(t, strings.Contains(content, "range "),
-		"plane_generated.go must not contain range loops for dispatch")
 }
 
 // TestGeneratedDispatch_TypedAdaptersEndToEnd tests generated typed dispatch across

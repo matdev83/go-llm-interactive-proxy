@@ -1,6 +1,9 @@
 package feature_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,4 +93,49 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 	// Exclusive plane: TerminalDecisionProvider
 	assert.Equal(t, feature.CombExclusive, feature.PlaneTerminalDecisionProvider.Rules.Feature)
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
+}
+
+// TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.
+func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
+	t.Parallel()
+
+	expected := []string{
+		"session_openers",
+		"workspace_resolvers",
+		"request_transforms",
+		"pre_request_handlers",
+		"route_hint_providers",
+		"completion_gates",
+		"attempt_transforms",
+	}
+	assert.Equal(t, expected, feature.StandardCandidatePlanes)
+}
+
+// TestStandardCandidatePlanes_GeneratedMapDispatchCurrency verifies that the generated
+// map candidate dispatch logic in plane_generated.go contains branches exactly matching StandardCandidatePlanes.
+func TestStandardCandidatePlanes_GeneratedMapDispatchCurrency(t *testing.T) {
+	t.Parallel()
+	repoRoot := findRepoRoot(t)
+	genPath := filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_generated.go")
+	genContentBytes, err := os.ReadFile(genPath)
+	require.NoError(t, err)
+	genContent := string(genContentBytes)
+
+	sections := strings.Split(genContent, "func contributeCandidateMapTo(")
+	require.Len(t, sections, 2, "plane_generated.go must contain contributeCandidateMapTo")
+	mapMethodBody := strings.Split(sections[1], "\nfunc init() {\n")[0]
+
+	// Map candidate branches must exactly match StandardCandidatePlanes
+	for _, candID := range feature.StandardCandidatePlanes {
+		// Convert snake_case ID to PascalCase plane var name e.g. request_transforms -> PlaneRequestTransforms.ID
+		parts := strings.Split(candID, "_")
+		for i, part := range parts {
+			if len(part) > 0 {
+				parts[i] = strings.ToUpper(part[:1]) + part[1:]
+			}
+		}
+		varRef := "Plane" + strings.Join(parts, "") + ".ID"
+		assert.True(t, strings.Contains(mapMethodBody, varRef),
+			"contributeCandidateMapTo must check candidate plane %s (%q)", varRef, candID)
+	}
 }

@@ -17,22 +17,16 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // BuildOptions configures composition-root dependencies for [Build]. Fields are
@@ -145,21 +139,12 @@ type SecretGuardInputs struct {
 	SingleUser coresg.SingleUserOptions
 }
 type ExtensionsOptions struct {
-	// SessionOpeners and WorkspaceResolvers are merged from enabled feature
-	// bundles.
-	SessionOpeners     []session.Opener
-	WorkspaceResolvers []workspace.Resolver
 	// ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, and RequestTransforms
 	// are merged from enabled feature bundles.
 	ToolCatalogFilters               []toolcatalog.Filter
 	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
-	RequestTransforms                []request.Transform
-	PreRequestHandlers               []prerequest.Handler
-	RouteHintProviders               []routehint.Provider
-	CompletionGates                  []completion.Gate
-	AttemptTransforms                []request.AttemptTransform
 	CompactionObservers              []compaction.Observer
 	SecretGuards                     []sdk.Guard
 	LocalTurnHandlers                []localturn.Handler

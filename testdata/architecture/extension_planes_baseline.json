@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
-  "active_wave": "W2_Observers",
-  "active_wave_ordinal": 2,
+  "active_wave": "W3_RequestShaping",
+  "active_wave_ordinal": 3,
   "total_planes": 25,
-  "total_remaining_mirrors": 174,
+  "total_remaining_mirrors": 138,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -97,7 +97,7 @@
         "session_openers",
         "workspace_resolvers"
       ],
-      "measured_mirrors": 62,
+      "measured_mirrors": 26,
       "active_forbidden": 0
     },
     {

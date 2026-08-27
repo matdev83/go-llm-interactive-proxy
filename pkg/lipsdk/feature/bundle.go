@@ -139,7 +139,7 @@ func (b FeatureBundle) Validate() error {
 		return fmt.Errorf("feature: FeatureBundle: schema version want %d got %d", SchemaVersionV1, b.SchemaVersion)
 	}
 	for i, at := range b.AttemptTransforms {
-		if at == nil {
+		if isNilValue(at) {
 			return fmt.Errorf("feature: FeatureBundle: AttemptTransforms[%d] must not be nil", i)
 		}
 	}

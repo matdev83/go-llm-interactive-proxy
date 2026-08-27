@@ -34,7 +34,7 @@ func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMet
 	return nil, nil
 }
 
-func TestMergedFeatureSurface_carriesAttemptTransforms(t *testing.T) {
+func TestGeneratedMergeSurface_carriesAttemptTransforms(t *testing.T) {
 	t.Parallel()
 	bundle := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
@@ -43,9 +43,13 @@ func TestMergedFeatureSurface_carriesAttemptTransforms(t *testing.T) {
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle)
-	if len(merged.AttemptTransforms) != 1 || merged.AttemptTransforms[0].ID() != "at" {
-		t.Fatalf("AttemptTransforms=%v", merged.AttemptTransforms)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(at) != 1 || at[0].ID() != "at" {
+		t.Fatalf("AttemptTransforms=%v", at)
 	}
 }
 

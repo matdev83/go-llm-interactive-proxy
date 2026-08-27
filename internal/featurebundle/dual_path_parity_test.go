@@ -1557,7 +1557,7 @@ func TestPlaneParity_ObserverFamilies_GeneratedEndToEnd(t *testing.T) {
 		// 4. TrafficRedactors pipeline execution
 		redSlice := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
 		require.Len(t, redSlice, 3)
-		var currentPayload = []byte("payload")
+		currentPayload := []byte("payload")
 		for _, red := range redSlice {
 			currentPayload, err = red.Redact(context.Background(), traffic.LegCTP, traffic.CaptureMeta{}, currentPayload)
 			require.NoError(t, err)
@@ -1581,21 +1581,30 @@ func TestPlaneParity_ObserverFamilies_GeneratedEndToEnd(t *testing.T) {
 		to1[0] = trackingTrafficObs{id: "mutated-to", log: &tLog, mu: &mu}
 
 		to2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
-		require.Equal(t, "to-b1-1", to2[0].(trackingTrafficObs).id, "TrafficObservers frozen backing array must be isolated")
+		require.Len(t, to2, 3)
+		to2_0, ok := to2[0].(trackingTrafficObs)
+		require.True(t, ok)
+		require.Equal(t, "to-b1-1", to2_0.id, "TrafficObservers frozen backing array must be isolated")
 
 		uo1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 		require.Len(t, uo1, 3)
 		uo1[0] = trackingUsageObs{id: "mutated-uo", log: &uLog, mu: &mu}
 
 		uo2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
-		require.Equal(t, "uo-b1-1", uo2[0].(trackingUsageObs).id, "UsageObservers frozen backing array must be isolated")
+		require.Len(t, uo2, 3)
+		uo2_0, ok := uo2[0].(trackingUsageObs)
+		require.True(t, ok)
+		require.Equal(t, "uo-b1-1", uo2_0.id, "UsageObservers frozen backing array must be isolated")
 
 		raw1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
 		require.Len(t, raw1, 3)
 		raw1[0] = trackingRawSink{id: "mutated-raw", log: &rLog, mu: &mu}
 
 		raw2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
-		require.Equal(t, "raw-b1-1", raw2[0].(trackingRawSink).id, "RawCaptureSinks frozen backing array must be isolated")
+		require.Len(t, raw2, 3)
+		raw2_0, ok := raw2[0].(trackingRawSink)
+		require.True(t, ok)
+		require.Equal(t, "raw-b1-1", raw2_0.id, "RawCaptureSinks frozen backing array must be isolated")
 
 		red1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
 		require.Len(t, red1, 2)

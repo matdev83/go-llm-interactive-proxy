@@ -92,7 +92,7 @@ func TestMergeCandidateBuildOptions_ParallelConcurrentMerge(t *testing.T) {
 	for i := range goroutines {
 		go func(idx int) {
 			defer func() { done <- struct{}{} }()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				merged := mergeCandidateBuildOptions(process, nil)
 				if merged == process {
 					t.Errorf("got shared pointer in goroutine %d", idx)

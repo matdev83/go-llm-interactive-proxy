@@ -13,11 +13,21 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type projCatalogFilter struct{ id string }
+
+func (f projCatalogFilter) ID() string                      { return f.id }
+func (projCatalogFilter) Order() int                        { return 0 }
+func (projCatalogFilter) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (projCatalogFilter) Handle(context.Context, *lipapi.Call, toolcatalog.CatalogMeta, toolcatalog.Services) error {
+	return nil
+}
 
 type projOpener struct{ tag string }
 
@@ -56,12 +66,12 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
 	t.Helper()
 	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		SessionOpeners:    []session.Opener{projOpener{tag: "opener"}},
-		RequestTransforms: []request.Transform{projTransform{tag: "transform"}},
-		TrafficObservers:  []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
-		UsageObservers:    []usage.Observer{projUsageObs{tag: "feat-usage"}},
-		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{projCatalogFilter{id: "filter"}},
+		RequestTransforms:  []request.Transform{projTransform{tag: "transform"}},
+		TrafficObservers:   []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
+		UsageObservers:     []usage.Observer{projUsageObs{tag: "feat-usage"}},
+		LocalTurnHandlers:  []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
 	}
 	m := featurebundle.MergeBundles(b)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
@@ -100,23 +110,23 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		t.Parallel()
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
-		require.Len(t, ext.SessionOpeners, len(merged.SessionOpeners))
-		require.Len(t, ext.RequestTransforms, len(merged.RequestTransforms))
+		require.Len(t, ext.ToolCatalogFilters, len(merged.ToolCatalogFilters))
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
-		assert.Equal(t, "opener", ext.SessionOpeners[0].ID())
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
+		assert.Equal(t, "filter", ext.ToolCatalogFilters[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
 	})
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
 		merged := featurebundle.MergedFeatureSurface{
-			SessionOpeners:    []session.Opener{},
-			LocalTurnHandlers: []localturn.Handler{},
+			ToolCatalogFilters: []toolcatalog.Filter{},
+			LocalTurnHandlers:  []localturn.Handler{},
 		}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		for name, got := range map[string]any{
-			"SessionOpeners":    ext.SessionOpeners,
-			"LocalTurnHandlers": ext.LocalTurnHandlers,
+			"ToolCatalogFilters": ext.ToolCatalogFilters,
+			"LocalTurnHandlers":  ext.LocalTurnHandlers,
 		} {
 			rv := reflect.ValueOf(got)
 			require.False(t, rv.IsNil(), "%s must stay non-nil empty", name)
@@ -134,17 +144,19 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 	merged, gen := projMerged(t)
 	ext := extensionsFromMerged(merged, gen, nil)
 
-	ext.SessionOpeners[0] = projOpener{tag: "mutated"}
+	ext.LocalTurnHandlers[0] = wiringHandler{id: "mutated", ord: 1}
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, toFrozen, 1)
 	trafficObs, trafficObsOK := toFrozen[0].(projTrafficObs)
 	require.True(t, trafficObsOK)
 	require.Equal(t, "feat-traffic", trafficObs.tag)
-	require.Equal(t, "opener", merged.SessionOpeners[0].ID())
+	require.Equal(t, "handler", merged.LocalTurnHandlers[0].ID())
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uoFrozen, 1)
-	require.Equal(t, "feat-usage", uoFrozen[0].(projUsageObs).tag)
+	usageObs, usageObsOK := uoFrozen[0].(projUsageObs)
+	require.True(t, usageObsOK)
+	require.Equal(t, "feat-usage", usageObs.tag)
 }
 
 // Pins host-injection ordering: production observers append AFTER feature
@@ -198,21 +210,17 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		SessionOpeners:                   []session.Opener{projOpener{tag: "d-open"}},
-		RequestTransforms:                []request.Transform{projTransform{tag: "d-tr"}},
+		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "d-open"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 	}
 	src := ExtensionsOptions{
-		SessionOpeners:                   []session.Opener{projOpener{tag: "s-open"}},
-		RequestTransforms:                []request.Transform{projTransform{tag: "s-tr"}},
+		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "s-open"}},
 		ToolCallFinalizationMaxArgsBytes: 1024,
 	}
 
 	overlayExtensions(dst, src)
 	require.Equal(t, []string{"d-open", "s-open"},
-		[]string{dst.SessionOpeners[0].ID(), dst.SessionOpeners[1].ID()})
-	require.Equal(t, []string{"d-tr", "s-tr"},
-		[]string{dst.RequestTransforms[0].ID(), dst.RequestTransforms[1].ID()})
+		[]string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
 
 	tests := []struct {
 		name string

@@ -156,15 +156,18 @@ func rpHasReasoningText(call lipapi.Call, want string) bool {
 
 func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	m := featurebundle.MergeBundles(bundle)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := hooks.New(hooks.Config{ResponsePartHooks: bundle.ResponsePartHooks})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms:       m.RequestTransforms,
-		CompletionGates:         m.CompletionGates,
-		AttemptTransforms:       m.AttemptTransforms,
+		RequestTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
+		CompletionGates:         lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates),
+		AttemptTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
 		StreamObserverFactories: bundle.StreamObserverFactories,
 	})
-	if want, got := len(m.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
+	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
 	}
 	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {

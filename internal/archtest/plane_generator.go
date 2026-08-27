@@ -20,6 +20,7 @@ type planeInfo struct {
 	hasIdentity      bool   // whether plane has an identity accessor
 	hasGenBinderRule bool   // whether GenerationBinder rule is declared
 	genBinderRule    string // e.g. CombReplaceByIdentity
+	candidate        bool   // whether plane allows candidate overlay contribution
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -89,6 +90,8 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	declaredPlanes := make(map[string]planeInfo)
 	var standardPlanesElts []ast.Expr
 	foundStandardPlanes := false
+	var standardCandidatePlanesElts []ast.Expr
+	foundStandardCandidatePlanes := false
 
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
@@ -112,6 +115,15 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 					}
 					standardPlanesElts = compLit.Elts
 					foundStandardPlanes = true
+					continue
+				}
+				if name.Name == "StandardCandidatePlanes" {
+					compLit, ok := val.(*ast.CompositeLit)
+					if !ok {
+						return nil, fmt.Errorf("StandardCandidatePlanes: expected CompositeLit, got %T", val)
+					}
+					standardCandidatePlanesElts = compLit.Elts
+					foundStandardCandidatePlanes = true
 					continue
 				}
 				if !strings.HasPrefix(name.Name, "Plane") || name.Name == "PlaneDeclaration" {
@@ -163,6 +175,36 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 			return nil, fmt.Errorf("duplicate plane ID %q declared in %s and %s", info.planeID, prevVar, info.varName)
 		}
 		seenIDs[info.planeID] = info.varName
+	}
+
+	if foundStandardCandidatePlanes {
+		candidatePlaneIDs := make(map[string]bool)
+		for _, elt := range standardCandidatePlanesElts {
+			basicLit, ok := elt.(*ast.BasicLit)
+			if !ok || basicLit.Kind != token.STRING {
+				return nil, fmt.Errorf("expected string literal in StandardCandidatePlanes, got %T", elt)
+			}
+			candID := strings.Trim(basicLit.Value, `"`)
+			if candID == "" {
+				return nil, fmt.Errorf("StandardCandidatePlanes contains empty string")
+			}
+			if candidatePlaneIDs[candID] {
+				return nil, fmt.Errorf("duplicate candidate plane ID %q in StandardCandidatePlanes", candID)
+			}
+			candidatePlaneIDs[candID] = true
+		}
+
+		for candID := range candidatePlaneIDs {
+			if _, exists := seenIDs[candID]; !exists {
+				return nil, fmt.Errorf("candidate plane ID %q in StandardCandidatePlanes was not declared in manifest", candID)
+			}
+		}
+
+		for i := range orderedPlanes {
+			if candidatePlaneIDs[orderedPlanes[i].planeID] {
+				orderedPlanes[i].candidate = true
+			}
+		}
 	}
 
 	return orderedPlanes, nil

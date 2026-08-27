@@ -327,22 +327,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"SessionOpeners", func(m MergedFeatureSurface) []string {
-			return charTags(m.SessionOpeners, func(o session.Opener) string {
-				if op, ok := o.(charOpener); ok {
-					return op.tag
-				}
-				return ""
-			})
-		}},
-		{"WorkspaceResolvers", func(m MergedFeatureSurface) []string {
-			return charTags(m.WorkspaceResolvers, func(r lipworkspace.Resolver) string {
-				if wr, ok := r.(charResolver); ok {
-					return wr.tag
-				}
-				return ""
-			})
-		}},
 		{"ToolCatalogFilters", func(m MergedFeatureSurface) []string {
 			return charTags(m.ToolCatalogFilters, func(f toolcatalog.Filter) string {
 				if cf, ok := f.(charCatalogFilter); ok {
@@ -363,46 +347,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 			return charTags(m.ToolCallFinalizers, func(f toolcall.Finalizer) string {
 				if cf, ok := f.(charFinalizer); ok {
 					return cf.tag
-				}
-				return ""
-			})
-		}},
-		{"RequestTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestTransforms, func(tr request.Transform) string {
-				if rt, ok := tr.(charTransform); ok {
-					return rt.tag
-				}
-				return ""
-			})
-		}},
-		{"PreRequestHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.PreRequestHandlers, func(h prerequest.Handler) string {
-				if pr, ok := h.(charPreReq); ok {
-					return pr.tag
-				}
-				return ""
-			})
-		}},
-		{"RouteHintProviders", func(m MergedFeatureSurface) []string {
-			return charTags(m.RouteHintProviders, func(p routehint.Provider) string {
-				if rh, ok := p.(charRouteHint); ok {
-					return rh.tag
-				}
-				return ""
-			})
-		}},
-		{"CompletionGates", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompletionGates, func(g completion.Gate) string {
-				if cg, ok := g.(charCompGate); ok {
-					return cg.tag
-				}
-				return ""
-			})
-		}},
-		{"AttemptTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.AttemptTransforms, func(tr request.AttemptTransform) string {
-				if at, ok := tr.(charAttemptTransform); ok {
-					return at.tag
 				}
 				return ""
 			})
@@ -511,9 +455,9 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.SessionOpeners, 2)
+		require.Len(t, merged.ToolCatalogFilters, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.SessionOpeners).IsNil())
+		require.False(t, reflect.ValueOf(merged.ToolCatalogFilters).IsNil())
 	})
 }
 

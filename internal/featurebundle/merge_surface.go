@@ -7,37 +7,24 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
-// registration order (session openers and workspace resolvers preserve bundle order within each plugin).
+// registration order.
 type MergedFeatureSurface struct {
 	Lifecycles                       []lipplugin.Lifecycle
-	SessionOpeners                   []session.Opener
-	WorkspaceResolvers               []workspace.Resolver
 	ToolCatalogFilters               []toolcatalog.Filter
 	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
-	RequestTransforms                []request.Transform
-	PreRequestHandlers               []prerequest.Handler
-	RouteHintProviders               []routehint.Provider
-	CompletionGates                  []completion.Gate
-	AttemptTransforms                []request.AttemptTransform
 	CompactionObservers              []compaction.Observer
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
@@ -81,8 +68,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		providerID = incomingID
 	}
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	m.SessionOpeners = append(m.SessionOpeners, b.SessionOpeners...)
-	m.WorkspaceResolvers = append(m.WorkspaceResolvers, b.WorkspaceResolvers...)
 	m.ToolCatalogFilters = append(m.ToolCatalogFilters, b.ToolCatalogFilters...)
 	m.ToolCallPolicies = append(m.ToolCallPolicies, b.ToolCallPolicies...)
 	m.ToolCallFinalizers = append(m.ToolCallFinalizers, b.ToolCallFinalizers...)
@@ -93,11 +78,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 			m.ToolCallFinalizationMaxArgsBytes = b.ToolCallFinalizationMaxArgsBytes
 		}
 	}
-	m.RequestTransforms = append(m.RequestTransforms, b.RequestTransforms...)
-	m.PreRequestHandlers = append(m.PreRequestHandlers, b.PreRequestHandlers...)
-	m.RouteHintProviders = append(m.RouteHintProviders, b.RouteHintProviders...)
-	m.CompletionGates = append(m.CompletionGates, b.CompletionGates...)
-	m.AttemptTransforms = append(m.AttemptTransforms, b.AttemptTransforms...)
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
