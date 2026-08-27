@@ -273,7 +273,7 @@
   - _Depends: 5.2_
   - _Validation: workflow syntax + QA workflow-policy test; PR run on implementation branch_
 
-- [ ] 6.2 Propagate the DB parity result through the existing merge-blocking aggregate status
+- [x] 6.2 Propagate the DB parity result through the existing merge-blocking aggregate status
   - Extend the existing required `repo-hygiene`/equivalent fail-closed aggregator using `if: always()` so test-relevant changes fail when database parity is not successful.
   - Preserve the existing rule that docs-only PRs do not leave a required check in `skipped` state; the aggregate must report success after an explicit parity bypass.
   - Add repository QA tests that inspect workflow dependency/result handling and fail if future edits detach the DB parity job from the required aggregate.

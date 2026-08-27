@@ -54,7 +54,7 @@ jobs:
 
   repo-hygiene:
     name: Repo hygiene
-    needs: changes
+    needs: [changes, db-parity]
     if: always()
     # This is a required status check. A job-level `if` would skip the whole
     # job on docs-only PRs, and GitHub does not count a skipped required
@@ -68,6 +68,13 @@ jobs:
         shell: bash
         run: |
           echo "CI scope detection failed; refusing to bypass required evidence." >&2
+          exit 1
+
+      - name: Fail closed if database parity failed
+        if: always() && needs.db-parity.result != 'success'
+        shell: bash
+        run: |
+          echo "Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status." >&2
           exit 1
 
       - name: Check out repository
