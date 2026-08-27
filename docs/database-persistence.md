@@ -97,3 +97,31 @@ secure_session:
 - Configuration fails fast for unsupported backends and missing DSNs.
 - The proxy does not silently fall back to another backend if the selected durable store cannot open.
 - Sample config comments in `config/config.yaml` mirror these fields.
+
+## Maintainer guide: dual-dialect parity & enforcement
+
+All production persistence components in this repository supporting SQLite and PostgreSQL must maintain logical contract, transactional invariant, and migration parity across both engines.
+
+### Parity catalog & discovery
+
+- The authoritative list of dual-dialect persistence components is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go). It captures 8 production component families: `continuity`, `secure-sessions`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`.
+- Architecture guardrails (`internal/archtest/database_parity_test.go`) discover versioned migration roots and deterministic dialect-sensitive indicators across packages, asserting explicit ownership against `internal/testkit/dbparity` and failing closed if any unregistered versioned migration root or package containing discovered deterministic dialect-sensitive indicators is introduced.
+
+### Verification commands
+
+- `make test-db-parity-sqlite` — Runs canonical SQLite parity tests across all registered components.
+- `make test-db-parity-postgres-direct` — Runs fail-closed direct PostgreSQL parity tests (requires direct `LIP_TEST_POSTGRES_DSN` with runner fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`; Make sets `LIP_REQUIRE_POSTGRES=1`).
+- `make test-db-parity` — Runs sequential SQLite and direct PostgreSQL parity for the whole repository.
+
+### CI enforcement
+
+- Every test-relevant pull request executes `make test-db-parity` against an ephemeral direct PostgreSQL service container (`postgres:17-alpine`) in `.github/workflows/ci.yml`.
+- The `db-parity` job result feeds directly into the required `repo-hygiene` aggregate status check (`if: always() && needs.db-parity.result != 'success'`).
+- Changes classified as non-test-relevant by `scripts/ci-scope.sh` report an explicit bypass while satisfying the required `repo-hygiene` aggregate status check.
+
+### Rules for adding or modifying persistence code
+
+1. **Dual-Dialect Support**: When adding a new durable store or modifying an existing one, ensure equivalent logical contracts and schema invariants are satisfied on both SQLite and PostgreSQL.
+2. **Stable Entry Points**: Each registered test package must provide stable `TestDBParity_SQLite` and `TestDBParity_PostgresDirect` test entry points executing the component's shared contract.
+3. **Migration Parity**: Versioned migrations must be applied from empty on both engines, prove idempotency on rerun, and assert logical schema invariants (tables, columns, nullability, unique keys, and correctness-critical indexes).
+4. **No Operator Impact**: The parity catalog and test runner are test-side infrastructure only. Operator runtime configuration remains strictly defined by the fields documented above in `config/config.yaml`.

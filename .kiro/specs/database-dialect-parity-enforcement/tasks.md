@@ -296,7 +296,7 @@
 
 - [ ] 7. Make executable parity the documented source of truth and certify the finished system.
 
-- [ ] 7.1 Align steering, database docs, release gates, and Make help with actual execution
+- [x] 7.1 Align steering, database docs, release gates, and Make help with actual execution
   - Update `.kiro/steering/testing.md` and `.kiro/steering/tech.md` to distinguish default unit tests, repository-wide direct DB parity, specialized PostgreSQL distributed/pooler gates, and release/race evidence.
   - Update `docs/release-gates.md` so PR CI claims match the actual workflow and name the canonical DB parity command/component catalog.
   - Update `docs/database-persistence.md` with a maintainer-facing parity/enforcement note without exposing test implementation as operator configuration.
