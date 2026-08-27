@@ -15,6 +15,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
@@ -338,12 +339,10 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry:    cat,
 			FeatureLifecycles: []lipplugin.Lifecycle{startupLife},
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{
-					id: "startup-hook",
-					n:  &startupHook,
-				}},
-			},
+			FeaturePlanes: frozenRequestTransform(countTransform{
+				id: "startup-hook",
+				n:  &startupHook,
+			}),
 			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []traffic.Observer{countTrafficObs{n: &prodObs}},
 			},
@@ -393,9 +392,7 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		Candidate: candCfgA,
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{candLife},
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
-			},
+			FeaturePlanes:     frozenRequestTransform(countTransform{id: "cand-hook", n: &candHook}),
 		},
 		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
 			probeTraffic(in)
@@ -477,14 +474,21 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
+	cat := stdFactoryCatalog(t)
+	err := cat.RegisterFeature("cand-rt-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
+		}, nil
+	})
+	require.NoError(t, err)
+
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg: cfg,
 		Log: testkit.DiscardLogger(),
 		Opts: &runtimebundle.BuildOptions{
-			PluginRegistry: stdFactoryCatalog(t),
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "startup-hook", n: &startupHook}},
-			},
+			PluginRegistry: cat,
+			FeaturePlanes:  frozenRequestTransform(countTransform{id: "startup-hook", n: &startupHook}),
 		},
 		Tracing: runtimebundle.ProcessTracing{Shutdown: func(context.Context) error { return nil }},
 	})
@@ -493,17 +497,17 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
+	candCfgA := stubCandidateConfig(t, "rt-a", "a", "rt-a:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	candCfgA.Plugins.Features = []config.PluginConfig{
+		{ID: "cand-rt-feature", Enabled: true},
+	}
+
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps,
-		Candidate: stubCandidateConfig(t, "rt-a", "a", "rt-a:stub-default", []config.PluginConfig{
-			{ID: "openai-responses", Enabled: true},
-		}),
-		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
-			},
-		},
-		Compose: stdhttp.ComposeStandardHTTP,
+		Process:   ps,
+		Candidate: candCfgA,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile A: %v", err)
@@ -802,4 +806,14 @@ func (c countTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.Fai
 func (c countTransform) Handle(context.Context, *lipapi.Call, request.RequestMeta, request.Services) error {
 	c.n.Add(1)
 	return nil
+}
+
+func frozenRequestTransform(t request.Transform) lipfeature.FrozenPlaneSet {
+	cs := lipfeature.NewContributionSet()
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{t},
+	}
+	_ = featurebundle.ContributeBundle(cs, "test-plugin", b)
+	return cs.Freeze()
 }

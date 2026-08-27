@@ -205,12 +205,12 @@ func TestCodexCompanionStandardComposition_OrdinaryAttemptGetsTrustedMarker(t *t
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(cfg))
+	_, genMerged, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var transform request.AttemptTransform
-	for _, candidate := range merged.AttemptTransforms {
+	for _, candidate := range lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms) {
 		if candidate != nil && candidate.ID() == reasoningpreservation.ID+"-transform" {
 			transform = candidate
 		}

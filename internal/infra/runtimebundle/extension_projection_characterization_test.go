@@ -101,8 +101,8 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
 		require.Len(t, ext.SessionOpeners, len(merged.SessionOpeners))
-		require.Len(t, ext.RequestTransforms, len(merged.RequestTransforms))
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
 		assert.Equal(t, "opener", ext.SessionOpeners[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
 	})
@@ -199,20 +199,16 @@ func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 
 	dst := &ExtensionsOptions{
 		SessionOpeners:                   []session.Opener{projOpener{tag: "d-open"}},
-		RequestTransforms:                []request.Transform{projTransform{tag: "d-tr"}},
 		ToolCallFinalizationMaxArgsBytes: 4096,
 	}
 	src := ExtensionsOptions{
 		SessionOpeners:                   []session.Opener{projOpener{tag: "s-open"}},
-		RequestTransforms:                []request.Transform{projTransform{tag: "s-tr"}},
 		ToolCallFinalizationMaxArgsBytes: 1024,
 	}
 
 	overlayExtensions(dst, src)
 	require.Equal(t, []string{"d-open", "s-open"},
 		[]string{dst.SessionOpeners[0].ID(), dst.SessionOpeners[1].ID()})
-	require.Equal(t, []string{"d-tr", "s-tr"},
-		[]string{dst.RequestTransforms[0].ID(), dst.RequestTransforms[1].ID()})
 
 	tests := []struct {
 		name string

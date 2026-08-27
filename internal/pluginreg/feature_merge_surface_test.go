@@ -200,14 +200,15 @@ func TestMergeFeatureSurface_concatCatalogAndTransforms(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.ToolCatalogFilters) != 1 || len(m.RequestTransforms) != 1 {
-		t.Fatalf("catalog=%d transforms=%d", len(m.ToolCatalogFilters), len(m.RequestTransforms))
+	transforms := feature.Get(gen.Frozen, feature.PlaneRequestTransforms)
+	if len(m.ToolCatalogFilters) != 1 || len(transforms) != 1 {
+		t.Fatalf("catalog=%d transforms=%d", len(m.ToolCatalogFilters), len(transforms))
 	}
 }
 

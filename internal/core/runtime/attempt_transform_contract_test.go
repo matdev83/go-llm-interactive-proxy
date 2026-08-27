@@ -112,13 +112,16 @@ func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransfo
 // wireMergedAttemptSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	merged := featurebundle.MergeBundles(bundle)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms: merged.RequestTransforms,
-		AttemptTransforms: merged.AttemptTransforms,
+		RequestTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
+		AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
 	})
-	if want, got := len(merged.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
+	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
 	}
 	return bus, snap

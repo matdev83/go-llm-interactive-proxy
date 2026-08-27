@@ -527,7 +527,6 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:      lipfeature.SchemaVersionV1,
 			SessionOpeners:     []session.Opener{charStubOpener{tag: "o1"}, nil, charStubOpener{tag: "o2"}},
-			RequestTransforms:  []request.Transform{nil, &charStubTransform{tag: "t1"}},
 			SecretGuards:       []sdksg.Guard{nil, &charStubSGGuard{id: "sg1", ord: 1}, nil},
 			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
 		}
@@ -538,10 +537,6 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		assert.Nil(t, m.SessionOpeners[1])
 		assert.NotNil(t, m.SessionOpeners[2])
 
-		require.Len(t, m.RequestTransforms, 2)
-		assert.Nil(t, m.RequestTransforms[0])
-		assert.NotNil(t, m.RequestTransforms[1])
-
 		require.Len(t, m.SecretGuards, 3)
 		assert.Nil(t, m.SecretGuards[0])
 		assert.NotNil(t, m.SecretGuards[1])
@@ -549,15 +544,11 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 
 		// Extensions extraction and overlay also preserve verbatim on projected slice planes
 		ext := extensionsFromMerged(m, featurebundle.GeneratedMergeSurface{}, nil)
-		require.Len(t, ext.RequestTransforms, 2)
-		assert.Nil(t, ext.RequestTransforms[0])
 		require.Len(t, ext.SecretGuards, 3)
 		assert.Nil(t, ext.SecretGuards[0])
 
 		dst := ExtensionsOptions{}
 		overlayExtensions(&dst, ext)
-		require.Len(t, dst.RequestTransforms, 2)
-		assert.Nil(t, dst.RequestTransforms[0])
 		require.Len(t, dst.SecretGuards, 3)
 		assert.Nil(t, dst.SecretGuards[0])
 	})
@@ -742,7 +733,7 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
 			m.SessionOpeners = []session.Opener{charStubOpener{tag: "opener-1"}}
-			m.AttemptTransforms = []request.AttemptTransform{charStubAttemptTransform{tag: "att-1"}}
+			m.ToolCatalogFilters = []toolcatalog.Filter{charStubCatalogFilter{tag: "filter-1"}}
 
 			snapBefore := m // value copy
 

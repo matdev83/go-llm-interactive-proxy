@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -594,10 +595,10 @@ func TestCodexStandardRegression_StandardCompositionCompanionWithCompression(t *
 			reg := pluginreg.NewRegistry()
 			require.NoError(t, standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}))
 			// Merge via featurebundle to get the production transform
-			merged, err := featurebundle.MergeFeatureSurface(reg, config.RegistrationsFromConfig(baseCfg))
+			_, gen, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(baseCfg))
 			require.NoError(t, err)
 			var foundXform bool
-			for _, tf := range merged.AttemptTransforms {
+			for _, tf := range lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms) {
 				if tf != nil && tf.ID() == reasoningpreservation.ID+"-transform" {
 					foundXform = true
 				}

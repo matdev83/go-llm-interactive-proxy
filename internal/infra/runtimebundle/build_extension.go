@@ -14,8 +14,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
@@ -107,14 +105,6 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.ToolCallFinalizers) > 0 {
 		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
 	}
-	var reqTransforms []request.Transform
-	if len(opts.Extensions.RequestTransforms) > 0 {
-		reqTransforms = slices.Clone(opts.Extensions.RequestTransforms)
-	}
-	var preReqs []prerequest.Handler
-	if len(opts.Extensions.PreRequestHandlers) > 0 {
-		preReqs = slices.Clone(opts.Extensions.PreRequestHandlers)
-	}
 	var routeHints []routehint.Provider
 	if len(opts.Extensions.RouteHintProviders) > 0 {
 		routeHints = slices.Clone(opts.Extensions.RouteHintProviders)
@@ -123,14 +113,13 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.CompletionGates) > 0 {
 		compGates = slices.Clone(opts.Extensions.CompletionGates)
 	}
-	var attemptXforms []request.AttemptTransform
-	if len(opts.Extensions.AttemptTransforms) > 0 {
-		attemptXforms = slices.Clone(opts.Extensions.AttemptTransforms)
-	}
 	var frozen lipfeature.FrozenPlaneSet
 	if opts != nil {
 		frozen = opts.FeaturePlanes
 	}
+	reqTransforms := lipfeature.Get(frozen, lipfeature.PlaneRequestTransforms)
+	preReqs := lipfeature.Get(frozen, lipfeature.PlanePreRequestHandlers)
+	attemptXforms := lipfeature.Get(frozen, lipfeature.PlaneAttemptTransforms)
 	streamObs := lipfeature.Get(frozen, lipfeature.PlaneStreamObserverFactories)
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
 	if rawObs := lipfeature.Get(frozen, lipfeature.PlaneTrafficObservers); len(rawObs) > 0 {

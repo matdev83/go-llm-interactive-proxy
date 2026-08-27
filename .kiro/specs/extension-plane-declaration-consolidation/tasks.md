@@ -162,7 +162,7 @@
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/testkit/... -run 'Reasoning.*Compression|PlaneParity'`
 
 - [ ] 6. Migrate request-shaping planes as W3
-- [ ] 6.1 Migrate request, pre-request, and attempt transforms
+- [x] 6.1 Migrate request, pre-request, and attempt transforms
   - Preserve registration order, validation, decision evidence, and request/attempt binding semantics.
   - Observable completion: transform mirrors are deleted and focused parity tests pass.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5_

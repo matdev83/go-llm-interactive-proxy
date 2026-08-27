@@ -84,7 +84,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged.AttemptTransforms = lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms)
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
 	ext := extensionsFromMerged(merged, genMerged, ps.opts)
@@ -316,11 +315,8 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		ToolCallPolicies:                 append(merged.ToolCallPolicies[:0:0], merged.ToolCallPolicies...),
 		ToolCallFinalizers:               append(merged.ToolCallFinalizers[:0:0], merged.ToolCallFinalizers...),
 		ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
-		RequestTransforms:                append(merged.RequestTransforms[:0:0], merged.RequestTransforms...),
-		PreRequestHandlers:               append(merged.PreRequestHandlers[:0:0], merged.PreRequestHandlers...),
 		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
 		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
-		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
@@ -346,11 +342,8 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if src.ToolCallFinalizationMaxArgsBytes > 0 {
 		dst.ToolCallFinalizationMaxArgsBytes = src.ToolCallFinalizationMaxArgsBytes
 	}
-	dst.RequestTransforms = append(dst.RequestTransforms, src.RequestTransforms...)
-	dst.PreRequestHandlers = append(dst.PreRequestHandlers, src.PreRequestHandlers...)
 	dst.RouteHintProviders = append(dst.RouteHintProviders, src.RouteHintProviders...)
 	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
-	dst.AttemptTransforms = append(dst.AttemptTransforms, src.AttemptTransforms...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {

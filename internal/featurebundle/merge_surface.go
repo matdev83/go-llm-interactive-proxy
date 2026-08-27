@@ -11,8 +11,6 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -33,11 +31,8 @@ type MergedFeatureSurface struct {
 	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
-	RequestTransforms                []request.Transform
-	PreRequestHandlers               []prerequest.Handler
 	RouteHintProviders               []routehint.Provider
 	CompletionGates                  []completion.Gate
-	AttemptTransforms                []request.AttemptTransform
 	CompactionObservers              []compaction.Observer
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
@@ -93,11 +88,8 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 			m.ToolCallFinalizationMaxArgsBytes = b.ToolCallFinalizationMaxArgsBytes
 		}
 	}
-	m.RequestTransforms = append(m.RequestTransforms, b.RequestTransforms...)
-	m.PreRequestHandlers = append(m.PreRequestHandlers, b.PreRequestHandlers...)
 	m.RouteHintProviders = append(m.RouteHintProviders, b.RouteHintProviders...)
 	m.CompletionGates = append(m.CompletionGates, b.CompletionGates...)
-	m.AttemptTransforms = append(m.AttemptTransforms, b.AttemptTransforms...)
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)

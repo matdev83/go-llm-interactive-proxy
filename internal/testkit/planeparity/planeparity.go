@@ -47,16 +47,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	genFinalizationCap := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
 	assert.Equal(tb, legacy.ToolCallFinalizationMaxArgsBytes, genFinalizationCap, "ToolCallFinalizationMaxArgsBytes mismatch")
 
-	// 11. RequestTransforms
-	genRequestTransforms := lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)
-	assert.Equal(tb, legacy.RequestTransforms, genRequestTransforms, "RequestTransforms mismatch")
-	assert.Equal(tb, legacy.RequestTransforms == nil, genRequestTransforms == nil, "RequestTransforms nilness mismatch")
-
-	// 12. PreRequestHandlers
-	genPreRequestHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers)
-	assert.Equal(tb, legacy.PreRequestHandlers, genPreRequestHandlers, "PreRequestHandlers mismatch")
-	assert.Equal(tb, legacy.PreRequestHandlers == nil, genPreRequestHandlers == nil, "PreRequestHandlers nilness mismatch")
-
 	// 13. RouteHintProviders
 	genRouteHintProviders := lipfeature.Get(gen.Frozen, lipfeature.PlaneRouteHintProviders)
 	assert.Equal(tb, legacy.RouteHintProviders, genRouteHintProviders, "RouteHintProviders mismatch")
@@ -66,11 +56,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	genCompletionGates := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)
 	assert.Equal(tb, legacy.CompletionGates, genCompletionGates, "CompletionGates mismatch")
 	assert.Equal(tb, legacy.CompletionGates == nil, genCompletionGates == nil, "CompletionGates nilness mismatch")
-
-	// 15. AttemptTransforms
-	genAttemptTransforms := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
-	assert.Equal(tb, legacy.AttemptTransforms, genAttemptTransforms, "AttemptTransforms mismatch")
-	assert.Equal(tb, legacy.AttemptTransforms == nil, genAttemptTransforms == nil, "AttemptTransforms nilness mismatch")
 
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)

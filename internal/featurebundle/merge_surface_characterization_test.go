@@ -367,22 +367,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"RequestTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestTransforms, func(tr request.Transform) string {
-				if rt, ok := tr.(charTransform); ok {
-					return rt.tag
-				}
-				return ""
-			})
-		}},
-		{"PreRequestHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.PreRequestHandlers, func(h prerequest.Handler) string {
-				if pr, ok := h.(charPreReq); ok {
-					return pr.tag
-				}
-				return ""
-			})
-		}},
 		{"RouteHintProviders", func(m MergedFeatureSurface) []string {
 			return charTags(m.RouteHintProviders, func(p routehint.Provider) string {
 				if rh, ok := p.(charRouteHint); ok {
@@ -395,14 +379,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 			return charTags(m.CompletionGates, func(g completion.Gate) string {
 				if cg, ok := g.(charCompGate); ok {
 					return cg.tag
-				}
-				return ""
-			})
-		}},
-		{"AttemptTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.AttemptTransforms, func(tr request.AttemptTransform) string {
-				if at, ok := tr.(charAttemptTransform); ok {
-					return at.tag
 				}
 				return ""
 			})

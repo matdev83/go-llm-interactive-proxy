@@ -681,8 +681,11 @@ func TestPhase5_disabledNonInterferenceNoFeatureTelemetry(t *testing.T) {
 	if inv.Enabled || len(inv.AggregateCounters) != 0 {
 		t.Fatalf("disabled inventory=%+v", inv)
 	}
-	empty := featurebundle.MergeBundles()
-	if len(empty.AttemptTransforms) != 0 {
+	emptyGen, err := featurebundle.MergeBundlesGenerated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lipfeature.Get(emptyGen.Frozen, lipfeature.PlaneAttemptTransforms)) != 0 {
 		t.Fatal("absent FeatureBundle merge must not introduce reasoning participants")
 	}
 }

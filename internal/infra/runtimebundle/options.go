@@ -22,8 +22,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -155,11 +153,8 @@ type ExtensionsOptions struct {
 	ToolCallPolicies                 []toolpolicy.Policy
 	ToolCallFinalizers               []toolcall.Finalizer
 	ToolCallFinalizationMaxArgsBytes int
-	RequestTransforms                []request.Transform
-	PreRequestHandlers               []prerequest.Handler
 	RouteHintProviders               []routehint.Provider
 	CompletionGates                  []completion.Gate
-	AttemptTransforms                []request.AttemptTransform
 	CompactionObservers              []compaction.Observer
 	SecretGuards                     []sdk.Guard
 	LocalTurnHandlers                []localturn.Handler

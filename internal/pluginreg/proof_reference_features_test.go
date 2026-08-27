@@ -72,8 +72,8 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(m.SessionOpeners) < need {
 		t.Fatalf("openers: %d", len(m.SessionOpeners))
 	}
-	if len(m.RequestTransforms) < need {
-		t.Fatalf("request transforms: %d", len(m.RequestTransforms))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)) < need {
+		t.Fatalf("request transforms: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)))
 	}
 	if len(m.ToolCatalogFilters) < need {
 		t.Fatalf("catalog: %d", len(m.ToolCatalogFilters))

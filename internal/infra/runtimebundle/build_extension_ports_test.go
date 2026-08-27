@@ -61,16 +61,12 @@ func TestBuildRuntimeSnapshot_featureBundlePortsReachSnap(t *testing.T) {
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle)
 	genMerged, err := featurebundle.MergeBundlesGenerated(bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := hooks.New(hooks.Config{})
 	opts := &BuildOptions{
-		Extensions: ExtensionsOptions{
-			AttemptTransforms: merged.AttemptTransforms,
-		},
 		FeaturePlanes: genMerged.Frozen,
 	}
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
