@@ -4,18 +4,18 @@
 
 These rules are mandatory for every executor working from this plan:
 
-1. **Do not perform broad provider research.** `research.md` is the frozen implementation input. Use the exact profile IDs, family choices, base URLs, env-var names, inventory decisions, and connector classifications recorded there.
+1. **Do not perform broad provider research.** `research.md` is the frozen implementation input. Use its exact profile IDs, family choices, base URLs, env-var names, inventory decisions, connector classifications and source pins.
 2. Before adding a provider, search the current implementation branch for equivalent support. If equivalent support has landed since the spec baseline, convert only that provider task into verification/docs/test work; do not duplicate it.
-3. **No ACP work is allowed.** Do not modify `connectors/acp`, `connector-support/acp`, `agycliacp`, `cursorcliacp`, `geminicliacp`, or add a new ACP provider.
+3. **No ACP work is allowed.** Do not modify ACP production connectors/support or add a new ACP provider.
 4. A normal compatible provider is a row in `internal/providerprofiles/catalog.json`, not a new Go backend package.
-5. Do not expand `lip.provider-profile/v1` to make a difficult provider fit. Dynamic endpoint identity, multi-value auth/addressing, OAuth, cloud signing, control-plane discovery, and native non-compatible APIs belong in external connectors/bridges.
-6. Never infer native `/responses` or `/messages` support from LiteLLM's normalized endpoint table. Follow the frozen protocol decision.
+5. Do not expand `lip.provider-profile/v1` to make a difficult provider fit. Dynamic endpoint identity, multi-value auth/addressing, OAuth, cloud signing, control-plane discovery and native non-compatible APIs belong in external connectors/bridges.
+6. Never infer native `/responses` or `/messages` support from LiteLLM or another translating intermediary. Follow the frozen protocol decision. Official provider contracts override secondary-source classifications.
 7. Responses is preferred wherever the frozen matrix selected it.
 8. Provider profiles must be conservative about capabilities. Do not leave unreviewed family-maximum capabilities enabled.
-9. Do not assign a tokenizer to a provider unless `research.md` or an existing provider-family rule explicitly requires one.
-10. Keep default tests offline. Use `httptest`, SDK stubs, recorded public-schema fixtures, or connector contract test harnesses; live provider credentials may only be optional/env-gated evidence.
-11. If one provider's upstream contract now contradicts `research.md`, stop **that provider task only**, record the exact contradiction in the implementation PR/commit notes, and continue independent tasks. Do not invent a new protocol/auth architecture.
-12. A task that discovers a need for canonical/core/frontend/backend-plugin ABI changes is blocked and requires a separate design/spec review; do not push those changes through this bulk spec.
+9. Do not assign a tokenizer unless `research.md` or an existing provider-family rule explicitly requires one.
+10. Keep default tests offline. Use `httptest`, SDK stubs, public-schema fixtures or connector contract harnesses; live provider credentials may only be optional/env-gated evidence.
+11. If one provider's upstream contract now contradicts `research.md`, stop **that provider task only**, record the exact contradiction, and continue independent tasks. Do not invent a new protocol/auth architecture.
+12. A task that discovers a need for canonical/core/frontend/backend-plugin ABI changes is blocked and requires separate design review; do not push those changes through this bulk spec.
 
 ## Task Graph
 
@@ -31,111 +31,110 @@ These rules are mandatory for every executor working from this plan:
   |
   +--> 6 Managed/dynamic compatible connectors (parallel by connector)
   +--> 7 Native cloud/provider connectors (parallel by connector)
-  +--> 8 OAuth/subscription bridges (parallel by connector)
+  +--> 8 OAuth/subscription bridges (parallel after common auth pattern)
                  |
                  `--> 9 Final provider inventory/docs/release gates
 ```
 
-Profile batches are intentionally sequential because they edit the same embedded catalog and expected-ID fixture. Individual external connectors are separate modules and may be implemented in parallel after Task 1 establishes the provider-boundary characterization.
+Profile batches are sequential/small because they edit the same embedded catalog and expected-ID fixture. Individual external connectors are separate modules and may be implemented in parallel after Task 1.
 
 ---
 
 - [ ] 1. Freeze the real provider-profile population contract
 - [ ] 1.1 Add an expected embedded-provider characterization table
-  - Create `internal/providerprofiles/catalog_population_test.go` (or an equivalently focused `_test.go`).
-  - Define a test-only table with stable fields: `ID`, `Family`, `BaseURL`, `AuthMode`, `EnvVar`, `Discovery`, optional static model IDs, and expected disabled capabilities.
-  - Seed it with the full frozen profile matrix from `research.md`; do not use it at runtime.
-  - Assert exact ID uniqueness; no `example-*` placeholder; no ACP IDs; no duplicate semantic product where an existing dedicated Go-LIP backend/connector already owns the product.
-  - Assert `deepseek-responses`+`deepseek-openai` and `scaleway-responses`+`scaleway-openai` exist as complete suffix pairs once their batch lands.
-  - Assert every real profile carries an explicit reviewed capability posture: long-tail Chat profiles must at minimum disable `vision`, `documents`, `reasoning`, and `parallel_tool_calls` unless the frozen high-value matrix explicitly authorizes a richer set.
-  - For Anthropic profiles, assert unproven `reasoning_replay`, `vision`, `documents`, and `parallel_tool_calls` are disabled.
-  - Observable completion: the table can fail on one deliberately mutated endpoint/family/env/capability value and on removal/renaming of one expected ID.
+  - Create `internal/providerprofiles/catalog_population_test.go` (or equivalently focused `_test.go`).
+  - Define a test-only table with stable fields: `ID`, `Family`, `BaseURL`, `AuthMode`, `EnvVar`, `Discovery`, optional static model IDs, expected disabled capabilities.
+  - Seed it from the full frozen profile matrix in `research.md`; it is never runtime input.
+  - Assert exact ID uniqueness, no `example-*` placeholder after real population, no ACP IDs, and no semantic duplicate of an existing dedicated backend/connector.
+  - Assert required suffix pairs exist together (`deepseek-responses` + `deepseek-openai`, `scaleway-responses` + `scaleway-openai`).
+  - Assert every real profile carries an explicit reviewed capability posture. Long-tail Chat rows must at minimum disable `vision`, `documents`, `reasoning`, `parallel_tool_calls` unless frozen evidence deliberately says otherwise. Anthropic rows disable unproven `reasoning_replay`, media and parallel-tool capability.
+  - Observable completion: one mutated endpoint/family/env/capability or deleted expected ID fails the test.
   - _Requirements: 1,2,3,4,8,9,10,12_
-  - _Boundary: tests/provider-profile data contract_
+  - _Boundary: tests/provider-profile contract_
   - _Depends: none_
   - _Validation: `go test ./internal/providerprofiles/...`_
 
 - [ ] 1.2 Characterize real catalog expansion through the existing binding
-  - Extend `internal/standardplugins/provider_profile_binding_test.go` using catalog profiles, not hand-written duplicate test profiles, for one Responses, one Chat, and one Anthropic profile after those rows are available.
-  - For each representative row, assert `ExpandProviderProfileRows` maps `kind: provider-profile` to the existing family factory, leaves the source config immutable, derives `backend_prefix == profile.ID`, and carries the frozen base URL/env-var root/inventory policy.
-  - Use `httptest` to prove one Responses and one Anthropic real-profile execution maps the expected request path and credential header without a provider network call.
-  - Do not add a production factory, registry, or profile-specific switch.
-  - Observable completion: changing a real catalog family or base URL breaks this test before runtime integration.
+  - Extend `internal/standardplugins/provider_profile_binding_test.go` using **real embedded profiles**, not duplicate hand-written profiles, for one Responses, one Chat and one Anthropic row after those rows land.
+  - Assert `kind: provider-profile` expands to the intended existing compatible kind, source config is immutable, `backend_prefix == profile.ID`, and base URL/env-var root/inventory/capability ceiling match catalog data.
+  - Use `httptest` to prove representative Responses and Anthropic profiles select the correct operation path/auth header without real network calls.
+  - Do not add a production factory, registry or provider-specific switch.
   - _Requirements: 1,3,4,7,8,10_
   - _Boundary: tests/config-wiring_
-  - _Depends: 1.1 and first representative rows from Tasks 2/4 may be completed together in one bounded implementation branch_
+  - _Depends: 1.1 and representative rows from Tasks 2/4 may land in same bounded branch_
   - _Validation: `go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible'`_
 
 - [ ] 1.3 Preserve profile schema and scale guardrails
-  - Do not modify `schema.go`, `compiler.go`, or `provider_profile_binding.go` unless an existing test proves a pre-existing bug independent of provider population.
-  - Keep the 1,000-profile no-goroutine/no-factory scale test passing.
-  - Keep `DiscoveryDisabled`, non-preserve namespace modes, arbitrary transforms, unsupported quirks, unsafe headers, literal secrets, and remote HTTP endpoints fail-closed.
-  - Add a targeted regression assertion that catalog population does not create one runtime factory/contribution per profile.
+  - `schema.go`, `compiler.go`, and `provider_profile_binding.go` should remain unchanged unless an existing characterization proves a pre-existing bug independent of population.
+  - Keep 1,000-profile bounded/no-goroutine/no-factory scaling proof passing.
+  - Keep non-preserve namespace modes, disabled discovery, arbitrary transforms, unsupported quirks, unsafe headers, literal secrets and remote HTTP endpoints fail-closed.
+  - Add/retain an assertion that catalog population does not create one runtime factory/contribution per profile.
   - _Requirements: 1,4,8,10_
   - _Boundary: tests/architecture guardrail_
   - _Depends: 1.1_
-  - _Validation: `go test ./internal/providerprofiles/... && make profile-only-check PROFILE_ONLY_BASE=HEAD~1` (use the actual batch base SHA in implementation)_
+  - _Validation: `go test ./internal/providerprofiles/...` plus profile-only gate_
 
 ---
 
 - [ ] 2. Add the Responses-first and explicit multi-flavor strategic profiles
-- [ ] 2.1 Add the exact Responses-first profile rows
-  - Add these profile identities from the locked table in `research.md`: `fireworks`, `groq`, `digitalocean`, `vercel-ai-gateway`, `requesty`, `kilo`, and `meta`.
-  - Use `family: openai-responses-compatible`, the exact frozen base URL and bearer env var, `family_default` inventory only where the matrix permits it, and `namespace.mode: preserve`.
+- [ ] 2.1 Add the exact bare Responses profiles
+  - Add `fireworks`, `groq`, `digitalocean`, `vercel-ai-gateway`, `requesty`, and `meta` using `family: openai-responses-compatible` and exact base/env data from `research.md`.
+  - Use `family_default` inventory only where frozen matrix permits; otherwise use the frozen static set.
   - Omit tokenizer unless explicitly frozen.
-  - Set an explicit capability `disable` list for all unproven family-max capabilities. Retain `tools` and `reasoning` only where the frozen official evidence supports them; disable `vision`, `documents`, and `parallel_tool_calls` unless specifically certified by a focused fixture.
-  - Do not create equivalent Chat or Anthropic duplicates merely because the provider also exposes those APIs.
-  - Add all rows to the expected-profile test in the same change.
+  - Explicitly disable all unproven family-max capabilities. Retain tools/reasoning only where frozen official evidence supports them; do not assume vision/documents/parallel tools.
+  - Do not add equivalent Chat/Anthropic aliases just because those APIs also exist.
+  - Add every row to the expected-profile test in same batch.
+  - **Do not put Kilo here.** Current official Kilo Gateway docs expose OpenAI Chat `/chat/completions`; Kilo is Task 3.2.
   - _Requirements: 1,2,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 1.1_
   - _Validation: `go test ./internal/providerprofiles/... && go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && make profile-only-check PROFILE_ONLY_BASE=<batch-base-sha> && make parity-checks`_
 
 - [ ] 2.2 Add DeepSeek as an explicit flavor split
-  - Add `deepseek-responses` with family `openai-responses-compatible`, base `https://api.deepseek.com`, env `DEEPSEEK_API_KEY`, and **static inventory restricted to `deepseek-v4-flash`** according to the frozen official Responses model matrix.
-  - Add `deepseek-openai` with family `openai-chat-compatible`, the same base/env, and broad Chat inventory (`family_default` only if the existing OpenAI model-list contract fixture succeeds; otherwise freeze Flash+Pro statically).
-  - Do not add a bare `deepseek` alias and do not add a third Anthropic identity because it does not unlock a required distinct model population in this spec.
-  - Retain reasoning capability where the selected DeepSeek models support it; disable unproven vision/documents/parallel-tool capabilities.
-  - Add an offline test that the Responses inventory can never surface the Pro-only model.
+  - Add `deepseek-responses`: Responses family, base `https://api.deepseek.com`, env `DEEPSEEK_API_KEY`, **static inventory restricted to `deepseek-v4-flash`**.
+  - Add `deepseek-openai`: Chat family, same base/env; use family-default `/models` only if existing discovery fixture conforms, otherwise static Flash+Pro.
+  - Do not add bare `deepseek` or redundant Anthropic alias.
+  - Retain reasoning where frozen model evidence supports it; disable unproven media/parallel capabilities.
+  - Add offline test proving the Responses inventory can never surface the Pro-only model.
   - _Requirements: 2,3,8,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 1.1_
-  - _Validation: same profile-batch gate as 2.1_
+  - _Validation: profile-batch gate from 2.1_
 
 - [ ] 2.3 Add Scaleway as a flavor-correct split
-  - Add `scaleway-responses`, family `openai-responses-compatible`, base `https://api.scaleway.ai/v1`, env `SCW_SECRET_KEY`, with a static Responses-supported inventory seeded from the frozen serverless list (including `openai/gpt-oss-120b:fp4` and `openai/gpt-oss-20b:fp4` when still present in the frozen fixture).
-  - Add `scaleway-openai`, family `openai-chat-compatible`, same base/env, with family-default `/models` discovery for the broader Chat set.
+  - Add `scaleway-responses`: Responses family, base `https://api.scaleway.ai/v1`, env `SCW_SECRET_KEY`, static Responses-supported inventory seeded from frozen serverless list including `openai/gpt-oss-120b:fp4` and `openai/gpt-oss-20b:fp4` when present in frozen fixture.
+  - Add `scaleway-openai`: Chat family, same base/env, family-default `/models` for broader Chat set.
   - Do not add bare `scaleway`.
-  - Add a test proving a Chat-only model cannot appear under `scaleway-responses`.
+  - Add test proving a Chat-only model cannot appear under Responses profile.
   - _Requirements: 2,3,8,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 1.1_
-  - _Validation: same profile-batch gate as 2.1_
+  - _Validation: profile-batch gate from 2.1_
 
 ---
 
 - [ ] 3. Populate the OpenAI Chat compatible catalog in bounded batches
 - [ ] 3.1 Add Chat profiles A-C
   - Add exactly: `302ai`, `abacus`, `abliteration-ai`, `ai-router`, `aiand`, `aihubmix`, `aki-io`, `alibaba`, `alibaba-cn`, `alibaba-coding-plan`, `alibaba-coding-plan-cn`, `alibaba-token-plan-cn`, `ambient`, `amd`, `anyapi`, `arcee`, `auriko`, `baseten`, `berget`, `blueclaw`, `cerebras`, `chutes`, `clarifai`, `claudinio`, `cline-pass`, `cloudferro-sherlock`, `coralbricks`, `cortecs`, `crof`, `crossmodel`, `crusoe`.
-  - Copy exact base URL/env var from `research.md`; do not normalize brands into different IDs.
+  - Copy exact base/env data from `research.md`; family is `openai-chat-compatible` for every row.
   - Do **not** add Alibaba Token Plan International: existing `alibaba-token-plan-intl` owns that product.
-  - Family is `openai-chat-compatible` for every row in this subtask.
-  - Default capability posture: streaming+tools only; disable `vision`, `documents`, `reasoning`, `parallel_tool_calls`. Only lift `reasoning` for a row if the locked high-value matrix explicitly says so; this batch otherwise stays conservative.
-  - Use family-default `/models` unless `research.md` specifically requires static inventory. If an offline captured fixture shows a nonconforming model-list response, switch only that row to a static inventory rather than adding a parser.
-  - Add every row to the expected-profile test in the same commit/batch.
+  - Default capability posture: streaming+tools; disable `vision`, `documents`, `reasoning`, `parallel_tool_calls` unless frozen evidence explicitly enriches one row.
+  - Use family-default `/models` unless research/task explicitly requires static. Nonconforming model-list fixture -> switch only that row to static; no new parser.
+  - Add every row to expected-profile table in same batch.
   - _Requirements: 1,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 3.2 Add Chat profiles D-M
-  - Add exactly: `daoxe`, `deepinfra`, `dinference`, `drun`, `ebcloud`, `echo`, `edenai`, `empiriolabs`, `evroc`, `fastrouter`, `friendli`, `frogbot`, `gmicloud`, `greenpt`, `helicone`, `hetzner`, `hpc-ai`, `hyper`, `iflowcn`, `impossibl`, `inception`, `inceptron`, `inference-net`, `inferx`, `io-net`, `jalapeno`, `jiekou`, `kenari`, `llmgateway`, `llmtech`, `llmtr`, `longcat`, `lucidquery`, `meganova`, `mistral`, `mixlayer`, `moark`, `modal`, `model-oracle-ai`, `modelis`, `modelscope`, `moonshot`, `moonshot-cn`, `morph`.
+- [ ] 3.2 Add Chat profiles D-M, including Kilo
+  - Add exactly: `daoxe`, `deepinfra`, `dinference`, `drun`, `ebcloud`, `echo`, `edenai`, `empiriolabs`, `evroc`, `fastrouter`, `friendli`, `frogbot`, `gmicloud`, `greenpt`, `helicone`, `hetzner`, `hpc-ai`, `hyper`, `iflowcn`, `impossibl`, `inception`, `inceptron`, `inference-net`, `inferx`, `io-net`, `jalapeno`, `jiekou`, `kenari`, `kilo`, `llmgateway`, `llmtech`, `llmtr`, `longcat`, `lucidquery`, `meganova`, `mistral`, `mixlayer`, `moark`, `modal`, `model-oracle-ai`, `modelis`, `modelscope`, `moonshot`, `moonshot-cn`, `morph`.
   - Use exact base/env data from `research.md`.
-  - `inference-net` intentionally differs from the surveyed generic `inference` ID to avoid an ambiguous generic backend identity.
-  - `morph` is conservative/text-only unless an existing frozen fixture in the implementation branch proves tool support: disable `tools`, `vision`, `documents`, `reasoning`, and `parallel_tool_calls` for it.
-  - For `mistral`, first run the existing compatible-family offline fixture against the frozen Mistral Chat response/tool shape. If it does not fit without provider-specific wire translation, stop `mistral` profile addition and move only that product to a future family-adapter spec; do not patch generic Chat behavior around Mistral.
-  - All other rows use the default long-tail capability posture from 3.1.
-  - _Requirements: 1,3,4,8,9,10,12_
+  - `kilo`: base `https://api.kilo.ai/api/gateway`, env `KILO_API_KEY`, Chat family. This follows Kilo's current official Quickstart/API Reference; do not implement Cline's secondary Responses classification.
+  - `inference-net` intentionally differs from surveyed generic `inference` ID to avoid ambiguous generic identity.
+  - `morph`: conservative text-only unless a previously frozen fixture proves tools; disable `tools` as well as vision/documents/reasoning/parallel.
+  - `mistral`: first run existing compatible-family offline fixture against frozen Mistral Chat/tool shape. If it cannot fit without provider-specific translation, stop only `mistral` and move it to a future family-adapter spec; do not patch generic Chat around it.
+  - All other rows use default long-tail capability posture.
+  - _Requirements: 1,2,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 3.1_
   - _Validation: profile-batch gate from 2.1_
@@ -143,19 +142,19 @@ Profile batches are intentionally sequential because they edit the same embedded
 - [ ] 3.3 Add Chat profiles N-Z
   - Add exactly: `neuralwatt`, `nova`, `novita-ai`, `ofox`, `opper`, `orcarouter`, `ovhcloud`, `pendra`, `pioneer`, `poe`, `poolside`, `qihang-ai`, `qiniu-ai`, `regolo-ai`, `routing-run`, `scnet-token-plan`, `scx-ai`, `siliconflow`, `siliconflow-cn`, `stackit`, `standardcompute`, `stepfun`, `stepfun-cn`, `stepfun-step-plan`, `stepfun-step-plan-cn`, `submodel`, `synthetic`, `tencent-coding-plan`, `tencent-token-plan`, `tencent-tokenhub`, `tensorx`, `the-grid-ai`, `tinfoil`, `together`, `trustedrouter`, `vultr`, `wafer-ai`, `wandb`, `xai`, `xiaomi`, `xiaomi-token-plan-eu`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-sg`, `xpersona`, `zai`, `zai-cn`, `zai-coding-plan`, `zai-coding-plan-cn`, `zeldoc`, `zenifra`, `zenmux`.
   - Use exact base/env data from `research.md`.
-  - `xai` is deliberately **Chat**, not Responses: current official xAI OpenAPI was the authority for this spec and contained `/v1/chat/completions` but no `/v1/responses`.
-  - `nova` is Amazon Nova direct API and is distinct from existing AWS Bedrock.
-  - Plan/region identities intentionally remain separate where the endpoint/entitlement differs.
-  - Apply the same conservative long-tail capability posture as 3.1.
+  - `xai` is deliberately Chat: current official xAI OpenAPI was authoritative and contained `/v1/chat/completions` but no `/v1/responses`.
+  - `nova` is Amazon Nova direct API, distinct from Bedrock.
+  - Region/plan identities remain separate where endpoint/entitlement differs.
+  - Apply default long-tail capability posture.
   - _Requirements: 1,2,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 3.2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 3.4 Remove the placeholder provider and lock the complete Chat/Responses ID set
-  - Remove `example-openai-responses` from `catalog.json` after the real catalog is populated.
-  - Make expected-ID tests compare the exact final profile set contributed by Tasks 2-4, not a subset-only assertion.
-  - Add a negative test forbidding IDs/families for existing dedicated products (`openrouter`, `nvidia`, `huggingface`, `opencode-go`, `opencode-zen`, `openai-codex`, `commandcode-*`, `ollama*`, `lmstudio`, `vllm`, `alibaba-token-plan-intl`) unless future code has intentionally changed ownership.
+- [ ] 3.4 Remove placeholder and lock complete Chat/Responses ID set
+  - Remove `example-openai-responses` after real catalog population.
+  - Make expected-ID test compare exact final profile set from Tasks 2-4.
+  - Add negative assertion forbidding profile duplication of dedicated products such as `openrouter`, `nvidia`, `huggingface`, `opencode-go`, `opencode-zen`, `openai-codex`, `commandcode-*`, `ollama*`, `lmstudio`, `vllm`, `alibaba-token-plan-intl` unless future ownership intentionally changes.
   - _Requirements: 1,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 3.3,4_
@@ -163,13 +162,13 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 ---
 
-- [ ] 4. Add the Anthropic-compatible provider profiles
+- [ ] 4. Add Anthropic-compatible provider profiles
 - [ ] 4.1 Add `kimi-coding`
   - Family `anthropic-compatible`; base `https://api.kimi.com/coding/`; auth `api_key_env`, env `KIMI_API_KEY`.
-  - Static model inventory exactly: `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed`, unless the frozen implementation fixture intentionally removes a provider-deprecated ID.
-  - Do not add an equivalent Kimi OpenAI profile because it exposes the same intended model population.
-  - Do not inject/spoof Claude Code/OpenCode/Kimi client identifiers. Preserve normal Go-LIP identity behavior and Kimi's documented anti-tampering requirement.
-  - Disable `vision`, `documents`, `parallel_tool_calls`, and `reasoning_replay` unless a focused frozen contract explicitly proves the exact Go-LIP semantic.
+  - Static inventory exactly `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed` unless a frozen provider deprecation is already recorded in implementation branch.
+  - Do not add equivalent Kimi OpenAI alias because intended model set is the same.
+  - Do not spoof Claude Code/OpenCode/Kimi client identifiers. Preserve truthful Go-LIP identity and Kimi anti-tampering requirement.
+  - Disable unproven vision/documents/parallel/reasoning_replay.
   - Add offline `/v1/messages` request/stream characterization using `httptest`.
   - _Requirements: 1,2,3,4,8,12_
   - _Boundary: provider-profile data/tests_
@@ -177,19 +176,19 @@ Profile batches are intentionally sequential because they edit the same embedded
   - _Validation: profile-batch gate from 2.1_
 
 - [ ] 4.2 Add MiniMax API-key profiles
-  - Add `minimax`: family `anthropic-compatible`, base `https://api.minimax.io/anthropic`, auth env `MINIMAX_API_KEY`, family-default `/v1/models` inventory.
-  - Add `minimax-cn`: base `https://api.minimaxi.com/anthropic`; use the API-key env naming frozen in the current implementation matrix. If the China `/anthropic/v1/models` fixture does not match the existing Anthropic inventory contract, use a static inventory rather than a new parser.
-  - Do not conflate these with `minimax-oauth`; OAuth is Task 8.7.
-  - Disable unproven `reasoning_replay`, vision/documents/parallel tools.
+  - Add `minimax`: Anthropic family, base `https://api.minimax.io/anthropic`, env `MINIMAX_API_KEY`, family-default `/v1/models` inventory.
+  - Add `minimax-cn`: base `https://api.minimaxi.com/anthropic`, env **`MINIMAX_CN_API_KEY`**. Use family-default China `/anthropic/v1/models` only if fixture matches existing Anthropic inventory contract; otherwise static.
+  - Do not conflate with `minimax-oauth` (Task 8.8).
+  - Disable unproven reasoning_replay/vision/documents/parallel tools.
   - _Requirements: 1,3,4,8,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 1_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 4.3 Add Thinking Machines/Tinker and conditional `freemodel`
-  - Add `thinking-machines`: family `anthropic-compatible`, base `https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api`, env `TINKER_API_KEY`, static initial model `thinkingmachines/Inkling`.
-  - Explicitly disable unsupported/unproven profile capabilities, including `reasoning_replay`, and do not claim prompt-cache behavior: Tinker documents that `cache_control` is ignored.
-  - Add `freemodel` only if the frozen endpoint fixture fits the existing Anthropic family with no new quirk; otherwise record it as deferred and do not change the family adapter.
+- [ ] 4.3 Add Thinking Machines/Tinker
+  - Add `thinking-machines`: Anthropic family, base `https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api`, env `TINKER_API_KEY`, static initial model `thinkingmachines/Inkling`.
+  - Explicitly disable unsupported/unproven capabilities including `reasoning_replay`; do not claim prompt-cache behavior because Tinker documents `cache_control` as ignored.
+  - Add offline request-path/auth/stream fixture under existing Anthropic compatible TCK.
   - _Requirements: 1,3,4,8,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 1_
@@ -197,22 +196,21 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 ---
 
-- [ ] 5. Publish the provider-profile operator contract
-- [ ] 5.1 Add a concise first-class provider configuration example
-  - Add one representative `config/examples/provider-profiles-bulk.example.yaml` (or equivalent local naming convention) containing no more than a small set demonstrating: one bare Responses provider, one split Responses/Chat provider, one Chat provider, one Anthropic provider.
-  - Operators should only specify runtime `id`, `kind: provider-profile`, and `config.profile`; do not copy the full endpoint/env matrix into YAML examples.
-  - Verify with `lipstd check-config`, `routes`, `inventory` using no real credentials where validation permits; network-dependent inventory must not be required for check-config.
+- [ ] 5. Publish provider-profile operator contract
+- [ ] 5.1 Add concise first-class profile configuration example
+  - Add `config/examples/provider-profiles-bulk.example.yaml` (or repo-local equivalent) demonstrating at most: one bare Responses provider, one split Responses/Chat provider, one Chat provider, one Anthropic provider.
+  - Operators specify runtime `id`, `kind: provider-profile`, `config.profile`; do not duplicate full endpoint/env matrix into YAML examples.
+  - Verify check-config/routes/inventory behavior without requiring real credentials for structural validation.
   - _Requirements: 7,11_
   - _Boundary: config/docs_
   - _Depends: 2,3,4_
   - _Validation: `make example-config-check`_
 
-- [ ] 5.2 Document the complete first-class profile table
-  - Add/update a provider-profile operator document with columns: profile ID, display/provider product, protocol family, preferred/supplemental status, base endpoint identity, env var, inventory method, region/plan notes, and capability caveats.
+- [ ] 5.2 Document complete first-class profile table
+  - Add/update provider-profile operator doc with profile ID, product, protocol family, preferred/supplemental status, base endpoint identity, env var, inventory method, region/plan notes and capability caveats.
   - Mark Responses preferred for split providers.
-  - Distinguish standard profiles from private `custom-*-compatible` rows.
-  - Explicitly say ACP integrations are outside this feature.
-  - Do not copy secret values or unstable pricing/model marketing prose.
+  - Distinguish standard profiles from private `custom-*-compatible` rows and API-key from OAuth/subscription products.
+  - Explicitly say ACP is outside this feature.
   - _Requirements: 7,11,12_
   - _Boundary: docs_
   - _Depends: 3.4_
@@ -222,44 +220,43 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 - [ ] 6. Implement managed/dynamic-address compatible connectors (P)
 - [ ] 6.1 Cloudflare AI Gateway connector (P)
-  - Create `connectors/cloudflare` following the standard external connector packaging layout.
-  - Product is Cloudflare's current account-scoped REST API; use Responses as preferred execution surface. Do **not** use the deprecated universal endpoint.
-  - Typed config: `account_id`, token env/reference, optional `gateway_id`; construct the endpoint under `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` inside the connector.
-  - If `gateway_id` is configured, apply the documented gateway header/route behavior; do not encode it as a generic profile static header.
-  - Reuse `connector-support/openaicompat` for OpenAI-compatible request/stream handling rather than implementing a second Responses codec.
-  - Inventory must be filtered/curated so the Responses backend does not advertise a model that Cloudflare documents as unsupported by Responses.
+  - Create `connectors/cloudflare` using standard external connector layout.
+  - Use current account-scoped REST API; Responses preferred. Do not use deprecated universal endpoint.
+  - Typed config: `account_id`, API-token reference, optional `gateway_id`; construct `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` inside connector.
+  - Apply documented gateway ID behavior connector-locally; reuse `connector-support/openaicompat` for Responses-compatible mapping rather than second codec.
+  - Inventory/filter only models compatible with declared Responses surface.
   - _Requirements: 5,7,8,9,10,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector module tests + `make backend-plugin-cross-platform-qa` + `make backend-plugin-release-gates-static`_
 
 - [ ] 6.2 Azure OpenAI / Azure AI Foundry connector (P)
-  - Create one Azure connector artifact with distinct factory kinds only when needed to represent Azure OpenAI vs Foundry endpoint/deployment semantics; avoid two SDK implementations.
-  - Responses is preferred for deployments/regions where current Azure v1 supports it; Chat is supplemental within the connector for deployments that require it.
-  - Typed config owns Azure resource/endpoint, deployment/model mapping, credential mode, and any required API-version compatibility field.
-  - Support API-key auth and Microsoft Entra credential chain; use Azure-supported token acquisition, never store resolved bearer tokens in YAML.
-  - Inventory resolves deployment/model identities through the Azure resource/control-plane contract and maps them to stable Go-LIP canonical IDs.
-  - Hard-negative test: a Responses-only route never silently falls back to Chat after the request has acquired Responses-specific required semantics.
-  - Primary design source is the Azure Responses/v1 contract linked in `research.md`; no new research is expected from executor.
+  - One connector artifact may expose distinct Azure OpenAI/Foundry kinds only when endpoint/deployment semantics require; avoid duplicate SDK implementations.
+  - Responses preferred for deployments/regions where current Azure v1 supports it; Chat supplemental for deployments requiring Chat.
+  - Typed config owns resource/endpoint, deployment/model mapping, credential mode and required API-version compatibility.
+  - Support API-key and Microsoft Entra credential chain; resolved bearer tokens never appear in YAML/diagnostics.
+  - Inventory Azure deployed model/resource identities and map to stable Go-LIP IDs.
+  - Hard-negative: Responses-required semantics never silently fall back to Chat.
+  - Follow Azure contract linked in `research.md`; no provider survey is expected.
   - _Requirements: 5,7,8,9,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 6.3 Snowflake Cortex connector (P)
-  - Typed config: account identifier, optional role, PAT/JWT credential reference; browser OAuth may be implemented in the same connector only if it uses the documented local-application flow without adding a new shared OAuth framework.
+  - Typed config: account identifier, optional role, PAT/JWT credential reference; documented browser OAuth may be same connector product.
   - Construct `https://{account}.snowflakecomputing.com/api/v2/cortex/v1` internally.
-  - Reuse compatible OpenAI transport where the Cortex API is wire-compatible, while keeping account/role/auth lifecycle connector-local.
-  - Inventory only models/families that satisfy the coding/tool requirements frozen in the Snowflake support contract; do not advertise unrelated Cortex functions.
+  - Reuse compatible OpenAI transport where wire-compatible; keep account/role/auth connector-local.
+  - Inventory only coding/tool-capable model families frozen by support contract.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 6.4 Databricks AI connector (P)
-  - Typed config: workspace host, auth token/OAuth source, optional serving endpoint/gateway selector.
-  - Construct the current Databricks AI Gateway/OpenAI-compatible root from the workspace host; do not introduce provider-profile env substitution.
-  - Reuse shared compatible transport; connector owns workspace authentication and serving-endpoint discovery.
+  - Typed config: workspace host, token/OAuth source, optional serving endpoint/gateway selector.
+  - Construct current workspace AI Gateway/OpenAI-compatible root internally; no provider-profile env substitution/template feature.
+  - Reuse shared compatible transport; connector owns workspace auth and serving-endpoint discovery.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
@@ -267,8 +264,8 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 - [ ] 6.5 Infomaniak AI connector (P)
   - Typed config: `product_id` plus API-key reference.
-  - Construct `https://api.infomaniak.com/2/ai/{product_id}/openai/v1` internally and reuse compatible OpenAI transport.
-  - Do not add generic URL-template support to provider profiles for this one product.
+  - Construct `https://api.infomaniak.com/2/ai/{product_id}/openai/v1` and reuse compatible transport.
+  - Do not add generic URL-template profile support for this product.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
@@ -278,22 +275,21 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 - [ ] 7. Implement provider-native and managed-cloud connectors (P)
 - [ ] 7.1 Google Vertex AI connector (P)
-  - Create `connectors/vertex`; this is distinct from the existing Gemini API-key backend.
-  - Typed config: GCP project, location, optional explicit publisher/model/deployment selectors, credential source.
-  - Use ADC/service-account/workload identity through the provider-supported Google client/auth library inside the connector.
-  - Prefer the native Vertex/Gemini execution contract; do not force all Vertex models through the OpenAI compatibility surface merely for code reuse.
-  - Inventory via Vertex publisher/model catalog scoped by project/location; stable canonical IDs must not depend on transient access tokens.
+  - Create `connectors/vertex`, distinct from existing Gemini API-key backend.
+  - Typed config: GCP project, location, optional publisher/model/deployment selectors, credential source.
+  - Use ADC/service-account/workload identity through provider-supported Google auth/client library inside connector.
+  - Prefer native Vertex/Gemini execution contract; do not force all Vertex models through OpenAI compatibility for convenience.
+  - Inventory publisher/model catalog scoped by project/location with stable canonical IDs.
   - _Requirements: 5,7,8,9,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.2 AWS SageMaker connector (P)
-  - Create `connectors/sagemaker` using AWS SDK v2 inside the connector module.
-  - Typed config: AWS region/profile/credential-chain options, SageMaker endpoint name, and a declared inference contract for the selected deployment.
-  - Use SigV4/default AWS credential chain and SageMaker Runtime `InvokeEndpoint`/supported streaming equivalent.
-  - Enumerate configured/discoverable endpoints with SageMaker control-plane APIs, but do not claim arbitrary containers are OpenAI-compatible. Only route an endpoint after its configured contract maps canonical calls deterministically.
-  - Reuse existing connector-support codecs only for explicitly compatible deployments.
+  - Create `connectors/sagemaker` using AWS SDK v2 inside connector module.
+  - Typed config: region/profile/credential-chain options, endpoint name and declared inference contract for selected deployment.
+  - Use SigV4/default AWS chain and Runtime `InvokeEndpoint`/supported streaming equivalent.
+  - Enumerate endpoints through SageMaker control plane but never claim arbitrary containers are OpenAI-compatible; route only configured deterministic contracts.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
@@ -301,17 +297,17 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 - [ ] 7.3 OCI Generative AI connector (P)
   - Create `connectors/oci` with typed region, compartment, endpoint/model selectors and OCI credential/signing source.
-  - Use OCI supported request signing/workload identity; no static bearer-token conversion in common YAML.
-  - Enumerate generative models/endpoints through OCI control-plane APIs; preserve stable Go-LIP IDs across generated endpoint resources.
+  - Use OCI signing/workload identity; do not convert credentials into static bearer YAML.
+  - Enumerate generative models/endpoints and preserve stable Go-LIP IDs across generated endpoint resources.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.4 IBM watsonx.ai connector (P)
-  - Create `connectors/watsonx` with typed service/base region, project or space ID, and IBM credential reference.
-  - Implement IBM IAM token acquisition/refresh connector-locally and native watsonx chat/text mapping.
-  - Enumerate supported foundation/deployed models with the watsonx model API and filter to language models compatible with declared Go-LIP semantics.
+  - Create `connectors/watsonx` with service/region, project-or-space ID and IBM credential reference.
+  - Implement IAM token acquisition/refresh connector-locally and native watsonx chat/text mapping.
+  - Enumerate supported foundation/deployed language models and filter to declared Go-LIP semantics.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
@@ -319,30 +315,30 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 - [ ] 7.5 SAP AI Core connector (P)
   - Create `connectors/sapaicore`.
-  - Accept a service-key **reference** (environment/file/config secret seam consistent with connector framework), not a secret-bearing diagnostic field. Parse `clientid`, `clientsecret`, auth URL, and `serviceurls.AI_API_URL` inside the connector.
-  - Acquire OAuth client-credentials token at the service-key auth URL; scope requests by configured `AI-Resource-Group` where required.
-  - Discover deployments through the AI Core deployment API and map selected deployment URL/model to stable canonical IDs.
-  - Reuse shared compatible transport after deployment resolution only when the selected Generative AI Hub deployment is actually compatible.
+  - Accept service-key **reference**, parse `clientid`, `clientsecret`, auth URL and `serviceurls.AI_API_URL` connector-locally; never project secret-bearing service key to diagnostics.
+  - Acquire OAuth client-credentials token and apply configured `AI-Resource-Group` where required.
+  - Discover deployments and map deployment URL/model to stable canonical ID.
+  - Reuse compatible transport after deployment resolution only when deployment is actually compatible.
   - _Requirements: 4,5,7,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.6 Cohere native connector (P)
-  - Create `connectors/cohere` against the native `POST /v2/chat` API rooted at `https://api.cohere.com`.
-  - Implement canonical message/tool/stream mapping directly; do not route through LiteLLM or pretend the native API is OpenAI Chat.
-  - Enumerate language models through Cohere's model-list API and expose only declared coding/text capabilities.
-  - Add hard-negative tests for canonical semantics that Cohere cannot preserve.
+  - Create `connectors/cohere` against native `POST /v2/chat` rooted at `https://api.cohere.com`.
+  - Map canonical messages/tools/stream directly; no LiteLLM translation and no pretending native API is OpenAI Chat.
+  - Enumerate language models through Cohere model API and expose only supported coding/text capabilities.
+  - Hard-negative tests for canonical semantics Cohere cannot preserve.
   - _Requirements: 5,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.7 Replicate language-model connector (P)
-  - Create `connectors/replicate`, API root `https://api.replicate.com/v1`, bearer credential `REPLICATE_API_TOKEN` or connector-standard secret reference.
-  - Connector owns prediction create, stream/poll, terminal result, cancellation, and cleanup; do not hide asynchronous prediction lifecycle inside generic retry logic.
-  - Enumerate models/versions via Replicate model APIs, but only expose language-model deployments with a configured/frozen mapping capable of satisfying canonical text/tool requirements. Arbitrary Replicate model schemas are out of scope.
-  - Cancellation must stop polling/stream I/O and invoke provider cancellation when a prediction is cancellable.
+  - Create `connectors/replicate`, root `https://api.replicate.com/v1`, bearer `REPLICATE_API_TOKEN` or connector-standard secret reference.
+  - Own prediction create, stream/poll, terminal result, cancellation and cleanup; asynchronous lifecycle must not be hidden in generic retry logic.
+  - Enumerate models/versions but expose only language-model deployments with configured/frozen canonical mapping. Arbitrary Replicate schemas are out of scope.
+  - Cancellation stops local I/O and provider prediction when cancellable.
   - _Requirements: 5,8,11_
   - _Boundary: external backend plugin_
   - _Depends: 1_
@@ -351,86 +347,86 @@ Profile batches are intentionally sequential because they edit the same embedded
 ---
 
 - [ ] 8. Implement non-ACP OAuth/subscription bridges (P)
-- [ ] 8.1 Establish one connector-local OAuth credential pattern without a universal auth framework
-  - Reuse existing secure credential/account-store patterns from the Codex connector where they fit: restrictive files, atomic updates, redacted diagnostics, refresh-before-expiry, terminal-refresh quarantine, explicit re-login.
-  - Do not add provider OAuth concepts to `pkg/lipapi` or core routing.
-  - Shared helper code may live under `connector-support` only after at least two bridges need the exact same PKCE/device-code primitive; keep provider endpoints/scopes/entitlements in each connector.
-  - Tests must cover state/PKCE validation, refresh, `invalid_grant`/4xx quarantine, logout/removal, and no repeated replay of a terminal refresh token.
+- [ ] 8.1 Establish connector-local OAuth credential pattern without universal auth framework
+  - Reuse secure credential/account-store patterns from existing Codex connector where applicable: restrictive files, atomic updates, redacted diagnostics, refresh-before-expiry, terminal refresh quarantine, explicit re-login.
+  - Do not add OAuth concepts to `pkg/lipapi` or core routing.
+  - Shared helper under `connector-support` only after at least two bridges need exact same PKCE/device primitive; provider endpoints/scopes/entitlements remain connector-local.
+  - Tests cover state/PKCE validation, refresh, `invalid_grant`/4xx quarantine, logout/removal, no repeated terminal refresh replay.
   - _Requirements: 4,6,8,10_
   - _Boundary: connector-support/external plugins_
   - _Depends: 1_
   - _Validation: connector-support tests + connector release gates_
 
 - [ ] 8.2 GitHub Copilot direct HTTP subscription bridge (P)
-  - **Do not use Copilot ACP.** This task is direct Copilot service access only.
-  - Use the current supported GitHub device/OAuth credential route and Copilot service-token exchange represented by the pinned surveyed implementations. Reference source pins: Hermes Agent commit `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882` provider/auth files and the current Cline generated `github-copilot` provider declaration.
-  - Inference service identity is `https://api.githubcopilot.com`; model inventory comes from the Copilot model service/entitlement response, not a static copy of all GitHub Models.
-  - If implementation confirms the direct Copilot endpoint/token exchange is no longer a documented/permitted third-party integration, mark this provider **unsupported-by-policy** and close this subtask without reverse-engineering private endpoints or using ACP as a workaround.
+  - **Do not use Copilot ACP.** Direct service access only.
+  - Use current supported GitHub device/OAuth credential route and Copilot service-token/model entitlement flow from pinned surveyed implementations; service identity is `https://api.githubcopilot.com`.
+  - Inventory from Copilot model entitlement service, not all GitHub Models.
+  - Reference Hermes Agent commit `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882` auth/provider sources plus current Cline `github-copilot` provider declaration.
+  - If token exchange is no longer documented/permitted for third-party products, mark **unsupported-by-policy** and stop. Do not reverse engineer private endpoints or use ACP workaround.
   - _Requirements: 6,8,11,12_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: offline OAuth/token-exchange fixtures + connector tests_
 
 - [ ] 8.3 GitLab Duo / Duo Agent Platform bridge (P)
-  - **No ACP.** Support GitLab.com and configured self-managed instance URL.
-  - Auth methods from the frozen OpenCode integration: browser OAuth or PAT; self-managed OAuth client ID is explicit config when required.
-  - Support configured `GITLAB_AI_GATEWAY_URL`/Duo workflow service where the instance advertises it; dynamically discover `duo-workflow-*` models through the GitLab namespace/instance contract and cache only according to connector generation lifecycle.
-  - Keep GitLab repository-management tools outside this inference backend; only model/DAP execution is in scope.
-  - Reference pinned OpenCode provider docs/implementation at commit `c77100a40c16a1c7c39115023ccd6f284b476c77` (or the exact newer commit frozen by implementation branch if already vendored in research notes).
+  - **No ACP.** Support GitLab.com and configured self-managed instance.
+  - Auth: browser OAuth recommended, PAT supported; self-managed OAuth client ID explicit when required.
+  - Support configured AI Gateway/workflow service; dynamically discover `duo-workflow-*` models from namespace/instance and cache only within connector generation lifecycle.
+  - Repository-management tools are outside inference connector.
+  - Use pinned OpenCode provider docs/implementation at `c77100a40c16a1c7c39115023ccd6f284b476c77`.
   - _Requirements: 6,7,8,11_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: OAuth/PAT fixtures + dynamic model discovery + connector tests_
 
 - [ ] 8.4 Claude subscription/OAuth bridge (P)
-  - Keep existing `anthropic` API-key backend unchanged; this is a distinct credential/billing product.
-  - Implement only Anthropic's currently documented third-party OAuth/setup-token path. Preserve the frozen Hermes distinction that consumer subscription use and API-key billing are not interchangeable.
-  - Do not copy/impersonate Claude Code client identifiers solely to obtain entitlements.
-  - If the current provider policy no longer permits the third-party route, record unsupported status rather than bypassing the restriction.
-  - Inventory only models returned/entitled by the authenticated product.
+  - Keep existing `anthropic` API-key backend unchanged; this is distinct credential/billing product.
+  - Implement only Anthropic's currently documented/permitted third-party OAuth/setup-token route from pinned Hermes behavior.
+  - Do not impersonate Claude Code or claim subscription allowance that route does not actually consume.
+  - Provider policy prohibiting third-party route -> record unsupported and stop, no bypass.
+  - Inventory only entitled models.
   - _Requirements: 4,6,8,11_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: auth-store/refresh fixtures + connector tests_
 
 - [ ] 8.5 Nous Portal connector (P)
-  - Implement the Portal subscription gateway as a distinct connector; do not conflate it with direct Nous Research API-key inference.
-  - Follow the frozen Hermes reference behavior: OAuth-managed credentials, scoped `inference:invoke` JWT preferred, legacy opaque session-key only if the current public contract still requires it, automatic rotation/refresh, revoked refresh-token quarantine.
-  - Include the provider-required client-identification value using truthful Go-LIP/AIProxer identity; do not claim to be Hermes.
-  - Inventory the Portal model catalog dynamically and preserve provider-qualified model IDs.
-  - Reference Hermes Agent commit `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`, especially `website/docs/integrations/providers.md`, `hermes_cli/auth_commands.py`, `agent/credential_sources.py`, and Portal-related runtime code. Port semantics, not Python structure.
+  - Distinct subscription gateway; do not conflate with direct Nous API-key inference.
+  - Follow pinned Hermes `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`: OAuth-managed credentials, scoped `inference:invoke` JWT preferred, legacy opaque session-key only if current public contract still requires, rotation/refresh, revoked-token quarantine.
+  - Send truthful Go-LIP/AIProxer client identity, never claim Hermes identity.
+  - Dynamically inventory Portal provider-qualified model catalog.
   - _Requirements: 4,6,7,8,11_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: scoped-token/refresh/catalog fixtures + connector tests_
 
 - [ ] 8.6 xAI subscription OAuth bridge (P)
-  - Keep `xai` API-key Chat profile as a separate product.
-  - Implement only xAI's current documented subscription OAuth/device authorization route; use the resulting bearer credential with the same xAI model service semantics supported by the authenticated account.
-  - Do not assume OAuth changes the wire protocol to Responses: the API-key profile selection in this spec remains Chat unless official xAI contract changes and a separate spec revisits it.
-  - Reuse token quarantine/re-auth behavior from 8.1. Entitlement 403 after successful auth is a typed entitlement failure, not an endless refresh retry.
-  - Reference Hermes xAI OAuth tests/docs at pinned commit `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882` as behavioral fixtures.
+  - Keep API-key `xai` Chat profile separate.
+  - Implement only current documented xAI subscription/device/browser authorization; resulting bearer uses same supported xAI model-service semantics.
+  - OAuth does not automatically change wire family to Responses.
+  - Entitlement 403 after successful auth is entitlement failure, not endless refresh.
+  - Use pinned Hermes xAI OAuth tests/docs at `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882` as behavioral fixtures.
   - _Requirements: 4,6,8,11_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: device/OAuth fixtures + entitlement/error tests + connector tests_
 
 - [ ] 8.7 Qwen Portal OAuth bridge (P)
-  - Provider identity `qwen-oauth`; do not conflate with `alibaba`/DashScope API-key profiles.
-  - Frozen inference base is `https://portal.qwen.ai/v1` from Hermes provider profile.
-  - Port the exact Qwen Portal request adaptations represented by pinned Hermes `plugins/model-providers/qwen-oauth/__init__.py`: content normalization, system-part ephemeral cache marker only if still accepted by the current provider contract, `vl_high_resolution_images: true`, and Qwen session metadata placement.
-  - Authentication is browser/PKCE external OAuth from Hermes' auth layer; do not invent a static API key requirement.
-  - If any of those request adaptations require a new canonical field rather than connector-local translation, stop and escalate that semantic rather than changing `pkg/lipapi` here.
+  - Identity `qwen-oauth`; distinct from `alibaba`/DashScope API-key profiles.
+  - Inference base `https://portal.qwen.ai/v1` from pinned Hermes provider profile.
+  - Port connector-local request adaptations from Hermes `plugins/model-providers/qwen-oauth/__init__.py`: normalize string content to typed text parts, preserve image URL objects, system-last-part ephemeral cache marker only if current Portal accepts it, `vl_high_resolution_images: true`, Qwen session metadata at correct top-level location.
+  - Auth is browser/PKCE external OAuth; no fake static API-key requirement.
+  - If adaptation needs a new canonical field, block this provider and escalate instead of changing `pkg/lipapi` here.
   - _Requirements: 4,6,8,11_
   - _Boundary: external backend plugin/auth bridge_
   - _Depends: 8.1_
   - _Validation: PKCE/auth fixtures + request-shape golden tests + connector tests_
 
 - [ ] 8.8 MiniMax OAuth bridge (P)
-  - Provider identity `minimax-oauth`; separate from `minimax` and `minimax-cn` API-key profiles.
-  - Use global inference base `https://api.minimax.io/anthropic`; transport reuses Anthropic Messages semantics.
-  - Port the frozen Hermes flow exactly from `website/docs/guides/minimax-oauth.md` at commit `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`: generate PKCE verifier/challenge+state; POST `{base_url}/oauth/code`; display/open returned verification URI/user code; poll `{base_url}/oauth/token`; persist access+refresh+expiry; refresh within 60s of expiry using refresh-token grant; quarantine terminal 4xx/`invalid_grant`/revoked refresh tokens; explicit re-login clears quarantine.
-  - Initial model inventory is `MiniMax-M2.7` and `MiniMax-M2.7-highspeed` unless authenticated enumeration provides the same/better authoritative set.
+  - Identity `minimax-oauth`; distinct from API-key profiles.
+  - Inference base `https://api.minimax.io/anthropic`, Anthropic Messages transport.
+  - Port exact pinned Hermes flow from `website/docs/guides/minimax-oauth.md` at `6dcebea7fc5d0cc4f621eeaddf52b7d877a5f882`: PKCE verifier/challenge+state; POST `{base_url}/oauth/code`; open/display verification URI/user code; poll `{base_url}/oauth/token`; persist access+refresh+expiry; refresh within 60s; terminal 4xx/`invalid_grant`/revoked/`refresh_token_reused` -> quarantine; successful re-login clears quarantine.
+  - Initial model set `MiniMax-M2.7`, `MiniMax-M2.7-highspeed` unless authenticated enumeration provides authoritative superset.
   - Do not use `MINIMAX_API_KEY` for this product.
   - _Requirements: 4,6,8,11_
   - _Boundary: external backend plugin/auth bridge_
@@ -440,32 +436,31 @@ Profile batches are intentionally sequential because they edit the same embedded
 ---
 
 - [ ] 9. Finalize complete provider coverage and release evidence
-- [ ] 9.1 Reconcile expected provider inventory against actual repository support
-  - Enumerate current built-in backend kinds, embedded provider profiles, discovered connector manifests/factory kinds, and this spec's expected list.
-  - Fail the test/release check on duplicate semantic provider ownership, missing expected profile/connector, unexpected ACP addition, or stale placeholder.
-  - Do not require every optional connector artifact to be installed at runtime merely to validate the source-tree expected set; use manifest/source metadata for build-time evidence.
+- [ ] 9.1 Reconcile expected provider inventory against repository support
+  - Enumerate current built-in backend kinds, embedded provider profiles and source/discovered connector manifest factory kinds against this spec's expected list.
+  - Fail on duplicate semantic provider ownership, missing expected profile/connector, unexpected ACP addition or stale placeholder.
+  - Optional connector artifacts need not be installed merely to validate source-tree expected set; use manifest/source metadata.
   - _Requirements: 9,10,12_
   - _Boundary: tests/release evidence_
   - _Depends: 3.4,5,6,7,8_
-  - _Validation: focused expected-inventory test + `make backend-plugin-release-gates-static`_
+  - _Validation: expected-inventory test + `make backend-plugin-release-gates-static`_
 
-- [ ] 9.2 Update the top-level supported-backend documentation
-  - Update README/architecture/provider docs so they no longer under-report providers already landed (including existing Alibaba Token Plan International) and include the new profile/connector support.
-  - Use compact categories plus a detailed provider document rather than making README a 100-row catalog.
-  - For every connector/bridge document: include backend kind, auth method, endpoint construction, model enumeration, required config/env, protocol surface, and caveats.
-  - Separate API-key and OAuth/subscription products visibly.
-  - State that ACP provider work was explicitly excluded.
+- [ ] 9.2 Update top-level supported-backend documentation
+  - Update README/architecture/provider docs so they no longer under-report already-landed support (including Alibaba Token Plan International) and include new profile/connector coverage.
+  - Use compact categories plus detailed provider doc rather than 100-row README.
+  - For each connector/bridge document: backend kind, auth method, endpoint construction, model enumeration, required config/env, protocol surface and caveats.
+  - Separate API-key and OAuth/subscription products visibly; state ACP exclusion.
   - _Requirements: 7,11,12_
   - _Boundary: docs_
   - _Depends: 9.1_
   - _Validation: `make docs-check knowledge-check`_
 
 - [ ] 9.3 Run final architecture and quality gates
-  - Run full repository quality, tests, parity, example-config checks, profile scale test, and connector release/static gates.
-  - Generate the change-surface report and confirm ordinary profile population did not edit canonical/core/frontend/ABI/shared-composition production surfaces.
-  - Confirm no new runtime network fetch of Models.dev/Cline/OpenCode/Hermes/LiteLLM was introduced.
-  - Confirm no ACP files changed as implementation of this feature except possibly tests/docs that explicitly assert ACP exclusion; production ACP changes are a failure.
-  - Confirm new external connectors remain optional/closed-manifest and provider SDK dependencies do not leak into root/core packages.
+  - Run full quality/tests/parity/example/profile-scale/connector static release gates.
+  - Confirm ordinary profile population did not edit canonical/core/frontend/ABI/shared-composition production surfaces.
+  - Confirm no runtime network fetch of Models.dev/Cline/OpenCode/Hermes/LiteLLM was introduced.
+  - Confirm no production ACP changes were made.
+  - Confirm external connectors remain optional/closed-manifest and provider SDK dependencies do not leak into root/core packages.
   - _Requirements: 1,4,8,9,10,12_
   - _Boundary: repository-wide validation_
   - _Depends: 9.2_
@@ -473,21 +468,21 @@ Profile batches are intentionally sequential because they edit the same embedded
 
 ## Parallelization Summary
 
-- Tasks 1-5 are profile-catalog work and should be executed sequentially or in very small rebased batches because they touch the same catalog/expected-table files.
+- Tasks 1-5 are profile-catalog work and should be sequential/small rebased batches because they share catalog/expected-table files.
 - Tasks 6.1-6.5 may run in parallel after Task 1.
 - Tasks 7.1-7.7 may run in parallel after Task 1.
-- Task 8.1 establishes the credential pattern; Tasks 8.2-8.8 may run in parallel after 8.1.
-- Task 9 is the final convergence gate and must run after all providers intended for the release have either landed or been explicitly recorded as unsupported/deferred under the task stop rules.
+- Task 8.1 establishes shared credential primitives only where justified; Tasks 8.2-8.8 may run in parallel after 8.1.
+- Task 9 is the convergence gate after release-intended providers have landed or been explicitly recorded unsupported/deferred under stop rules.
 
 ## Implementation Stop Conditions
 
-An executor must stop only the affected provider task and report the exact reason when:
+Stop only the affected provider task and report exact reason when:
 
-- official provider API no longer matches the frozen base/protocol/auth contract;
-- provider terms explicitly prohibit the required third-party subscription/OAuth use;
+- official provider API no longer matches frozen base/protocol/auth contract;
+- provider terms explicitly prohibit required third-party subscription/OAuth use;
 - implementation requires a new canonical semantic/capability or backend-plugin ABI field;
 - a profile needs a new transform/URL-template/multi-secret schema feature rather than current v1 data;
-- a claimed model inventory cannot be made flavor-correct through current remote or static inventory mechanisms;
-- a native provider requires semantic approximation/loss instead of lossless mapping or explicit rejection.
+- claimed inventory cannot be made flavor-correct through current remote/static mechanisms;
+- native provider would require semantic approximation/loss instead of lossless mapping or explicit rejection.
 
-These are not instructions to perform new broad research. They are fail-closed conditions preventing a smaller executor from inventing architecture when the frozen plan no longer matches reality.
+These are fail-closed conditions, not invitations for a smaller executor to resume broad research or invent architecture.
