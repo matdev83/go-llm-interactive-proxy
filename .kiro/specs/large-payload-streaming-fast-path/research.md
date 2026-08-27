@@ -3,365 +3,384 @@
 ## Summary
 
 - **Feature**: Large-Payload Streaming Fast Path (#503)
-- **Initial discovery snapshot**: Go-LIP around `8684666809f687ab43dc1393dc1f726a0b0161f7`, plus Bifrost large-payload implementation/research.
-- **Post-PR cross-check snapshot**: Go-LIP `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533.
-- **Result of cross-check**: the pre-commit spool/replay direction remains correct, but the original draft was **not implementation-ready without changes**. The review found live architecture drift plus three missing contracts (decode QoS, frontend response state, and deep post-identity Call dependencies) and one unsafe protocol assumption (OpenResponses default storage). The final design also simplifies V1 by eliminating post-`BeginTurn` canonical fallback.
+- **Initial discovery snapshot**: Go-LIP around `8684666809f687ab43dc1393dc1f726a0b0161f7`, plus Bifrost large-payload research.
+- **Primary revalidation snapshot**: Go-LIP `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533.
+- **Result**: the core pre-commit replay/spool idea is sound, but implementation readiness required multiple brownfield repairs. The final V1 is a bounded-memory replay path with a two-phase **side-effect-free plan → one-way execute** seam. Canonical fallback stays frontend-owned and occurs before `BeginTurn`.
 
 ## Final Decisions
 
-1. Keep **bounded-memory pre-commit capture + low-copy replay** rather than immediate client→provider piping.
-2. Preserve shared JSON validation during capture, but perform expensive protocol semantic proof in a second replay pass under the existing byte-weighted decode admission.
-3. Use the current typed extension-plane manifest/FrozenPlaneSet as the sole request-body access-classification architecture.
-4. Never send a fake/minimal `lipapi.Call` through the normal executor.
-5. Do not make `ExecuteLargeBody` return only `lipapi.EventStream`; return bounded authoritative response facts needed by frontend response/cancellation encoding.
-6. Close every post-commit full-Call dependency before opening a wire backend; content-dependent consumers are pre-turn blockers.
-7. In V1, resolve every **expected** optimization blocker before `BeginTurn`. Once the wire path starts a logical turn, it does not fall back to canonical execution.
-8. Prove wire compatibility for the conservative superset of every candidate a selector may later choose; do not prune/reorder routes to retain eligibility.
-9. Reorder protocol rollout: OpenAI Responses first, OpenAI Chat second, OpenResponses explicit `store:false` third.
-10. Keep gzip canonical in wave 1.
+1. Keep bounded-memory pre-commit capture/replay rather than immediate client→provider piping.
+2. Preserve the complete existing request-size/shared-JSON safety envelope before provider commitment.
+3. Preserve decode QoS with one admission grant: protocol proof and the final bounded wire-plan decision happen before the grant is released; a decline runs the ordinary canonical decoder under that same grant.
+4. Keep canonical fallback at the frontend. Core does not call a `Canonicalize` callback after the decode permit has been released.
+5. Use a side-effect-free core `PlanLargeBody` operation followed by a one-way `ExecuteLargeBody` only for accepted plans.
+6. Use current typed extension-plane declarations/FrozenPlaneSet as the only request-body access-classification architecture.
+7. Never fabricate a partial `lipapi.Call`.
+8. Inventory **all** Call dependencies at/after the wire commit, including secure-session preparation, not only post-identity `preparedRequest.call` uses.
+9. Introduce bounded normalized session/identity facts and a shared fact-only BeginTurn/A-leg preparation primitive; this is not a late-fallback split.
+10. Keep the low-level replay/planning seam internal in V1; do not widen `pkg/lipsdk` merely for an internal optimization.
+11. Preserve frontend response/cancellation/session-carrier behavior through bounded response facts plus frontend-owned state.
+12. Prove wire compatibility for the conservative superset of every candidate the selector may later use; never prune/reorder to retain optimization.
+13. Roll out OpenAI Responses first, OpenAI Chat second, OpenResponses explicit `store:false` third.
+14. Keep gzip canonical in wave 1.
+15. Make mid-capture budget/file failures losslessly continuable into the canonical reader; never discard the current partially written chunk.
 
 ---
 
-## 1. Actual Go-LIP Ingress Path
+## 1. Actual LLM Ingress Path
 
 ### Sources
 
 - `internal/plugins/frontends/frontendpipe/pipe.go`
 - `internal/plugins/frontends/reqbody/body.go`
-- `internal/plugins/frontends/decodeqos/admission_http.go`
+- `internal/plugins/frontends/decodeqos/*`
 - `internal/plugins/frontends/jsonguard/*`
 - `internal/core/jsonshape/*`
-- `internal/plugins/frontends/routeselect/*`
-- `internal/jsonbody/*`
 
 ### Findings
 
-The issue's early pointer to `internal/jsonbody` is not the main LLM request hot path. Shared create frontends flow through `frontendpipe` and currently:
+The issue's early pointer to `internal/jsonbody` is not the LLM hot path. Shared create frontends currently:
 
-1. read/decompress the whole request with `reqbody.ReadAll`;
-2. run shared JSON preflight;
-3. acquire byte-weighted decode admission;
-4. run protocol `Decode` while holding the permit;
-5. release the permit;
+1. fully read/decompress with `reqbody.ReadAll`;
+2. apply the effective body cap to decoded gzip bytes;
+3. run shared JSON preflight;
+4. acquire byte-weighted decode admission;
+5. run protocol `Spec.Decode` under `decodeqos.Guard`;
 6. apply authoritative session headers, validate, and run `AfterDecode`;
-7. emit frontend ingress traffic with a complete body;
-8. call the canonical executor.
+7. emit frontend ingress traffic with complete bytes;
+8. invoke the canonical executor.
 
-`reqbody.ReadAll` applies the body cap to the decompressed gzip stream. That decoded-limit behavior is a security contract, not an implementation detail.
-
-### Implication
-
-#503 belongs primarily in `frontendpipe`/request-body capture plus explicit core/backend contracts. It should not rewrite `internal/jsonbody` or each frontend independently.
+The optimization therefore belongs around `frontendpipe` request capture plus explicit core/backend contracts. It does not justify changing admin `internal/jsonbody` behavior.
 
 ---
 
-## 2. Why Immediate Client→Provider Streaming Is Not Safe Here
+## 2. Why Immediate Client→Provider Streaming Is Unsafe
 
-Required metadata can appear at the end of valid JSON, and Go-LIP currently rejects malformed/over-limit/protocol-invalid requests before provider execution. Core route/session/guardrail authorities can also change whether raw forwarding is acceptable.
+Required metadata can occur late in legal JSON. Go-LIP also rejects malformed/over-limit/protocol-invalid requests and resolves important authorities before provider work.
 
-Therefore the safe first implementation must finish client-body receipt/validation and eligibility proof before upstream body commitment. The intended gain is mostly:
+So V1 still consumes and validates the complete request before provider body commitment. The performance target is:
 
 - bounded request-body heap;
-- no giant canonical request graph for eligible requests;
-- no provider request re-marshal;
-- lower GC pressure under concurrent multi-MiB requests;
-- replay without reconstructing the body.
+- no giant canonical request graph on the success lane;
+- no full outbound re-marshal;
+- lower GC pressure under many multi-MiB sessions;
+- replayable retry/failover.
 
-It is **not** primarily an early-provider-open/TTFT feature.
+It is not an early-upload TTFT feature.
 
 ---
 
-## 3. Bifrost: Useful Ideas vs Unsafe Ideas to Copy
+## 3. Bifrost: Useful Concepts, Not a Drop-In Architecture
 
-The initial research inspected Bifrost's large-payload mode and related router/provider plumbing.
+Useful ideas:
 
-### Useful concepts
+- threshold before expensive typed parsing;
+- replayable raw body;
+- bounded metadata skeleton;
+- surgical model replacement;
+- decompression as an independent layer;
+- explicit backend raw-body support.
 
-- threshold before expensive full parsing;
-- replayable raw body carried through orchestration;
-- small metadata skeleton rather than full request object;
-- streaming model replacement rather than full re-marshal;
-- decompression as a separable layer;
-- explicit provider-side raw-body support.
+Unsafe to copy directly:
 
-### Unsafe to copy directly into Go-LIP
+- skipping parser/hooks merely because a body is large;
+- substring/prefix model replacement;
+- assuming same protocol/provider name proves wire equivalence;
+- bypassing canonical session/accounting/guardrail behavior.
 
-- “large mode” that simply skips parsers/hooks;
-- raw substring/prefix model replacement;
-- assuming same provider/protocol means same semantics;
-- bypassing canonical safety/accounting/session stages because the body is large.
-
-Go-LIP has materially more canonical normalization, extension planes, session/B2BUA state, billing, conversation behavior, and response semantics than a thin router.
+Go-LIP has richer canonical normalization, extension planes, secure sessions, B2BUA state, billing, conversation projection, and response semantics.
 
 ---
 
 ## 4. Shared Streaming JSON Scanner
 
-Current shared preflight is a slice-oriented oracle and `encoding/json.Decoder.Token` is not sufficient as the new large-string implementation strategy because decoded string tokens can themselves allocate proportional to payload size.
+Current slice preflight remains the behavioral oracle. `encoding/json.Decoder.Token` is not a sufficient large-scalar strategy because decoded string tokens may allocate proportional to the payload.
 
-The new scanner should incrementally validate lexical structure and shared limits while retaining only bounded selected values/spans. Differential/fuzz tests against the existing preflight are mandatory.
-
-Arbitrary field ordering must work. Route/model extraction cannot assume the relevant key appears in a bounded prefix.
+The new scanner should incrementally validate JSON lexical/shape limits while retaining only bounded selected values and exact byte spans. It must handle arbitrary member ordering and late model fields. Fuzz/differential testing against the current preflight is mandatory.
 
 ---
 
-## 5. Decode QoS Was Missing From the Original Fast-Path Flow
+## 5. Decode QoS: The Final Fallback Ownership Correction
 
 ### Current contract
 
-`frontendpipe` performs shared preflight, then:
+`frontendpipe` does:
 
 ```text
-decodeqos.TryAdmit(ctx, DecodeAdmission, int64(len(body)))
+shared preflight
+  → decodeqos.TryAdmit(weight = decoded bytes)
   → decodeqos.Guard(Spec.Decode)
+  → release
+  → AfterDecode / executor
 ```
 
-The admission permit protects protocol decode, not client upload or shared preflight.
+The permit is intentionally not held during client upload.
 
-### Problem in the original draft
+### First review repair
 
-The draft allowed the streaming profile observer to perform semantic protocol proof while capturing the client body. That would move expensive protocol work outside `DecodeAdmission`; under load, wire candidates could bypass a configured byte-weighted decode concurrency authority.
+Protocol semantic proof must not run during upload outside this authority. A wire candidate therefore uses a second replay pass under decode admission.
 
-Holding the permit during client upload would be wrong in the other direction: slow clients could occupy scarce permits for arbitrarily longer than canonical requests.
+### Remaining collision found during final cross-check
 
-### Decision
+If semantic proof succeeds, the previous revised design released the permit and then called core `ExecuteLargeBody`. A later core route/backend/plane decline could invoke a frontend `Canonicalize` callback. That creates only two choices, both wrong:
 
-Use two passes for a wire candidate:
+1. run the ordinary protocol decoder outside decode admission; or
+2. call `TryAdmit` a second time and allow optimization consideration itself to create a new saturation rejection that the canonical path would not have seen.
 
-1. capture + shared lexical/shape validation to EOF;
-2. acquire decode admission using exact final decoded bytes;
-3. reopen the replay source and perform low-allocation protocol semantic proof under the permit.
+### Final decision: plan before releasing the single permit
 
-If the profile declines there, materialize and run the existing protocol `Decode` under the normal admission contract. The extra source read is cheaper/safer than losing QoS or rebuilding the full object graph on the success path.
+```text
+capture + shared preflight to EOF
+  ↓
+TryAdmit(exact decoded bytes)
+  ↓ permit held
+protocol semantic proof
+  ↓
+side-effect-free core PlanLargeBody
+  ├─ decline → ordinary Spec.Decode under SAME permit
+  │            → release → ordinary AfterDecode/executor
+  └─ accept  → freeze plan → release
+                            → ExecuteLargeBody(plan, source)
+```
+
+`PlanLargeBody` is deliberately constrained while the permit is held: no provider/network I/O, DB/store/session/A-leg reads, client-body waiting, filesystem spill work, or arbitrary unbounded plugin callbacks. Static/generation/selector/backend declaration checks that cannot satisfy this bound are earlier canonical blockers.
+
+This slightly extends permit hold time by a bounded planning phase, so capacity/latency must be measured. It is preferable to an unguarded canonical decode or a second admission race and is mechanically testable.
 
 ---
 
 ## 6. Typed Extension-Plane Architecture Drift
 
-The original spec was written while the extension-plane consolidation was still in flight and included a conditional design: use typed plane metadata if the manifest exists, otherwise classify legacy named snapshot fields.
+PR #533 landed the typed `feature.Plane[T]`/manifest/FrozenPlaneSet path. The earlier conditional “typed manifest vs legacy named fields” design is obsolete.
 
-That fork is now stale. PR #533 landed the request-shaping migration and current `main` has:
+Request-body access semantics belong on the canonical plane declaration/generator. Every production plane receives an explicit access class. `Unclassified` fails declaration/codegen/architecture validation; runtime unknown additionally fails closed.
 
-- `pkg/lipsdk/feature/plane_manifest.go`;
-- typed `feature.Plane[T]` declarations;
-- generated/frozen plane storage and `FrozenPlaneSet`.
-
-### Decision
-
-Request-body access classification must extend the canonical plane declaration/generator. A zero `Unclassified` state is rejected by production manifest validation/architecture tests; runtime unknown additionally fails closed to canonical-required.
-
-Do not add a second named `AccessSummary` mirror maintained manually beside the manifest.
+Do not create another manually synchronized classification mirror beside the manifest.
 
 ---
 
-## 7. EventStream-Only Return Is Not Enough
+## 7. Keep the Low-Level Fast-Path Seam Internal in V1
+
+`pkg/lipsdk/executor_view.go` explicitly describes `ExecutorView` as a narrow supported module-boundary seam and says to widen only when justified.
+
+All first-wave consumers of replay `Source`, wire planning, rewrite plan, and backend raw open are built-in internal packages (`frontendpipe`, runtime, internal backends). No external plugin needs to construct these objects for #503.
+
+Therefore V1 should keep the low-level contract under an internal provider-neutral package and type-assert the concrete executor for optional support. Existing external/manual executors remain canonical-only and source-compatible. If a future external frontend/backend needs the feature, promote a stabilized SDK contract in a separate API/ABI review.
+
+This avoids turning a performance implementation detail into permanent public surface by accident.
+
+---
+
+## 8. Frontend Response State Is More Than an EventStream
+
+Current frontend response construction still consumes canonical Call/decoded state after execution.
+
+Examples:
+
+- OpenAI Responses: response ID, cancellation carrier, timestamp, model, response session headers;
+- OpenAI Chat: completion ID/timestamp/model/session response headers;
+- OpenResponses: `createEncodeState`, response ID, continuation/store observer state, wrappers and options.
+
+A wire execution result therefore needs bounded provider-neutral response facts. Frontend-specific state remains in the driving adapter. No partial Call is fabricated for old writer signatures.
+
+Protocol-opaque IDs/timestamps may differ only when the protocol allows it and differential conformance explicitly documents the normalization. Cancellation/correlation/session semantics remain exact.
+
+---
+
+## 9. Session Carriers Were Missing From the Earlier Metadata Sketch
+
+`frontendpipe` currently calls `sessionwire.ApplyAuthoritativeHeadersNamed` after decode. `sessionwire` also writes session response carriers from canonical Call state. `lipapi.SessionRef.ResumeToken` is bearer authority and is explicitly forbidden from backend forwarding/persistent raw adapter storage.
+
+A wire request that ignores these carriers would change secure-session resume semantics even if the JSON body itself were perfectly forwarded.
+
+### Decision
+
+Profiles lift only the normalized bounded carriers needed by core, using the same configured header names and precedence as the canonical path. Raw `http.Header` never crosses the boundary.
+
+Initial OpenAI profiles keep body-carried proxy/session metadata canonical-only; header-derived authoritative session ID/resume authority may be supported through exact facts.
+
+Sensitive session bearer facts:
+
+- are never logged/metric-labelled;
+- are never forwarded to providers;
+- are carried only as long as needed for secure-session authority;
+- are included in response facts only if the canonical frontend actually needs them to emit equivalent response carriers.
+
+---
+
+## 10. Secure-Session Preparation Still Requires a Real Call Today
 
 ### Brownfield evidence
 
-Current frontend response construction still depends on the canonical request object or frontend decoded state after execution.
+`prepareIdentity` dispatches into `prepareSubmitAndALegSecure`/detached preparation with `*lipapi.Call`.
 
-#### OpenAI Responses
+The secure path reads Call fields to:
 
-`internal/plugins/frontends/openairesponses/handler.go` uses the decoded Call for response ID construction and timestamps. `responseIDForCall` can encode A-leg/session identity into a cancellation carrier; optimized requests must remain cancellable.
+- derive trace/call identity;
+- construct `session.SessionView` and `SecureSession.BeginTurn` input;
+- apply authoritative session/resume/client-session facts;
+- fetch the A-leg and snapshot route authority;
+- then run content-dependent guard/metering/submit/traffic/conversation work.
 
-#### OpenAI Chat
+The previous revised spec correctly blocked the content-dependent stages, but saying “after commit begin one normal logical turn” was still incomplete: current normal preparation cannot be invoked without the canonical Call that the optimization deliberately avoids.
 
-Completion ID and fallback timestamp are derived from deterministic Call-based helpers.
+### Final decision
 
-#### OpenResponses
+After all expected blockers have been planned away, extract the smallest **fact-only BeginTurn/A-leg primitive** shared by canonical and wire execution. It owns principal/scope, session-open stage, workspace resolution, secure BeginTurn, A-leg fetch, and identity outputs. The canonical branch still executes its existing content stages in the same order after this shared primitive.
 
-`AfterDecode` prepares `createEncodeState`, which participates in response IDs, continuation/store behavior, wrappers, and non-stream output handling.
+This is not the original risky late-fallback split:
 
-### Decision
+- no canonical re-entry is allowed after BeginTurn;
+- no wire request starts a turn until planning is accepted;
+- characterization tests freeze canonical ordering/error/lifecycle before extraction.
 
-`ExecuteLargeBody` returns an `ExecutionResult` containing canonical events plus bounded provider-neutral `ResponseFacts` such as authoritative call/trace/A-leg/session/operation/delivery facts. Frontend-specific state remains in `frontendpipe`/the frontend.
-
-Do not create a partial Call simply to keep old response function signatures compiling.
-
-Protocol-opaque IDs/timestamps may differ only when the specific protocol permits that and differential conformance explicitly normalizes the field; cancellation/correlation/continuation semantics are not optional.
+Detached execution stays canonical-only in V1 unless its own Call dependencies are separately factored and tested.
 
 ---
 
-## 8. OpenResponses Default `store=true` Invalidates the Original First-Lane Assumption
+## 11. Deep Call Dependencies Beyond Identity
 
-`internal/plugins/frontends/openresponses/decode.go` initializes:
+Known examples remain:
 
-```go
-store := true
-if wireParam.Store != nil {
-    store = *wireParam.Store
-}
-```
+- route selector/request-size/failover requirements;
+- billing identity, policy/pricing/max-output and token estimation;
+- `recvTurnFacts` baselines;
+- continuation-support calculation;
+- interleaved-thinking recorder setup;
+- terminal usage/session fields.
 
-So a create request with no `previous_response_id` can still be stateful by default. Its `AfterDecode` path prepares response/continuation state.
+The dependency inventory must start at the **wire commit point**, not “post-identity.” Every use becomes:
 
-### Decision
+1. pre-plan blocker;
+2. exact bounded fact shared with canonical helpers; or
+3. response-only frontend behavior.
 
-OpenResponses is moved behind the OpenAI-style lanes. The first OpenResponses certification requires:
+A ratchet prevents new wire/post-commit functions from silently reaching back to `preparedRequest.call`/`identity.ingressCall` or another Call-shaped callback.
+
+Stock billing must be evaluated explicitly rather than dismissed as custom. If exact facts suffice, canonical and wire paths should share the same typed billing input. Otherwise billing-on remains a documented fallback configuration.
+
+---
+
+## 12. OpenResponses Default `store=true`
+
+Current `internal/plugins/frontends/openresponses/decode.go` initializes `store := true`. Therefore absence of `previous_response_id` does not make a create request stateless.
+
+Initial OpenResponses certification requires:
 
 - HTTP create;
 - **explicit `store:false`**;
 - absent `previous_response_id`;
 - no compaction;
 - no WebSocket;
-- a bounded frontend response-state bridge;
-- proof that no normal pre-executor `AfterDecode` failure/side effect has been shifted behind `BeginTurn`.
+- bounded response-state bridge;
+- proof that no `AfterDecode` error/side effect was moved after BeginTurn.
 
-`store:true`/continuation becomes a separate later certification.
-
----
-
-## 9. Deep Post-Identity `lipapi.Call` Dependencies
-
-The original design correctly avoided a fake Call but underestimated how broadly the real Call remains used after initial preparation.
-
-Observed examples include:
-
-- `executor_route_plan.go`: selector, request-size estimate, failover requirements;
-- `billing_admission.go`: account identity, charge policy/pricing refs, exposure input, token estimation, terminal session fields;
-- `executor_prepare_request.go`: canonical/ingress baselines and `recvTurnFacts`;
-- `executor_assemble_stream.go`: continuation capability and interleaved-thinking recorder construction.
-
-### Decision
-
-Before wire provider work, create a production dependency inventory/ratchet. Every dependency is classified as:
-
-- pre-turn canonical blocker;
-- exact bounded wire fact shared with canonical helpers;
-- response-only behavior.
-
-No wire/post-commit code may dereference `preparedRequest.call` after this closure unless it is explicitly canonical-only.
-
-### Stock billing note
-
-Production billing composition constructs a real `BillingExposureAdmission` adapter, and its current public input embeds a full Call. This cannot be dismissed as an exotic custom callback. The implementation must explicitly test whether stock billing can be represented by exact bounded facts; if not, billing-on remains a documented blocker and the eligibility matrix must show the impact.
+`store:true`/continuation is a separate later certification.
 
 ---
 
-## 10. Why V1 Drops Post-`BeginTurn` Canonical Continuation
+## 13. Backend Compatibility and Candidate Superset
 
-The original draft proposed splitting canonical executor preparation into an identity phase and a later canonical continuation so dynamic eligibility could fallback after A-leg/session state was established.
+Same protocol name is insufficient. Planning checks every candidate in the conservative selector superset before wire commit. Later weighted-first/affinity/interleaved state may reorder/select only inside that already-proven set.
 
-The cross-check found that this makes several contracts collide:
+Backend compatibility resolution is pure/config-derived during planning. It performs no provider network I/O and declares exact profile/operation/delivery/requirements/rewrite/parallel-reader support.
 
-1. canonical protocol decode is normally completed under decode admission before executor entry;
-2. frontend `AfterDecode` may fail or mutate state before executor entry;
-3. a fresh ordinary `Execute` would duplicate lifecycle/accounting unless a broad preparation split is exact;
-4. a fallback decode-admission rejection after `BeginTurn` would change externally observable ordering.
+The optimization never drops an incompatible fallback/race candidate.
 
-### Pre-turn alternative
+---
 
-V1 instead treats any authority whose wire-safety decision cannot be made without post-A-leg state as a conservative blocker.
+## 14. Model Rewrite
 
-A concrete example is `RouteOverrideReader`: current code snapshots override state **after authoritative A-leg fetch** because the lookup is keyed by A-leg ID. In V1, a configured route-override authority therefore blocks the optimization unless a future read-only pre-turn contract is introduced.
-
-For selector-local state such as weighted-first/affinity, wire compatibility is proven for the conservative superset of every candidate in the selector. Later session state may choose/order a subset, but cannot reveal an unproven backend.
-
-### Result
-
-All expected declines happen before `BeginTurn`:
+The scanner records the exact top-level model token span. Per candidate, emit:
 
 ```text
-capture/proof → frontend state → extension/callback blockers → route superset → backend proof
-  ├─ decline → Canonicalize + ordinary Execute
-  └─ pass    → one-way wire commit → BeginTurn → normal lifecycle/attempts
+prefix + json.Marshal(nativeModel) + suffix
 ```
 
-After commit, an unexpected request-content dependency is an internal parity bug: abort/finalize once, never start a second execution.
-
-This removes a large, high-risk repo-wide executor refactor from #503 V1 and is the main scope/complexity improvement from the review.
+No regex, substring scan, prefix search, or full output buffer. Every retry/credential attempt opens a fresh replay reader.
 
 ---
 
-## 11. Backend Compatibility and Model Rewrite
+## 15. Mid-Capture Recovery Is a Separate Required Primitive
 
-Same protocol name is insufficient. Each backend must explicitly prove the exact frontend profile/operation/delivery/requirements/body mode before the wire commit point.
+Spool-budget exhaustion or a file-create/write failure can happen after network bytes have already been consumed. “Fallback to canonical” is not enough as a design statement.
 
-Core proves **every candidate in the conservative reachable selector superset**. It never drops an incompatible fallback/race branch to keep wire mode.
+The capture implementation must retain the current chunk until its destination write succeeds. On partial write, it knows exactly which prefix is durable and which suffix remains in memory.
 
-Model rewrite uses the scanner-recorded exact top-level token span and a streaming splice:
+A canonical-continuation reader then presents:
 
 ```text
-prefix + json.Marshal(candidateNativeModel) + suffix
+successfully retained memory/file prefix
++ current unwritten suffix
++ unread client body
 ```
 
-No regex/prefix scan and no second full-body allocation.
+under the existing request limit, exactly once. It may allocate the normal canonical full body because the optimization has already been abandoned.
 
-Every attempt/credential retry obtains a fresh replay reader. Existing core retry/no-post-output-failover ownership remains authoritative.
+Tests inject short writes, reservation failure between chunks, file-create failure, file-write partial success, cancellation, and exact-limit boundaries. No restart/re-read of the client socket is permitted.
 
 ---
 
-## 12. Duplicate/Normalization Policy
+## 16. Spool Resource Semantics and Privacy
 
-Raw forwarding preserves syntactic forms that canonical decode→encode may normalize. Profiles must therefore be conservative about:
+The global spool byte budget bounds optimization-owned replay storage, not total process memory. Budget exhaustion can intentionally fall back to the old heap-materializing path, so operators must not treat it as a global OOM guard.
+
+`Source.Close` is idempotent/nonblocking with respect to active readers. Root close marks deletion pending; the last tracked reader performs final cleanup. This avoids Windows open-file deletion problems and avoids a cleanup goroutine.
+
+Spool files may contain plaintext prompt/tool data. Documentation covers protected storage, short lifetime, telemetry redaction, cancellation cleanup, and threat-model implications.
+
+---
+
+## 17. Conservative Protocol Normalization Policy
+
+Profiles must decline request shapes whose raw forwarding can differ from canonical decode→encode, including:
 
 - unknown fields discarded by canonical encoders;
-- aliases/legacy forms;
-- malformed tool/function histories that current adapters repair/skip;
-- duplicate keys that canonical decode/re-encode collapses;
-- numeric/string/control representations whose canonical semantics are not proven equivalent.
+- legacy aliases;
+- malformed histories repaired/skipped;
+- duplicate protocol-owned keys;
+- body-carried session/proxy metadata not explicitly parity-certified.
 
-OpenResponses keeps its strict duplicate behavior. For OpenAI-style profiles, duplicate protocol-owned members are canonical-only unless exact behavior is separately certified.
-
-Profile broadening requires differential corpus in the same change.
+OpenResponses keeps strict duplicate behavior. Profile broadening requires differential evidence in the same change.
 
 ---
 
-## 13. Spool Resource Semantics
+## 18. Performance Validation
 
-The global spool byte budget bounds **optimization-owned replay storage**, not total process memory. Requirement #503 also says an otherwise valid request should not fail merely because the optimization budget is unavailable; therefore budget exhaustion falls back to the old canonical path.
-
-This means operators must not misread `max_inflight_spool_bytes` as a global OOM defense. Load tests compare saturation to the disabled canonical baseline and metrics expose the fallback reason.
-
-`Source.Close` should be idempotent/nonblocking with respect to readers; root close marks deletion pending and the last tracked reader performs final cleanup. This avoids deadlock if a reader is leaked and works with Windows open-file deletion constraints.
-
----
-
-## 14. Security/Privacy Notes
-
-Replay files can contain raw prompt/tool data. Secure temp naming/mode is necessary but not sufficient for every threat model. Documentation must cover:
-
-- short lifetime;
-- protected `spool_dir`/volume;
-- no content/path in telemetry;
-- cancellation/error cleanup;
-- optional future encrypted spool only if deployment threat models justify its cost.
-
-Client Authorization/hop-by-hop/stale encoding headers are never blindly forwarded. Backend credential selection and existing shared HTTP/TLS/proxy configuration remain authoritative.
-
----
-
-## 15. Performance Validation
-
-Required sizes: 32 KiB, 256 KiB, 1 MiB, 5 MiB, plus a test-only raised-limit 20 MiB body.
+Required sizes: 32 KiB, 256 KiB, 1 MiB, 5 MiB and test-only 20 MiB.
 
 Measure:
 
 - allocs/op and B/op;
 - CPU;
-- GC cycles/pause/heap under concurrency;
+- GC/heap under concurrency;
+- capture/shared-preflight/protocol-proof/**wire-plan**/provider-open latency;
+- decode-admission occupancy/capacity;
 - temp-file I/O;
-- capture/shared-preflight/protocol-proof/provider-open latency;
-- replay/failover cost;
-- malformed/late-field/giant-string cases;
-- spool-budget saturation.
+- retry replay;
+- malformed/late-field/giant-string workloads;
+- spool-budget saturation and mid-capture fallback.
 
-Publish a realistic eligibility matrix including extension planes, frontend traffic, route override, billing, and route strategy. A feature that compiles but always falls back under normal composition is not complete.
+Publish a realistic eligibility matrix including extensions, frontend traffic, route override, session resume, stock billing and route strategy. A feature that compiles but always falls back under normal composition is incomplete.
 
 ---
 
-## 16. Recommended Rollout Order
+## 19. Recommended Implementation Order
 
-1. infrastructure/characterization only, no backend advertises support;
-2. replay source + shared scanner + decode-QoS parity;
-3. typed-plane access classification;
-4. frontend response-state bridge;
-5. pre-turn core eligibility and full-Call dependency closure;
-6. backend proof/model rewrite/replay integration;
-7. OpenAI Responses lane;
-8. OpenAI Chat lane;
-9. OpenResponses explicit-no-store lane;
-10. gzip follow-up;
-11. default-off production rollout with evidence.
+1. rebase/revalidate and freeze canonical ingress/decode/session/response behavior;
+2. replay source + explicit mid-capture canonical continuation;
+3. shared streaming JSON scanner;
+4. typed-plane access classification;
+5. internal large-body contracts and frontend wire state;
+6. protocol proof under decode admission;
+7. bounded side-effect-free `PlanLargeBody` under the same admission grant;
+8. fact-only secure-session/A-leg primitive + complete Call-dependency closure;
+9. backend proof/model rewrite/replay attempt integration;
+10. frontend response/session-carrier bridge;
+11. OpenAI Responses lane;
+12. OpenAI Chat lane;
+13. OpenResponses explicit-no-store lane;
+14. gzip follow-up;
+15. default-off rollout with allocation/load/eligibility evidence.
 
-This order prioritizes correctness and isolates failures so coding agents do not face a simultaneous repo-wide breakage event.
+This ordering isolates each regression-sensitive seam and avoids a simultaneous repo-wide refactor.
