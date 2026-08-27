@@ -65,7 +65,7 @@ type CommandPlan struct {
 	Env         []string `json:"env,omitempty"`
 }
 
-// Cmd creates an *exec.Cmd configured for this plan.
+// Cmd creates an *exec.Cmd configured for this plan with normalized child environment variables.
 func (p CommandPlan) Cmd(ctx context.Context, baseEnv []string) *exec.Cmd {
 	if len(p.Args) == 0 {
 		return nil
@@ -74,12 +74,81 @@ func (p CommandPlan) Cmd(ctx context.Context, baseEnv []string) *exec.Cmd {
 	if baseEnv == nil {
 		baseEnv = os.Environ()
 	}
-	if len(p.Env) > 0 {
-		cmd.Env = append(slices.Clone(baseEnv), p.Env...)
-	} else {
-		cmd.Env = baseEnv
-	}
+	cmd.Env = normalizeEnv(baseEnv, p.Env)
 	return cmd
+}
+
+// splitEnv splits an environment variable entry into key and value,
+// respecting Windows pseudo environment variables that begin with an '=' (e.g. "=C:=C:\repo").
+func splitEnv(entry string) (key, val string, ok bool) {
+	if strings.HasPrefix(entry, "=") {
+		if idx := strings.Index(entry[1:], "="); idx >= 0 {
+			return entry[:idx+1], entry[idx+2:], true
+		}
+		return entry, "", false
+	}
+	return strings.Cut(entry, "=")
+}
+
+// normalizeEnv merges baseEnv with overrides, replacing existing keys (case-insensitively)
+// in place, deduplicating keys with latest-wins semantics, and avoiding duplicate variable definitions.
+func normalizeEnv(baseEnv, overrides []string) []string {
+	if len(baseEnv) == 0 && len(overrides) == 0 {
+		return nil
+	}
+
+	baseMap := make(map[string]string, len(baseEnv))
+	for _, b := range baseEnv {
+		k, _, ok := splitEnv(b)
+		if !ok {
+			k = b
+		}
+		canonicalKey := strings.ToUpper(strings.TrimSpace(k))
+		baseMap[canonicalKey] = b
+	}
+
+	overrideMap := make(map[string]string, len(overrides))
+	overrideKeys := make([]string, 0, len(overrides))
+	for _, o := range overrides {
+		k, _, ok := splitEnv(o)
+		if !ok {
+			k = o
+		}
+		canonicalKey := strings.ToUpper(strings.TrimSpace(k))
+		if _, exists := overrideMap[canonicalKey]; !exists {
+			overrideKeys = append(overrideKeys, canonicalKey)
+		}
+		overrideMap[canonicalKey] = o
+	}
+
+	res := make([]string, 0, len(baseMap)+len(overrideKeys))
+	emitted := make(map[string]bool, len(baseMap)+len(overrideMap))
+
+	for _, b := range baseEnv {
+		k, _, ok := splitEnv(b)
+		if !ok {
+			k = b
+		}
+		canonicalKey := strings.ToUpper(strings.TrimSpace(k))
+		if emitted[canonicalKey] {
+			continue
+		}
+		if replacement, ok := overrideMap[canonicalKey]; ok {
+			res = append(res, replacement)
+		} else {
+			res = append(res, baseMap[canonicalKey])
+		}
+		emitted[canonicalKey] = true
+	}
+
+	for _, k := range overrideKeys {
+		if !emitted[k] {
+			res = append(res, overrideMap[k])
+			emitted[k] = true
+		}
+	}
+
+	return res
 }
 
 // PlanOptions contains options for planning and executing the dbparity runner.
@@ -102,6 +171,30 @@ func RedactDSN(s string) string {
 	s = dsnURLRegex.ReplaceAllString(s, "${1}${2}:***@")
 	s = dsnKVRegex.ReplaceAllString(s, "${1}***$2")
 	return s
+}
+
+// Environment variable names for PostgreSQL DSNs and mandatory parity enforcement.
+const (
+	EnvTestPostgresDSN      = "LIP_TEST_POSTGRES_DSN"
+	EnvTestPostgresAdminDSN = "LIP_TEST_POSTGRES_ADMIN_DSN"
+	EnvManagedPostgresDSN   = "LIP_MANAGED_POSTGRES_DSN"
+	EnvRequirePostgres      = "LIP_REQUIRE_POSTGRES"
+)
+
+// PreflightPostgresDirect checks whether a direct PostgreSQL DSN is configured in baseEnv.
+// If baseEnv is nil, os.Environ() is used. Returns an actionable error naming the accepted
+// environment variables if no direct DSN exists.
+func PreflightPostgresDirect(baseEnv []string) error {
+	if baseEnv == nil {
+		baseEnv = os.Environ()
+	}
+	hasRuntimeDSN := envLookup(baseEnv, EnvTestPostgresDSN) != "" || envLookup(baseEnv, EnvManagedPostgresDSN) != ""
+	adminDSN := envLookup(baseEnv, EnvTestPostgresAdminDSN)
+	if !hasRuntimeDSN && adminDSN == "" {
+		return fmt.Errorf("postgres-direct parity requires PostgreSQL DSN: set %s, %s, or legacy %s",
+			EnvTestPostgresDSN, EnvTestPostgresAdminDSN, EnvManagedPostgresDSN)
+	}
+	return nil
 }
 
 // Plan constructs the sequence of CommandPlans for the requested runner mode.
@@ -140,10 +233,13 @@ func Plan(mode RunnerMode, opts PlanOptions) ([]CommandPlan, error) {
 	case ModeSQLite:
 		return planSQLite(components, opts, goBin), nil
 	case ModePostgresDirect:
-		return planPostgresDirect(components, opts, goBin), nil
+		return planPostgresDirect(components, opts, goBin)
 	case ModeAll:
+		pgPlans, err := planPostgresDirect(components, opts, goBin)
+		if err != nil {
+			return nil, err
+		}
 		sqlitePlans := planSQLite(components, opts, goBin)
-		pgPlans := planPostgresDirect(components, opts, goBin)
 		combined := make([]CommandPlan, 0, len(sqlitePlans)+len(pgPlans))
 		combined = append(combined, sqlitePlans...)
 		combined = append(combined, pgPlans...)
@@ -183,7 +279,11 @@ func planSQLite(components []Component, opts PlanOptions, goBin string) []Comman
 	return plans
 }
 
-func planPostgresDirect(components []Component, opts PlanOptions, goBin string) []CommandPlan {
+func planPostgresDirect(components []Component, opts PlanOptions, goBin string) ([]CommandPlan, error) {
+	if err := PreflightPostgresDirect(opts.BaseEnv); err != nil {
+		return nil, err
+	}
+
 	seenPkgs := make(map[string]bool)
 	var plans []CommandPlan
 
@@ -193,12 +293,12 @@ func planPostgresDirect(components []Component, opts PlanOptions, goBin string) 
 	}
 
 	var pgEnv []string
-	pgEnv = append(pgEnv, "LIP_REQUIRE_POSTGRES=1")
+	pgEnv = append(pgEnv, EnvRequirePostgres+"=1")
 
-	hasRuntimeDSN := envLookup(baseEnv, "LIP_TEST_POSTGRES_DSN") != "" || envLookup(baseEnv, "LIP_MANAGED_POSTGRES_DSN") != ""
-	adminDSN := envLookup(baseEnv, "LIP_TEST_POSTGRES_ADMIN_DSN")
+	hasRuntimeDSN := envLookup(baseEnv, EnvTestPostgresDSN) != "" || envLookup(baseEnv, EnvManagedPostgresDSN) != ""
+	adminDSN := envLookup(baseEnv, EnvTestPostgresAdminDSN)
 	if !hasRuntimeDSN && adminDSN != "" {
-		pgEnv = append(pgEnv, "LIP_TEST_POSTGRES_DSN="+adminDSN)
+		pgEnv = append(pgEnv, EnvTestPostgresDSN+"="+adminDSN)
 	}
 
 	for _, comp := range components {
@@ -213,7 +313,7 @@ func planPostgresDirect(components []Component, opts PlanOptions, goBin string) 
 			if len(opts.GoTestFlags) > 0 {
 				args = append(args, opts.GoTestFlags...)
 			}
-			args = append(args, "-tags=integration", "-run", "^TestDBParity_PostgresDirect$", "-skip", "Pooled", "-count=1", formattedPkg)
+			args = append(args, "-tags=integration", "-run", "^TestDBParity_PostgresDirect$", "-count=1", formattedPkg)
 
 			plans = append(plans, CommandPlan{
 				ComponentID: comp.ID,
@@ -225,7 +325,7 @@ func planPostgresDirect(components []Component, opts PlanOptions, goBin string) 
 		}
 	}
 
-	return plans
+	return plans, nil
 }
 
 func formatPackagePath(pkg string) string {
@@ -235,10 +335,14 @@ func formatPackagePath(pkg string) string {
 }
 
 func envLookup(env []string, key string) string {
-	prefix := key + "="
+	targetKey := strings.ToUpper(strings.TrimSpace(key))
 	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(env[i], prefix))
+		k, v, ok := splitEnv(env[i])
+		if !ok {
+			continue
+		}
+		if strings.ToUpper(strings.TrimSpace(k)) == targetKey {
+			return strings.TrimSpace(v)
 		}
 	}
 	return ""

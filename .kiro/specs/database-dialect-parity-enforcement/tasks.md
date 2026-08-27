@@ -260,7 +260,7 @@
 
 ## Phase 6 — Make Direct DB Parity a Merge-Blocking PR Invariant
 
-- [ ] 6. Wire real PostgreSQL parity into PR CI and fail closed through an existing required status.
+- [x] 6. Wire real PostgreSQL parity into PR CI and fail closed through an existing required status.
 
 - [x] 6.1 Add the ephemeral direct-PostgreSQL database-parity CI job
   - Extend `.github/workflows/ci.yml` using the existing change-scope output; run the DB job for every test-relevant PR and emit an explicit success/bypass step for documentation-only changes.
@@ -283,7 +283,7 @@
   - _Depends: 6.1_
   - _Validation: `go test ./internal/qa -run 'DatabaseParity|CI'`; implementation PR required-status behavior_
 
-- [ ] 6.3 Prove mandatory PostgreSQL mode cannot silently skip
+- [x] 6.3 Prove mandatory PostgreSQL mode cannot silently skip
   - Add/extend testkit tests for the canonical runner and stable PostgreSQL wrappers so mandatory direct mode fails with actionable env/service errors when no DSN exists.
   - Ensure pooler-only wrappers remain explicitly out of the direct selector instead of being treated as common parity skips.
   - Preserve optional `SkipUnlessPostgres` behavior for ad-hoc integration runs that are not invoked through the mandatory parity mode.
