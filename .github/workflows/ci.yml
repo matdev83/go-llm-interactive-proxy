@@ -223,3 +223,105 @@ jobs:
         shell: bash
         run: |
           echo "CI test/build matrix bypassed: no test-relevant changes detected."
+
+  db-parity:
+    name: Database parity
+    needs: changes
+    if: always()
+    # Required status check: see repo-hygiene above. Always run the job so it
+    # reports success (not skip) on docs-only PRs; guard steps.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: lip
+          POSTGRES_PASSWORD: lip
+          POSTGRES_DB: lip_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lip"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass required evidence." >&2
+          exit 1
+
+      - name: Check out repository
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          echo "go-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "go-mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dedicated CI Go cache
+        id: go-cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.go-cache }}
+            ${{ steps.go-cache-paths.outputs.go-mod-cache }}
+          key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-cache-ci-${{ runner.os }}-
+            setup-go-
+
+      - name: Verify PostgreSQL test environment
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        env:
+          LIP_REQUIRE_POSTGRES: '1'
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+        run: |
+          set -euo pipefail
+          if [[ -z "${LIP_TEST_POSTGRES_DSN:-}" || -z "${LIP_TEST_POSTGRES_ADMIN_DSN:-}" ]]; then
+            echo "Error: required PostgreSQL test DSN is unset" >&2
+            exit 1
+          fi
+          if [[ "${LIP_TEST_POSTGRES_DSN}" == *"POOLER"* || "${LIP_TEST_POSTGRES_ADMIN_DSN}" == *"POOLER"* ]]; then
+            echo "Error: direct PostgreSQL test DSN must not target a transaction pooler" >&2
+            exit 1
+          fi
+          if [[ "${LIP_REQUIRE_POSTGRES:-}" != "1" ]]; then
+            echo "Error: LIP_REQUIRE_POSTGRES must be set to 1" >&2
+            exit 1
+          fi
+          echo "PostgreSQL test environment verified for direct parity execution."
+
+      - name: Run database dialect parity tests
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        env:
+          LIP_REQUIRE_POSTGRES: '1'
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_PARALLEL: '4'
+        run: make test-db-parity
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        shell: bash
+        run: |
+          echo "Database parity bypassed: documentation-only changes detected."

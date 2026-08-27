@@ -262,7 +262,7 @@
 
 - [ ] 6. Wire real PostgreSQL parity into PR CI and fail closed through an existing required status.
 
-- [ ] 6.1 Add the ephemeral direct-PostgreSQL database-parity CI job
+- [x] 6.1 Add the ephemeral direct-PostgreSQL database-parity CI job
   - Extend `.github/workflows/ci.yml` using the existing change-scope output; run the DB job for every test-relevant PR and emit an explicit success/bypass step for documentation-only changes.
   - Provision a pinned direct PostgreSQL service container with test-only credentials and a health check; do not use repository secrets or claim the service is a transaction pooler.
   - Export both runtime and admin test DSNs to the service plus `LIP_REQUIRE_POSTGRES=1`; do not set `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER`.
