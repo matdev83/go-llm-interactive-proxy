@@ -18,7 +18,7 @@
 
 - [ ] 1. Establish the typed parity catalog and deterministic repository discovery.
 
-- [ ] 1.1 Re-audit the implementation-time tree and freeze the initial component/contract inventory
+- [x] 1.1 Re-audit the implementation-time tree and freeze the initial component/contract inventory
   - Re-run searches for Bun migration families, SQLite/PostgreSQL runtime store branches, dialect-sensitive store packages, PostgreSQL integration tests, and compile-time store-interface assertions against current `main`.
   - Reconcile the eight current candidate families: continuity, secure sessions, control-plane ledger, usage authority, concurrency authority, metering journal, terminal work, and billing. Add/remove candidates only when the live code proves support changed since this spec was written.
   - For each component, record production `SourceRoots`, executable `TestPackages`, migration roots, important consumer-owned store interfaces/capabilities, and existing shared contract assets.
@@ -29,7 +29,7 @@
   - _Depends: none_
   - _Validation: repository search + focused inventory test added in 1.2_
 
-- [ ] 1.2 Implement `internal/testkit/dbparity` typed catalog and invariants
+- [x] 1.2 Implement `internal/testkit/dbparity` typed catalog and invariants
   - Add static Go metadata for component IDs, source/test/migration roots, consumer-contract IDs, capability rows, and backend classes (`common`, SQLite-specific, PostgreSQL-direct/distributed/pooler as needed).
   - Require non-common capability rows to include rationale and an automated evidence anchor; reject duplicate IDs, duplicate ownership, missing paths, empty common evidence, and nondeterministic ordering.
   - Keep migration IDs out of hand-maintained metadata; catalog owns roots and discovery owns versioned files.
@@ -40,7 +40,7 @@
   - _Depends: 1.1_
   - _Validation: `go test ./internal/testkit/dbparity/...`_
 
-- [ ] 1.3 Implement the fail-closed database-parity architecture discovery guard
+- [x] 1.3 Implement the fail-closed database-parity architecture discovery guard
   - Add `internal/archtest/database_parity_test.go` using Go AST/filesystem rules to discover Bun migration registries/versioned migration files, dual SQLite/PostgreSQL composition candidates, and dialect-sensitive source ownership.
   - Detect explicit dialect names, SQLite/PostgreSQL schema metadata, driver-specific SQLite error handling, raw dialect placeholder/locking constructs, and equivalent implementation-time patterns with narrow deterministic rules; classify `internal/infra/db` as shared infrastructure.
   - Compare discovered dual-dialect candidates/migration roots against the catalog; fail on unregistered candidates, stale catalog paths, multiple owners, or migration files outside declared roots.
@@ -53,9 +53,9 @@
 
 ## Phase 2 — Normalize Canonical Component Parity Entry Points
 
-- [ ] 2. Make every registered component expose the same stable SQLite/PostgreSQL-direct proof shape.
+- [x] 2. Make every registered component expose the same stable SQLite/PostgreSQL-direct proof shape.
 
-- [ ] 2.1 Standardize continuity parity contracts
+- [x] 2.1 Standardize continuity parity contracts
   - Consolidate A-leg lifecycle, B-leg allocation/order, attempt lineage, restart persistence, interleaved-state, conversation-view, and route-override common assertions into reusable component-owned suites, reusing existing `b2buatest` and routeoverride storecontract helpers.
   - Add thin stable `TestDBParity_SQLite` and integration-tagged `TestDBParity_PostgresDirect` entry points that invoke the same common suites with backend-specific fixtures.
   - Ensure the common suite explicitly covers concurrent/monotonic B-leg allocation so both PostgreSQL `UPDATE ... RETURNING` and SQLite transaction serialization are tested against the same logical invariant.
@@ -65,7 +65,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/core/continuity/bunstore -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.2 Normalize secure-session parity entry points (P)
+- [x] 2.2 Normalize secure-session parity entry points (P)
   - Reuse the existing `storecontract.RunAll` as the canonical behavioral contract rather than copying it.
   - Add/rename thin SQLite and PostgreSQL-direct wrappers to the stable parity entry-point convention and include restart/durability plus current optional store capabilities that are promised by both durable backends.
   - Preserve backend-specific fixture isolation and secret-safe PostgreSQL DSN handling.
@@ -74,7 +74,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/core/securesession/storecontract -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.3 Normalize control-plane ledger parity entry points (P)
+- [x] 2.3 Normalize control-plane ledger parity entry points (P)
   - Reuse the current ledger `contract.RunSuite` for both engines and wrap it in stable parity test names.
   - Ensure the common contract exercises filters, pagination, dedupe/source-key behavior, projections, retention, redaction, error mapping, and BOOLEAN/INTEGER presence semantics so the store's manual placeholder/bind adaptation is covered by both engines.
   - Keep PostgreSQL-specific schema/catalog assertions separate from common behavior while mapping them to common logical invariants in Phase 3.
@@ -83,7 +83,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/controlplane/ledgerstore -run '^TestDBParity_SQLite$'`; PostgreSQL mode via Phase 5 runner_
 
-- [ ] 2.4 Normalize usage-authority parity entry points (P)
+- [x] 2.4 Normalize usage-authority parity entry points (P)
   - Reuse the existing authority `contract.RunSuite` for common behavior on both engines.
   - Include idempotent reserve/settle/release/apply-usage, replay/fact convergence, lost-update prevention, typed capacity failures, and common query/readiness semantics.
   - Preserve PostgreSQL cross-instance strict tests as `postgres-distributed` capability evidence and SQLite `BEGIN IMMEDIATE`/single-node behavior as SQLite posture evidence.
@@ -93,7 +93,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/usageauthority/authoritystore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.5 Normalize concurrency-authority parity entry points (P)
+- [x] 2.5 Normalize concurrency-authority parity entry points (P)
   - Extract/reuse the existing five-slot/acquire-renew-release-reclaim contract as the common logical suite for SQLite and PostgreSQL-direct.
   - Add stable parity wrappers and ensure common idempotency/CAS/capacity/query behaviors execute on both engines.
   - Catalog and retain PostgreSQL distributed-strict multi-instance/row-lock evidence separately from SQLite's explicitly single-node serialized-writer posture.
@@ -103,7 +103,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/concurrencyauthority/leasestore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.6 Normalize metering-journal parity entry points (P)
+- [x] 2.6 Normalize metering-journal parity entry points (P)
   - Identify the canonical common journal behaviors across existing phase/contract tests and consolidate them behind stable SQLite/PostgreSQL-direct wrappers without duplicating domain assertions.
   - Cover append/idempotency, corrections/reconcile-relevant persistence, query/readback, restart durability, store-scoped filters/keys, and common error semantics.
   - Keep SQLite BUSY/LOCKED bounded retry behavior as explicit SQLite-specific capability evidence and PostgreSQL pooled support as explicit pooler evidence.
@@ -112,7 +112,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/metering/journalstore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.7 Normalize terminal-work parity entry points (P)
+- [x] 2.7 Normalize terminal-work parity entry points (P)
   - Consolidate the durable work-store behaviors promised on both engines into one common suite and stable SQLite/PostgreSQL-direct wrappers.
   - Cover append/state-transition/idempotency, generation/instance identity persistence, restart/readback, contention-sensitive claims where common, and current migration compatibility.
   - Preserve PostgreSQL pooled/topology-specific evidence separately.
@@ -121,7 +121,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/terminalwork/workstore -run '^TestDBParity_SQLite$'`; direct/pooler focused tests remain available_
 
-- [ ] 2.8 Normalize billing-store parity entry points (P)
+- [x] 2.8 Normalize billing-store parity entry points (P)
   - Inventory the existing billing store contract/invariant tests and identify the smallest canonical common suite covering persisted financial-record semantics without re-running every unrelated billing orchestration test.
   - Add stable SQLite/PostgreSQL-direct wrappers covering common account/opening/snapshot/exposure/usage/journal/provider-maintenance persistence invariants, idempotency/uniqueness, and error behavior already promised by the store.
   - Preserve existing billing-convergence certification as stronger domain evidence; the new parity wrapper must not replace financial correctness gates with a weaker generic test.
@@ -130,7 +130,7 @@
   - _Depends: 1.2–1.3_
   - _Validation: `go test ./internal/infra/billingstore -run '^TestDBParity_SQLite$'`; direct PostgreSQL and billing convergence remain available_
 
-- [ ] 2.9 Add architecture checks for stable wrapper coverage after component normalization
+- [x] 2.9 Add architecture checks for stable wrapper coverage after component normalization
   - Extend the discovery guard to verify that every catalog component has exactly the required stable SQLite and PostgreSQL-direct parity entry point(s) in its registered test package(s).
   - Verify non-common capability evidence anchors resolve to real tests and cannot be represented by a missing/empty pattern.
   - Add a negative fixture for a cataloged component with a missing PostgreSQL wrapper.
@@ -143,7 +143,7 @@
 
 - [ ] 3. Build dual-engine migration/schema proof for every registered component.
 
-- [ ] 3.1 Implement reusable migration-file discovery and applied-history assertions
+- [x] 3.1 Implement reusable migration-file discovery and applied-history assertions
   - Discover versioned migration IDs from each catalog `MigrationRoot` using the repository's timestamped Go migration naming convention, excluding `_test.go` and explicitly recognized non-migration files deterministically.
   - Give each component parity suite a helper that verifies every discovered migration ID is recorded after empty-to-current migration on SQLite and PostgreSQL.
   - Fail on a new versioned migration file that is not exercised/applied by the component's migration registry on either backend.
@@ -153,7 +153,7 @@
   - _Depends: 1.2–1.3, 2.9_
   - _Validation: `go test ./internal/testkit/dbparity/... ./internal/archtest -run 'Migration|DatabaseParity'`_
 
-- [ ] 3.2 Define common logical schema invariant sets per component
+- [x] 3.2 Define common logical schema invariant sets per component
   - Inventory the correctness-relevant tables, columns, nullability/defaults, PK/FK/unique/check constraints, partial/correctness-critical indexes, immutability protections, and retired artifacts relied upon by each component.
   - Reuse existing `VerifySchema`/migration tests where they already express those invariants; billing's dual-engine schema verification is the reference pattern.
   - Keep invariant declarations component-owned; do not create a generic table-schema DSL more complex than the current need.
@@ -163,7 +163,7 @@
   - _Depends: 2.1–2.8, 3.1_
   - _Validation: focused component schema test packages_
 
-- [ ] 3.3 Strengthen continuity and secure-session schema parity (P)
+- [x] 3.3 Strengthen continuity and secure-session schema parity (P)
   - Verify both engines contain equivalent logical A-leg/B-leg/attempt, interleaved-state, route-override, conversation-view, secure-session, transcript/audit/usage/attempt/quarantine structures and correctness-critical indexes/constraints after all migrations.
   - Verify migration history contains every discovered migration ID and rerunning migration is idempotent.
   - Exercise existing legacy SQLite compatibility fixtures and add PostgreSQL upgrade/current-state evidence where the same logical migration contract applies.
@@ -181,7 +181,7 @@
   - _Depends: 3.1–3.2_
   - _Validation: stable parity wrappers plus focused component migration tests_
 
-- [ ] 3.5 Reconcile billing migration/schema parity with the catalog (P)
+- [x] 3.5 Reconcile billing migration/schema parity with the catalog (P)
   - Reuse the existing deep SQLite/PostgreSQL `VerifySchema` logic and required migration protections rather than reimplementing them in testkit.
   - Connect discovered migration-file inventory to the billing parity wrapper so adding a migration file without registration/history/schema evidence fails.
   - Confirm retired tables/columns, immutable ledger protections, unique indexes, sequence/nullability semantics, and provider-maintenance integrity are verified on both engines at the current contract level.
@@ -194,7 +194,7 @@
 
 - [ ] 4. Certify the current tree on real SQLite and PostgreSQL before turning enforcement on.
 
-- [ ] 4.1 Add a temporary/local implementation-time full-matrix command and execute the untouched baseline
+- [x] 4.1 Add a temporary/local implementation-time full-matrix command and execute the untouched baseline
   - Using the catalog package list and stable wrappers, execute all SQLite parity suites.
   - Execute all PostgreSQL-direct parity suites against a real direct PostgreSQL endpoint with `LIP_REQUIRE_POSTGRES=1`; set admin/runtime DSNs explicitly and exclude pooler-only tests by selection, not by accidental skip.
   - Record each component result and every common-contract/schema/migration failure in the implementation PR notes or test logs; do not add permanent scratch artifacts to the spec directory.
@@ -203,7 +203,7 @@
   - _Depends: 2.1–3.5_
   - _Validation: implementation-time parity runner on real SQLite/PostgreSQL_
 
-- [ ] 4.2 Repair common behavioral/transactional divergences revealed by the baseline
+- [x] 4.2 Repair common behavioral/transactional divergences revealed by the baseline
   - For each failure, classify whether the canonical contract is correct, stale, or missing an intentional capability distinction before editing production code.
   - Fix real parity defects at the owning adapter/migration boundary; add RED regression subtests to the shared common suite before the fix.
   - Run focused `-race` tests when fixing sequence/locking/lost-update/idempotency concurrency behavior.
@@ -214,7 +214,7 @@
   - _Depends: 4.1_
   - _Validation: affected component parity wrappers + targeted `-race`_
 
-- [ ] 4.3 Repair migration/schema divergences revealed by the baseline
+- [x] 4.3 Repair migration/schema divergences revealed by the baseline
   - Fix missing columns/constraints/indexes/immutability protections/history registration or incorrect schema verifiers exposed by Phase 4.1.
   - Preserve existing operator data compatibility; use additive/idempotent migration repairs consistent with each component's migration policy rather than destructive test-only shortcuts.
   - If a difference is intentional and backend-specific, add the explicit capability/invariant classification and dedicated evidence rather than weakening the common schema contract.
@@ -224,7 +224,7 @@
   - _Depends: 4.1_
   - _Validation: affected component parity wrappers + migration tests_
 
-- [ ] 4.4 Freeze the certified catalog baseline
+- [x] 4.4 Freeze the certified catalog baseline
   - Re-run architecture discovery and full SQLite/PostgreSQL-direct parity after all repairs.
   - Confirm no remaining unclassified skip/exception exists for a common capability and no registered component is red.
   - Update catalog capability rationale/evidence only for verified intentional differences.
@@ -238,7 +238,7 @@
 
 - [ ] 5. Implement the durable developer/CI entry points without duplicate package lists.
 
-- [ ] 5.1 Implement the typed database-parity runner
+- [x] 5.1 Implement the typed database-parity runner
   - Add the internal runner with `list`, `sqlite`, `postgres-direct`, and `all` modes.
   - Construct `go test` package lists and stable `-run` selectors from the catalog; direct mode adds integration tags, fail-closed PostgreSQL environment, and explicit pooled-test exclusion.
   - Preserve repository test parallelism/timeouts where appropriate; propagate subprocess failures/cancellation exactly.
@@ -249,7 +249,7 @@
   - _Depends: 4.4_
   - _Validation: `go test ./internal/testkit/dbparity/...` plus runner `list`/SQLite smoke_
 
-- [ ] 5.2 Add canonical Makefile targets and preserve specialized PostgreSQL gates
+- [x] 5.2 Add canonical Makefile targets and preserve specialized PostgreSQL gates
   - Add `test-db-parity-sqlite`, `test-db-parity-postgres-direct`, and `test-db-parity` targets that delegate to the runner and do not repeat component package lists.
   - Add Makefile help text distinguishing repository-wide direct parity from the existing `test-authority-postgres-direct`, `test-authority-postgres-pooled`, `test-postgres-migrations`, and billing-convergence/release gates.
   - Keep current pooler normal-parallelism/fail-closed assertions green and add policy tests proving the new general targets delegate to the catalog runner.
@@ -260,9 +260,9 @@
 
 ## Phase 6 — Make Direct DB Parity a Merge-Blocking PR Invariant
 
-- [ ] 6. Wire real PostgreSQL parity into PR CI and fail closed through an existing required status.
+- [x] 6. Wire real PostgreSQL parity into PR CI and fail closed through an existing required status.
 
-- [ ] 6.1 Add the ephemeral direct-PostgreSQL database-parity CI job
+- [x] 6.1 Add the ephemeral direct-PostgreSQL database-parity CI job
   - Extend `.github/workflows/ci.yml` using the existing change-scope output; run the DB job for every test-relevant PR and emit an explicit success/bypass step for documentation-only changes.
   - Provision a pinned direct PostgreSQL service container with test-only credentials and a health check; do not use repository secrets or claim the service is a transaction pooler.
   - Export both runtime and admin test DSNs to the service plus `LIP_REQUIRE_POSTGRES=1`; do not set `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER`.
@@ -273,7 +273,7 @@
   - _Depends: 5.2_
   - _Validation: workflow syntax + QA workflow-policy test; PR run on implementation branch_
 
-- [ ] 6.2 Propagate the DB parity result through the existing merge-blocking aggregate status
+- [x] 6.2 Propagate the DB parity result through the existing merge-blocking aggregate status
   - Extend the existing required `repo-hygiene`/equivalent fail-closed aggregator using `if: always()` so test-relevant changes fail when database parity is not successful.
   - Preserve the existing rule that docs-only PRs do not leave a required check in `skipped` state; the aggregate must report success after an explicit parity bypass.
   - Add repository QA tests that inspect workflow dependency/result handling and fail if future edits detach the DB parity job from the required aggregate.
@@ -283,7 +283,7 @@
   - _Depends: 6.1_
   - _Validation: `go test ./internal/qa -run 'DatabaseParity|CI'`; implementation PR required-status behavior_
 
-- [ ] 6.3 Prove mandatory PostgreSQL mode cannot silently skip
+- [x] 6.3 Prove mandatory PostgreSQL mode cannot silently skip
   - Add/extend testkit tests for the canonical runner and stable PostgreSQL wrappers so mandatory direct mode fails with actionable env/service errors when no DSN exists.
   - Ensure pooler-only wrappers remain explicitly out of the direct selector instead of being treated as common parity skips.
   - Preserve optional `SkipUnlessPostgres` behavior for ad-hoc integration runs that are not invoked through the mandatory parity mode.
@@ -296,7 +296,7 @@
 
 - [ ] 7. Make executable parity the documented source of truth and certify the finished system.
 
-- [ ] 7.1 Align steering, database docs, release gates, and Make help with actual execution
+- [x] 7.1 Align steering, database docs, release gates, and Make help with actual execution
   - Update `.kiro/steering/testing.md` and `.kiro/steering/tech.md` to distinguish default unit tests, repository-wide direct DB parity, specialized PostgreSQL distributed/pooler gates, and release/race evidence.
   - Update `docs/release-gates.md` so PR CI claims match the actual workflow and name the canonical DB parity command/component catalog.
   - Update `docs/database-persistence.md` with a maintainer-facing parity/enforcement note without exposing test implementation as operator configuration.
@@ -307,7 +307,7 @@
   - _Depends: 6.1–6.3_
   - _Validation: docs/knowledge checks + QA database-parity policy test_
 
-- [ ] 7.2 Add documentation/CI/catalog drift guardrails
+- [x] 7.2 Add documentation/CI/catalog drift guardrails
   - Extend `internal/qa` so the canonical Make targets, workflow job/required aggregation, and named steering/release-gate references remain present and consistent.
   - Keep the executable catalog authoritative; tests should fail when docs or Make/workflow wiring names a stale target/component scope rather than relying on reviewers to notice drift.
   - Avoid brittle full-file snapshots; assert stable contract markers and catalog-derived expectations.
@@ -316,7 +316,7 @@
   - _Depends: 7.1_
   - _Validation: `go test ./internal/qa -run DatabaseParity`_
 
-- [ ] 7.3 Run final whole-repository database parity and regression certification
+- [x] 7.3 Run final whole-repository database parity and regression certification
   - Run `make test-db-parity` against real direct PostgreSQL and confirm all registered SQLite/PostgreSQL common capabilities and migrations are green.
   - Run existing PostgreSQL direct/pooled specialized gates applicable to authority/concurrency/metering/terminal-work; preserve explicit topology attestation requirements.
   - Run billing convergence/migration evidence applicable to billing-store changes made during remediation.

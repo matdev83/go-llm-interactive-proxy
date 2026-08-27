@@ -319,14 +319,18 @@ func TestBillingExposureSchemaMarkerScanCatchesProductionOwnership(t *testing.T)
 	root := t.TempDir()
 	pkg := "internal/infra/billingstore"
 	mig := filepath.Join(root, filepath.FromSlash(pkg), "20260812000000_billing_baseline.go")
-	prod := filepath.Join(root, filepath.FromSlash(pkg), "store.go")
+	verifier := filepath.Join(root, filepath.FromSlash(pkg), "store.go")
+	unexempted := filepath.Join(root, filepath.FromSlash(pkg), "admission.go")
 	if err := os.MkdirAll(filepath.Dir(mig), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(mig, []byte("package billingstore\nconst _ = `authorization_holds`\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(prod, []byte("package billingstore\nconst q = `SELECT 1 FROM authorization_holds`\n"), 0o600); err != nil {
+	if err := os.WriteFile(verifier, []byte("package billingstore\nconst verifyRetired = `authorization_holds table is still present`\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unexempted, []byte("package billingstore\nconst q = `SELECT 1 FROM authorization_holds`\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	target := BillingExposureDeletionTarget{
@@ -342,13 +346,21 @@ func TestBillingExposureSchemaMarkerScanCatchesProductionOwnership(t *testing.T)
 	if !found {
 		t.Fatal("migration-only schema inventory must still detect production ownership markers")
 	}
-	target.LegacyRecoveryFiles = []string{pkg + "/store.go"}
+	target.RetirementVerifierFiles = []string{pkg + "/store.go"}
+	found, err = BillingExposureDeletionTargetPresent(root, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("unexempted production file must still be detected when only retirement verifier is exempt")
+	}
+	target.LegacyRecoveryFiles = []string{pkg + "/admission.go"}
 	found, err = BillingExposureDeletionTargetPresent(root, target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if found {
-		t.Fatal("legacy_recovery_files must exempt explicit recovery readers")
+		t.Fatal("legacy_recovery_files and retirement_verifier_files must exempt explicit recovery readers and verifiers")
 	}
 }
 

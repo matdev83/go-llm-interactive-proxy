@@ -105,9 +105,12 @@
         "internal/infra/billingstore/legacy_hold_reconcile.go",
         "internal/infra/billingstore/reports.go"
       ],
+      "retirement_verifier_files": [
+        "internal/infra/billingstore/store.go"
+      ],
       "present": false,
       "status": "record-current-presence",
-      "reason": "authorization_holds is retired from admission; only explicit legacy-recovery readers and migration DDL may mention it."
+      "reason": "authorization_holds is retired from admission; only explicit legacy-recovery readers, retirement verifiers, and migration DDL may mention it."
     },
     {
       "id": "reserved_nano",

@@ -36,6 +36,21 @@ type Factory interface {
 	Build(t *testing.T) app.StateStore
 }
 
+// FactoryParallelism lets adapters opt out of the contract's parallel subtests.
+// Most in-process stores should run in parallel. External databases may need
+// serial construction/cleanup to keep one shared integration schema isolated.
+type FactoryParallelism interface {
+	ParallelContract() bool
+}
+
+func maybeParallel(t *testing.T, f Factory) {
+	t.Helper()
+	if p, ok := f.(FactoryParallelism); ok && !p.ParallelContract() {
+		return
+	}
+	t.Parallel()
+}
+
 // RunSuite executes the shared authority-store contract against the provided factory.
 func RunSuite(t *testing.T, f Factory) {
 	t.Helper()
@@ -49,7 +64,7 @@ func RunSuite(t *testing.T, f Factory) {
 
 func testStrictReservationIsAtomic(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
 
@@ -131,7 +146,7 @@ func testStrictReservationIsAtomic(t *testing.T, f Factory) {
 
 func testReserveSettleReleaseIdempotent(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
 	ctx := ctx(t)
@@ -309,7 +324,7 @@ func testReserveSettleReleaseIdempotent(t *testing.T, f Factory) {
 
 func testQueriesBoundAndSafe(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
 	ctx := ctx(t)
@@ -367,7 +382,7 @@ func testQueriesBoundAndSafe(t *testing.T, f Factory) {
 
 func testReadinessKnownStates(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
 	ctx := ctx(t)
@@ -646,7 +661,7 @@ func SeededDecisionRows() []controlplane.AccountingDecisionRow {
 // three fields as the zero time.Time, matching AccountingLimitStatusRow.
 func testDecisionRowMirrorsLimitWindow(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
 	ctx := ctx(t)
@@ -731,7 +746,7 @@ func testDecisionRowMirrorsLimitWindow(t *testing.T, f Factory) {
 // It runs against both the memory and durable stores via the shared Factory.
 func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 	t.Helper()
-	t.Parallel()
+	maybeParallel(t, f)
 
 	decisionQuery := func(outcome, reason string) controlplane.AccountingDecisionQuery {
 		return controlplane.AccountingDecisionQuery{
@@ -777,7 +792,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 	// Scenario A: settle WITH overage (final usage > reserved).
 	// final=50, reserved=30 -> released=0, overage=20, adjustment=-20.
 	t.Run("SettleWithOverage", func(t *testing.T) {
-		t.Parallel()
+		maybeParallel(t, f)
 		store := f.Build(t)
 		t.Cleanup(closeStore(store))
 		c := ctx(t)
@@ -803,7 +818,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 	// Scenario B: settle WITH release (final usage < reserved).
 	// final=20, reserved=60 -> released=40, overage=0, adjustment=40.
 	t.Run("SettleWithRelease", func(t *testing.T) {
-		t.Parallel()
+		maybeParallel(t, f)
 		store := f.Build(t)
 		t.Cleanup(closeStore(store))
 		c := ctx(t)
@@ -826,7 +841,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 	// Scenario C: release (no settlement). released=25, no overage, adjustment
 	// mirrors released â€” same logic as the limit-row row.Adjustment += released.
 	t.Run("Release", func(t *testing.T) {
-		t.Parallel()
+		maybeParallel(t, f)
 		store := f.Build(t)
 		t.Cleanup(closeStore(store))
 		c := ctx(t)
@@ -848,7 +863,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 
 	// Scenario D: reserve deny (strict cap exceeded) records zero deltas too.
 	t.Run("ReserveDeny", func(t *testing.T) {
-		t.Parallel()
+		maybeParallel(t, f)
 		store := f.Build(t)
 		t.Cleanup(closeStore(store))
 		c := ctx(t)

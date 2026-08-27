@@ -61,6 +61,11 @@ func runContinuitySchemaMigrate(ctx context.Context, db *bun.DB) error {
 	return nil
 }
 
+// RunSchemaMigrate runs the schema migrations for continuity against the provided DB.
+func RunSchemaMigrate(ctx context.Context, db *bun.DB) error {
+	return runContinuitySchemaMigrate(ctx, db)
+}
+
 func sqliteContinuityDDL() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS a_legs (

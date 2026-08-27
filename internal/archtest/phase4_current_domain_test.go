@@ -22,7 +22,7 @@ func TestPhase4CurrentBillingDomainForbidsRetiredNames(t *testing.T) {
 				return nil
 			}
 			base := filepath.Base(path)
-			if strings.HasPrefix(base, "202608") || base == "historical_authorization.go" {
+			if isBillingHistoricalMigrationSource(base) || base == "historical_authorization.go" {
 				return nil
 			}
 			body, err := os.ReadFile(path)
@@ -38,6 +38,33 @@ func TestPhase4CurrentBillingDomainForbidsRetiredNames(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestIsBillingHistoricalMigrationSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"20260826000000_billing_reserved_zero_history.go", true},
+		{"internal/infra/billingstore/20260826000000_billing_reserved_zero_history.go", true},
+		{"legacy_billing_zero_reserved_nano.go", true},
+		{"internal/infra/billingstore/legacy_billing_zero_reserved_nano.go", true},
+		{"legacy_current_billing.go", false},
+		{"internal/infra/billingstore/legacy_current_billing.go", false},
+		{"current_billing.go", false},
+		{"202608_short.go", false},
+		{"2026082600000a_invalid_char.go", false},
+		{"20260826000000no_underscore.go", false},
+	}
+
+	for _, tt := range tests {
+		got := isBillingHistoricalMigrationSource(tt.path)
+		if got != tt.want {
+			t.Errorf("isBillingHistoricalMigrationSource(%q) = %v; want %v", tt.path, got, tt.want)
 		}
 	}
 }

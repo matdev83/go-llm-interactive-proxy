@@ -55,18 +55,25 @@
 
 ## Database & PgBouncer Standards
 
-- **Dual Roles**: Admin/migration connection (`LIP_TEST_POSTGRES_ADMIN_DSN`) vs runtime DML connection (`LIP_TEST_POSTGRES_DSN`).
-- **Transaction Pooler Rules**: When `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` is set:
+- **Dual-Dialect Parity Invariant**: All 8 production persistence families (continuity, secure sessions, control-plane ledger, usage authority, concurrency authority, metering journal, terminal work, billing) share Bun driven adapters for SQLite and PostgreSQL.
+- **Authoritative Parity Catalog**: Registered in package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` without runtime registry overhead. Enforces logical contract, schema invariant, and migration history equivalence across engines.
+- **Fail-Closed Direct PostgreSQL**: Mandatory parity execution (`make test-db-parity` / `make test-db-parity-postgres-direct`) requires `LIP_REQUIRE_POSTGRES=1` with direct DSN `LIP_TEST_POSTGRES_DSN` (runner accepts fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`) and fails closed on missing/unhealthy service with secret-safe output.
+- **Dual Roles & Migration Alias**: Admin/migration connection (`LIP_TEST_POSTGRES_ADMIN_DSN` or migration alias `LIP_MIGRATION_POSTGRES_DSN`) vs runtime DML connection (`LIP_TEST_POSTGRES_DSN`).
+- **Transaction Pooler Rules**: When running pooled gates (`make test-authority-postgres-pooled` with `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`, runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, and admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`):
   - FORBIDDEN: `SET search_path`, session GUCs, temporary tables, SQL PREPARE/DEALLOCATE, advisory locks.
   - REJECT: `transaction_pool` + `auto_migrate` combination.
   - Shared bounded pools managed at runtimebundle composition root.
+- **Topology & Specialized Gates**: Specialized direct/distributed authority (`test-authority-postgres-direct`), pooler (`test-authority-postgres-pooled`), migration (`test-postgres-migrations`), and billing convergence gates remain separate from repository-wide direct parity and require appropriate topology/attestation.
 
 ---
 
 ## Canonical Verification Commands
 
 - `make quality-checks` — Format, tidy, vet, ad-hoc goroutine allowlist, hot-path regex check, archtest guardrails.
-- `make test` — Quality checks + default unit tests + parity checks.
-- `make test-unit` — `go test -parallel=8 -timeout=10m ./...`
-- `make parity-checks` — `go test -parallel=8 -timeout=10m -tags=precommit,integration ./internal/testkit/conformance/...`
-- `make qa` — Quality checks + full tagged test pass + golangci-lint + govulncheck.
+- `make test` — Quality checks (`quality-checks-fast`) + default unit tests (`test-unit`) + parity checks (`parity-checks`).
+- `make test-unit` — `go test $(GO_TEST_FLAGS) ./...` (fast in-memory/composed unit tests; configurable via `GO_TEST_FLAGS` or `LIP_TEST_PARALLEL`).
+- `make test-db-parity` — Sequential repository-wide SQLite and direct PostgreSQL parity gate (derived from `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` across all 8 components).
+- `make test-db-parity-sqlite` — Canonical SQLite database parity tests across all registered components.
+- `make test-db-parity-postgres-direct` — Repository-wide fail-closed direct PostgreSQL parity (direct/admin DSN; Make sets `LIP_REQUIRE_POSTGRES=1`).
+- `make parity-checks` — Full parity matrix: contract TCKs, protocol conformance (`-tags=precommit,integration`), connector parity, and bounded sentinel (configurable via `GO_TEST_FLAGS`).
+- `make qa` — Quality checks (`quality-checks-fast`) + full tagged test pass (`-tags=precommit,integration`) + linter (`make lint`: `golangci-lint` preferred, `staticcheck` fallback) + `govulncheck` (`make vuln`) + static release gates (`backend-plugin-release-gates-static`, `test-openresponses-compliance-static`).

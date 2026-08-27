@@ -27,16 +27,17 @@ type BillingExposureSurface struct {
 // later phases must retire. Task 0.1 records present=true. Task 0.4 evaluates
 // the same inventory as planned until ForbidHoldSymbols is true (task 7.1).
 type BillingExposureDeletionTarget struct {
-	ID                  string   `json:"id"`
-	Kind                string   `json:"kind"` // type, const, func, ident, schema
-	Package             string   `json:"package,omitempty"`
-	Name                string   `json:"name,omitempty"`
-	Files               []string `json:"files,omitempty"`
-	Marker              string   `json:"marker,omitempty"`
-	LegacyRecoveryFiles []string `json:"legacy_recovery_files,omitempty"`
-	Present             bool     `json:"present"`
-	Status              string   `json:"status"`
-	Reason              string   `json:"reason"`
+	ID                      string   `json:"id"`
+	Kind                    string   `json:"kind"` // type, const, func, ident, schema
+	Package                 string   `json:"package,omitempty"`
+	Name                    string   `json:"name,omitempty"`
+	Files                   []string `json:"files,omitempty"`
+	Marker                  string   `json:"marker,omitempty"`
+	LegacyRecoveryFiles     []string `json:"legacy_recovery_files,omitempty"`
+	RetirementVerifierFiles []string `json:"retirement_verifier_files,omitempty"`
+	Present                 bool     `json:"present"`
+	Status                  string   `json:"status"`
+	Reason                  string   `json:"reason"`
 }
 
 // BillingExposurePlannedRatchet is an end-state architecture forbid. Status
@@ -276,8 +277,11 @@ func billingExposureMarkerPresent(root string, target BillingExposureDeletionTar
 	if err != nil {
 		return false, err
 	}
-	allow := make(map[string]struct{}, len(target.LegacyRecoveryFiles))
+	allow := make(map[string]struct{}, len(target.LegacyRecoveryFiles)+len(target.RetirementVerifierFiles))
 	for _, rel := range target.LegacyRecoveryFiles {
+		allow[filepath.ToSlash(rel)] = struct{}{}
+	}
+	for _, rel := range target.RetirementVerifierFiles {
 		allow[filepath.ToSlash(rel)] = struct{}{}
 	}
 	for _, rel := range files {

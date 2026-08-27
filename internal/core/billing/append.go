@@ -22,6 +22,9 @@ type TerminalUsageSink interface {
 type ExposureAdmissionStore interface {
 	AdmitExposure(context.Context, AdmitExposureInput) (CallExposure, error)
 }
+
+// ExposureStore is an alias for ExposureAdmissionStore to align with canonical store naming.
+type ExposureStore = ExposureAdmissionStore
 type CallUsageStore interface {
 	CompleteCallClaimer
 	ClaimCompleteCalls(context.Context, int) ([]CompleteCall, error)

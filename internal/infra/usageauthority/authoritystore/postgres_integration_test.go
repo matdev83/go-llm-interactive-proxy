@@ -13,6 +13,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -108,14 +109,23 @@ func openPostgresAuthorityBun(t *testing.T, dsn string) *bun.DB {
 // namespaced by a unique StoreID per Build so contract subtests do not collide
 // on the seeded rows.
 type pgFactory struct {
-	dsn string
+	dsn     string
+	timeout time.Duration
 }
+
+func (f pgFactory) ParallelContract() bool { return false }
 
 func (f pgFactory) Build(t *testing.T) app.StateStore {
 	t.Helper()
 	storeID := nextPGStoreID("pg-authority")
 	bunDB := openPostgresAuthorityBun(t, f.dsn)
-	store, err := authoritystore.NewDurable(context.Background(), bunDB, authoritystore.Config{
+	timeout := f.timeout
+	if timeout <= 0 {
+		timeout = db.DefaultPostgresOpenMigrateTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	store, err := authoritystore.NewDurable(ctx, bunDB, authoritystore.Config{
 		StoreID:   storeID,
 		Backing:   domain.BackingCapabilityAtomic,
 		LimitRows: contract.SeededLimitRows(),
@@ -140,7 +150,7 @@ func (f pgFactory) Build(t *testing.T) app.StateStore {
 func TestPostgresAuthorityStore_Contract(t *testing.T) {
 	t.Parallel()
 	dsn := testkit.SkipUnlessPostgres(t)
-	contract.RunSuite(t, pgFactory{dsn: dsn})
+	contract.RunSuite(t, pgFactory{dsn: dsn, timeout: db.DefaultPostgresOpenMigrateTimeout})
 }
 
 // TestPostgresAuthorityStore_ConcurrentReserveCannotExceedLimit proves two

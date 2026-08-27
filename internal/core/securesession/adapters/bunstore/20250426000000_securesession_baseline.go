@@ -81,6 +81,11 @@ func runSecureSessionSchemaMigrate(ctx context.Context, db *bun.DB) error {
 	return nil
 }
 
+// RunSchemaMigrate runs the schema migrations for secure sessions against the provided DB.
+func RunSchemaMigrate(ctx context.Context, db *bun.DB) error {
+	return runSecureSessionSchemaMigrate(ctx, db)
+}
+
 func sqliteSecureSessionDDL() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS lip_secure_sessions (

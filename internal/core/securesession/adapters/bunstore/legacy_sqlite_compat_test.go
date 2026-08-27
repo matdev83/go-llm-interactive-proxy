@@ -12,6 +12,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
+	"github.com/stretchr/testify/require"
 )
 
 func copyLegacyFixture(t *testing.T, testSourceFile string) string {
@@ -56,6 +58,27 @@ func TestLegacySQLiteFixture_ReadCompat(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+
+	// Verify logical schema invariants after upgrade
+	require.NoError(t, dbparity.VerifySQLiteSchema(ctx, bunDB, SecureSessionLogicalSchemaSpec()))
+
+	// Verify all migrations applied after upgrade
+	discovered, err := dbparity.DiscoverMigrations(filepath.Dir(thisFile))
+	require.NoError(t, err)
+	rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_securesession_migrations")
+	require.NoError(t, err)
+	defer rows.Close()
+	recorded := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		id := name
+		if len(name) >= 14 {
+			id = name[:14]
+		}
+		recorded[id] = true
+	}
+	require.NoError(t, dbparity.AssertMigrationHistoryIDs(dbparity.MigrationIDs(discovered), recorded))
 
 	got, err := s.LoadByID(ctx, "legacy-sess-1")
 	if err != nil {
