@@ -33,12 +33,12 @@ Out of scope:
 
 The implementation MUST cover the following classes from the researched matrix:
 
-1. **Responses-first / multi-flavor high-value providers:** DeepSeek, Fireworks AI, Groq, DigitalOcean Serverless Inference, Scaleway Generative APIs, Vercel AI Gateway, Requesty, Kilo Gateway, plus any other provider explicitly marked `responses` in the frozen matrix.
-2. **Conventional OpenAI-compatible hosted providers/brokers:** the static-base-URL rows in the frozen profile matrix, including the Alibaba/DashScope plan variants, Moonshot, xAI API-key access, Together, Cerebras, SambaNova, Mistral, Baseten, DeepInfra, Novita, Venice, Featherless, Friendli, Arcee, GMI Cloud, IO.NET, Helicone, LLM Gateway, Z.AI/Zhipu plan variants, Xiaomi plan variants, Tencent plan variants, StepFun plan variants, ModelScope, Meta Model API, Amazon Nova direct API, OVHcloud, STACKIT, SCX.ai, SiliconFlow, W&B Inference, Poolside hosted API, Poe, Tinfoil, ZenMux, and the researched long-tail profile rows that fit `lip.provider-profile/v1` without schema widening.
-3. **Anthropic-compatible hosted products:** Kimi for Coding, MiniMax global/China and researched plan variants, Subconscious, Thinking Machines/Tinker, and any other frozen Anthropic-profile row that fits the current v1 profile contract.
-4. **Managed-cloud / dynamic-address integrations:** Azure OpenAI/Foundry, Google Vertex AI, AWS SageMaker, OCI Generative AI, IBM watsonx.ai, SAP AI Core, and dynamic-account providers explicitly classified as connector work by the frozen matrix.
+1. **Responses-first / multi-flavor high-value providers:** DeepSeek, Fireworks AI, Groq, DigitalOcean Serverless Inference, Scaleway Generative APIs, Vercel AI Gateway, Requesty, Meta Model API, plus any other provider explicitly marked `Responses` in the frozen matrix.
+2. **Conventional OpenAI-compatible hosted providers/brokers:** the static-base-URL rows in the frozen Chat matrix, including Kilo Gateway, Alibaba/DashScope plan variants, Moonshot, xAI API-key access, Together, Cerebras, SambaNova where frozen, Mistral subject to compatibility certification, Baseten, DeepInfra, Novita, Venice where frozen, Featherless/Friendli where frozen, Arcee, GMI Cloud, IO.NET, Helicone, LLM Gateway, Z.AI/Zhipu plan variants, Xiaomi plan variants, Tencent plan variants, StepFun plan variants, ModelScope, Amazon Nova direct API, OVHcloud, STACKIT, SCX.ai, SiliconFlow, W&B Inference, Poolside hosted API, Poe, Tinfoil, ZenMux, and the researched long-tail rows that fit `lip.provider-profile/v1` without schema widening.
+3. **Anthropic-compatible hosted products:** Kimi for Coding, MiniMax global/China, Thinking Machines/Tinker, and any other frozen Anthropic-profile row that fits the current v1 profile contract.
+4. **Managed-cloud / dynamic-address integrations:** Azure OpenAI/Foundry, Google Vertex AI, AWS SageMaker, OCI Generative AI, IBM watsonx.ai, SAP AI Core, Cloudflare AI Gateway, Snowflake Cortex, Databricks AI, Infomaniak AI, and dynamic-account products explicitly classified as connector work by the frozen matrix.
 5. **Provider-native integrations:** Cohere and Replicate, plus any frozen non-ACP provider whose required language-model semantics cannot be represented by an existing compatible family.
-6. **Non-ACP subscription/OAuth bridges:** direct GitHub Copilot HTTP subscription access, GitLab Duo/DAP, Claude subscription/OAuth access, Nous Portal, xAI subscription OAuth, Qwen OAuth, and MiniMax OAuth where the provider terms and current public interface permit third-party use.
+6. **Non-ACP subscription/OAuth bridges:** direct GitHub Copilot HTTP subscription access where public/permitted, GitLab Duo/DAP, Claude subscription/OAuth access where public/permitted, Nous Portal, xAI subscription OAuth, Qwen OAuth, and MiniMax OAuth.
 
 Existing Go-LIP support is a hard exclusion from duplicate implementation. At specification baseline this includes OpenAI Responses, OpenAI legacy Chat, Anthropic API-key access, Gemini API-key access, Bedrock, Alibaba Token Plan International's existing dedicated backend, OpenRouter, NVIDIA, Hugging Face, OpenCode Go/Zen, OpenAI Codex/app-server, CommandCode OpenAI/Anthropic, Ollama/Ollama Cloud, llama.cpp, LM Studio, vLLM, local-stub, Cursor SDK, and existing ACP connectors.
 
@@ -54,7 +54,7 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 2. When a provider profile is selected in runtime configuration, the system shall expand it through the existing `provider-profile` binding to the matching compatible factory without requiring an additional backend registration.
 3. When a provider-profile-only change is made, the change shall not require edits to canonical `pkg/lipapi`, core routing/runtime, frontend implementations, backend-plugin ABI, or shared contribution registries.
 4. If a provider requires behavior that `lip.provider-profile/v1` intentionally rejects, the implementation shall graduate that provider to an existing-family extension or external connector instead of weakening the profile schema or embedding arbitrary transforms.
-5. The embedded provider catalog shall contain real supported provider rows and shall not retain the placeholder `example-openai-responses` row as a production-visible provider after the first real profile batch lands.
+5. The embedded provider catalog shall contain real supported provider rows and shall not retain the placeholder `example-openai-responses` row as a production-visible provider after the first real profile program lands.
 
 ### Requirement 2: Deterministic Protocol Selection and Provider Naming
 
@@ -67,8 +67,9 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 3. Where a provider serves distinct intended model populations through different supported API flavors, the system shall expose separate protocol-specific identities using the suffixes `-responses`, `-openai`, `-anthropic`, or `-openresponses` as applicable rather than combining incompatible upstream behavior behind one profile.
 4. The suffix `-openai` shall mean OpenAI Chat Completions/legacy compatibility; it shall never mean the OpenAI Responses API.
 5. If multiple API flavors expose the same intended model set and no material semantic/capability coverage is gained by the additional flavor, the system shall expose only the preferred flavor rather than duplicating equivalent provider profiles.
-6. If official/current upstream evidence does not establish native Responses compatibility, the system shall not select Responses merely because LiteLLM can translate that provider behind LiteLLM's own `/responses` surface.
+6. If official/current upstream evidence does not establish native Responses compatibility, the system shall not select Responses merely because LiteLLM or another intermediary can translate that provider behind its own `/responses` surface.
 7. Provider IDs, backend prefixes, route selectors, diagnostics profile IDs, and canonical inventory prefixes shall use the same stable profile identity.
+8. Kilo Gateway shall be treated as OpenAI Chat compatible in this specification because its current official gateway documentation exposes `/chat/completions` as the supported OpenAI-compatible inference endpoint; a Cline-internal Responses classification shall not override the provider's public contract.
 
 ### Requirement 3: Correct Model Enumeration and Flavor-Specific Inventory
 
@@ -95,6 +96,7 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 4. OAuth/subscription integrations shall store, refresh, rotate, revoke, and quarantine credentials using provider-specific secure lifecycle code and shall never expose refresh/access tokens in diagnostics or config serialization.
 5. Cloud-managed providers shall use the provider's supported workload identity/signing chain where applicable rather than converting cloud credentials into a literal static bearer token in YAML.
 6. Existing restrictions on remote HTTP endpoints, URL userinfo/query/fragment data, authorization-like profile headers, and literal YAML secrets shall remain in force.
+7. Region/plan products that may be configured simultaneously shall use distinct credential environment-variable references when sharing one variable would prevent independent credentials; MiniMax global/China is the frozen example (`MINIMAX_API_KEY` vs `MINIMAX_CN_API_KEY`).
 
 ### Requirement 5: Non-Profile Provider Integrations
 
@@ -115,8 +117,8 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 #### Acceptance Criteria
 
 1. OAuth/subscription access shall be represented as a distinct backend/credential product from the same vendor's ordinary API-key profile where billing, model entitlement, endpoint, or token lifecycle differs.
-2. Device-code, browser OAuth, PKCE, and refresh-token flows shall follow each provider's documented flow and shall surface actionable re-authentication errors after terminal refresh failures.
-3. A bridge shall not spoof another client, falsify User-Agent/client identity, bypass plan restrictions, or intentionally circumvent provider terms or entitlement checks.
+2. Device-code, browser OAuth, PKCE, and refresh-token flows shall follow each provider's documented/permitted flow and shall surface actionable re-authentication errors after terminal refresh failures.
+3. A bridge shall not spoof another client, falsify User-Agent/client identity, scrape private credentials, bypass plan restrictions, or intentionally circumvent provider terms or entitlement checks.
 4. **No ACP transport or ACP process-spawning path shall be added or modified as part of this specification.**
 5. If a researched subscription integration ceases to provide a documented/permitted third-party path before implementation, that bridge shall be omitted with a documented unsupported result rather than implemented through an unofficial circumvention.
 
@@ -127,7 +129,7 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 #### Acceptance Criteria
 
 1. Every embedded provider profile shall be selectable through a concise `kind: provider-profile` runtime row referencing its stable profile ID.
-2. Profile expansion shall derive the backend prefix, upstream base URL, credential environment-variable root, tokenizer setting, and inventory configuration from the embedded profile rather than requiring operators to repeat those fields.
+2. Profile expansion shall derive the backend prefix, upstream base URL, credential environment-variable root, tokenizer setting when deliberately present, and inventory configuration from the embedded profile rather than requiring operators to repeat those fields.
 3. `check-config` shall reject unknown profile IDs and invalid embedded profiles before serving traffic and without contacting provider networks.
 4. `inspect`, inventory diagnostics, and route diagnostics shall identify the profile, effective compatible family, origin, and sanitized endpoint identity without revealing credential values or sensitive URL data.
 5. Every new external connector/bridge shall have a documented configuration example, credential inputs, model inventory behavior, and `doctor`/inspection expectations consistent with the connector framework.
@@ -141,9 +143,10 @@ Existing Go-LIP support is a hard exclusion from duplicate implementation. At sp
 1. Each profile shall compile and certify against the existing provider-profile and compatible-family contracts before it can be considered supported.
 2. Each compatible-family profile batch shall exercise the existing backend TCK/profile certification and at least one representative executable mapping test for each family behavior newly relied upon by the batch.
 3. Adding a provider profile shall not create a new frontend-by-provider Cartesian conformance cell or a new end-to-end sentinel pair.
-4. New connectors shall pass the connector contract suite, protocol/family-specific parity tests, cancellation/close tests, inventory tests, and hard-negative semantic rejection tests required by the repository's testing steering.
+4. New connectors shall pass the connector contract suite, protocol/family-specific parity tests, cancellation/close tests, inventory tests, and hard-negative semantic rejection tests required by repository testing steering.
 5. When a provider does not support a required tool/reasoning/document/vision/ordered-item semantic, the backend shall reject or become ineligible according to existing capability/dialect admission rules; it shall not silently downgrade the request.
 6. LiteLLM compatibility tables may be used as breadth evidence only; a translated LiteLLM endpoint shall not be accepted as proof of a provider's native upstream API contract.
+7. Real provider profiles shall explicitly reduce unproven family-maximum capabilities rather than inherit optimistic support silently.
 
 ### Requirement 9: Incremental, Reviewable Bulk Delivery
 
