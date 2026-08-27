@@ -91,3 +91,15 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 	assert.Equal(t, feature.CombExclusive, feature.PlaneTerminalDecisionProvider.Rules.Feature)
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
 }
+
+// TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.
+func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
+	t.Parallel()
+
+	expected := []string{
+		"request_transforms",
+		"pre_request_handlers",
+		"attempt_transforms",
+	}
+	assert.Equal(t, expected, feature.StandardCandidatePlanes)
+}

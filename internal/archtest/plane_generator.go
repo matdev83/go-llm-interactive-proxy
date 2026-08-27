@@ -90,6 +90,8 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	declaredPlanes := make(map[string]planeInfo)
 	var standardPlanesElts []ast.Expr
 	foundStandardPlanes := false
+	var standardCandidatePlanesElts []ast.Expr
+	foundStandardCandidatePlanes := false
 
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
@@ -113,6 +115,15 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 					}
 					standardPlanesElts = compLit.Elts
 					foundStandardPlanes = true
+					continue
+				}
+				if name.Name == "StandardCandidatePlanes" {
+					compLit, ok := val.(*ast.CompositeLit)
+					if !ok {
+						return nil, fmt.Errorf("StandardCandidatePlanes: expected CompositeLit, got %T", val)
+					}
+					standardCandidatePlanesElts = compLit.Elts
+					foundStandardCandidatePlanes = true
 					continue
 				}
 				if !strings.HasPrefix(name.Name, "Plane") || name.Name == "PlaneDeclaration" {
@@ -166,6 +177,36 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 		seenIDs[info.planeID] = info.varName
 	}
 
+	if foundStandardCandidatePlanes {
+		candidatePlaneIDs := make(map[string]bool)
+		for _, elt := range standardCandidatePlanesElts {
+			basicLit, ok := elt.(*ast.BasicLit)
+			if !ok || basicLit.Kind != token.STRING {
+				return nil, fmt.Errorf("expected string literal in StandardCandidatePlanes, got %T", elt)
+			}
+			candID := strings.Trim(basicLit.Value, `"`)
+			if candID == "" {
+				return nil, fmt.Errorf("StandardCandidatePlanes contains empty string")
+			}
+			if candidatePlaneIDs[candID] {
+				return nil, fmt.Errorf("duplicate candidate plane ID %q in StandardCandidatePlanes", candID)
+			}
+			candidatePlaneIDs[candID] = true
+		}
+
+		for candID := range candidatePlaneIDs {
+			if _, exists := seenIDs[candID]; !exists {
+				return nil, fmt.Errorf("candidate plane ID %q in StandardCandidatePlanes was not declared in manifest", candID)
+			}
+		}
+
+		for i := range orderedPlanes {
+			if candidatePlaneIDs[orderedPlanes[i].planeID] {
+				orderedPlanes[i].candidate = true
+			}
+		}
+	}
+
 	return orderedPlanes, nil
 }
 
@@ -199,7 +240,6 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 
 	var planeID string
 	var multiplicity string
-	var candidate bool
 	var hasRules bool
 	var hasFeatureRule bool
 	var featureRule string
@@ -232,10 +272,6 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 			}
 		case "Multiplicity":
 			multiplicity = string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
-		case "Candidate":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "true" {
-				candidate = true
-			}
 		case "Identity":
 			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
 				hasIdentity = false
@@ -383,6 +419,5 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		hasIdentity:      hasIdentity,
 		hasGenBinderRule: hasGenBinderRule,
 		genBinderRule:    genBinderRule,
-		candidate:        candidate,
 	}, nil
 }

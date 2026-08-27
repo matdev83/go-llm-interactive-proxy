@@ -107,6 +107,26 @@ func (a stubAttemptTransform) HandleAttempt(ctx context.Context, call *lipapi.Ca
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }
 
+type capturePolicyObserver struct {
+	mu      sync.Mutex
+	records []policydecision.Record
+}
+
+func (c *capturePolicyObserver) OnPolicyDecision(_ context.Context, record policydecision.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, record)
+	return nil
+}
+
+func (c *capturePolicyObserver) snapshot() []policydecision.Record {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]policydecision.Record, len(c.records))
+	copy(out, c.records)
+	return out
+}
+
 // --- Parity and Snapshot Projection Tests ---
 
 func TestRequestTransformsProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T) {
@@ -273,49 +293,111 @@ func TestRequestTransformsProjection_BackingArrayIsolation(t *testing.T) {
 	assert.Equal(t, "rt-orig", snapRT2[0].ID())
 }
 
-func TestRequestTransformsProjection_RequestTransformsTypedNilRejection(t *testing.T) {
+func TestRequestTransformsProjection_RequestTransformsNilAcceptance(t *testing.T) {
 	t.Parallel()
 
+	var typedNilTransform *stubReqTransform
+
 	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{nil},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{
+			nil,
+			typedNilTransform,
+			stubReqTransform{id: "rt-valid"},
+		},
 	}
 
-	_, err := featurebundle.MergeBundlesGenerated(b)
-	require.Error(t, err, "nil RequestTransforms element must fail MergeBundlesGenerated")
-	var attrErr *lipfeature.AttributedError
-	require.ErrorAs(t, err, &attrErr)
-	assert.Equal(t, lipfeature.PlaneRequestTransforms.ID, attrErr.PlaneID)
+	require.NoError(t, b.Validate())
+
+	gen, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err, "nil and boxed typed nil RequestTransforms elements must be accepted by MergeBundlesGenerated")
+
+	frozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)
+	require.Len(t, frozen, 3)
+	assert.Nil(t, frozen[0])
+	assert.Nil(t, frozen[1])
+	assert.Equal(t, "rt-valid", frozen[2].ID())
+
+	bus := hooks.New(hooks.Config{})
+	opts := &BuildOptions{FeaturePlanes: gen.Frozen}
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
+
+	snapRT := snap.RequestTransforms()
+	require.Len(t, snapRT, 3)
+	assert.Nil(t, snapRT[0])
+	assert.Nil(t, snapRT[1])
+	assert.Equal(t, "rt-valid", snapRT[2].ID())
 }
 
-func TestRequestTransformsProjection_PreRequestHandlersTypedNilRejection(t *testing.T) {
+func TestRequestTransformsProjection_PreRequestHandlersNilAcceptance(t *testing.T) {
 	t.Parallel()
 
+	var typedNilHandler *stubPreReqHandler
+
 	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		PreRequestHandlers: []prerequest.Handler{nil},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		PreRequestHandlers: []prerequest.Handler{
+			nil,
+			typedNilHandler,
+			stubPreReqHandler{id: "pr-valid", ord: 1},
+		},
 	}
 
-	_, err := featurebundle.MergeBundlesGenerated(b)
-	require.Error(t, err, "nil PreRequestHandlers element must fail MergeBundlesGenerated")
-	var attrErr *lipfeature.AttributedError
-	require.ErrorAs(t, err, &attrErr)
-	assert.Equal(t, lipfeature.PlanePreRequestHandlers.ID, attrErr.PlaneID)
+	require.NoError(t, b.Validate())
+
+	gen, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err, "nil and boxed typed nil PreRequestHandlers elements must be accepted by MergeBundlesGenerated")
+
+	frozen := lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers)
+	require.Len(t, frozen, 3)
+	assert.Nil(t, frozen[0])
+	assert.Nil(t, frozen[1])
+	assert.Equal(t, "pr-valid", frozen[2].ID())
+
+	bus := hooks.New(hooks.Config{})
+	opts := &BuildOptions{FeaturePlanes: gen.Frozen}
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
+
+	snapPR := snap.PreRequestHandlers()
+	require.Len(t, snapPR, 3)
 }
 
 func TestRequestTransformsProjection_AttemptTransformsTypedNilRejection(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{nil},
-	}
+	var typedNilAttempt *stubAttemptTransform
 
-	_, err := featurebundle.MergeBundlesGenerated(b)
-	require.Error(t, err, "nil AttemptTransforms element must fail MergeBundlesGenerated")
-	var attrErr *lipfeature.AttributedError
-	require.ErrorAs(t, err, &attrErr)
-	assert.Equal(t, lipfeature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	t.Run("literal_nil_rejected", func(t *testing.T) {
+		t.Parallel()
+		b := lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			AttemptTransforms: []request.AttemptTransform{nil},
+		}
+
+		require.Error(t, b.Validate())
+
+		_, err := featurebundle.MergeBundlesGenerated(b)
+		require.Error(t, err, "literal nil AttemptTransforms element must fail MergeBundlesGenerated")
+		var attrErr *lipfeature.AttributedError
+		require.ErrorAs(t, err, &attrErr)
+		assert.Equal(t, lipfeature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	})
+
+	t.Run("boxed_typed_nil_rejected", func(t *testing.T) {
+		t.Parallel()
+		b := lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			AttemptTransforms: []request.AttemptTransform{typedNilAttempt},
+		}
+
+		require.Error(t, b.Validate())
+
+		_, err := featurebundle.MergeBundlesGenerated(b)
+		require.Error(t, err, "boxed typed nil AttemptTransforms element must fail MergeBundlesGenerated")
+		var attrErr *lipfeature.AttributedError
+		require.ErrorAs(t, err, &attrErr)
+		assert.Equal(t, lipfeature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	})
 }
 
 func TestRequestTransformsProjection_TransactionalBinderReplacement(t *testing.T) {
@@ -1057,11 +1139,15 @@ func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
 	cfg := obsTestProcessConfig()
 	require.NoError(t, config.Validate(cfg))
 
+	captured := &capturePolicyObserver{}
 	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
 		Cfg: cfg,
 		Log: testkit.DiscardLogger(),
 		Opts: &BuildOptions{
 			PluginRegistry: reg,
+			Policy: PolicyOptions{
+				PolicyObservers: []policydecision.Observer{captured},
+			},
 		},
 		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
 	})
@@ -1111,6 +1197,22 @@ func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
 	_, execErr := ex.Execute(context.Background(), inputCall)
 	require.Error(t, execErr, "pre-request deny must fail execution")
 	assert.Contains(t, execErr.Error(), "denied by pr-deny-gate")
+
+	records := captured.snapshot()
+	require.NotEmpty(t, records, "expected policy decision record emitted on denial")
+	var found bool
+	for _, rec := range records {
+		if rec.Provider.Stage == lipfeature.StageIDPreRequest {
+			found = true
+			assert.Equal(t, policydecision.OutcomeDeny, rec.Outcome)
+			assert.Equal(t, extensions.ReasonPreRequestDenied, rec.ReasonCode)
+			assert.Equal(t, "pr-deny-gate", rec.Provider.ID)
+			assert.False(t, rec.BackendAttempted)
+			assert.Equal(t, "denied by pr-deny-gate", rec.ClientMessage)
+			assert.Equal(t, policydecision.EffectNone, rec.Effect)
+		}
+	}
+	assert.True(t, found, "expected pre_request stage policy decision record")
 
 	mu.Lock()
 	defer mu.Unlock()

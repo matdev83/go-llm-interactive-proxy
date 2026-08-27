@@ -333,18 +333,8 @@ var PlaneToolCallFinalizationMaxArgsBytes = Plane[int]{
 var PlaneRequestTransforms = Plane[[]request.Transform]{
 	ID:           "request_transforms",
 	Multiplicity: MultOrdered,
-	Candidate:    true,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
-	},
-	NilPolicy: NilReject,
-	Validate: func(v []request.Transform) error {
-		for i, tr := range v {
-			if tr == nil {
-				return fmt.Errorf("RequestTransforms[%d] must not be nil", i)
-			}
-		}
-		return nil
 	},
 	Combine: func(source SourceKind, current, incoming []request.Transform) ([]request.Transform, error) {
 		return append(current, incoming...), nil
@@ -354,7 +344,7 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 		Materialize: func(v []request.Transform) []DiagnosticOccupant {
 			nonNil := make([]request.Transform, 0, len(v))
 			for _, tr := range v {
-				if tr != nil {
+				if !isNilValue(tr) {
 					nonNil = append(nonNil, tr)
 				}
 			}
@@ -381,18 +371,8 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	ID:           "pre_request_handlers",
 	Multiplicity: MultOrdered,
-	Candidate:    true,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
-	},
-	NilPolicy: NilReject,
-	Validate: func(v []prerequest.Handler) error {
-		for i, h := range v {
-			if h == nil {
-				return fmt.Errorf("PreRequestHandlers[%d] must not be nil", i)
-			}
-		}
-		return nil
 	},
 	Combine: func(source SourceKind, current, incoming []prerequest.Handler) ([]prerequest.Handler, error) {
 		return append(current, incoming...), nil
@@ -402,7 +382,7 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 		Materialize: func(v []prerequest.Handler) []DiagnosticOccupant {
 			nonNil := make([]prerequest.Handler, 0, len(v))
 			for _, h := range v {
-				if h != nil {
+				if !isNilValue(h) {
 					nonNil = append(nonNil, h)
 				}
 			}
@@ -489,21 +469,20 @@ var PlaneCompletionGates = Plane[[]completion.Gate]{
 var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 	ID:           "attempt_transforms",
 	Multiplicity: MultOrdered,
-	Candidate:    true,
 	Rules: SourceRules{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
 	},
 	NilPolicy: NilReject,
 	Identity: func(v []request.AttemptTransform) (string, bool) {
-		if len(v) > 0 && v[0] != nil {
+		if len(v) > 0 && !isNilValue(v[0]) {
 			return v[0].ID(), true
 		}
 		return "", false
 	},
 	Validate: func(v []request.AttemptTransform) error {
 		for i, at := range v {
-			if at == nil {
+			if isNilValue(at) {
 				return fmt.Errorf("AttemptTransforms[%d] must not be nil", i)
 			}
 		}
@@ -511,13 +490,13 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 	},
 	Combine: func(source SourceKind, current, incoming []request.AttemptTransform) ([]request.AttemptTransform, error) {
 		if source == SourceGenerationBinder {
-			if len(incoming) == 0 || incoming[0] == nil {
+			if len(incoming) == 0 || isNilValue(incoming[0]) {
 				return current, nil
 			}
 			incID := incoming[0].ID()
 			out := make([]request.AttemptTransform, 0, len(current)+len(incoming))
 			for _, t := range current {
-				if t != nil && t.ID() == incID {
+				if !isNilValue(t) && t.ID() == incID {
 					continue
 				}
 				out = append(out, t)
@@ -532,7 +511,7 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		Materialize: func(v []request.AttemptTransform) []DiagnosticOccupant {
 			nonNil := make([]request.AttemptTransform, 0, len(v))
 			for _, tr := range v {
-				if tr != nil {
+				if !isNilValue(tr) {
 					nonNil = append(nonNil, tr)
 				}
 			}
@@ -899,4 +878,11 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneSecretGuards,
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
+}
+
+// StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.
+var StandardCandidatePlanes = []string{
+	"request_transforms",
+	"pre_request_handlers",
+	"attempt_transforms",
 }

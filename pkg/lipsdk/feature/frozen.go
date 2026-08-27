@@ -99,6 +99,15 @@ func ContributionSetFromFrozen(s FrozenPlaneSet) *ContributionSet {
 	return s.ToContributions()
 }
 
+func isCandidatePlaneID(planeID string) bool {
+	for _, id := range StandardCandidatePlanes {
+		if id == planeID {
+			return true
+		}
+	}
+	return false
+}
+
 // ContributeCandidateTo contributes candidate plane values in s into dst under the given source and contributor ID.
 func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source SourceKind, contributorID string) error {
 	if s.IsZero() || dst == nil {
@@ -115,10 +124,12 @@ func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source Sourc
 	}
 	// Test-only map-backed storage fallback:
 	for k, v := range s.values {
-		dst.values[k] = cloneAny(v)
-	}
-	for k, v := range s.identities {
-		dst.identities[k] = v
+		if isCandidatePlaneID(k) {
+			dst.values[k] = cloneAny(v)
+			if id, ok := s.identities[k]; ok {
+				dst.identities[k] = id
+			}
+		}
 	}
 	return nil
 }

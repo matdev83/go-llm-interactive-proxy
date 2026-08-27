@@ -333,3 +333,10 @@ func isReflectNil(v reflect.Value) bool {
 		return false
 	}
 }
+
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	return isReflectNil(reflect.ValueOf(v))
+}
