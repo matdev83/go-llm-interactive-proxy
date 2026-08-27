@@ -5,7 +5,7 @@
   "language": "en",
   "phase": "tasks-generated",
   "reviewed_against_main": "40168ce1f3890a1c86c22e898be9d264d63ccd72",
-  "review_revision": "2026-08-28-final-plan-session-cross-check",
+  "review_revision": "2026-08-28-runtime-parity-two-phase-final",
   "approvals": {
     "requirements": {
       "generated": true,
