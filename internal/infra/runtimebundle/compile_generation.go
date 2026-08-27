@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -41,10 +42,10 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	src := in.Candidate
 	if src == nil {
-		src = ps.cfg
-		if src == nil {
+		if ps.cfg == nil {
 			return nil, fmt.Errorf("runtimebundle: nil candidate config")
 		}
+		src = ps.cfg
 	}
 	frozen, err := freezeConfig(src)
 	if err != nil {
@@ -68,7 +69,23 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, compileHostBundle(ps.opts, in.CandidateOpts))
+	var host featurebundle.HostContributions
+	if ps.opts != nil {
+		host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
+	}
+	var extraBundles []lipfeature.FeatureBundle
+	if in.CandidateOpts != nil {
+		if c := in.CandidateOpts.Extensions; len(c.TrafficObservers) > 0 || len(c.UsageObservers) > 0 || len(c.RawCaptureSinks) > 0 || len(c.TrafficRedactors) > 0 {
+			extraBundles = append(extraBundles, lipfeature.FeatureBundle{
+				SchemaVersion:    lipfeature.SchemaVersionV1,
+				TrafficObservers: slices.Clone(c.TrafficObservers),
+				UsageObservers:   slices.Clone(c.UsageObservers),
+				RawCaptureSinks:  slices.Clone(c.RawCaptureSinks),
+				TrafficRedactors: slices.Clone(c.TrafficRedactors),
+			})
+		}
+	}
+	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host, extraBundles...)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
@@ -203,15 +220,14 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 }
 
 func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
-	var billingReports billing.ReportingStore
-	var billingReportsPath string
-	var billingProvisioner billing.AccountProvisioner
-	var billingExposureRecovery billing.ExposureRecovery
+	var (
+		billingReports          billing.ReportingStore
+		billingReportsPath      string
+		billingProvisioner      billing.AccountProvisioner
+		billingExposureRecovery billing.ExposureRecovery
+	)
 	if cand != nil {
-		billingReports = cand.operations.billingReports
-		billingReportsPath = cand.operations.billingReportsPath
-		billingProvisioner = cand.operations.billingProvisioner
-		billingExposureRecovery = cand.operations.billingExposureRecovery
+		billingReports, billingReportsPath, billingProvisioner, billingExposureRecovery = cand.operations.billingReports, cand.operations.billingReportsPath, cand.operations.billingProvisioner, cand.operations.billingExposureRecovery
 	}
 	var (
 		maxBody     int64
@@ -325,9 +341,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		TerminalDecisionProvider:         merged.TerminalDecisionProvider,
 	}
 	if processOpts != nil {
-		ext.SecretGuardEnvironment = processOpts.Extensions.SecretGuardEnvironment
-		ext.SecretGuardInputs = processOpts.Extensions.SecretGuardInputs
-		ext.SecretDecisionObserver = processOpts.Extensions.SecretDecisionObserver
+		ext.SecretGuardEnvironment, ext.SecretGuardInputs, ext.SecretDecisionObserver = processOpts.Extensions.SecretGuardEnvironment, processOpts.Extensions.SecretGuardInputs, processOpts.Extensions.SecretDecisionObserver
 	}
 	return ext
 }
@@ -366,21 +380,9 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 }
 
 func validateTerminalDecisionProvider(provider terminaldecision.Provider) error {
-	if provider == nil {
-		return nil
+	if provider != nil {
+		_, err := terminaldecision.ProviderIdentity(provider)
+		return err
 	}
-	_, err := terminaldecision.ProviderIdentity(provider)
-	return err
-}
-
-func compileHostBundle(processOpts *BuildOptions, candOpts *BuildOptions) (b lipfeature.FeatureBundle) {
-	if processOpts != nil {
-		b.TrafficObservers, b.UsageObservers = processOpts.Production.TrafficObservers, processOpts.Production.UsageObservers
-	}
-	if candOpts != nil {
-		b.TrafficObservers = append(b.TrafficObservers, append(candOpts.Production.TrafficObservers, candOpts.Extensions.TrafficObservers...)...)
-		b.UsageObservers = append(b.UsageObservers, append(candOpts.Production.UsageObservers, candOpts.Extensions.UsageObservers...)...)
-		b.RawCaptureSinks, b.TrafficRedactors = candOpts.Extensions.RawCaptureSinks, candOpts.Extensions.TrafficRedactors
-	}
-	return b
+	return nil
 }

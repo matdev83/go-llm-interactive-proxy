@@ -2,6 +2,8 @@ package runtimebundle
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -165,8 +171,7 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 			stubUsageObs{id: "feat-uo-1"},
 		},
 	}))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
+	require.NoError(t, featurebundle.ContributeHost(cs, featurebundle.HostContributions{
 		TrafficObservers: []traffic.Observer{
 			stubTrafficObs{id: "host-to-1"},
 			stubTrafficObs{id: "host-to-2"},
@@ -340,8 +345,7 @@ func TestObserversProjection_EndToEndSnapshotDispatch(t *testing.T) {
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, featurebundle.ContributeBundle(cs, "b1", b1))
 	require.NoError(t, featurebundle.ContributeBundle(cs, "b2", b2))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
+	require.NoError(t, featurebundle.ContributeHost(cs, featurebundle.HostContributions{
 		TrafficObservers: []traffic.Observer{
 			stubTrafficObs{id: "host-to", events: &trafficEvents, mu: &mu},
 		},
@@ -445,4 +449,324 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	extDisabled := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, genDisabled, nil)
 	require.Len(t, extDisabled.TrafficObservers, 1)
 	require.Empty(t, extDisabled.UsageObservers, "disabled usage plugin must not contribute to usage observers")
+}
+
+func obsTestProcessConfig() *config.Config {
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Server: config.ServerConfig{
+			MaxRequestBodyBytes:    1024,
+			MaxConcurrentDecodes:   4,
+			MaxInflightDecodeBytes: 4096,
+		},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+	}
+	_ = config.Validate(cfg)
+	return cfg
+}
+
+func obsTestCandidateConfig(t *testing.T, featurePlugins ...string) *config.Config {
+	t.Helper()
+	var yamlNode yaml.Node
+	_ = yaml.Unmarshal([]byte("text: ok\ninput_tokens: 1\noutput_tokens: 1\n"), &yamlNode)
+
+	features := make([]config.PluginConfig, 0, len(featurePlugins))
+	for _, f := range featurePlugins {
+		features = append(features, config.PluginConfig{
+			ID:      f,
+			Enabled: true,
+		})
+	}
+
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{
+			MaxAttempts:  3,
+			DefaultRoute: "stub-backend:default",
+		},
+		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Server: config.ServerConfig{
+			MaxRequestBodyBytes:    1024,
+			MaxConcurrentDecodes:   4,
+			MaxInflightDecodeBytes: 4096,
+		},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
+		Plugins: config.PluginsConfig{
+			Features:  features,
+			Frontends: []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			Backends: []config.PluginConfig{{
+				Kind:    "local-stub",
+				ID:      "stub-backend",
+				Enabled: true,
+				Config:  yamlNode,
+			}},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("validate candidate: %v", err)
+	}
+	return cfg
+}
+
+func obsTestFactoryCatalog(t *testing.T) *pluginreg.Registry {
+	t.Helper()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstubreg.RegisterInProcess(reg); err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("feature_then_host_order", func(t *testing.T) {
+		t.Parallel()
+		var events []string
+		var mu sync.Mutex
+
+		reg := obsTestFactoryCatalog(t)
+		err := reg.RegisterFeature("obs-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				TrafficObservers: []traffic.Observer{
+					stubTrafficObs{id: "feat-to", events: &events, mu: &mu},
+				},
+				UsageObservers: []usage.Observer{
+					stubUsageObs{id: "feat-uo", events: &events, mu: &mu},
+				},
+			}, nil
+		})
+		require.NoError(t, err)
+
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: reg,
+				Production: ProductionOptions{
+					TrafficObservers: []traffic.Observer{
+						stubTrafficObs{id: "host-to", events: &events, mu: &mu},
+					},
+					UsageObservers: []usage.Observer{
+						stubUsageObs{id: "host-uo", events: &events, mu: &mu},
+					},
+				},
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t, "obs-feature")
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				obs := in.Frontends.TrafficPorts.Obs
+				require.NotNil(t, obs)
+				require.NoError(t, obs.OnObservation(ctx, traffic.Observation{Leg: traffic.LegCTP}))
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+
+		require.Equal(t, []string{"feat-to", "host-to"}, events)
+	})
+
+	t.Run("candidate_production_options_ignored", func(t *testing.T) {
+		t.Parallel()
+		var events []string
+		var mu sync.Mutex
+
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: obsTestFactoryCatalog(t),
+				Production: ProductionOptions{
+					TrafficObservers: []traffic.Observer{
+						stubTrafficObs{id: "process-host-to", events: &events, mu: &mu},
+					},
+				},
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t)
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			CandidateOpts: &BuildOptions{
+				Production: ProductionOptions{
+					TrafficObservers: []traffic.Observer{
+						stubTrafficObs{id: "candidate-prod-to-SHOULD-BE-IGNORED", events: &events, mu: &mu},
+					},
+				},
+			},
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				obs := in.Frontends.TrafficPorts.Obs
+				require.NotNil(t, obs)
+				require.NoError(t, obs.OnObservation(ctx, traffic.Observation{Leg: traffic.LegCTP}))
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+
+		require.Equal(t, []string{"process-host-to"}, events, "candidate Production options must be ignored")
+	})
+
+	t.Run("candidate_extensions_raw_and_redactor_preserved", func(t *testing.T) {
+		t.Parallel()
+		var rawEvents, redEvents []string
+		var mu sync.Mutex
+
+		reg := obsTestFactoryCatalog(t)
+		err := reg.RegisterFeature("feature-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				RawCaptureSinks: []traffic.RawCaptureSink{
+					stubRawSink{id: "feat-raw", events: &rawEvents, mu: &mu},
+				},
+				TrafficRedactors: []traffic.Redactor{
+					stubRedactor{id: "1-feat-red", prefix: "feat", events: &redEvents, mu: &mu},
+				},
+			}, nil
+		})
+		require.NoError(t, err)
+
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: reg,
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t, "feature-raw-red")
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			CandidateOpts: &BuildOptions{
+				Extensions: ExtensionsOptions{
+					RawCaptureSinks: []traffic.RawCaptureSink{
+						stubRawSink{id: "cand-raw", events: &rawEvents, mu: &mu},
+					},
+					TrafficRedactors: []traffic.Redactor{
+						stubRedactor{id: "2-cand-red", prefix: "cand", events: &redEvents, mu: &mu},
+					},
+				},
+			},
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				raw := in.Frontends.TrafficPorts.Raw
+				require.NotNil(t, raw)
+				require.NoError(t, raw.WriteRaw(ctx, traffic.LegCTP, traffic.CaptureMeta{}, []byte("data")))
+
+				reds := in.Frontends.TrafficPorts.Red
+				require.Len(t, reds, 2)
+				assert.Equal(t, "1-feat-red", reds[0].ID())
+				assert.Equal(t, "2-cand-red", reds[1].ID())
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+
+		require.Equal(t, []string{"feat-raw", "cand-raw"}, rawEvents)
+	})
+
+	t.Run("spare_capacity_inputs_isolated", func(t *testing.T) {
+		t.Parallel()
+		rawSlice := make([]traffic.Observer, 1, 10)
+		rawSlice[0] = stubTrafficObs{id: "orig-to"}
+
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: obsTestFactoryCatalog(t),
+				Production: ProductionOptions{
+					TrafficObservers: rawSlice,
+				},
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t)
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+
+		require.Len(t, rawSlice, 1)
+		assert.Equal(t, "orig-to", rawSlice[0].(stubTrafficObs).id)
+	})
+
+	t.Run("nil_and_empty_exact", func(t *testing.T) {
+		t.Parallel()
+		cfg := obsTestProcessConfig()
+		require.NoError(t, config.Validate(cfg))
+
+		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+			Cfg: cfg,
+			Log: testkit.DiscardLogger(),
+			Opts: &BuildOptions{
+				PluginRegistry: obsTestFactoryCatalog(t),
+			},
+			Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ps.Close() })
+
+		cand := obsTestCandidateConfig(t)
+
+		bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+			Process:   ps,
+			Candidate: cand,
+			Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+				assert.Equal(t, traffic.NoopObserver{}, in.Frontends.TrafficPorts.Obs)
+				assert.Equal(t, traffic.DisabledRawCapture{}, in.Frontends.TrafficPorts.Raw)
+				assert.Nil(t, in.Frontends.TrafficPorts.Red)
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+			},
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = bundle.Close() })
+	})
 }

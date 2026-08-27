@@ -176,24 +176,61 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 // MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
 // and GeneratedMergeSurface using the same bundle instances.
 func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
-	return MergeFeatureSurfacesWithHost(reg, registrations, lipfeature.FeatureBundle{})
+	return MergeFeatureSurfacesWithHost(reg, registrations, HostContributions{})
 }
 
-// MergeFeatureSurfacesWithHost merges enabled feature plugins and host contributions into
-// legacy MergedFeatureSurface and GeneratedMergeSurface.
-func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsdk.Registration, host lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+// MergeFeatureSurfacesWithHost merges enabled feature plugins, optional candidate feature bundles, and host contributions into
+// legacy MergedFeatureSurface and GeneratedMergeSurface. Feature bundles are contributed under SourceFeature,
+// and host observer contributions are contributed under SourceHost.
+func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
 	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 	}
-	m, err := MergeBundlesChecked(bundles...)
+	allFeatureBundles := append(bundles, extraFeatureBundles...)
+	m, err := MergeBundlesChecked(allFeatureBundles...)
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 	}
-	allBundles := append(bundles, host)
-	g, err := MergeBundlesGenerated(allBundles...)
-	if err != nil {
+	cs := lipfeature.NewContributionSet()
+	var lifecycles []lipplugin.Lifecycle
+	bIdx := 0
+	for _, regEntry := range registrations {
+		if regEntry.Kind != lipsdk.PluginKindFeature || !regEntry.Enabled {
+			continue
+		}
+		b := bundles[bIdx]
+		bIdx++
+		pluginID := regEntry.ID
+		if pluginID == "" {
+			pluginID = regEntry.RegistryFactoryKey()
+		}
+		if pluginID == "" {
+			pluginID = fmt.Sprintf("feature-%d", bIdx)
+		}
+		if err := ContributeBundle(cs, pluginID, b); err != nil {
+			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+		}
+		lifecycles = append(lifecycles, b.Lifecycles...)
+	}
+	for i, eb := range extraFeatureBundles {
+		extraID := fmt.Sprintf("candidate-feature-%d", i)
+		if eb.TerminalDecisionProvider != nil {
+			if id, err := terminaldecision.ProviderIdentity(eb.TerminalDecisionProvider); err == nil && id != "" {
+				extraID = id
+			}
+		}
+		if err := ContributeBundle(cs, extraID, eb); err != nil {
+			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+		}
+		lifecycles = append(lifecycles, eb.Lifecycles...)
+	}
+	if err := ContributeHost(cs, host); err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+	}
+	g := GeneratedMergeSurface{
+		Frozen:     cs.Freeze(),
+		Lifecycles: lifecycles,
 	}
 	return m, g, nil
 }

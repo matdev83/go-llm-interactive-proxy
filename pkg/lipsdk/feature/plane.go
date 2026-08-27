@@ -154,7 +154,7 @@ type DiagnosticDescriptor[T any] struct {
 }
 
 type generatedAccess[T any] struct {
-	contribute func(*generatedContributions, string, T) error
+	contribute func(*generatedContributions, SourceKind, string, T) error
 	get        func(*generatedFrozen) T
 	identity   func(*generatedFrozen) (string, bool)
 }

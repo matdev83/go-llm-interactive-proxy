@@ -3,13 +3,43 @@ package featurebundle
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
+
+// HostContributions holds host-provided contributions (process options) that can be merged
+// alongside feature plugin contributions. Host contributions are merged under SourceHost
+// and are strictly limited to planes that permit host contributions (TrafficObservers, UsageObservers).
+type HostContributions struct {
+	TrafficObservers []traffic.Observer
+	UsageObservers   []usage.Observer
+}
+
+// ContributeHost contributes host-level observer contributions into the given ContributionSet
+// with SourceHost semantics.
+func ContributeHost(cs *lipfeature.ContributionSet, host HostContributions) error {
+	if cs == nil {
+		return errors.New("featurebundle: nil ContributionSet")
+	}
+	if len(host.TrafficObservers) > 0 {
+		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneTrafficObservers, lipfeature.SourceHost, "host", slices.Clone(host.TrafficObservers)); err != nil {
+			return err
+		}
+	}
+	if len(host.UsageObservers) > 0 {
+		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneUsageObservers, lipfeature.SourceHost, "host", slices.Clone(host.UsageObservers)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // GeneratedMergeSurface represents the composed result of feature contributions merged through
 // generated typed plane adapters. It holds an immutable FrozenPlaneSet containing all declared

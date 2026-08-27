@@ -71,11 +71,11 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 		fmt.Fprintf(&buf, "\t%s.generated = generatedAccess[%s]{\n", p.varName, p.typeExpr)
 
 		// contribute closure
-		fmt.Fprintf(&buf, "\t\tcontribute: func(gc *generatedContributions, pluginID string, v %s) error {\n", p.typeExpr)
+		fmt.Fprintf(&buf, "\t\tcontribute: func(gc *generatedContributions, source SourceKind, pluginID string, v %s) error {\n", p.typeExpr)
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\t\t\tincoming := cloneSlice(v)\n")
 			fmt.Fprintf(&buf, "\t\t\tcurrent := cloneSlice(gc.%s)\n", p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(SourceFeature, current, incoming)\n", p.varName)
+			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(source, current, incoming)\n", p.varName)
 			buf.WriteString("\t\t\tif err != nil {\n")
 			buf.WriteString("\t\t\t\treturn err\n")
 			buf.WriteString("\t\t\t}\n")
@@ -84,7 +84,7 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 			buf.WriteString("\t\t\t}\n")
 			fmt.Fprintf(&buf, "\t\t\tgc.%s = cloneSlice(combined)\n", p.fieldName)
 		} else {
-			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(SourceFeature, gc.%s, v)\n", p.varName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t\tcombined, err := %s.Combine(source, gc.%s, v)\n", p.varName, p.fieldName)
 			buf.WriteString("\t\t\tif err != nil {\n")
 			buf.WriteString("\t\t\t\treturn err\n")
 			buf.WriteString("\t\t\t}\n")
