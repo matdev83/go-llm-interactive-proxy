@@ -66,7 +66,7 @@ tar -xzf go-llm-interactive-proxy_vX.Y.Z_linux_amd64.tar.gz
 
 Verify the archive checksum against `checksums.txt` before use. Connector plugins remain separate installable artifacts; see [`docs/backend-plugins/operator.md`](docs/backend-plugins/operator.md).
 
-**License:** This repository does not currently ship an owner-approved open-source license. Public redistribution rights remain undefined until one is added.
+**License:** Licensed under the Apache License, Version 2.0. Copyright 2026 Mateusz Bartczak. See [LICENSE](LICENSE).
 
 ## Repository file policy
 
@@ -105,7 +105,7 @@ New top-level files or new component directories must be covered by patterns or 
 - **Observability** - Optional Prometheus metrics and OpenTelemetry tracing are configured under `observability`. Access logs use bounded-cardinality route groups by default; raw paths are opt-in.
 - **HTTP clients** - The shared upstream client honors `HTTP_PROXY` / `HTTPS_PROXY` by default. Set `http_client.trust_environment_proxy: false` when process environment is not trusted.
 - **Backend retry posture** - The hosted `openai-responses`, `openai-legacy`, and `anthropic` backend factories default `sdk_max_retries` to **0**: retry policy above the HTTP round trip lives in pre-output credential rotation and core failover, not in SDK-transparent retries. Operators may raise `sdk_max_retries` per backend row to opt back into provider-SDK retries.
-- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps (`max_pending_wire_events`; **0 = unlimited**), B2BUA store caps, and shared frontend **decode admission** (`max_concurrent_decodes` default **32**, `max_inflight_decode_bytes` default **64 MiB**) protect memory and request size boundaries. Absolute decompressed body oversize is **413**; temporary decode admission saturation is **429** + `Retry-After: 1`. Admission runs after body ReadAll (bytes already resident) and covers protocol Decode only. Raise body and inflight budgets together for large multimodal / long-context.
+- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps (`max_pending_wire_events`; **0 = unlimited**), B2BUA store caps, and shared frontend **decode admission** (`max_concurrent_decodes` default **32**, `max_inflight_decode_bytes` default **64 MiB`) protect memory and request size boundaries. Absolute decompressed body oversize is **413**; temporary decode admission saturation is **429** + `Retry-After: 1`. Admission runs after body ReadAll (bytes already resident) and covers protocol Decode only. Raise body and inflight budgets together for large multimodal / long-context.
 
 More detail: [`docs/proxy-identity.md`](docs/proxy-identity.md), [`docs/runtime-config-reload.md`](docs/runtime-config-reload.md), [`docs/secrets-guard.md`](docs/secrets-guard.md), [`docs/database-persistence.md`](docs/database-persistence.md), [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md), [`docs/execerr-classification.md`](docs/execerr-classification.md), [`docs/extension-platform-authoring.md`](docs/extension-platform-authoring.md), [`docs/release-gates.md`](docs/release-gates.md), and [`docs/cursor-sdk-backend.md`](docs/cursor-sdk-backend.md).
 
