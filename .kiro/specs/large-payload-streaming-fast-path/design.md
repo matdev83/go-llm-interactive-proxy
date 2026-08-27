@@ -101,7 +101,7 @@ graph TB
 - The optimization never becomes a parallel router or parallel policy engine.
 
 **Project Boundary Questions (Go LIP)**
-- **Core-owned or plugin-owned?** Capture/protocol proof is frontend-owned; eligibility policy and execution order are core-owned; wire HTTP construction is backend-owned; immutable compatibility composition is runtimebundle-owned.
+- **Core-owned or plugin-owned?** Capture/protocol proof and adapter-local canonical-only constraints are frontend-owned; authoritative generation/session/routing eligibility policy and execution order are core-owned; wire HTTP construction is backend-owned; immutable compatibility composition is runtimebundle-owned. In particular, `frontendpipe` must gate its own full-buffer `TrafficPorts` before handing a request to core; core separately gates its own canonical/CTP traffic consumers.
 - **New canonical concept?** No. Opaque request bytes are intentionally *not* canonical data. Provider-neutral wire metadata lives in SDK request-body contracts, outside `lipapi.Call`.
 - **Streaming-first preserved?** Yes. Provider responses still enter existing canonical streaming parsers and frontends consume canonical events.
 - **Provider SDK leakage avoided?** Yes. Core sees only SDK request-body facts and backend capability functions.
@@ -365,13 +365,14 @@ Do not export `http.Header` into the core request-body SDK; it is available only
 
 1. Run the existing handler-level method/auth/content-type checks exactly where they run today.
 2. If no optional `LargeBodyExecutorView`, feature disabled, or frontend `WireProfile=nil`: execute existing `reqbody.ReadAll` path with no spool.
-3. If positive known `Content-Length < ThresholdBytes`: execute existing canonical path.
-4. Otherwise create capture + scanner/profile observer and consume decoded body under the existing effective max bytes. For V1, non-identity content encoding (gzip) immediately selects canonical `reqbody.ReadAll`; gzip moves here only in the later compression task.
-5. On scanner/protocol uncertainty or fast-path-ineligible construct: materialize from capture and execute the existing `jsonguard`/Decode/Validate path. Do not synthesize a new frontend error when the canonical decoder can produce the established one.
-6. If final decoded size < threshold (unknown/chunked length case): materialize and canonical path.
-7. If profile proves a valid candidate: construct `requestbody.ExecutionRequest`. Its `Canonicalize` closure reopens/materializes the capture and calls the **existing Spec.Decode + call.Validate + AfterDecode + validate** sequence. The closure must not perform HTTP writes.
-8. Transfer source ownership to core via `ExecuteLargeBody`.
-9. Consume the returned canonical event stream using the existing response writer/encoder. No alternate response protocol path is introduced.
+3. If the frontend-owned ingress traffic bundle (`Spec.TrafficPorts` or its current equivalent) is non-noop and request emission still requires a complete `[]byte`, execute the existing canonical path **before capture/spooling**. This preserves the existing adapter-owned raw A-leg traffic emission and its position before executor invocation.
+4. If positive known `Content-Length < ThresholdBytes`: execute existing canonical path.
+5. Otherwise create capture + scanner/profile observer and consume decoded body under the existing effective max bytes. For V1, non-identity content encoding (gzip) immediately selects canonical `reqbody.ReadAll`; gzip moves here only in the later compression task.
+6. On scanner/protocol uncertainty or fast-path-ineligible construct: materialize from capture and execute the existing `jsonguard`/Decode/Validate path. Do not synthesize a new frontend error when the canonical decoder can produce the established one.
+7. If final decoded size < threshold (unknown/chunked length case): materialize and canonical path.
+8. If profile proves a valid candidate: construct `requestbody.ExecutionRequest`. Its `Canonicalize` closure reopens/materializes the capture and calls the **existing Spec.Decode + call.Validate + AfterDecode + validate** sequence. The closure must not perform HTTP writes, must not emit the frontend ingress traffic already gated in step 3, and must not begin executor/session work.
+9. Transfer source ownership to core via `ExecuteLargeBody`.
+10. Consume the returned canonical event stream using the existing response writer/encoder. No alternate response protocol path is introduced.
 
 ### Protocol profile proof
 
@@ -448,7 +449,7 @@ Initial classification against current `FeatureBundle` / snapshot planes:
 - PreRequestHandlers
 - RouteHintProviders
 - AttemptTransforms
-- TrafficObservers / RawCaptureSinks / TrafficRedactors (because A-leg request capture currently requires `[]byte`)
+- TrafficObservers / RawCaptureSinks / TrafficRedactors (core/composed request-side consumers; the frontend adapter's own `Spec.TrafficPorts` is gated earlier in `frontendpipe`)
 - CompactionPreservers
 - SecretGuards
 - LocalTurnHandlers
@@ -544,6 +545,7 @@ sequenceDiagram
 
 Rules:
 - Static blockers must be checked before `BeginTurn` when possible.
+- Adapter-local blockers that own pre-core behavior (notably frontend ingress `TrafficPorts`) have already selected the ordinary canonical path before `ExecuteLargeBody` is called.
 - Protocol validation that could result in a client 4xx must be completed before core identity side effects; `Canonicalize` after identity should succeed for a proof-approved body. If it unexpectedly fails, classify as an internal parity invariant failure, finalize/abort the begun turn once, and emit diagnostics—never call fresh `Execute` and duplicate the turn.
 - Dynamic canonical continuation reuses identity/A-leg/request generation; it does not repeat session open/workspace/begin-turn.
 - Request authority admission and all post-identity stages execute once.
@@ -552,7 +554,7 @@ Rules:
 
 Canonical-required if any of the following are active and lack a dedicated wire contract:
 - snapshot access summary blockers;
-- request traffic `PortBundle.EmitIsNoop()==false` for ingress/canonical body capture;
+- **core-owned** canonical/CTP request traffic capture/redaction/observation requiring full canonical/body materialization (frontend ingress `Spec.TrafficPorts` is an earlier adapter gate, not a core responsibility);
 - billing credit/exposure callbacks whose identity/pricing functions consume full Call;
 - request token estimator/context-size policy requiring semantic tokens;
 - content-derived metering checkpoint;
@@ -719,7 +721,9 @@ Do not borrow Bifrost's deflate/br/zstd support in #503.
 ## Traffic, Guardrail, Metering, Billing Rules
 
 ### Traffic
-Current `traffic.PortBundle.Emit` requires `[]byte`. Therefore request-side non-noop traffic bundles are blockers in the initial implementation. Response traffic remains unchanged because response events are canonical as before.
+There are two ownership layers and they must not be conflated:
+- **Frontend ingress/A-leg raw traffic:** current `frontendpipe.Spec.TrafficPorts.Emit` consumes a complete `[]byte` and is invoked before executor entry. If that bundle is non-noop, `frontendpipe` selects the ordinary canonical path before capture/spooling so the existing emission happens exactly once in the same order. Core must not be made responsible for this adapter state.
+- **Core/composed canonical/CTP request traffic:** request-side core traffic observers/redactors/capture that require canonical/full-body representation are generation-pinned `AccessSummary` blockers. Response traffic remains unchanged because response events are canonical as before.
 
 ### Secret/DLP/guardrails
 Existing content guard interfaces receive canonical content; their occupancy blocks wire execution. Do not add an `io.Reader` overload inside #503 unless a separate task explicitly implements and parity-tests a typed streaming guard.
@@ -796,14 +800,14 @@ Tracing spans may record: body size, spilled bool, reason, profile, rewrite bool
 | 2 | config + frontendpipe threshold + existing max-body ceiling |
 | 3 | `jsonshape.ScanReader` differential scanner |
 | 4 | frontend profile observer and token spans |
-| 5 | frozen AccessSummary + core static/dynamic proof |
+| 5 | frontend adapter gate + frozen AccessSummary + core static/dynamic proof |
 | 6 | preparation split + `ExecuteLargeBody` + existing canonical EventStream |
 | 7 | `ResolveWireRequest` / `OpenWire` optional backend contract |
 | 8 | source splice reader using scanner model span |
 | 9 | route-facts refactor, immutable replay source, unchanged recovery controller |
 | 10 | staged gzip canonical fallback then decoded capture |
 | 11 | backend-owned direct HTTP construction and existing shared client/security |
-| 12 | traffic/guard/billing/conversation blockers |
+| 12 | frontend/core traffic + guard/billing/conversation blockers |
 | 13 | capture state machine, tracked readers, budget, cleanup tests |
 | 14 | explicit certification matrix and protocol validators |
 | 15 | benchmark/load suite |
@@ -858,7 +862,8 @@ For each certified profile:
 4. For normalization-sensitive corpus, assert wire profile says canonical-only and current canonical behavior remains the result.
 
 ### Core integration tests
-- static blocker falls back before `BeginTurn`;
+- frontend ingress traffic blocker stays in the adapter and never reaches `ExecuteLargeBody`;
+- static core blocker falls back before `BeginTurn`;
 - dynamic route/backend blocker after identity uses prepared canonical continuation and calls `BeginTurn` exactly once;
 - wire success calls no canonical content stage;
 - route override is honored;
@@ -866,7 +871,7 @@ For each certified profile:
 - race route with incompatible candidate falls back, not serializes/prunes;
 - retry opens source at byte zero;
 - no retry after output;
-- billing/traffic/secret/conversation blockers;
+- billing/core-traffic/secret/conversation blockers;
 - reload pins generation;
 - cancellation at scan, identity, provider open, response stream.
 
@@ -890,10 +895,10 @@ Benchmarks from requirements §15. Add `-benchmem`, pprof/metrics scripts using 
 Yes. The exception is an explicitly certified opaque request-body lane, but response flow and all unsupported requests remain canonical. The exception is modeled as a separate use case rather than contaminating `lipapi.Call` with raw bytes.
 
 **Does it move routing/failover into adapters?**
-No. Frontend only extracts/proves facts; backend only declares compatibility/opens a candidate; core still selects and sequences candidates.
+No. Frontend only extracts/proves facts and gates adapter-local behaviors such as its own traffic capture; backend only declares compatibility/opens a candidate; core still selects and sequences candidates.
 
 **Can a configured feature disappear silently?**
-No. Unknown/unclassified request-content stages default to canonical-required. Existing full-buffer traffic/guard/billing/conversation paths are blockers.
+No. Frontend full-buffer traffic is an early canonical gate; unknown/unclassified core request-content stages default to canonical-required. Existing guard/billing/conversation paths are blockers.
 
 **Can dynamic fallback duplicate secure-session side effects?**
 No. This was the largest design repair. `prepareIdentityAuthority` is reused and canonical continuation runs post-identity stages once rather than calling fresh `Execute`.
@@ -913,7 +918,7 @@ Yes. Wire profile types are provider-neutral; provider endpoint/credential logic
 ### Validation repairs applied
 1. Replaced naive “ExecuteWire(metadata shell Call)” idea with a distinct request-body contract because `Call.Validate` and preparation require real content.
 2. Replaced naive “fallback after route proof by calling Execute again” with prepared canonical continuation to prevent duplicate secure-session/A-leg side effects.
-3. Made request-side traffic capture an explicit blocker because current `PortBundle.Emit` requires full `[]byte`.
+3. Split traffic ownership correctly: frontend ingress `TrafficPorts` gates to canonical before capture, while core/composed canonical/CTP traffic remains a generation-pinned core blocker. This preserves the existing frontend emission order instead of asking core to own adapter state.
 4. Added protocol semantic-subset certification because OpenAI decoders normalize malformed history.
 5. Staged gzip rather than broadening encodings from Bifrost.
 6. Made fast path disabled by default and new/unclassified planes fail-safe to canonical.
