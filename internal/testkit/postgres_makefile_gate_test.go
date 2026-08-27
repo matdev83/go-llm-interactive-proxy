@@ -1,11 +1,15 @@
 package testkit
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 )
 
 func TestMakefile_AuthorityPostgresPooledUsesNormalParallelism(t *testing.T) {
@@ -96,8 +100,11 @@ func TestMakefile_DBParityTargetsDelegation(t *testing.T) {
 	// 1. test-db-parity-sqlite delegates to runner in sqlite mode without hardcoded package lists
 	assertMakefileTarget(t, text, "test-db-parity-sqlite:", func(t *testing.T, rest string) {
 		t.Helper()
-		if !strings.Contains(rest, "./internal/testkit/dbparity/cmd sqlite") {
+		if !strings.Contains(rest, "./internal/testkit/dbparity/cmd") || !strings.Contains(rest, "sqlite") {
 			t.Fatalf("test-db-parity-sqlite must delegate to dbparity runner with 'sqlite' mode, got:\n%s", rest)
+		}
+		if strings.Contains(rest, "-flags") || strings.Contains(rest, "--flags") {
+			t.Fatalf("test-db-parity-sqlite must not interpolate -flags CLI arguments into recipe (rely on exported GO_TEST_FLAGS), got:\n%s", rest)
 		}
 		for _, forbidden := range forbiddenPkgSubstrings {
 			if strings.Contains(rest, forbidden) {
@@ -109,18 +116,38 @@ func TestMakefile_DBParityTargetsDelegation(t *testing.T) {
 	// 2. test-db-parity-postgres-direct sets LIP_REQUIRE_POSTGRES=1 and delegates to runner in postgres-direct mode
 	assertMakefileTarget(t, text, "test-db-parity-postgres-direct:", func(t *testing.T, rest string) {
 		t.Helper()
-		if !strings.Contains(rest, "./internal/testkit/dbparity/cmd postgres-direct") {
-			t.Fatalf("test-db-parity-postgres-direct must delegate to dbparity runner with 'postgres-direct' mode, got:\n%s", rest)
+		assertTargetNoPrerequisites(t, rest, "test-db-parity-postgres-direct:")
+
+		winBranch, posixBranch := splitMakefileBranches(t, rest)
+
+		// Windows branch
+		if !strings.Contains(winBranch, "./internal/testkit/dbparity/cmd") || !strings.Contains(winBranch, "postgres-direct") {
+			t.Fatalf("test-db-parity-postgres-direct Windows branch must delegate to dbparity runner with 'postgres-direct' mode, got:\n%s", winBranch)
 		}
-		if !strings.Contains(rest, "LIP_REQUIRE_POSTGRES=1") {
-			t.Fatalf("test-db-parity-postgres-direct must set LIP_REQUIRE_POSTGRES=1 on POSIX branch")
+		if strings.Contains(winBranch, "-flags") || strings.Contains(winBranch, "--flags") {
+			t.Fatalf("test-db-parity-postgres-direct Windows branch must not interpolate -flags into recipe, got:\n%s", winBranch)
 		}
-		if !strings.Contains(rest, `[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process')`) {
-			t.Fatalf("test-db-parity-postgres-direct must set LIP_REQUIRE_POSTGRES=1 on Windows branch")
+		if !strings.Contains(winBranch, `[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process')`) {
+			t.Fatalf("test-db-parity-postgres-direct Windows branch must set LIP_REQUIRE_POSTGRES=1 via SetEnvironmentVariable, got:\n%s", winBranch)
 		}
-		if !strings.Contains(rest, "LIP_TEST_POSTGRES_ADMIN_DSN") {
-			t.Fatalf("test-db-parity-postgres-direct must support LIP_TEST_POSTGRES_ADMIN_DSN fallback")
+		if !strings.Contains(winBranch, "LIP_MANAGED_POSTGRES_DSN") || !strings.Contains(winBranch, "LIP_TEST_POSTGRES_ADMIN_DSN") {
+			t.Fatalf("test-db-parity-postgres-direct Windows branch must preserve runtime DSN, alias managed DSN, and fallback to admin DSN, got:\n%s", winBranch)
 		}
+
+		// POSIX branch
+		if !strings.Contains(posixBranch, "./internal/testkit/dbparity/cmd") || !strings.Contains(posixBranch, "postgres-direct") {
+			t.Fatalf("test-db-parity-postgres-direct POSIX branch must delegate to dbparity runner with 'postgres-direct' mode, got:\n%s", posixBranch)
+		}
+		if strings.Contains(posixBranch, "-flags") || strings.Contains(posixBranch, "--flags") {
+			t.Fatalf("test-db-parity-postgres-direct POSIX branch must not interpolate -flags into recipe, got:\n%s", posixBranch)
+		}
+		if !strings.Contains(posixBranch, "LIP_REQUIRE_POSTGRES=1") {
+			t.Fatalf("test-db-parity-postgres-direct POSIX branch must set LIP_REQUIRE_POSTGRES=1 prefix, got:\n%s", posixBranch)
+		}
+		if !strings.Contains(posixBranch, `LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}"`) {
+			t.Fatalf("test-db-parity-postgres-direct POSIX branch must preserve runtime DSN, alias managed DSN, and fallback to admin DSN, got:\n%s", posixBranch)
+		}
+
 		for _, forbidden := range forbiddenPkgSubstrings {
 			if strings.Contains(rest, forbidden) {
 				t.Fatalf("test-db-parity-postgres-direct must not hardcode package list (found %q in %s)", forbidden, rest)
@@ -136,24 +163,30 @@ func TestMakefile_DBParityTargetsDelegation(t *testing.T) {
 		winBranch, posixBranch := splitMakefileBranches(t, rest)
 
 		// Windows branch: delegates with 'all' mode and fail-closed env wiring
-		if !strings.Contains(winBranch, "./internal/testkit/dbparity/cmd all") {
+		if !strings.Contains(winBranch, "./internal/testkit/dbparity/cmd") || !strings.Contains(winBranch, "all") {
 			t.Fatalf("test-db-parity Windows branch must invoke dbparity runner with 'all' mode, got:\n%s", winBranch)
+		}
+		if strings.Contains(winBranch, "-flags") || strings.Contains(winBranch, "--flags") {
+			t.Fatalf("test-db-parity Windows branch must not interpolate -flags into recipe, got:\n%s", winBranch)
 		}
 		if !strings.Contains(winBranch, `[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process')`) {
 			t.Fatalf("test-db-parity Windows branch must set LIP_REQUIRE_POSTGRES=1 via SetEnvironmentVariable, got:\n%s", winBranch)
 		}
-		if !strings.Contains(winBranch, "LIP_TEST_POSTGRES_ADMIN_DSN") || !strings.Contains(winBranch, `SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN'`) {
-			t.Fatalf("test-db-parity Windows branch must support LIP_TEST_POSTGRES_ADMIN_DSN fallback, got:\n%s", winBranch)
+		if !strings.Contains(winBranch, "LIP_MANAGED_POSTGRES_DSN") || !strings.Contains(winBranch, "LIP_TEST_POSTGRES_ADMIN_DSN") {
+			t.Fatalf("test-db-parity Windows branch must preserve runtime DSN, alias managed DSN, and fallback to admin DSN, got:\n%s", winBranch)
 		}
 
 		// POSIX branch: delegates with 'all' mode and fail-closed env wiring
-		if !strings.Contains(posixBranch, "./internal/testkit/dbparity/cmd all") {
+		if !strings.Contains(posixBranch, "./internal/testkit/dbparity/cmd") || !strings.Contains(posixBranch, "all") {
 			t.Fatalf("test-db-parity POSIX branch must invoke dbparity runner with 'all' mode, got:\n%s", posixBranch)
+		}
+		if strings.Contains(posixBranch, "-flags") || strings.Contains(posixBranch, "--flags") {
+			t.Fatalf("test-db-parity POSIX branch must not interpolate -flags into recipe, got:\n%s", posixBranch)
 		}
 		if !strings.Contains(posixBranch, "LIP_REQUIRE_POSTGRES=1") {
 			t.Fatalf("test-db-parity POSIX branch must set LIP_REQUIRE_POSTGRES=1 prefix, got:\n%s", posixBranch)
 		}
-		if !strings.Contains(posixBranch, `LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}"`) {
+		if !strings.Contains(posixBranch, `LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}"`) {
 			t.Fatalf("test-db-parity POSIX branch must contain LIP_TEST_POSTGRES_DSN fallback expression, got:\n%s", posixBranch)
 		}
 
@@ -161,6 +194,136 @@ func TestMakefile_DBParityTargetsDelegation(t *testing.T) {
 			if strings.Contains(rest, forbidden) {
 				t.Fatalf("test-db-parity must not hardcode package list (found %q in %s)", forbidden, rest)
 			}
+		}
+	})
+}
+
+func TestMakefile_ExportGoTestFlagsPropagation(t *testing.T) {
+	root := moduleRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "export GO_TEST_FLAGS") {
+		t.Fatal("Makefile must include 'export GO_TEST_FLAGS'")
+	}
+
+	t.Run("makefile_dry_run_export_marker", func(t *testing.T) {
+		makePath, err := exec.LookPath("make")
+		if err != nil {
+			t.Skip("make executable not found on PATH; skipping make child environment probe")
+		}
+
+		// Probe make dry-run with complex flags containing quotes
+		cmd := exec.Command(makePath, "-n", "test-db-parity-sqlite", `GO_TEST_FLAGS=-run "Test Name" -count=1`)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make -n probe failed: %v\nOutput: %s", err, string(out))
+		}
+		outStr := string(out)
+		if strings.Contains(outStr, "-flags") || strings.Contains(outStr, "--flags") {
+			t.Fatalf("make recipe output should not contain interpolated -flags, got:\n%s", outStr)
+		}
+		if !strings.Contains(outStr, "internal/testkit/dbparity/cmd sqlite") {
+			t.Fatalf("make recipe should invoke dbparity runner with sqlite, got:\n%s", outStr)
+		}
+	})
+
+	t.Run("runner_plan_preserves_quoted_env_groups", func(t *testing.T) {
+		rawEnv := `-run "^$" -count=1`
+		parsed, err := dbparity.ParseFlagWords(rawEnv)
+		if err != nil {
+			t.Fatalf("ParseFlagWords(%q) failed: %v", rawEnv, err)
+		}
+		if len(parsed) != 3 || parsed[0] != "-run" || parsed[1] != "^$" || parsed[2] != "-count=1" {
+			t.Fatalf("unexpected parsed flag words: %#v", parsed)
+		}
+
+		plans, err := dbparity.Plan(dbparity.ModeSQLite, dbparity.PlanOptions{
+			GoTestFlags: parsed,
+			ComponentID: "billing",
+		})
+		if err != nil {
+			t.Fatalf("Plan failed: %v", err)
+		}
+		if len(plans) != 1 {
+			t.Fatalf("expected 1 plan, got %d", len(plans))
+		}
+		plan := plans[0]
+		foundGroup := false
+		for _, arg := range plan.Args {
+			if arg == "^$" {
+				foundGroup = true
+			}
+		}
+		if !foundGroup {
+			t.Fatalf("plan.Args missing preserved quoted flag group %q: %#v", "^$", plan.Args)
+		}
+	})
+
+	t.Run("runner_cli_subprocess_handles_go_test_flags_and_errors", func(t *testing.T) {
+		goBin, err := exec.LookPath("go")
+		if err != nil {
+			t.Skip("go binary not found on PATH; skipping subprocess test")
+		}
+
+		binPath := filepath.Join(t.TempDir(), "dbparity")
+		if runtime.GOOS == "windows" {
+			binPath += ".exe"
+		}
+		buildCmd := exec.Command(goBin, "build", "-o", binPath, "./internal/testkit/dbparity/cmd")
+		buildCmd.Dir = root
+		if buildOut, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
+			t.Fatalf("failed to build dbparity: %v\nOutput: %s", buildErr, string(buildOut))
+		}
+
+		// Valid GO_TEST_FLAGS with quoted no-op regex in sqlite mode (must execute actual sqlite mode and succeed with exit code 0)
+		cmdValid := exec.Command(binPath, "sqlite")
+		cmdValid.Dir = root
+		cmdValid.Env = append(os.Environ(), `GO_TEST_FLAGS=-run "^$" -count=1`)
+		outValid, errValid := cmdValid.CombinedOutput()
+		if errValid != nil {
+			t.Fatalf("dbparity sqlite with valid quoted GO_TEST_FLAGS failed: %v\nOutput: %s", errValid, string(outValid))
+		}
+
+		// Invalid GO_TEST_FLAGS with unclosed quote (must exit with exit code 2 and actionable error)
+		cmdInvalid := exec.Command(binPath, "list")
+		cmdInvalid.Dir = root
+		cmdInvalid.Env = append(os.Environ(), `GO_TEST_FLAGS=-run "Unclosed Quote`)
+		outInvalid, errInvalid := cmdInvalid.CombinedOutput()
+		if errInvalid == nil {
+			t.Fatalf("expected dbparity to fail with invalid GO_TEST_FLAGS, but succeeded:\n%s", string(outInvalid))
+		}
+		var exitErr *exec.ExitError
+		if errors.As(errInvalid, &exitErr) {
+			if exitErr.ExitCode() != 2 {
+				t.Fatalf("expected exit code 2 for invalid GO_TEST_FLAGS, got: %d", exitErr.ExitCode())
+			}
+		} else {
+			t.Fatalf("expected *exec.ExitError, got: %T (%v)", errInvalid, errInvalid)
+		}
+		if !strings.Contains(string(outInvalid), "invalid GO_TEST_FLAGS environment variable") || !strings.Contains(string(outInvalid), "unclosed double quote") {
+			t.Fatalf("expected actionable error on invalid GO_TEST_FLAGS, got: %s", string(outInvalid))
+		}
+
+		// Invalid -flags CLI argument with unclosed quote (must exit with exit code 2 and actionable error)
+		cmdInvalidFlag := exec.Command(binPath, "-flags", `-run "Unclosed Quote`, "list")
+		cmdInvalidFlag.Dir = root
+		outInvalidFlag, errInvalidFlag := cmdInvalidFlag.CombinedOutput()
+		if errInvalidFlag == nil {
+			t.Fatalf("expected dbparity to fail with invalid -flags argument, but succeeded:\n%s", string(outInvalidFlag))
+		}
+		if errors.As(errInvalidFlag, &exitErr) {
+			if exitErr.ExitCode() != 2 {
+				t.Fatalf("expected exit code 2 for invalid -flags argument, got: %d", exitErr.ExitCode())
+			}
+		} else {
+			t.Fatalf("expected *exec.ExitError, got: %T (%v)", errInvalidFlag, errInvalidFlag)
+		}
+		if !strings.Contains(string(outInvalidFlag), "invalid -flags argument") || !strings.Contains(string(outInvalidFlag), "unclosed double quote") {
+			t.Fatalf("expected actionable error on invalid -flags argument, got: %s", string(outInvalidFlag))
 		}
 	})
 }

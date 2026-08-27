@@ -187,13 +187,14 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 		if !pgOk {
 			violations = append(violations, "db-parity must provision a postgres service container")
 		} else {
-			if !strings.HasPrefix(pgService.Image, "postgres:17") {
-				violations = append(violations, "db-parity postgres service image must be pinned to postgres:17 (got "+pgService.Image+")")
+			if !strings.HasPrefix(pgService.Image, "postgres:17") || !strings.Contains(pgService.Image, "@sha256:") {
+				violations = append(violations, "db-parity postgres service image must be pinned to postgres:17 by digest (@sha256:...) (got "+pgService.Image+")")
 			}
 		}
 
 		var (
 			hasScopeFailClosed bool
+			hasEnvVerifyStep   bool
 			hasParityStep      bool
 			hasParityBypass    bool
 		)
@@ -203,6 +204,34 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 			}
 			if strings.Contains(step.If, "needs.changes.result != 'success'") && slices.Contains(extractExecutableRunLines(step.Run), "exit 1") {
 				hasScopeFailClosed = true
+			}
+
+			if step.Name == "Verify PostgreSQL test environment" {
+				if normalizeExpression(step.If) != "needs.changes.result == 'success' && needs.changes.outputs.test == 'true'" {
+					violations = append(violations, "db-parity verify env step must have exact condition 'needs.changes.result == \\'success\\' && needs.changes.outputs.test == \\'true\\''")
+				}
+				if step.Shell != "" && step.Shell != "bash" {
+					violations = append(violations, "db-parity verify env step shell must be empty or 'bash' (got '"+step.Shell+"')")
+				}
+				if step.Env["LIP_REQUIRE_POSTGRES"] != "1" {
+					violations = append(violations, "db-parity verify env step must set LIP_REQUIRE_POSTGRES: '1'")
+				}
+				if step.Env["LIP_TEST_POSTGRES_DSN"] != "postgres://lip:lip@localhost:5432/lip_test?sslmode=disable" {
+					violations = append(violations, "db-parity verify env step must set LIP_TEST_POSTGRES_DSN: 'postgres://lip:lip@localhost:5432/lip_test?sslmode=disable'")
+				}
+				if step.Env["LIP_TEST_POSTGRES_ADMIN_DSN"] != "postgres://lip:lip@localhost:5432/lip_test?sslmode=disable" {
+					violations = append(violations, "db-parity verify env step must set LIP_TEST_POSTGRES_ADMIN_DSN: 'postgres://lip:lip@localhost:5432/lip_test?sslmode=disable'")
+				}
+				runLines := extractExecutableRunLines(step.Run)
+				if !slices.Contains(runLines, "pg_isready -h localhost -p 5432 -U lip -d lip_test") {
+					violations = append(violations, "db-parity verify env step must include live probe 'pg_isready -h localhost -p 5432 -U lip -d lip_test'")
+				}
+				for _, line := range runLines {
+					if (strings.HasPrefix(line, "echo") || strings.HasPrefix(line, "printf")) && (strings.Contains(line, "$LIP_TEST_POSTGRES") || strings.Contains(line, "$LIP_MANAGED_POSTGRES") || strings.Contains(line, "${LIP_TEST_POSTGRES") || strings.Contains(line, "${LIP_MANAGED_POSTGRES") || strings.Contains(line, "postgres://")) {
+						violations = append(violations, "db-parity verify env step must not interpolate DSN variables or secrets in echo/printf output")
+					}
+				}
+				hasEnvVerifyStep = true
 			}
 
 			if strings.TrimSpace(step.Run) == "make test-db-parity" {
@@ -234,6 +263,9 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 
 		if !hasScopeFailClosed {
 			violations = append(violations, "db-parity must contain a step that fails closed when scope detection fails")
+		}
+		if !hasEnvVerifyStep {
+			violations = append(violations, "db-parity must contain a step named 'Verify PostgreSQL test environment' that verifies the PostgreSQL test environment and runs pg_isready")
 		}
 		if !hasParityStep {
 			violations = append(violations, "db-parity must execute canonical target 'make test-db-parity'")
@@ -290,11 +322,34 @@ jobs:
     if: always()
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     steps:
       - name: Fail closed if scope detection failed
         if: "needs.changes.result != 'success'"
         run: exit 1
+      - name: Verify PostgreSQL test environment
+        if: "needs.changes.result == 'success' && needs.changes.outputs.test == 'true'"
+        shell: bash
+        env:
+          LIP_REQUIRE_POSTGRES: '1'
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+        run: |
+          set -euo pipefail
+          if [[ -z "${LIP_TEST_POSTGRES_DSN:-}" || -z "${LIP_TEST_POSTGRES_ADMIN_DSN:-}" ]]; then
+            echo "Error: required PostgreSQL test DSN is unset" >&2
+            exit 1
+          fi
+          if [[ "${LIP_TEST_POSTGRES_DSN}" == *"POOLER"* || "${LIP_TEST_POSTGRES_ADMIN_DSN}" == *"POOLER"* ]]; then
+            echo "Error: direct PostgreSQL test DSN must not target a transaction pooler" >&2
+            exit 1
+          fi
+          if [[ "${LIP_REQUIRE_POSTGRES:-}" != "1" ]]; then
+            echo "Error: LIP_REQUIRE_POSTGRES must be set to 1" >&2
+            exit 1
+          fi
+          pg_isready -h localhost -p 5432 -U lip -d lip_test
+          echo "PostgreSQL test environment verified for direct parity execution."
       - name: Run database dialect parity tests
         if: "needs.changes.result == 'success' && needs.changes.outputs.test == 'true'"
         env:
@@ -412,28 +467,32 @@ jobs:
 		{
 			name: "db-parity moved make test-db-parity to bypass condition",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "needs.changes.outputs.test == 'true'", "needs.changes.outputs.test != 'true'")
+				idx := strings.Index(s, "Run database dialect parity tests")
+				return s[:idx] + mustMutate(t, s[idx:], "needs.changes.outputs.test == 'true'", "needs.changes.outputs.test != 'true'")
 			},
 			wantSubstr: "db-parity test step must have exact condition 'needs.changes.result == \\'success\\' && needs.changes.outputs.test == \\'true\\''",
 		},
 		{
 			name: "db-parity test step missing LIP_REQUIRE_POSTGRES",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "LIP_REQUIRE_POSTGRES: '1'", "LIP_OTHER_VAR: '1'")
+				idx := strings.Index(s, "Run database dialect parity tests")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_REQUIRE_POSTGRES: '1'", "LIP_OTHER_VAR: '1'")
 			},
 			wantSubstr: "db-parity test step must set LIP_REQUIRE_POSTGRES: '1'",
 		},
 		{
 			name: "db-parity test step missing LIP_TEST_POSTGRES_DSN",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_DSN: postgres://wrong:5432/test")
+				idx := strings.Index(s, "Run database dialect parity tests")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_DSN: postgres://wrong:5432/test")
 			},
 			wantSubstr: "db-parity test step must set LIP_TEST_POSTGRES_DSN",
 		},
 		{
 			name: "db-parity test step missing LIP_TEST_POSTGRES_ADMIN_DSN",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://wrong:5432/test")
+				idx := strings.Index(s, "Run database dialect parity tests")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://wrong:5432/test")
 			},
 			wantSubstr: "db-parity test step must set LIP_TEST_POSTGRES_ADMIN_DSN",
 		},
@@ -445,11 +504,70 @@ jobs:
 			wantSubstr: "db-parity test step must set LIP_TEST_PARALLEL: '4'",
 		},
 		{
+			name: "db-parity verify env step missing LIP_REQUIRE_POSTGRES",
+			mutate: func(t *testing.T, s string) string {
+				idx := strings.Index(s, "Verify PostgreSQL test environment")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_REQUIRE_POSTGRES: '1'", "LIP_OTHER_VAR: '1'")
+			},
+			wantSubstr: "db-parity verify env step must set LIP_REQUIRE_POSTGRES: '1'",
+		},
+		{
+			name: "db-parity verify env step missing LIP_TEST_POSTGRES_DSN",
+			mutate: func(t *testing.T, s string) string {
+				idx := strings.Index(s, "Verify PostgreSQL test environment")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_DSN: postgres://wrong:5432/test")
+			},
+			wantSubstr: "db-parity verify env step must set LIP_TEST_POSTGRES_DSN",
+		},
+		{
+			name: "db-parity verify env step missing LIP_TEST_POSTGRES_ADMIN_DSN",
+			mutate: func(t *testing.T, s string) string {
+				idx := strings.Index(s, "Verify PostgreSQL test environment")
+				return s[:idx] + mustMutate(t, s[idx:], "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://wrong:5432/test")
+			},
+			wantSubstr: "db-parity verify env step must set LIP_TEST_POSTGRES_ADMIN_DSN",
+		},
+		{
 			name: "db-parity postgres service image unpinned",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "image: postgres:17-alpine", "image: postgres:latest")
+				return mustMutate(t, s, "image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73", "image: postgres:latest")
 			},
-			wantSubstr: "db-parity postgres service image must be pinned to postgres:17",
+			wantSubstr: "db-parity postgres service image must be pinned to postgres:17 by digest",
+		},
+		{
+			name: "db-parity postgres service image missing digest",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73", "image: postgres:17-alpine")
+			},
+			wantSubstr: "db-parity postgres service image must be pinned to postgres:17 by digest",
+		},
+		{
+			name: "db-parity missing verify env step",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "name: Verify PostgreSQL test environment", "name: Other step")
+			},
+			wantSubstr: "db-parity must contain a step named 'Verify PostgreSQL test environment'",
+		},
+		{
+			name: "db-parity verify env missing pg_isready live probe",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "pg_isready -h localhost -p 5432 -U lip -d lip_test\n          ", "")
+			},
+			wantSubstr: "db-parity verify env step must include live probe 'pg_isready -h localhost -p 5432 -U lip -d lip_test'",
+		},
+		{
+			name: "db-parity verify env printing DSN via echo",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "echo \"PostgreSQL test environment verified", "echo \"DSN is $LIP_TEST_POSTGRES_DSN\"\n          echo \"PostgreSQL test environment verified")
+			},
+			wantSubstr: "db-parity verify env step must not interpolate DSN variables or secrets in echo/printf output",
+		},
+		{
+			name: "db-parity verify env printing DSN via printf",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "echo \"PostgreSQL test environment verified", "printf 'DSN: %s\\n' \"$LIP_TEST_POSTGRES_DSN\"\n          echo \"PostgreSQL test environment verified")
+			},
+			wantSubstr: "db-parity verify env step must not interpolate DSN variables or secrets in echo/printf output",
 		},
 		{
 			name: "custom inert shell in repo-hygiene fail-closed step",

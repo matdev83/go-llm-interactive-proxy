@@ -91,9 +91,19 @@ func main() {
 	// Test flags resolution
 	var goTestFlags []string
 	if strings.TrimSpace(testFlags) != "" {
-		goTestFlags = strings.Fields(testFlags)
+		parsedFlags, parseErr := dbparity.ParseFlagWords(testFlags)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid -flags argument: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			os.Exit(2)
+		}
+		goTestFlags = parsedFlags
 	} else if envFlags := strings.TrimSpace(os.Getenv("GO_TEST_FLAGS")); envFlags != "" {
-		goTestFlags = strings.Fields(envFlags)
+		parsedFlags, parseErr := dbparity.ParseFlagWords(envFlags)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid GO_TEST_FLAGS environment variable: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			os.Exit(2)
+		}
+		goTestFlags = parsedFlags
 	}
 
 	cat := dbparity.DefaultCatalog()

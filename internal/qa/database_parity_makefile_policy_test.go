@@ -13,16 +13,16 @@ const (
 
 	canonicalBlockPostgresDirect = "test-db-parity-postgres-direct:\n" +
 		"ifeq ($(OS),Windows_NT)\n" +
-		"\t@powershell -NoProfile -Command \"[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd postgres-direct\"\n" +
+		"\t@powershell -NoProfile -Command \"[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_MANAGED_POSTGRES_DSN','Process'),'Process') }; if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd postgres-direct\"\n" +
 		"else\n" +
-		"\t@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct\n" +
+		"\t@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct\n" +
 		"endif"
 
 	canonicalBlockDBParity = "test-db-parity:\n" +
 		"ifeq ($(OS),Windows_NT)\n" +
-		"\t@powershell -NoProfile -Command \"[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd all\"\n" +
+		"\t@powershell -NoProfile -Command \"[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_MANAGED_POSTGRES_DSN','Process'),'Process') }; if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd all\"\n" +
 		"else\n" +
-		"\t@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}\" $(GO) run ./internal/testkit/dbparity/cmd all\n" +
+		"\t@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd all\n" +
 		"endif"
 )
 
@@ -209,11 +209,24 @@ func parsePhonyTargets(content string) []string {
 }
 
 // validateMakefileDatabaseParity inspects Makefile content against Task 5.2 / requirements 7.2-7.4, 9.1-9.5
-// and ensures canonical targets exist with exact line sequences and .PHONY registration.
+// and ensures canonical targets exist with exact line sequences, .PHONY registration, and export GO_TEST_FLAGS.
 func validateMakefileDatabaseParity(content string) []string {
 	var violations []string
 
-	// 1. Check .PHONY membership
+	// 1. Check export GO_TEST_FLAGS directive
+	hasExportGoTestFlags := false
+	for _, rawLine := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "export GO_TEST_FLAGS" {
+			hasExportGoTestFlags = true
+			break
+		}
+	}
+	if !hasExportGoTestFlags {
+		violations = append(violations, "Makefile must export GO_TEST_FLAGS to child processes via 'export GO_TEST_FLAGS'")
+	}
+
+	// 2. Check .PHONY membership
 	phony := parsePhonyTargets(content)
 	for _, target := range []string{"test-db-parity-sqlite", "test-db-parity-postgres-direct", "test-db-parity"} {
 		if !slices.Contains(phony, target) {
@@ -221,7 +234,7 @@ func validateMakefileDatabaseParity(content string) []string {
 		}
 	}
 
-	// 2. Exact normalized line sequence for the 3 target blocks
+	// 3. Exact normalized line sequence for the 3 target blocks
 	canonicalBlocks := map[string]string{
 		"test-db-parity-sqlite":          canonicalBlockSQLite,
 		"test-db-parity-postgres-direct": canonicalBlockPostgresDirect,
@@ -238,9 +251,12 @@ func validateMakefileDatabaseParity(content string) []string {
 		if block != expected {
 			violations = append(violations, fmt.Sprintf("target %q recipe block does not match canonical definition", target))
 		}
+		if strings.Contains(block, "-flags") || strings.Contains(block, "--flags") {
+			violations = append(violations, fmt.Sprintf("target %q recipe must not interpolate -flags CLI arguments (rely on exported GO_TEST_FLAGS)", target))
+		}
 	}
 
-	// 3. Help target entries
+	// 4. Help target entries
 	helpBlock, err := extractTargetBlock(content, "help")
 	if err != nil {
 		violations = append(violations, "missing Makefile target 'help:'")
@@ -314,6 +330,13 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		wantSubstr string
 	}{
 		{
+			name: "missing export GO_TEST_FLAGS directive",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "export GO_TEST_FLAGS\n", "")
+			},
+			wantSubstr: "Makefile must export GO_TEST_FLAGS to child processes via 'export GO_TEST_FLAGS'",
+		},
+		{
 			name: "missing test-db-parity-sqlite target",
 			mutate: func(t *testing.T, s string) string {
 				return mustMutate(t, s, "test-db-parity-sqlite:\n\t$(GO) run ./internal/testkit/dbparity/cmd sqlite", "")
@@ -349,6 +372,13 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 			wantSubstr: "target \"test-db-parity-sqlite\" recipe block does not match canonical definition",
 		},
 		{
+			name: "recipe interpolating -flags in test-db-parity-sqlite",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "./internal/testkit/dbparity/cmd sqlite", "./internal/testkit/dbparity/cmd -flags \"$(GO_TEST_FLAGS)\" sqlite")
+			},
+			wantSubstr: "recipe must not interpolate -flags CLI arguments",
+		},
+		{
 			name: "recipe drift in test-db-parity",
 			mutate: func(t *testing.T, s string) string {
 				return mustMutate(t, s, "./internal/testkit/dbparity/cmd all", "./internal/testkit/dbparity/cmd all ./internal/core/continuity")
@@ -358,7 +388,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing LIP_REQUIRE_POSTGRES on POSIX in test-db-parity-postgres-direct",
 			mutate: func(t *testing.T, s string) string {
-				return mustMutate(t, s, "@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct", "@LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct")
+				return mustMutate(t, s, "@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct", "@LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct")
 			},
 			wantSubstr: "target \"test-db-parity-postgres-direct\" recipe block does not match canonical definition",
 		},

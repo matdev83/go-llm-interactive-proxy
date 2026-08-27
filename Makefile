@@ -12,6 +12,7 @@ else
 LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 endif
 GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
+export GO_TEST_FLAGS
 
 ifeq ($(OS),Windows_NT)
 WINDOWS_TASK = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-task.ps1 -Target
@@ -142,16 +143,16 @@ test-db-parity-sqlite:
 
 test-db-parity-postgres-direct:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd postgres-direct"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_MANAGED_POSTGRES_DSN','Process'),'Process') }; if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd postgres-direct"
 else
-	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct
 endif
 
 test-db-parity:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd all"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_MANAGED_POSTGRES_DSN','Process'),'Process') }; if (-not [Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' run ./internal/testkit/dbparity/cmd all"
 else
-	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}" $(GO) run ./internal/testkit/dbparity/cmd all
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}" $(GO) run ./internal/testkit/dbparity/cmd all
 endif
 
 # PostgreSQL is the required proof surface for cross-instance authority

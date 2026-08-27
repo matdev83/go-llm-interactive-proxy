@@ -298,6 +298,38 @@ func TestPlan_GoTestFlagsPassthrough(t *testing.T) {
 	}
 }
 
+func TestPlan_GoTestFlagsQuotedGroupPreservation(t *testing.T) {
+	rawFlags := `-run "Test Name" -count=1 -timeout='10m'`
+	parsedFlags, err := dbparity.ParseFlagWords(rawFlags)
+	if err != nil {
+		t.Fatalf("ParseFlagWords failed: %v", err)
+	}
+	plans, err := dbparity.Plan(dbparity.ModeSQLite, dbparity.PlanOptions{
+		GoTestFlags: parsedFlags,
+		ComponentID: "billing",
+	})
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("expected 1 plan, got %d", len(plans))
+	}
+	plan := plans[0]
+
+	foundQuotedGroup := false
+	for _, arg := range plan.Args {
+		if arg == "Test Name" {
+			foundQuotedGroup = true
+		}
+		if arg == "Test" || arg == "Name" {
+			t.Errorf("found split individual argument %q in plan.Args: %#v", arg, plan.Args)
+		}
+	}
+	if !foundQuotedGroup {
+		t.Errorf("plan.Args missing preserved grouped argument %q: %#v", "Test Name", plan.Args)
+	}
+}
+
 func TestPlan_Deduplication(t *testing.T) {
 	customCat := dbparity.Catalog{
 		Components: []dbparity.Component{

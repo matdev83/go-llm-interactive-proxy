@@ -241,7 +241,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
         env:
           POSTGRES_USER: lip
           POSTGRES_PASSWORD: lip
@@ -316,6 +316,7 @@ jobs:
             echo "Error: LIP_REQUIRE_POSTGRES must be set to 1" >&2
             exit 1
           fi
+          pg_isready -h localhost -p 5432 -U lip -d lip_test
           echo "PostgreSQL test environment verified for direct parity execution."
 
       - name: Run database dialect parity tests
