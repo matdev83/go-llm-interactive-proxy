@@ -18,7 +18,6 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 
 	t.Run("Contract", func(t *testing.T) {
-		t.Parallel()
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-contract"})
 		if err != nil {
@@ -29,7 +28,6 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 	})
 
 	t.Run("CreateAndVerifySchema", func(t *testing.T) {
-		t.Parallel()
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-schema"})
 		if err != nil {
@@ -42,7 +40,6 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 	})
 
 	t.Run("RejectsRetiredAuthorizationHolds", func(t *testing.T) {
-		t.Parallel()
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(context.Background(), bunDB, Config{StoreID: "parity-billing-retired-holds"})
 		if err != nil {
@@ -63,7 +60,6 @@ func TestDBParity_PostgresDirect(t *testing.T) {
 	})
 
 	t.Run("MigrationHistoryParity", func(t *testing.T) {
-		t.Parallel()
 		ctx := context.Background()
 		bunDB, _ := openIsolatedPostgresBun(t, dsn, 4)
 		store, err := NewDurableStore(ctx, bunDB, Config{StoreID: "parity-billing-migrations"})
