@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -23,6 +25,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -681,28 +686,16 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayShaping(t *testing.T) {
 	assert.Equal(t, "[CAND_PREFIX] candidate input [CAND_ATTEMPT]", capturedCall.Messages[0].Parts[0].Text)
 }
 
-func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreservation(t *testing.T) {
+func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *testing.T) {
 	t.Parallel()
 
 	reg := obsTestFactoryCatalog(t)
 
-	var executionSequence []string
-	var mu sync.Mutex
-
-	// Register plugin feature: contributes plugin-rt
-	require.NoError(t, reg.RegisterFeature("plugin-shaping", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RequestTransforms: []request.Transform{
-				stubReqTransform{
-					id:     "plugin-rt",
-					ord:    1,
-					events: &executionSequence,
-					mu:     &mu,
-				},
-			},
-		}, nil
-	}))
+	var (
+		rtCalled bool
+		atCalled bool
+		mu       sync.Mutex
+	)
 
 	cfg := obsTestProcessConfig()
 	require.NoError(t, config.Validate(cfg))
@@ -718,30 +711,80 @@ func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreserv
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ps.Close() })
 
-	// Candidate overlay: contributes cand-rt and cand-at
+	// Candidate overlay contains allowed candidate request planes:
+	// - RequestTransforms
+	// - PreRequestHandlers
+	// - AttemptTransforms
+	// AND populated UNRELATED planes that must be ignored for this wave:
+	// - TrafficObservers
+	// - UsageObservers
+	// - SubmitHooks
+	// - StreamObserverFactories
+	// - TerminalDecisionProvider
 	candBundle := lipfeature.FeatureBundle{
 		SchemaVersion: lipfeature.SchemaVersionV1,
 		RequestTransforms: []request.Transform{
 			stubReqTransform{
-				id:     "cand-rt",
-				ord:    2,
-				events: &executionSequence,
-				mu:     &mu,
+				id:  "cand-rt",
+				ord: 1,
+				mutate: func(c *lipapi.Call) {
+					mu.Lock()
+					rtCalled = true
+					mu.Unlock()
+				},
+			},
+		},
+		PreRequestHandlers: []prerequest.Handler{
+			stubPreReqHandler{
+				id:  "cand-pr",
+				ord: 1,
 			},
 		},
 		AttemptTransforms: []request.AttemptTransform{
 			stubAttemptTransform{
-				id:     "cand-at",
-				ord:    1,
-				events: &executionSequence,
+				id:  "cand-at",
+				ord: 1,
+				mutate: func(c *lipapi.Call) {
+					mu.Lock()
+					atCalled = true
+					mu.Unlock()
+				},
+			},
+		},
+		TrafficObservers: []traffic.Observer{
+			stubTrafficObs{
+				id:     "unrelated-cand-to",
+				events: &[]string{},
 				mu:     &mu,
 			},
 		},
+		UsageObservers: []usage.Observer{
+			stubUsageObs{
+				id:     "unrelated-cand-uo",
+				events: &[]string{},
+				mu:     &mu,
+			},
+		},
+		SubmitHooks: []sdkhooks.SubmitHook{
+			stubSubmitHook{
+				id:    "unrelated-cand-submit",
+				order: 1,
+			},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{
+				id: "unrelated-cand-so",
+			},
+		},
+		TerminalDecisionProvider: charTerminalProvider{
+			id: "unrelated-cand-terminal",
+		},
 	}
+
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
-	cand := obsTestCandidateConfig(t, "plugin-shaping")
+	cand := obsTestCandidateConfig(t)
 
 	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
 		Process:   ps,
@@ -750,6 +793,9 @@ func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreserv
 			FeaturePlanes: candGen.Frozen,
 		},
 		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			if in.Frontends.TrafficPorts.Obs != nil {
+				_ = in.Frontends.TrafficPorts.Obs.OnObservation(ctx, traffic.Observation{Leg: traffic.LegCTP})
+			}
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
 		},
 	})
@@ -780,7 +826,7 @@ func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreserv
 	inputCall := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
 		Messages: []lipapi.Message{
-			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "order test"}}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "negative candidate test"}}},
 		},
 	}
 
@@ -793,11 +839,180 @@ func TestCompileGeneration_CandidateFeaturePlanes_OrderAndReasoningBinderPreserv
 
 	mu.Lock()
 	defer mu.Unlock()
-	// Ordering: plugin-rt (from registrations) executed before cand-rt (from candidate overlay), then cand-at
+
+	// Candidate request-shaping planes were executed
+	assert.True(t, rtCalled, "candidate request transform must run")
+	assert.True(t, atCalled, "candidate attempt transform must run")
+
+	// Unrelated candidate planes were ignored
+	snap := ex.RuntimeSnapshot
+	require.NotNil(t, snap)
+	assert.Equal(t, traffic.NoopObserver{}, snap.TrafficObserver(), "unrelated candidate traffic observer must be ignored")
+	assert.Equal(t, usage.NoopObserver{}, snap.UsageObserver(), "unrelated candidate usage observer must be ignored")
+	assert.Empty(t, snap.StreamObserverFactories(), "unrelated candidate stream observer factory must be ignored")
+	assert.Nil(t, snap.TerminalDecisionProvider(), "unrelated candidate terminal decision provider must be ignored")
+}
+
+func TestCompileGeneration_CandidateFeaturePlanes_ReasoningPreservationAttemptReplacement(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+
+	egressRef := "egress-cand-reasoning-replace"
+	node := reasoningYAMLForTypedNil(t, egressRef)
+
+	scheduler, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner {
+		return fixedRunnerForTypedNil{id: "reasoning-cand-runner"}
+	}, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = scheduler.Close() })
+
+	prod := ProductionOptions{
+		ReasoningCompression: ReasoningCompressionOptions{
+			EgressPolicies: map[string]reasoningpreservation.EgressPolicy{
+				egressRef: charEgressPolicy{version: "v1"},
+			},
+			MatcherResolver: charMatcherResolver{},
+		},
+	}
+
+	cfg := obsTestProcessConfig()
+	cfg.Plugins.Features = []config.PluginConfig{
+		{ID: reasoningpreservation.ID, Enabled: true, Config: node},
+	}
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg:           cfg,
+		Log:           testkit.DiscardLogger(),
+		Opts:          &BuildOptions{PluginRegistry: reg, Production: prod},
+		BackgroundAux: scheduler,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	var executionSequence []string
+	var mu sync.Mutex
+
+	reasoningXformID := reasoningpreservation.ID + "-transform"
+
+	// Candidate overlay: contributes cand-at-1, a stub attempt transform with matching reasoning ID, and cand-at-2
+	candBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{
+			stubReqTransform{
+				id:     "cand-rt",
+				ord:    1,
+				events: &executionSequence,
+				mu:     &mu,
+			},
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			stubAttemptTransform{
+				id:     "cand-at-survivor-1",
+				ord:    -10,
+				events: &executionSequence,
+				mu:     &mu,
+			},
+			stubAttemptTransform{
+				id:     reasoningXformID,
+				ord:    0,
+				events: &executionSequence,
+				mu:     &mu,
+				mutate: func(c *lipapi.Call) {
+					if len(c.Messages) > 0 && len(c.Messages[0].Parts) > 0 {
+						c.Messages[0].Parts[0].Text += " [CAND_RAW_STUB]"
+					}
+				},
+			},
+			stubAttemptTransform{
+				id:     "cand-at-survivor-2",
+				ord:    10,
+				events: &executionSequence,
+				mu:     &mu,
+			},
+		},
+	}
+	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
+	require.NoError(t, err)
+
+	cand := obsTestCandidateConfig(t)
+	cand.Plugins.Features = []config.PluginConfig{
+		{ID: reasoningpreservation.ID, Enabled: true, Config: node},
+	}
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		CandidateOpts: &BuildOptions{
+			FeaturePlanes: candGen.Frozen,
+		},
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	ex := bundle.execution.executor
+	require.NotNil(t, ex)
+
+	var gotMu sync.Mutex
+	var capturedCall lipapi.Call
+
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				gotMu.Lock()
+				capturedCall = call
+				gotMu.Unlock()
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	snap := ex.RuntimeSnapshot
+	require.NotNil(t, snap)
+	xforms := snap.AttemptTransforms()
+	require.Len(t, xforms, 3)
+	assert.Equal(t, "cand-at-survivor-1", xforms[0].ID())
+	assert.Equal(t, reasoningXformID, xforms[1].ID())
+	assert.Equal(t, "cand-at-survivor-2", xforms[2].ID())
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "reasoning test"}}},
+		},
+	}
+
+	stream, execErr := ex.Execute(context.Background(), inputCall)
+	require.NoError(t, execErr)
+	require.NotNil(t, stream)
+
+	_, collectErr := lipapi.Collect(context.Background(), stream)
+	require.NoError(t, collectErr)
+
+	mu.Lock()
+	defer mu.Unlock()
 	require.Len(t, executionSequence, 3)
-	assert.Equal(t, "plugin-rt", executionSequence[0])
-	assert.Equal(t, "cand-rt", executionSequence[1])
-	assert.Equal(t, "cand-at", executionSequence[2])
+	assert.Equal(t, "cand-rt", executionSequence[0])
+	assert.Equal(t, "cand-at-survivor-1", executionSequence[1])
+	assert.Equal(t, "cand-at-survivor-2", executionSequence[2])
+
+	gotMu.Lock()
+	defer gotMu.Unlock()
+	assert.NotContains(t, capturedCall.Messages[0].Parts[0].Text, "[CAND_RAW_STUB]", "candidate stub transform must be replaced by bound generation binder")
 }
 
 func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {

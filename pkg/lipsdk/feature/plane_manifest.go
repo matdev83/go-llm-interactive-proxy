@@ -333,6 +333,7 @@ var PlaneToolCallFinalizationMaxArgsBytes = Plane[int]{
 var PlaneRequestTransforms = Plane[[]request.Transform]{
 	ID:           "request_transforms",
 	Multiplicity: MultOrdered,
+	Candidate:    true,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -380,6 +381,7 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	ID:           "pre_request_handlers",
 	Multiplicity: MultOrdered,
+	Candidate:    true,
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
@@ -487,6 +489,7 @@ var PlaneCompletionGates = Plane[[]completion.Gate]{
 var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 	ID:           "attempt_transforms",
 	Multiplicity: MultOrdered,
+	Candidate:    true,
 	Rules: SourceRules{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,

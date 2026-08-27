@@ -102,10 +102,13 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("\treturn gc\n")
 	buf.WriteString("}\n\n")
 
-	// 7. contributeTo method on generatedFrozen
-	buf.WriteString("func (gf *generatedFrozen) contributeTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
+	// 7. contributeCandidateTo method on generatedFrozen
+	buf.WriteString("func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
 	buf.WriteString("\tif gf == nil || gc == nil {\n\t\treturn nil\n\t}\n")
 	for _, p := range planes {
+		if !p.candidate {
+			continue
+		}
 		if strings.HasPrefix(p.typeExpr, "[]") {
 			fmt.Fprintf(&buf, "\tif len(gf.%s) > 0 {\n", p.fieldName)
 			fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)

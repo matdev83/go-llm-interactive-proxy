@@ -123,7 +123,6 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 	}, nil
 }
 
-
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
 // accessing each plane value via lipfeature.Get and the terminal-decision provider identity
 // via lipfeature.FrozenIdentity.

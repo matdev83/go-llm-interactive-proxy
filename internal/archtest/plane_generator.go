@@ -20,6 +20,7 @@ type planeInfo struct {
 	hasIdentity      bool   // whether plane has an identity accessor
 	hasGenBinderRule bool   // whether GenerationBinder rule is declared
 	genBinderRule    string // e.g. CombReplaceByIdentity
+	candidate        bool   // whether plane allows candidate overlay contribution
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -198,6 +199,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 
 	var planeID string
 	var multiplicity string
+	var candidate bool
 	var hasRules bool
 	var hasFeatureRule bool
 	var featureRule string
@@ -230,6 +232,10 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 			}
 		case "Multiplicity":
 			multiplicity = string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
+		case "Candidate":
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "true" {
+				candidate = true
+			}
 		case "Identity":
 			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
 				hasIdentity = false
@@ -377,5 +383,6 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		hasIdentity:      hasIdentity,
 		hasGenBinderRule: hasGenBinderRule,
 		genBinderRule:    genBinderRule,
+		candidate:        candidate,
 	}, nil
 }

@@ -165,6 +165,8 @@ type Plane[T any] struct {
 	ID           string
 	Multiplicity Multiplicity
 	Rules        SourceRules
+	// Candidate indicates whether this plane can be contributed via candidate overlay.
+	Candidate bool
 	// NilPolicy defines how nil contributions are handled before validation and combination.
 	// NilReject fails before candidate mutation; NilSkip silently skips the contribution;
 	// NilNotApplicable proceeds to validation and combination.
