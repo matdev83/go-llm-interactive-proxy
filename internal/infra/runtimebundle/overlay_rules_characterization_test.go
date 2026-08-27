@@ -286,8 +286,6 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		SessionOpeners:     []session.Opener{overOpener{tag: "d-open"}},
-		WorkspaceResolvers: []workspace.Resolver{overResolver{tag: "d-res"}},
 		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
 		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
 		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
@@ -296,8 +294,6 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	}
 
 	src := ExtensionsOptions{
-		SessionOpeners:     []session.Opener{overOpener{tag: "s-open"}},
-		WorkspaceResolvers: []workspace.Resolver{overResolver{tag: "s-res"}},
 		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
 		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
 		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
@@ -307,8 +303,6 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 
 	overlayExtensions(dst, src)
 
-	require.Equal(t, []string{"d-open", "s-open"}, []string{dst.SessionOpeners[0].ID(), dst.SessionOpeners[1].ID()})
-	require.Len(t, dst.WorkspaceResolvers, 2)
 	require.Equal(t, []string{"d-filter", "s-filter"}, []string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
 	require.Equal(t, []string{"d-pol", "s-pol"}, []string{dst.ToolCallPolicies[0].ID(), dst.ToolCallPolicies[1].ID()})
 	require.Equal(t, []string{"d-fin", "s-fin"}, []string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})

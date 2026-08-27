@@ -109,8 +109,8 @@ func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source Sourc
 		if err := s.frozen.contributeCandidateTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
-		for k, v := range s.identities {
-			staged.identities[k] = v
+		if s.identities != nil && staged.identities != nil {
+			maps.Copy(staged.identities, s.identities)
 		}
 	} else {
 		// Test-only map-backed storage fallback:

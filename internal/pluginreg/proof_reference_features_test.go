@@ -69,8 +69,8 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	}
 	const need = 1
 	// Coarse shape: each proof contributes at least one non-hook surface.
-	if len(m.SessionOpeners) < need {
-		t.Fatalf("openers: %d", len(m.SessionOpeners))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)) < need {
+		t.Fatalf("openers: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)))
 	}
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)) < need {
 		t.Fatalf("request transforms: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)))
@@ -78,8 +78,8 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(m.ToolCatalogFilters) < need {
 		t.Fatalf("catalog: %d", len(m.ToolCatalogFilters))
 	}
-	if len(m.WorkspaceResolvers) < need {
-		t.Fatalf("workspace: %d", len(m.WorkspaceResolvers))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)) < need {
+		t.Fatalf("workspace: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)))
 	}
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)) < need {
 		t.Fatalf("obs: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)))

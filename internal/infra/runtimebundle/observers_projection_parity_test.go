@@ -179,16 +179,28 @@ func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 
 	// Verify counts and identities
 	require.Len(t, to, 2)
-	assert.Equal(t, "to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "to-2", to[1].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "to-1", to0.id)
+	assert.Equal(t, "to-2", to1.id)
 
 	require.Len(t, uo, 2)
-	assert.Equal(t, "uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "uo-2", uo[1].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "uo-1", uo0.id)
+	assert.Equal(t, "uo-2", uo1.id)
 
 	require.Len(t, raw, 2)
-	assert.Equal(t, "raw-1", raw[0].(stubRawSink).id)
-	assert.Equal(t, "raw-2", raw[1].(stubRawSink).id)
+	raw0, ok0 := raw[0].(stubRawSink)
+	raw1, ok1 := raw[1].(stubRawSink)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "raw-1", raw0.id)
+	assert.Equal(t, "raw-2", raw1.id)
 
 	require.Len(t, red, 2)
 	assert.Equal(t, "red-1", red[0].ID())
@@ -223,15 +235,23 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 
 	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, to, 4)
-	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "feat-to-2", to[1].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", to[2].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-2", to[3].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	to2, ok2 := to[2].(stubTrafficObs)
+	to3, ok3 := to[3].(stubTrafficObs)
+	require.True(t, ok0 && ok1 && ok2 && ok3)
+	assert.Equal(t, "feat-to-1", to0.id)
+	assert.Equal(t, "feat-to-2", to1.id)
+	assert.Equal(t, "host-to-1", to2.id)
+	assert.Equal(t, "host-to-2", to3.id)
 
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uo, 2)
-	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	require.True(t, ok0 && ok1)
+	assert.Equal(t, "feat-uo-1", uo0.id)
+	assert.Equal(t, "host-uo-1", uo1.id)
 }
 
 func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
@@ -269,15 +289,23 @@ func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
 
 	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, to, 3)
-	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", to[1].(stubTrafficObs).id)
-	assert.Equal(t, "cand-to-1", to[2].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	to2, ok2 := to[2].(stubTrafficObs)
+	require.True(t, ok0 && ok1 && ok2)
+	assert.Equal(t, "feat-to-1", to0.id)
+	assert.Equal(t, "host-to-1", to1.id)
+	assert.Equal(t, "cand-to-1", to2.id)
 
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uo, 3)
-	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
-	assert.Equal(t, "cand-uo-1", uo[2].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	uo2, ok2 := uo[2].(stubUsageObs)
+	require.True(t, ok0 && ok1 && ok2)
+	assert.Equal(t, "feat-uo-1", uo0.id)
+	assert.Equal(t, "host-uo-1", uo1.id)
+	assert.Equal(t, "cand-uo-1", uo2.id)
 }
 
 func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
@@ -343,15 +371,25 @@ func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
 
 	// Re-reading from Frozen must return untouched original values
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
-	assert.Equal(t, "orig-to", toFrozen[0].(stubTrafficObs).id)
+	require.Len(t, toFrozen, 1)
+	to0, ok0 := toFrozen[0].(stubTrafficObs)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-to", to0.id)
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
-	assert.Equal(t, "orig-uo", uoFrozen[0].(stubUsageObs).id)
+	require.Len(t, uoFrozen, 1)
+	uo0, ok0 := uoFrozen[0].(stubUsageObs)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-uo", uo0.id)
 
 	rawFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
-	assert.Equal(t, "orig-raw", rawFrozen[0].(stubRawSink).id)
+	require.Len(t, rawFrozen, 1)
+	raw0, ok0 := rawFrozen[0].(stubRawSink)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-raw", raw0.id)
 
 	redFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+	require.Len(t, redFrozen, 1)
 	assert.Equal(t, "orig-red", redFrozen[0].ID())
 }
 
@@ -488,8 +526,12 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, to, 1)
 	require.Len(t, uo, 1)
-	assert.Equal(t, "reg-to", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "reg-uo", uo[0].(stubUsageObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	uo0, ok1 := uo[0].(stubUsageObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "reg-to", to0.id)
+	assert.Equal(t, "reg-uo", uo0.id)
 
 	// Disabled plugin contributes nothing
 	genDisabled, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
@@ -645,7 +687,7 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		var mu sync.Mutex
 
 		reg := obsTestFactoryCatalog(t)
-		err := reg.RegisterFeature("three-source-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		require.NoError(t, reg.RegisterFeature("three-source-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			return lipfeature.FeatureBundle{
 				SchemaVersion: lipfeature.SchemaVersionV1,
 				TrafficObservers: []traffic.Observer{
@@ -655,8 +697,8 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 					stubUsageObs{id: "feat-uo", events: &usageEvents, mu: &mu},
 				},
 			}, nil
-		})
-		err = reg.RegisterFeature("three-source-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		}))
+		require.NoError(t, reg.RegisterFeature("three-source-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			return lipfeature.FeatureBundle{
 				SchemaVersion: lipfeature.SchemaVersionV1,
 				TrafficObservers: []traffic.Observer{
@@ -666,8 +708,7 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 					stubUsageObs{id: "cand-uo", events: &usageEvents, mu: &mu},
 				},
 			}, nil
-		})
-		require.NoError(t, err)
+		}))
 
 		cfg := obsTestProcessConfig()
 		require.NoError(t, config.Validate(cfg))
@@ -773,7 +814,7 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		var mu sync.Mutex
 
 		reg := obsTestFactoryCatalog(t)
-		err := reg.RegisterFeature("feature-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		require.NoError(t, reg.RegisterFeature("feature-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			return lipfeature.FeatureBundle{
 				SchemaVersion: lipfeature.SchemaVersionV1,
 				RawCaptureSinks: []traffic.RawCaptureSink{
@@ -783,8 +824,8 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 					stubRedactor{id: "1-feat-red", prefix: "feat", events: &redEvents, mu: &mu},
 				},
 			}, nil
-		})
-		err = reg.RegisterFeature("cand-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		}))
+		require.NoError(t, reg.RegisterFeature("cand-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			return lipfeature.FeatureBundle{
 				SchemaVersion: lipfeature.SchemaVersionV1,
 				RawCaptureSinks: []traffic.RawCaptureSink{
@@ -794,8 +835,7 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 					stubRedactor{id: "2-cand-red", prefix: "cand", events: &redEvents, mu: &mu},
 				},
 			}, nil
-		})
-		require.NoError(t, err)
+		}))
 
 		cfg := obsTestProcessConfig()
 		require.NoError(t, config.Validate(cfg))
@@ -872,7 +912,9 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		t.Cleanup(func() { _ = bundle.Close() })
 
 		require.Len(t, rawSlice, 1)
-		assert.Equal(t, "orig-to", rawSlice[0].(stubTrafficObs).id)
+		to0, ok := rawSlice[0].(stubTrafficObs)
+		require.True(t, ok)
+		assert.Equal(t, "orig-to", to0.id)
 	})
 
 	t.Run("nil_and_empty_exact", func(t *testing.T) {

@@ -5,15 +5,19 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 )
 
-type genOpener struct{ id string }
+type genFilter struct{ id string }
 
-func (g genOpener) ID() string { return g.id }
-func (genOpener) Open(context.Context, session.OpenInput) (session.OpenResult, error) {
-	return session.OpenResult{}, nil
+func (g genFilter) ID() string                      { return g.id }
+func (genFilter) Order() int                        { return 0 }
+func (genFilter) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (genFilter) Handle(context.Context, *lipapi.Call, toolcatalog.CatalogMeta, toolcatalog.Services) error {
+	return nil
 }
 
 // TestMergeFeatureSurface_GenerationRebuildIsolated proves candidate feature
@@ -21,22 +25,22 @@ func (genOpener) Open(context.Context, session.OpenInput) (session.OpenResult, e
 func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
 	a := featurebundle.MergeBundles(lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{genOpener{id: "gen-a"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-a"}},
 	})
 	b := featurebundle.MergeBundles(lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{genOpener{id: "gen-b"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{genFilter{id: "gen-b"}},
 	})
-	if len(a.SessionOpeners) != 1 || a.SessionOpeners[0].ID() != "gen-a" {
-		t.Fatalf("A openers=%v", a.SessionOpeners)
+	if len(a.ToolCatalogFilters) != 1 || a.ToolCatalogFilters[0].ID() != "gen-a" {
+		t.Fatalf("A filters=%v", a.ToolCatalogFilters)
 	}
-	if len(b.SessionOpeners) != 1 || b.SessionOpeners[0].ID() != "gen-b" {
-		t.Fatalf("B openers=%v", b.SessionOpeners)
+	if len(b.ToolCatalogFilters) != 1 || b.ToolCatalogFilters[0].ID() != "gen-b" {
+		t.Fatalf("B filters=%v", b.ToolCatalogFilters)
 	}
 	// Mutating one merged surface must not affect the other candidate.
-	a.SessionOpeners = append(a.SessionOpeners, genOpener{id: "mutated"})
-	if len(b.SessionOpeners) != 1 {
-		t.Fatalf("B leaked A mutation: %d", len(b.SessionOpeners))
+	a.ToolCatalogFilters = append(a.ToolCatalogFilters, genFilter{id: "mutated"})
+	if len(b.ToolCatalogFilters) != 1 {
+		t.Fatalf("B leaked A mutation: %d", len(b.ToolCatalogFilters))
 	}
 }

@@ -1,6 +1,12 @@
 package feature
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+import (
+	"maps"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
+)
 
 // GeneratedContributionsForTest is a type alias to the internal generatedContributions type for testing.
 type GeneratedContributionsForTest = generatedContributions
@@ -55,9 +61,7 @@ func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[strin
 	var identitiesCopy map[string]string
 	if identities != nil {
 		identitiesCopy = make(map[string]string, len(identities))
-		for k, v := range identities {
-			identitiesCopy[k] = v
-		}
+		maps.Copy(identitiesCopy, identities)
 	}
 	return FrozenPlaneSet{
 		values:     valuesCopy,
@@ -75,6 +79,23 @@ func NewMalformedGeneratedFrozenCandidateForTest(
 	gf := &generatedFrozen{
 		requestTransforms: cloneSlice(reqTr),
 		attemptTransforms: cloneSlice(attTr),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenSessionWorkspaceCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with candidate session openers, workspace resolvers, and attempt transforms for transaction testing.
+func NewMalformedGeneratedFrozenSessionWorkspaceCandidateForTest(
+	so []session.Opener,
+	wr []workspace.Resolver,
+	attTr []request.AttemptTransform,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		sessionOpeners:     cloneSlice(so),
+		workspaceResolvers: cloneSlice(wr),
+		attemptTransforms:  cloneSlice(attTr),
 	}
 	return FrozenPlaneSet{
 		frozen: gf,

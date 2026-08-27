@@ -18,16 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 5. SessionOpeners
-	genSessionOpeners := lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)
-	assert.Equal(tb, legacy.SessionOpeners, genSessionOpeners, "SessionOpeners mismatch")
-	assert.Equal(tb, legacy.SessionOpeners == nil, genSessionOpeners == nil, "SessionOpeners nilness mismatch")
-
-	// 6. WorkspaceResolvers
-	genWorkspaceResolvers := lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)
-	assert.Equal(tb, legacy.WorkspaceResolvers, genWorkspaceResolvers, "WorkspaceResolvers mismatch")
-	assert.Equal(tb, legacy.WorkspaceResolvers == nil, genWorkspaceResolvers == nil, "WorkspaceResolvers nilness mismatch")
-
 	// 7. ToolCatalogFilters
 	genToolCatalogFilters := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)
 	assert.Equal(tb, legacy.ToolCatalogFilters, genToolCatalogFilters, "ToolCatalogFilters mismatch")

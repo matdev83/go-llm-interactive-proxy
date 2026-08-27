@@ -226,7 +226,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.SessionOpeners) != 0 {
+	if len(m.ToolCatalogFilters) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -244,7 +244,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
 	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		SessionOpeners:           []session.Opener{testOpener{tag: "existing"}},
+		ToolCatalogFilters:       []toolcatalog.Filter{testCatalogFilter{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
@@ -253,9 +253,9 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	opener, ok := merged.SessionOpeners[0].(testOpener)
-	if len(merged.SessionOpeners) != 1 || !ok || opener.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.SessionOpeners)
+	filter, ok := merged.ToolCatalogFilters[0].(testCatalogFilter)
+	if len(merged.ToolCatalogFilters) != 1 || !ok || filter.tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.ToolCatalogFilters)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.SessionOpeners) != 0 {
+	if merged.TerminalDecisionProvider != nil || len(merged.ToolCatalogFilters) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
@@ -353,8 +353,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		name string
 		got  int
 	}{
-		{"SessionOpeners", len(m.SessionOpeners)},
-		{"WorkspaceResolvers", len(m.WorkspaceResolvers)},
 		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},
 		{"ToolCallPolicies", len(m.ToolCallPolicies)},
 		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
@@ -410,32 +408,32 @@ func TestMergeBundles_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *test
 func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "first"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "first"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "second"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "second"}},
 	}
 	b3 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "third"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "third"}},
 	}
 	m := MergeBundles(b1, b2, b3)
-	if len(m.SessionOpeners) != 3 {
-		t.Fatalf("SessionOpeners: got %d want 3", len(m.SessionOpeners))
+	if len(m.ToolCatalogFilters) != 3 {
+		t.Fatalf("ToolCatalogFilters: got %d want 3", len(m.ToolCatalogFilters))
 	}
-	o0, ok := m.SessionOpeners[0].(testOpener)
-	if !ok || o0.tag != "first" {
-		t.Fatalf("first opener: %#v", m.SessionOpeners[0])
+	f0, ok := m.ToolCatalogFilters[0].(testCatalogFilter)
+	if !ok || f0.tag != "first" {
+		t.Fatalf("first filter: %#v", m.ToolCatalogFilters[0])
 	}
-	o1, ok := m.SessionOpeners[1].(testOpener)
-	if !ok || o1.tag != "second" {
-		t.Fatalf("second opener: %#v", m.SessionOpeners[1])
+	f1, ok := m.ToolCatalogFilters[1].(testCatalogFilter)
+	if !ok || f1.tag != "second" {
+		t.Fatalf("second filter: %#v", m.ToolCatalogFilters[1])
 	}
-	o2, ok := m.SessionOpeners[2].(testOpener)
-	if !ok || o2.tag != "third" {
-		t.Fatalf("third opener: %#v", m.SessionOpeners[2])
+	f2, ok := m.ToolCatalogFilters[2].(testCatalogFilter)
+	if !ok || f2.tag != "third" {
+		t.Fatalf("third filter: %#v", m.ToolCatalogFilters[2])
 	}
 }
 
@@ -507,7 +505,10 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(to) != 3 {
 		t.Fatalf("TrafficObservers len = %d, want 3", len(to))
 	}
-	if to[0].(testTrafficObs).tag != "feat-to" || to[1].(testTrafficObs).tag != "host-to" || to[2].(testTrafficObs).tag != "cand-to" {
+	to0, ok0 := to[0].(testTrafficObs)
+	to1, ok1 := to[1].(testTrafficObs)
+	to2, ok2 := to[2].(testTrafficObs)
+	if !ok0 || !ok1 || !ok2 || to0.tag != "feat-to" || to1.tag != "host-to" || to2.tag != "cand-to" {
 		t.Fatalf("TrafficObservers order = %#v, want [feat-to, host-to, cand-to]", to)
 	}
 
@@ -515,7 +516,10 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(uo) != 3 {
 		t.Fatalf("UsageObservers len = %d, want 3", len(uo))
 	}
-	if uo[0].(testUsageObs).tag != "feat-uo" || uo[1].(testUsageObs).tag != "host-uo" || uo[2].(testUsageObs).tag != "cand-uo" {
+	uo0, ok0 := uo[0].(testUsageObs)
+	uo1, ok1 := uo[1].(testUsageObs)
+	uo2, ok2 := uo[2].(testUsageObs)
+	if !ok0 || !ok1 || !ok2 || uo0.tag != "feat-uo" || uo1.tag != "host-uo" || uo2.tag != "cand-uo" {
 		t.Fatalf("UsageObservers order = %#v, want [feat-uo, host-uo, cand-uo]", uo)
 	}
 
@@ -523,7 +527,9 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(raw) != 2 {
 		t.Fatalf("RawCaptureSinks len = %d, want 2", len(raw))
 	}
-	if raw[0].(testRawSink).tag != "feat-raw" || raw[1].(testRawSink).tag != "cand-raw" {
+	raw0, ok0 := raw[0].(testRawSink)
+	raw1, ok1 := raw[1].(testRawSink)
+	if !ok0 || !ok1 || raw0.tag != "feat-raw" || raw1.tag != "cand-raw" {
 		t.Fatalf("RawCaptureSinks order = %#v, want [feat-raw, cand-raw]", raw)
 	}
 

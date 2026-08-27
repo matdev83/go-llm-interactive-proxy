@@ -161,7 +161,7 @@
   - _Depends: 5.2_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/testkit/... -run 'Reasoning.*Compression|PlaneParity'`
 
-- [ ] 6. Migrate request-shaping planes as W3
+- [x] 6. Migrate request-shaping planes as W3
 - [x] 6.1 Migrate request, pre-request, and attempt transforms
   - Preserve registration order, validation, decision evidence, and request/attempt binding semantics.
   - Observable completion: transform mirrors are deleted and focused parity tests pass.
@@ -176,7 +176,7 @@
   - _Boundary: composition root, core/runtime_
   - _Depends: 6.1_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 6.3 Migrate session openers and workspace resolvers
+- [x] 6.3 Migrate session openers and workspace resolvers
   - Preserve materialized ordering and diagnostics labels for the coalesced session-open stage.
   - Observable completion: session/workspace mirrors are deleted and inventory parity stays byte-equivalent.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_

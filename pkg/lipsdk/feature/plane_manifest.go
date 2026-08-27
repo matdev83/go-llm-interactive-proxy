@@ -882,6 +882,8 @@ var StandardPlanes = []PlaneDeclaration{
 
 // StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.
 var StandardCandidatePlanes = []string{
+	"session_openers",
+	"workspace_resolvers",
 	"request_transforms",
 	"pre_request_handlers",
 	"route_hint_providers",

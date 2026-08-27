@@ -128,8 +128,6 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 // via lipfeature.FrozenIdentity.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
-		SessionOpeners:                   lipfeature.Get(g.Frozen, lipfeature.PlaneSessionOpeners),
-		WorkspaceResolvers:               lipfeature.Get(g.Frozen, lipfeature.PlaneWorkspaceResolvers),
 		ToolCatalogFilters:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCatalogFilters),
 		ToolCallPolicies:                 lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallPolicies),
 		ToolCallFinalizers:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizers),
@@ -179,12 +177,12 @@ func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeat
 			return err
 		}
 	}
-	if len(b.SessionOpeners) > 0 {
+	if b.SessionOpeners != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, pluginID, b.SessionOpeners); err != nil {
 			return err
 		}
 	}
-	if len(b.WorkspaceResolvers) > 0 {
+	if b.WorkspaceResolvers != nil {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, pluginID, b.WorkspaceResolvers); err != nil {
 			return err
 		}

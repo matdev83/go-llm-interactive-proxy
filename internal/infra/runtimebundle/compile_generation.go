@@ -315,8 +315,6 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
-		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
-		WorkspaceResolvers:               append(merged.WorkspaceResolvers[:0:0], merged.WorkspaceResolvers...),
 		ToolCatalogFilters:               append(merged.ToolCatalogFilters[:0:0], merged.ToolCatalogFilters...),
 		ToolCallPolicies:                 append(merged.ToolCallPolicies[:0:0], merged.ToolCallPolicies...),
 		ToolCallFinalizers:               append(merged.ToolCallFinalizers[:0:0], merged.ToolCallFinalizers...),
@@ -336,8 +334,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
 	}
-	dst.SessionOpeners = append(dst.SessionOpeners, src.SessionOpeners...)
-	dst.WorkspaceResolvers = append(dst.WorkspaceResolvers, src.WorkspaceResolvers...)
 	dst.ToolCatalogFilters = append(dst.ToolCatalogFilters, src.ToolCatalogFilters...)
 	dst.ToolCallPolicies = append(dst.ToolCallPolicies, src.ToolCallPolicies...)
 	curTCF := dst.ToolCallFinalizers

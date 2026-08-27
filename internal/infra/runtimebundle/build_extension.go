@@ -75,22 +75,6 @@ func buildRuntimeSnapshot(
 	sgPlane extensions.SecretGuardPlane,
 	extensionState lipstate.Store,
 ) *extensions.RequestRuntimeSnapshot {
-	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
-	if len(opts.Extensions.WorkspaceResolvers) > 0 {
-		ss := cfg.SecureSession
-		secureOn := cfg.SecureSessionEffectivelyEnabled()
-		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
-		failClosedWS := secureOn && resolveFailClosed
-		if failClosedWS {
-			ws = coreworkspace.NewStrictChain(opts.Extensions.WorkspaceResolvers)
-		} else {
-			ws = coreworkspace.NewResolverChain(opts.Extensions.WorkspaceResolvers)
-		}
-	}
-	var openers []session.Opener
-	if len(opts.Extensions.SessionOpeners) > 0 {
-		openers = slices.Clone(opts.Extensions.SessionOpeners)
-	}
 	var catalogFilters []toolcatalog.Filter
 	if len(opts.Extensions.ToolCatalogFilters) > 0 {
 		catalogFilters = slices.Clone(opts.Extensions.ToolCatalogFilters)
@@ -106,6 +90,23 @@ func buildRuntimeSnapshot(
 	var frozen lipfeature.FrozenPlaneSet
 	if opts != nil {
 		frozen = opts.FeaturePlanes
+	}
+	wsResolvers := lipfeature.Get(frozen, lipfeature.PlaneWorkspaceResolvers)
+	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
+	if len(wsResolvers) > 0 {
+		ss := cfg.SecureSession
+		secureOn := cfg.SecureSessionEffectivelyEnabled()
+		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		failClosedWS := secureOn && resolveFailClosed
+		if failClosedWS {
+			ws = coreworkspace.NewStrictChain(wsResolvers)
+		} else {
+			ws = coreworkspace.NewResolverChain(wsResolvers)
+		}
+	}
+	var openers []session.Opener
+	if rawOpeners := lipfeature.Get(frozen, lipfeature.PlaneSessionOpeners); len(rawOpeners) > 0 {
+		openers = rawOpeners
 	}
 	reqTransforms := lipfeature.Get(frozen, lipfeature.PlaneRequestTransforms)
 	preReqs := lipfeature.Get(frozen, lipfeature.PlanePreRequestHandlers)

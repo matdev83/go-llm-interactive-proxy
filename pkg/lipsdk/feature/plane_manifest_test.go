@@ -100,6 +100,8 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 	t.Parallel()
 
 	expected := []string{
+		"session_openers",
+		"workspace_resolvers",
 		"request_transforms",
 		"pre_request_handlers",
 		"route_hint_providers",

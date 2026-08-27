@@ -201,6 +201,34 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 	if gf == nil || gc == nil {
 		return nil
 	}
+	if gf.sessionOpeners != nil {
+		if PlaneSessionOpeners.Validate != nil {
+			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+			return err
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if PlaneWorkspaceResolvers.Validate != nil {
+			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+			return err
+		}
+	}
 	if gf.requestTransforms != nil {
 		if PlaneRequestTransforms.Validate != nil {
 			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
@@ -278,6 +306,36 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, source SourceKind, contributorID string) error {
 	if len(values) == 0 || dst == nil {
 		return nil
+	}
+	if v, ok := values[PlaneSessionOpeners.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]session.Opener)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: expected []session.Opener, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneSessionOpeners, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneWorkspaceResolvers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]workspace.Resolver)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: expected []workspace.Resolver, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneWorkspaceResolvers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
 	}
 	if v, ok := values[PlaneRequestTransforms.ID]; ok {
 		if !isNilValue(v) {

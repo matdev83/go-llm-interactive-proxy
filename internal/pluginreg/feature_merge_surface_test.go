@@ -172,14 +172,16 @@ func TestMergeFeatureSurface_concatOpenersAndResolvers(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.SessionOpeners) != 1 || len(m.WorkspaceResolvers) != 1 {
-		t.Fatalf("openers=%d resolvers=%d", len(m.SessionOpeners), len(m.WorkspaceResolvers))
+	openers := feature.Get(gen.Frozen, feature.PlaneSessionOpeners)
+	resolvers := feature.Get(gen.Frozen, feature.PlaneWorkspaceResolvers)
+	if len(openers) != 1 || len(resolvers) != 1 {
+		t.Fatalf("openers=%d resolvers=%d", len(openers), len(resolvers))
 	}
 }
 
