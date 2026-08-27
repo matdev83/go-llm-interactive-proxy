@@ -6,12 +6,12 @@ Issue #503 asks Go-LIP to reduce heap growth, allocation pressure, and redundant
 
 Correctness has priority over optimization. The existing materialize → shared JSON preflight → decode admission → frontend decode/validation → canonical core → backend encode path is the behavioral oracle. A request may use the large-payload lane only when Go-LIP can prove, before any provider request body byte is committed, that doing so preserves every enabled authority and every relevant frontend/core/backend behavior. When proof is unavailable, incomplete, unsupported, or fails, the same request shall use the existing canonical path without weakening validation or silently disabling features.
 
-This revision incorporates a post-PR brownfield audit against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` (PR #533 merged). In particular, the typed extension-plane manifest/FrozenPlaneSet path is now the only target; current frontend decode QoS, frontend response-state dependencies, OpenResponses storage defaults, and post-identity `lipapi.Call` dependencies are explicit requirements rather than implementation assumptions.
+This revision incorporates a post-PR brownfield audit against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` (PR #533 merged). The typed extension-plane manifest/FrozenPlaneSet path is now the only target; decode QoS, frontend response-state dependencies, OpenResponses storage defaults, and post-identity `lipapi.Call` dependencies are explicit requirements. V1 uses a **one-way pre-`BeginTurn` eligibility commit point**: every expected optimization decline happens before logical-turn side effects, avoiding a high-risk secure-preparation split and post-identity canonical re-entry.
 
 ## Boundary Context
 
 - **In scope**: optional large-payload ingress capture; bounded-memory pre-commit spooling; streaming JSON validation and bounded metadata extraction; decode-QoS-preserving semantic proof; explicit fast-path eligibility; same-wire backend capability proof; bounded token-aware model rewrite; retry/failover replay; frontend response-envelope parity; gzip-compatible follow-up support; cancellation/resource cleanup; metrics; differential conformance tests; allocation/load benchmarks; conservative rollout.
-- **Out of scope**: native provider passthrough (#490); cross-protocol forwarding; removing or weakening canonical validation; changing default request-size limits; changing routing/failover semantics to make a request eligible; bypassing secret/DLP/guardrail policy; silently dropping hooks/observers/accounting; arbitrary new request content encodings; provider SDK types in core; broad capability-profile work owned by #495.
+- **Out of scope**: native provider passthrough (#490); cross-protocol forwarding; removing or weakening canonical validation; changing default request-size limits; changing routing/failover semantics to make a request eligible; bypassing secret/DLP/guardrail policy; silently dropping hooks/observers/accounting; arbitrary new request content encodings; provider SDK types in core; broad capability-profile work owned by #495; expected post-`BeginTurn` canonical fallback in V1.
 - **Boundary ownership**: shared frontend ingress owns capture/shared JSON validation, decode admission, protocol profile proof, frontend-only state, and canonical fallback; core/runtime owns authoritative eligibility, identity/session lifecycle, routing, billing/admission, attempt sequencing, and no-post-output-failover; backend plugins own wire-compatibility declaration and outbound HTTP construction; composition root freezes generation-scoped eligibility facts.
 - **Revalidation triggers**: changes to JSON-shape rules (#434), frontend decode normalization or `AfterDecode`, decode admission, secure-session preparation, request/billing authority, request/attempt transforms, typed extension planes, routing/capability negotiation, traffic capture/redaction, failover/replay semantics (#476), backend wire contracts (#495), or frontend response-envelope/cancellation ownership.
 
@@ -23,8 +23,8 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 #### Acceptance Criteria
 1. Disabled configuration shall execute every request through the existing canonical path with no spool/scanner/wire-path allocation beyond trivial configuration checks.
 2. Any unknown, unsupported, unclassified, or false eligibility fact shall select canonical processing while the original decoded body remains replayable.
-3. No upstream provider request body byte shall be committed before complete body validation and final route/backend/authority eligibility proof.
-4. If fast-path evaluation declines after consuming client bytes, already-consumed and remaining bytes shall be presented to the canonical decoder exactly once and in order.
+3. No upstream provider request body byte shall be committed before complete body validation and final pre-turn route/backend/authority eligibility proof.
+4. If fast-path evaluation declines after consuming client bytes but before the V1 commit point, already-consumed and remaining bytes shall be presented to the canonical decoder exactly once and in order.
 5. Optimization budget exhaustion, missing wire support, profile uncertainty, or recoverable spool failure shall not convert an otherwise valid canonical request into a new client error.
 6. Existing HTTP/error mappings for malformed JSON, request-too-large, content type/encoding, authentication, decode admission, policy denial, and decode errors shall be preserved.
 7. Existing `ExecutorView.Execute(ctx, *lipapi.Call)` remains supported and behaviorally unchanged for ordinary frontends/executors.
@@ -77,16 +77,18 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 7. Generation reload shall pin the classification for the request lifetime.
 8. A ratchet test shall fail whenever a new plane is added without an access classification.
 
-### Requirement 6: One Logical Turn, One Authority Lifecycle
-**Objective:** Dynamic fallback must not duplicate session/A-leg/accounting side effects.
+### Requirement 6: One-Way Pre-Turn Wire Commit
+**Objective:** V1 fallback must not require duplicate session/A-leg/accounting lifecycle or re-enter frontend decode after turn side effects.
 
 #### Acceptance Criteria
-1. Static blockers shall be evaluated before `BeginTurn` or other durable per-turn side effects whenever possible.
-2. Any preparation split shall first be characterized against current order/error/finalization behavior.
-3. If a post-identity blocker is discovered, canonical continuation shall reuse the already-bound logical turn and shall not call fresh `Execute`/`BeginTurn` again.
-4. Request authority, billing identity/exposure, A-leg/B-leg lifecycle, submit/capture stages, and terminal finalization shall each occur at most once for a logical turn.
-5. Any frontend validation/error-producing work required before executor entry on the canonical path shall either also complete before identity side effects on a wire candidate or make that profile canonical-only; the design shall not move potentially client-visible frontend errors behind `BeginTurn` merely to retain the optimization.
-6. Unexpected parity failures after a turn has begun shall abort/finalize that turn once and surface an internal diagnostic rather than creating a second turn.
+1. Every **expected** optimization blocker shall be evaluated before `SecureSession.BeginTurn`, authoritative A-leg allocation/fetch side effects for the new turn, billing exposure admission, or provider open.
+2. If an authority can reveal whether raw forwarding is safe only after A-leg/session state exists, V1 shall conservatively treat the presence of that authority as a pre-turn canonical blocker unless it has an explicit read-only pre-turn wire-safe contract.
+3. A configured post-A-leg `RouteOverrideReader` is therefore canonical-only in V1 unless a later typed pre-turn proof is introduced; V1 shall not start a turn merely to discover that an override is active.
+4. Route/affinity/weighted-first state that only selects among a known selector candidate set may remain active if wire compatibility is proven pre-turn for the conservative superset of every candidate that could later be selected.
+5. When any pre-turn proof declines, core shall invoke trusted canonicalization and ordinary `Execute` while no large-body turn side effect has occurred.
+6. Once all pre-turn proofs pass, the request crosses a one-way wire commit point. No **expected** canonical fallback occurs after `BeginTurn`; normal policy denials/provider failures are execution outcomes.
+7. An unexpected post-commit invariant showing canonical content is required shall abort/finalize the single turn once and surface an internal parity diagnostic; it shall not invoke a second ordinary `Execute` or duplicate `BeginTurn`.
+8. A future late-fallback/continuation optimization, if desired, requires a separate proof/spec and is not needed for #503 V1.
 
 ### Requirement 7: Explicit Same-Wire Backend Compatibility
 **Objective:** Protocol name equality alone must never authorize raw forwarding.
@@ -94,10 +96,11 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 #### Acceptance Criteria
 1. Core shall invoke an explicit optional backend wire-compatibility contract for the exact frontend profile, operation, delivery mode, requirements, candidate model, and body mode.
 2. Nil/zero wire support means canonical-only.
-3. Every candidate reachable under the frozen route/recovery semantics shall be proven compatible before the first provider body open.
-4. An incompatible reachable fallback/race candidate shall cause whole-request canonical continuation; the system shall not prune/reorder candidates to preserve the optimization.
+3. Every candidate in the conservative pre-turn reachable selector superset shall be proven compatible before the V1 wire commit point.
+4. An incompatible possible fallback/race candidate shall cause whole-request canonical processing; the system shall not prune/reorder candidates to preserve the optimization.
 5. Backend compatibility resolution shall not perform provider network I/O.
-6. External backend plugin ABI remains unchanged unless a separate compatibility extension is explicitly designed.
+6. Backend proof shall be generation-pinned so a config reload cannot invalidate a request after commit.
+7. External backend plugin ABI remains unchanged unless a separate compatibility extension is explicitly designed.
 
 ### Requirement 8: Safe Model Rewrite
 **Objective:** Route/native-model rewriting must remain correct without materializing the body.
@@ -116,7 +119,7 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 #### Acceptance Criteria
 1. The captured source shall be immutable after capture and provide independent offset-zero readers.
 2. Every provider/credential retry obtains a fresh reader and closes it on all exits.
-3. Parallel/race routes may use the wire lane only when independent readers and every racing candidate's wire contract support the exact route semantics.
+3. Parallel/race routes may use the wire lane only when independent readers and every candidate in the pre-proven superset supports the exact route/body semantics.
 4. Current attempt budgets, affinity/interleaved state, weighted/race ordering, first-event commitment, and pre-output recovery classification remain authoritative.
 5. No new retry/failover may occur after client-visible output.
 6. Replay tests shall prove byte-complete delivery after a failed first attempt and independent concurrent cursor state.
@@ -147,7 +150,7 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 #### Acceptance Criteria
 1. Frontend-owned ingress traffic capture that requires the full `[]byte` shall gate to canonical processing before spooling unless/until it gains a streaming-compatible contract.
 2. Core/composed raw capture, request traffic observation/redaction, secret guards, DLP/content policy, request transforms, submit hooks, local turns, conversation projection, and similar content stages shall block unless explicitly parity-certified for wire facts/body streaming.
-3. Active conversation exclusion/steering that changes backend-effective content shall force canonical continuation.
+3. Any configured conversation/session feature whose content/route effect is not fully decidable before the V1 commit point shall block rather than create a post-turn fallback.
 4. Monetary admission, account/pricing identity, charge policy, token estimation, and context-size policies shall not use byte-count approximations as substitutes for current semantics.
 5. Response usage settlement and response-only observers continue from canonical provider events.
 6. No wire path may disable an enabled authority merely to improve eligibility.
@@ -185,9 +188,10 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 2. Record `allocs/op`, `B/op`, CPU time, capture/preflight/proof latency, provider-open latency, GC/heap behavior, and temp-file I/O.
 3. Include concurrent load at realistic session counts and spool-budget saturation; compare against the disabled canonical baseline rather than claiming the spool budget itself prevents canonical heap pressure.
 4. Include malformed/late-field/large-single-string and replay/failover workloads.
-5. Publish an eligibility/fallback matrix for representative configurations, including standard extension planes and billing on/off.
+5. Publish an eligibility/fallback matrix for representative configurations, including standard extension planes, route-override authority on/off, and billing on/off.
 6. At least one realistic supported configuration/lane shall actually reach wire execution in integration/load tests; a design that compiles but always falls back under normal composition is not considered complete.
 7. Default threshold/memory-spool values are rollout defaults, not universal performance claims.
+8. Performance claims shall state that V1 still receives and validates the complete request before provider open; the primary expected gain is heap/GC and redundant object/marshal work, not early provider TTFT.
 
 ### Requirement 16: Conservative Rollout, Diagnostics, and Architecture Ratchets
 **Objective:** Operators must be able to enable/observe/revert the optimization safely.
@@ -196,7 +200,7 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 1. Feature is default-off for the first release.
 2. Metrics use bounded static labels only (frontend/profile/fallback-reason) and never backend/model/session/user IDs.
 3. Traces/logs may record body size/spill/profile/rewrite/replay/fallback reason but never request content or spool path.
-4. Architecture tests shall prevent provider-name switches in core, provider types in request-body SDK contracts, duplicate extension-plane classification systems, and unclassified new planes.
+4. Architecture tests shall prevent provider-name switches in core, provider types in request-body SDK contracts, duplicate extension-plane classification systems, unclassified new planes, fake Calls, and expected fallback introduced after the V1 commit point.
 5. Full QA/race/static checks and all canonical characterization suites must pass before enabling any production profile.
 6. Spec/design shall be revalidated if main materially changes in any revalidation-trigger area before implementation begins.
 
@@ -208,7 +212,7 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 2. The implementation shall not hold a decode-admission permit while waiting on client network upload; this would change current permit occupancy and DoS characteristics.
 3. After the complete decoded body size is known and shared preflight has passed, fast-path protocol semantic proof shall acquire `DecodeAdmission` with the same decoded-byte weight used by the canonical path.
 4. The protocol semantic verifier shall run while that permit is held. A safe implementation may reopen the immutable source for a second low-allocation semantic pass rather than performing protocol proof during upload.
-5. If the profile declines and canonical protocol decode is needed, the canonical decode shall preserve current admission/error/release semantics; permits shall be released exactly once on success/error/panic.
+5. If the profile declines at this stage and canonical protocol decode is needed, that decode shall run under the same current admission/error/release semantics while still before executor entry.
 6. Saturation/overweight/cancellation behavior and `Retry-After` mapping shall match current `decodeqos` tests for both canonical and wire-candidate requests.
 
 ### Requirement 18: Preserve Frontend Response/Envelope State Without a Fake Call
@@ -216,20 +220,20 @@ This revision incorporates a post-PR brownfield audit against `main` at `40168ce
 
 #### Acceptance Criteria
 1. A large-body execution API that returns only `lipapi.EventStream` is insufficient and shall not be the final contract if the frontend needs post-execution facts currently obtained from `*lipapi.Call` or `Decoded.Extra`.
-2. The design shall define a bounded provider-neutral execution-result/response-facts contract (for example call/trace identity, authoritative A-leg/session identity, delivery/operation facts, and explicitly needed opaque-response identity facts) and keep frontend-specific response state at the frontend boundary.
+2. The design shall define a bounded provider-neutral execution-result/response-facts contract (for example call/trace identity, authoritative A-leg/session identity, delivery/operation facts) and keep frontend-specific response state at the frontend boundary.
 3. The wire path shall not fabricate a partial `lipapi.Call` solely to satisfy existing response encoders/loggers.
 4. Each certified frontend shall inventory `BuildEncodeOpts`, `WrapStream`, response writers, cancellation endpoints, debug/trace calls, and `AfterDecode` state and either refactor them onto the bounded response contract or mark the profile canonical-only.
 5. OpenAI Responses cancellation IDs shall remain correctly bound to the authoritative A-leg/session or otherwise retain equivalent cancellation semantics; optimized requests must not become uncancellable.
 6. Opaque response IDs/timestamps may differ from the canonical implementation only when the protocol permits it and the certification explicitly documents/normalizes that field; semantic guarantees, uniqueness, correlation, cancellation/continuation behavior, and format remain required.
-7. Dynamic canonical continuation shall restore/use the frontend's canonical decoded/AfterDecode state exactly once; the core shall not own arbitrary frontend/provider state.
+7. Pre-turn canonical fallback shall restore/use the frontend's ordinary canonical decoded/`AfterDecode` state exactly once; core shall not own arbitrary frontend/provider state.
 
 ### Requirement 19: Close Every Post-Identity `lipapi.Call` Dependency Before Wire Execution
 **Objective:** The implementation must not discover late that downstream runtime machinery still requires canonical request content.
 
 #### Acceptance Criteria
-1. Before implementing wire execution, the project shall inventory every production read of `preparedRequest.call`, `identity.ingressCall`, canonical baselines, and `lipapi.Call`-typed callback used after the proposed identity split.
-2. Each dependency shall be classified as: content-requiring blocker; exact metadata fact that can be added to a bounded wire-execution facts object; or response-only behavior covered by Requirement 18.
-3. A ratchet/coverage test or generated inventory shall prevent new post-identity full-call dependencies from silently becoming wire-safe.
+1. Before implementing wire execution, the project shall inventory every production read of `preparedRequest.call`, `identity.ingressCall`, canonical baselines, and `lipapi.Call`-typed callback used after the V1 wire commit.
+2. Each dependency shall be classified as: pre-turn canonical blocker; exact metadata fact that can be added to a bounded wire-execution facts object; or response-only behavior covered by Requirement 18.
+3. A ratchet/coverage test or generated inventory shall prevent new post-commit full-call dependencies from silently becoming wire-safe.
 4. Routing, continuation support, interleaved-thinking setup, `recvTurnFacts`, billing identity/exposure, request-token/context estimation, terminal usage records, and any current full-call callback shall be included in this audit.
 5. Stock billing composition shall be tested explicitly. If its policy/identity/max-output admission can be represented exactly from bounded wire facts, implement that typed path; otherwise billing-enabled requests remain canonical-only and the eligibility matrix must say so.
-6. No consumer may receive a fake/partial canonical Call. If exact semantics cannot be represented without materialization, fallback is required.
+6. No consumer may receive a fake/partial canonical Call. If exact semantics cannot be represented without materialization, the request must be blocked before the V1 commit point.
