@@ -1,4 +1,4 @@
-package bunstore_test
+package bunstore
 
 import (
 	"context"
@@ -8,9 +8,10 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/stretchr/testify/require"
 )
 
 func copyLegacyFixture(t *testing.T, testSourceFile string) string {
@@ -49,12 +50,33 @@ func TestLegacySQLiteFixture_ReadCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := bunstore.NewWithContext(ctx, bunDB)
+	s, err := NewWithContext(ctx, bunDB)
 	if err != nil {
 		_ = bunDB.Close()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+
+	// Verify logical schema invariants after upgrade
+	require.NoError(t, dbparity.VerifySQLiteSchema(ctx, bunDB, ContinuityLogicalSchemaSpec()))
+
+	// Verify all migrations applied after upgrade
+	discovered, err := dbparity.DiscoverMigrations(filepath.Dir(thisFile))
+	require.NoError(t, err)
+	migRows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_continuity_migrations")
+	require.NoError(t, err)
+	defer migRows.Close()
+	recorded := make(map[string]bool)
+	for migRows.Next() {
+		var name string
+		require.NoError(t, migRows.Scan(&name))
+		id := name
+		if len(name) >= 14 {
+			id = name[:14]
+		}
+		recorded[id] = true
+	}
+	require.NoError(t, dbparity.AssertMigrationHistoryIDs(dbparity.MigrationIDs(discovered), recorded))
 
 	got, err := s.ResolveALeg(ctx, "legacy-ck")
 	if err != nil {

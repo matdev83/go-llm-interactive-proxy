@@ -304,18 +304,29 @@ func billingFinalConvergenceExpandPackageFilesFS(fs archtestFS, files []string) 
 	return out, nil
 }
 
-// isBillingFinalConvergenceMigrationName reports whether a file is a timestamped
-// Bun migration source (14-digit prefix), treated as historical-only DDL.
-func isBillingFinalConvergenceMigrationName(name string) bool {
-	if len(name) < 15 || name[14] != '_' {
+// isBillingHistoricalMigrationSource reports whether a file is a timestamped
+// Bun migration source (14-digit prefix) or the known historical legacy migration source
+// (legacy_billing_zero_reserved_nano.go), treated as historical-only DDL.
+func isBillingHistoricalMigrationSource(rel string) bool {
+	base := filepath.Base(filepath.FromSlash(rel))
+	if base == "legacy_billing_zero_reserved_nano.go" {
+		return true
+	}
+	if len(base) < 15 || base[14] != '_' {
 		return false
 	}
 	for i := range 14 {
-		if name[i] < '0' || name[i] > '9' {
+		if base[i] < '0' || base[i] > '9' {
 			return false
 		}
 	}
 	return true
+}
+
+// isBillingFinalConvergenceMigrationName reports whether a file is a timestamped
+// Bun migration source (14-digit prefix), treated as historical-only DDL.
+func isBillingFinalConvergenceMigrationName(name string) bool {
+	return isBillingHistoricalMigrationSource(name)
 }
 
 // EvaluateBillingFinalConvergenceDeletionRatchet checks the planned deletion

@@ -65,3 +65,20 @@ func isMissingRelation(err error) bool {
 func errorsIsNoSuchTable(err error) bool {
 	return err != nil && (err == sql.ErrNoRows || strings.Contains(strings.ToLower(err.Error()), "no such table"))
 }
+
+func authorizationHoldsTableExists(ctx context.Context, db *bun.DB) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("nil database")
+	}
+	var count int
+	var err error
+	switch db.Dialect().Name() {
+	case dialect.SQLite:
+		err = db.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'authorization_holds'`).Scan(ctx, &count)
+	case dialect.PG:
+		err = db.NewRaw(`SELECT COUNT(1) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'authorization_holds'`).Scan(ctx, &count)
+	default:
+		return false, fmt.Errorf("unsupported bun dialect %s", db.Dialect().Name().String())
+	}
+	return count != 0, err
+}

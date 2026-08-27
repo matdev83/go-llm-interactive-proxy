@@ -252,6 +252,8 @@ type pooledAuthorityFactory struct {
 	runtimeDSN string
 }
 
+func (f pooledAuthorityFactory) ParallelContract() bool { return false }
+
 func (f pooledAuthorityFactory) Build(t *testing.T) app.StateStore {
 	t.Helper()
 	storeID := testkit.UniquePostgresStoreID("pg-pooled-contract")

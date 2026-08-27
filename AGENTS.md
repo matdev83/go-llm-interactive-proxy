@@ -77,6 +77,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Compatible-provider growth is data-driven (`internal/providerprofiles`) plus contract TCKs, not a Cartesian frontend×backend product or a new in-process backend per vendor.
 - Runtime billing has two seams only: cheap credit screen before route expansion, then atomic operational exposure admission after quote; terminal ownership appends BillingCallID-scoped usage. No stream-time rating, journal I/O, or token-ledger money writes.
 - Public `pkg/lipruntime.Options` stays non-money. Internal hosts inject billing through `runtimebundle.ComposeBilling` into `BuildHost` `ProductionOptions`. Stock `lipstd` does not invent billing accounts.
+- Dual-dialect persistence parity: components supporting SQLite and PostgreSQL must register in package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()`, maintain logical schema/migration parity, and pass `make test-db-parity` without runtime registry overhead.
 
 ## Package Zones
 
@@ -110,6 +111,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 
 - Focused test: `go test -run TestName ./path/to/pkg`.
 - Default unit: `make test-unit`.
+- Database dialect parity: `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`).
 - Quality gate: `make quality-checks`.
 - Full default: `make test`.
 - Cross-frontend/backend or protocol matrix: `make parity-checks`.

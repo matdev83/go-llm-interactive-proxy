@@ -11,10 +11,23 @@
 
 ## Build Tag & Environment Gating Rules
 
-- **Default `go test ./...` / `make test`**: Fast, deterministic, composed tests only (no real network or database required).
-- **`//go:build integration`**: Env-gated tests requiring real services (e.g. PostgreSQL via `LIP_TEST_POSTGRES_DSN`). Skip automatically when env var is unset.
+- **Default `make test-unit` vs `make test`**:
+  - `make test-unit` runs `go test $(GO_TEST_FLAGS) ./...` (fast in-memory and composed unit tests using `httptest` and stubs, without external network or database dependencies; excludes `//go:build precommit` and `//go:build integration`). Parallelism defaults to machine core count and is configurable via `GO_TEST_FLAGS` (or `LIP_TEST_PARALLEL`).
+  - `make test` composes `quality-checks-fast`, `test-unit`, and `parity-checks` for comprehensive local verification.
+  - `make parity-checks` encompasses the full parity scope: contract TCKs (`internal/testkit/contract`, `internal/providerprofiles`, `pkg/lipsdk/backendplugin/contracttest`, `internal/testkit/compatibleparity`), protocol conformance matrices (`internal/testkit/conformance` with `-tags=precommit,integration`), external connector parity (ACP, OpenRouter, hosted compatible), and the bounded sentinel (`TestBoundedSentinel`).
+  - `make qa` executes `quality-checks-fast`, the full tagged test pass `qa-tests` (`-tags=precommit,integration`), static analyzers (`lint` with `golangci-lint` preferred and `staticcheck` fallback; `govulncheck` via `vuln`), and static release gates (`backend-plugin-release-gates-static`, `test-openresponses-compliance-static`). It verifies code and architecture without requiring external database services (unconfigured external DB integration tests skip).
+- **Database Dialect Parity Gate**: Canonical repository-wide parity runner derived dynamically from package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` (8 component families). Executed via `make test-db-parity` (or `make test-db-parity-sqlite`, `make test-db-parity-postgres-direct`). Mandatory direct PostgreSQL mode requires `LIP_REQUIRE_POSTGRES=1` with direct DSN `LIP_TEST_POSTGRES_DSN` (runner accepts fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`) and fails closed on missing/unhealthy service, redacting credentials.
+- **`//go:build integration`**: Env-gated tests requiring real services (e.g. PostgreSQL via `LIP_TEST_POSTGRES_DSN`). In ad-hoc unit runs, tests skip automatically if env vars are unset; in mandatory parity / authority gates, missing configuration fails closed.
 - **`//go:build precommit`**: Non-blocking checks (hygiene in `internal/qa`, regression matrices in `internal/core/runtime`, reasoning HTTP matrix in `internal/stdhttp`). Executed in `make qa` / CI (`-tags=precommit,integration`).
-- **PostgreSQL Pooler Gate**: Dual-plane Postgres tests require `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` attestation; direct DSN is `LIP_TEST_POSTGRES_ADMIN_DSN`.
+- **Specialized PostgreSQL Topology Gates**:
+  - `make test-authority-postgres-direct`: Direct PostgreSQL runtime proof for authority/lease/journal/workstore (`LIP_REQUIRE_POSTGRES=1`). Direct DSN in `LIP_TEST_POSTGRES_DSN` (or admin DSN).
+  - `make test-authority-postgres-pooled`: Transaction-pooled runtime proof requiring runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`, and explicit topology attestation `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` (Make sets `LIP_REQUIRE_POSTGRES_POOLER=1`).
+  - `make test-postgres-migrations`: Applies and verifies dual-plane PostgreSQL migrations using `LIP_MIGRATION_POSTGRES_DSN` (with fallback to admin/runtime DSNs).
+  - `make test-authority-postgres`: Aggregate direct + pooled proof + migrations (`LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` required).
+  - Billing convergence (`make billing-convergence-certify`): Deep domain financial invariants and schema verification.
+- **PR CI & Hygiene Integration**:
+  - CI job `db-parity` in `.github/workflows/ci.yml` starts an ephemeral direct PostgreSQL container (`postgres:17-alpine`), runs canonical `make test-db-parity` for test-relevant changes, emits an explicit bypass for changes classified as non-test-relevant by `scripts/ci-scope.sh`, and feeds into the required `repo-hygiene` aggregate status check (`if: always() && needs.db-parity.result != 'success'`).
+  - PR QA in `.github/workflows/qa.yml` runs fast preflight, hygiene, provider profile ratchet, vet, and architecture guardrails; it does not run full tagged integration or postgres authority suites.
 
 ---
 
@@ -49,9 +62,16 @@
 ## Command Reference
 
 - `make quality-checks` — Format, tidy, vet, ad-hoc goroutine allowlist, hot-path regex check, archtest guardrails.
-- `make test` — Quality checks + default unit tests + parity checks.
-- `make test-unit` — `go test -parallel=8 -timeout=10m ./...`
-- `go test ./internal/archtest/...` — Architecture guardrail tests.
-- `make parity-checks` — Conformance suite (`-tags=precommit,integration`).
-- `make qa` — Quality checks + full tagged test pass + golangci-lint + govulncheck.
+- `make test` — Quality checks (`quality-checks-fast`) + default unit tests (`test-unit`) + parity checks (`parity-checks`).
+- `make test-unit` — `go test $(GO_TEST_FLAGS) ./...` (fast in-memory/composed unit tests; configurable via `GO_TEST_FLAGS` or `LIP_TEST_PARALLEL`).
+- `make test-db-parity` — Sequential repository-wide SQLite and direct PostgreSQL parity gate (derived from `internal/testkit/dbparity` via `dbparity.DefaultCatalog()` across all 8 components).
+- `make test-db-parity-sqlite` — Canonical SQLite database parity tests across all registered components.
+- `make test-db-parity-postgres-direct` — Repository-wide fail-closed direct PostgreSQL parity (direct/admin DSN; Make sets `LIP_REQUIRE_POSTGRES=1`).
+- `make test-authority-postgres-direct` — Direct PostgreSQL runtime proof for authority/lease/journal/workstore (`LIP_REQUIRE_POSTGRES=1`).
+- `make test-authority-postgres-pooled` — Transaction-pooled runtime proof (requires runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`, and `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`).
+- `make test-authority-postgres` — Aggregate direct + pooled proof + migrations (pooled attestation required).
+- `make test-postgres-migrations` — Apply and verify dual-plane PostgreSQL migrations.
+- `go test ./internal/archtest/...` — Architecture guardrail tests (including database parity discovery).
+- `make parity-checks` — Full parity matrix: contract TCKs, protocol conformance (`-tags=precommit,integration`), connector parity suites, and bounded sentinel (configurable via `GO_TEST_FLAGS`).
+- `make qa` — Quality checks (`quality-checks-fast`) + full tagged test pass (`-tags=precommit,integration`) + linter (`make lint`: `golangci-lint` preferred, `staticcheck` fallback) + `govulncheck` (`make vuln`) + static release gates (`backend-plugin-release-gates-static`, `test-openresponses-compliance-static`).
 - Extension scalability evidence: `go test ./internal/archtest/...`, `go test ./internal/providerprofiles/...`, `go test ./internal/testkit/contract/...`, `go test ./pkg/lipsdk/backendplugin/contracttest`, and the bounded sentinel through `make parity-checks`. Use `go run ./internal/archtest/tools/changesurface/cmd -json` for the deterministic Git path report; provider-profile-only changes must also pass `make profile-only-check PROFILE_ONLY_BASE=HEAD` (CI runs the same ratchet when profile paths change).

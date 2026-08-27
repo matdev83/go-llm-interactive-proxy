@@ -6,7 +6,8 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 | Gate | Criterion | Command |
 |------|-----------|---------|
-| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`) |
+| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (runs contract TCKs, conformance matrix, connector parity, and bounded sentinel; configurable via `GO_TEST_FLAGS`) |
+| Database dialect parity (Req. 8.5, 9.1–9.5) | 100% of registered dual-dialect persistence components (8 families in package `internal/testkit/dbparity` via `dbparity.DefaultCatalog()`) pass stable SQLite and PostgreSQL-direct parity contracts | `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`); PR CI runs `db-parity` job with ephemeral direct PostgreSQL (`postgres:17-alpine`) |
 | Race (Req. 14.6) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); on Windows `make test-race` is a no-op (race disabled locally). Not part of PR `qa.yml`. |
 | Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` locally; nightly CI via `.github/workflows/race-fuzz-nightly.yml`. Not part of PR `qa.yml`. |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
@@ -15,7 +16,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 Normative matrices and row IDs: [.kiro/specs/archive/llm-api-parity/design.md](../.kiro/specs/archive/llm-api-parity/design.md). A protocol may be marked **parity-ready** only when every matrix row for that protocol is `implemented` or explicitly `out_of_scope`, with automated evidence at the layers named in the spec.
 
-- **Fast conformance slice:** `make parity-checks` runs `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (includes `parity_*_test.go` anchors, `TestParitySuiteSourceFilesPresent`, and `TestParityMatrixCompleteness` when compiled with the integration tag).
+- **Fast conformance slice:** `make parity-checks` runs contract TCKs, protocol conformance matrices (`-tags=precommit,integration`), external connector suites, and the bounded sentinel (configurable via `GO_TEST_FLAGS`).
 - **OpenResponses protocol-owned gate:** `make test-openresponses-compliance` (`make qa` runs the static wiring check).
 - **Full release gate** remains `make release-gates` (conformance + Tier-1 fuzz).
 
@@ -23,7 +24,7 @@ Normative matrices and row IDs: [.kiro/specs/archive/llm-api-parity/design.md](.
 
 1. `design.md` row status is `implemented` or explicitly `out_of_scope` / `wire_only` with a reason.
 2. [refclient-spec-matrix.md](../.kiro/specs/archive/go-core-reimplementation-v1/refclient-spec-matrix.md) and [refbackend-spec-matrix.md](../.kiro/specs/archive/go-core-reimplementation-v1/refbackend-spec-matrix.md) cite the same tests or deferrals as `design.md` (no contradictions).
-3. `make parity-checks` passes locally; CI runs the same packages with integration conformance sources enabled via `go test -parallel=8 -tags=precommit,integration ./...` (see `.github/workflows/qa.yml`).
+3. `make parity-checks` passes locally; PR CI runs unit test matrix and direct database parity in `.github/workflows/ci.yml` while `.github/workflows/qa.yml` enforces architecture and policy guardrails.
 
 ## Fuzz tiers
 
@@ -81,7 +82,7 @@ Normative matrices and row IDs: [.kiro/specs/archive/llm-api-parity/design.md](.
 
 - Local default: `FUZZTIME=500ms` per target (wall time scales with the number of rows in the table above).
 - Nightly CI: `.github/workflows/race-fuzz-nightly.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating releases).
-- PR CI (`.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast (quality, postgres authority, unit/integration, lint, vuln). PRs that change no `*.go` files skip the suite; the required `qa` gate still succeeds.
+- PR CI (`.github/workflows/ci.yml` and `.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast. `ci.yml` runs cross-platform unit tests and the `db-parity` job against an ephemeral direct PostgreSQL container (`postgres:17-alpine`) executing `make test-db-parity`. PRs with changes classified as non-test-relevant by `scripts/ci-scope.sh` report an explicit bypass; the required `repo-hygiene` aggregate status check reports success. `qa.yml` runs fast preflight, policy checks, module tidy preflights, provider-profile ratchet, vet, and architecture guardrails.
 
 ## Fuzz seed corpus (committed)
 
@@ -93,7 +94,7 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 ## Single entry point
 
 - `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on nightly CI (`bash scripts/race-check.sh --strict` in `.github/workflows/race-fuzz-nightly.yml`; Windows skips race via `scripts/race-check.ps1`).
-- Full local QA remains `make qa` (quality + unit tests + lint + vuln). PR CI runs quality, postgres authority, tagged unit tests, lint, and vuln (see `.github/workflows/qa.yml`). Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`).
+- Full local QA remains `make qa` (quality checks + full tagged test pass with `-tags=precommit,integration` + lint + vuln + static release gates). PR CI runs the cross-platform unit matrix and dedicated `db-parity` job in `ci.yml` (ephemeral direct PostgreSQL) along with architecture and hygiene gates in `qa.yml`. Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`).
 
 ## Dual-plane economics and concurrency (feature gates)
 
@@ -112,7 +113,7 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, journal, and terminal-work proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
 | PostgreSQL migrations (18.9-18.10) | Explicit admin migration followed by read-only schema verification | `make test-postgres-migrations`; prefers `LIP_MIGRATION_POSTGRES_DSN`, then test admin/runtime DSNs |
 | PostgreSQL aggregate | Migration, direct runtime, and pooled runtime gates all pass | `make test-authority-postgres` |
-| PostgreSQL pooled runtime (18.14–18.16) | Dual-endpoint pooled contracts for authority, lease, journal, terminal-work, and runtimebundle (`LIP_TEST_POSTGRES_ADMIN_DSN` + transaction-pooled `LIP_TEST_POSTGRES_DSN` with `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`). Proves migrate/open split and pooler-safe DML. | `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1` fails closed). |
+| PostgreSQL pooled runtime (18.14–18.16) | Dual-endpoint pooled contracts for authority, lease, journal, terminal-work, and runtimebundle (admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN` + transaction-pooled `LIP_TEST_POSTGRES_DSN` with attestation `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`). Proves migrate/open split and pooler-safe DML. | `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1` fails closed). |
 | Migration fixtures (15.13 / 17.2) | Golden inventory under `testdata/migration/` | conformance `TestMigrationGoldenFixtureInventory` via `make parity-checks` |
 | Enterprise panic / malformed isolation (15.9) | Injected request/attempt/concurrency providers map panic and unknown decision/lease kinds through fail-closed `ErrUnavailable` (advisory may degrade); release compensate panics are isolated | `go test ./internal/core/authoritycoord/ -run Isolates` |
 | Privacy (17.5–17.6) | No raw bearer/API-key/header leakage in default authority evidence | `go test ./internal/core/usageauthority/app/ -run ProjectAuthorityEvidence` |
@@ -121,6 +122,21 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Explicit non-goals (17.8) | No web GUI, payments, invoices, tax, SSO/SAML/SCIM, CSP, or compression algorithms in this feature | design / requirements exclusions |
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
 | Migration / rollout / rollback (11.x, 7.4) | Ordering, local vs distributed posture, terminal-work drain, open-core | [dual-plane-migration-rollout.md](dual-plane-migration-rollout.md); `go test ./internal/qa/ -run TestPhase74_` |
+
+## Database dialect parity (persistence gates)
+
+Normative completion gates for dual-dialect SQLite and PostgreSQL persistence (requirements **8.5**, **9.1–9.5**). The authoritative persistence scope is defined in package [`internal/testkit/dbparity`](../internal/testkit/dbparity/catalog.go) via [`dbparity.DefaultCatalog()`](../internal/testkit/dbparity/catalog.go) covering all 8 production component families (`continuity`, `secure-sessions`, `control-plane-ledger`, `usage-authority`, `concurrency-authority`, `metering-journal`, `terminal-work`, and `billing`).
+
+| Gate | Criterion | Command / evidence |
+|------|-----------|-------------------|
+| SQLite dialect parity | 100% of registered components pass stable SQLite parity wrappers, migration history checks, and logical schema invariants | `make test-db-parity-sqlite` |
+| PostgreSQL direct parity | 100% of registered components pass stable direct PostgreSQL parity wrappers and schema verifications with fail-closed environment | `make test-db-parity-postgres-direct` (requires direct `LIP_TEST_POSTGRES_DSN` with runner fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`; Make sets `LIP_REQUIRE_POSTGRES=1`) |
+| Canonical repository parity | Sequential SQLite + PostgreSQL-direct parity across all cataloged components | `make test-db-parity` |
+| PR CI direct parity | Ephemeral direct PostgreSQL container (`postgres:17-alpine`), fail-closed aggregation into required `repo-hygiene` status, explicit bypass for changes classified as non-test-relevant by `scripts/ci-scope.sh` | `.github/workflows/ci.yml` (`db-parity` job) |
+| Architecture discovery | Unregistered versioned migration roots and packages containing discovered deterministic dialect-sensitive indicators fail closed | `go test ./internal/archtest -run DatabaseParity` |
+| Policy & CI wiring | QA verifies workflow fail-closed wiring and required aggregate dependency | `go test ./internal/qa -run DatabaseParity` |
+
+Specialized dual-plane PostgreSQL gates (`make test-authority-postgres-direct`, `make test-authority-postgres-pooled`, `make test-postgres-migrations`, and billing convergence) remain separate and require dedicated topology attestation (runtime pooler DSN `LIP_TEST_POSTGRES_DSN`, admin DSN `LIP_TEST_POSTGRES_ADMIN_DSN`, and `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1` for transaction poolers).
 
 ## Runtime architecture convergence (ownership docs)
 

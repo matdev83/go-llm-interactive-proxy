@@ -18,3 +18,9 @@ type ProviderCostWorkReader interface {
 type ProviderCostWorkFailureStore interface {
 	DeferProviderCostWork(context.Context, ProviderCostWork, string) error
 }
+
+// ProviderCostWorkStore combines reader and failure handling for provider cost work.
+type ProviderCostWorkStore interface {
+	ProviderCostWorkReader
+	ProviderCostWorkFailureStore
+}
