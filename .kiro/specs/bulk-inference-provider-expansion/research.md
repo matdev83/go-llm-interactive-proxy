@@ -50,7 +50,10 @@ At baseline, the following are already supported and are exclusions from duplica
 3. Hermes is a primary secondary source for coding-plan/OAuth products and its explicit provider adapters.
 4. LiteLLM is a **breadth source only**. LiteLLM's check marks under `/messages` or `/responses` often describe LiteLLM translation, not the upstream provider's native wire API. Never promote a provider to Responses/Anthropic merely because LiteLLM can normalize it.
 
-Concrete example: current xAI OpenAPI exposed `/v1/chat/completions` but not `/v1/responses`; therefore this spec keeps API-key xAI on OpenAI Chat even though secondary systems may present a translated Responses interface.
+Concrete corrections applied by this rule:
+
+- current xAI OpenAPI exposed `/v1/chat/completions` but not `/v1/responses`, so API-key xAI remains Chat;
+- current Kilo Gateway docs expose an OpenAI-compatible `/chat/completions` surface at `https://api.kilo.ai/api/gateway`, so Kilo is Chat despite a Cline product override that classified its client as Responses.
 
 ## Mechanical Provider Classification Algorithm
 
@@ -111,7 +114,6 @@ Do **not** mass-assign `cl100k_base` or any other tokenizer merely because gener
 | `scaleway-openai` | Chat | supplemental | `https://api.scaleway.ai/v1` | `SCW_SECRET_KEY` | family default | Broader Chat catalog. |
 | `vercel-ai-gateway` | Responses | yes | `https://ai-gateway.vercel.sh/v1` | `AI_GATEWAY_API_KEY` | family default | Gateway natively exposes Responses, Chat, Anthropic and OpenResponses; use Responses as one default identity. |
 | `requesty` | Responses | yes | `https://router.requesty.ai/v1` | `REQUESTY_API_KEY` | family default | Requesty exposes `/v1/responses` and `/v1/models`; no duplicate Chat alias needed. |
-| `kilo` | Responses | yes | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | static/curated unless `/models` fixture conforms | Cline's product override routes Kilo via OpenAI Responses. |
 | `meta` | Responses | yes | `https://api.meta.ai/v1` | `META_MODEL_API_KEY` | family default if fixture conforms | Meta Model API is currently classified/implemented via OpenAI Responses family by surveyed coding client. |
 | `xai` | Chat | yes | `https://api.x.ai/v1` | `XAI_API_KEY` | family default | Current official xAI OpenAPI had Chat but no native Responses. OAuth is separate. |
 
@@ -125,6 +127,7 @@ Primary official evidence:
 - Vercel AI Gateway: <https://vercel.com/docs/ai-gateway/sdks-and-apis>, <https://vercel.com/docs/ai-gateway/models-and-providers>
 - Requesty Responses/models: <https://docs.requesty.ai/api-reference/endpoint/responses-create>, <https://docs.requesty.ai/api-reference/endpoint/models-list>
 - xAI OpenAPI: <https://api.x.ai/api-docs/openapi.json>
+- Kilo Gateway Chat contract: <https://kilo.ai/docs/gateway/quickstart>, <https://kilo.ai/docs/gateway/api-reference>
 
 ## Locked OpenAI Chat Profile Matrix
 
@@ -191,6 +194,7 @@ Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, 
 | `jalapeno` | `https://api.jalapeno-cloud.ai/v1` | `JALAPENO_API_KEY` | hosted |
 | `jiekou` | `https://api.jiekou.ai/openai` | `JIEKOU_API_KEY` | compatibility root |
 | `kenari` | `https://kenari.id/v1` | `KENARI_API_KEY` | hosted |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | official Kilo Gateway contract is OpenAI Chat `/chat/completions` with tool calling; do not classify as Responses without a future official contract |
 | `llmgateway` | `https://api.llmgateway.io/v1` | `LLMGATEWAY_API_KEY` | one identity for duplicate upstream aliases |
 | `llmtech` | `https://api.llmtech.eu/v1` | `LLMTECH_API_KEY` | EU hosted |
 | `llmtr` | `https://llmtr.com/v1` | `LLMTR_API_KEY` | hosted |
@@ -467,7 +471,7 @@ The existing binding derives the backend prefix (`profile.ID`), base URL, env-va
 3. **Family maximum capability overclaim** -> every real profile receives a conservative capability reduction; richer capabilities require frozen evidence.
 4. **Tokenizer overgeneralization risk** -> mass tokenizer assignment was removed; tokenizer is omitted unless deliberate.
 5. **Flavor-overbroad model discovery** -> narrow Responses identities use static model inventories when provider-wide `/models` is broader; DeepSeek/Scaleway are explicit cases.
-6. **LiteLLM translation ambiguity** -> native flavor decisions require upstream/official evidence; xAI remains Chat.
+6. **Translated/secondary protocol ambiguity** -> native flavor decisions require upstream/official evidence; xAI and Kilo remain Chat despite secondary classifications.
 7. **Dynamic endpoint/multi-auth products** -> reclassified to connectors rather than widening profile v1.
 8. **Ambiguous multi-protocol naming** -> if multiple identities are needed, all receive protocol suffixes; Responses is documented preferred.
 9. **Regional credential collision** -> MiniMax global uses `MINIMAX_API_KEY`; MiniMax China uses `MINIMAX_CN_API_KEY` so both can be configured independently.
