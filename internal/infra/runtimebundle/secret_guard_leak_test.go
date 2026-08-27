@@ -55,7 +55,7 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 	t.Parallel()
 	secret := testkit.SyntheticOpenAIAPIKey
 	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node

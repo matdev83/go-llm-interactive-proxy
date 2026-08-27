@@ -22,10 +22,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
@@ -321,14 +323,22 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
+	cat := stdFactoryCatalog(t)
+	err := cat.RegisterFeature("cand-obs-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:    lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{countTrafficObs{n: &candObs}},
+		}, nil
+	})
+	require.NoError(t, err)
+
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg: cfg,
 		Log: testkit.DiscardLogger(),
 		Opts: &runtimebundle.BuildOptions{
-			PluginRegistry:    stdFactoryCatalog(t),
+			PluginRegistry:    cat,
 			FeatureLifecycles: []lipplugin.Lifecycle{startupLife},
 			Extensions: runtimebundle.ExtensionsOptions{
-				TrafficObservers: []traffic.Observer{countTrafficObs{n: &startupObs}},
 				RequestTransforms: []request.Transform{countTransform{
 					id: "startup-hook",
 					n:  &startupHook,
@@ -371,15 +381,19 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		}
 	}
 
+	candCfgA := stubCandidateConfig(t, "feat-a", "a", "feat-a:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	candCfgA.Plugins.Features = []config.PluginConfig{
+		{ID: "cand-obs-feature", Enabled: true},
+	}
+
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps,
-		Candidate: stubCandidateConfig(t, "feat-a", "a", "feat-a:stub-default", []config.PluginConfig{
-			{ID: "openai-responses", Enabled: true},
-		}),
+		Process:   ps,
+		Candidate: candCfgA,
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{candLife},
 			Extensions: runtimebundle.ExtensionsOptions{
-				TrafficObservers:  []traffic.Observer{countTrafficObs{n: &candObs}},
 				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
 			},
 		},

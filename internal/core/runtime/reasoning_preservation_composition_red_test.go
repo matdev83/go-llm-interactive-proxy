@@ -162,12 +162,12 @@ func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensi
 		RequestTransforms:       m.RequestTransforms,
 		CompletionGates:         m.CompletionGates,
 		AttemptTransforms:       m.AttemptTransforms,
-		StreamObserverFactories: m.StreamObserverFactories,
+		StreamObserverFactories: bundle.StreamObserverFactories,
 	})
 	if want, got := len(m.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
 	}
-	if want, got := len(m.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
 		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
 	}
 	return bus, snap

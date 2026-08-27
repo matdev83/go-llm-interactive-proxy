@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
@@ -12,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -56,6 +58,24 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		if _, err := configreload.Classify(ps.cfg, rawCandidate); err != nil {
 			return nil, err
 		}
+	}
+	if opts.FeaturePlanes.IsZero() {
+		var host featurebundle.HostContributions
+		if ps.opts != nil {
+			host = featurebundle.HostContributions{
+				TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers),
+				UsageObservers:   slices.Clone(ps.opts.Production.UsageObservers),
+			}
+		}
+		catalog := ps.FactoryCatalog
+		if catalog == nil {
+			catalog = opts.PluginRegistry
+		}
+		_, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(catalog, config.RegistrationsFromConfig(cfg), host)
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
+		}
+		opts.FeaturePlanes = genMerged.Frozen
 	}
 	if err := validateCandidateManifestOwnership(cfg, opts.PluginRegistry); err != nil {
 		return nil, err

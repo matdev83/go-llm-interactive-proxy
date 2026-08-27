@@ -1,5 +1,7 @@
 package feature
 
+import "maps"
+
 // FrozenPlaneSet holds an immutable collection of composed feature plane values.
 type FrozenPlaneSet struct {
 	// TEST-ONLY: values and identities maps are test-only fallback storage in task 2.2.
@@ -59,4 +61,40 @@ func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
 		return id, ok
 	}
 	return "", false
+}
+
+// IsZero reports whether s is an uninitialized, zero-value FrozenPlaneSet.
+func (s FrozenPlaneSet) IsZero() bool {
+	return s.frozen == nil && s.values == nil && s.identities == nil
+}
+
+// ToContributions reconstructs a mutable ContributionSet from the frozen snapshot.
+func (s FrozenPlaneSet) ToContributions() *ContributionSet {
+	if s.IsZero() {
+		return NewContributionSet()
+	}
+	valuesCopy := make(map[string]any, len(s.values))
+	for k, v := range s.values {
+		valuesCopy[k] = cloneAny(v)
+	}
+	identitiesCopy := make(map[string]string, len(s.identities))
+	maps.Copy(identitiesCopy, s.identities)
+
+	var gen *generatedContributions
+	if s.frozen != nil {
+		gen = s.frozen.toContributions()
+	} else {
+		gen = newGeneratedContributions()
+	}
+	return &ContributionSet{
+		values:     valuesCopy,
+		identities: identitiesCopy,
+		pluginIDs:  make(map[string]string),
+		generated:  gen,
+	}
+}
+
+// ContributionSetFromFrozen reconstructs a mutable ContributionSet from a FrozenPlaneSet.
+func ContributionSetFromFrozen(s FrozenPlaneSet) *ContributionSet {
+	return s.ToContributions()
 }

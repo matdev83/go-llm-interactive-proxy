@@ -162,7 +162,7 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 	}
 	bundle := featuresg.FeatureBundle(sgCfg)
 	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -217,6 +217,8 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 					h.auditMu.Unlock()
 					return nil
 				}),
+			},
+			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []sdktraffic.Observer{&countingTrafficObs{n: &h.trafficCalls}},
 			},
 		},

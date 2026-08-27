@@ -211,12 +211,6 @@ func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOpti
 		AttemptTransforms: []request.AttemptTransform{
 			charBundleAttemptTransform{id: label + "-attxform"},
 		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charBundleStreamObserverFactory{id: label + "-streamobs"},
-		},
-		TrafficRedactors: []sdktraffic.Redactor{
-			charBundleTrafficRedactor{id: label + "-redactor"},
-		},
 		SecretGuards: []secretguard.Guard{
 			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
 		},
@@ -309,16 +303,6 @@ func assertGenerationPlanesMatch(t *testing.T, bundle runtimebundle.GenerationRu
 	at := snap.AttemptTransforms()
 	if assert.Len(t, at, 1) {
 		assert.Equal(t, expectedLabel+"-attxform", at[0].ID())
-	}
-
-	so := snap.StreamObserverFactories()
-	if assert.Len(t, so, 1) {
-		assert.Equal(t, expectedLabel+"-streamobs", so[0].ID())
-	}
-
-	tr := snap.TrafficRedactors()
-	if assert.Len(t, tr, 1) {
-		assert.Equal(t, expectedLabel+"-redactor", tr[0].ID())
 	}
 
 	sg := snap.SecretGuardPlane()

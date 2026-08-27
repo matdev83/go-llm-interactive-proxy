@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -16,6 +17,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
@@ -186,6 +190,17 @@ func TestReasoningPreservation_CompileGeneration_BoundClientExecutes(t *testing.
 	if _, ok := bound.(auxiliary.BackgroundPoller); !ok {
 		t.Fatal("bound client should implement BackgroundPoller")
 	}
+	exec, ok := bundle.ExecutorView().(*runtime.Executor)
+	if !ok || exec == nil {
+		t.Fatal("executor view should be *runtime.Executor")
+	}
+	if exec.RuntimeSnapshot == nil {
+		t.Fatal("executor extensions snapshot should not be nil")
+	}
+	factories := exec.RuntimeSnapshot.StreamObserverFactories()
+	if len(factories) != 1 || factories[0] == nil || factories[0].ID() != reasoningpreservation.ID+"-observer" {
+		t.Fatalf("expected 1 reasoning preservation stream observer factory, got %d factories", len(factories))
+	}
 	_, err = bound.SubmitCollect(context.Background(), auxiliary.Request{Call: &lipapi.Call{ID: "test"}}, auxiliary.SubmitOptions{CoalesceKey: "k1"})
 	if err != nil && strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("bound SubmitCollect should not be ErrNotConfigured, got %v", err)
@@ -350,4 +365,98 @@ func (p perContextResolver) Resolve(ctx context.Context) (secretguard.Matcher, e
 		}
 	}
 	return nil, nil
+}
+
+type stubStreamObsFactory struct{ id string }
+
+func (f stubStreamObsFactory) ID() string                      { return f.id }
+func (stubStreamObsFactory) Order() int                        { return 0 }
+func (stubStreamObsFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (stubStreamObsFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
+// 6. Ordinary stream observer factories along with compression are preserved in order.
+func TestReasoningPreservation_OrdinaryStreamObserversPreservedWithCompression(t *testing.T) {
+	t.Parallel()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	node := reasoningCompressionYAML(t, true, "test-allow")
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{MaxAttempts: 3}, Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Server:      config.ServerConfig{MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
+		Plugins: config.PluginsConfig{
+			Features: []config.PluginConfig{{ID: reasoningpreservation.ID, Enabled: true, Config: node}},
+			Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	scheduler, err := auxreq.NewBackgroundScheduler(context.Background(), func() auxreq.ExecutorRunner { return fixedRunner{id: "proc"} }, auxreq.SchedulerConfig{Workers: 1, QueueCapacity: 4, MaxResults: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = scheduler.Close() })
+	prod := runtimebundle.ProductionOptions{
+		ReasoningCompression: runtimebundle.ReasoningCompressionOptions{
+			EgressPolicies:  map[string]reasoningpreservation.EgressPolicy{"test-allow": allowEgress{version: "v1"}},
+			MatcherResolver: stubResolver{m: stubMatch{redacted: "REDACTED"}},
+		},
+	}
+	opts := &runtimebundle.BuildOptions{PluginRegistry: reg, Production: prod}
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{Cfg: cfg, Log: slog.Default(), Opts: opts, BackgroundAux: scheduler})
+	if err != nil {
+		t.Fatalf("NewProcessServices: %v", err)
+	}
+	t.Cleanup(func() { _ = ps.Close() })
+
+	ordinaryFactories := []response.StreamObserverFactory{
+		stubStreamObsFactory{id: "ordinary-obs-1"},
+		stubStreamObsFactory{id: "ordinary-obs-2"},
+	}
+	err = reg.RegisterFeature("ordinary-features", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: ordinaryFactories,
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Plugins.Features = append(cfg.Plugins.Features, config.PluginConfig{ID: "ordinary-features", Enabled: true})
+
+	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
+		Process:   ps,
+		Candidate: cfg,
+		Compose:   stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatalf("CompileGeneration: %v", err)
+	}
+	t.Cleanup(func() { _ = bundle.Close() })
+
+	exec, ok := bundle.ExecutorView().(*runtime.Executor)
+	if !ok || exec == nil {
+		t.Fatal("executor view should be *runtime.Executor")
+	}
+	if exec.RuntimeSnapshot == nil {
+		t.Fatal("executor extensions snapshot should not be nil")
+	}
+	factories := exec.RuntimeSnapshot.StreamObserverFactories()
+	if len(factories) != 3 {
+		t.Fatalf("expected 3 stream observer factories, got %d", len(factories))
+	}
+	expectedIDs := []string{"ordinary-obs-1", "ordinary-obs-2", reasoningpreservation.ID + "-observer"}
+	for i, f := range factories {
+		if f == nil {
+			t.Fatalf("factory %d is nil", i)
+		}
+		if f.ID() != expectedIDs[i] {
+			t.Errorf("factory %d ID = %q, want %q", i, f.ID(), expectedIDs[i])
+		}
+	}
 }

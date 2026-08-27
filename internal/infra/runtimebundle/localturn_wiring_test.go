@@ -41,7 +41,7 @@ func TestLocalTurn_ProductionWiring_SortedFrozen(t *testing.T) {
 	if len(merged.LocalTurnHandlers) != 3 {
 		t.Fatalf("merged %d want 3", len(merged.LocalTurnHandlers))
 	}
-	ext := extensionsFromMerged(merged, nil)
+	ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 	if len(ext.LocalTurnHandlers) != 3 {
 		t.Fatalf("extensions %d want 3", len(ext.LocalTurnHandlers))
 	}

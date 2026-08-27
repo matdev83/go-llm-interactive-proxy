@@ -18,12 +18,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -31,9 +31,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -68,6 +66,9 @@ type BuildOptions struct {
 	// not also Start/Stop the same instances via runtime.App (singular ownership).
 	// Inspect-only bootstrap may keep lifecycles on App instead.
 	FeatureLifecycles []lipplugin.Lifecycle
+	// FeaturePlanes carries the immutable frozen feature plane set compiled from
+	// enabled feature bundles and host contributions.
+	FeaturePlanes lipfeature.FrozenPlaneSet
 	// ReplaceCandidateSurface, when true, replaces process FeatureLifecycles and
 	// Extensions with this overlay's values even when nil/empty. Used by
 	// [CompileGeneration] so a candidate that removes the last feature does not
@@ -159,11 +160,6 @@ type ExtensionsOptions struct {
 	RouteHintProviders               []routehint.Provider
 	CompletionGates                  []completion.Gate
 	AttemptTransforms                []request.AttemptTransform
-	StreamObserverFactories          []response.StreamObserverFactory
-	TrafficObservers                 []traffic.Observer
-	UsageObservers                   []usage.Observer
-	RawCaptureSinks                  []traffic.RawCaptureSink
-	TrafficRedactors                 []traffic.Redactor
 	CompactionObservers              []compaction.Observer
 	SecretGuards                     []sdk.Guard
 	LocalTurnHandlers                []localturn.Handler

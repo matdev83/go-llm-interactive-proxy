@@ -23,7 +23,7 @@ func BenchmarkPhase5_disabledRuntimeNoFeatureParticipants(b *testing.B) {
 		b.Fatal("disabled snapshot must have empty reasoning stages")
 	}
 	empty := featurebundle.MergeBundles()
-	if len(empty.AttemptTransforms) != 0 || len(empty.StreamObserverFactories) != 0 {
+	if len(empty.AttemptTransforms) != 0 {
 		b.Fatal("absent FeatureBundle merge must stay empty")
 	}
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

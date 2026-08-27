@@ -169,9 +169,9 @@ func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates:         merged.CompletionGates,
-		StreamObserverFactories: merged.StreamObserverFactories,
+		StreamObserverFactories: bundle.StreamObserverFactories,
 	})
-	if want, got := len(merged.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
 		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
 	}
 	return bus, snap

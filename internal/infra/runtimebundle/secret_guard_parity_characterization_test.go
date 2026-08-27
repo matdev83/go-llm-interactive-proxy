@@ -385,7 +385,7 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		assert.Equal(t, "guard-a", merged.SecretGuards[1].ID())
 		assert.Equal(t, "guard-m", merged.SecretGuards[2].ID())
 
-		ext := extensionsFromMerged(merged, nil)
+		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		require.Len(t, ext.SecretGuards, 3)
 
 		opts := &BuildOptions{Extensions: ext}

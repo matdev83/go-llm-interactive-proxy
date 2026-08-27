@@ -79,6 +79,12 @@ func TestSeamViewsBenchmarkHarness_SanityCheck(t *testing.T) {
 		t.Fatalf("expected non-nil TerminalDecisionProvider on populated snapshot")
 	}
 
+	// Family 6: Stream Observer Factories
+	streamObs := snap.StreamObserverFactories()
+	if len(streamObs) == 0 {
+		t.Fatalf("expected non-empty StreamObserverFactories on populated snapshot")
+	}
+
 	// --- 2. Verify defensive-cloning produces distinct backing arrays ---
 
 	// Family 1: CompletionGates defensive clone
@@ -132,6 +138,17 @@ func TestSeamViewsBenchmarkHarness_SanityCheck(t *testing.T) {
 		t.Fatalf("snapshot CompactionPreservers mutated via cloned slice")
 	}
 
+	// Family 6: StreamObserverFactories defensive clone
+	so1 := snap.StreamObserverFactories()
+	so2 := snap.StreamObserverFactories()
+	if &so1[0] == &so2[0] {
+		t.Fatalf("expected distinct backing array pointers for StreamObserverFactories defensive clones")
+	}
+	so1[0] = benchStreamObsFactory{id: "mutated"}
+	if snap.StreamObserverFactories()[0].ID() == "mutated" {
+		t.Fatalf("snapshot StreamObserverFactories mutated via cloned slice")
+	}
+
 	// --- 3. Verify execution / direct accessors reuse backing arrays / return same instances ---
 
 	// Family 3: SecretGuardExecutionPlane shares backing array
@@ -164,6 +181,9 @@ func TestSeamViewsBenchmarkHarness_SanityCheck(t *testing.T) {
 	if got := emptySnap.TrafficRedactors(); len(got) != 0 {
 		t.Fatalf("expected empty TrafficRedactors on empty snapshot, got %v", got)
 	}
+	if got := emptySnap.StreamObserverFactories(); len(got) != 0 {
+		t.Fatalf("expected empty StreamObserverFactories on empty snapshot, got %v", got)
+	}
 	if got := emptySnap.CompactionObservers(); len(got) != 0 {
 		t.Fatalf("expected empty CompactionObservers on empty snapshot, got %v", got)
 	}
@@ -185,6 +205,9 @@ func TestSeamViewsBenchmarkHarness_SanityCheck(t *testing.T) {
 		t.Fatalf("expected nil on nil snapshot")
 	}
 	if got := nilSnap.TrafficRedactors(); got != nil {
+		t.Fatalf("expected nil on nil snapshot")
+	}
+	if got := nilSnap.StreamObserverFactories(); got != nil {
 		t.Fatalf("expected nil on nil snapshot")
 	}
 	if got := nilSnap.SecretGuardPlane(); len(got.Guards) != 0 {

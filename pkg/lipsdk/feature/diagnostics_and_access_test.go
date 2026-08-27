@@ -554,7 +554,7 @@ func TestPlaneDeclarationValidation_GeneratedIdentityRequiredWhenBound(t *testin
 
 	exclusivePlaneMissingGenID = feature.BindGeneratedAccessForTest(
 		exclusivePlaneMissingGenID,
-		func(gc *feature.GeneratedContributionsForTest, pluginID string, v testDummyHandler) error {
+		func(gc *feature.GeneratedContributionsForTest, source feature.SourceKind, pluginID string, v testDummyHandler) error {
 			return nil
 		},
 		func(gf *feature.GeneratedFrozenForTest) testDummyHandler {
@@ -571,7 +571,7 @@ func TestPlaneDeclarationValidation_GeneratedIdentityRequiredWhenBound(t *testin
 	// When generated identity is provided, validation passes
 	exclusivePlaneWithGenID := feature.BindGeneratedAccessForTest(
 		exclusivePlaneMissingGenID,
-		func(gc *feature.GeneratedContributionsForTest, pluginID string, v testDummyHandler) error {
+		func(gc *feature.GeneratedContributionsForTest, source feature.SourceKind, pluginID string, v testDummyHandler) error {
 			return nil
 		},
 		func(gf *feature.GeneratedFrozenForTest) testDummyHandler {

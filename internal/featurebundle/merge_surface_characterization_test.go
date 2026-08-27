@@ -407,46 +407,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"StreamObserverFactories", func(m MergedFeatureSurface) []string {
-			return charTags(m.StreamObserverFactories, func(f response.StreamObserverFactory) string {
-				if so, ok := f.(charStreamObserverFactory); ok {
-					return so.tag
-				}
-				return ""
-			})
-		}},
-		{"TrafficObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.TrafficObservers, func(o traffic.Observer) string {
-				if to, ok := o.(charTrafficObs); ok {
-					return to.tag
-				}
-				return ""
-			})
-		}},
-		{"UsageObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.UsageObservers, func(o usage.Observer) string {
-				if uo, ok := o.(charUsageObs); ok {
-					return uo.tag
-				}
-				return ""
-			})
-		}},
-		{"RawCaptureSinks", func(m MergedFeatureSurface) []string {
-			return charTags(m.RawCaptureSinks, func(s traffic.RawCaptureSink) string {
-				if rs, ok := s.(charRawSink); ok {
-					return rs.tag
-				}
-				return ""
-			})
-		}},
-		{"TrafficRedactors", func(m MergedFeatureSurface) []string {
-			return charTags(m.TrafficRedactors, func(r traffic.Redactor) string {
-				if tr, ok := r.(charRedactor); ok {
-					return tr.tag
-				}
-				return ""
-			})
-		}},
 		{"CompactionObservers", func(m MergedFeatureSurface) []string {
 			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
 				if co, ok := o.(charCompactionObs); ok {
@@ -536,10 +496,6 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 			CompletionGates:          []completion.Gate{},
 			AttemptTransforms:        []request.AttemptTransform{},
 			StreamObserverFactories:  []response.StreamObserverFactory{},
-			TrafficObservers:         []traffic.Observer{},
-			UsageObservers:           []usage.Observer{},
-			RawCaptureSinks:          []traffic.RawCaptureSink{},
-			TrafficRedactors:         []traffic.Redactor{},
 			CompactionObservers:      []compaction.Observer{},
 			CompactionPreservers:     []compaction.Preserver{},
 			SecretGuards:             []secretguard.Guard{},

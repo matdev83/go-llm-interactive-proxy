@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 type testProvider struct {
@@ -882,4 +884,87 @@ func TestEnums_StringMethods(t *testing.T) {
 	assert.Equal(t, "reduce", feature.CombReduce.String())
 	assert.Equal(t, "replace_by_identity", feature.CombReplaceByIdentity.String())
 	assert.Equal(t, "Combination(99)", feature.Combination(99).String())
+}
+
+func TestContributeSource_Semantics(t *testing.T) {
+	t.Parallel()
+
+	planeMultiSource := feature.Plane[[]string]{
+		ID:           "test.multi_source",
+		Multiplicity: feature.MultOrdered,
+		Rules: feature.SourceRules{
+			Feature: feature.CombConcatenate,
+			Host:    feature.CombConcatenate,
+		},
+		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+			return append(cur, inc...), nil
+		},
+	}
+
+	planeFeatureOnly := feature.Plane[[]string]{
+		ID:           "test.feature_only",
+		Multiplicity: feature.MultOrdered,
+		Rules: feature.SourceRules{
+			Feature: feature.CombConcatenate,
+		},
+		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+			return append(cur, inc...), nil
+		},
+	}
+
+	t.Run("source host supported succeeds and attributes contributor", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+		err := feature.ContributeSource(s, planeMultiSource, feature.SourceHost, "host-contributor", []string{"host-val"})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		assert.Equal(t, []string{"host-val"}, feature.Get(frozen, planeMultiSource))
+	})
+
+	t.Run("source host unsupported returns attributed error wrapping ErrUnsupportedSource", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+		err := feature.ContributeSource(s, planeFeatureOnly, feature.SourceHost, "host-contributor", []string{"host-val"})
+		require.Error(t, err)
+		require.ErrorIs(t, err, feature.ErrUnsupportedSource)
+
+		var attrErr *feature.AttributedError
+		require.True(t, errors.As(err, &attrErr))
+		assert.Equal(t, "host-contributor", attrErr.PluginID)
+		assert.Equal(t, "test.feature_only", attrErr.PlaneID)
+	})
+
+	t.Run("source feature on multi source succeeds", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+		err := feature.ContributeSource(s, planeMultiSource, feature.SourceFeature, "plugin-1", []string{"feat-val"})
+		require.NoError(t, err)
+		err = feature.ContributeSource(s, planeMultiSource, feature.SourceHost, "host-1", []string{"host-val"})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		assert.Equal(t, []string{"feat-val", "host-val"}, feature.Get(frozen, planeMultiSource))
+	})
+
+	t.Run("standard planes traffic and usage observers support host source", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+		err := feature.ContributeSource(s, feature.PlaneTrafficObservers, feature.SourceHost, "host", []traffic.Observer{nil})
+		require.NoError(t, err)
+		err = feature.ContributeSource(s, feature.PlaneUsageObservers, feature.SourceHost, "host", []usage.Observer{nil})
+		require.NoError(t, err)
+	})
+
+	t.Run("standard planes raw capture and traffic redactors reject host source", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+		err := feature.ContributeSource(s, feature.PlaneRawCaptureSinks, feature.SourceHost, "host", []traffic.RawCaptureSink{nil})
+		require.Error(t, err)
+		require.ErrorIs(t, err, feature.ErrUnsupportedSource)
+
+		err = feature.ContributeSource(s, feature.PlaneTrafficRedactors, feature.SourceHost, "host", []traffic.Redactor{nil})
+		require.Error(t, err)
+		require.ErrorIs(t, err, feature.ErrUnsupportedSource)
+	})
 }
