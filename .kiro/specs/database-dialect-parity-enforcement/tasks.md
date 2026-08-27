@@ -307,7 +307,7 @@
   - _Depends: 6.1–6.3_
   - _Validation: docs/knowledge checks + QA database-parity policy test_
 
-- [ ] 7.2 Add documentation/CI/catalog drift guardrails
+- [x] 7.2 Add documentation/CI/catalog drift guardrails
   - Extend `internal/qa` so the canonical Make targets, workflow job/required aggregation, and named steering/release-gate references remain present and consistent.
   - Keep the executable catalog authoritative; tests should fail when docs or Make/workflow wiring names a stale target/component scope rather than relying on reviewers to notice drift.
   - Avoid brittle full-file snapshots; assert stable contract markers and catalog-derived expectations.

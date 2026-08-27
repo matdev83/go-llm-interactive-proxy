@@ -33,6 +33,7 @@ type ciStepSpec struct {
 	If              string            `yaml:"if"`
 	Run             string            `yaml:"run"`
 	Uses            string            `yaml:"uses"`
+	Shell           string            `yaml:"shell"`
 	ContinueOnError any               `yaml:"continue-on-error"`
 	Env             map[string]string `yaml:"env"`
 }
@@ -74,8 +75,28 @@ func normalizeExpression(s string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 }
 
+const canonicalCIDBParityFailClosedRun = "echo \"Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status.\" >&2\nexit 1"
+
+func normalizeScript(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.TrimSpace(s)
+}
+
+func extractExecutableRunLines(run string) []string {
+	lines := strings.Split(strings.ReplaceAll(run, "\r\n", "\n"), "\n")
+	var execLines []string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		execLines = append(execLines, trimmed)
+	}
+	return execLines
+}
+
 // validateCIDatabaseParityWorkflow inspects the CI workflow text against Kiro task 6.2 / requirements 7.5-7.7, 9.5
-// and returns all policy violations.
+// and returns all policy violations using strict structural YAML step validation.
 func validateCIDatabaseParityWorkflow(content string) []string {
 	var violations []string
 
@@ -113,12 +134,21 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 			if isTruthy(step.ContinueOnError) {
 				violations = append(violations, "repo-hygiene step "+step.Name+" must not set continue-on-error: true")
 			}
-			if strings.Contains(step.If, "needs.changes.result != 'success'") && strings.Contains(step.Run, "exit 1") {
+			if strings.Contains(step.If, "needs.changes.result != 'success'") && slices.Contains(extractExecutableRunLines(step.Run), "exit 1") {
 				hasScopeFailClosed = true
 			}
-			// Narrowly validate canonical fail-closed expression after whitespace normalization
-			if normalizeExpression(step.If) == "always() && needs.db-parity.result != 'success'" && strings.Contains(step.Run, "exit 1") {
-				hasDBParityFailClosed = true
+			if step.Name == "Fail closed if database parity failed" {
+				if normalizeExpression(step.If) != "always() && needs.db-parity.result != 'success'" {
+					violations = append(violations, "repo-hygiene fail-closed step must have exact condition 'always() && needs.db-parity.result != \\'success\\''")
+				}
+				if normalizeScript(step.Run) != canonicalCIDBParityFailClosedRun {
+					violations = append(violations, "repo-hygiene fail-closed step run script must match canonical fail-closed script")
+				} else {
+					hasDBParityFailClosed = true
+				}
+				if step.Shell != "" && step.Shell != "bash" {
+					violations = append(violations, "repo-hygiene fail-closed step shell must be empty or 'bash' (got '"+step.Shell+"')")
+				}
 			}
 			if strings.Contains(step.If, "needs.changes.outputs.code != 'true'") && strings.Contains(step.Run, "Repo hygiene manifest check bypassed") {
 				hasDocsBypass = true
@@ -129,7 +159,7 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 			violations = append(violations, "repo-hygiene must contain a step that fails closed when scope detection fails (needs.changes.result != 'success')")
 		}
 		if !hasDBParityFailClosed {
-			violations = append(violations, "repo-hygiene must contain a step that fails closed when database parity fails (exact condition: 'always() && needs.db-parity.result != \\'success\\'')")
+			violations = append(violations, "repo-hygiene must contain a step named 'Fail closed if database parity failed' that fails closed when database parity fails")
 		}
 		if !hasDocsBypass {
 			violations = append(violations, "repo-hygiene must retain an explicit documentation-only bypass report step")
@@ -162,20 +192,41 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 			}
 		}
 
-		var hasScopeFailClosed, hasParityCommand, hasParityBypass bool
+		var (
+			hasScopeFailClosed bool
+			hasParityStep      bool
+			hasParityBypass    bool
+		)
 		for _, step := range dbParity.Steps {
 			if isTruthy(step.ContinueOnError) {
 				violations = append(violations, "db-parity step "+step.Name+" must not set continue-on-error: true")
 			}
-			if strings.Contains(step.If, "needs.changes.result != 'success'") && strings.Contains(step.Run, "exit 1") {
+			if strings.Contains(step.If, "needs.changes.result != 'success'") && slices.Contains(extractExecutableRunLines(step.Run), "exit 1") {
 				hasScopeFailClosed = true
 			}
-			if strings.Contains(step.Run, "make test-db-parity") {
-				hasParityCommand = true
+
+			if strings.TrimSpace(step.Run) == "make test-db-parity" {
+				hasParityStep = true
+				if normalizeExpression(step.If) != "needs.changes.result == 'success' && needs.changes.outputs.test == 'true'" {
+					violations = append(violations, "db-parity test step must have exact condition 'needs.changes.result == \\'success\\' && needs.changes.outputs.test == \\'true\\''")
+				}
+				if step.Shell != "" && step.Shell != "bash" {
+					violations = append(violations, "db-parity test step shell must be empty or 'bash' (got '"+step.Shell+"')")
+				}
 				if step.Env["LIP_REQUIRE_POSTGRES"] != "1" {
 					violations = append(violations, "db-parity test step must set LIP_REQUIRE_POSTGRES: '1'")
 				}
+				if step.Env["LIP_TEST_POSTGRES_DSN"] != "postgres://lip:lip@localhost:5432/lip_test?sslmode=disable" {
+					violations = append(violations, "db-parity test step must set LIP_TEST_POSTGRES_DSN: 'postgres://lip:lip@localhost:5432/lip_test?sslmode=disable'")
+				}
+				if step.Env["LIP_TEST_POSTGRES_ADMIN_DSN"] != "postgres://lip:lip@localhost:5432/lip_test?sslmode=disable" {
+					violations = append(violations, "db-parity test step must set LIP_TEST_POSTGRES_ADMIN_DSN: 'postgres://lip:lip@localhost:5432/lip_test?sslmode=disable'")
+				}
+				if step.Env["LIP_TEST_PARALLEL"] != "4" {
+					violations = append(violations, "db-parity test step must set LIP_TEST_PARALLEL: '4'")
+				}
 			}
+
 			if strings.Contains(step.If, "needs.changes.outputs.test != 'true'") && strings.Contains(step.Run, "Database parity bypassed") {
 				hasParityBypass = true
 			}
@@ -184,7 +235,7 @@ func validateCIDatabaseParityWorkflow(content string) []string {
 		if !hasScopeFailClosed {
 			violations = append(violations, "db-parity must contain a step that fails closed when scope detection fails")
 		}
-		if !hasParityCommand {
+		if !hasParityStep {
 			violations = append(violations, "db-parity must execute canonical target 'make test-db-parity'")
 		}
 		if !hasParityBypass {
@@ -226,7 +277,9 @@ jobs:
         run: exit 1
       - name: Fail closed if database parity failed
         if: "always() && needs.db-parity.result != 'success'"
-        run: exit 1
+        run: |
+          echo "Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status." >&2
+          exit 1
       - name: Report unrelated PR bypass
         if: "needs.changes.result == 'success' && needs.changes.outputs.code != 'true'"
         run: |
@@ -246,6 +299,9 @@ jobs:
         if: "needs.changes.result == 'success' && needs.changes.outputs.test == 'true'"
         env:
           LIP_REQUIRE_POSTGRES: '1'
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
       - name: Report unrelated PR bypass
         if: "needs.changes.result == 'success' && needs.changes.outputs.test != 'true'"
@@ -259,101 +315,161 @@ jobs:
 
 	negativeCases := []struct {
 		name       string
-		mutate     func(string) string
+		mutate     func(*testing.T, string) string
 		wantSubstr string
 	}{
 		{
 			name: "missing db-parity in repo-hygiene needs",
-			mutate: func(s string) string {
-				return strings.Replace(s, "needs: [changes, db-parity]", "needs: [changes]", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "needs: [changes, db-parity]", "needs: [changes]")
 			},
 			wantSubstr: "repo-hygiene.needs must include 'db-parity'",
 		},
 		{
 			name: "missing step-level always() in db-parity fail-closed check",
-			mutate: func(s string) string {
-				return strings.Replace(s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "needs.db-parity.result != 'success'"`, 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "needs.db-parity.result != 'success'"`)
 			},
-			wantSubstr: "fails closed when database parity fails",
+			wantSubstr: "repo-hygiene fail-closed step must have exact condition",
 		},
 		{
 			name: "neutralized db-parity fail-closed check with trailing false",
-			mutate: func(s string) string {
-				return strings.Replace(s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "always() && needs.db-parity.result != 'success' && false"`, 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "always() && needs.db-parity.result != 'success' && false"`)
 			},
-			wantSubstr: "fails closed when database parity fails",
+			wantSubstr: "repo-hygiene fail-closed step must have exact condition",
 		},
 		{
 			name: "weakened db-parity result check only checking failure",
-			mutate: func(s string) string {
-				return strings.Replace(s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "always() && needs.db-parity.result == 'failure'"`, 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "always() && needs.db-parity.result == 'failure'"`)
 			},
-			wantSubstr: "fails closed when database parity fails",
+			wantSubstr: "repo-hygiene fail-closed step must have exact condition",
 		},
 		{
-			name: "ignored db-parity in fail-closed check",
-			mutate: func(s string) string {
-				return strings.Replace(s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "always() && false"`, 1)
+			name: "echo-only db-parity fail-closed step without exit 1",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "echo \"Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status.\" >&2\n          exit 1", "echo \"Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status.\" >&2")
 			},
-			wantSubstr: "fails closed when database parity fails",
+			wantSubstr: "repo-hygiene fail-closed step run script must match canonical fail-closed script",
 		},
 		{
-			name: "fail-closed step relocated out of repo-hygiene to db-parity",
-			mutate: func(s string) string {
-				// Invalidate the check in repo-hygiene
-				s = strings.Replace(s, `if: "always() && needs.db-parity.result != 'success'"`, `if: "false"`, 1)
-				// Relocate the valid fail-closed step to db-parity job
-				return strings.Replace(s, "run: make test-db-parity", "run: make test-db-parity\n      - name: Fail closed if database parity failed\n        if: \"always() && needs.db-parity.result != 'success'\"\n        run: exit 1", 1)
+			name: "exit 0 before exit 1 in db-parity fail-closed step",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "echo \"Database parity check failed or was cancelled; refusing to satisfy required repo hygiene status.\" >&2\n          exit 1", "exit 0\n          exit 1")
 			},
-			wantSubstr: "fails closed when database parity fails",
+			wantSubstr: "repo-hygiene fail-closed step run script must match canonical fail-closed script",
+		},
+		{
+			name: "fail-closed step renamed",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "name: Fail closed if database parity failed", "name: Optional parity check")
+			},
+			wantSubstr: "repo-hygiene must contain a step named 'Fail closed if database parity failed'",
 		},
 		{
 			name: "repo-hygiene missing if: always()",
-			mutate: func(s string) string {
-				return strings.Replace(s, "if: always()\n    steps:", "if: success()\n    steps:", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "if: always()\n    steps:", "if: success()\n    steps:")
 			},
 			wantSubstr: "repo-hygiene must keep 'if: always()'",
 		},
 		{
 			name: "db-parity missing if: always()",
-			mutate: func(s string) string {
-				return strings.Replace(s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: success()", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: success()")
 			},
 			wantSubstr: "db-parity must keep 'if: always()'",
 		},
 		{
 			name: "repo-hygiene has continue-on-error",
-			mutate: func(s string) string {
-				return strings.Replace(s, "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()", "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()\n    continue-on-error: true", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()", "name: Repo hygiene\n    needs: [changes, db-parity]\n    if: always()\n    continue-on-error: true")
 			},
 			wantSubstr: "repo-hygiene must not set continue-on-error: true",
 		},
 		{
 			name: "db-parity has continue-on-error",
-			mutate: func(s string) string {
-				return strings.Replace(s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: always()\n    continue-on-error: true", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "name: Database parity\n    needs: changes\n    if: always()", "name: Database parity\n    needs: changes\n    if: always()\n    continue-on-error: true")
 			},
 			wantSubstr: "db-parity must not set continue-on-error: true",
 		},
 		{
 			name: "repo-hygiene fail-closed step has continue-on-error",
-			mutate: func(s string) string {
-				return strings.Replace(s, "if: \"always() && needs.db-parity.result != 'success'\"\n        run: exit 1", "if: \"always() && needs.db-parity.result != 'success'\"\n        continue-on-error: true\n        run: exit 1", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "if: \"always() && needs.db-parity.result != 'success'\"", "if: \"always() && needs.db-parity.result != 'success'\"\n        continue-on-error: true")
 			},
 			wantSubstr: "repo-hygiene step Fail closed if database parity failed must not set continue-on-error: true",
 		},
 		{
 			name: "db-parity missing make test-db-parity",
-			mutate: func(s string) string {
-				return strings.Replace(s, "run: make test-db-parity", "run: make test-unit", 1)
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "run: make test-db-parity", "run: make test-unit")
 			},
-			wantSubstr: "must execute canonical target 'make test-db-parity'",
+			wantSubstr: "db-parity must execute canonical target 'make test-db-parity'",
+		},
+		{
+			name: "db-parity moved make test-db-parity to bypass condition",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "needs.changes.outputs.test == 'true'", "needs.changes.outputs.test != 'true'")
+			},
+			wantSubstr: "db-parity test step must have exact condition 'needs.changes.result == \\'success\\' && needs.changes.outputs.test == \\'true\\''",
+		},
+		{
+			name: "db-parity test step missing LIP_REQUIRE_POSTGRES",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "LIP_REQUIRE_POSTGRES: '1'", "LIP_OTHER_VAR: '1'")
+			},
+			wantSubstr: "db-parity test step must set LIP_REQUIRE_POSTGRES: '1'",
+		},
+		{
+			name: "db-parity test step missing LIP_TEST_POSTGRES_DSN",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_DSN: postgres://wrong:5432/test")
+			},
+			wantSubstr: "db-parity test step must set LIP_TEST_POSTGRES_DSN",
+		},
+		{
+			name: "db-parity test step missing LIP_TEST_POSTGRES_ADMIN_DSN",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable", "LIP_TEST_POSTGRES_ADMIN_DSN: postgres://wrong:5432/test")
+			},
+			wantSubstr: "db-parity test step must set LIP_TEST_POSTGRES_ADMIN_DSN",
+		},
+		{
+			name: "db-parity test step missing LIP_TEST_PARALLEL",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "LIP_TEST_PARALLEL: '4'", "LIP_TEST_PARALLEL: '1'")
+			},
+			wantSubstr: "db-parity test step must set LIP_TEST_PARALLEL: '4'",
+		},
+		{
+			name: "db-parity postgres service image unpinned",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "image: postgres:17-alpine", "image: postgres:latest")
+			},
+			wantSubstr: "db-parity postgres service image must be pinned to postgres:17",
+		},
+		{
+			name: "custom inert shell in repo-hygiene fail-closed step",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "if: \"always() && needs.db-parity.result != 'success'\"", "if: \"always() && needs.db-parity.result != 'success'\"\n        shell: cat {0}")
+			},
+			wantSubstr: "repo-hygiene fail-closed step shell must be empty or 'bash'",
+		},
+		{
+			name: "custom inert shell in db-parity test step",
+			mutate: func(t *testing.T, s string) string {
+				return mustMutate(t, s, "run: make test-db-parity", "shell: cat {0}\n        run: make test-db-parity")
+			},
+			wantSubstr: "db-parity test step shell must be empty or 'bash'",
 		},
 	}
 
 	for _, tc := range negativeCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mutated := tc.mutate(validContent)
+			mutated := tc.mutate(t, validContent)
 			violations := validateCIDatabaseParityWorkflow(mutated)
 			joined := strings.Join(violations, "; ")
 			if !strings.Contains(joined, tc.wantSubstr) {
@@ -362,4 +478,3 @@ jobs:
 		})
 	}
 }
-
