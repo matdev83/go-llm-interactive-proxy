@@ -22,5 +22,6 @@ Never include live credentials, tokens, or other sensitive data in a report.
 
 ## License and Redistribution
 
-This repository does not currently include an owner-approved open-source
-license. Public redistribution rights remain undefined until a license is added.
+This repository is licensed under the Apache License, Version 2.0.
+See the [LICENSE](../LICENSE) file at the repository root for the full terms.
+Copyright 2026 Mateusz Bartczak.
