@@ -1,622 +1,494 @@
 # Implementation Plan
 
-## Execution Rules for Implementers
+This plan is intentionally staged for a brownfield codebase. The first implementation wave must preserve the existing canonical path and create proof/ratchets before any backend advertises wire support. The revised V1 architecture uses a **single pre-`BeginTurn` wire commit point**; it does **not** require the original draft's secure-preparation split or post-identity canonical continuation.
 
-This is a regression-sensitive brownfield optimization. Follow these rules for every task:
+All tasks assume the implementation branch is first rebased onto current `main`. The spec review baseline was `40168ce1f3890a1c86c22e898be9d264d63ccd72` (PR #533 merged).
 
-- **Do not broaden scope while implementing.** If a request shape, extension plane, route strategy, backend, or protocol is not explicitly certified by this plan, make it canonical-only.
-- **TDD is mandatory.** Add/adjust the focused failing characterization or contract test first, then make the smallest production change that passes it.
-- **Preserve the existing canonical path as the oracle.** Do not “simplify” unrelated executor, routing, frontend, backend, traffic, billing, or session code while doing this work.
-- **Never fabricate a partial `lipapi.Call`.** The wire path carries `requestbody.Metadata` plus a replayable `requestbody.Source`; canonical code receives only a fully decoded/validated `lipapi.Call`.
-- **Never move routing/failover into a frontend or provider switch into core.** Frontends prove wire facts, core owns candidate orchestration, backends declare/open wire compatibility.
-- **Fallback is success, not failure.** Any uncertainty before upstream commitment must select the canonical path when the original body remains readable.
-- **No upstream request body byte may be committed before whole-body validation and the final wire-eligibility proof.**
-- **Do not prune/reorder candidates or change race/sequential semantics to retain the optimization.** If the frozen route cannot be reproduced on the wire path, fall back.
-- **Do not add Brotli/zstd/deflate request support.** Gzip is the only compressed-request follow-up in this spec because that is the current Go-LIP surface.
-- **Do not enable the feature by default.** The first release remains explicit opt-in.
-- After each major task, run its focused tests before moving on. Do not defer failures to the final `make qa` gate.
+## 1. Rebase, Revalidate Brownfield Assumptions, and Freeze the Canonical Oracle
 
-## 1. Freeze the Current Behavioral Baseline Before Any Refactor
+- [ ] 1. Rebase before implementation and make architectural drift a hard gate
 
-- [ ] 1. Establish regression oracles for the current canonical path
-- [ ] 1.1 Rebase the implementation branch onto the then-current `main` and record the exact pre-change architecture variant
-  - Confirm whether `.kiro/specs/extension-plane-declaration-consolidation` has landed into production code by checking for both `pkg/lipsdk/feature/plane_manifest.go` and a `FrozenPlaneSet` implementation.
-  - Record only one implementation route in a code comment/test helper as described in `design.md`: current named `FeatureBundle`/snapshot fields **or** the typed plane manifest. Do not implement both parallel classification systems.
-  - Re-read issue #503 and this spec after the rebase; if relevant runtime files materially changed, update characterization tests before changing production code rather than silently adapting the design.
-  - _Boundary: tests / implementation-branch preparation_
-  - _Depends: none_
-  - _Validation: `git status --short && git merge-base --is-ancestor origin/main HEAD` (or repository-equivalent branch hygiene check)_
-  - _Requirements: 1, 5, 16_
+- [ ] 1.1 Rebase onto current `main` and rerun the spec revalidation checklist
+  - Confirm `pkg/lipsdk/feature/plane_manifest.go`, `feature.Plane[T]`, generated frozen planes, and `FrozenPlaneSet` are still the active extension composition architecture.
+  - Confirm `frontendpipe` still orders shared preflight → `decodeqos.TryAdmit` → guarded `Spec.Decode` → post-decode validation/`AfterDecode` → frontend traffic → executor.
+  - Confirm current route-override ownership is still post-authoritative-A-leg; if this changes, re-evaluate the V1 pre-turn blocker.
+  - Search for newly added `preparedRequest.call` / `lipapi.Call` consumers, frontend `AfterDecode` hooks, billing callbacks, and response encode dependencies.
+  - If any revalidation trigger materially changed, update this spec before implementation rather than coding against stale assumptions.
+  - _Validation: `go test ./internal/archtest/... ./internal/plugins/frontends/frontendpipe/... ./internal/core/runtime/...`_
+  - _Requirements: 5, 6, 16, 17, 18, 19_
 
-- [ ] 1.2 Add canonical frontend ingress characterization tests around the shared `frontendpipe` flow
-  - Cover known-length identity JSON, chunked/unknown-length JSON, exact request limit, request limit +1, malformed JSON, trailing JSON data, and gzip decoded-limit behavior.
-  - Assert the existing order and error mapping: handler auth/content-type → body admission → route/decode/validate → traffic capture → executor.
-  - Include a test proving `internal/jsonbody` is not involved in the bundled LLM frontend request path; do not change `internal/jsonbody` production behavior.
-  - _Boundary: frontend tests_
-  - _Depends: 1.1_
-  - _Validation: `go test ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/reqbody/... ./internal/plugins/frontends/...`_
-  - _Requirements: 1, 2, 3_
+- [ ] 1.2 Add canonical ingress/decode-QoS characterization tests before touching `frontendpipe`
+  - Freeze method/path/content-type behavior for target frontends.
+  - Freeze `reqbody.ReadAll` max-body and gzip decoded-limit behavior.
+  - Freeze `jsonguard`/jsonshape malformed/trailing/boundary behavior.
+  - Freeze decode admission weight, saturation, overweight, cancellation, `Retry-After`, and exactly-once release.
+  - Freeze route-from-body-model ordering relative to preflight/admission/decode.
+  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/decodeqos/... ./internal/archtest/...`_
+  - _Requirements: 1, 2, 3, 17_
 
-- [ ] 1.3 Add executor preparation/lifecycle characterization tests before splitting secure preparation
-  - Cover secure new turn, secure resume, workspace-resolution failure, route override, request-authority denial, secret-guard denial, submit-hook denial, conversation projection/filtering, billing denial, first-candidate recoverable failure/failover, and normal stream success.
-  - Record and assert the observable order of `SecureSession.BeginTurn`, A-leg fetch, route-authority snapshot, secret guard, ingress metering capture, request-authority admission, submit hooks, canonical CTP capture, conversation projection, transforms, route plan, billing, B-leg allocation, backend open, and cleanup/finalization.
-  - Add an explicit counter assertion that a canonical request calls `BeginTurn` exactly once and allocates/finalizes each logical A-leg/turn once.
-  - Do not refactor production code in this sub-task.
-  - _Boundary: core/runtime tests_
-  - _Depends: 1.1_
-  - _Validation: `go test ./internal/core/runtime/...`_
-  - _Requirements: 1, 6, 9, 12_
+- [ ] 1.3 Add lifecycle/authority characterization around ordinary `Executor.Execute`
+  - Count `BeginTurn`, A-leg creation/fetch, request authority, billing call/exposure, B-leg allocation, terminal/finalization, and stream handoff on success/error/cancel.
+  - Freeze route/failover/race candidate ordering and no-post-output-failover behavior.
+  - Freeze route-override snapshot timing and conversation/local-turn/request-transform ordering.
+  - This suite becomes the oracle for the later wire branch.
+  - _Validation: `go test -race ./internal/core/runtime/...`_
+  - _Requirements: 6, 9, 12, 19_
 
-- [ ] 1.4 Capture pre-feature performance baselines using the existing canonical path
-  - Add benchmark fixtures, not optimization code, for 32 KiB, 256 KiB, 1 MiB, and 5 MiB uncompressed representative request bodies.
-  - Add an isolated benchmark fixture that raises the existing request cap for a 20 MiB case without changing production defaults.
-  - Record `allocs/op`, `B/op`, CPU time, and canonical parse/decode/encode timing so later tasks compare against a stable baseline.
-  - Keep benchmark payloads deterministic and synthetic; do not check secrets/prompts into the repository.
-  - _Boundary: benchmarks / tests_
-  - _Depends: 1.2_
-  - _Validation: `go test -run '^$' -bench 'LargePayload|RequestBody' -benchmem ./internal/plugins/frontends/... ./internal/core/runtime/...`_
-  - _Requirements: 15_
+- [ ] 1.4 Inventory and characterize frontend response-state dependencies
+  - For OpenAI Responses, record all inputs used by `responseIDForCall`, cancellation carrier, `BuildEncodeOpts`, stream/non-stream writers, streamdebug, and clock fallback.
+  - For OpenAI Chat, record completion-ID/timestamp dependencies.
+  - For OpenResponses, record `AfterDecode` → `prepareCreateState`, `createEncodeState`, continuation/store reservation/observer ownership, wrappers, and non-stream options.
+  - Add tests proving which fields are protocol-semantic vs opaque/nondeterministic and which must remain exact for cancellation/correlation.
+  - _Validation: `go test ./internal/plugins/frontends/openairesponses/... ./internal/plugins/frontends/openailegacy/... ./internal/plugins/frontends/openresponses/...`_
+  - _Requirements: 14, 18_
 
-## 2. Add Additive Configuration and Provider-Neutral Request-Body Contracts
+- [ ] 1.5 Create the post-commit full-Call dependency inventory artifact/test
+  - Search production runtime code for `preparedRequest.call`, `identity.ingressCall`, canonical baseline clones, and Call-typed callbacks used after the proposed V1 commit.
+  - Include route planning/request-size/failover requirements, billing identity/policy/pricing/max-output/token estimators, `recvTurnFacts`, continuation support, interleaved-thinking recorders, terminal usage/session fields, and any additional current consumers.
+  - Classify each as `pre-turn blocker`, `exact bounded fact`, or `response-only`.
+  - Add a ratchet test/generated allowlist so a new post-commit Call use fails until explicitly classified.
+  - _Validation: `go test ./internal/core/runtime/... ./internal/archtest/...`_
+  - _Requirements: 12, 19_
 
-- [ ] 2. Define the configuration and optional SDK seams without changing runtime behavior
-- [ ] 2.1 Add `server.large_payload_fast_path` configuration with default-off semantics and strict validation
-  - Add the fields from `design.md`: `enabled`, `threshold_bytes`, `memory_spool_bytes`, `max_inflight_spool_bytes`, `spool_dir`.
-  - Effective defaults when the block is enabled but values are omitted: threshold 1 MiB, memory spool 64 KiB, max in-flight logical spool reservation 1 GiB, empty spool directory → `os.TempDir()`.
-  - Validate positive bounds, `memory_spool_bytes <= threshold_bytes`, and explicit spool directory existence/writability during candidate startup/reload validation.
-  - Do **not** modify `server.max_request_body_bytes` defaults or acceptance semantics.
-  - Config reload failure must retain the last-good generation exactly like existing invalid candidate config.
-  - Add YAML decode/default/validation/reload tests before wiring any fast path.
-  - _Boundary: config / composition validation_
-  - _Depends: 1_
-  - _Validation: `go test ./internal/core/config/... ./internal/core/configreload/... ./internal/infra/runtimebundle/...`_
+## 2. Add Configuration and Provider-Neutral SDK Contracts
+
+- [ ] 2. Define additive contracts with zero behavior change
+
+- [ ] 2.1 Add `large_payload_fast_path` configuration with default-off semantics
+  - Add `enabled`, `threshold_bytes`, `memory_spool_bytes`, `max_inflight_spool_bytes`, and `spool_dir`.
+  - Validate positive/bounded relationships and spool directory during candidate generation/reload; preserve last-good config on invalid reload.
+  - Do not alter existing `MaxRequestBodyBytes` defaults or frontend protocol limits.
+  - Add config-doc examples explicitly describing spool plaintext and optimization-budget semantics.
+  - _Validation: config/package tests + reload tests_
   - _Requirements: 1, 2, 13, 16_
 
-- [ ] 2.2 Create `pkg/lipsdk/requestbody` with the minimal provider-neutral source/metadata contracts
-  - Implement `ProfileID`, `Span`, immutable `Source { Size; Open; Close }`, bounded `Metadata`, `CanonicalizeFunc`, and `ExecutionRequest` as specified in `design.md`.
-  - `Source.Open` must document independent offset-zero readers; `Source.Close` must be idempotent.
-  - `Metadata` may contain only bounded provider-neutral facts needed by core. Do not put `http.Header`, temp paths, credentials, provider SDK types, raw arbitrary maps, or prompt/tool content into it.
-  - Add compile-time/documentation tests for span validity, nil/zero behavior, and source ownership semantics.
-  - _Boundary: SDK/public contract_
-  - _Depends: 2.1_
-  - _Validation: `go test ./pkg/lipsdk/requestbody/...`_
-  - _Requirements: 4, 6, 7, 13_
+- [ ] 2.2 Add `pkg/lipsdk/requestbody` provider-neutral types
+  - Add immutable replay `Source`, `Span`, bounded `Metadata`, `CanonicalizeFunc`, `ExecutionRequest`, `ExecutionResult`, `ResponseFacts`, `ExecutionPath`, and optional `LargeBodyExecutorView` (or equivalent names).
+  - Do not put raw headers, credentials, temp paths, arbitrary maps, frontend state, provider SDK types, or prompt contents in SDK/core metadata.
+  - `ExecutionResult` must carry enough bounded authoritative facts for frontend response binding; EventStream-only is not sufficient.
+  - Add compile-time package-boundary/arch tests preventing provider imports.
+  - _Validation: `go test ./pkg/lipsdk/... ./internal/archtest/...`_
+  - _Requirements: 1, 7, 13, 18_
 
-- [ ] 2.3 Add an optional large-body executor seam without changing the existing executor interface
-  - Define `requestbody.LargeBodyExecutorView` (or the equivalent location chosen in design) with `ExecuteLargeBody(context.Context, ExecutionRequest) (lipapi.EventStream, error)`.
-  - Keep `lipsdk.ExecutorView.Execute(ctx, *lipapi.Call)` source-compatible and behaviorally unchanged; do not add a mandatory method to existing mocks/plugins/consumers.
-  - Add compile tests proving existing executor-only frontend configurations still compile and use the canonical path.
-  - _Boundary: SDK/public contract / frontend seam_
-  - _Depends: 2.2_
+- [ ] 2.3 Preserve the existing executor surface
+  - Do not add mandatory methods to `lipsdk.ExecutorView` that would break external/manual executor implementations.
+  - Frontends use an optional type assertion for the large-body seam; absence is canonical-only.
+  - Add compatibility tests using a legacy executor that implements only current methods.
   - _Validation: `go test ./pkg/lipsdk/... ./internal/plugins/frontends/...`_
-  - _Requirements: 1, 6, 14_
+  - _Requirements: 1, 16_
 
-## 3. Implement the Replayable Pre-Commit Capture/Spool with Failure-Safe Canonical Recovery
+## 3. Implement the Replayable Capture Source
 
-- [ ] 3. Build the immutable request-body source before adding JSON or routing logic
-- [ ] 3.1 Add a bounded global spool reservation manager
-  - Track **logical captured bytes**, not filesystem free space, with atomic/mutex-safe reservation/release and no per-chunk goroutines.
-  - Known positive size may reserve upfront only up to the existing effective request cap; unknown/chunked capture reserves incrementally.
-  - Reservation exhaustion returns a typed optimization-decline result, not HTTP 413 and not an unbounded allocation.
-  - Add concurrency tests for reserve/release races, saturation, cancellation, overflow protection, and exact zero-after-cleanup.
-  - _Boundary: frontend infrastructure / resource governor_
-  - _Depends: 2.1, 2.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 1, 13_
+- [ ] 3. Build and harden the pre-commit body source independently of JSON/protocol logic
 
-- [ ] 3.2 Implement fixed-memory capture and spill-to-temp-file
-  - Keep at most `MemorySpoolBytes` in the capture's in-memory prefix; do not use an unconstrained `bytes.Buffer` growth strategy.
-  - Use a fixed reusable copy buffer (64 KiB unless the repository already has a standard reusable request-copy buffer) and return it to its pool without retained request references.
-  - Spill with `os.CreateTemp(spoolDir, "lip-large-body-*")`; names must contain no user/session/model data.
-  - Preserve every consumed byte in order across the memory→file transition.
-  - Inject file-create and file-write failures in tests. When already-consumed bytes remain recoverable, return a canonical-fallback source/reader instead of a new client error.
-  - _Boundary: frontend infrastructure / request-body capture_
-  - _Depends: 3.1_
-  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 1, 13_
-
-- [ ] 3.3 Implement independent replay readers and deterministic lifecycle cleanup
-  - Memory-backed source: each `Open` gets an independent reader over immutable bytes.
-  - File-backed source: use independent descriptors or an immutable `io.ReaderAt` + `io.SectionReader` arrangement with no shared mutable seek cursor; concurrent route/race readers must not interfere.
-  - Track root/source closure and active readers so the temp file is removed exactly once after it is no longer needed. Avoid cleanup goroutines.
-  - Ensure all readers close on provider-open error, retry, canonical fallback, client cancellation, server timeout, and normal stream completion.
-  - Add tests for repeated sequential `Open`, concurrent `Open`, root close while readers are active, idempotent close, short reads, and remove failures.
-  - Include platform-neutral state-machine tests for Windows-style “cannot unlink open file” behavior even if CI runs primarily on Unix.
-  - _Boundary: frontend infrastructure / request-body source_
-  - _Depends: 3.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 9, 13_
-
-- [ ] 3.4 Add a canonical materialization/continuation reader that never loses an already-consumed prefix
-  - Support converting an in-progress or completed capture back into the exact decoded byte stream expected by the existing `reqbody.ReadAll`/frontend decoder path.
-  - Cover fallback before spill, after spill, after a partial current buffer, after unknown-length threshold discovery, and after optimization-budget decline.
-  - Preserve the existing effective max-body ceiling during remaining reads; fallback must not bypass `MaxBytesReader`/decoded-size semantics.
-  - Add byte-for-byte tests against direct canonical reads for randomized chunk boundaries.
-  - _Boundary: frontend infrastructure / canonical fallback_
-  - _Depends: 3.2, 3.3_
-  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/...`_
+- [ ] 3.1 Implement bounded RAM prefix with spill-to-private-temp-file
+  - Use a fixed/reusable copy buffer; do not grow a full-body byte slice on the wire candidate path.
+  - Enforce the existing decoded request limit while capturing identity bodies.
+  - Keep every consumed byte recoverable for later canonical fallback.
+  - Use unpredictable temp names and owner-only create semantics where supported.
+  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/... ./pkg/lipsdk/requestbody/...`_
   - _Requirements: 1, 2, 13_
 
-## 4. Build the Low-Allocation Streaming JSON Shape Scanner as a Differentially-Proven Oracle Companion
-
-- [ ] 4. Add one shared streaming JSON lexical/state implementation under `internal/core/jsonshape`
-- [ ] 4.1 Implement and test the scanner's scalar lexer before structural parsing
-  - Parse whitespace, string, number, `true`, `false`, and `null` incrementally from `io.Reader`.
-  - Strings: reject unescaped control bytes; validate UTF-8 across buffer boundaries; validate every JSON escape; validate `\uXXXX` and surrogate-pair rules; count decoded UTF-8 bytes without retaining ordinary scalar contents.
-  - Numbers: reproduce JSON number grammar and raw byte-length semantics used by `json.Number` in the current preflight.
-  - Check context cancellation at least per input-buffer refill and every 64 KiB inside a single giant scalar.
-  - Add table tests splitting every valid/invalid escape, Unicode sequence, number, and literal at every possible reader chunk boundary.
-  - _Boundary: core/jsonshape_
-  - _Depends: 1.2_
-  - _Validation: `go test ./internal/core/jsonshape/...`_
-  - _Requirements: 3_
-
-- [ ] 4.2 Implement structural object/array state and all shared request-envelope limits
-  - Match current token counting, root-value counting, depth, array element count, object member count, key bytes, string bytes, number bytes, incomplete JSON, unexpected closing delimiter, empty/whitespace-only body, multiple values, and trailing data semantics.
-  - Retain object key strings only up to the existing key bound; ordinary values remain streaming/discarded.
-  - Keep shared `RejectDuplicateNames=false` behavior without allocating a member-name set; strict profiles add their own duplicate tracking only where required.
-  - Return the existing `jsonshape.Error` kinds/reasons wherever possible so error classification stays consistent.
-  - _Boundary: core/jsonshape_
-  - _Depends: 4.1_
-  - _Validation: `go test ./internal/core/jsonshape/...`_
-  - _Requirements: 3_
-
-- [ ] 4.3 Add selected-token observation with exact raw byte offsets and bounded metadata capture
-  - Emit path/depth/object-key events sufficient for frontend profiles to recognize **top-level** selected fields without confusing nested keys or string contents.
-  - For selected scalar values, expose raw start/end offsets and bounded decoded value capture; exceeding a profile metadata bound must produce “canonical-only,” not truncation.
-  - Prove offsets across buffer boundaries, escaped strings, final-field placement, whitespace variants, and very large skipped siblings.
-  - Keep the scanner provider-neutral; it must know nothing about `model`, OpenAI, OpenResponses, Anthropic, or Gemini.
-  - _Boundary: core/jsonshape_
-  - _Depends: 4.2_
-  - _Validation: `go test ./internal/core/jsonshape/...`_
-  - _Requirements: 3, 4, 8_
-
-- [ ] 4.4 Add differential and fuzz tests against the existing slice-based preflight
-  - For bodies within a bounded fuzz corpus, compare pass/fail category and successful aggregate counts between `PreflightWithContext` and streaming scan under identical normalized limits.
-  - Include giant single strings to verify the streaming scanner does not allocate proportional decoded scalar memory.
-  - Seed malformed corpus with truncation at every byte, invalid UTF-8, invalid escapes/surrogates, duplicate roots, huge fan-out, huge numbers, and trailing data.
-  - Keep the existing slice-based preflight unchanged as the compatibility oracle.
-  - _Boundary: core/jsonshape tests / fuzz_
-  - _Depends: 4.2, 4.3_
-  - _Validation: `go test ./internal/core/jsonshape/... && go test -run '^$' -bench 'StreamJSON' -benchmem ./internal/core/jsonshape/...`_
-  - _Requirements: 3, 15_
-
-## 5. Add Conservative Frontend Wire-Profile Plumbing and Preserve the Old Path as the Default
-
-- [ ] 5. Teach `frontendpipe` to *consider* a fast path without certifying any protocol yet
-- [ ] 5.1 Add the optional `WireProfile` contract to `frontendpipe.Spec`
-  - Nil profile means canonical-only and must not allocate a spool/scanner.
-  - Profile owns only bounded protocol proof/extraction; it must not select backends or perform provider HTTP work.
-  - Define a bounded eligibility result/reason and a profile observer interface over shared scanner events.
-  - Keep headers/frontend-specific session carriers at the adapter boundary; do not copy raw headers into `requestbody.Metadata`.
-  - _Boundary: frontend plugin infrastructure_
-  - _Depends: 2.2, 4.3_
-  - _Validation: `go test ./internal/plugins/frontends/frontendpipe/...`_
-  - _Requirements: 1, 4, 14_
-
-- [ ] 5.2 Implement exact threshold/admission branching with no below-threshold regression
-  - Order: existing handler auth/content-type → feature/profile/executor gate → **frontend-owned request traffic gate** → positive known length below threshold → old canonical `reqbody.ReadAll` path.
-  - If `frontendpipe.Spec.TrafficPorts` (or the current equivalent frontend ingress traffic bundle) is non-noop and its request emission still requires a complete `[]byte`, select the ordinary canonical path **before creating a capture/spool**. This preserves the existing frontend-owned `traffic.Emit` order; do not defer this adapter fact to core or skip the emission inside `Canonicalize`.
-  - Unknown/chunked requests may enter capture only after that frontend traffic gate, but if final decoded size is below threshold they must materialize and use canonical decode.
-  - Existing `MaxRequestBodyBytes` remains the request admission ceiling; optimization threshold is never a second acceptance limit.
-  - For this wave, gzip always goes directly to the existing canonical gzip path.
-  - Add tests proving non-noop frontend ingress traffic selects canonical processing, emits exactly once in the current order, and never calls `ExecuteLargeBody`.
-  - Add allocation tests proving disabled/nil-profile/frontend-traffic-blocked/below-threshold requests do not create spool files or materially increase allocations.
-  - _Boundary: frontend plugin infrastructure_
-  - _Depends: 3.4, 5.1_
-  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 1, 2, 5, 10, 12, 15, 16_
-
-- [ ] 5.3 Wire capture + scanner + profile proof and construct a trusted `Canonicalize` callback
-  - Consume the body to EOF under the existing request limit before creating a wire execution request.
-  - Scanner/profile uncertainty must materialize capture and invoke the existing `jsonguard` + `Spec.Decode` + `Call.Validate` + `AfterDecode`/frontend validation order, not create a new approximate error.
-  - `Canonicalize` must reopen/materialize the completed capture and execute the same existing decoder/validator functions. It must not write HTTP output, emit frontend ingress traffic that was already ruled out by 5.2, or begin executor/session work.
-  - On proven eligibility, transfer source ownership exactly once to `LargeBodyExecutorView.ExecuteLargeBody` and route the returned canonical event stream through the existing frontend response encoder.
-  - Add ownership tests proving no source leak on ExecuteLargeBody error or stream close.
-  - _Boundary: frontend plugin infrastructure_
-  - _Depends: 3.4, 4.3, 5.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/...`_
-  - _Requirements: 1, 3, 4, 6, 12, 13_
-
-## 6. Split Canonical Executor Preparation Safely, With Characterization Tests as a Hard Gate
-
-- [ ] 6. Extract the minimum shared identity/authority phase without changing canonical behavior
-- [ ] 6.1 Introduce `prepareIdentityAuthority` from the existing secure preparation code
-  - Move only the operations listed in `design.md`: trace identity, principal/scope, session opener metadata stage, workspace resolve, `SecureSession.BeginTurn`, A-leg fetch, route-authority snapshot/barrier, and the frozen request views needed after identity.
-  - Do **not** move secret/content guard, ingress metering capture, request-authority admission, submit hooks, canonical CTP capture, conversation projection/filter, request transforms, pre-request handlers, or attempt transforms into this phase.
-  - Preserve exact error wrapping/public error mapping and cleanup state.
-  - Make the smallest extraction possible; do not redesign `Executor` as part of this task.
-  - _Boundary: core/runtime app orchestration_
-  - _Depends: 1.3_
-  - _Validation: `go test -race ./internal/core/runtime/...`_
-  - _Requirements: 1, 6, 9, 12_
-
-- [ ] 6.2 Introduce `prepareCanonicalAfterIdentity` and recombine normal `prepareRequest`
-  - The new continuation accepts the already-bound identity/turn plus a **fully valid canonical Call** and runs every remaining canonical stage in the exact old order.
-  - Reimplement the existing `prepareRequest` as `prepareIdentityAuthority` + `prepareCanonicalAfterIdentity` so ordinary traffic passes through the refactor before the wire path uses it.
-  - Keep existing `preparedRequest` downstream shape unless a minimal additional field is required; do not fork duplicate prepared-state structs.
-  - Run the characterization suite from 1.3 and require event/error/order equality.
-  - _Boundary: core/runtime app orchestration_
-  - _Depends: 6.1_
-  - _Validation: `go test -race ./internal/core/runtime/...`_
-  - _Requirements: 1, 6, 9, 12_
-
-- [ ] 6.3 Add an invariant test preventing double turn/session preparation on future canonical continuation
-  - Create a test harness that can execute an identity phase, trigger a synthetic post-identity fallback, canonicalize, then continue canonical preparation.
-  - Assert exactly one `BeginTurn`, one A-leg identity, one request-authority admission, one terminal/finalization path, and no duplicate submit/capture stages.
-  - This is a red/contract test for Task 10; do not open a real wire backend yet.
-  - _Boundary: core/runtime tests_
-  - _Depends: 6.2_
-  - _Validation: `go test ./internal/core/runtime/... -run 'LargeBody|CanonicalContinuation|BeginTurn'`_
-  - _Requirements: 6, 9, 13_
-
-## 7. Make Request-Body Access an Explicit Generation-Pinned Eligibility Fact
-
-- [ ] 7. Prevent configured extension stages from being silently bypassed
-- [ ] 7.1 Add a frozen `AccessSummary` with fail-safe defaults
-  - Implement `AccessCanonicalRequired`, `AccessMetadataOnly`, and `AccessResponseOnly` (or equivalent names) plus bounded blocker IDs.
-  - `RequestRuntimeSnapshot` must report canonical-required when the summary is absent/uninitialized; “unknown” can never mean wire-safe.
-  - Do not put plugin IDs/user values in metrics-facing blocker labels; use static stage/plane IDs.
-  - _Boundary: SDK/core extension snapshot_
-  - _Depends: 2.2_
-  - _Validation: `go test ./internal/core/extensions/...`_
-  - _Requirements: 5, 12, 16_
-
-- [ ] 7.2 Derive access classification from the **one** active extension composition representation
-  - If typed plane manifest exists after Task 1.1, add request-body access metadata to the canonical plane declaration and derive summary generically; do not recreate named mirrors.
-  - Otherwise classify the current named planes exactly as listed in `design.md` and compose the summary in `runtimebundle`.
-  - Occupied request/content planes are blockers by default; response-only planes are not; session/workspace metadata stages are handled separately.
-  - Add exhaustive coverage/ratchet tests so every current request-stage plane has an explicit classification and a newly introduced plane fails the test until classified.
-  - _Boundary: composition root / extension platform_
-  - _Depends: 7.1, 1.1_
-  - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/core/extensions/... ./internal/archtest/...`_
-  - _Requirements: 5, 12, 16_
-
-- [ ] 7.3 Add static **core-owned** eligibility blockers that can be evaluated before `BeginTurn`
-  - Check feature disabled/profile unsupported, access-summary blockers, core canonical/CTP traffic capture or redaction/observation contracts that require a canonical/full body, and other generation-global core authorities.
-  - Do **not** move the frontend adapter's `frontendpipe.Spec.TrafficPorts` decision here; Task 5.2 owns that earlier gate so the current frontend ingress emission order cannot be skipped.
-  - Add explicit conservative checks for billing/account/pricing/token-estimator/caps-resolver callbacks that still accept only `lipapi.Call` and can affect authorization/routing.
-  - Return bounded fallback reasons, not errors.
-  - Prove static fallback occurs before `BeginTurn` with counters from the Task 6 harness.
-  - _Boundary: core/runtime domain policy_
-  - _Depends: 7.2, 6.2_
-  - _Validation: `go test ./internal/core/runtime/... -run 'LargeBody.*Static|Eligibility'`_
-  - _Requirements: 1, 5, 12, 16_
-
-## 8. Refactor Routing/Capability Facts to Accept Exact Wire Metadata Without a Fake Canonical Call
-
-- [ ] 8. Preserve core routing/recovery ownership while removing canonical-Call-only derivations from the wire lane
-- [ ] 8.1 Add failover requirement construction from already-derived protocol requirements
-  - Add `capabilities.NewFailoverRequirementSetFromRequirements` (or equivalent) that stores the exact `lipapi.ProtocolRequirements` supplied by the certified frontend profile.
-  - Keep existing `NewFailoverRequirementSet(call)` behavior unchanged and implement it in terms of the new helper only if tests prove strict equivalence.
-  - Add equality tests for representative canonical calls.
-  - _Boundary: core/capabilities_
-  - _Depends: 2.2_
-  - _Validation: `go test ./internal/core/capabilities/... ./pkg/lipapi/...`_
-  - _Requirements: 6, 7, 9_
-
-- [ ] 8.2 Extract selector/native-model/route-controller construction into explicit-fact helpers
-  - Introduce the `wireRouteInput`-style facts from `design.md`: selector, operation, delivery mode, client model, exact protocol requirements, and request-size estimate only when exact.
-  - Reuse the same selector compilation, aliases, execution-composition validation, native-model binding, affinity, interleaved state, attempt budget, TTFT budget, session routing state, RNG, and recovery-controller constructors as canonical routing.
-  - Keep `buildRoutePlan(preparedRequest)` output and behavior unchanged; canonical path should call the extracted helpers with facts derived from the real call.
-  - Do not invent token estimates from body bytes.
-  - _Boundary: core/runtime routing orchestration_
-  - _Depends: 8.1, 6.2_
-  - _Validation: `go test -race ./internal/core/runtime/... ./internal/core/routing/...`_
-  - _Requirements: 5, 6, 9, 12_
-
-- [ ] 8.3 Add a dynamic “canonical continuation” decision after identity but before request-content stages
-  - Evaluate authoritative route override, conversation exclusion/steering state, exact route strategy/reachable candidates, custom resolvers requiring canonical content, and replay concurrency requirements.
-  - Return a bounded fallback reason and continue through `Canonicalize` + `prepareCanonicalAfterIdentity`; **never** call fresh `Executor.Execute` after identity is bound.
-  - Treat any unexpected canonical decode failure after profile proof as an internal parity invariant failure: abort/finalize the already-begun turn once; do not retry via a second turn.
-  - Add tests for route override, active conversation projection, custom call-only resolver, and exact-once lifecycle.
-  - _Boundary: core/runtime app orchestration_
-  - _Depends: 6.3, 8.2, 7.3_
-  - _Validation: `go test -race ./internal/core/runtime/... -run 'LargeBody|CanonicalContinuation'`_
-  - _Requirements: 1, 5, 6, 9, 12_
-
-## 9. Add Optional Backend Wire Compatibility and the Token-Aware Replay Rewrite Primitive
-
-- [ ] 9. Define backend-owned wire proof/open contracts before any backend advertises support
-- [ ] 9.1 Extend internal `execbackend.Backend` additively with `ResolveWireRequest` and `OpenWire`
-  - Use provider-neutral `WireRequestFacts`, `WireRequestSupport`, and `WireAttempt` as described in `design.md`.
-  - Zero/nil functions mean canonical-only; no current backend behavior changes merely by compiling the new fields.
-  - `ResolveWireRequest` must run before body `Open`; it may resolve candidate-native model and declare compatibility/replay requirements but must not perform network I/O.
-  - Core must never branch on provider/backend name to decide raw compatibility.
-  - Add backend-contract tests that every existing backend with nil wire fields remains canonical-only.
-  - _Boundary: internal backend port / core contract_
-  - _Depends: 2.2, 8.2_
-  - _Validation: `go test ./internal/core/execbackend/... ./internal/plugins/backends/...`_
-  - _Requirements: 7, 11, 14, 16_
-
-- [ ] 9.2 Implement the scanner-span model rewrite as a streaming splice reader
-  - Validate `Span` against immutable source size.
-  - Replacement is the complete `json.Marshal(nativeModel)` token; never regex/substr-replace and never search only a prefix.
-  - Reader emits `[0:start]`, replacement, and `[end:size]` without constructing a second full request buffer.
-  - Compute rewritten size with checked `int64` arithmetic; expose length only when exact.
-  - Add tests for same/longer/shorter model, escaped model, nested misleading `model`, `"model"` inside content, last-field placement, all whitespace variants, invalid/ambiguous span, and duplicate top-level model canonical-only policy.
-  - _Boundary: SDK/requestbody or internal requestbody transform_
-  - _Depends: 2.2, 4.3, 3.3_
-  - _Validation: `go test ./pkg/lipsdk/requestbody/... ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 4, 8, 11, 13_
-
-- [ ] 9.3 Add route-wide backend wire compatibility proof without candidate pruning
-  - Resolve support for every candidate that is reachable under the frozen selector/recovery semantics before opening any provider body.
-  - If any reachable candidate is incompatible, requires unsupported body mode/replay concurrency, or cannot apply the exact rewrite, select canonical continuation for the **whole request**.
-  - Do not drop incompatible candidates, change weights, or convert race/fallback strategies to sequential.
-  - Add tests for all-compatible route, one incompatible fallback candidate, one incompatible racing candidate, and candidate-dependent native-model rewrites.
-  - _Boundary: core/runtime routing policy_
-  - _Depends: 9.1, 9.2, 8.3_
-  - _Validation: `go test -race ./internal/core/runtime/...`_
-  - _Requirements: 7, 8, 9_
-
-## 10. Implement Core `ExecuteLargeBody` with Exact-Once Authority, Retry, and Stream Ownership
-
-- [ ] 10. Connect the new use case only after Tasks 1–9 are green
-- [ ] 10.1 Implement the static-fast-fallback / identity / dynamic-proof / canonical-continuation state machine
-  - Static blocker: invoke trusted `Canonicalize`, then ordinary `Execute`, before identity side effects.
-  - Static pass: call `prepareIdentityAuthority` exactly once.
-  - Dynamic blocker: invoke `Canonicalize`, then `prepareCanonicalAfterIdentity`, and continue through the same canonical route/billing/attempt machinery using the already-bound identity.
-  - Wire pass: admit request authority/accounting only through facts that have an exact wire-compatible contract, then enter the same route/B-leg attempt lifecycle with wire backend opens.
-  - Core owns and closes `requestbody.Source` on every branch; ownership must survive until all possible replay attempts are complete.
-  - _Boundary: core/runtime app orchestration_
-  - _Depends: 7.3, 8.3, 9.3_
-  - _Validation: `go test -race ./internal/core/runtime/...`_
-  - _Requirements: 1, 5, 6, 9, 12, 13_
-
-- [ ] 10.2 Integrate wire attempts into existing B-leg, attempt-budget, recovery, and response-stream assembly ownership
-  - Allocate B-legs/attempt sequence through the same owner as canonical backend opens.
-  - Each attempt/credential retry gets a fresh `Source.Open()` at byte zero and its own rewrite reader if needed.
-  - Preserve TTFT budget, affinity, weighted-first state, interleaved state, recoverable-pre-output classification, and exposure abort/terminal accounting order.
-  - Return the same canonical `lipapi.EventStream`; reuse existing stream assembler so no-post-client-output-failover remains enforced.
-  - Add tests where attempt 1 fails before output and attempt 2 receives the complete original body; assert no attempt begins after first visible output.
-  - _Boundary: core/runtime attempt orchestration_
-  - _Depends: 10.1_
-  - _Validation: `go test -race ./internal/core/runtime/... -run 'LargeBody|Failover|Retry|Race'`_
-  - _Requirements: 6, 9, 11, 13_
-
-- [ ] 10.3 Certify race/parallel reader safety at the core seam
-  - Use independent replay readers for simultaneously opened candidate attempts; prove bytes/rewrite output are identical and reader positions independent.
-  - If the active route strategy cannot be represented safely by the source/backend wire support, assert canonical continuation occurs before any provider request.
-  - Do not add a new goroutine per body chunk; only existing route-level concurrency is allowed.
-  - _Boundary: core/runtime concurrency tests_
-  - _Depends: 10.2_
-  - _Validation: `go test -race ./internal/core/runtime/...`_
+- [ ] 3.2 Implement independent replay readers and nonblocking root close
+  - Every `Open` starts at offset zero and has independent cursor/close ownership.
+  - Root `Close` is idempotent, marks ownership closed, and final file deletion occurs when active readers reach zero; do not block indefinitely waiting for reader closure.
+  - Cover Windows-style inability to delete an open file.
+  - No cleanup goroutine and no goroutine per body chunk.
+  - _Validation: `go test -race ./pkg/lipsdk/requestbody/...`_
   - _Requirements: 9, 13_
 
-## 11. Certify the First Lane: OpenResponses Create → OpenResponses-Compatible Backend
-
-- [ ] 11. Implement one end-to-end lane before touching OpenAI compatibility lanes
-- [ ] 11.1 Add the OpenResponses streaming semantic profile and canonical-only trigger matrix
-  - Create-operation only; exclude compaction and WebSocket ingress.
-  - First certification excludes `previous_response_id`/continuation materialization.
-  - Reproduce protocol strict duplicate policy, required input/model/stream facts, background rejection, supported top-level field policy, tool/item/reasoning/text controls needed for protocol requirements, and model span.
-  - Any structure the lightweight profile cannot prove the existing `DecodeRequest` would accept without canonical transformation returns canonical-only.
-  - Add a corpus that includes late model field, giant message strings, tools, reasoning, malformed structures, duplicates, background, unknown fields, continuation, and all max-boundary cases.
-  - _Boundary: OpenResponses frontend/protocol adapter_
-  - _Depends: 5.3, 10.1_
-  - _Validation: `go test ./internal/plugins/frontends/openresponses/... ./internal/plugins/protocols/openresponses/...`_
-  - _Requirements: 3, 4, 7, 8, 14_
-
-- [ ] 11.2 Add the OpenResponses-compatible backend wire adapter
-  - Reuse existing create endpoint resolution, API-key policy, shared HTTP client, request/response limits, streaming vs non-streaming response selection, canonical response parser, and failure classification.
-  - Construct outbound HTTP request from backend configuration; never forward client `Authorization` or hop-by-hop headers.
-  - Set actual `Content-Length` after optional model rewrite; omit stale `Content-Encoding`/`Transfer-Encoding` state.
-  - `ResolveWireRequest` advertises only the exact OpenResponses profile certified in 11.1.
-  - _Boundary: OpenResponses backend driven adapter_
-  - _Depends: 9.1, 9.2, 11.1_
-  - _Validation: `go test -race ./internal/plugins/backends/openresponsescompat/...`_
-  - _Requirements: 7, 8, 11, 14_
-
-- [ ] 11.3 Add differential canonical-vs-wire end-to-end conformance for the OpenResponses lane
-  - Send each eligible corpus request through current frontend decode → current canonical backend encode to a capture server and through the wire lane to the same capture contract.
-  - Compare method/endpoint/relevant headers, effective JSON semantic value, native model, stream behavior, provider error classification, and emitted canonical response events.
-  - For every normalization/unsupported trigger, assert the wire profile declines and the real canonical path determines the result.
-  - Include pre-output failover/replay and cancellation tests.
-  - Only after this suite passes may the OpenResponses profile/backend advertise compatibility in production wiring.
-  - _Boundary: conformance / integration tests_
-  - _Depends: 11.1, 11.2, 10.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/openresponses/... ./internal/plugins/backends/openresponsescompat/... ./internal/testkit/conformance/...`_
-  - _Requirements: 1, 6, 7, 9, 11, 14_
-
-## 12. Certify the Second Lane: OpenAI Responses → OpenAI-Compatible Responses
-
-- [ ] 12. Add OpenAI Responses only after the first lane is green
-- [ ] 12.1 Add the conservative OpenAI Responses frontend profile
-  - Validate supported input/tool/function/reasoning/text structures sufficiently to prove the current decoder would not repair/drop/normalize content beyond the permitted model rewrite.
-  - Canonical-only triggers include body metadata carrying proxy/session state, malformed function history the canonical decoder skips, unsupported aliases/normalization forms, and unproven unknown/extra-body behavior.
-  - Extract exact `model`, `stream`, operation, bounded `max_output_tokens`, protocol requirements, and model span.
-  - Add explicit tests for every canonical-only trigger documented in `design.md`; do not broaden eligibility while fixing unrelated tests.
-  - _Boundary: OpenAI Responses frontend adapter_
-  - _Depends: 11.3_
-  - _Validation: `go test ./internal/plugins/frontends/openairesponses/...`_
-  - _Requirements: 3, 4, 8, 14_
-
-- [ ] 12.2 Add OpenAI-compatible Responses wire HTTP open while preserving credential semantics
-  - Reuse the existing credential pool, environment resolution, cooldown/auth-invalid behavior, base URL, shared HTTP client, identity headers, response parser, first-event peek, and failure classifier.
-  - Use direct request-body streaming rather than the typed OpenAI SDK request marshaler; disable/avoid any hidden SDK retry because core owns replay.
-  - Each credential retry must call `Source.Open()` again from byte zero.
-  - Ensure the selected endpoint/flavor exactly matches the canonical Responses backend path.
-  - _Boundary: OpenAI-compatible backend driven adapter_
-  - _Depends: 12.1, 9.1, 9.2_
-  - _Validation: `go test -race ./internal/plugins/backends/openaicompat/...`_
-  - _Requirements: 7, 9, 11, 14_
-
-- [ ] 12.3 Add OpenAI Responses differential conformance and fallback certification
-  - Compare provider-capture semantics and canonical response events for eligible requests.
-  - Assert every malformed-history/metadata/normalization-sensitive fixture goes canonical and retains the current cleanup/error behavior.
-  - Cover API-key retry, 4xx, 429, 5xx, transport error before first event, stream and non-stream delivery, model rewrite, and route failover.
-  - _Boundary: conformance / integration tests_
-  - _Depends: 12.1, 12.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/openairesponses/... ./internal/plugins/backends/openaicompat/...`_
-  - _Requirements: 1, 7, 9, 11, 14_
-
-## 13. Certify the Third Lane: OpenAI Chat Completions → OpenAI-Compatible Chat
-
-- [ ] 13. Add Chat only after Responses parity is stable
-- [ ] 13.1 Add the conservative OpenAI Chat frontend profile
-  - Support only modern request shapes the profile can prove are byte/semantic equivalent after model rewrite.
-  - Canonical-only triggers include legacy `function_call`, reasoning alias handling unless explicitly parity-certified, body metadata carrying proxy/session state, unnamed tool calls, orphan tool results, empty assistant artifacts, and any shape the canonical decoder intentionally skips/repairs.
-  - Validate role/content/tool-call IDs/names/tool-result linkage as needed to ensure the canonical decoder would not alter history.
-  - Extract exact model/stream/max-output/protocol requirement facts and model span.
-  - Add direct tests from the existing malformed-history behavior so these cases can never accidentally enter wire mode.
-  - _Boundary: OpenAI Chat frontend adapter_
-  - _Depends: 12.3_
-  - _Validation: `go test ./internal/plugins/frontends/openailegacy/...`_
-  - _Requirements: 3, 4, 8, 14_
-
-- [ ] 13.2 Reuse the OpenAI-compatible raw HTTP machinery for Chat without duplicating credential/transport logic
-  - Share lower-level wire HTTP helpers with Responses, but keep profile/flavor/endpoint decisions explicit and testable.
-  - Preserve canonical Chat stream parser/event normalization and pre-output error classification.
-  - Do not copy/paste a second credential pool implementation.
-  - _Boundary: OpenAI-compatible backend driven adapter_
-  - _Depends: 13.1, 12.2_
-  - _Validation: `go test -race ./internal/plugins/backends/openaicompat/...`_
-  - _Requirements: 7, 9, 11, 14_
-
-- [ ] 13.3 Add Chat canonical-vs-wire differential conformance and fallback certification
-  - Eligible modern tool-call/message histories must result in semantically equivalent provider requests and canonical response events.
-  - Every repair/skip/legacy alias fixture must explicitly assert canonical fallback and unchanged behavior.
-  - Cover inline route prefix removal/model rewrite, late model member, giant content strings, retry/failover, and stream/non-stream modes.
-  - _Boundary: conformance / integration tests_
-  - _Depends: 13.1, 13.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/openailegacy/... ./internal/plugins/backends/openaicompat/...`_
-  - _Requirements: 1, 7, 8, 9, 14_
-
-## 14. Add Gzip Fast-Path Support Only After Uncompressed Lanes Are Certified
-
-- [ ] 14. Preserve current compression semantics, then optionally optimize gzip
-- [ ] 14.1 Lock the first-release gzip fallback contract before adding decompression streaming
-  - Add integration tests proving `Content-Encoding: gzip` still uses current canonical `reqbody.ReadAll` behavior while uncompressed wire lanes are enabled.
-  - Assert decompressed-size max, malformed gzip error, cancellation, and unsupported encoding behavior remain unchanged.
-  - Assert Brotli/zstd/deflate remain unsupported/not newly accepted.
-  - _Boundary: frontend request-body tests_
-  - _Depends: 11.3_
-  - _Validation: `go test ./internal/plugins/frontends/reqbody/... ./internal/plugins/frontends/...`_
-  - _Requirements: 10_
-
-- [ ] 14.2 Implement streaming gzip → **decoded** replay capture under the same decompressed byte ceiling
-  - Build the pipeline exactly as `design.md`: existing compressed HTTP body limits as applicable → `gzip.NewReader` → decoded `MaxRequestBodyBytes` ceiling → scanner/capture.
-  - Captured source represents identity/uncompressed JSON; backend wire request omits client `Content-Encoding` and sends decoded bytes, matching canonical effective semantics.
-  - Pool gzip readers/buffers only if the implementation can prove reset/no-retained-reference safety; otherwise prefer simple allocation over a risky pool.
-  - Add malformed/truncated gzip, decompression bomb, cancellation, and cross-request retention tests.
-  - _Boundary: frontend request-body infrastructure_
-  - _Depends: 14.1, 3, 4_
+- [ ] 3.3 Add global logical spool reservation
+  - Reserve known identity-body lengths up front when safe; reserve unknown/chunked incrementally.
+  - Release exactly once on wire success, canonical fallback, parse error, cancellation, and file-I/O error.
+  - Reservation exhaustion returns a bounded optimization decline; it is not a new client 413.
+  - Add saturation/concurrency tests and metrics hook points.
   - _Validation: `go test -race ./internal/plugins/frontends/reqbody/...`_
-  - _Requirements: 2, 3, 10, 13_
+  - _Requirements: 1, 13, 15_
 
-- [ ] 14.3 Run all certified protocol differential suites with gzip ingress
-  - Compare effective provider request semantics with the canonical gzip path; provider should receive the same logical uncompressed JSON/model rewrite result.
-  - Verify retry/replay reopens the decoded captured source rather than re-reading the client or sharing gzip state.
-  - _Boundary: conformance / integration tests_
-  - _Depends: 14.2, 11.3, 12.3, 13.3_
-  - _Validation: `go test -race ./internal/plugins/frontends/... ./internal/plugins/backends/...`_
-  - _Requirements: 9, 10, 14_
+- [ ] 3.4 Add fault-injection and leak tests
+  - Temp create/write/read/remove failures, short reads/writes, cancellation during copy, EOF boundary, source open failure, reader leak simulation, and server/request timeout.
+  - Assert no filename/body content appears in error/log/metric evidence.
+  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/... ./pkg/lipsdk/requestbody/...`_
+  - _Requirements: 13, 16_
 
-## 15. Add Bounded Observability and Architecture Ratchets Before Enabling Production Wiring
+## 4. Add the Shared Streaming JSON Shape Scanner
 
-- [ ] 15. Make fallback/usage explainable without exposing request content
-- [ ] 15.1 Add bounded metrics and tracing for consideration/use/fallback/spool/rewrite/replay
-  - Implement the metric families listed in `design.md` using the repository's existing metrics owner/naming convention.
-  - Labels are limited to static frontend/profile IDs and the fixed fallback-reason enum. Do not label model, backend ID, session, user, path from body, or arbitrary plugin identity.
-  - Trace/log fields may include decoded body size, spilled bool, reason, profile, rewrite bool, and replay count; never body bytes, prompt prefix, tool args, or temp file path.
-  - Metrics must remain no-op/low-cost when observability is disabled.
-  - _Boundary: observability_
-  - _Depends: 10.1, 11.3_
-  - _Validation: `go test ./internal/core/diag/... ./internal/core/runtime/... ./internal/plugins/frontends/...`_
+- [ ] 4. Implement differential parity before protocol profiles
+
+- [ ] 4.1 Implement incremental JSON lexical/shape validation
+  - Match current shared limits for bytes/depth/tokens/root/object/array/key/string/number.
+  - Handle split UTF-8, escapes/surrogates, number grammar, trailing/incomplete values, delimiters, and cancellation.
+  - Retain only bounded selected tokens/offsets requested by observers; never ordinary giant strings.
+  - _Validation: `go test ./internal/core/jsonshape/...`_
+  - _Requirements: 3, 4_
+
+- [ ] 4.2 Add differential/fuzz corpus against current slice preflight
+  - Randomized valid/invalid JSON, every buffer split around multibyte/escape/number delimiters, very deep/wide structures at exact limits, giant strings, late metadata, duplicate keys, and trailing data.
+  - Compare classification/counts rather than error text when current APIs do not promise text identity.
+  - _Validation: `go test ./internal/core/jsonshape/...`; fuzz targets in CI-safe mode_
+  - _Requirements: 3_
+
+- [ ] 4.3 Add bounded top-level token-span observation primitives
+  - Produce exact raw offsets for selected values such as the top-level model token without protocol field-name policy in shared core.
+  - Test nested misleading keys and `"model"` text inside giant content.
+  - _Validation: `go test ./internal/core/jsonshape/...`_
+  - _Requirements: 4, 8_
+
+## 5. Extend the Current Typed Plane Manifest With Request-Body Access Metadata
+
+- [ ] 5. Use one composition architecture only
+
+- [ ] 5.1 Add explicit `RequestBodyAccess` to canonical plane declarations
+  - Add `Unclassified`, `CanonicalRequired`, `MetadataOnly`, and `ResponseOnly` (or equivalent) with `Unclassified` as zero.
+  - Annotate **every** current production plane in `plane_manifest.go`; do not create named mirrors in `RequestRuntimeSnapshot`/runtimebundle.
+  - Classifications must reflect actual current stage semantics, not desired fast-path coverage.
+  - _Validation: `go test ./pkg/lipsdk/feature/...`_
+  - _Requirements: 5_
+
+- [ ] 5.2 Extend generator/frozen set to derive a bounded `AccessSummary`
+  - Generate summary/occupied blocker IDs from the typed frozen plane representation with no hot-path reflection/map/type-assertion walk.
+  - Runtime missing/unknown summary fails closed to canonical-required.
+  - Publish through the generation/request runtime snapshot in a read-only form.
+  - _Validation: `go test ./internal/archtest/... ./internal/infra/runtimebundle/... ./internal/core/extensions/...`_
   - _Requirements: 5, 12, 16_
 
-- [ ] 15.2 Add architecture ratchets for the new boundaries
-  - Fail if core contains provider/backend-name switches for wire eligibility.
-  - Fail if frontend fast-path packages import routing/B2BUA/backend provider packages to select attempts.
-  - Fail if an opaque `requestbody.Source`/metadata path is coerced into a fake/minimal `lipapi.Call` rather than canonicalizing.
-  - Fail if a new request/content extension plane lacks explicit access classification.
-  - Fail if a backend advertises a wire profile without a corresponding conformance registration/test fixture.
-  - _Boundary: architecture tests_
-  - _Depends: 7.2, 9.1, 11.3_
-  - _Validation: `go test ./internal/archtest/...`_
-  - _Requirements: 5, 7, 14, 16_
-
-- [ ] 15.3 Add reload/generation pinning tests
-  - Start a request under generation A, reload threshold/access/backend compatibility in generation B, and prove the in-flight request retains A's decisions and source lifetime.
-  - New requests after successful reload use B; failed reload retains A/last-good configuration.
-  - Include disabling the feature during an in-flight wire request and enabling it during an in-flight canonical request.
-  - _Boundary: composition root / reload integration tests_
-  - _Depends: 2.1, 7.2, 10.1_
-  - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/stdhttp/...`_
+- [ ] 5.3 Add declaration and runtime ratchets
+  - Production manifest validation fails if any new plane is unclassified.
+  - Runtime test proves unknown/uninitialized summary cannot become wire-safe.
+  - Generator rebuild/parity tests stay deterministic.
+  - _Validation: `go test ./pkg/lipsdk/feature/... ./internal/archtest/...`_
   - _Requirements: 5, 16_
 
-## 16. Prove Performance ROI, Leak Safety, and Whole-Repository Non-Regression Before Merge
+## 6. Add Conservative `frontendpipe` Candidate Processing With Decode-QoS Parity
 
-- [ ] 16. Complete the performance/security/regression gate; do not enable by default
-- [ ] 16.1 Build the benchmark matrix against the baseline from Task 1.4
-  - Run canonical vs wire for 32 KiB, 256 KiB, 1 MiB, 5 MiB, and configured 20 MiB bodies.
-  - Variants: unchanged model, longer/shorter model rewrite, canonical fallback after consideration, pre-output retry/replay, unknown/chunked length, gzip canonical fallback, and gzip wire path once Task 14 is complete.
-  - Report `allocs/op`, `B/op`, CPU/request, capture/precommit latency, upstream-open latency, TTFT, and throughput. Add heap/RSS/GC/goroutine observations using existing project benchmark/load tooling or a small test-only harness.
-  - The certified multi-megabyte lanes must demonstrate materially lower heap allocation/GC pressure than canonical processing; if a lane does not, keep that lane canonical-only and document the evidence rather than forcing activation.
-  - _Boundary: benchmarks / performance validation_
-  - _Depends: 11.3, 12.3, 13.3, 14.3, 15.1_
-  - _Validation: `go test -run '^$' -bench 'LargePayload' -benchmem ./internal/plugins/frontends/... ./internal/core/runtime/... ./internal/plugins/backends/...`_
+- [ ] 6. Add the ingress optimization lane without certifying a protocol yet
+
+- [ ] 6.1 Add optional `WireProfile` plumbing and bounded frontend-owned wire state
+  - Nil profile means canonical-only and must not allocate a spool/scanner.
+  - Profile owns only semantic proof/extraction; no backend selection/provider I/O.
+  - Keep raw headers/auth/session carriers at frontend boundary; pass only normalized bounded facts into core.
+  - Provide request-local canonical state storage for fallback and bounded wire frontend state for response encoding.
+  - _Validation: `go test ./internal/plugins/frontends/frontendpipe/...`_
+  - _Requirements: 1, 4, 14, 18_
+
+- [ ] 6.2 Preserve cheap canonical gates before capture
+  - Order: handler auth/content-type/path → feature/profile/large-body-executor gate → frontend full-body traffic gate → known identity Content-Length below threshold → gzip-wave1 gate → capture.
+  - Non-noop frontend ingress traffic requiring full `[]byte` selects current canonical path before spool so emission order remains unchanged.
+  - Disabled/nil-profile/traffic-blocked/below-threshold cases must not create temp files or materially regress allocations.
+  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/reqbody/...`_
+  - _Requirements: 1, 2, 10, 12, 15_
+
+- [ ] 6.3 Capture to EOF + shared streaming preflight, then preserve decode admission
+  - During capture run only shared lexical/shape preflight and bounded field observation; do **not** perform expensive protocol semantic proof during client upload.
+  - After final decoded size is known, call current `decodeqos.TryAdmit` with that exact byte weight.
+  - Run profile semantic proof from a replay reader while the permit is held.
+  - If profile declines at this point, materialize and run current `Spec.Decode` under current admission semantics; then follow ordinary post-decode/`AfterDecode`/traffic/executor flow.
+  - Release admission exactly once on success/error/panic and preserve current saturation/error mapping.
+  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/... ./internal/plugins/frontends/decodeqos/...`_
+  - _Requirements: 3, 17_
+
+- [ ] 6.4 Build trusted pre-turn `Canonicalize` callback
+  - Reopen/materialize the immutable source and call the exact existing decoder/validation/`AfterDecode` path.
+  - Populate the request-local canonical frontend state holder exactly once.
+  - Callback must perform no executor/session/provider work itself.
+  - It is only invoked before V1 `BeginTurn`/wire commit.
+  - Add tests proving a late core eligibility decline yields the same canonical frontend state/error and no duplicate decode-side side effects.
+  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/...`_
+  - _Requirements: 1, 6, 18_
+
+## 7. Refactor Frontend Response Encoding Onto Bounded Wire Response Facts
+
+- [ ] 7. Make response behavior explicit before opening any wire backend
+
+- [ ] 7.1 Add the generic `ExecutionResult`/wire response bridge to `frontendpipe`
+  - On a wire result, combine frontend-owned `WireFrontendState` with provider-neutral `ResponseFacts` to build wrap/encode state.
+  - On canonical fallback returned through `ExecuteLargeBody`, use the normal canonical state holder populated by `Canonicalize`.
+  - Do not create a fake Call or put frontend state in core.
+  - Keep existing canonical `WriteStream`/`WriteNonStream` behavior source-compatible.
+  - _Validation: `go test -race ./internal/plugins/frontends/frontendpipe/...`_
+  - _Requirements: 18_
+
+- [ ] 7.2 Refactor/characterize OpenAI Responses response facts
+  - Preserve cancellation semantics using authoritative A-leg/session facts.
+  - Define how response ID and timestamp are generated for wire execution; document any protocol-opaque difference and normalize it only in differential tests if allowed.
+  - Add cancel-by-returned-ID tests for wire-mode response facts before the backend lane is enabled.
+  - _Validation: `go test ./internal/plugins/frontends/openairesponses/... ./internal/stdhttp/...`_
+  - _Requirements: 18_
+
+- [ ] 7.3 Add architecture tests for response-state boundaries
+  - Core/SDK cannot import frontend response-state types.
+  - Wire frontend cannot satisfy response encoder by synthesizing `lipapi.Call`.
+  - Certified profile must register/cover its response dependency inventory.
+  - _Validation: `go test ./internal/archtest/...`_
+  - _Requirements: 16, 18_
+
+## 8. Implement Pre-`BeginTurn` Core Eligibility and the One-Way Commit Point
+
+- [ ] 8. Avoid the original secure-preparation split in V1
+
+- [ ] 8.1 Add side-effect-free static/generation eligibility
+  - Check feature/profile, generated AccessSummary, core traffic/raw capture/redaction blockers, Call-only callbacks, and other generation-global authorities.
+  - Treat configured post-A-leg route-override authority as V1 canonical-only unless a typed pre-turn contract exists.
+  - Treat any stage whose wire safety can only be decided after content/session mutation as a blocker rather than starting a turn to inspect it.
+  - Return bounded fallback reason; do not call `BeginTurn`.
+  - _Validation: `go test ./internal/core/runtime/... -run 'LargeBody.*Eligibility|Commit'`_
+  - _Requirements: 5, 6, 12, 19_
+
+- [ ] 8.2 Build a conservative pre-turn selector/candidate superset
+  - Compile selector with existing aliases/default backend and validate execution composition from exact profile facts.
+  - Bind native models using generation-pinned resolver only where exact pre-turn semantics are available.
+  - Enumerate every candidate that weighted-first/affinity/interleaved/recovery can later select from the configured selector; do not use post-A-leg state to prune the proof set.
+  - If candidate set cannot be conservatively established, fallback before `BeginTurn`.
+  - _Validation: `go test ./internal/core/runtime/... ./internal/core/routing/...`_
+  - _Requirements: 6, 7, 9_
+
+- [ ] 8.3 Implement the V1 commit state machine
+  - All expected decline paths call `Canonicalize` then ordinary `Execute` **before** beginning the large-body logical turn.
+  - Only after all core/backend prechecks pass may the wire execution branch call secure-session/A-leg preparation.
+  - After commit, an unexpected “canonical content required” state is an internal invariant failure: abort/finalize once and never invoke a second `Execute`.
+  - Add counters asserting canonical fallback has zero `BeginTurn`/A-leg/billing/provider side effects and wire commit has exactly one lifecycle.
+  - _Validation: `go test -race ./internal/core/runtime/... -run 'LargeBody|CommitPoint|BeginTurn'`_
+  - _Requirements: 1, 6, 16_
+
+## 9. Close the Post-Commit Full-Call Dependency and Keep Stock Billing Useful
+
+- [ ] 9. No wire branch may rely on a fake/partial canonical request
+
+- [ ] 9.1 Introduce only the exact bounded internal `wireExecutionFacts` proven necessary by Task 1.5
+  - Fields come from actual consumers: operation/delivery, selector/model/protocol requirements, bounded output control, body-size facts, trace/A-leg/session identity, etc.
+  - Each field has a producer, consumer, and parity test.
+  - Do not mirror the whole Call schema.
+  - _Validation: `go test ./internal/core/runtime/...`_
+  - _Requirements: 19_
+
+- [ ] 9.2 Refactor route/capability derivations to exact-fact helpers
+  - Add failover-requirement construction from exact `ProtocolRequirements`.
+  - Extract selector/native-model/request-size helpers where semantics do not require content.
+  - Canonical path should use the same helper with facts derived from its real Call where practical.
+  - Never estimate tokens from raw body bytes.
+  - _Validation: `go test -race ./internal/core/runtime/... ./internal/core/capabilities/... ./internal/core/routing/...`_
+  - _Requirements: 7, 12, 19_
+
+- [ ] 9.3 Audit/refactor `recvTurnFacts`, continuation support, interleaved-thinking, and terminal usage
+  - Metadata-only uses move to exact views/facts.
+  - Content-requiring uses become pre-turn blockers.
+  - Add an arch/AST ratchet that wire/post-commit functions cannot dereference `preparedRequest.call` except explicitly allowlisted canonical functions.
+  - _Validation: `go test -race ./internal/core/runtime/... ./internal/archtest/...`_
+  - _Requirements: 6, 9, 19_
+
+- [ ] 9.4 Make stock billing semantics explicit
+  - Characterize standard `PrincipalSessionIdentity`, charge-policy/pricing/max-output inputs, exposure admission, terminal usage, and request-token estimator behavior.
+  - Where exact bounded facts suffice, add a typed wire billing admission input/helper and make canonical stock billing derive the same input from Call.
+  - Custom arbitrary Call callbacks remain a pre-turn blocker unless they opt into an exact wire contract.
+  - If standard billing cannot yet be made wire-safe without scope explosion, document/test that as a fallback reason and ensure the final eligibility matrix states it clearly.
+  - _Validation: `go test -race ./internal/core/runtime/... ./internal/infra/billingadmission/... ./internal/infra/runtimebundle/...`_
+  - _Requirements: 12, 15, 19_
+
+## 10. Add Backend Wire Proof and Streaming Model Rewrite
+
+- [ ] 10. Define driven-adapter support before any backend opts in
+
+- [ ] 10.1 Extend internal backend contract additively with `ResolveWireRequest` / `OpenWire`
+  - Provider-neutral facts only; nil means canonical-only.
+  - `ResolveWireRequest` performs no provider/network I/O and declares exact profile/operation/body/rewrite/parallel-open support.
+  - Preserve external plugin ABI unless a separately versioned extension is intentionally designed.
+  - Add contract tests for all current nil-wire backends.
+  - _Validation: `go test ./internal/core/execbackend/... ./internal/plugins/backends/...`_
+  - _Requirements: 7, 11, 16_
+
+- [ ] 10.2 Implement token-span model splice reader
+  - Validate source span/size, marshal replacement JSON token, and stream prefix/replacement/suffix.
+  - Checked `int64` rewritten length.
+  - Tests: same/longer/shorter/escaped model, nested misleading model, model text in giant content, late model, whitespace variants, invalid/ambiguous span, duplicate-model decline.
+  - _Validation: `go test ./pkg/lipsdk/requestbody/... ./internal/plugins/frontends/reqbody/...`_
+  - _Requirements: 4, 8, 13_
+
+- [ ] 10.3 Prove wire support for the full conservative candidate superset
+  - Query support for every possible candidate before V1 commit.
+  - Any incompatible candidate, unsupported parallel mode, or rewrite failure causes canonical fallback before `BeginTurn`.
+  - Never drop incompatible candidates/change weights/serialize a race to retain wire mode.
+  - _Validation: `go test ./internal/core/runtime/...`_
+  - _Requirements: 6, 7, 9_
+
+## 11. Implement `ExecuteLargeBody` on the Existing Lifecycle/Attempt/Response Machinery
+
+- [ ] 11. Wire execution only after Tasks 1–10 are green
+
+- [ ] 11.1 Implement pre-turn proof → fallback-or-commit orchestration
+  - Run static/access/Call-dependency/route-superset/backend proof with no turn side effects.
+  - Fallback: invoke trusted `Canonicalize`, return/use ordinary `Execute`, and mark `ExecutionResult.PathCanonicalFallback` (or equivalent) for frontend state selection.
+  - Wire: take ownership of source, cross one-way commit, begin one normal logical turn, and produce bounded `ResponseFacts` from authoritative runtime identity.
+  - Close source on every terminal branch after replay is no longer needed.
+  - _Validation: `go test -race ./internal/core/runtime/...`_
+  - _Requirements: 1, 6, 7, 13, 18, 19_
+
+- [ ] 11.2 Integrate wire provider opens into existing B-leg/attempt/recovery owner
+  - Same B-leg allocation, attempt budget, TTFT, affinity, weighted-first, interleaved, failure history, stream recovery, and first-visible-output commit behavior.
+  - Each credential/provider retry calls `Source.Open()` from zero and applies its candidate rewrite.
+  - Response parser emits same canonical EventStream and uses existing stream assembler/terminal accounting.
+  - No goroutine per chunk.
+  - _Validation: `go test -race ./internal/core/runtime/... -run 'LargeBody|Retry|Failover|Race'`_
+  - _Requirements: 9, 11, 12, 19_
+
+- [ ] 11.3 Add commit/invariant failure tests
+  - Unexpected post-commit content requirement aborts/finalizes one turn and never calls canonical `Execute`.
+  - Attempt 1 pre-output failure → attempt 2 gets complete source; no attempt after first visible output.
+  - Parallel attempts have independent readers and identical non-model bytes.
+  - Cancellation closes attempt readers/source and preserves lifecycle/accounting.
+  - _Validation: `go test -race ./internal/core/runtime/...`_
+  - _Requirements: 6, 9, 13_
+
+## 12. Certify Lane 1: OpenAI Responses → OpenAI-Compatible Responses
+
+- [ ] 12. First production lane proves frontend response facts and backend raw HTTP together
+
+- [ ] 12.1 Implement conservative OpenAI Responses semantic profile
+  - Exact create endpoint only.
+  - Validate supported input/tool/function/reasoning/text structures sufficiently to prove no canonical repair/drop/normalization beyond permitted model rewrite.
+  - Canonical-only: proxy/session body metadata, malformed function history current decoder repairs/skips, unsupported aliases, unknown fields canonical encoder drops, duplicate protocol-owned names, and any unproven extra-body behavior.
+  - Extract exact model/stream/operation/bounded output controls/protocol requirements/model span.
+  - Run semantic verifier only under Task 6.3 decode admission.
+  - _Validation: `go test ./internal/plugins/frontends/openairesponses/...`_
+  - _Requirements: 3, 4, 14, 17_
+
+- [ ] 12.2 Add OpenAI-compatible Responses wire backend open
+  - Reuse current credential pool/env resolution/cooldown/auth-invalid behavior, base URL, shared HTTP client, identity headers, response parser, first-event peek, and failure classification.
+  - Direct body streaming; disable/avoid hidden SDK retries because core owns replay.
+  - Set valid content length after rewrite and omit stale encoding/transfer state.
+  - _Validation: `go test -race ./internal/plugins/backends/openaicompat/...`_
+  - _Requirements: 7, 8, 11_
+
+- [ ] 12.3 End-to-end canonical-vs-wire conformance
+  - Provider capture compares method/endpoint/relevant headers, effective JSON semantic value after model rewrite, stream mode, error classification, and canonical response events.
+  - Frontend compare covers response/cancellation semantics; normalize only documented protocol-opaque IDs/timestamps.
+  - Cover API-key retry, 4xx/429/5xx, transport failure before first event, stream/non-stream, route failover/race, cancellation by returned response ID, malformed/normalization fallback, and decode-admission saturation.
+  - Only after this suite passes may the profile/backend advertise production wire support.
+  - _Validation: `go test -race ./internal/plugins/frontends/openairesponses/... ./internal/plugins/backends/openaicompat/... ./internal/testkit/conformance/...`_
+  - _Requirements: 1, 7, 9, 11, 14, 17, 18_
+
+## 13. Certify Lane 2: OpenAI Chat Completions → OpenAI-Compatible Chat
+
+- [ ] 13. Add Chat only after Lane 1 is green
+
+- [ ] 13.1 Implement conservative Chat semantic profile
+  - Preserve current role/message/tool/function/reasoning normalization rules and route-model semantics.
+  - Canonical-only for malformed histories/aliases/unknown fields/duplicates/metadata cases whose canonical re-encode differs.
+  - Extract exact bounded facts and model span under decode admission.
+  - _Validation: `go test ./internal/plugins/frontends/openailegacy/...`_
+  - _Requirements: 3, 4, 14, 17_
+
+- [ ] 13.2 Add Chat wire backend support and response-state binding
+  - Reuse OpenAI-compatible credential/client/parser/error machinery.
+  - Resolve completion ID/timestamp without a fake Call; document any protocol-opaque difference.
+  - Differential tests for stream/non-stream, tool calls, retries/failover, model rewrite, errors, and response envelope.
+  - _Validation: `go test -race ./internal/plugins/frontends/openailegacy/... ./internal/plugins/backends/openaicompat/...`_
+  - _Requirements: 7, 9, 11, 14, 18_
+
+## 14. Certify Lane 3: OpenResponses HTTP Create With Explicit `store:false`
+
+- [ ] 14. Do not treat default OpenResponses create as stateless
+
+- [ ] 14.1 Refactor/characterize OpenResponses frontend state for a no-store wire subset
+  - Initial subset: HTTP create, **explicit `store:false`**, absent `previous_response_id`, no compaction, no WebSocket.
+  - Missing `store` is canonical because current default is true.
+  - Build bounded wire frontend state for response ID/options/wrappers without continuation reservation/recorder state.
+  - Prove no ordinary `AfterDecode` failure/side effect is shifted behind `BeginTurn` for this subset.
+  - _Validation: `go test ./internal/plugins/frontends/openresponses/...`_
+  - _Requirements: 6, 14, 18_
+
+- [ ] 14.2 Implement OpenResponses semantic profile and compatible backend wire open
+  - Preserve strict duplicate policy, supported create fields/limits, stream control, requirement derivation, endpoint/auth/client/parser/error behavior.
+  - Unknown/unsupported controls and any `store:true`/continuation request are canonical-only.
+  - _Validation: `go test -race ./internal/plugins/frontends/openresponses/... ./internal/plugins/backends/openresponsescompat/...`_
+  - _Requirements: 7, 11, 14, 17_
+
+- [ ] 14.3 Add OpenResponses differential conformance
+  - Compare provider-effective JSON/endpoint/headers and canonical response events.
+  - Verify response ID/wrappers/allowed-tool behavior for explicit no-store subset.
+  - Assert missing/true store and previous-response requests never reach wire backend.
+  - Cover retry/failover/cancel and malformed/duplicate inputs.
+  - _Validation: `go test -race ./internal/plugins/frontends/openresponses/... ./internal/plugins/backends/openresponsescompat/... ./internal/testkit/conformance/...`_
+  - _Requirements: 1, 9, 14, 18_
+
+- [ ] 14.4 Treat `store:true`/continuation as a later certification, not incidental scope
+  - Only add after exact reservation/response-ID/recorder/cleanup/lineage semantics are designed and tested.
+  - Do not broaden this while fixing unrelated test failures.
+  - _Requirements: 14, 18_
+
+## 15. Add Gzip Support as a Separate Follow-Up Wave
+
+- [ ] 15. Wave 1 is identity JSON only
+
+- [ ] 15.1 Prove wave-1 gzip always selects canonical before spool/profile
+  - No change to current decompression/limit/error behavior.
+  - _Validation: frontend/reqbody gzip tests_
+  - _Requirements: 10_
+
+- [ ] 15.2 Optional later task: capture decoded gzip JSON with exact current limits
+  - Use current bounded decompressor semantics.
+  - Threshold/reservation are decoded bytes; never compressed Content-Length.
+  - Provider sends identity JSON with stale Content-Encoding removed.
+  - Re-run scanner/profile/backend conformance for gzip corpus.
+  - _Depends: all enabled identity-body lanes stable first_
+  - _Requirements: 10_
+
+## 16. Observability, Benchmarks, and Realistic Eligibility Evidence
+
+- [ ] 16. Measure the actual value and fallback surface
+
+- [ ] 16.1 Add bounded metrics/traces
+  - Considered/wire/fallback counts; static reason enum; body-size buckets; memory/file spool; active logical spool bytes; replay/rewrite counts; capture/preflight/proof/provider-open latency.
+  - No model/backend/user/session IDs in metric labels; no body/path in telemetry.
+  - _Validation: metrics cardinality/privacy tests_
+  - _Requirements: 13, 16_
+
+- [ ] 16.2 Add allocation/CPU/GC benchmarks
+  - 32 KiB, 256 KiB, 1 MiB, 5 MiB, test-only 20 MiB.
+  - Canonical disabled baseline vs wire lane; giant strings, late model, tools, malformed JSON, replay/failover.
+  - Report allocs/op, B/op, CPU, file I/O, GC/heap, and provider-open latency.
+  - Explicitly state full-body pre-commit validation means this is mainly a heap/GC/redundant-work optimization.
+  - _Validation: benchmark commands documented in `research.md`/PR results_
   - _Requirements: 15_
 
-- [ ] 16.2 Run concurrency, cancellation, filesystem-fault, race, and leak scenarios
-  - Exercise concurrency 1, 100, 1000, and the highest stable host-supported level; target 5000+ only where the machine can sustain it without invalidating measurements.
-  - Observe peak/steady RSS/heap, GC count/pause, throughput, TTFT, spool logical bytes, temp-file count, file descriptors/handles, goroutine count, and cleanup after load stops.
-  - Inject client disconnect during giant scalar, spill write failure, provider disconnect, pre-output retry, response cancellation, and race route.
-  - End each scenario with zero spool reservation, no owned temp files, no unexpected goroutines, and no data races.
-  - _Boundary: load / reliability tests_
-  - _Depends: 16.1_
-  - _Validation: `go test -race ./internal/plugins/frontends/reqbody/... ./internal/core/runtime/... ./internal/plugins/backends/...` plus the repository's leak/load harness_
-  - _Requirements: 9, 13, 15_
+- [ ] 16.3 Run concurrent load and spool-budget saturation
+  - Include realistic session concurrency and slow-upload cases.
+  - Prove decode permits are not held during upload.
+  - Compare budget exhaustion behavior against disabled canonical baseline; do not claim the optimization budget bounds canonical heap fallback.
+  - _Requirements: 13, 15, 17_
 
-- [ ] 16.3 Re-run the canonical characterization suite with the feature disabled and with every forced-fallback condition
-  - Feature disabled must reproduce Task 1 behavior and benchmark shape within expected noise.
-  - Force each fallback reason at least once: below threshold, unsupported frontend/profile, **frontend ingress traffic capture**, gzip pre-Wave-2 path, extension/core traffic stage, billing/call-only estimator, conversation projection, incompatible route/backend, replay/race incompatibility, unsafe rewrite, spool budget.
-  - Assert none of these conditions changes client-visible behavior versus direct canonical execution.
-  - _Boundary: regression / conformance tests_
-  - _Depends: 15, 16.2_
-  - _Validation: `go test -race ./internal/plugins/frontends/... ./internal/core/runtime/... ./internal/plugins/backends/...`_
-  - _Requirements: 1, 5, 6, 12, 16_
+- [ ] 16.4 Publish realistic eligibility matrix
+  - At minimum: extensions empty vs representative request plane occupied; route override reader off/on; stock billing off/on; frontend traffic off/on; sequential vs weighted/fallback/race selectors; each certified frontend/backend lane.
+  - Require at least one realistic production-like configuration to actually hit the wire lane.
+  - If stock billing still blocks, quantify/document it before declaring completion.
+  - _Requirements: 5, 6, 12, 15, 19_
 
-- [ ] 16.4 Run the repository-wide merge gates and review the diff for accidental scope creep
-  - Run formatting/lint/architecture/parity/test gates; fix only regressions attributable to this feature.
-  - Verify no production changes were made to `internal/jsonbody` unless a separately justified issue became an explicit dependency.
-  - Verify no default request limit was raised, no new content encoding was accepted, no external backend plugin ABI was made mandatory, and feature default remains disabled.
-  - Verify every production `OpenWire` advertisement has differential conformance coverage and every new request-stage plane has access classification.
-  - Review `git diff origin/main...HEAD` for unrelated cleanup/refactors and remove them before merge.
-  - _Boundary: whole repository / release gate_
-  - _Depends: 16.3_
-  - _Validation: `gofmt -w <changed-go-files> && make quality-checks && make test && make parity-checks && make qa`_
-  - _Requirements: 1, 3, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16_
+## 17. Final Regression Gate and Rollout
 
-## Task Graph / Sequencing Summary
+- [ ] 17. Do not enable profiles until all compatibility proof is green
 
-```mermaid
-flowchart LR
-    T1[1 Baseline] --> T2[2 Config + SDK]
-    T1 --> T4[4 JSON scanner]
-    T2 --> T3[3 Replay capture]
-    T3 --> T5[5 Frontend plumbing]
-    T4 --> T5
-    T1 --> T6[6 Preparation split]
-    T2 --> T7[7 Access summary]
-    T6 --> T7
-    T2 --> T8[8 Route facts]
-    T6 --> T8
-    T7 --> T10[10 Core wire use case]
-    T8 --> T9[9 Backend wire contract + rewrite]
-    T9 --> T10
-    T5 --> T11[11 OpenResponses]
-    T10 --> T11
-    T11 --> T12[12 OpenAI Responses]
-    T12 --> T13[13 OpenAI Chat]
-    T11 --> T14[14 Gzip]
-    T12 --> T14
-    T13 --> T14
-    T10 --> T15[15 Observability + ratchets]
-    T11 --> T15
-    T14 --> T16[16 Perf + final gates]
-    T15 --> T16
-```
+- [ ] 17.1 Add architecture ratchets
+  - No unclassified production plane.
+  - No provider-name switch/provider SDK type in core/requestbody SDK.
+  - No fake Call on wire branch.
+  - No post-commit `preparedRequest.call` dereference beyond explicitly canonical allowlist.
+  - No protocol semantic proof outside decode admission.
+  - No expected canonical fallback introduced after V1 `BeginTurn` commit.
+  - No route candidate pruning/reordering for eligibility.
+  - _Validation: `go test ./internal/archtest/...`_
+  - _Requirements: 5, 6, 16, 17, 19_
 
-The protocol certification tasks are intentionally **not** marked parallel. Although their adapters are separable in principle, implementing them sequentially is the safer plan for smaller LLM agents: the OpenResponses lane validates the architecture first, OpenAI Responses validates compatibility-normalization fallbacks second, and Chat reuses the proven OpenAI raw HTTP machinery last. Correctness and regression containment take precedence over wall-clock implementation speed.
+- [ ] 17.2 Run full quality gate
+  - `go test ./...`
+  - targeted `go test -race` for frontendpipe/requestbody/runtime/backend lanes
+  - `go vet ./...`
+  - repository lint/staticcheck commands required by CI
+  - differential conformance suites
+  - allocation/load evidence
+  - _Requirements: all_
+
+- [ ] 17.3 Keep rollout default-off and document operational caveats
+  - Explicit opt-in for first release.
+  - Document supported protocol/backend subsets and canonical-only triggers.
+  - Document spool plaintext/storage requirements, decode-QoS behavior, fallback metrics, route-override limitation, and whether standard billing is wire-safe.
+  - Profile broadening requires new conformance corpus in the same change.
+  - _Requirements: 13, 14, 15, 16_
