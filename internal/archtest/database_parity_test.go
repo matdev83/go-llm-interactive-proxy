@@ -365,5 +365,3 @@ func TestDatabaseParity_MigrationIDDiscoveryConsistency(t *testing.T) {
 		}
 	}
 }
-
-

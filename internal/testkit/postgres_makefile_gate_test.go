@@ -273,4 +273,3 @@ func moduleRoot(t *testing.T) string {
 		dir = parent
 	}
 }
-

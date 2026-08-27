@@ -70,7 +70,7 @@ func TestDiscoverMigrations_Exclusions(t *testing.T) {
 		"20260101000000_valid_migration_test.go", // excluded: _test.go
 		"20260826_short_timestamp.go",            // excluded: 8 digits
 		"202608261234567_long_timestamp.go",      // excluded: 15 digits
-		"2026082612345a_alpha_timestamp.go",     // excluded: non-digit in timestamp
+		"2026082612345a_alpha_timestamp.go",      // excluded: non-digit in timestamp
 		"not_a_migration.go",                     // excluded: no timestamp prefix
 		"20260101000000.go",                      // excluded: no underscore + name
 		"README.md",                              // excluded: non-Go file

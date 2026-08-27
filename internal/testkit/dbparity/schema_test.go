@@ -819,5 +819,3 @@ CREATE TABLE items (
 		}
 	})
 }
-
-

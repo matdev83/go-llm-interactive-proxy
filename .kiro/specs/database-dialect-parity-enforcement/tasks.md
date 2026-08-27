@@ -316,7 +316,7 @@
   - _Depends: 7.1_
   - _Validation: `go test ./internal/qa -run DatabaseParity`_
 
-- [ ] 7.3 Run final whole-repository database parity and regression certification
+- [x] 7.3 Run final whole-repository database parity and regression certification
   - Run `make test-db-parity` against real direct PostgreSQL and confirm all registered SQLite/PostgreSQL common capabilities and migrations are green.
   - Run existing PostgreSQL direct/pooled specialized gates applicable to authority/concurrency/metering/terminal-work; preserve explicit topology attestation requirements.
   - Run billing convergence/migration evidence applicable to billing-store changes made during remediation.

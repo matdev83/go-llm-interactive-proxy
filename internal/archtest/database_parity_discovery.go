@@ -96,9 +96,9 @@ var dialectSensitiveImports = map[string]string{
 	"github.com/uptrace/bun/dialect/sqlitedialect": "sqlite dialect import",
 	"github.com/uptrace/bun/dialect/pgdialect":     "postgres dialect import",
 	"github.com/uptrace/bun/driver/pgdriver":       "postgres driver import",
-	"modernc.org/sqlite":                          "sqlite driver import",
-	"modernc.org/sqlite/lib":                      "sqlite driver library import",
-	"github.com/uptrace/bun/migrate":              "bun migration registry import",
+	"modernc.org/sqlite":                           "sqlite driver import",
+	"modernc.org/sqlite/lib":                       "sqlite driver library import",
+	"github.com/uptrace/bun/migrate":               "bun migration registry import",
 }
 
 func inspectFileDialectIndicators(abs, rel string, src []byte) ([]DialectFinding, error) {
@@ -439,4 +439,3 @@ func fileDeclaresSymbol(f *ast.File, symbol string) bool {
 	}
 	return false
 }
-
