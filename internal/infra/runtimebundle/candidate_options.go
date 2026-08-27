@@ -10,23 +10,26 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 	if process == nil {
 		return overlay
 	}
-	if overlay == nil {
-		return process
-	}
 	out := *process
-	if overlay.ReplaceCandidateSurface {
-		out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		out.Extensions = overlay.Extensions
-	} else {
-		if overlay.FeatureLifecycles != nil {
+	if overlay != nil {
+		if overlay.ReplaceCandidateSurface {
 			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-		}
-		if hasExtensionOverlay(overlay.Extensions) {
 			out.Extensions = overlay.Extensions
+			out.FeaturePlanes = overlay.FeaturePlanes
+		} else {
+			if overlay.FeatureLifecycles != nil {
+				out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
+			}
+			if hasExtensionOverlay(overlay.Extensions) {
+				out.Extensions = overlay.Extensions
+			}
+			if !overlay.FeaturePlanes.IsZero() {
+				out.FeaturePlanes = overlay.FeaturePlanes
+			}
 		}
-	}
-	if overlay.WireModel != nil {
-		out.WireModel = overlay.WireModel
+		if overlay.WireModel != nil {
+			out.WireModel = overlay.WireModel
+		}
 	}
 	// Always keep process factory catalog / infra / testing / production / auth.
 	out.PluginRegistry = process.PluginRegistry
@@ -53,11 +56,6 @@ func hasExtensionOverlay(e ExtensionsOptions) bool {
 		len(e.RouteHintProviders) > 0 ||
 		len(e.CompletionGates) > 0 ||
 		len(e.AttemptTransforms) > 0 ||
-		len(e.StreamObserverFactories) > 0 ||
-		len(e.TrafficObservers) > 0 ||
-		len(e.UsageObservers) > 0 ||
-		len(e.RawCaptureSinks) > 0 ||
-		len(e.TrafficRedactors) > 0 ||
 		len(e.SecretGuards) > 0 ||
 		e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"gopkg.in/yaml.v3"
@@ -204,7 +205,7 @@ func TestCodexCompanionStandardComposition_OrdinaryAttemptGetsTrustedMarker(t *t
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	merged, err := featurebundle.MergeFeatureSurface(reg, config.RegistrationsFromConfig(cfg))
+	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +219,7 @@ func TestCodexCompanionStandardComposition_OrdinaryAttemptGetsTrustedMarker(t *t
 		t.Fatal("standard composition did not install reasoning attempt transform")
 	}
 	var observer bool
-	for _, factory := range merged.StreamObserverFactories {
+	for _, factory := range lipfeature.Get(genMerged.Frozen, lipfeature.PlaneStreamObserverFactories) {
 		if factory != nil && factory.ID() == reasoningpreservation.ID+"-observer" {
 			observer = true
 		}

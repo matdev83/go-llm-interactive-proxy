@@ -1,8 +1,6 @@
 package archtest
 
 import (
-	"go/parser"
-	"go/token"
 	"strings"
 	"testing"
 )
@@ -404,15 +402,4 @@ func TestForbiddenMirrorsAbsent_ProductionBaseline(t *testing.T) {
 		}
 		t.Fatalf("forbidden mirrors present at active wave (%d):\n%s", len(findings), b.String())
 	}
-}
-
-// scanSyntheticSource parses src and runs ScanFileForForbiddenMirrors.
-func scanSyntheticSource(t *testing.T, relPath, src string, wave MigrationWave) []MirrorFinding {
-	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse synthetic source %s: %v", relPath, err)
-	}
-	return ScanFileForForbiddenMirrors(relPath, []byte(src), fset, f, wave)
 }

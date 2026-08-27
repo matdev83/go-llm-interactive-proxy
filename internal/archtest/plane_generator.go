@@ -12,12 +12,14 @@ import (
 )
 
 type planeInfo struct {
-	varName     string // e.g. PlaneSubmitHooks
-	planeID     string // e.g. "submit_hooks"
-	fieldName   string // e.g. submitHooks
-	typeExpr    string // e.g. []hooks.SubmitHook
-	isExclusive bool   // e.g. terminaldecision.Provider
-	hasIdentity bool   // whether plane has an identity accessor
+	varName          string // e.g. PlaneSubmitHooks
+	planeID          string // e.g. "submit_hooks"
+	fieldName        string // e.g. submitHooks
+	typeExpr         string // e.g. []hooks.SubmitHook
+	isExclusive      bool   // e.g. terminaldecision.Provider
+	hasIdentity      bool   // whether plane has an identity accessor
+	hasGenBinderRule bool   // whether GenerationBinder rule is declared
+	genBinderRule    string // e.g. CombReplaceByIdentity
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -367,11 +369,13 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	}
 
 	return planeInfo{
-		varName:     varName,
-		planeID:     planeID,
-		fieldName:   fieldName,
-		typeExpr:    typeArgStr,
-		isExclusive: isExclusive,
-		hasIdentity: hasIdentity,
+		varName:          varName,
+		planeID:          planeID,
+		fieldName:        fieldName,
+		typeExpr:         typeArgStr,
+		isExclusive:      isExclusive,
+		hasIdentity:      hasIdentity,
+		hasGenBinderRule: hasGenBinderRule,
+		genBinderRule:    genBinderRule,
 	}, nil
 }

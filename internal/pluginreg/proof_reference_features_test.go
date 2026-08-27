@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,7 +63,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: empty},
 		})
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, regs)
+	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,17 +81,17 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(m.WorkspaceResolvers) < need {
 		t.Fatalf("workspace: %d", len(m.WorkspaceResolvers))
 	}
-	if len(m.TrafficObservers) < need {
-		t.Fatalf("obs: %d", len(m.TrafficObservers))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)) < need {
+		t.Fatalf("obs: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)))
 	}
-	if len(m.UsageObservers) < need {
-		t.Fatalf("usage observers: %d", len(m.UsageObservers))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)) < need {
+		t.Fatalf("usage observers: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)))
 	}
-	if len(m.RawCaptureSinks) < need {
-		t.Fatalf("raw: %d", len(m.RawCaptureSinks))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)) < need {
+		t.Fatalf("raw: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)))
 	}
-	if len(m.TrafficRedactors) < need {
-		t.Fatalf("red: %d", len(m.TrafficRedactors))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)) < need {
+		t.Fatalf("red: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)))
 	}
 	if len(m.CompletionGates) < need {
 		t.Fatalf("gates: %d", len(m.CompletionGates))

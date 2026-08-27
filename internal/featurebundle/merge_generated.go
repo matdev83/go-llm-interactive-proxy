@@ -3,13 +3,46 @@ package featurebundle
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
+
+// HostContributions holds host-provided contributions (process options) that can be merged
+// alongside feature plugin contributions. Host contributions are merged under SourceHost
+// and are strictly limited to planes that permit host contributions (TrafficObservers, UsageObservers).
+type HostContributions struct {
+	TrafficObservers []traffic.Observer
+	UsageObservers   []usage.Observer
+}
+
+// ContributeHost contributes host-level observer contributions into the given ContributionSet
+// with SourceHost semantics.
+func ContributeHost(cs *lipfeature.ContributionSet, host HostContributions) error {
+	if cs == nil {
+		return errors.New("featurebundle: nil ContributionSet")
+	}
+	if len(host.TrafficObservers) > 0 {
+		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneTrafficObservers, lipfeature.SourceHost, "host", slices.Clone(host.TrafficObservers)); err != nil {
+			return err
+		}
+	}
+	if len(host.UsageObservers) > 0 {
+		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneUsageObservers, lipfeature.SourceHost, "host", slices.Clone(host.UsageObservers)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // GeneratedMergeSurface represents the composed result of feature contributions merged through
 // generated typed plane adapters. It holds an immutable FrozenPlaneSet containing all declared
@@ -17,6 +50,59 @@ import (
 type GeneratedMergeSurface struct {
 	Frozen     lipfeature.FrozenPlaneSet
 	Lifecycles []lipplugin.Lifecycle
+	set        *lipfeature.ContributionSet
+}
+
+func (g GeneratedMergeSurface) workingSet() *lipfeature.ContributionSet {
+	if g.set != nil {
+		return g.set.Clone()
+	}
+	return g.Frozen.ToContributions()
+}
+
+// BindStreamObserverFactories replaces stream observer factories contributed by contributorID
+// in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
+// If validation or combination fails, the candidate is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) BindStreamObserverFactories(contributorID string, factories []response.StreamObserverFactory) (GeneratedMergeSurface, error) {
+	working := g.workingSet()
+	if err := working.BindStreamObserverFactories(contributorID, factories); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
+}
+
+// BindAttemptTransforms replaces attempt transforms contributed by contributorID
+// in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
+// If validation or combination fails, the candidate is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) BindAttemptTransforms(contributorID string, transforms []request.AttemptTransform) (GeneratedMergeSurface, error) {
+	working := g.workingSet()
+	if err := working.BindAttemptTransforms(contributorID, transforms); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
+}
+
+// BindCompactionPreservers replaces compaction preservers contributed by contributorID
+// in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
+// If validation or combination fails, the candidate is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) BindCompactionPreservers(contributorID string, preservers []compaction.Preserver) (GeneratedMergeSurface, error) {
+	working := g.workingSet()
+	if err := working.BindCompactionPreservers(contributorID, preservers); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
 }
 
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
@@ -35,11 +121,6 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 		RouteHintProviders:               lipfeature.Get(g.Frozen, lipfeature.PlaneRouteHintProviders),
 		CompletionGates:                  lipfeature.Get(g.Frozen, lipfeature.PlaneCompletionGates),
 		AttemptTransforms:                lipfeature.Get(g.Frozen, lipfeature.PlaneAttemptTransforms),
-		StreamObserverFactories:          lipfeature.Get(g.Frozen, lipfeature.PlaneStreamObserverFactories),
-		TrafficObservers:                 lipfeature.Get(g.Frozen, lipfeature.PlaneTrafficObservers),
-		UsageObservers:                   lipfeature.Get(g.Frozen, lipfeature.PlaneUsageObservers),
-		RawCaptureSinks:                  lipfeature.Get(g.Frozen, lipfeature.PlaneRawCaptureSinks),
-		TrafficRedactors:                 lipfeature.Get(g.Frozen, lipfeature.PlaneTrafficRedactors),
 		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
 		CompactionPreservers:             lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
 		SecretGuards:                     lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
@@ -215,6 +296,7 @@ func MergeBundlesGenerated(bundles ...lipfeature.FeatureBundle) (GeneratedMergeS
 	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
+		set:        cs,
 	}, nil
 }
 
@@ -260,6 +342,7 @@ func MergeFeatureSurfaceGenerated(reg *pluginreg.Registry, registrations []lipsd
 	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
+		set:        cs,
 	}, nil
 }
 

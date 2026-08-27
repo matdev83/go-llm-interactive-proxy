@@ -12,10 +12,10 @@ import (
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
@@ -127,34 +127,32 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.AttemptTransforms) > 0 {
 		attemptXforms = slices.Clone(opts.Extensions.AttemptTransforms)
 	}
-	var streamObs []response.StreamObserverFactory
-	if len(opts.Extensions.StreamObserverFactories) > 0 {
-		streamObs = slices.Clone(opts.Extensions.StreamObserverFactories)
+	var frozen lipfeature.FrozenPlaneSet
+	if opts != nil {
+		frozen = opts.FeaturePlanes
 	}
+	streamObs := lipfeature.Get(frozen, lipfeature.PlaneStreamObserverFactories)
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
-	if len(opts.Extensions.TrafficObservers) > 0 {
-		trafficObs = traffic.ChainObservers(opts.Extensions.TrafficObservers...)
+	if rawObs := lipfeature.Get(frozen, lipfeature.PlaneTrafficObservers); len(rawObs) > 0 {
+		trafficObs = traffic.ChainObservers(rawObs...)
 	}
 	var usageObs usage.Observer = usage.NoopObserver{}
 	cpUsageObs := cp.usageObserver()
-	if len(opts.Extensions.UsageObservers) > 0 {
-		chain := make([]usage.Observer, 0, len(opts.Extensions.UsageObservers)+1)
+	if rawUsage := lipfeature.Get(frozen, lipfeature.PlaneUsageObservers); len(rawUsage) > 0 {
+		chain := make([]usage.Observer, 0, len(rawUsage)+1)
 		if cpUsageObs != nil {
 			chain = append(chain, cpUsageObs)
 		}
-		chain = append(chain, opts.Extensions.UsageObservers...)
+		chain = append(chain, rawUsage...)
 		usageObs = usage.ChainObservers(chain...)
 	} else if cpUsageObs != nil {
 		usageObs = cpUsageObs
 	}
 	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
-	if len(opts.Extensions.RawCaptureSinks) > 0 {
-		trafficRaw = traffic.MultiRawCapture(opts.Extensions.RawCaptureSinks...)
+	if rawSinks := lipfeature.Get(frozen, lipfeature.PlaneRawCaptureSinks); len(rawSinks) > 0 {
+		trafficRaw = traffic.MultiRawCapture(rawSinks...)
 	}
-	var trafficRedactors []traffic.Redactor
-	if len(opts.Extensions.TrafficRedactors) > 0 {
-		trafficRedactors = slices.Clone(opts.Extensions.TrafficRedactors)
-	}
+	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource

@@ -138,22 +138,22 @@
   - _Depends: 4.2_
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... && go test ./internal/qa`
 
-- [ ] 5. Migrate observer and response-analysis families as W2
-- [ ] 5.1 Migrate traffic/usage observers, raw sinks, and redactors
+- [x] 5. Migrate observer and response-analysis families as W2
+- [x] 5.1 Migrate traffic/usage observers, raw sinks, and redactors
   - Preserve feature-before-host ordering, nil policy, defensive-copy behavior, and observability output.
   - Observable completion: named copy/overlay branches for these slice-shaped families are deleted and parity/allocation baselines remain green.
   - _Requirements: 1.1, 4.5, 5.1, 5.3, 5.5, 7.1_
   - _Boundary: SDK/public contract, composition root, core/runtime_
   - _Depends: 4.3_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/extensions ./internal/core/runtime ./internal/testkit/... ./internal/qa`
-- [ ] 5.2 Migrate stream-observer factories
+- [x] 5.2 Migrate stream-observer factories
   - Preserve factory lifecycle/identity behavior separately from slice-shaped observer values and compare allocation behavior to task 1.6.
   - Observable completion: the factory copy/overlay branch is deleted, factory parity is green, and allocs/op does not regress.
   - _Requirements: 1.1, 5.1, 5.3, 5.5, 7.1_
   - _Boundary: SDK/public contract, composition root, core/runtime_
   - _Depends: 5.1_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/extensions ./internal/core/runtime ./internal/testkit/...; go test -bench 'Benchmark.*StreamObserver' -benchmem ./internal/core/extensions/...`
-- [ ] 5.3 Replace reasoning-compression field surgery with declared generation-binder operations
+- [x] 5.3 Replace reasoning-compression field surgery with declared generation-binder operations
   - Keep process/generation ownership, typed-nil fail-closed capability checks, replace-by-ID ordering, and idempotence unchanged.
   - Observable completion: the binder calls generated typed replacement operations and no longer edits merged-surface fields directly.
   - _Requirements: 1.4, 4.5, 5.1, 5.5_

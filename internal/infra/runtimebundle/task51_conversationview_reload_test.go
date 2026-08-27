@@ -16,9 +16,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -123,11 +125,30 @@ func task51BaseConfig() *config.Config {
 // prove state persists and gen2 Executor still enforces (filters tagged, injects steering) via real PTB/backend.
 func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	t.Parallel()
+	trafficCap := &task51TrafficCapture{}
+	capBackend := &task51CaptureBackend{}
+	trafficCap2 := &task51TrafficCapture{}
+	capBackend2 := &task51CaptureBackend{}
+
+	reg := generationRegistry(t)
+	require.NoError(t, reg.RegisterFeature("traffic-cap-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:    lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{trafficCap},
+		}, nil
+	}))
+	require.NoError(t, reg.RegisterFeature("traffic-cap-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion:    lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{trafficCap2},
+		}, nil
+	}))
+
 	cfg := task51BaseConfig()
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg:  cfg,
 		Log:  testkit.DiscardLogger(),
-		Opts: &runtimebundle.BuildOptions{PluginRegistry: generationRegistry(t)},
+		Opts: &runtimebundle.BuildOptions{PluginRegistry: reg},
 		Tracing: runtimebundle.ProcessTracing{
 			Shutdown: func(context.Context) error { return nil },
 		},
@@ -137,20 +158,19 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	// Traffic capture via BuildOptions production observer? Instead inject via CandidateOpts Extensions.TrafficObservers for gen2.
-	trafficCap := &task51TrafficCapture{}
-	capBackend := &task51CaptureBackend{}
-
 	// Gen1 with handler
 	handler1 := task51LocalHandler{id: "h1", ord: 1}
+	gen1Cfg := task51BaseConfig()
+	gen1Cfg.Plugins.Features = append(gen1Cfg.Plugins.Features, config.PluginConfig{
+		ID: "traffic-cap-1", Enabled: true,
+	})
 	gen1, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
-		Candidate: cfg,
+		Candidate: gen1Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
 		CandidateOpts: &runtimebundle.BuildOptions{
 			Extensions: runtimebundle.ExtensionsOptions{
 				LocalTurnHandlers: []localturn.Handler{handler1},
-				TrafficObservers:  []traffic.Observer{trafficCap},
 			},
 		},
 	})
@@ -201,16 +221,17 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 
 	// Gen2 without handler, same ProcessServices (process store retained), should still enforce.
 	// Reuse same trafficCap to capture PTB for gen2 (need fresh cap)
-	trafficCap2 := &task51TrafficCapture{}
-	capBackend2 := &task51CaptureBackend{}
+	gen2Cfg := task51BaseConfig()
+	gen2Cfg.Plugins.Features = append(gen2Cfg.Plugins.Features, config.PluginConfig{
+		ID: "traffic-cap-2", Enabled: true,
+	})
 	gen2, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
-		Candidate: cfg,
+		Candidate: gen2Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
 		CandidateOpts: &runtimebundle.BuildOptions{
 			Extensions: runtimebundle.ExtensionsOptions{
 				LocalTurnHandlers: nil, // no handlers
-				TrafficObservers:  []traffic.Observer{trafficCap2},
 			},
 		},
 	})

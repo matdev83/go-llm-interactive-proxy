@@ -48,8 +48,9 @@ func (w MigrationWave) String() string {
 	}
 }
 
-// ActiveMigrationWave is the repository baseline migration wave.
-const ActiveMigrationWave = Wave1_HookBus
+// ActiveMigrationWave defines the currently active migration wave ratchet.
+// As migration waves complete, advance this constant to lock in forbidden mirror rules.
+const ActiveMigrationWave = Wave2_Observers
 
 // MirrorShapeKind classifies the forbidden hand-authored mirror pattern.
 type MirrorShapeKind string
@@ -337,10 +338,13 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 
 		case *ast.FuncDecl:
 			funcName := node.Name.Name
+			qualSym := QualifiedSymbol(relPath, node)
 			if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
-			} else if AllowedHookProjections[funcName] {
-				// Exact-name allowlist: Hook-bus view projection via Get is allowed
+			} else if IsAllowedHookProjection(qualSym) {
+				// Exact qualified symbol allowlist: Hook-bus view projection via Get is allowed
+			} else if IsAllowedObserverProjection(qualSym) {
+				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
 			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||
 				strings.Contains(strings.ToLower(funcName), "frommerged") ||
 				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||

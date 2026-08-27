@@ -10,9 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -61,18 +58,13 @@ func validateReasoningPreservationCompressionGeneration(ps *ProcessServices, reg
 	return err
 }
 
-func appendReasoningCompressionBundle(merged featurebundle.MergedFeatureSurface, bundle lipfeature.FeatureBundle) (featurebundle.MergedFeatureSurface, error) {
-	merged = removeReasoningParticipants(merged)
-	if err := merged.Append(bundle); err != nil {
-		return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression merge: %w", err)
-	}
-	return merged, nil
-}
-
-func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.MergedFeatureSurface, error) {
+func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration, client auxiliary.BackgroundClient, poller auxiliary.BackgroundPoller) (featurebundle.GeneratedMergeSurface, error) {
 	bindings, err := decodedReasoningCompressionBindings(ps, regs, client, poller)
 	if err != nil {
-		return featurebundle.MergedFeatureSurface{}, err
+		return featurebundle.GeneratedMergeSurface{}, err
+	}
+	if len(bindings) == 0 {
+		return genMerged, nil
 	}
 	for _, b := range bindings {
 		svc := reasoningpreservation.CompressionServices{
@@ -83,14 +75,22 @@ func bindReasoningPreservationCompression(merged featurebundle.MergedFeatureSurf
 		}
 		_, bundle, err := reasoningpreservation.FeatureBundleWithPartsAndCompression(b.cfg, svc, standardplugins.CodexCompanionPolicy())
 		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
+			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
 		}
-		merged, err = appendReasoningCompressionBundle(merged, bundle)
-		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, err
+		if len(bundle.AttemptTransforms) > 0 {
+			genMerged, err = genMerged.BindAttemptTransforms(reasoningpreservation.ID, bundle.AttemptTransforms)
+			if err != nil {
+				return featurebundle.GeneratedMergeSurface{}, err
+			}
+		}
+		if len(bundle.StreamObserverFactories) > 0 {
+			genMerged, err = genMerged.BindStreamObserverFactories(reasoningpreservation.ID, bundle.StreamObserverFactories)
+			if err != nil {
+				return featurebundle.GeneratedMergeSurface{}, err
+			}
 		}
 	}
-	return merged, nil
+	return genMerged, nil
 }
 
 func lookupReasoningEgressPolicy(ps *ProcessServices, ref string) (reasoningpreservation.EgressPolicy, bool) {
@@ -134,28 +134,6 @@ func isNilReasoningCapability(v any) bool {
 	default:
 		return false
 	}
-}
-
-func removeReasoningParticipants(m featurebundle.MergedFeatureSurface) featurebundle.MergedFeatureSurface {
-	obsID := reasoningpreservation.ID + "-observer"
-	xformID := reasoningpreservation.ID + "-transform"
-	filteredObs := make([]response.StreamObserverFactory, 0, len(m.StreamObserverFactories))
-	for _, f := range m.StreamObserverFactories {
-		if f != nil && f.ID() == obsID {
-			continue
-		}
-		filteredObs = append(filteredObs, f)
-	}
-	m.StreamObserverFactories = filteredObs
-	filteredX := make([]request.AttemptTransform, 0, len(m.AttemptTransforms))
-	for _, x := range m.AttemptTransforms {
-		if x != nil && x.ID() == xformID {
-			continue
-		}
-		filteredX = append(filteredX, x)
-	}
-	m.AttemptTransforms = filteredX
-	return m
 }
 
 func newReasoningCompressionGenerationRunner(ps *ProcessServices) (*compactioncompose.GenerationExecutorRunner, auxiliary.BackgroundClient, auxiliary.BackgroundPoller, error) {

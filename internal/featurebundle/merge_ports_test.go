@@ -34,12 +34,11 @@ func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMet
 	return nil, nil
 }
 
-func TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers(t *testing.T) {
+func TestMergedFeatureSurface_carriesAttemptTransforms(t *testing.T) {
 	t.Parallel()
 	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
 	}
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
@@ -48,8 +47,24 @@ func TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers(t *test
 	if len(merged.AttemptTransforms) != 1 || merged.AttemptTransforms[0].ID() != "at" {
 		t.Fatalf("AttemptTransforms=%v", merged.AttemptTransforms)
 	}
-	if len(merged.StreamObserverFactories) != 1 || merged.StreamObserverFactories[0].ID() != "obs" {
-		t.Fatalf("StreamObserverFactories=%v", merged.StreamObserverFactories)
+}
+
+func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
+	t.Parallel()
+	bundle := lipfeature.FeatureBundle{
+		SchemaVersion:           lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+	}
+	if err := bundle.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	so := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+	if len(so) != 1 || so[0].ID() != "obs" {
+		t.Fatalf("StreamObserverFactories=%v", so)
 	}
 }
 

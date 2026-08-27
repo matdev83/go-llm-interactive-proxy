@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -22,6 +23,7 @@ import (
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -40,10 +42,10 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	src := in.Candidate
 	if src == nil {
-		src = ps.cfg
-		if src == nil {
+		if ps.cfg == nil {
 			return nil, fmt.Errorf("runtimebundle: nil candidate config")
 		}
+		src = ps.cfg
 	}
 	frozen, err := freezeConfig(src)
 	if err != nil {
@@ -67,21 +69,25 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err := validateReasoningPreservationCompressionGeneration(ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(ps.FactoryCatalog, regs)
+	var host featurebundle.HostContributions
+	if ps.opts != nil {
+		host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
+	}
+	var extraBundles []lipfeature.FeatureBundle
+	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host, extraBundles...)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
-	merged, err = bindCompactionContinuity(merged, ps, regs)
-	if err != nil {
+	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
 		return nil, err
 	}
-	merged, err = bindReasoningPreservationCompression(merged, ps, regs, boundClient, boundPoller)
-	if err != nil {
+	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
+	merged.AttemptTransforms = lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms)
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
-	ext := extensionsFromMerged(merged, ps.opts)
+	ext := extensionsFromMerged(merged, genMerged, ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
@@ -94,12 +100,11 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
-		Process:   ps,
-		Bus:       bus,
-		Candidate: frozen,
+		Process: ps, Bus: bus, Candidate: frozen,
 		CandidateOpts: &BuildOptions{
 			FeatureLifecycles:       lifecycles,
 			Extensions:              ext,
+			FeaturePlanes:           genMerged.Frozen,
 			ReplaceCandidateSurface: true,
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
@@ -206,21 +211,22 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 }
 
 func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
-	var billingReports billing.ReportingStore
-	var billingReportsPath string
-	var billingProvisioner billing.AccountProvisioner
-	var billingExposureRecovery billing.ExposureRecovery
+	var (
+		billingReports          billing.ReportingStore
+		billingReportsPath      string
+		billingProvisioner      billing.AccountProvisioner
+		billingExposureRecovery billing.ExposureRecovery
+	)
 	if cand != nil {
-		billingReports = cand.operations.billingReports
-		billingReportsPath = cand.operations.billingReportsPath
-		billingProvisioner = cand.operations.billingProvisioner
-		billingExposureRecovery = cand.operations.billingExposureRecovery
+		billingReports, billingReportsPath, billingProvisioner, billingExposureRecovery = cand.operations.billingReports, cand.operations.billingReportsPath, cand.operations.billingProvisioner, cand.operations.billingExposureRecovery
 	}
-	var maxBody int64
-	var preKA lipsdk.FrontendKeepaliveConfig
-	var geoInput httpcontract.GeoIPSecurityInput
-	var httpHeaders lipsdk.HTTPHeaders
-	var streamKA time.Duration
+	var (
+		maxBody     int64
+		preKA       lipsdk.FrontendKeepaliveConfig
+		geoInput    httpcontract.GeoIPSecurityInput
+		httpHeaders lipsdk.HTTPHeaders
+		streamKA    time.Duration
+	)
 	if frozen != nil {
 		maxBody = frozen.Server.EffectiveMaxRequestBodyBytes()
 		ka := frozen.Server.EffectivePreRequestKeepalive()
@@ -231,15 +237,12 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		}
 	}
 	if cand != nil && cand.security.geoip != nil && cand.security.geoip.Policy() != nil {
+		var geoObs httpcontract.GeoIPObserver
+		if cand.process.metrics != nil {
+			geoObs = cand.process.metrics.GeoIP
+		}
 		geoInput = httpcontract.GeoIPSecurityInput{
-			Policy: cand.security.geoip.Policy(),
-			Lookup: cand.process.geoip,
-			Observer: func() httpcontract.GeoIPObserver {
-				if cand.process.metrics != nil {
-					return cand.process.metrics.GeoIP
-				}
-				return nil
-			}(),
+			Policy: cand.security.geoip.Policy(), Lookup: cand.process.geoip, Observer: geoObs,
 			Resolver: httpcontract.GeoIPResolverConfig{
 				Source:         cand.security.geoip.ClientIPSource(),
 				TrustedProxies: cand.security.geoip.TrustedProxies(),
@@ -261,24 +264,20 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 			GeoIP:                geoInput,
 		},
 		Operations: httpcontract.HTTPOperationsInput{
-			BillingReports:          billingReports,
-			BillingReportsPath:      billingReportsPath,
-			BillingProvisioner:      billingProvisioner,
-			BillingExposureRecovery: billingExposureRecovery,
-			Metrics:                 cand.process.metrics,
-			Store:                   cand.process.store,
-			SecretGuardInventory:    cand.operations.secretGuardInventory,
-			ControlPlaneQueries:     cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
-			ReadinessReport:         cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
-			TokenAccountingAdmin:    adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
-			KeepwarmAdmin:           keepwarmAdmin,
-			KeepwarmAdminEnabled:    keepwarmAdminEnabled,
-			Registrations:           httpcontract.CloneRegistrations(regs),
-			TerminalDecisionPolicy:  terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
+			BillingReports: billingReports, BillingReportsPath: billingReportsPath,
+			BillingProvisioner: billingProvisioner, BillingExposureRecovery: billingExposureRecovery,
+			Metrics:              cand.process.metrics,
+			Store:                cand.process.store,
+			SecretGuardInventory: cand.operations.secretGuardInventory,
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cand.process.controlPlaneQueries),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(cand.operations.readinessReport),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(cand.operations.tokenAccountingAdmin),
+			KeepwarmAdmin:        keepwarmAdmin, KeepwarmAdminEnabled: keepwarmAdminEnabled,
+			Registrations:          httpcontract.CloneRegistrations(regs),
+			TerminalDecisionPolicy: terminalDecisionPolicyHTTPProjection(cand.process, cand.security.runtimeSnapshot, httpHeaders, maxBody),
 		},
 		Models: httpcontract.HTTPModelInput{
-			CatalogRuntime:       cand.models.catalog,
-			ModelRegistryRuntime: cand.models.registryRuntime,
+			CatalogRuntime: cand.models.catalog, ModelRegistryRuntime: cand.models.registryRuntime,
 		},
 		Frontends: httpcontract.HTTPFrontendInput{
 			Executor:                  cand.execution.executor,
@@ -309,7 +308,7 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 }
 
-func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
+func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
 		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
 		WorkspaceResolvers:               append(merged.WorkspaceResolvers[:0:0], merged.WorkspaceResolvers...),
@@ -322,22 +321,13 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
 		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
 		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
-		StreamObserverFactories:          append(merged.StreamObserverFactories[:0:0], merged.StreamObserverFactories...),
-		TrafficObservers:                 append(merged.TrafficObservers[:0:0], merged.TrafficObservers...),
-		UsageObservers:                   append(merged.UsageObservers[:0:0], merged.UsageObservers...),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
-		RawCaptureSinks:                  append(merged.RawCaptureSinks[:0:0], merged.RawCaptureSinks...),
-		TrafficRedactors:                 append(merged.TrafficRedactors[:0:0], merged.TrafficRedactors...),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 		TerminalDecisionProvider:         merged.TerminalDecisionProvider,
 	}
 	if processOpts != nil {
-		ext.TrafficObservers = append(ext.TrafficObservers, processOpts.Production.TrafficObservers...)
-		ext.UsageObservers = append(ext.UsageObservers, processOpts.Production.UsageObservers...)
-		ext.SecretGuardEnvironment = processOpts.Extensions.SecretGuardEnvironment
-		ext.SecretGuardInputs = processOpts.Extensions.SecretGuardInputs
-		ext.SecretDecisionObserver = processOpts.Extensions.SecretDecisionObserver
+		ext.SecretGuardEnvironment, ext.SecretGuardInputs, ext.SecretDecisionObserver = processOpts.Extensions.SecretGuardEnvironment, processOpts.Extensions.SecretGuardInputs, processOpts.Extensions.SecretDecisionObserver
 	}
 	return ext
 }
@@ -361,11 +351,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.RouteHintProviders = append(dst.RouteHintProviders, src.RouteHintProviders...)
 	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
 	dst.AttemptTransforms = append(dst.AttemptTransforms, src.AttemptTransforms...)
-	dst.StreamObserverFactories = append(dst.StreamObserverFactories, src.StreamObserverFactories...)
-	dst.TrafficObservers = append(dst.TrafficObservers, src.TrafficObservers...)
-	dst.UsageObservers = append(dst.UsageObservers, src.UsageObservers...)
-	dst.RawCaptureSinks = append(dst.RawCaptureSinks, src.RawCaptureSinks...)
-	dst.TrafficRedactors = append(dst.TrafficRedactors, src.TrafficRedactors...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {
@@ -380,9 +365,9 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 }
 
 func validateTerminalDecisionProvider(provider terminaldecision.Provider) error {
-	if provider == nil {
-		return nil
+	if provider != nil {
+		_, err := terminaldecision.ProviderIdentity(provider)
+		return err
 	}
-	_, err := terminaldecision.ProviderIdentity(provider)
-	return err
+	return nil
 }
