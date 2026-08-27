@@ -462,6 +462,7 @@ func TestCompileGeneration_RouteHintErrorEvidence_FailOpen(t *testing.T) {
 	require.True(t, ok)
 	ex := bundle.execution.executor
 
+	var backendAttempts atomic.Int32
 	ex.Backends = map[string]execbackend.Backend{
 		"stub-backend": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -470,6 +471,7 @@ func TestCompileGeneration_RouteHintErrorEvidence_FailOpen(t *testing.T) {
 				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
 			}),
 			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendAttempts.Add(1)
 				return lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventResponseFinished},
@@ -493,17 +495,25 @@ func TestCompileGeneration_RouteHintErrorEvidence_FailOpen(t *testing.T) {
 	_, collectErr := lipapi.Collect(context.Background(), stream)
 	require.NoError(t, collectErr)
 
+	// Backend must be attempted exactly once
+	assert.Equal(t, int32(1), backendAttempts.Load(), "backend must be attempted exactly once when fail-open route hint errors")
+
 	// Error evidence was emitted
 	records := policyObs.snapshot()
-	var foundErrorEvidence bool
+	var foundRecord *policydecision.Record
 	for _, r := range records {
 		if r.Provider.Stage == lipfeature.StageIDRouteHinting && r.Provider.ID == "rh-error-failopen" {
-			foundErrorEvidence = true
-			assert.Equal(t, policydecision.CategoryFailure, r.ClientCategory)
-			assert.Equal(t, policydecision.FailureBehaviorFailOpen, r.FailureBehavior)
+			rec := r
+			foundRecord = &rec
+			break
 		}
 	}
-	assert.True(t, foundErrorEvidence, "expected error policy decision evidence for fail-open route hint error")
+	require.NotNil(t, foundRecord, "expected error policy decision evidence for fail-open route hint error")
+	assert.Equal(t, lipfeature.StageIDRouteHinting, foundRecord.Provider.Stage)
+	assert.Equal(t, "rh-error-failopen", foundRecord.Provider.ID)
+	assert.Equal(t, policydecision.CategoryFailure, foundRecord.ClientCategory)
+	assert.Equal(t, policydecision.FailureBehaviorFailOpen, foundRecord.FailureBehavior)
+	assert.False(t, foundRecord.BackendAttempted, "route hint stage runs pre-backend, so BackendAttempted must be false")
 }
 
 func TestCompileGeneration_CandidateFeaturePlanesOverlayGatesAndRouteHints(t *testing.T) {
@@ -703,4 +713,395 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnoredWithGate
 	// Unrelated planes in candidate overlay were filtered out and not applied
 	assert.Equal(t, traffic.NoopObserver{}, snap.TrafficObserver(), "unrelated candidate traffic observer must be ignored")
 	assert.Equal(t, usage.NoopObserver{}, snap.UsageObserver(), "unrelated candidate usage observer must be ignored")
+}
+
+func TestCompileGeneration_CandidateExplicitEmptyCompletionGates(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	candBundle := lipfeature.FeatureBundle{
+		SchemaVersion:   lipfeature.SchemaVersionV1,
+		CompletionGates: []completion.Gate{},
+	}
+	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
+	require.NoError(t, err)
+
+	cand := obsTestCandidateConfig(t)
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		CandidateOpts: &BuildOptions{
+			FeaturePlanes: candGen.Frozen,
+		},
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	snap := bundle.execution.executor.RuntimeSnapshot
+	require.NotNil(t, snap)
+
+	gotGates := snap.CompletionGates()
+	assert.NotNil(t, gotGates, "CandidateOpts.FeaturePlanes with generated storage must preserve non-nil empty completion gates")
+	assert.Empty(t, gotGates)
+}
+
+func TestCompileGeneration_MultiRouteHintProvidersExecutionAndEvidenceOrder(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+
+	var executedRouteHints []string
+	var mu sync.Mutex
+
+	// Register feature with deliberately unsorted route hint providers:
+	// Registration order:
+	// 1. rh-z: ord=20
+	// 2. rh-b: ord=10
+	// 3. rh-a-1: ord=10
+	// 4. rh-a-2: ord=10
+	// 5. rh-first: ord=5
+	require.NoError(t, reg.RegisterFeature("test-hints-multi-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			RouteHintProviders: []routehint.Provider{
+				stubRouteHintProvider{id: "rh-z", ord: 20, hints: []string{"cand-z"}, events: &executedRouteHints, mu: &mu},
+				stubRouteHintProvider{id: "rh-b", ord: 10, hints: []string{"cand-b"}, events: &executedRouteHints, mu: &mu},
+				stubRouteHintProvider{id: "rh-a-1", ord: 10, hints: []string{"cand-a1"}, events: &executedRouteHints, mu: &mu},
+			},
+		}, nil
+	}))
+	require.NoError(t, reg.RegisterFeature("test-hints-multi-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			RouteHintProviders: []routehint.Provider{
+				stubRouteHintProvider{id: "rh-a-2", ord: 10, hints: []string{"cand-a2"}, events: &executedRouteHints, mu: &mu},
+				stubRouteHintProvider{id: "rh-first", ord: 5, hints: []string{"cand-first"}, events: &executedRouteHints, mu: &mu},
+			},
+		}, nil
+	}))
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	policyObs := &capturePolicyObserver{}
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+			Policy: PolicyOptions{
+				PolicyObservers: []policydecision.Observer{policyObs},
+			},
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	cand := obsTestCandidateConfig(t, "test-hints-multi-1", "test-hints-multi-2")
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	ex := bundle.execution.executor
+	require.NotNil(t, ex)
+
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "multi hint input"}}},
+		},
+	}
+
+	stream, execErr := ex.Execute(context.Background(), inputCall)
+	require.NoError(t, execErr)
+	require.NotNil(t, stream)
+
+	_, collectErr := lipapi.Collect(context.Background(), stream)
+	require.NoError(t, collectErr)
+
+	// Materialized runtime order must sort by (Order, ID, RegistrationIndex):
+	// 1. rh-first (ord 5)
+	// 2. rh-a-1 (ord 10, ID "rh-a-1")
+	// 3. rh-a-2 (ord 10, ID "rh-a-2")
+	// 4. rh-b (ord 10, ID "rh-b")
+	// 5. rh-z (ord 20, ID "rh-z")
+	expectedOrder := []string{"rh-first", "rh-a-1", "rh-a-2", "rh-b", "rh-z"}
+
+	mu.Lock()
+	assert.Equal(t, expectedOrder, executedRouteHints, "route hint providers must be invoked in (Order, ID, regIdx) sorted order")
+	mu.Unlock()
+
+	// Evidence order must match execution order
+	records := policyObs.snapshot()
+	var evidenceOrder []string
+	for _, r := range records {
+		if r.Provider.Stage == lipfeature.StageIDRouteHinting {
+			evidenceOrder = append(evidenceOrder, r.Provider.ID)
+			assert.Equal(t, policydecision.OutcomeAllow, r.Outcome)
+			assert.Equal(t, policydecision.CategoryObserved, r.ClientCategory)
+			assert.Equal(t, policydecision.FailureBehaviorUnspecified, r.FailureBehavior)
+		}
+	}
+	assert.Equal(t, expectedOrder, evidenceOrder, "route hint policy decision records must be emitted in exact materialized order")
+}
+
+func TestCompileGeneration_RouteHintErrorEvidence_FailClosed_RequestFailsBackendNotAttempted(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+
+	// Route hint provider that errors with FailClosed
+	require.NoError(t, reg.RegisterFeature("test-failclosed-hint", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			RouteHintProviders: []routehint.Provider{
+				stubRouteHintProvider{
+					id:   "rh-error-failclosed",
+					ord:  1,
+					mode: sdkhooks.FailClosed,
+					err:  errors.New("strict route hint evaluation failed"),
+				},
+			},
+		}, nil
+	}))
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	policyObs := &capturePolicyObserver{}
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+			Policy: PolicyOptions{
+				PolicyObservers: []policydecision.Observer{policyObs},
+			},
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	cand := obsTestCandidateConfig(t, "test-failclosed-hint")
+
+	genRuntime, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = genRuntime.Close() })
+
+	bundle, ok := genRuntime.(*GenerationBundle)
+	require.True(t, ok)
+	ex := bundle.execution.executor
+
+	var backendAttempts atomic.Int64
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-backend": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendAttempts.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	inputCall := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "stub-backend:default"},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "prompt"}}},
+		},
+	}
+
+	// Execution must FAIL because route hint is FailClosed
+	stream, execErr := ex.Execute(context.Background(), inputCall)
+	require.Error(t, execErr, "execution must fail when a fail-closed route hint errors")
+	assert.Nil(t, stream)
+
+	// Backend must NOT have been attempted
+	assert.Equal(t, int64(0), backendAttempts.Load(), "backend must NOT be attempted when fail-closed route hint errors")
+
+	// Exact error evidence must be emitted
+	records := policyObs.snapshot()
+	var foundRecord *policydecision.Record
+	for _, r := range records {
+		if r.Provider.Stage == lipfeature.StageIDRouteHinting && r.Provider.ID == "rh-error-failclosed" {
+			rec := r
+			foundRecord = &rec
+			break
+		}
+	}
+	require.NotNil(t, foundRecord, "expected policy decision record for fail-closed route hint error")
+	assert.Equal(t, lipfeature.StageIDRouteHinting, foundRecord.Provider.Stage)
+	assert.Equal(t, "rh-error-failclosed", foundRecord.Provider.ID)
+	assert.Equal(t, policydecision.CategoryFailure, foundRecord.ClientCategory)
+	assert.Equal(t, policydecision.FailureBehaviorFailClosed, foundRecord.FailureBehavior)
+	assert.Equal(t, extensions.ReasonRouteHintFailure, foundRecord.ReasonCode)
+}
+
+type typedNilRouteHintProvider struct {
+	id string
+}
+
+func (p *typedNilRouteHintProvider) ID() string {
+	if p == nil {
+		return "rh-nil"
+	}
+	return p.id
+}
+func (p *typedNilRouteHintProvider) Order() int                        { return 0 }
+func (p *typedNilRouteHintProvider) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (p *typedNilRouteHintProvider) Hint(ctx context.Context, meta routehint.Input) (routehint.Result, error) {
+	return routehint.Result{}, nil
+}
+
+type typedNilCompletionGate struct {
+	id string
+}
+
+func (g *typedNilCompletionGate) ID() string {
+	if g == nil {
+		return "cg-nil"
+	}
+	return g.id
+}
+func (g *typedNilCompletionGate) Order() int                        { return 0 }
+func (g *typedNilCompletionGate) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (g *typedNilCompletionGate) Handle(ctx context.Context, meta completion.Meta, buf completion.Buffered, svc completion.Services) (completion.Outcome, error) {
+	return completion.PassOriginalOutcome(), nil
+}
+
+func TestGatesAndRouteHints_LiteralNilAndBoxedTypedNilLegacyCharacterization(t *testing.T) {
+	t.Parallel()
+
+	var typedNilRH *typedNilRouteHintProvider
+	var literalNilRH routehint.Provider
+	validRH := stubRouteHintProvider{id: "rh-valid", ord: 10}
+
+	var typedNilCG *typedNilCompletionGate
+	var literalNilCG completion.Gate
+	validCG := stubCompletionGate{id: "cg-valid", ord: 10}
+
+	// 1. Bundle merging preserves literal nil and boxed typed-nil without error
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		RouteHintProviders: []routehint.Provider{literalNilRH, typedNilRH, validRH},
+		CompletionGates:    []completion.Gate{literalNilCG, typedNilCG, validCG},
+	}
+
+	gen, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err, "contribute/merge must not reject literal nil or boxed typed nil for gates and route hints")
+
+	gotRH := lipfeature.Get(gen.Frozen, lipfeature.PlaneRouteHintProviders)
+	require.Len(t, gotRH, 3)
+	assert.Nil(t, gotRH[0])
+	assert.True(t, gotRH[1] != nil, "boxed typed-nil interface is non-nil interface holding nil concrete pointer")
+	assert.Equal(t, "rh-nil", gotRH[1].ID())
+	assert.Equal(t, "rh-valid", gotRH[2].ID())
+
+	gotCG := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)
+	require.Len(t, gotCG, 3)
+	assert.Nil(t, gotCG[0])
+	assert.True(t, gotCG[1] != nil, "boxed typed-nil interface is non-nil interface holding nil concrete pointer")
+	assert.Equal(t, "cg-nil", gotCG[1].ID())
+	assert.Equal(t, "cg-valid", gotCG[2].ID())
+
+	// 2. Snapshot accessors return defensive copies with all 3 elements
+	bus := hooks.New(hooks.Config{})
+	opts := &BuildOptions{FeaturePlanes: gen.Frozen}
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
+
+	snapRH := snap.RouteHintProviders()
+	require.Len(t, snapRH, 3)
+	assert.Nil(t, snapRH[0])
+
+	snapCG := snap.CompletionGates()
+	require.Len(t, snapCG, 3)
+	assert.Nil(t, snapCG[0])
+
+	// 3. Diagnostics materializers safely skip nil entries
+	diagRH := lipfeature.PlaneRouteHintProviders.Diagnostics.Materialize(gotRH)
+	require.Len(t, diagRH, 2) // skips literal nil, retains typed nil and valid
+	assert.Equal(t, "route_hint:rh-nil", diagRH[0].Label)
+	assert.Equal(t, "route_hint:rh-valid", diagRH[1].Label)
+
+	diagCG := lipfeature.PlaneCompletionGates.Diagnostics.Materialize(gotCG)
+	require.Len(t, diagCG, 2)
+	assert.Equal(t, "completion_gate:cg-nil", diagCG[0].Label)
+	assert.Equal(t, "completion_gate:cg-valid", diagCG[1].Label)
+
+	// 4. Seam views and stage runners handle slices containing nil safely
+	ctx := extensions.WithRequestRuntimeSnapshot(context.Background(), snap)
+	seamGates := extensions.CompletionGatesFromContext(ctx, nil)
+	require.Len(t, seamGates, 3)
+
+	// Route hint stage execution skips literal nil without panic
+	call := &lipapi.Call{ID: "test-call"}
+	hintIn := routehint.Input{TraceID: "test-trace", Call: call}
+	hints, rerr := extensions.RunRouteHintStage(context.Background(), nil, []routehint.Provider{literalNilRH, validRH}, call, hintIn)
+	require.NoError(t, rerr)
+	assert.Empty(t, hints)
+
+	// Completion gate chain execution skips literal nil without panic
+	gateRes, gerr := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{literalNilCG, validCG}, completion.Meta{}, []lipapi.Event{{Kind: lipapi.EventResponseFinished}}, false, completion.Services{}, nil)
+	require.NoError(t, gerr)
+	assert.Len(t, gateRes.Events, 1)
 }

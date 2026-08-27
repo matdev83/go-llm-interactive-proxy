@@ -3,6 +3,8 @@
 package feature
 
 import (
+	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -199,29 +201,157 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 	if gf == nil || gc == nil {
 		return nil
 	}
-	if len(gf.requestTransforms) > 0 {
+	if gf.requestTransforms != nil {
+		if PlaneRequestTransforms.Validate != nil {
+			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
 		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
 			return err
 		}
 	}
-	if len(gf.preRequestHandlers) > 0 {
+	if gf.preRequestHandlers != nil {
+		if PlanePreRequestHandlers.Validate != nil {
+			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
 		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
 			return err
 		}
 	}
-	if len(gf.routeHintProviders) > 0 {
+	if gf.routeHintProviders != nil {
+		if PlaneRouteHintProviders.Validate != nil {
+			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
 		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
 			return err
 		}
 	}
-	if len(gf.completionGates) > 0 {
+	if gf.completionGates != nil {
+		if PlaneCompletionGates.Validate != nil {
+			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
 		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
 			return err
 		}
 	}
-	if len(gf.attemptTransforms) > 0 {
+	if gf.attemptTransforms != nil {
+		if PlaneAttemptTransforms.Validate != nil {
+			if err := PlaneAttemptTransforms.Validate(gf.attemptTransforms); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
 		if err := PlaneAttemptTransforms.generated.contribute(gc, source, contributorID, gf.attemptTransforms); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// contributeCandidateMapTo contributes map-backed candidate values into dst.
+func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, source SourceKind, contributorID string) error {
+	if len(values) == 0 || dst == nil {
+		return nil
+	}
+	if v, ok := values[PlaneRequestTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.Transform)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: expected []request.Transform, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneRequestTransforms, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlanePreRequestHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]prerequest.Handler)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: expected []prerequest.Handler, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlanePreRequestHandlers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneRouteHintProviders.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]routehint.Provider)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: expected []routehint.Provider, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneRouteHintProviders, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneCompletionGates.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]completion.Gate)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: expected []completion.Gate, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneCompletionGates, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneAttemptTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.AttemptTransform)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: expected []request.AttemptTransform, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneAttemptTransforms, source, contributorID, typed); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
