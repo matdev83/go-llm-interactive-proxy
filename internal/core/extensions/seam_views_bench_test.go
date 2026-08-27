@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -17,14 +18,15 @@ import (
 
 // Package-level benchmark sinks to prevent compiler dead-code elimination.
 var (
-	benchSinkCompletionGates      []completion.Gate
-	benchSinkTrafficPortBundle    sdktraffic.PortBundle
-	benchSinkTrafficObserver      sdktraffic.Observer
-	benchSinkTrafficRedactors     []sdktraffic.Redactor
-	benchSinkSecretGuardPlane     extensions.SecretGuardPlane
-	benchSinkCompactionObservers  []compaction.Observer
-	benchSinkCompactionPreservers []compaction.Preserver
-	benchSinkTerminalProvider     terminaldecision.Provider
+	benchSinkCompletionGates         []completion.Gate
+	benchSinkTrafficPortBundle       sdktraffic.PortBundle
+	benchSinkTrafficObserver         sdktraffic.Observer
+	benchSinkTrafficRedactors        []sdktraffic.Redactor
+	benchSinkStreamObserverFactories []response.StreamObserverFactory
+	benchSinkSecretGuardPlane        extensions.SecretGuardPlane
+	benchSinkCompactionObservers     []compaction.Observer
+	benchSinkCompactionPreservers    []compaction.Preserver
+	benchSinkTerminalProvider        terminaldecision.Provider
 )
 
 // Benchmark stub types for seam-view benchmark fixtures.
@@ -91,6 +93,17 @@ func (benchCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.E
 	return nil
 }
 
+type benchStreamObsFactory struct {
+	id string
+}
+
+func (f benchStreamObsFactory) ID() string                      { return f.id }
+func (benchStreamObsFactory) Order() int                        { return 0 }
+func (benchStreamObsFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (benchStreamObsFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
 type benchTerminalProvider struct {
 	id string
 }
@@ -101,7 +114,7 @@ func (benchTerminalProvider) Decide(context.Context, terminaldecision.Input) (te
 }
 
 // newBenchPopulatedSnapshot builds a populated snapshot containing non-empty fixtures across
-// all five seam-view families.
+// all seam-view families.
 func newBenchPopulatedSnapshot() *extensions.RequestRuntimeSnapshot {
 	bus := hooks.New(hooks.Config{})
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
@@ -114,6 +127,10 @@ func newBenchPopulatedSnapshot() *extensions.RequestRuntimeSnapshot {
 		TrafficRedactors: []sdktraffic.Redactor{
 			benchTrafficRed{id: "red-1"},
 			benchTrafficRed{id: "red-2"},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			benchStreamObsFactory{id: "stream-1"},
+			benchStreamObsFactory{id: "stream-2"},
 		},
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			Guards: []secretguard.Guard{
@@ -490,5 +507,41 @@ func BenchmarkTerminalDecisionProvider_NilSnapshot(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		benchSinkTerminalProvider = snap.TerminalDecisionProvider()
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Family 6: Stream Observer Factories
+// Accessors:
+// - RequestRuntimeSnapshot.StreamObserverFactories(): DEFENSIVE CLONE (slices.Clone, 1 alloc/op when populated)
+// -----------------------------------------------------------------------------
+
+// BenchmarkStreamObserverFactories_Populated measures StreamObserverFactories on a populated snapshot.
+// Defensive clone behavior: allocates 1 alloc/op via slices.Clone.
+func BenchmarkStreamObserverFactories_Populated(b *testing.B) {
+	snap := newBenchPopulatedSnapshot()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchSinkStreamObserverFactories = snap.StreamObserverFactories()
+	}
+}
+
+// BenchmarkStreamObserverFactories_Empty measures StreamObserverFactories on an empty snapshot.
+// Defensive clone behavior: returns nil (0 alloc/op).
+func BenchmarkStreamObserverFactories_Empty(b *testing.B) {
+	snap := newBenchEmptySnapshot()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchSinkStreamObserverFactories = snap.StreamObserverFactories()
+	}
+}
+
+// BenchmarkStreamObserverFactories_NilSnapshot measures StreamObserverFactories on a nil snapshot.
+// Defensive clone behavior: returns nil (0 alloc/op).
+func BenchmarkStreamObserverFactories_NilSnapshot(b *testing.B) {
+	var snap *extensions.RequestRuntimeSnapshot
+	b.ReportAllocs()
+	for b.Loop() {
+		benchSinkStreamObserverFactories = snap.StreamObserverFactories()
 	}
 }

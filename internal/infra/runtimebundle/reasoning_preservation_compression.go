@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -137,16 +136,7 @@ func isNilReasoningCapability(v any) bool {
 }
 
 func removeReasoningParticipants(m featurebundle.MergedFeatureSurface) featurebundle.MergedFeatureSurface {
-	obsID := reasoningpreservation.ID + "-observer"
 	xformID := reasoningpreservation.ID + "-transform"
-	filteredObs := make([]response.StreamObserverFactory, 0, len(m.StreamObserverFactories))
-	for _, f := range m.StreamObserverFactories {
-		if f != nil && f.ID() == obsID {
-			continue
-		}
-		filteredObs = append(filteredObs, f)
-	}
-	m.StreamObserverFactories = filteredObs
 	filteredX := make([]request.AttemptTransform, 0, len(m.AttemptTransforms))
 	for _, x := range m.AttemptTransforms {
 		if x != nil && x.ID() == xformID {

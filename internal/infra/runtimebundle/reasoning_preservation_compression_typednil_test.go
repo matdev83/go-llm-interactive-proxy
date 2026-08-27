@@ -267,12 +267,11 @@ compression:
 	}
 	// Simulate merged surface that already contains placeholder
 	merged := featurebundle.MergedFeatureSurface{
-		AttemptTransforms:       bDisabled.AttemptTransforms,
-		StreamObserverFactories: bDisabled.StreamObserverFactories,
+		AttemptTransforms: bDisabled.AttemptTransforms,
 	}
 	merged2 := removeReasoningParticipants(merged)
-	if len(merged2.AttemptTransforms) != 0 || len(merged2.StreamObserverFactories) != 0 {
-		t.Fatalf("remove should strip reasoning participants, got %d transforms %d observers", len(merged2.AttemptTransforms), len(merged2.StreamObserverFactories))
+	if len(merged2.AttemptTransforms) != 0 {
+		t.Fatalf("remove should strip reasoning participants, got %d transforms", len(merged2.AttemptTransforms))
 	}
 	// Now test that bind does not duplicate when called via CompileGeneration
 	// Use full CompileGeneration with enabled config and ensure only one set
@@ -295,8 +294,7 @@ compression:
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 	mergedForDup := featurebundle.MergedFeatureSurface{
-		AttemptTransforms:       bDisabled.AttemptTransforms,
-		StreamObserverFactories: bDisabled.StreamObserverFactories,
+		AttemptTransforms: bDisabled.AttemptTransforms,
 	}
 	mergedForDup2 := removeReasoningParticipants(mergedForDup)
 	mergedForDup3 := removeReasoningParticipants(mergedForDup2)

@@ -742,7 +742,7 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
 			m.SessionOpeners = []session.Opener{charStubOpener{tag: "opener-1"}}
-			m.StreamObserverFactories = []response.StreamObserverFactory{charStubStreamObserverFactory{tag: "obs-1"}}
+			m.AttemptTransforms = []request.AttemptTransform{charStubAttemptTransform{tag: "att-1"}}
 
 			snapBefore := m // value copy
 

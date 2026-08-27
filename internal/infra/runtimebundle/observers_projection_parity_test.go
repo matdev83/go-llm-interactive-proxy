@@ -17,8 +17,11 @@ import (
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/localstubreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/stretchr/testify/assert"
@@ -91,6 +94,44 @@ func (r stubRedactor) Redact(ctx context.Context, leg traffic.Leg, meta traffic.
 		return []byte(o), nil
 	}
 	return payload, nil
+}
+
+type stubStreamObsFactory struct {
+	id         string
+	ord        int
+	openCount  *int
+	mu         *sync.Mutex
+	createdObs *[]string
+}
+
+func (f stubStreamObsFactory) ID() string                        { return f.id }
+func (f stubStreamObsFactory) Order() int                        { return f.ord }
+func (f stubStreamObsFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
+func (f stubStreamObsFactory) Open(ctx context.Context, meta response.StreamMeta, svc response.Services) (response.StreamObserver, error) {
+	if f.mu != nil {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+	if f.openCount != nil {
+		*f.openCount++
+	}
+	if f.createdObs != nil {
+		*f.createdObs = append(*f.createdObs, f.id)
+	}
+	return stubStreamObserver{id: f.id}, nil
+}
+
+type stubStreamObserver struct {
+	id string
+}
+
+func (s stubStreamObserver) Observe(ctx context.Context, ev lipapi.Event) error {
+	return nil
+}
+
+func (s stubStreamObserver) Finish(ctx context.Context, outcome response.StreamOutcome) error {
+	return nil
 }
 
 func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
@@ -890,4 +931,281 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = bundle.Close() })
 	})
+}
+
+func TestStreamObserverFactoriesProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
+	t.Parallel()
+
+	b1 := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{id: "so-1"},
+		},
+	}
+	b2 := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{id: "so-2"},
+		},
+	}
+
+	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
+	require.NoError(t, err)
+
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+
+	// Verify plane projects identically to lipfeature.Get on gen.Frozen
+	assert.Equal(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories), ext.StreamObserverFactories)
+
+	// Verify counts and identities
+	require.Len(t, ext.StreamObserverFactories, 2)
+	assert.Equal(t, "so-1", ext.StreamObserverFactories[0].ID())
+	assert.Equal(t, "so-2", ext.StreamObserverFactories[1].ID())
+}
+
+func TestStreamObserverFactoriesProjection_OverlayBranchesOmitted(t *testing.T) {
+	t.Parallel()
+
+	dst := &ExtensionsOptions{
+		StreamObserverFactories: []response.StreamObserverFactory{stubStreamObsFactory{id: "dst-so"}},
+	}
+	src := ExtensionsOptions{
+		StreamObserverFactories: []response.StreamObserverFactory{stubStreamObsFactory{id: "src-so"}},
+	}
+
+	overlayExtensions(dst, src)
+
+	// Since StreamObserverFactories is consolidated through generated plane adapters,
+	// overlayExtensions must not contain hand-coded append branches for it.
+	// dst must retain its original slices without source appending.
+	require.Len(t, dst.StreamObserverFactories, 1, "overlayExtensions must not append StreamObserverFactories")
+	assert.Equal(t, "dst-so", dst.StreamObserverFactories[0].ID())
+}
+
+func TestStreamObserverFactoriesProjection_CandidateOverlayOrdering(t *testing.T) {
+	t.Parallel()
+
+	reg := obsTestFactoryCatalog(t)
+	err := reg.RegisterFeature("feature-so", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{
+				stubStreamObsFactory{id: "1-feat-so-1", ord: 1},
+				stubStreamObsFactory{id: "2-feat-so-2", ord: 2},
+			},
+		}, nil
+	})
+	require.NoError(t, err)
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	cand := obsTestCandidateConfig(t, "feature-so")
+	var snap *extensions.RequestRuntimeSnapshot
+
+	bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		CandidateOpts: &BuildOptions{
+			Extensions: ExtensionsOptions{
+				StreamObserverFactories: []response.StreamObserverFactory{
+					stubStreamObsFactory{id: "3-cand-so-1", ord: 3},
+				},
+			},
+		},
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			snap = in.Core.Executor.RuntimeSnapshot
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bundle.Close() })
+
+	require.NotNil(t, snap)
+
+	soFactories := snap.StreamObserverFactories()
+	require.Len(t, soFactories, 3)
+	assert.Equal(t, "1-feat-so-1", soFactories[0].ID())
+	assert.Equal(t, "2-feat-so-2", soFactories[1].ID())
+	assert.Equal(t, "3-cand-so-1", soFactories[2].ID())
+}
+
+func TestStreamObserverFactoriesProjection_ThreeSourceOrdering(t *testing.T) {
+	t.Parallel()
+
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{id: "feat-so-1"},
+		},
+	}))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{id: "cand-so-1"},
+		},
+	}))
+
+	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+
+	require.Len(t, ext.StreamObserverFactories, 2)
+	assert.Equal(t, "feat-so-1", ext.StreamObserverFactories[0].ID())
+	assert.Equal(t, "cand-so-1", ext.StreamObserverFactories[1].ID())
+}
+
+func TestStreamObserverFactoriesProjection_LazyLifecycleAndInvocation(t *testing.T) {
+	t.Parallel()
+
+	var openCount int
+	var mu sync.Mutex
+	var createdObs []string
+
+	factory := stubStreamObsFactory{
+		id:         "lazy-so",
+		openCount:  &openCount,
+		mu:         &mu,
+		createdObs: &createdObs,
+	}
+
+	reg := obsTestFactoryCatalog(t)
+	err := reg.RegisterFeature("feature-lazy-so", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{
+				factory,
+			},
+		}, nil
+	})
+	require.NoError(t, err)
+
+	cfg := obsTestProcessConfig()
+	require.NoError(t, config.Validate(cfg))
+
+	ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
+		Cfg: cfg,
+		Log: testkit.DiscardLogger(),
+		Opts: &BuildOptions{
+			PluginRegistry: reg,
+		},
+		Tracing: ProcessTracing{Shutdown: func(context.Context) error { return nil }},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	cand := obsTestCandidateConfig(t, "feature-lazy-so")
+	var snap *extensions.RequestRuntimeSnapshot
+
+	bundle, err := CompileGeneration(context.Background(), GenerationCompileInput{
+		Process:   ps,
+		Candidate: cand,
+		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error) {
+			snap = in.Core.Executor.RuntimeSnapshot
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bundle.Close() })
+
+	// Prove factories are NOT eagerly invoked or opened during compilation
+	mu.Lock()
+	require.Equal(t, 0, openCount, "factories must not be opened during CompileGeneration")
+	mu.Unlock()
+
+	require.NotNil(t, snap)
+
+	// Accessing snapshot does not invoke Open
+	factories := snap.StreamObserverFactories()
+	require.Len(t, factories, 1)
+	mu.Lock()
+	require.Equal(t, 0, openCount, "factories must not be opened on Snapshot() accessor reads")
+	mu.Unlock()
+
+	// Open session 1
+	sess1 := &extensions.FinalStreamObservationSession{Log: testkit.DiscardLogger()}
+	err = sess1.Open(context.Background(), factories, response.StreamMeta{BLegID: "bleg-1"}, response.Services{})
+	require.NoError(t, err)
+	mu.Lock()
+	require.Equal(t, 1, openCount, "factory Open should be invoked exactly once for session 1")
+	mu.Unlock()
+
+	// Open session 2 with same factory produces separate observer instance
+	sess2 := &extensions.FinalStreamObservationSession{Log: testkit.DiscardLogger()}
+	err = sess2.Open(context.Background(), factories, response.StreamMeta{BLegID: "bleg-2"}, response.Services{})
+	require.NoError(t, err)
+	mu.Lock()
+	require.Equal(t, 2, openCount, "factory Open should be invoked for session 2")
+	require.Equal(t, []string{"lazy-so", "lazy-so"}, createdObs)
+	mu.Unlock()
+}
+
+func TestStreamObserverFactoriesProjection_BackingArrayIsolation(t *testing.T) {
+	t.Parallel()
+
+	gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObsFactory{id: "orig-so"},
+		},
+	})
+	require.NoError(t, err)
+
+	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+	require.Len(t, ext.StreamObserverFactories, 1)
+
+	// Mutate returned slice
+	ext.StreamObserverFactories[0] = stubStreamObsFactory{id: "mutated-so"}
+
+	// Re-reading from Frozen should not reflect mutation
+	frozenAgain := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+	require.Len(t, frozenAgain, 1)
+	assert.Equal(t, "orig-so", frozenAgain[0].ID(), "FrozenPlaneSet backing array must be isolated from caller mutations")
+}
+
+func TestStreamObserverFactoriesProjection_ExactNilAndEmptySemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero_generated_surface_projects_nil_slices", func(t *testing.T) {
+		t.Parallel()
+		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
+		assert.Nil(t, ext.StreamObserverFactories)
+	})
+
+	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
+		t.Parallel()
+		gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{},
+		})
+		require.NoError(t, err)
+
+		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+		assert.Nil(t, ext.StreamObserverFactories, "StreamObserverFactories must normalize explicit empty to nil")
+	})
+}
+
+func TestStreamObserverFactoriesProjection_TypedNilRejection(t *testing.T) {
+	t.Parallel()
+
+	b := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{
+			nil,
+		},
+	}
+
+	_, err := featurebundle.MergeBundlesGenerated(b)
+	require.Error(t, err, "MergeBundlesGenerated must reject nil StreamObserverFactory")
 }

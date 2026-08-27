@@ -407,14 +407,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"StreamObserverFactories", func(m MergedFeatureSurface) []string {
-			return charTags(m.StreamObserverFactories, func(f response.StreamObserverFactory) string {
-				if so, ok := f.(charStreamObserverFactory); ok {
-					return so.tag
-				}
-				return ""
-			})
-		}},
 		{"CompactionObservers", func(m MergedFeatureSurface) []string {
 			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
 				if co, ok := o.(charCompactionObs); ok {

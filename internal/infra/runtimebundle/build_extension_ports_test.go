@@ -66,7 +66,7 @@ func TestBuildRuntimeSnapshot_featureBundlePortsReachSnap(t *testing.T) {
 	opts := &BuildOptions{
 		Extensions: ExtensionsOptions{
 			AttemptTransforms:       merged.AttemptTransforms,
-			StreamObserverFactories: merged.StreamObserverFactories,
+			StreamObserverFactories: bundle.StreamObserverFactories,
 		},
 	}
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)

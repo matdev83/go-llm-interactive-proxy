@@ -75,13 +75,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	var extraBundles []lipfeature.FeatureBundle
 	if in.CandidateOpts != nil {
-		if c := in.CandidateOpts.Extensions; len(c.TrafficObservers) > 0 || len(c.UsageObservers) > 0 || len(c.RawCaptureSinks) > 0 || len(c.TrafficRedactors) > 0 {
+		if c := in.CandidateOpts.Extensions; len(c.TrafficObservers) > 0 || len(c.UsageObservers) > 0 || len(c.RawCaptureSinks) > 0 || len(c.TrafficRedactors) > 0 || len(c.StreamObserverFactories) > 0 {
 			extraBundles = append(extraBundles, lipfeature.FeatureBundle{
-				SchemaVersion:    lipfeature.SchemaVersionV1,
-				TrafficObservers: slices.Clone(c.TrafficObservers),
-				UsageObservers:   slices.Clone(c.UsageObservers),
-				RawCaptureSinks:  slices.Clone(c.RawCaptureSinks),
-				TrafficRedactors: slices.Clone(c.TrafficRedactors),
+				SchemaVersion:           lipfeature.SchemaVersionV1,
+				TrafficObservers:        slices.Clone(c.TrafficObservers),
+				UsageObservers:          slices.Clone(c.UsageObservers),
+				RawCaptureSinks:         slices.Clone(c.RawCaptureSinks),
+				TrafficRedactors:        slices.Clone(c.TrafficRedactors),
+				StreamObserverFactories: slices.Clone(c.StreamObserverFactories),
 			})
 		}
 	}
@@ -330,7 +331,7 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
 		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
 		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
-		StreamObserverFactories:          append(merged.StreamObserverFactories[:0:0], merged.StreamObserverFactories...),
+		StreamObserverFactories:          lipfeature.Get(genMerged.Frozen, lipfeature.PlaneStreamObserverFactories),
 		TrafficObservers:                 lipfeature.Get(genMerged.Frozen, lipfeature.PlaneTrafficObservers),
 		UsageObservers:                   lipfeature.Get(genMerged.Frozen, lipfeature.PlaneUsageObservers),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
@@ -365,7 +366,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	dst.RouteHintProviders = append(dst.RouteHintProviders, src.RouteHintProviders...)
 	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
 	dst.AttemptTransforms = append(dst.AttemptTransforms, src.AttemptTransforms...)
-	dst.StreamObserverFactories = append(dst.StreamObserverFactories, src.StreamObserverFactories...)
 	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
 	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {

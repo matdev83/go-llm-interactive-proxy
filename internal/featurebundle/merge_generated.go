@@ -65,7 +65,6 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 		RouteHintProviders:               lipfeature.Get(g.Frozen, lipfeature.PlaneRouteHintProviders),
 		CompletionGates:                  lipfeature.Get(g.Frozen, lipfeature.PlaneCompletionGates),
 		AttemptTransforms:                lipfeature.Get(g.Frozen, lipfeature.PlaneAttemptTransforms),
-		StreamObserverFactories:          lipfeature.Get(g.Frozen, lipfeature.PlaneStreamObserverFactories),
 		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
 		CompactionPreservers:             lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
 		SecretGuards:                     lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),

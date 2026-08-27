@@ -20,7 +20,6 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/stretchr/testify/assert"
@@ -29,15 +28,6 @@ import (
 )
 
 // --- Characterization stubs for reasoning binder ---
-
-type charObserverFactory struct{ id string }
-
-func (o charObserverFactory) ID() string                      { return o.id }
-func (charObserverFactory) Order() int                        { return 0 }
-func (charObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (charObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
-	return nil, nil
-}
 
 type charAttemptTransform struct{ id string }
 
@@ -144,64 +134,39 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 	t.Parallel()
 	ps, reg, client, poller := setupReasoningTestServices(t, "ref-replace")
 
-	reasoningObsID := reasoningpreservation.ID + "-observer"
 	reasoningXformID := reasoningpreservation.ID + "-transform"
 
 	tests := []struct {
 		name          string
-		initialObs    []response.StreamObserverFactory
 		initialXforms []request.AttemptTransform
-		wantObsIDs    []string
 		wantXformIDs  []string
 	}{
 		{
 			name: "replaces existing reasoning participants in middle preserving surrounding third-party participants",
-			initialObs: []response.StreamObserverFactory{
-				charObserverFactory{id: "custom-obs-1"},
-				charObserverFactory{id: reasoningObsID},
-				charObserverFactory{id: "custom-obs-2"},
-			},
 			initialXforms: []request.AttemptTransform{
 				charAttemptTransform{id: "custom-xform-1"},
 				charAttemptTransform{id: reasoningXformID},
 				charAttemptTransform{id: "custom-xform-2"},
 			},
-			wantObsIDs:   []string{"custom-obs-1", "custom-obs-2", reasoningObsID},
 			wantXformIDs: []string{"custom-xform-1", "custom-xform-2", reasoningXformID},
 		},
 		{
 			name: "no prior reasoning participants appends new participants to end",
-			initialObs: []response.StreamObserverFactory{
-				charObserverFactory{id: "custom-obs-1"},
-				charObserverFactory{id: "custom-obs-2"},
-			},
 			initialXforms: []request.AttemptTransform{
 				charAttemptTransform{id: "custom-xform-1"},
 				charAttemptTransform{id: "custom-xform-2"},
 			},
-			wantObsIDs:   []string{"custom-obs-1", "custom-obs-2", reasoningObsID},
 			wantXformIDs: []string{"custom-xform-1", "custom-xform-2", reasoningXformID},
 		},
 		{
 			name: "only reasoning participants replaced with single bound participant",
-			initialObs: []response.StreamObserverFactory{
-				charObserverFactory{id: reasoningObsID},
-			},
 			initialXforms: []request.AttemptTransform{
 				charAttemptTransform{id: reasoningXformID},
 			},
-			wantObsIDs:   []string{reasoningObsID},
 			wantXformIDs: []string{reasoningXformID},
 		},
 		{
 			name: "multiple duplicate reasoning participants all stripped and replaced by single bound participant at end",
-			initialObs: []response.StreamObserverFactory{
-				charObserverFactory{id: reasoningObsID},
-				charObserverFactory{id: "custom-obs-1"},
-				charObserverFactory{id: reasoningObsID},
-				charObserverFactory{id: "custom-obs-2"},
-				charObserverFactory{id: reasoningObsID},
-			},
 			initialXforms: []request.AttemptTransform{
 				charAttemptTransform{id: reasoningXformID},
 				charAttemptTransform{id: "custom-xform-1"},
@@ -209,14 +174,11 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 				charAttemptTransform{id: "custom-xform-2"},
 				charAttemptTransform{id: reasoningXformID},
 			},
-			wantObsIDs:   []string{"custom-obs-1", "custom-obs-2", reasoningObsID},
 			wantXformIDs: []string{"custom-xform-1", "custom-xform-2", reasoningXformID},
 		},
 		{
 			name:          "empty surface receives single bound participant",
-			initialObs:    nil,
 			initialXforms: nil,
-			wantObsIDs:    []string{reasoningObsID},
 			wantXformIDs:  []string{reasoningXformID},
 		},
 	}
@@ -225,18 +187,10 @@ func TestReasoningCompression_ReplaceByIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			merged := featurebundle.MergedFeatureSurface{
-				StreamObserverFactories: tc.initialObs,
-				AttemptTransforms:       tc.initialXforms,
+				AttemptTransforms: tc.initialXforms,
 			}
 			res, err := bindReasoningPreservationCompression(merged, ps, []lipsdk.Registration{reg}, client, poller)
 			require.NoError(t, err)
-
-			gotObsIDs := make([]string, len(res.StreamObserverFactories))
-			for i, f := range res.StreamObserverFactories {
-				require.NotNil(t, f)
-				gotObsIDs[i] = f.ID()
-			}
-			assert.Equal(t, tc.wantObsIDs, gotObsIDs)
 
 			gotXformIDs := make([]string, len(res.AttemptTransforms))
 			for i, x := range res.AttemptTransforms {
@@ -252,15 +206,9 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	t.Parallel()
 	ps, reg, client, poller := setupReasoningTestServices(t, "ref-idempotence")
 
-	reasoningObsID := reasoningpreservation.ID + "-observer"
 	reasoningXformID := reasoningpreservation.ID + "-transform"
 
 	initial := featurebundle.MergedFeatureSurface{
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charObserverFactory{id: "custom-obs-1"},
-			charObserverFactory{id: reasoningObsID},
-			charObserverFactory{id: "custom-obs-2"},
-		},
 		AttemptTransforms: []request.AttemptTransform{
 			charAttemptTransform{id: "custom-xform-1"},
 			charAttemptTransform{id: reasoningXformID},
@@ -277,17 +225,11 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	res3, err := bindReasoningPreservationCompression(res2, ps, []lipsdk.Registration{reg}, client, poller)
 	require.NoError(t, err)
 
-	require.Len(t, res1.StreamObserverFactories, 3)
-	require.Len(t, res2.StreamObserverFactories, 3)
-	require.Len(t, res3.StreamObserverFactories, 3)
-
 	require.Len(t, res1.AttemptTransforms, 3)
 	require.Len(t, res2.AttemptTransforms, 3)
 	require.Len(t, res3.AttemptTransforms, 3)
 
 	for i := range 3 {
-		assert.Equal(t, res1.StreamObserverFactories[i].ID(), res2.StreamObserverFactories[i].ID())
-		assert.Equal(t, res1.StreamObserverFactories[i].ID(), res3.StreamObserverFactories[i].ID())
 		assert.Equal(t, res1.AttemptTransforms[i].ID(), res2.AttemptTransforms[i].ID())
 		assert.Equal(t, res1.AttemptTransforms[i].ID(), res3.AttemptTransforms[i].ID())
 	}
@@ -295,7 +237,6 @@ func TestReasoningCompression_Idempotence(t *testing.T) {
 	// Also test removeReasoningParticipants idempotence directly
 	rem1 := removeReasoningParticipants(initial)
 	rem2 := removeReasoningParticipants(rem1)
-	assert.Equal(t, len(rem1.StreamObserverFactories), len(rem2.StreamObserverFactories))
 	assert.Equal(t, len(rem1.AttemptTransforms), len(rem2.AttemptTransforms))
 }
 
@@ -305,9 +246,6 @@ func TestReasoningCompression_FailBeforeMutate_CandidateUnmodified(t *testing.T)
 
 	initialSurface := featurebundle.MergedFeatureSurface{
 		TerminalDecisionProvider: charTerminalProvider{id: "initial-provider"},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charObserverFactory{id: "custom-obs"},
-		},
 		AttemptTransforms: []request.AttemptTransform{
 			charAttemptTransform{id: "custom-xform"},
 		},
@@ -404,19 +342,11 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 	t.Parallel()
 	ps, reg, client, poller := setupReasoningTestServices(t, "ref-nil-elem")
 
-	reasoningObsID := reasoningpreservation.ID + "-observer"
 	reasoningXformID := reasoningpreservation.ID + "-transform"
 
 	t.Run("removeReasoningParticipants handles nil elements safely", func(t *testing.T) {
 		t.Parallel()
 		m := featurebundle.MergedFeatureSurface{
-			StreamObserverFactories: []response.StreamObserverFactory{
-				nil,
-				charObserverFactory{id: "custom-obs"},
-				nil,
-				charObserverFactory{id: reasoningObsID},
-				nil,
-			},
 			AttemptTransforms: []request.AttemptTransform{
 				nil,
 				charAttemptTransform{id: "custom-xform"},
@@ -428,12 +358,6 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 
 		cleaned := removeReasoningParticipants(m)
 		// nils and custom elements are preserved; only reasoning elements removed
-		require.Len(t, cleaned.StreamObserverFactories, 4)
-		assert.Nil(t, cleaned.StreamObserverFactories[0])
-		assert.Equal(t, "custom-obs", cleaned.StreamObserverFactories[1].ID())
-		assert.Nil(t, cleaned.StreamObserverFactories[2])
-		assert.Nil(t, cleaned.StreamObserverFactories[3])
-
 		require.Len(t, cleaned.AttemptTransforms, 4)
 		assert.Nil(t, cleaned.AttemptTransforms[0])
 		assert.Equal(t, "custom-xform", cleaned.AttemptTransforms[1].ID())
@@ -444,11 +368,6 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 	t.Run("bindReasoningPreservationCompression handles nil elements safely", func(t *testing.T) {
 		t.Parallel()
 		m := featurebundle.MergedFeatureSurface{
-			StreamObserverFactories: []response.StreamObserverFactory{
-				nil,
-				charObserverFactory{id: "custom-obs"},
-				charObserverFactory{id: reasoningObsID},
-			},
 			AttemptTransforms: []request.AttemptTransform{
 				nil,
 				charAttemptTransform{id: "custom-xform"},
@@ -458,10 +377,6 @@ func TestReasoningCompression_NilElementHandling(t *testing.T) {
 
 		res, err := bindReasoningPreservationCompression(m, ps, []lipsdk.Registration{reg}, client, poller)
 		require.NoError(t, err)
-		require.Len(t, res.StreamObserverFactories, 3)
-		assert.Nil(t, res.StreamObserverFactories[0])
-		assert.Equal(t, "custom-obs", res.StreamObserverFactories[1].ID())
-		assert.Equal(t, reasoningObsID, res.StreamObserverFactories[2].ID())
 
 		require.Len(t, res.AttemptTransforms, 3)
 		assert.Nil(t, res.AttemptTransforms[0])
@@ -475,9 +390,6 @@ func TestReasoningCompression_DisabledNoOp(t *testing.T) {
 	ps, reg, client, poller := setupReasoningTestServices(t, "ref-disabled")
 
 	initial := featurebundle.MergedFeatureSurface{
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charObserverFactory{id: "custom-obs"},
-		},
 		AttemptTransforms: []request.AttemptTransform{
 			charAttemptTransform{id: "custom-xform"},
 		},

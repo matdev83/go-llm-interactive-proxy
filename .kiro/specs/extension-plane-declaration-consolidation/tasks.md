@@ -146,7 +146,7 @@
   - _Boundary: SDK/public contract, composition root, core/runtime_
   - _Depends: 4.3_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/extensions ./internal/core/runtime ./internal/testkit/... ./internal/qa`
-- [ ] 5.2 Migrate stream-observer factories
+- [x] 5.2 Migrate stream-observer factories
   - Preserve factory lifecycle/identity behavior separately from slice-shaped observer values and compare allocation behavior to task 1.6.
   - Observable completion: the factory copy/overlay branch is deleted, factory parity is green, and allocs/op does not regress.
   - _Requirements: 1.1, 5.1, 5.3, 5.5, 7.1_

@@ -72,11 +72,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	assert.Equal(tb, legacy.AttemptTransforms, genAttemptTransforms, "AttemptTransforms mismatch")
 	assert.Equal(tb, legacy.AttemptTransforms == nil, genAttemptTransforms == nil, "AttemptTransforms nilness mismatch")
 
-	// 16. StreamObserverFactories
-	genStreamObserverFactories := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
-	assert.Equal(tb, legacy.StreamObserverFactories, genStreamObserverFactories, "StreamObserverFactories mismatch")
-	assert.Equal(tb, legacy.StreamObserverFactories == nil, genStreamObserverFactories == nil, "StreamObserverFactories nilness mismatch")
-
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
 	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")

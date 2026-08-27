@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 func TestBuildHost_absentReasoningPreservationWithoutCodexHasNoParticipants(t *testing.T) {
@@ -200,7 +201,7 @@ func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want
 	// Recompute the same merge locally from the public Registry/Registrations
 	// to characterize the participant pipeline.
 	regs := config.RegistrationsFromConfig(host.Config())
-	merged, err := featurebundle.MergeFeatureSurface(runtimebundle.HostProcess(host).FactoryCatalog, regs)
+	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(runtimebundle.HostProcess(host).FactoryCatalog, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +213,7 @@ func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want
 			hasTransform = true
 		}
 	}
-	for _, o := range merged.StreamObserverFactories {
+	for _, o := range lipfeature.Get(genMerged.Frozen, lipfeature.PlaneStreamObserverFactories) {
 		if o != nil && o.ID() == wantObserver {
 			hasObserver = true
 		}

@@ -286,35 +286,33 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		SessionOpeners:          []session.Opener{overOpener{tag: "d-open"}},
-		WorkspaceResolvers:      []workspace.Resolver{overResolver{tag: "d-res"}},
-		ToolCatalogFilters:      []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
-		ToolCallPolicies:        []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
-		ToolCallFinalizers:      []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
-		RequestTransforms:       []request.Transform{overTransform{tag: "d-reqtr"}},
-		PreRequestHandlers:      []prerequest.Handler{overPreReq{tag: "d-prereq"}},
-		RouteHintProviders:      []routehint.Provider{overRouteHint{tag: "d-rh"}},
-		CompletionGates:         []completion.Gate{overCompGate{tag: "d-gate"}},
-		AttemptTransforms:       []request.AttemptTransform{overAttemptTransform{tag: "d-atttr"}},
-		StreamObserverFactories: []response.StreamObserverFactory{overStreamObserverFactory{tag: "d-stream"}},
-		SecretGuards:            []sdk.Guard{overSecretGuard{tag: "d-guard"}},
-		LocalTurnHandlers:       []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
+		SessionOpeners:     []session.Opener{overOpener{tag: "d-open"}},
+		WorkspaceResolvers: []workspace.Resolver{overResolver{tag: "d-res"}},
+		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
+		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
+		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
+		RequestTransforms:  []request.Transform{overTransform{tag: "d-reqtr"}},
+		PreRequestHandlers: []prerequest.Handler{overPreReq{tag: "d-prereq"}},
+		RouteHintProviders: []routehint.Provider{overRouteHint{tag: "d-rh"}},
+		CompletionGates:    []completion.Gate{overCompGate{tag: "d-gate"}},
+		AttemptTransforms:  []request.AttemptTransform{overAttemptTransform{tag: "d-atttr"}},
+		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "d-guard"}},
+		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
 	}
 
 	src := ExtensionsOptions{
-		SessionOpeners:          []session.Opener{overOpener{tag: "s-open"}},
-		WorkspaceResolvers:      []workspace.Resolver{overResolver{tag: "s-res"}},
-		ToolCatalogFilters:      []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
-		ToolCallPolicies:        []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
-		ToolCallFinalizers:      []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
-		RequestTransforms:       []request.Transform{overTransform{tag: "s-reqtr"}},
-		PreRequestHandlers:      []prerequest.Handler{overPreReq{tag: "s-prereq"}},
-		RouteHintProviders:      []routehint.Provider{overRouteHint{tag: "s-rh"}},
-		CompletionGates:         []completion.Gate{overCompGate{tag: "s-gate"}},
-		AttemptTransforms:       []request.AttemptTransform{overAttemptTransform{tag: "s-atttr"}},
-		StreamObserverFactories: []response.StreamObserverFactory{overStreamObserverFactory{tag: "s-stream"}},
-		SecretGuards:            []sdk.Guard{overSecretGuard{tag: "s-guard"}},
-		LocalTurnHandlers:       []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
+		SessionOpeners:     []session.Opener{overOpener{tag: "s-open"}},
+		WorkspaceResolvers: []workspace.Resolver{overResolver{tag: "s-res"}},
+		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
+		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
+		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
+		RequestTransforms:  []request.Transform{overTransform{tag: "s-reqtr"}},
+		PreRequestHandlers: []prerequest.Handler{overPreReq{tag: "s-prereq"}},
+		RouteHintProviders: []routehint.Provider{overRouteHint{tag: "s-rh"}},
+		CompletionGates:    []completion.Gate{overCompGate{tag: "s-gate"}},
+		AttemptTransforms:  []request.AttemptTransform{overAttemptTransform{tag: "s-atttr"}},
+		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "s-guard"}},
+		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
 	}
 
 	overlayExtensions(dst, src)
@@ -329,7 +327,6 @@ func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	require.Equal(t, []string{"d-rh", "s-rh"}, []string{dst.RouteHintProviders[0].ID(), dst.RouteHintProviders[1].ID()})
 	require.Equal(t, []string{"d-gate", "s-gate"}, []string{dst.CompletionGates[0].ID(), dst.CompletionGates[1].ID()})
 	require.Equal(t, []string{"d-atttr", "s-atttr"}, []string{dst.AttemptTransforms[0].ID(), dst.AttemptTransforms[1].ID()})
-	require.Equal(t, []string{"d-stream", "s-stream"}, []string{dst.StreamObserverFactories[0].ID(), dst.StreamObserverFactories[1].ID()})
 	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
 	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 }
