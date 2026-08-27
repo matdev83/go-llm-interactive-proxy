@@ -81,9 +81,10 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
 		return nil, err
 	}
-	if merged, genMerged, err = bindReasoningPreservationCompression(merged, genMerged, ps, regs, boundClient, boundPoller); err != nil {
+	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
+	merged.AttemptTransforms = lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms)
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
 	ext := extensionsFromMerged(merged, genMerged, ps.opts)

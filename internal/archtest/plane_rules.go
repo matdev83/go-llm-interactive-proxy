@@ -338,12 +338,13 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 
 		case *ast.FuncDecl:
 			funcName := node.Name.Name
+			qualSym := QualifiedSymbol(relPath, node)
 			if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
-			} else if AllowedHookProjections[funcName] {
-				// Exact-name allowlist: Hook-bus view projection via Get is allowed
-			} else if AllowedObserverProjections[funcName] {
-				// Exact-name allowlist: Observer view projection via Get is allowed
+			} else if IsAllowedHookProjection(qualSym) {
+				// Exact qualified symbol allowlist: Hook-bus view projection via Get is allowed
+			} else if IsAllowedObserverProjection(qualSym) {
+				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
 			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||
 				strings.Contains(strings.ToLower(funcName), "frommerged") ||
 				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||

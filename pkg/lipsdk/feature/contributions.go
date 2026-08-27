@@ -43,6 +43,31 @@ func (s *ContributionSet) Has(planeID string) bool {
 	return false
 }
 
+// Clone returns a deep copy of the ContributionSet.
+func (s *ContributionSet) Clone() *ContributionSet {
+	if s == nil {
+		return nil
+	}
+	valuesCopy := make(map[string]any, len(s.values))
+	for k, v := range s.values {
+		valuesCopy[k] = cloneAny(v)
+	}
+	identitiesCopy := make(map[string]string, len(s.identities))
+	maps.Copy(identitiesCopy, s.identities)
+	pluginIDsCopy := make(map[string]string, len(s.pluginIDs))
+	maps.Copy(pluginIDsCopy, s.pluginIDs)
+	var genCopy *generatedContributions
+	if s.generated != nil {
+		genCopy = s.generated.clone()
+	}
+	return &ContributionSet{
+		values:     valuesCopy,
+		identities: identitiesCopy,
+		pluginIDs:  pluginIDsCopy,
+		generated:  genCopy,
+	}
+}
+
 // Freeze produces an immutable FrozenPlaneSet from the accumulated contributions.
 // Freeze transfers ownership of stored values to the returned FrozenPlaneSet.
 // Stored mutable values (such as slices and maps) are defensively cloned so that subsequent
@@ -58,7 +83,7 @@ func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	identitiesCopy := make(map[string]string, len(s.identities))
 	maps.Copy(identitiesCopy, s.identities)
 	var genFrozen *generatedFrozen
-	if s.generated != nil && s.generated.freeze != nil {
+	if s.generated != nil {
 		genFrozen = s.generated.freeze()
 	}
 	return FrozenPlaneSet{

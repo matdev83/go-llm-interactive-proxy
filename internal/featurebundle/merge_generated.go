@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -52,38 +53,25 @@ type GeneratedMergeSurface struct {
 	set        *lipfeature.ContributionSet
 }
 
+func (g GeneratedMergeSurface) workingSet() *lipfeature.ContributionSet {
+	if g.set != nil {
+		return g.set.Clone()
+	}
+	return g.Frozen.ToContributions()
+}
+
 // BindStreamObserverFactories replaces stream observer factories contributed by contributorID
 // in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
 // If validation or combination fails, the candidate is left unmodified and an error is returned.
 func (g GeneratedMergeSurface) BindStreamObserverFactories(contributorID string, factories []response.StreamObserverFactory) (GeneratedMergeSurface, error) {
-	if g.set != nil {
-		if err := lipfeature.ContributeSource(g.set, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceGenerationBinder, contributorID, factories); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-		return GeneratedMergeSurface{
-			Frozen:     g.set.Freeze(),
-			Lifecycles: g.Lifecycles,
-			set:        g.set,
-		}, nil
-	}
-	cs := lipfeature.NewContributionSet()
-	if currentXforms := lipfeature.Get(g.Frozen, lipfeature.PlaneAttemptTransforms); len(currentXforms) > 0 {
-		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneAttemptTransforms, lipfeature.SourceFeature, "existing", currentXforms); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-	}
-	if current := lipfeature.Get(g.Frozen, lipfeature.PlaneStreamObserverFactories); len(current) > 0 {
-		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceFeature, "existing", current); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-	}
-	if err := lipfeature.ContributeSource(cs, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceGenerationBinder, contributorID, factories); err != nil {
+	working := g.workingSet()
+	if err := working.BindStreamObserverFactories(contributorID, factories); err != nil {
 		return GeneratedMergeSurface{}, err
 	}
 	return GeneratedMergeSurface{
-		Frozen:     cs.Freeze(),
-		Lifecycles: g.Lifecycles,
-		set:        cs,
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
 	}, nil
 }
 
@@ -91,34 +79,29 @@ func (g GeneratedMergeSurface) BindStreamObserverFactories(contributorID string,
 // in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
 // If validation or combination fails, the candidate is left unmodified and an error is returned.
 func (g GeneratedMergeSurface) BindAttemptTransforms(contributorID string, transforms []request.AttemptTransform) (GeneratedMergeSurface, error) {
-	if g.set != nil {
-		if err := lipfeature.ContributeSource(g.set, lipfeature.PlaneAttemptTransforms, lipfeature.SourceGenerationBinder, contributorID, transforms); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-		return GeneratedMergeSurface{
-			Frozen:     g.set.Freeze(),
-			Lifecycles: g.Lifecycles,
-			set:        g.set,
-		}, nil
-	}
-	cs := lipfeature.NewContributionSet()
-	if current := lipfeature.Get(g.Frozen, lipfeature.PlaneAttemptTransforms); len(current) > 0 {
-		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneAttemptTransforms, lipfeature.SourceFeature, "existing", current); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-	}
-	if currentObs := lipfeature.Get(g.Frozen, lipfeature.PlaneStreamObserverFactories); len(currentObs) > 0 {
-		if err := lipfeature.ContributeSource(cs, lipfeature.PlaneStreamObserverFactories, lipfeature.SourceFeature, "existing", currentObs); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-	}
-	if err := lipfeature.ContributeSource(cs, lipfeature.PlaneAttemptTransforms, lipfeature.SourceGenerationBinder, contributorID, transforms); err != nil {
+	working := g.workingSet()
+	if err := working.BindAttemptTransforms(contributorID, transforms); err != nil {
 		return GeneratedMergeSurface{}, err
 	}
 	return GeneratedMergeSurface{
-		Frozen:     cs.Freeze(),
-		Lifecycles: g.Lifecycles,
-		set:        cs,
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
+	}, nil
+}
+
+// BindCompactionPreservers replaces compaction preservers contributed by contributorID
+// in this GeneratedMergeSurface under SourceGenerationBinder semantics (CombReplaceByIdentity).
+// If validation or combination fails, the candidate is left unmodified and an error is returned.
+func (g GeneratedMergeSurface) BindCompactionPreservers(contributorID string, preservers []compaction.Preserver) (GeneratedMergeSurface, error) {
+	working := g.workingSet()
+	if err := working.BindCompactionPreservers(contributorID, preservers); err != nil {
+		return GeneratedMergeSurface{}, err
+	}
+	return GeneratedMergeSurface{
+		Frozen:     working.Freeze(),
+		Lifecycles: slices.Clone(g.Lifecycles),
+		set:        working,
 	}, nil
 }
 

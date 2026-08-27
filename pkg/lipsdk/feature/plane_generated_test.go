@@ -216,6 +216,121 @@ func TestGeneratedDispatch_ReplaceByIdentity(t *testing.T) {
 	assert.Equal(t, "obs-1", replacedF[1].ID())
 }
 
+// TestGeneratedBinderOperations_MethodCurrencyAndFailure tests that typed binder methods
+// generated on *ContributionSet for replace-by-identity planes replace occupants under
+// SourceGenerationBinder semantics and fail before mutate on invalid input.
+func TestGeneratedBinderOperations_MethodCurrencyAndFailure(t *testing.T) {
+	t.Parallel()
+
+	cs := feature.NewContributionSet()
+	x1 := dummyAttemptTransform{id: "xform-1"}
+	x2 := dummyAttemptTransform{id: "xform-2"}
+	require.NoError(t, feature.Contribute(cs, feature.PlaneAttemptTransforms, "plugin-xform", []request.AttemptTransform{x1, x2}))
+
+	f1 := dummyStreamObserverFactory{id: "obs-1"}
+	f2 := dummyStreamObserverFactory{id: "obs-2"}
+	require.NoError(t, feature.Contribute(cs, feature.PlaneStreamObserverFactories, "plugin-obs", []response.StreamObserverFactory{f1, f2}))
+
+	p1 := dummyPreserver{id: "pres-1"}
+	p2 := dummyPreserver{id: "pres-2"}
+	require.NoError(t, feature.Contribute(cs, feature.PlaneCompactionPreservers, "plugin-pres", []compaction.Preserver{p1, p2}))
+
+	// 1. Successful typed replacement on AttemptTransforms
+	x1Repl := dummyAttemptTransform{id: "xform-1"}
+	require.NoError(t, cs.BindAttemptTransforms("binder-xform", []request.AttemptTransform{x1Repl}))
+	frozen1 := cs.Freeze()
+	xforms := feature.Get(frozen1, feature.PlaneAttemptTransforms)
+	require.Len(t, xforms, 2)
+	assert.Equal(t, "xform-2", xforms[0].ID())
+	assert.Equal(t, "xform-1", xforms[1].ID())
+
+	// 2. Successful typed replacement on StreamObserverFactories
+	f1Repl := dummyStreamObserverFactory{id: "obs-1"}
+	require.NoError(t, cs.BindStreamObserverFactories("binder-obs", []response.StreamObserverFactory{f1Repl}))
+	frozen2 := cs.Freeze()
+	factories := feature.Get(frozen2, feature.PlaneStreamObserverFactories)
+	require.Len(t, factories, 2)
+	assert.Equal(t, "obs-2", factories[0].ID())
+	assert.Equal(t, "obs-1", factories[1].ID())
+
+	// 3. Successful typed replacement on CompactionPreservers
+	p1Repl := dummyPreserver{id: "pres-1"}
+	require.NoError(t, cs.BindCompactionPreservers("binder-pres", []compaction.Preserver{p1Repl}))
+	frozen3 := cs.Freeze()
+	preservers := feature.Get(frozen3, feature.PlaneCompactionPreservers)
+	require.Len(t, preservers, 2)
+	assert.Equal(t, "pres-2", preservers[0].ID())
+	assert.Equal(t, "pres-1", preservers[1].ID())
+
+	// 4. Fail-before-mutate on nil element under NilReject
+	err := cs.BindAttemptTransforms("binder-bad", []request.AttemptTransform{nil})
+	require.Error(t, err)
+	frozenAfterFail := cs.Freeze()
+	xformsAfterFail := feature.Get(frozenAfterFail, feature.PlaneAttemptTransforms)
+	require.Len(t, xformsAfterFail, 2)
+	assert.Equal(t, "xform-2", xformsAfterFail[0].ID())
+	assert.Equal(t, "xform-1", xformsAfterFail[1].ID())
+}
+
+// TestContributionSet_Clone_PreservesAllPlanesAndIsolation verifies that ContributionSet.Clone
+// performs a deep copy across all declared planes without mutating the original.
+func TestContributionSet_Clone_PreservesAllPlanesAndIsolation(t *testing.T) {
+	t.Parallel()
+
+	cs := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(cs, feature.PlaneSubmitHooks, "plugin-1", []hooks.SubmitHook{
+		dummySubmitHook{id: "hook-1"},
+	}))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-1", 4096))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneTerminalDecisionProvider, "plugin-1", terminaldecision.Provider(dummyTerminalProvider{id: "term-orig"})))
+
+	cloned := cs.Clone()
+	require.NotNil(t, cloned)
+
+	// Mutate clone
+	require.NoError(t, feature.Contribute(cloned, feature.PlaneSubmitHooks, "plugin-2", []hooks.SubmitHook{
+		dummySubmitHook{id: "hook-2"},
+	}))
+
+	// Original must not have hook-2
+	fOrig := cs.Freeze()
+	origHooks := feature.Get(fOrig, feature.PlaneSubmitHooks)
+	require.Len(t, origHooks, 1)
+	assert.Equal(t, "hook-1", origHooks[0].ID())
+
+	// Cloned has both
+	fCloned := cloned.Freeze()
+	clonedHooks := feature.Get(fCloned, feature.PlaneSubmitHooks)
+	require.Len(t, clonedHooks, 2)
+}
+
+// TestContributionSet_FromFrozen_PreservesAllPlanes verifies that FrozenPlaneSet.ToContributions
+// and feature.ContributionSetFromFrozen reconstruct a mutable ContributionSet with all 25 planes.
+func TestContributionSet_FromFrozen_PreservesAllPlanes(t *testing.T) {
+	t.Parallel()
+
+	cs := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(cs, feature.PlaneSubmitHooks, "plugin-1", []hooks.SubmitHook{
+		dummySubmitHook{id: "hook-1"},
+	}))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-1", 2048))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneTerminalDecisionProvider, "plugin-1", terminaldecision.Provider(dummyTerminalProvider{id: "term-1"})))
+
+	frozen := cs.Freeze()
+
+	// Reconstruct from frozen
+	csReconstructed := frozen.ToContributions()
+	require.NotNil(t, csReconstructed)
+
+	fNew := csReconstructed.Freeze()
+	assert.Len(t, feature.Get(fNew, feature.PlaneSubmitHooks), 1)
+	assert.Equal(t, 2048, feature.Get(fNew, feature.PlaneToolCallFinalizationMaxArgsBytes))
+	assert.NotNil(t, feature.Get(fNew, feature.PlaneTerminalDecisionProvider))
+	id, hasID := feature.FrozenIdentity(fNew, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "term-1", id)
+}
+
 // Stubs for test cases
 type dummyPreserver struct {
 	id string

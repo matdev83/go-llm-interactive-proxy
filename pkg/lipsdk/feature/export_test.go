@@ -35,9 +35,7 @@ func NewFrozenPlaneSetWithGeneratedForTest(frozen *generatedFrozen) FrozenPlaneS
 	}
 }
 
-// NewGeneratedContributionsForTest creates a new generatedContributions with a freeze snapshot function for testing.
-func NewGeneratedContributionsForTest(freeze func() *generatedFrozen) *generatedContributions {
-	return &generatedContributions{
-		freeze: freeze,
-	}
+// NewGeneratedContributionsForTest creates a new generatedContributions for testing.
+func NewGeneratedContributionsForTest() *generatedContributions {
+	return newGeneratedContributions()
 }

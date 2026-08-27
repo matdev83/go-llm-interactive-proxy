@@ -114,28 +114,28 @@ var (
 		"internal/core/extensions.CompletionGatesFromContext":                            true,
 	}
 
-	// AllowedHookProjections is the exact-name allowlist of hook-bus projection functions.
+	// AllowedHookProjections is the qualified-symbol allowlist of hook-bus projection functions.
 	// Any other function whose body reads hook-family fields on MergedFeatureSurface past Wave 1 is forbidden.
 	AllowedHookProjections = map[string]bool{
-		"HooksConfigFromGenerated": true,
-		"HooksConfigFromFrozen":    true,
+		"internal/infra/runtimebundle.HooksConfigFromGenerated": true,
+		"internal/infra/runtimebundle.HooksConfigFromFrozen":    true,
 	}
 
-	// AllowedObserverProjections is the exact-name allowlist of observer projection functions.
+	// AllowedObserverProjections is the qualified-symbol allowlist of observer projection functions.
 	// Any other function whose body reads observer planes via Get past Wave 2 is forbidden.
 	AllowedObserverProjections = map[string]bool{
-		"buildRuntimeSnapshot": true,
+		"internal/infra/runtimebundle.buildRuntimeSnapshot": true,
 	}
 )
 
-// IsAllowedHookProjection reports whether funcName is in the exact-name allowlist for hook projection.
-func IsAllowedHookProjection(funcName string) bool {
-	return AllowedHookProjections[funcName]
+// IsAllowedHookProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for hook projection.
+func IsAllowedHookProjection(qualifiedSymbol string) bool {
+	return AllowedHookProjections[qualifiedSymbol]
 }
 
-// IsAllowedObserverProjection reports whether funcName is in the exact-name allowlist for observer projection.
-func IsAllowedObserverProjection(funcName string) bool {
-	return AllowedObserverProjections[funcName]
+// IsAllowedObserverProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for observer projection.
+func IsAllowedObserverProjection(qualifiedSymbol string) bool {
+	return AllowedObserverProjections[qualifiedSymbol]
 }
 
 // IsAllowedStageConsumer checks if a fully-qualified Go symbol is explicitly recorded in AllowedStageConsumers.

@@ -27,6 +27,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -614,3 +616,149 @@ func TestGeneratedMergeSurface_BindAttemptTransforms_NilReject(t *testing.T) {
 	}
 }
 
+func TestGeneratedMergeSurface_AllPlanesPreserved_AcrossBindOperations(t *testing.T) {
+	t.Parallel()
+
+	initBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		SubmitHooks: []sdkhooks.SubmitHook{
+			testSubmitHook{tag: "hook-1"},
+		},
+		SessionOpeners: []session.Opener{
+			testOpener{tag: "opener-1"},
+		},
+		ToolCatalogFilters: []toolcatalog.Filter{
+			testCatalogFilter{tag: "cat-1"},
+		},
+		ToolCallFinalizationMaxArgsBytes: 1024,
+		RequestTransforms: []request.Transform{
+			testTransform{tag: "req-1"},
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			testAttemptTransform{tag: "xform-1"},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			testStreamObserverFactory{tag: "obs-1"},
+		},
+		TrafficObservers: []traffic.Observer{
+			testTrafficObs{tag: "to-1"},
+		},
+		CompactionPreservers: []compaction.Preserver{
+			testCompactionPreserver{tag: "cp-1"},
+		},
+		SecretGuards: []secretguard.Guard{
+			testSecretGuard{tag: "guard-1"},
+		},
+		TerminalDecisionProvider: testTerminalDecisionProvider{tag: "term-1"},
+	}
+
+	gen, err := MergeBundlesGenerated(initBundle)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
+	}
+
+	// 1. Test binding when starting from Frozen only (set == nil)
+	fromFrozenOnly := GeneratedMergeSurface{
+		Frozen:     gen.Frozen,
+		Lifecycles: gen.Lifecycles,
+	}
+
+	updated, err := fromFrozenOnly.BindAttemptTransforms("binder-1", []request.AttemptTransform{
+		testAttemptTransform{tag: "xform-bound"},
+	})
+	if err != nil {
+		t.Fatalf("BindAttemptTransforms on fromFrozenOnly: %v", err)
+	}
+
+	// Verify all planes are preserved
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneSubmitHooks), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneSessionOpeners), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneToolCatalogFilters), 1)
+	assert.Equal(t, 1024, lipfeature.Get(updated.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneRequestTransforms), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneStreamObserverFactories), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneTrafficObservers), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneCompactionPreservers), 1)
+	assert.Len(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneSecretGuards), 1)
+	assert.NotNil(t, lipfeature.Get(updated.Frozen, lipfeature.PlaneTerminalDecisionProvider))
+
+	xforms := lipfeature.Get(updated.Frozen, lipfeature.PlaneAttemptTransforms)
+	assert.Len(t, xforms, 2)
+}
+
+func TestGeneratedMergeSurface_SecondOperationFailureTransaction(t *testing.T) {
+	t.Parallel()
+
+	initBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{
+			testAttemptTransform{tag: "xform-1"},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			testStreamObserverFactory{tag: "obs-1"},
+		},
+	}
+
+	g0, err := MergeBundlesGenerated(initBundle)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
+	}
+
+	// Operation 1 succeeds
+	g1, err := g0.BindAttemptTransforms("binder", []request.AttemptTransform{
+		testAttemptTransform{tag: "xform-bound"},
+	})
+	if err != nil {
+		t.Fatalf("BindAttemptTransforms failed: %v", err)
+	}
+	require.Len(t, lipfeature.Get(g1.Frozen, lipfeature.PlaneAttemptTransforms), 2)
+
+	// Operation 2 fails (nil factory in slice under NilReject)
+	g2, err := g1.BindStreamObserverFactories("binder", []response.StreamObserverFactory{nil})
+	require.Error(t, err)
+	assert.True(t, g2.Frozen.IsZero())
+
+	// g1 MUST BE COMPLETELY UNCHANGED
+	xformsG1 := lipfeature.Get(g1.Frozen, lipfeature.PlaneAttemptTransforms)
+	require.Len(t, xformsG1, 2)
+	assert.Equal(t, "xform-1", xformsG1[0].ID())
+	assert.Equal(t, "xform-bound", xformsG1[1].ID())
+
+	obsG1 := lipfeature.Get(g1.Frozen, lipfeature.PlaneStreamObserverFactories)
+	require.Len(t, obsG1, 1)
+	assert.Equal(t, "obs-1", obsG1[0].ID())
+
+	// g0 MUST ALSO BE COMPLETELY UNCHANGED
+	xformsG0 := lipfeature.Get(g0.Frozen, lipfeature.PlaneAttemptTransforms)
+	require.Len(t, xformsG0, 1)
+	assert.Equal(t, "xform-1", xformsG0[0].ID())
+}
+
+func TestGeneratedMergeSurface_BindCompactionPreservers(t *testing.T) {
+	t.Parallel()
+
+	initBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		CompactionPreservers: []compaction.Preserver{
+			testCompactionPreserver{tag: "pres-1"},
+			testCompactionPreserver{tag: "pres-replace"},
+		},
+	}
+
+	gen, err := MergeBundlesGenerated(initBundle)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated: %v", err)
+	}
+
+	updated, err := gen.BindCompactionPreservers("pres-binder", []compaction.Preserver{
+		testCompactionPreserver{tag: "pres-replace"},
+	})
+	if err != nil {
+		t.Fatalf("BindCompactionPreservers failed: %v", err)
+	}
+
+	pres := lipfeature.Get(updated.Frozen, lipfeature.PlaneCompactionPreservers)
+	require.Len(t, pres, 2)
+	assert.Equal(t, "pres-1", pres[0].ID())
+	assert.Equal(t, "pres-replace", pres[1].ID())
+}

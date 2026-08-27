@@ -20,7 +20,6 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	// 1. generatedContributions struct
 	buf.WriteString("// generatedContributions holds typed contribution storage for all declared feature planes.\n")
 	buf.WriteString("type generatedContributions struct {\n")
-	buf.WriteString("\tfreeze func() *generatedFrozen\n\n")
 	for _, p := range planes {
 		fmt.Fprintf(&buf, "\t%s %s\n", p.fieldName, p.typeExpr)
 		if p.isExclusive {
@@ -43,25 +42,63 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("}\n\n")
 
 	// 3. newGeneratedContributions constructor
-	buf.WriteString("// newGeneratedContributions constructs a new generatedContributions with an immutable snapshot freeze function.\n")
+	buf.WriteString("// newGeneratedContributions constructs a new empty generatedContributions.\n")
 	buf.WriteString("func newGeneratedContributions() *generatedContributions {\n")
-	buf.WriteString("\tgc := &generatedContributions{}\n")
-	buf.WriteString("\tgc.freeze = func() *generatedFrozen {\n")
-	buf.WriteString("\t\tgf := &generatedFrozen{\n")
+	buf.WriteString("\treturn &generatedContributions{}\n")
+	buf.WriteString("}\n\n")
+
+	// 4. clone method
+	buf.WriteString("func (gc *generatedContributions) clone() *generatedContributions {\n")
+	buf.WriteString("\tif gc == nil {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tnext := newGeneratedContributions()\n")
 	for _, p := range planes {
 		if strings.HasPrefix(p.typeExpr, "[]") {
-			fmt.Fprintf(&buf, "\t\t\t%s: cloneSlice(gc.%s),\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\tnext.%s = cloneSlice(gc.%s)\n", p.fieldName, p.fieldName)
 		} else {
-			fmt.Fprintf(&buf, "\t\t\t%s: gc.%s,\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\tnext.%s = gc.%s\n", p.fieldName, p.fieldName)
 		}
 		if p.isExclusive {
-			fmt.Fprintf(&buf, "\t\t\t%sID: gc.%sID,\n", p.fieldName, p.fieldName)
-			fmt.Fprintf(&buf, "\t\t\t%sHasID: gc.%sHasID,\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\tnext.%sID = gc.%sID\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\tnext.%sHasID = gc.%sHasID\n", p.fieldName, p.fieldName)
 		}
 	}
-	buf.WriteString("\t\t}\n")
-	buf.WriteString("\t\treturn gf\n")
+	buf.WriteString("\treturn next\n")
+	buf.WriteString("}\n\n")
+
+	// 5. freeze method
+	buf.WriteString("func (gc *generatedContributions) freeze() *generatedFrozen {\n")
+	buf.WriteString("\tif gc == nil {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tgf := &generatedFrozen{\n")
+	for _, p := range planes {
+		if strings.HasPrefix(p.typeExpr, "[]") {
+			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gc.%s),\n", p.fieldName, p.fieldName)
+		} else {
+			fmt.Fprintf(&buf, "\t\t%s: gc.%s,\n", p.fieldName, p.fieldName)
+		}
+		if p.isExclusive {
+			fmt.Fprintf(&buf, "\t\t%sID: gc.%sID,\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t%sHasID: gc.%sHasID,\n", p.fieldName, p.fieldName)
+		}
+	}
 	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn gf\n")
+	buf.WriteString("}\n\n")
+
+	// 6. toContributions method on generatedFrozen
+	buf.WriteString("func (gf *generatedFrozen) toContributions() *generatedContributions {\n")
+	buf.WriteString("\tif gf == nil {\n\t\treturn newGeneratedContributions()\n\t}\n")
+	buf.WriteString("\tgc := newGeneratedContributions()\n")
+	for _, p := range planes {
+		if strings.HasPrefix(p.typeExpr, "[]") {
+			fmt.Fprintf(&buf, "\tgc.%s = cloneSlice(gf.%s)\n", p.fieldName, p.fieldName)
+		} else {
+			fmt.Fprintf(&buf, "\tgc.%s = gf.%s\n", p.fieldName, p.fieldName)
+		}
+		if p.isExclusive {
+			fmt.Fprintf(&buf, "\tgc.%sID = gf.%sID\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\tgc.%sHasID = gf.%sHasID\n", p.fieldName, p.fieldName)
+		}
+	}
 	buf.WriteString("\treturn gc\n")
 	buf.WriteString("}\n\n")
 
@@ -135,7 +172,23 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 
 		buf.WriteString("\t}\n")
 	}
-	buf.WriteString("}\n")
+	buf.WriteString("}\n\n")
+
+	// 5. Generation binder methods on *ContributionSet for replace-by-identity planes
+	for _, p := range planes {
+		if p.genBinderRule == "CombReplaceByIdentity" {
+			pascalName := strings.TrimPrefix(p.varName, "Plane")
+			fmt.Fprintf(&buf, "// Bind%s replaces %s under SourceGenerationBinder semantics.\n", pascalName, pascalName)
+			fmt.Fprintf(&buf, "func (s *ContributionSet) Bind%s(contributorID string, v %s) error {\n", pascalName, p.typeExpr)
+			fmt.Fprintf(&buf, "\treturn ContributeSource(s, %s, SourceGenerationBinder, contributorID, v)\n", p.varName)
+			buf.WriteString("}\n\n")
+
+			fmt.Fprintf(&buf, "// Replace%s replaces %s under SourceGenerationBinder semantics.\n", pascalName, pascalName)
+			fmt.Fprintf(&buf, "func (s *ContributionSet) Replace%s(contributorID string, v %s) error {\n", pascalName, p.typeExpr)
+			fmt.Fprintf(&buf, "\treturn ContributeSource(s, %s, SourceGenerationBinder, contributorID, v)\n", p.varName)
+			buf.WriteString("}\n\n")
+		}
+	}
 
 	return buf.Bytes(), nil
 }
