@@ -3,6 +3,8 @@ package dbparity
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -30,6 +32,11 @@ const (
 // PtrBool is a convenience helper returning a pointer to a bool value.
 func PtrBool(b bool) *bool {
 	return &b
+}
+
+// IsMissingRow reports whether err is or wraps sql.ErrNoRows.
+func IsMissingRow(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // ColumnSpec describes expected column-level invariants.
@@ -124,6 +131,59 @@ type LogicalSchemaSpec struct {
 	Retired     RetiredArtifacts         `json:"retired,omitempty"`
 }
 
+func validateLogicalSchemaSpec(spec LogicalSchemaSpec) error {
+	for _, tbl := range spec.Tables {
+		if strings.TrimSpace(tbl.Name) == "" {
+			return fmt.Errorf("dbparity: table spec has empty name")
+		}
+		for _, fk := range tbl.ForeignKeys {
+			if len(fk.Columns) == 0 {
+				return fmt.Errorf("dbparity: table %q: foreign key referencing %q has empty columns", tbl.Name, fk.RefTable)
+			}
+			for _, col := range fk.Columns {
+				if strings.TrimSpace(col) == "" {
+					return fmt.Errorf("dbparity: table %q: foreign key referencing %q contains empty column name", tbl.Name, fk.RefTable)
+				}
+			}
+			if strings.TrimSpace(fk.RefTable) == "" {
+				return fmt.Errorf("dbparity: table %q: foreign key has empty ref_table", tbl.Name)
+			}
+			if len(fk.RefColumns) > 0 && len(fk.RefColumns) != len(fk.Columns) {
+				return fmt.Errorf("dbparity: table %q: foreign key referencing %q has mismatched column counts (columns=%d, ref_columns=%d)", tbl.Name, fk.RefTable, len(fk.Columns), len(fk.RefColumns))
+			}
+			for _, rcol := range fk.RefColumns {
+				if strings.TrimSpace(rcol) == "" {
+					return fmt.Errorf("dbparity: table %q: foreign key referencing %q contains empty ref column name", tbl.Name, fk.RefTable)
+				}
+			}
+		}
+		for _, uc := range tbl.UniqueConstraints {
+			if len(uc.Columns) == 0 {
+				return fmt.Errorf("dbparity: table %q: unique constraint has empty columns", tbl.Name)
+			}
+			for _, col := range uc.Columns {
+				if strings.TrimSpace(col) == "" {
+					return fmt.Errorf("dbparity: table %q: unique constraint contains empty column name", tbl.Name)
+				}
+			}
+		}
+	}
+	for _, idx := range spec.Indexes {
+		if len(idx.Columns) == 0 {
+			if idx.Name != "" {
+				return fmt.Errorf("dbparity: index %q on table %q has empty columns", idx.Name, idx.Table)
+			}
+			return fmt.Errorf("dbparity: table %q index has empty columns", idx.Table)
+		}
+		for _, col := range idx.Columns {
+			if strings.TrimSpace(col) == "" {
+				return fmt.Errorf("dbparity: index on table %q contains empty column name", idx.Table)
+			}
+		}
+	}
+	return nil
+}
+
 // VerifySchema verifies that the database matches the declared logical schema spec,
 // dispatching to engine-native metadata probes based on the database dialect.
 func VerifySchema(ctx context.Context, database *bun.DB, spec LogicalSchemaSpec) error {
@@ -132,6 +192,9 @@ func VerifySchema(ctx context.Context, database *bun.DB, spec LogicalSchemaSpec)
 	}
 	if database == nil {
 		return fmt.Errorf("dbparity: nil database")
+	}
+	if err := validateLogicalSchemaSpec(spec); err != nil {
+		return err
 	}
 	switch database.Dialect().Name() {
 	case dialect.SQLite:
@@ -151,6 +214,9 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 	}
 	if database == nil {
 		return fmt.Errorf("dbparity: nil database")
+	}
+	if err := validateLogicalSchemaSpec(spec); err != nil {
+		return err
 	}
 
 	// 1. Check retired artifacts
@@ -287,38 +353,67 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 			}
 		}
 
-		for _, fk := range tbl.ForeignKeys {
-			fkMatched := false
-			// Check PRAGMA foreign_key_list
-			fkRows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA foreign_key_list('%s')", escapeIdentifier(tbl.Name)))
-			if err == nil {
-				for fkRows.Next() {
-					var id, seq int
-					var refTable, fromCol, toCol, onUpdate, onDelete, match string
-					if err := fkRows.Scan(&id, &seq, &refTable, &fromCol, &toCol, &onUpdate, &onDelete, &match); err == nil {
-						if strings.EqualFold(refTable, fk.RefTable) {
-							if len(fk.Columns) == 1 && strings.EqualFold(fromCol, fk.Columns[0]) {
-								fkMatched = true
-								break
+		if len(tbl.ForeignKeys) > 0 {
+			fkGroups, err := sqliteGetForeignKeys(ctx, database, tbl.Name)
+			if err != nil {
+				return err
+			}
+			for _, fk := range tbl.ForeignKeys {
+				fkMatched := false
+				for _, entries := range fkGroups {
+					if len(entries) == 0 {
+						continue
+					}
+					slices.SortFunc(entries, func(a, b sqliteFKEntry) int {
+						return a.seq - b.seq
+					})
+					if !strings.EqualFold(entries[0].refTable, fk.RefTable) {
+						continue
+					}
+					var fromCols []string
+					var toCols []string
+					hasNullTo := false
+					for _, e := range entries {
+						fromCols = append(fromCols, e.fromColumn)
+						if e.toColumn.Valid && strings.TrimSpace(e.toColumn.String) != "" {
+							toCols = append(toCols, e.toColumn.String)
+						} else {
+							hasNullTo = true
+						}
+					}
+					if !equalFoldSlice(fromCols, fk.Columns) {
+						continue
+					}
+					if len(fk.RefColumns) > 0 {
+						if hasNullTo {
+							parentPKCols, err := sqlitePrimaryKeyColumns(ctx, database, fk.RefTable)
+							if err != nil {
+								return fmt.Errorf("dbparity: sqlite resolve parent PK for table %q: %w", fk.RefTable, err)
+							}
+							if len(parentPKCols) == 0 || !equalFoldSlice(parentPKCols, fk.RefColumns) {
+								continue
+							}
+						} else {
+							if !equalFoldSlice(toCols, fk.RefColumns) {
+								continue
 							}
 						}
 					}
-				}
-				_ = fkRows.Close()
-			}
-			if !fkMatched {
-				// Fallback to DDL inspection
-				if strings.Contains(lowerDDL, "references "+strings.ToLower(fk.RefTable)) {
 					fkMatched = true
+					break
 				}
-			}
-			if !fkMatched {
-				return fmt.Errorf("dbparity: table %q missing foreign key referencing %q (%v)", tbl.Name, fk.RefTable, fk.Columns)
+				if !fkMatched {
+					return fmt.Errorf("dbparity: table %q missing foreign key referencing %q (%v)", tbl.Name, fk.RefTable, fk.Columns)
+				}
 			}
 		}
 
 		for _, uc := range tbl.UniqueConstraints {
-			if !sqliteHasUniqueConstraint(ctx, database, tbl.Name, uc.Columns, lowerDDL) {
+			hasUC, err := sqliteHasUniqueConstraint(ctx, database, tbl.Name, uc.Columns)
+			if err != nil {
+				return err
+			}
+			if !hasUC {
 				return fmt.Errorf("dbparity: table %q missing unique constraint on %v", tbl.Name, uc.Columns)
 			}
 		}
@@ -330,7 +425,7 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 			var tblName string
 			var idxSQL sql.NullString
 			if err := database.NewRaw(`SELECT tbl_name, sql FROM sqlite_master WHERE type = 'index' AND name = ?`, idx.Name).Scan(ctx, &tblName, &idxSQL); err != nil || tblName == "" {
-				if err != nil && err != sql.ErrNoRows {
+				if err != nil && !IsMissingRow(err) {
 					return fmt.Errorf("dbparity: sqlite check index %q: %w", idx.Name, err)
 				}
 				return fmt.Errorf("dbparity: missing SQLite index %q on table %q", idx.Name, idx.Table)
@@ -381,7 +476,11 @@ func VerifySQLiteSchema(ctx context.Context, database *bun.DB, spec LogicalSchem
 				return fmt.Errorf("dbparity: SQLite index %q on table %q unexpected partial predicate: got %q, want non-partial index", idx.Name, idx.Table, extractWhereClause(idxSQL.String))
 			}
 		} else {
-			if !sqliteHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate) {
+			matched, err := sqliteHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate)
+			if err != nil {
+				return fmt.Errorf("dbparity: sqlite check unnamed index on table %q (%v): %w", idx.Table, idx.Columns, err)
+			}
+			if !matched {
 				return fmt.Errorf("dbparity: table %q missing index on %v (unique=%v)", idx.Table, idx.Columns, idx.Unique)
 			}
 		}
@@ -415,6 +514,9 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 	if database == nil {
 		return fmt.Errorf("dbparity: nil database")
 	}
+	if err := validateLogicalSchemaSpec(spec); err != nil {
+		return err
+	}
 
 	// 1. Check retired artifacts
 	for _, table := range spec.Retired.Tables {
@@ -440,6 +542,10 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 				return fmt.Errorf("dbparity: postgres scan column: %w", err)
 			}
 			colNames = append(colNames, name)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("dbparity: postgres query retired columns rows for table %q: %w", rc.Table, err)
 		}
 		_ = rows.Close()
 
@@ -553,89 +659,41 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 
 		// Foreign Keys
 		if len(tbl.ForeignKeys) > 0 {
-			fkDefs, err := postgresConstraintDefs(ctx, database, tbl.Name, "f")
+			fks, err := postgresGetForeignKeys(ctx, database, tbl.Name)
 			if err != nil {
 				return err
 			}
 			for _, fk := range tbl.ForeignKeys {
-				found := false
-				for _, def := range fkDefs {
-					lowerDef := strings.ToLower(def)
-					if strings.Contains(lowerDef, "foreign key") && strings.Contains(lowerDef, strings.ToLower(fk.RefTable)) {
-						allColsMatch := true
-						for _, col := range fk.Columns {
-							if !strings.Contains(lowerDef, strings.ToLower(col)) {
-								allColsMatch = false
-								break
-							}
-						}
-						if allColsMatch {
-							found = true
-							break
+				matched := false
+				for _, actual := range fks {
+					if !strings.EqualFold(actual.refTable, fk.RefTable) {
+						continue
+					}
+					if !equalFoldSlice(actual.localCols, fk.Columns) {
+						continue
+					}
+					if len(fk.RefColumns) > 0 {
+						if !equalFoldSlice(actual.refCols, fk.RefColumns) {
+							continue
 						}
 					}
+					matched = true
+					break
 				}
-				if !found {
+				if !matched {
 					return fmt.Errorf("dbparity: table %q missing foreign key referencing %q (%v)", tbl.Name, fk.RefTable, fk.Columns)
 				}
 			}
 		}
 
 		// Unique Constraints
-		if len(tbl.UniqueConstraints) > 0 {
-			uniqueDefs, err := postgresConstraintDefs(ctx, database, tbl.Name, "u")
+		for _, uc := range tbl.UniqueConstraints {
+			hasUC, err := postgresHasUniqueConstraint(ctx, database, tbl.Name, uc.Columns)
 			if err != nil {
 				return err
 			}
-			for _, uc := range tbl.UniqueConstraints {
-				found := false
-				for _, def := range uniqueDefs {
-					lowerDef := strings.ToLower(def)
-					allColsMatch := true
-					for _, col := range uc.Columns {
-						if !strings.Contains(lowerDef, strings.ToLower(col)) {
-							allColsMatch = false
-							break
-						}
-					}
-					if allColsMatch {
-						found = true
-						break
-					}
-				}
-				if !found {
-					// Also check unique indexes
-					var idxDefs []string
-					rows, err := database.QueryContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?`, tbl.Name)
-					if err == nil {
-						for rows.Next() {
-							var idef string
-							if err := rows.Scan(&idef); err == nil {
-								idxDefs = append(idxDefs, idef)
-							}
-						}
-						_ = rows.Close()
-					}
-					for _, idef := range idxDefs {
-						lowerDef := strings.ToLower(idef)
-						if strings.Contains(lowerDef, "unique") {
-							allColsMatch := true
-							for _, col := range uc.Columns {
-								if !strings.Contains(lowerDef, strings.ToLower(col)) {
-									allColsMatch = false
-									break
-								}
-							}
-							if allColsMatch {
-								found = true
-								break
-							}
-						}
-					}
-				}
-				if !found {
-					return fmt.Errorf("dbparity: table %q missing unique constraint on %v", tbl.Name, uc.Columns)
-				}
+			if !hasUC {
+				return fmt.Errorf("dbparity: table %q missing unique constraint on %v", tbl.Name, uc.Columns)
 			}
 		}
 	}
@@ -653,6 +711,13 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 
 			if !strings.EqualFold(info.tableName, idx.Table) {
 				return fmt.Errorf("dbparity: PostgreSQL index %q owning table mismatch: got table %q, want table %q", idx.Name, info.tableName, idx.Table)
+			}
+
+			if !info.isValid {
+				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q is invalid (indisvalid = false)", idx.Name, idx.Table)
+			}
+			if !info.isReady {
+				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q is not ready (indisready = false)", idx.Name, idx.Table)
 			}
 
 			if info.unique != idx.Unique {
@@ -680,7 +745,11 @@ func VerifyPostgresSchema(ctx context.Context, database *bun.DB, spec LogicalSch
 				return fmt.Errorf("dbparity: PostgreSQL index %q on table %q unexpected partial predicate: got %q, want non-partial index", idx.Name, idx.Table, info.predicate)
 			}
 		} else {
-			if !postgresHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate) {
+			matched, err := postgresHasIndexMatching(ctx, database, idx.Table, idx.Columns, idx.Unique, idx.Predicate)
+			if err != nil {
+				return fmt.Errorf("dbparity: postgres check unnamed index on table %q (%v): %w", idx.Table, idx.Columns, err)
+			}
+			if !matched {
 				return fmt.Errorf("dbparity: table %q missing index on %v (unique=%v)", idx.Table, idx.Columns, idx.Unique)
 			}
 		}
@@ -714,8 +783,58 @@ type sqliteColInfo struct {
 	pk      int
 }
 
+type sqliteFKEntry struct {
+	id         int
+	seq        int
+	refTable   string
+	fromColumn string
+	toColumn   sql.NullString
+}
+
+func sqliteGetForeignKeys(ctx context.Context, database *bun.DB, tableName string) (map[int][]sqliteFKEntry, error) {
+	rows, err := database.QueryContext(ctx, `SELECT id, seq, "table", "from", "to" FROM pragma_foreign_key_list(?)`, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("dbparity: sqlite foreign_key_list %q: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	grouped := make(map[int][]sqliteFKEntry)
+	for rows.Next() {
+		var entry sqliteFKEntry
+		if err := rows.Scan(&entry.id, &entry.seq, &entry.refTable, &entry.fromColumn, &entry.toColumn); err != nil {
+			return nil, fmt.Errorf("dbparity: sqlite scan foreign_key_list %q: %w", tableName, err)
+		}
+		grouped[entry.id] = append(grouped[entry.id], entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: sqlite foreign_key_list rows %q: %w", tableName, err)
+	}
+	return grouped, nil
+}
+
+func sqlitePrimaryKeyColumns(ctx context.Context, database *bun.DB, tableName string) ([]string, error) {
+	colMap, err := sqliteTableColumns(ctx, database, tableName)
+	if err != nil {
+		return nil, err
+	}
+	pkMap := make(map[int]string)
+	var pkIndices []int
+	for _, info := range colMap {
+		if info.pk > 0 {
+			pkMap[info.pk] = info.name
+			pkIndices = append(pkIndices, info.pk)
+		}
+	}
+	slices.Sort(pkIndices)
+	var pkCols []string
+	for _, idx := range pkIndices {
+		pkCols = append(pkCols, pkMap[idx])
+	}
+	return pkCols, nil
+}
+
 func sqliteTableColumns(ctx context.Context, database *bun.DB, tableName string) (map[string]sqliteColInfo, error) {
-	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info('%s')", escapeIdentifier(tableName)))
+	rows, err := database.QueryContext(ctx, `SELECT cid, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?)`, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: sqlite table_info %q: %w", tableName, err)
 	}
@@ -729,6 +848,9 @@ func sqliteTableColumns(ctx context.Context, database *bun.DB, tableName string)
 		}
 		cols[strings.ToLower(info.name)] = info
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: sqlite table_info rows %q: %w", tableName, err)
+	}
 	return cols, nil
 }
 
@@ -739,9 +861,9 @@ type sqliteIndexEntry struct {
 }
 
 func sqliteGetIndexList(ctx context.Context, database *bun.DB, tableName string) ([]sqliteIndexEntry, error) {
-	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list('%s')", escapeIdentifier(tableName)))
+	rows, err := database.QueryContext(ctx, `SELECT seq, name, "unique", origin, partial FROM pragma_index_list(?)`, tableName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dbparity: sqlite index_list %q: %w", tableName, err)
 	}
 	defer rows.Close()
 
@@ -752,62 +874,73 @@ func sqliteGetIndexList(ctx context.Context, database *bun.DB, tableName string)
 		var isUnique int
 		var origin string
 		var partial int
-		if err := rows.Scan(&seq, &idxName, &isUnique, &origin, &partial); err == nil {
-			entries = append(entries, sqliteIndexEntry{
-				name:    idxName,
-				unique:  isUnique == 1,
-				partial: partial == 1,
-			})
+		if err := rows.Scan(&seq, &idxName, &isUnique, &origin, &partial); err != nil {
+			return nil, fmt.Errorf("dbparity: sqlite scan index_list %q: %w", tableName, err)
 		}
+		entries = append(entries, sqliteIndexEntry{
+			name:    idxName,
+			unique:  isUnique == 1,
+			partial: partial == 1,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: sqlite index_list rows %q: %w", tableName, err)
 	}
 	return entries, nil
 }
 
-func sqliteHasUniqueConstraint(ctx context.Context, database *bun.DB, tableName string, columns []string, lowerDDL string) bool {
-	// Check PRAGMA index_list
+func sqliteHasUniqueConstraint(ctx context.Context, database *bun.DB, tableName string, columns []string) (bool, error) {
 	entries, err := sqliteGetIndexList(ctx, database, tableName)
-	if err == nil {
-		for _, entry := range entries {
-			if entry.unique {
-				// Check index columns
-				idxCols, err := sqliteIndexColumns(ctx, database, entry.name)
-				if err == nil && equalFoldSlice(idxCols, columns) {
-					return true
-				}
+	if err != nil {
+		return false, fmt.Errorf("dbparity: sqlite get index list for %q: %w", tableName, err)
+	}
+	for _, entry := range entries {
+		if entry.unique && !entry.partial {
+			idxCols, err := sqliteIndexColumns(ctx, database, entry.name)
+			if err != nil {
+				return false, fmt.Errorf("dbparity: sqlite index columns for %q: %w", entry.name, err)
+			}
+			if equalFoldSlice(idxCols, columns) {
+				return true, nil
 			}
 		}
 	}
-	// Fallback to DDL
-	for _, col := range columns {
-		if !strings.Contains(lowerDDL, strings.ToLower(col)) {
-			return false
-		}
-	}
-	return strings.Contains(lowerDDL, "unique")
+	return false, nil
 }
 
 func sqliteIndexColumns(ctx context.Context, database *bun.DB, indexName string) ([]string, error) {
-	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA index_info('%s')", escapeIdentifier(indexName)))
+	rows, err := database.QueryContext(ctx, `SELECT seqno, cid, name, "key" FROM pragma_index_xinfo(?) WHERE "key" = 1 ORDER BY seqno`, indexName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dbparity: sqlite index_xinfo %q: %w", indexName, err)
 	}
 	defer rows.Close()
 
 	var cols []string
 	for rows.Next() {
-		var seqno, cid int
-		var name string
-		if err := rows.Scan(&seqno, &cid, &name); err == nil {
-			cols = append(cols, name)
+		var seqno, cid, isKey int
+		var name sql.NullString
+		if err := rows.Scan(&seqno, &cid, &name, &isKey); err != nil {
+			return nil, fmt.Errorf("dbparity: sqlite scan index_xinfo %q: %w", indexName, err)
 		}
+		if isKey != 1 {
+			continue
+		}
+		if cid < 0 || !name.Valid || name.String == "" {
+			cols = append(cols, "")
+		} else {
+			cols = append(cols, name.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: sqlite index_xinfo rows %q: %w", indexName, err)
 	}
 	return cols, nil
 }
 
-func sqliteHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) bool {
+func sqliteHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) (bool, error) {
 	entries, err := sqliteGetIndexList(ctx, database, tableName)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("dbparity: sqlite get index list for %q: %w", tableName, err)
 	}
 
 	for _, entry := range entries {
@@ -821,19 +954,24 @@ func sqliteHasIndexMatching(ctx context.Context, database *bun.DB, tableName str
 			continue
 		}
 		idxCols, err := sqliteIndexColumns(ctx, database, entry.name)
-		if err != nil || !equalFoldSlice(idxCols, columns) {
+		if err != nil {
+			return false, fmt.Errorf("dbparity: sqlite get index columns for %q: %w", entry.name, err)
+		}
+		if !equalFoldSlice(idxCols, columns) {
 			continue
 		}
 		if predicate != "" {
 			var idxSQL sql.NullString
-			_ = database.NewRaw(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`, entry.name).Scan(ctx, &idxSQL)
+			if err := database.NewRaw(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`, entry.name).Scan(ctx, &idxSQL); err != nil {
+				return false, fmt.Errorf("dbparity: sqlite get index definition for %q: %w", entry.name, err)
+			}
 			if !idxSQL.Valid || !matchPredicate(predicate, idxSQL.String) {
 				continue
 			}
 		}
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 type pgColInfo struct {
@@ -862,6 +1000,9 @@ WHERE table_schema = current_schema() AND table_name = ?`, tableName)
 		}
 		cols[strings.ToLower(info.columnName)] = info
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: postgres table columns rows for %q: %w", tableName, err)
+	}
 	return cols, nil
 }
 
@@ -889,6 +1030,9 @@ ORDER BY kcu.ordinal_position`, tableName)
 		}
 		cols = append(cols, strings.ToLower(col))
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: postgres PK columns rows for %q: %w", tableName, err)
+	}
 	return cols, nil
 }
 
@@ -913,6 +1057,9 @@ WHERE n.nspname = current_schema()
 			return nil, fmt.Errorf("dbparity: postgres scan constraint def: %w", err)
 		}
 		defs = append(defs, def)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: postgres constraint def rows for %q: %w", tableName, err)
 	}
 	return defs, nil
 }
@@ -1028,8 +1175,164 @@ func equalFoldSlice(a, b []string) bool {
 	return true
 }
 
-func escapeIdentifier(ident string) string {
-	return strings.ReplaceAll(ident, "'", "''")
+type pgFKInfo struct {
+	name      string
+	refTable  string
+	localCols []string
+	refCols   []string
+}
+
+func postgresGetForeignKeys(ctx context.Context, database *bun.DB, tableName string) ([]pgFKInfo, error) {
+	rows, err := database.QueryContext(ctx, `
+SELECT
+    c.conname AS constraint_name,
+    ft.relname AS ref_table,
+    (
+        SELECT COALESCE(json_agg(a.attname::text ORDER BY k.ord), '[]'::json)
+        FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+    )::text AS local_columns_json,
+    (
+        SELECT COALESCE(json_agg(fa.attname::text ORDER BY fk.ord), '[]'::json)
+        FROM unnest(c.confkey) WITH ORDINALITY AS fk(attnum, ord)
+        JOIN pg_attribute fa ON fa.attrelid = c.confrelid AND fa.attnum = fk.attnum
+    )::text AS ref_columns_json
+FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+JOIN pg_class ft ON ft.oid = c.confrelid
+JOIN pg_namespace fn ON fn.oid = ft.relnamespace
+WHERE n.nspname = current_schema()
+  AND fn.nspname = current_schema()
+  AND t.relname = ?
+  AND c.contype = 'f'`, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("dbparity: postgres query foreign keys for %q: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	var fks []pgFKInfo
+	for rows.Next() {
+		var name, refTable, localJSON, refJSON string
+		if err := rows.Scan(&name, &refTable, &localJSON, &refJSON); err != nil {
+			return nil, fmt.Errorf("dbparity: postgres scan foreign key for %q: %w", tableName, err)
+		}
+		var localCols, refCols []string
+		if err := json.Unmarshal([]byte(localJSON), &localCols); err != nil {
+			return nil, fmt.Errorf("dbparity: postgres unmarshal local columns for FK %q: %w", name, err)
+		}
+		if err := json.Unmarshal([]byte(refJSON), &refCols); err != nil {
+			return nil, fmt.Errorf("dbparity: postgres unmarshal ref columns for FK %q: %w", name, err)
+		}
+		fks = append(fks, pgFKInfo{
+			name:      name,
+			refTable:  refTable,
+			localCols: localCols,
+			refCols:   refCols,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: postgres foreign keys rows for %q: %w", tableName, err)
+	}
+	return fks, nil
+}
+
+func postgresHasUniqueConstraint(ctx context.Context, database *bun.DB, tableName string, columns []string) (bool, error) {
+	// 1. Check pg_constraint where contype = 'u'
+	matchedConstraint, err := func() (bool, error) {
+		rows, err := database.QueryContext(ctx, `
+SELECT
+    c.conname AS constraint_name,
+    (
+        SELECT COALESCE(json_agg(a.attname::text ORDER BY k.ord), '[]'::json)
+        FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+    )::text AS columns_json
+FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = ?
+  AND c.contype = 'u'`, tableName)
+		if err != nil {
+			return false, fmt.Errorf("dbparity: postgres query unique constraints for %q: %w", tableName, err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var name, colsJSON string
+			if err := rows.Scan(&name, &colsJSON); err != nil {
+				return false, fmt.Errorf("dbparity: postgres scan unique constraint for %q: %w", tableName, err)
+			}
+			var cols []string
+			if err := json.Unmarshal([]byte(colsJSON), &cols); err != nil {
+				return false, fmt.Errorf("dbparity: postgres unmarshal unique columns for %q: %w", name, err)
+			}
+			if equalFoldSlice(cols, columns) {
+				return true, nil
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("dbparity: postgres unique constraint rows for %q: %w", tableName, err)
+		}
+		return false, nil
+	}()
+	if err != nil {
+		return false, err
+	}
+	if matchedConstraint {
+		return true, nil
+	}
+
+	// 2. Also check unique indexes (non-partial) on the table; ignore INCLUDE columns (k.ord <= i.indnkeyatts)
+	// and preserve expression positions via LEFT JOIN.
+	matchedIndex, err := func() (bool, error) {
+		idxRows, err := database.QueryContext(ctx, `
+SELECT
+    c.relname AS index_name,
+    (
+        SELECT COALESCE(json_agg(COALESCE(a.attname::text, '') ORDER BY k.ord), '[]'::json)
+        FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+        LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum AND k.attnum > 0
+        WHERE k.ord <= i.indnkeyatts
+    )::text AS columns_json
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = ?
+  AND i.indisunique = true
+  AND i.indpred IS NULL
+  AND i.indisvalid = true
+  AND i.indisready = true`, tableName)
+		if err != nil {
+			return false, fmt.Errorf("dbparity: postgres query unique indexes for %q: %w", tableName, err)
+		}
+		defer idxRows.Close()
+
+		for idxRows.Next() {
+			var name, colsJSON string
+			if err := idxRows.Scan(&name, &colsJSON); err != nil {
+				return false, fmt.Errorf("dbparity: postgres scan unique index for %q: %w", tableName, err)
+			}
+			var cols []string
+			if err := json.Unmarshal([]byte(colsJSON), &cols); err != nil {
+				return false, fmt.Errorf("dbparity: postgres unmarshal unique index columns for %q: %w", name, err)
+			}
+			if equalFoldSlice(cols, columns) {
+				return true, nil
+			}
+		}
+		if err := idxRows.Err(); err != nil {
+			return false, fmt.Errorf("dbparity: postgres unique index rows for %q: %w", tableName, err)
+		}
+		return false, nil
+	}()
+	if err != nil {
+		return false, err
+	}
+	return matchedIndex, nil
 }
 
 type pgIndexDetailed struct {
@@ -1037,6 +1340,8 @@ type pgIndexDetailed struct {
 	tableName string
 	unique    bool
 	partial   bool
+	isValid   bool
+	isReady   bool
 	columns   []string
 	predicate string
 	indexDef  string
@@ -1050,6 +1355,8 @@ SELECT
     t.relname AS table_name,
     i.indisunique AS is_unique,
     i.indpred IS NOT NULL AS is_partial,
+    i.indisvalid AS is_valid,
+    i.indisready AS is_ready,
     COALESCE(pg_get_expr(i.indpred, i.indrelid), '') AS predicate,
     COALESCE(pi.indexdef, '') AS indexdef
 FROM pg_index i
@@ -1060,8 +1367,8 @@ LEFT JOIN pg_indexes pi ON pi.schemaname = n.nspname AND pi.indexname = c.relnam
 WHERE n.nspname = current_schema()
   AND c.relname = ?`, indexName)
 
-	if err := row.Scan(&info.name, &info.tableName, &info.unique, &info.partial, &info.predicate, &info.indexDef); err != nil {
-		if err == sql.ErrNoRows {
+	if err := row.Scan(&info.name, &info.tableName, &info.unique, &info.partial, &info.isValid, &info.isReady, &info.predicate, &info.indexDef); err != nil {
+		if IsMissingRow(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("dbparity: postgres query index %q: %w", indexName, err)
@@ -1077,12 +1384,12 @@ WHERE n.nspname = current_schema()
 
 func postgresIndexColumns(ctx context.Context, database *bun.DB, indexName string) ([]string, error) {
 	rows, err := database.QueryContext(ctx, `
-SELECT a.attname
+SELECT COALESCE(a.attname, '')
 FROM pg_index i
 JOIN pg_class c ON c.oid = i.indexrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-JOIN unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
-JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+JOIN unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON k.ord <= i.indnkeyatts
+LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum AND k.attnum > 0
 WHERE n.nspname = current_schema()
   AND c.relname = ?
 ORDER BY k.ord`, indexName)
@@ -1099,11 +1406,15 @@ ORDER BY k.ord`, indexName)
 		}
 		cols = append(cols, col)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dbparity: postgres index columns rows for %q: %w", indexName, err)
+	}
 	return cols, nil
 }
 
-func postgresHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) bool {
-	rows, err := database.QueryContext(ctx, `
+func postgresHasIndexMatching(ctx context.Context, database *bun.DB, tableName string, columns []string, unique bool, predicate string) (bool, error) {
+	indexNames, err := func() ([]string, error) {
+		rows, err := database.QueryContext(ctx, `
 SELECT c.relname
 FROM pg_index i
 JOIN pg_class c ON c.oid = i.indexrelid
@@ -1111,21 +1422,37 @@ JOIN pg_class t ON t.oid = i.indrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = current_schema()
   AND t.relname = ?`, tableName)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-
-	var indexNames []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err == nil {
-			indexNames = append(indexNames, name)
+		if err != nil {
+			return nil, fmt.Errorf("dbparity: postgres query index names for table %q: %w", tableName, err)
 		}
+		defer rows.Close()
+
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, fmt.Errorf("dbparity: postgres scan index name for table %q: %w", tableName, err)
+			}
+			names = append(names, name)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("dbparity: postgres query index names rows for %q: %w", tableName, err)
+		}
+		return names, nil
+	}()
+	if err != nil {
+		return false, err
 	}
+
 	for _, idxName := range indexNames {
 		info, err := postgresGetIndexDetailed(ctx, database, idxName)
-		if err != nil || info == nil {
+		if err != nil {
+			return false, err
+		}
+		if info == nil {
+			continue
+		}
+		if !info.isValid || !info.isReady {
 			continue
 		}
 		if info.unique != unique {
@@ -1149,9 +1476,9 @@ WHERE n.nspname = current_schema()
 				continue
 			}
 		}
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 var typeCastRegex = regexp.MustCompile(`::[a-zA-Z0-9_]+`)

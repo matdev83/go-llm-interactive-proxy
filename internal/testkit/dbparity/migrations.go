@@ -23,7 +23,9 @@ type MigrationFile struct {
 
 // DiscoverMigrations discovers versioned migration files in the specified directory root.
 // It extracts 14-digit timestamp IDs from filenames matching ^\d{14}_.+\.go$, excluding _test.go files.
-// Discovered migrations are deduplicated by timestamp ID and returned sorted chronologically by timestamp ID.
+// Discovered migrations are returned sorted chronologically by timestamp ID.
+// If two eligible migration files share the same 14-digit timestamp ID, an error is returned
+// naming the duplicate ID and both filenames.
 func DiscoverMigrations(root string) ([]MigrationFile, error) {
 	trimmedRoot := strings.TrimSpace(root)
 	if trimmedRoot == "" {
@@ -32,23 +34,23 @@ func DiscoverMigrations(root string) ([]MigrationFile, error) {
 
 	info, err := os.Stat(trimmedRoot)
 	if err != nil {
-		return nil, fmt.Errorf("stat migration root %s: %w", root, err)
+		return nil, fmt.Errorf("stat migration root %s: %w", trimmedRoot, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("migration root %s is not a directory", root)
+		return nil, fmt.Errorf("migration root %s is not a directory", trimmedRoot)
 	}
 
 	entries, err := os.ReadDir(trimmedRoot)
 	if err != nil {
-		return nil, fmt.Errorf("read migration root %s: %w", root, err)
+		return nil, fmt.Errorf("read migration root %s: %w", trimmedRoot, err)
 	}
 
-	// Sort entries by filename first for deterministic deduplication
+	// Sort entries by filename first for deterministic deduplication and error reporting
 	slices.SortFunc(entries, func(a, b os.DirEntry) int {
 		return strings.Compare(a.Name(), b.Name())
 	})
 
-	seenIDs := make(map[string]bool)
+	seenFiles := make(map[string]string)
 	var migrations []MigrationFile
 
 	for _, entry := range entries {
@@ -67,16 +69,16 @@ func DiscoverMigrations(root string) ([]MigrationFile, error) {
 		id := matches[1]
 		name := matches[2]
 
-		if seenIDs[id] {
-			continue
+		if prevFilename, exists := seenFiles[id]; exists {
+			return nil, fmt.Errorf("duplicate migration ID %s found in %s and %s", id, prevFilename, filename)
 		}
-		seenIDs[id] = true
+		seenFiles[id] = filename
 
 		migrations = append(migrations, MigrationFile{
 			ID:       id,
 			Name:     name,
 			Filename: filename,
-			Path:     filepath.ToSlash(filepath.Join(root, filename)),
+			Path:     filepath.ToSlash(filepath.Join(trimmedRoot, filename)),
 		})
 	}
 
@@ -106,29 +108,34 @@ func MigrationIDs(files []MigrationFile) []string {
 }
 
 // DiscoverComponentMigrations discovers all versioned migration files across all migration roots of a component.
-// Discovered migrations are deduplicated across roots and returned sorted chronologically by timestamp ID.
+// Discovered migrations are returned sorted chronologically by timestamp ID.
+// If two migration files across roots share the same 14-digit timestamp ID, an error is returned
+// naming the component, the duplicate ID, and both file paths.
 func DiscoverComponentMigrations(repoRoot string, comp Component) ([]MigrationFile, error) {
-	seenIDs := make(map[string]bool)
+	trimmedRepoRoot := strings.TrimSpace(repoRoot)
+	seen := make(map[string]MigrationFile)
 	var allMigrations []MigrationFile
 
 	for _, mr := range comp.MigrationRoots {
-		absDir := filepath.Join(repoRoot, filepath.FromSlash(mr))
+		trimmedMR := strings.TrimSpace(mr)
+		absDir := filepath.Join(trimmedRepoRoot, filepath.FromSlash(trimmedMR))
 		migrations, err := DiscoverMigrations(absDir)
 		if err != nil {
 			return nil, fmt.Errorf("component %q: discover migrations in %s: %w", comp.ID, mr, err)
 		}
 		for _, m := range migrations {
-			if seenIDs[m.ID] {
-				continue
-			}
-			seenIDs[m.ID] = true
 			relPath := m.Path
-			if repoRoot != "" {
-				if rel, err := filepath.Rel(repoRoot, m.Path); err == nil {
+			if trimmedRepoRoot != "" {
+				if rel, err := filepath.Rel(trimmedRepoRoot, m.Path); err == nil {
 					relPath = filepath.ToSlash(rel)
 				}
 			}
 			m.Path = relPath
+
+			if prev, exists := seen[m.ID]; exists {
+				return nil, fmt.Errorf("component %q: duplicate migration ID %s found in %s and %s", comp.ID, m.ID, prev.Path, m.Path)
+			}
+			seen[m.ID] = m
 			allMigrations = append(allMigrations, m)
 		}
 	}

@@ -160,7 +160,43 @@ func TestDiscoverMigrations_NotADirectory(t *testing.T) {
 	}
 }
 
-func TestDiscoverMigrations_DuplicateTimestampDeduplication(t *testing.T) {
+func TestDiscoverMigrations_WhitespaceRoot(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	migFile := "20260101000000_baseline.go"
+	filePath := filepath.Join(tmpDir, migFile)
+	if err := os.WriteFile(filePath, []byte("package test\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Test with leading and trailing whitespace
+	whitespacePath := "  \t " + tmpDir + " \n \t "
+	discovered, err := dbparity.DiscoverMigrations(whitespacePath)
+	if err != nil {
+		t.Fatalf("DiscoverMigrations with whitespace path error: %v", err)
+	}
+
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d; want 1", len(discovered))
+	}
+
+	expectedPath := filepath.ToSlash(filePath)
+	if discovered[0].Path != expectedPath {
+		t.Errorf("discovered[0].Path = %q; want %q", discovered[0].Path, expectedPath)
+	}
+
+	// Verify that the discovered path can be read directly
+	content, err := os.ReadFile(discovered[0].Path)
+	if err != nil {
+		t.Fatalf("ReadFile from discovered path %q failed: %v", discovered[0].Path, err)
+	}
+	if string(content) != "package test\n" {
+		t.Errorf("content = %q; want %q", string(content), "package test\n")
+	}
+}
+
+func TestDiscoverMigrations_DuplicateTimestampError(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -171,20 +207,20 @@ func TestDiscoverMigrations_DuplicateTimestampDeduplication(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	discovered, err := dbparity.DiscoverMigrations(tmpDir)
-	if err != nil {
-		t.Fatalf("DiscoverMigrations unexpected error: %v", err)
+	_, err := dbparity.DiscoverMigrations(tmpDir)
+	if err == nil {
+		t.Fatal("expected error on duplicate migration timestamp ID, got nil")
 	}
 
-	if len(discovered) != 1 {
-		t.Fatalf("len(discovered) = %d; want 1 unique migration for duplicate timestamp", len(discovered))
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "20260101000000") {
+		t.Errorf("error %q should contain duplicate ID 20260101000000", errMsg)
 	}
-	if discovered[0].ID != "20260101000000" {
-		t.Errorf("discovered[0].ID = %q; want 20260101000000", discovered[0].ID)
+	if !strings.Contains(errMsg, "20260101000000_first.go") {
+		t.Errorf("error %q should contain first filename 20260101000000_first.go", errMsg)
 	}
-	// Deterministic selection picks the first alphabetically by filename
-	if discovered[0].Filename != "20260101000000_first.go" {
-		t.Errorf("discovered[0].Filename = %q; want 20260101000000_first.go", discovered[0].Filename)
+	if !strings.Contains(errMsg, "20260101000000_second.go") {
+		t.Errorf("error %q should contain second filename 20260101000000_second.go", errMsg)
 	}
 }
 
@@ -289,17 +325,65 @@ func TestDiscoverComponentMigrations(t *testing.T) {
 	if discovered[0].ID != "20260101000000" || discovered[1].ID != "20260201000000" {
 		t.Errorf("unexpected discovered IDs: %+v", discovered)
 	}
+	if discovered[0].Path != "internal/storeA/20260101000000_a.go" {
+		t.Errorf("discovered[0].Path = %q; want %q", discovered[0].Path, "internal/storeA/20260101000000_a.go")
+	}
+	if discovered[1].Path != "internal/storeB/20260201000000_b.go" {
+		t.Errorf("discovered[1].Path = %q; want %q", discovered[1].Path, "internal/storeB/20260201000000_b.go")
+	}
 
-	// Test deduplication across multiple roots in same component
+	// Test duplicate ID across multiple roots returns error
 	if err := os.WriteFile(filepath.Join(dirB, "20260101000000_duplicate.go"), []byte("package test\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	discoveredDedup, err := dbparity.DiscoverComponentMigrations(repoRoot, comp)
-	if err != nil {
-		t.Fatalf("DiscoverComponentMigrations unexpected error on duplicate across roots: %v", err)
+	_, err = dbparity.DiscoverComponentMigrations(repoRoot, comp)
+	if err == nil {
+		t.Fatal("expected error on duplicate migration ID across roots, got nil")
 	}
-	if len(discoveredDedup) != 2 {
-		t.Fatalf("len(discoveredDedup) = %d; want 2 unique migrations", len(discoveredDedup))
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "multi-root-comp") {
+		t.Errorf("error %q should contain component ID multi-root-comp", errMsg)
+	}
+	if !strings.Contains(errMsg, "20260101000000") {
+		t.Errorf("error %q should contain duplicate ID 20260101000000", errMsg)
+	}
+	if !strings.Contains(errMsg, "internal/storeA/20260101000000_a.go") {
+		t.Errorf("error %q should contain first path internal/storeA/20260101000000_a.go", errMsg)
+	}
+	if !strings.Contains(errMsg, "internal/storeB/20260101000000_duplicate.go") {
+		t.Errorf("error %q should contain second path internal/storeB/20260101000000_duplicate.go", errMsg)
+	}
+}
+
+func TestDiscoverComponentMigrations_WhitespaceRepoRoot(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	dirA := filepath.Join(repoRoot, "internal", "storeA")
+	if err := os.MkdirAll(dirA, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirA, "20260101000000_a.go"), []byte("package test\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	comp := dbparity.Component{
+		ID: "ws-comp",
+		MigrationRoots: []string{
+			"internal/storeA",
+		},
+	}
+
+	whitespaceRoot := "  \t " + repoRoot + " \n "
+	discovered, err := dbparity.DiscoverComponentMigrations(whitespaceRoot, comp)
+	if err != nil {
+		t.Fatalf("DiscoverComponentMigrations with whitespace repoRoot error: %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("len(discovered) = %d; want 1", len(discovered))
+	}
+	if discovered[0].Path != "internal/storeA/20260101000000_a.go" {
+		t.Errorf("discovered[0].Path = %q; want %q", discovered[0].Path, "internal/storeA/20260101000000_a.go")
 	}
 }
 

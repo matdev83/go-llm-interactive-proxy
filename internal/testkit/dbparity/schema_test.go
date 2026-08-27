@@ -3,6 +3,8 @@ package dbparity_test
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -818,4 +820,663 @@ CREATE TABLE items (
 			t.Fatalf("expected error naming 'got no default', got: %v", err)
 		}
 	})
+}
+
+func TestVerifySchema_SpecValidation_EmptyColumns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	t.Run("empty foreign key columns rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "orders",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{}, RefTable: "users"},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "empty columns") {
+			t.Fatalf("expected empty columns error for FK, got: %v", err)
+		}
+	})
+
+	t.Run("empty unique constraint columns rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "users",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "empty columns") {
+			t.Fatalf("expected empty columns error for unique constraint, got: %v", err)
+		}
+	})
+
+	t.Run("empty index columns rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{Name: "idx_empty", Table: "users", Columns: []string{}},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "empty columns") {
+			t.Fatalf("expected empty columns error for index, got: %v", err)
+		}
+	})
+
+	t.Run("mismatched FK ref_columns count rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "orders",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"a", "b"}, RefTable: "parent", RefColumns: []string{"pa"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil || !strings.Contains(err.Error(), "mismatched column counts") {
+			t.Fatalf("expected mismatched column counts error, got: %v", err)
+		}
+	})
+}
+
+func TestVerifySchema_SQLite_SafeQuotedIdentifiers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	// Create table and index with quoted identifiers containing quotes and special characters
+	stmts := []string{
+		`CREATE TABLE "user""table" (
+			"id""col" TEXT PRIMARY KEY,
+			"val""col" TEXT NOT NULL
+		);`,
+		`CREATE INDEX "idx""user""val" ON "user""table" ("val""col");`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL failed: %v", err)
+		}
+	}
+
+	spec := dbparity.LogicalSchemaSpec{
+		Tables: []dbparity.TableSpec{
+			{
+				Name: `user"table`,
+				Columns: []dbparity.ColumnSpec{
+					{Name: `id"col`, Type: dbparity.TypeText, PrimaryKey: true},
+					{Name: `val"col`, Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+				},
+				PrimaryKey: []string{`id"col`},
+			},
+		},
+		Indexes: []dbparity.IndexSpec{
+			{
+				Name:    `idx"user"val`,
+				Table:   `user"table`,
+				Columns: []string{`val"col`},
+				Unique:  false,
+			},
+		},
+	}
+
+	if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+		t.Fatalf("expected quoted table and index lookup to succeed, got: %v", err)
+	}
+}
+
+func TestVerifySchema_SQLite_ExactUniqueConstraints(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	stmts := []string{
+		`CREATE TABLE compound_unique (
+			id TEXT PRIMARY KEY,
+			col_a TEXT NOT NULL,
+			col_b TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT 'this is unique text',
+			CONSTRAINT uq_compound UNIQUE (col_a, col_b)
+		);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL failed: %v", err)
+		}
+	}
+
+	t.Run("exact composite unique constraint passes", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "compound_unique",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"col_a", "col_b"}},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected exact composite unique to pass, got: %v", err)
+		}
+	})
+
+	t.Run("subset of composite unique rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "compound_unique",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"col_a"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error when verifying subset [col_a] against UNIQUE(col_a, col_b)")
+		}
+		if !strings.Contains(err.Error(), "missing unique constraint on [col_a]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("reversed column order in composite unique rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "compound_unique",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"col_b", "col_a"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error for reversed column order in unique constraint")
+		}
+		if !strings.Contains(err.Error(), "missing unique constraint on [col_b col_a]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("unrelated unique substring in DDL rejected", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "compound_unique",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"description"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error for non-unique column even if DDL contains word 'unique'")
+		}
+		if !strings.Contains(err.Error(), "missing unique constraint on [description]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
+
+func TestVerifySchema_SQLite_ExactForeignKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	stmts := []string{
+		`CREATE TABLE parents (
+			p_id1 TEXT NOT NULL,
+			p_id2 TEXT NOT NULL,
+			extra TEXT,
+			PRIMARY KEY (p_id1, p_id2)
+		);`,
+		`CREATE TABLE children (
+			c_id TEXT PRIMARY KEY,
+			f_id1 TEXT NOT NULL,
+			f_id2 TEXT NOT NULL,
+			note TEXT DEFAULT 'references parents',
+			FOREIGN KEY (f_id1, f_id2) REFERENCES parents(p_id1, p_id2)
+		);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL failed: %v", err)
+		}
+	}
+
+	t.Run("exact composite FK passes without explicit ref columns", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "children",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"f_id1", "f_id2"}, RefTable: "parents"},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected exact composite FK to pass, got: %v", err)
+		}
+	})
+
+	t.Run("exact composite FK passes with matching ref columns", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "children",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"f_id1", "f_id2"}, RefTable: "parents", RefColumns: []string{"p_id1", "p_id2"}},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected composite FK with ref columns to pass, got: %v", err)
+		}
+	})
+
+	t.Run("composite FK fails when local column subset requested", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "children",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"f_id1"}, RefTable: "parents"},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error when requesting subset [f_id1] for composite FK")
+		}
+		if !strings.Contains(err.Error(), "missing foreign key referencing \"parents\"") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("composite FK fails when ref columns reversed", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "children",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"f_id1", "f_id2"}, RefTable: "parents", RefColumns: []string{"p_id2", "p_id1"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error when ref columns order does not match")
+		}
+		if !strings.Contains(err.Error(), "missing foreign key referencing \"parents\"") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("foreign key referencing wrong table rejected even if DDL contains word 'references'", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "children",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"note"}, RefTable: "parents"},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error for fake foreign key on column 'note'")
+		}
+		if !strings.Contains(err.Error(), "missing foreign key referencing \"parents\"") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
+
+func TestVerifySchema_SentinelErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	if _, err := bunDB.ExecContext(ctx, "CREATE TABLE sentinel_test (id TEXT PRIMARY KEY);"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	// When index doesn't exist, sqlite_master query returns sql.ErrNoRows or 0 rows
+	spec := dbparity.LogicalSchemaSpec{
+		Indexes: []dbparity.IndexSpec{
+			{Name: "non_existent_idx", Table: "sentinel_test", Columns: []string{"id"}},
+		},
+	}
+	err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+	if err == nil {
+		t.Fatal("expected error for non-existent index")
+	}
+	if !strings.Contains(err.Error(), "missing SQLite index \"non_existent_idx\"") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestVerifySchema_SQLite_ExpressionKeyIndexes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	stmts := []string{
+		`CREATE TABLE expr_test (
+			id TEXT PRIMARY KEY,
+			col_a TEXT NOT NULL,
+			col_b TEXT NOT NULL,
+			col_c TEXT NOT NULL
+		);`,
+		`CREATE UNIQUE INDEX idx_expr_unique ON expr_test (col_a, lower(col_b));`,
+		`CREATE INDEX idx_expr_middle ON expr_test (col_a, lower(col_b), col_c);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL: %v", err)
+		}
+	}
+
+	t.Run("expression key in unique index cannot satisfy column-only unique constraint [col_a]", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "expr_test",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"col_a"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error: index on (col_a, lower(col_b)) must NOT satisfy UNIQUE(col_a)")
+		}
+		if !strings.Contains(err.Error(), "missing unique constraint on [col_a]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("expression key in unique index cannot satisfy column-only unique constraint [col_a, col_b]", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "expr_test",
+					UniqueConstraints: []dbparity.UniqueConstraintSpec{
+						{Columns: []string{"col_a", "col_b"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error: index on (col_a, lower(col_b)) must NOT satisfy UNIQUE(col_a, col_b)")
+		}
+		if !strings.Contains(err.Error(), "missing unique constraint on [col_a col_b]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("expression key in named index preserves position and rejects column list [col_a, col_c]", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Name:    "idx_expr_middle",
+					Table:   "expr_test",
+					Columns: []string{"col_a", "col_c"},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error: index on (col_a, lower(col_b), col_c) must NOT match columns [col_a, col_c]")
+		}
+		if !strings.Contains(err.Error(), "columns mismatch") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
+
+func TestVerifySchema_SQLite_ImplicitForeignKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	stmts := []string{
+		`CREATE TABLE parent_users (
+			user_id TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);`,
+		`CREATE TABLE child_orders (
+			order_id TEXT PRIMARY KEY,
+			buyer_id TEXT NOT NULL REFERENCES parent_users,
+			description TEXT
+		);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL: %v", err)
+		}
+	}
+
+	t.Run("implicit target FK passes when RefColumns omitted", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "child_orders",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"buyer_id"}, RefTable: "parent_users"},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected implicit target FK with omitted RefColumns to pass, got: %v", err)
+		}
+	})
+
+	t.Run("implicit target FK passes when RefColumns matches parent primary key", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "child_orders",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"buyer_id"}, RefTable: "parent_users", RefColumns: []string{"user_id"}},
+					},
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected implicit target FK with matching parent PK to pass, got: %v", err)
+		}
+	})
+
+	t.Run("implicit target FK fails when RefColumns does not match parent primary key", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Tables: []dbparity.TableSpec{
+				{
+					Name: "child_orders",
+					ForeignKeys: []dbparity.ForeignKeySpec{
+						{Columns: []string{"buyer_id"}, RefTable: "parent_users", RefColumns: []string{"name"}},
+					},
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error when RefColumns does not match parent PK")
+		}
+		if !strings.Contains(err.Error(), "missing foreign key referencing \"parent_users\"") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
+
+func TestVerifySchema_SQLite_UnnamedIndex_Validation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bunDB := newSQLiteTestDB(t)
+
+	stmts := []string{
+		`CREATE TABLE products (
+			id TEXT PRIMARY KEY,
+			sku TEXT NOT NULL,
+			category TEXT NOT NULL,
+			price_nano INTEGER NOT NULL,
+			is_active BOOLEAN NOT NULL
+		);`,
+		`CREATE UNIQUE INDEX idx_products_sku_uq ON products(sku);`,
+		`CREATE INDEX idx_products_cat_price ON products(category, price_nano);`,
+		`CREATE INDEX idx_products_active_cat ON products(category) WHERE is_active = 1;`,
+	}
+	for _, stmt := range stmts {
+		if _, err := bunDB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("exec DDL: %v", err)
+		}
+	}
+
+	t.Run("unnamed unique index passes", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:   "products",
+					Columns: []string{"sku"},
+					Unique:  true,
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected unnamed unique index matching to pass, got: %v", err)
+		}
+	})
+
+	t.Run("unnamed composite non-unique index passes", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:   "products",
+					Columns: []string{"category", "price_nano"},
+					Unique:  false,
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected unnamed composite index matching to pass, got: %v", err)
+		}
+	})
+
+	t.Run("unnamed partial index passes with matching predicate", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:     "products",
+					Columns:   []string{"category"},
+					Unique:    false,
+					Predicate: "is_active = 1",
+				},
+			},
+		}
+		if err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec); err != nil {
+			t.Fatalf("expected unnamed partial index matching to pass, got: %v", err)
+		}
+	})
+
+	t.Run("unnamed index missing columns fails", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:   "products",
+					Columns: []string{"price_nano", "category"},
+					Unique:  false,
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error for reversed column order on unnamed index")
+		}
+		if !strings.Contains(err.Error(), "missing index on [price_nano category]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("unnamed index uniqueness mismatch fails", func(t *testing.T) {
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:   "products",
+					Columns: []string{"sku"},
+					Unique:  false,
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error when uniqueness does not match on unnamed index")
+		}
+		if !strings.Contains(err.Error(), "missing index on [sku]") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("cancelled context propagates introspection error", func(t *testing.T) {
+		cancCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		spec := dbparity.LogicalSchemaSpec{
+			Indexes: []dbparity.IndexSpec{
+				{
+					Table:   "products",
+					Columns: []string{"sku"},
+					Unique:  true,
+				},
+			},
+		}
+		err := dbparity.VerifySQLiteSchema(cancCtx, bunDB, spec)
+		if err == nil {
+			t.Fatal("expected error on cancelled context")
+		}
+		if !strings.Contains(err.Error(), "sqlite check unnamed index") && !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
+
+func TestIsMissingRow(t *testing.T) {
+	t.Parallel()
+
+	if dbparity.IsMissingRow(nil) {
+		t.Error("IsMissingRow(nil) should be false")
+	}
+	if !dbparity.IsMissingRow(sql.ErrNoRows) {
+		t.Error("IsMissingRow(sql.ErrNoRows) should be true")
+	}
+	if !dbparity.IsMissingRow(fmt.Errorf("wrapped: %w", sql.ErrNoRows)) {
+		t.Error("IsMissingRow(wrapped sql.ErrNoRows) should be true")
+	}
+	if !dbparity.IsMissingRow(fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", sql.ErrNoRows))) {
+		t.Error("IsMissingRow(nested wrapped sql.ErrNoRows) should be true")
+	}
+	if dbparity.IsMissingRow(errors.New("something else")) {
+		t.Error("IsMissingRow(other error) should be false")
+	}
 }
