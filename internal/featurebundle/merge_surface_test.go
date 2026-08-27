@@ -221,7 +221,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.SessionOpeners) != 0 || len(m.TrafficObservers) != 0 {
+	if len(m.SessionOpeners) != 0 || len(m.StreamObserverFactories) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -319,10 +319,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		CompletionGates:         []completion.Gate{testCompGate{tag: "cg1"}},
 		AttemptTransforms:       []request.AttemptTransform{testAttemptTransform{tag: "at1"}},
 		StreamObserverFactories: []response.StreamObserverFactory{testStreamObserverFactory{tag: "so1"}},
-		TrafficObservers:        []traffic.Observer{testTrafficObs{tag: "to1"}},
-		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo1"}},
-		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
-		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red1"}},
 		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co1"}},
 		CompactionPreservers:    []compaction.Preserver{testCompactionPreserver{tag: "cp1"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg1"}},
@@ -344,10 +340,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		CompletionGates:         []completion.Gate{testCompGate{tag: "cg2"}},
 		AttemptTransforms:       []request.AttemptTransform{testAttemptTransform{tag: "at2"}},
 		StreamObserverFactories: []response.StreamObserverFactory{testStreamObserverFactory{tag: "so2"}},
-		TrafficObservers:        []traffic.Observer{testTrafficObs{tag: "to2"}},
-		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo2"}},
-		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
-		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red2"}},
 		CompactionObservers:     []compaction.Observer{testCompactionObs{tag: "co2"}},
 		CompactionPreservers:    []compaction.Preserver{testCompactionPreserver{tag: "cp2"}},
 		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg2"}},
@@ -369,10 +361,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"CompletionGates", len(m.CompletionGates)},
 		{"AttemptTransforms", len(m.AttemptTransforms)},
 		{"StreamObserverFactories", len(m.StreamObserverFactories)},
-		{"TrafficObservers", len(m.TrafficObservers)},
-		{"UsageObservers", len(m.UsageObservers)},
-		{"RawCaptureSinks", len(m.RawCaptureSinks)},
-		{"TrafficRedactors", len(m.TrafficRedactors)},
 		{"CompactionObservers", len(m.CompactionObservers)},
 		{"CompactionPreservers", len(m.CompactionPreservers)},
 		{"SecretGuards", len(m.SecretGuards)},
@@ -426,30 +414,30 @@ func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:  lipfeature.SchemaVersionV1,
-		UsageObservers: []usage.Observer{testUsageObs{tag: "first"}},
+		SessionOpeners: []session.Opener{testOpener{tag: "first"}},
 	}
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:  lipfeature.SchemaVersionV1,
-		UsageObservers: []usage.Observer{testUsageObs{tag: "second"}},
+		SessionOpeners: []session.Opener{testOpener{tag: "second"}},
 	}
 	b3 := lipfeature.FeatureBundle{
 		SchemaVersion:  lipfeature.SchemaVersionV1,
-		UsageObservers: []usage.Observer{testUsageObs{tag: "third"}},
+		SessionOpeners: []session.Opener{testOpener{tag: "third"}},
 	}
 	m := MergeBundles(b1, b2, b3)
-	if len(m.UsageObservers) != 3 {
-		t.Fatalf("UsageObservers: got %d want 3", len(m.UsageObservers))
+	if len(m.SessionOpeners) != 3 {
+		t.Fatalf("SessionOpeners: got %d want 3", len(m.SessionOpeners))
 	}
-	u0, ok := m.UsageObservers[0].(testUsageObs)
-	if !ok || u0.tag != "first" {
-		t.Fatalf("first usage observer: %#v", m.UsageObservers[0])
+	o0, ok := m.SessionOpeners[0].(testOpener)
+	if !ok || o0.tag != "first" {
+		t.Fatalf("first opener: %#v", m.SessionOpeners[0])
 	}
-	u1, ok := m.UsageObservers[1].(testUsageObs)
-	if !ok || u1.tag != "second" {
-		t.Fatalf("second usage observer: %#v", m.UsageObservers[1])
+	o1, ok := m.SessionOpeners[1].(testOpener)
+	if !ok || o1.tag != "second" {
+		t.Fatalf("second opener: %#v", m.SessionOpeners[1])
 	}
-	u2, ok := m.UsageObservers[2].(testUsageObs)
-	if !ok || u2.tag != "third" {
-		t.Fatalf("third usage observer: %#v", m.UsageObservers[2])
+	o2, ok := m.SessionOpeners[2].(testOpener)
+	if !ok || o2.tag != "third" {
+		t.Fatalf("third opener: %#v", m.SessionOpeners[2])
 	}
 }

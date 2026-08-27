@@ -1381,3 +1381,227 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		require.Equal(t, "reactor-b1-10", r2[0].ID(), "frozen set backing array must be isolated from caller mutations")
 	})
 }
+
+type trackingTrafficObs struct {
+	id     string
+	log    *[]string
+	mu     *sync.Mutex
+	panics bool
+}
+
+func (o trackingTrafficObs) OnObservation(ctx context.Context, obs traffic.Observation) error {
+	if o.mu != nil && o.log != nil {
+		o.mu.Lock()
+		*o.log = append(*o.log, o.id)
+		o.mu.Unlock()
+	}
+	if o.panics {
+		panic(o.id + " boom")
+	}
+	return nil
+}
+
+type trackingUsageObs struct {
+	id     string
+	log    *[]string
+	mu     *sync.Mutex
+	panics bool
+}
+
+func (o trackingUsageObs) OnUsage(ctx context.Context, ev usage.Event) error {
+	if o.mu != nil && o.log != nil {
+		o.mu.Lock()
+		*o.log = append(*o.log, o.id)
+		o.mu.Unlock()
+	}
+	if o.panics {
+		panic(o.id + " boom")
+	}
+	return nil
+}
+
+type trackingRawSink struct {
+	id     string
+	log    *[]string
+	mu     *sync.Mutex
+	panics bool
+}
+
+func (s trackingRawSink) WriteRaw(ctx context.Context, leg traffic.Leg, meta traffic.CaptureMeta, payload []byte) error {
+	if s.mu != nil && s.log != nil {
+		s.mu.Lock()
+		*s.log = append(*s.log, s.id)
+		o := s.id + ":" + string(payload)
+		_ = o
+		s.mu.Unlock()
+	}
+	if s.panics {
+		panic(s.id + " boom")
+	}
+	return nil
+}
+
+type trackingRedactor struct {
+	id     string
+	tag    string
+	log    *[]string
+	mu     *sync.Mutex
+	panics bool
+}
+
+func (r trackingRedactor) ID() string { return r.id }
+
+func (r trackingRedactor) Redact(ctx context.Context, leg traffic.Leg, meta traffic.CaptureMeta, payload []byte) ([]byte, error) {
+	if r.mu != nil && r.log != nil {
+		r.mu.Lock()
+		*r.log = append(*r.log, r.id)
+		r.mu.Unlock()
+	}
+	if r.panics {
+		panic(r.id + " boom")
+	}
+	return []byte(r.tag + "(" + string(payload) + ")"), nil
+}
+
+func TestPlaneParity_ObserverFamilies_GeneratedEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	makeObserverBundles := func(tLog, uLog, rLog, redLog *[]string, mu *sync.Mutex) (lipfeature.FeatureBundle, lipfeature.FeatureBundle, lipfeature.FeatureBundle) {
+		b1 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{
+				trackingTrafficObs{id: "to-b1-1", log: tLog, mu: mu},
+				trackingTrafficObs{id: "to-b1-2", log: tLog, mu: mu},
+			},
+			UsageObservers: []usage.Observer{
+				trackingUsageObs{id: "uo-b1-1", log: uLog, mu: mu},
+			},
+			RawCaptureSinks: []traffic.RawCaptureSink{
+				trackingRawSink{id: "raw-b1-1", log: rLog, mu: mu},
+			},
+			TrafficRedactors: []traffic.Redactor{
+				trackingRedactor{id: "red-b1-1", tag: "R1", log: redLog, mu: mu},
+			},
+		}
+
+		b2 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{
+				trackingTrafficObs{id: "to-b2-1", log: tLog, mu: mu},
+			},
+			UsageObservers: []usage.Observer{
+				trackingUsageObs{id: "uo-b2-1", log: uLog, mu: mu},
+				trackingUsageObs{id: "uo-b2-2", log: uLog, mu: mu},
+			},
+			RawCaptureSinks: []traffic.RawCaptureSink{
+				trackingRawSink{id: "raw-b2-1", log: rLog, mu: mu},
+				trackingRawSink{id: "raw-b2-2", log: rLog, mu: mu},
+			},
+			TrafficRedactors: []traffic.Redactor{
+				trackingRedactor{id: "red-b2-1", tag: "R2", log: redLog, mu: mu},
+			},
+		}
+
+		b3 := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			TrafficObservers: []traffic.Observer{
+				trackingTrafficObs{id: "to-b3-1", log: tLog, mu: mu},
+			},
+			UsageObservers: []usage.Observer{
+				trackingUsageObs{id: "uo-b3-1", log: uLog, mu: mu},
+			},
+			RawCaptureSinks: []traffic.RawCaptureSink{
+				trackingRawSink{id: "raw-b3-1", log: rLog, mu: mu},
+			},
+			TrafficRedactors: []traffic.Redactor{
+				trackingRedactor{id: "red-b3-1", tag: "R3", log: redLog, mu: mu},
+			},
+		}
+		return b1, b2, b3
+	}
+
+	t.Run("registration_order_and_dispatch_execution", func(t *testing.T) {
+		t.Parallel()
+
+		var tLog, uLog, rLog, redLog []string
+		var mu sync.Mutex
+		b1, b2, b3 := makeObserverBundles(&tLog, &uLog, &rLog, &redLog, &mu)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
+		require.NoError(t, err)
+
+		// 1. TrafficObservers dispatch
+		toSlice := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+		require.Len(t, toSlice, 4)
+		chainedTO := traffic.ChainObservers(toSlice...)
+		err = chainedTO.OnObservation(context.Background(), traffic.Observation{})
+		require.NoError(t, err)
+		require.Equal(t, []string{"to-b1-1", "to-b1-2", "to-b2-1", "to-b3-1"}, tLog)
+
+		// 2. UsageObservers dispatch
+		uoSlice := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+		require.Len(t, uoSlice, 4)
+		chainedUO := usage.ChainObservers(uoSlice...)
+		err = chainedUO.OnUsage(context.Background(), usage.Event{})
+		require.NoError(t, err)
+		require.Equal(t, []string{"uo-b1-1", "uo-b2-1", "uo-b2-2", "uo-b3-1"}, uLog)
+
+		// 3. RawCaptureSinks dispatch
+		rawSlice := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+		require.Len(t, rawSlice, 4)
+		multiRaw := traffic.MultiRawCapture(rawSlice...)
+		err = multiRaw.WriteRaw(context.Background(), traffic.LegCTP, traffic.CaptureMeta{}, []byte("hello"))
+		require.NoError(t, err)
+		require.Equal(t, []string{"raw-b1-1", "raw-b2-1", "raw-b2-2", "raw-b3-1"}, rLog)
+
+		// 4. TrafficRedactors pipeline execution
+		redSlice := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+		require.Len(t, redSlice, 3)
+		var currentPayload = []byte("payload")
+		for _, red := range redSlice {
+			currentPayload, err = red.Redact(context.Background(), traffic.LegCTP, traffic.CaptureMeta{}, currentPayload)
+			require.NoError(t, err)
+		}
+		require.Equal(t, []string{"red-b1-1", "red-b2-1", "red-b3-1"}, redLog)
+		require.Equal(t, "R3(R2(R1(payload)))", string(currentPayload))
+	})
+
+	t.Run("backing_array_isolation", func(t *testing.T) {
+		t.Parallel()
+
+		var tLog, uLog, rLog, redLog []string
+		var mu sync.Mutex
+		b1, b2, _ := makeObserverBundles(&tLog, &uLog, &rLog, &redLog, &mu)
+
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
+		require.NoError(t, err)
+
+		to1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+		require.Len(t, to1, 3)
+		to1[0] = trackingTrafficObs{id: "mutated-to", log: &tLog, mu: &mu}
+
+		to2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+		require.Equal(t, "to-b1-1", to2[0].(trackingTrafficObs).id, "TrafficObservers frozen backing array must be isolated")
+
+		uo1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+		require.Len(t, uo1, 3)
+		uo1[0] = trackingUsageObs{id: "mutated-uo", log: &uLog, mu: &mu}
+
+		uo2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+		require.Equal(t, "uo-b1-1", uo2[0].(trackingUsageObs).id, "UsageObservers frozen backing array must be isolated")
+
+		raw1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+		require.Len(t, raw1, 3)
+		raw1[0] = trackingRawSink{id: "mutated-raw", log: &rLog, mu: &mu}
+
+		raw2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+		require.Equal(t, "raw-b1-1", raw2[0].(trackingRawSink).id, "RawCaptureSinks frozen backing array must be isolated")
+
+		red1 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+		require.Len(t, red1, 2)
+		red1[0] = trackingRedactor{id: "mutated-red", tag: "MUT", log: &redLog, mu: &mu}
+
+		red2 := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+		require.Equal(t, "red-b1-1", red2[0].ID(), "TrafficRedactors frozen backing array must be isolated")
+	})
+}

@@ -139,7 +139,7 @@
   - **Validation:** `go test ./internal/core/hooks ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/... && go test ./internal/qa`
 
 - [ ] 5. Migrate observer and response-analysis families as W2
-- [ ] 5.1 Migrate traffic/usage observers, raw sinks, and redactors
+- [x] 5.1 Migrate traffic/usage observers, raw sinks, and redactors
   - Preserve feature-before-host ordering, nil policy, defensive-copy behavior, and observability output.
   - Observable completion: named copy/overlay branches for these slice-shaped families are deleted and parity/allocation baselines remain green.
   - _Requirements: 1.1, 4.5, 5.1, 5.3, 5.5, 7.1_

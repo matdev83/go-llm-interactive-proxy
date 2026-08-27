@@ -51,20 +51,22 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-// projMerged builds a merged surface with one tagged element on the planes the
+// projMerged builds a merged surface and generated merge surface with one tagged element on the planes the
 // projection tests observe.
-func projMerged(t *testing.T) featurebundle.MergedFeatureSurface {
+func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
 	t.Helper()
-	return featurebundle.MergeBundles(
-		lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			SessionOpeners:    []session.Opener{projOpener{tag: "opener"}},
-			RequestTransforms: []request.Transform{projTransform{tag: "transform"}},
-			TrafficObservers:  []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
-			UsageObservers:    []usage.Observer{projUsageObs{tag: "feat-usage"}},
-			LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
-		},
-	)
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		SessionOpeners:    []session.Opener{projOpener{tag: "opener"}},
+		RequestTransforms: []request.Transform{projTransform{tag: "transform"}},
+		TrafficObservers:  []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
+		UsageObservers:    []usage.Observer{projUsageObs{tag: "feat-usage"}},
+		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
+	}
+	m := featurebundle.MergeBundles(b)
+	gen, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err)
+	return m, gen
 }
 
 func assertAllSliceFieldsNil(t *testing.T, v any) {
@@ -90,18 +92,18 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 
 	t.Run("zero_merged_surface_projects_all_nil_slices", func(t *testing.T) {
 		t.Parallel()
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, nil)
+		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
 		assertAllSliceFieldsNil(t, ext)
 	})
 
 	t.Run("populated_merged_projects_equal_non_nil_copies", func(t *testing.T) {
 		t.Parallel()
-		merged := projMerged(t)
-		ext := extensionsFromMerged(merged, nil)
+		merged, gen := projMerged(t)
+		ext := extensionsFromMerged(merged, gen, nil)
 		require.Len(t, ext.SessionOpeners, len(merged.SessionOpeners))
 		require.Len(t, ext.RequestTransforms, len(merged.RequestTransforms))
-		require.Len(t, ext.TrafficObservers, len(merged.TrafficObservers))
-		require.Len(t, ext.UsageObservers, len(merged.UsageObservers))
+		require.Len(t, ext.TrafficObservers, len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)))
+		require.Len(t, ext.UsageObservers, len(lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)))
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
 		assert.Equal(t, "opener", ext.SessionOpeners[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
@@ -111,13 +113,11 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		t.Parallel()
 		merged := featurebundle.MergedFeatureSurface{
 			SessionOpeners:    []session.Opener{},
-			TrafficObservers:  []traffic.Observer{},
 			LocalTurnHandlers: []localturn.Handler{},
 		}
-		ext := extensionsFromMerged(merged, nil)
+		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		for name, got := range map[string]any{
 			"SessionOpeners":    ext.SessionOpeners,
-			"TrafficObservers":  ext.TrafficObservers,
 			"LocalTurnHandlers": ext.LocalTurnHandlers,
 		} {
 			rv := reflect.ValueOf(got)
@@ -133,34 +133,24 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) {
 	t.Parallel()
 
-	merged := projMerged(t)
-	ext := extensionsFromMerged(merged, nil)
+	merged, gen := projMerged(t)
+	ext := extensionsFromMerged(merged, gen, nil)
 
 	extraTraffic := projTrafficObs{tag: "extra"}
 	ext.TrafficObservers = append(ext.TrafficObservers, extraTraffic)
 	ext.SessionOpeners[0] = projOpener{tag: "mutated"}
-	require.Len(t, merged.TrafficObservers, 1)
-	trafficObs, trafficObsOK := merged.TrafficObservers[0].(projTrafficObs)
+	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+	require.Len(t, toFrozen, 1)
+	trafficObs, trafficObsOK := toFrozen[0].(projTrafficObs)
 	require.True(t, trafficObsOK)
 	require.Equal(t, "feat-traffic", trafficObs.tag)
 	require.Equal(t, "opener", merged.SessionOpeners[0].ID())
 
-	merged.UsageObservers[0] = projUsageObs{tag: "mutated-source"}
+	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	extUsage, extUsageOK := ext.UsageObservers[0].(projUsageObs)
 	require.True(t, extUsageOK)
 	require.Equal(t, "feat-usage", extUsage.tag)
-
-	featureExtra := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		SessionOpeners:    []session.Opener{projOpener{tag: "second"}},
-		TrafficObservers:  []traffic.Observer{projTrafficObs{tag: "second"}},
-		UsageObservers:    []usage.Observer{projUsageObs{tag: "second"}},
-		RequestTransforms: []request.Transform{projTransform{tag: "second"}},
-	}
-	remerged := merged
-	require.NoError(t, remerged.Append(featureExtra))
-	require.Len(t, ext.SessionOpeners, 1)
-	require.Len(t, ext.TrafficObservers, 2)
+	require.Equal(t, "feat-usage", uoFrozen[0].(projUsageObs).tag)
 }
 
 // Pins host-injection ordering: production observers append AFTER feature
@@ -168,11 +158,14 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	t.Parallel()
 
-	merged := featurebundle.MergeBundles(lipfeature.FeatureBundle{
+	b := lipfeature.FeatureBundle{
 		SchemaVersion:    lipfeature.SchemaVersionV1,
 		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}},
 		UsageObservers:   []usage.Observer{projUsageObs{tag: "feat-u"}},
-	})
+	}
+	merged := featurebundle.MergeBundles(b)
+	gen, err := featurebundle.MergeBundlesGenerated(b)
+	require.NoError(t, err)
 	opts := &BuildOptions{
 		Production: ProductionOptions{
 			TrafficObservers: []traffic.Observer{projTrafficObs{tag: "host-1"}},
@@ -180,7 +173,7 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 		},
 	}
 
-	ext := extensionsFromMerged(merged, opts)
+	ext := extensionsFromMerged(merged, gen, opts)
 	gotTraffic := make([]string, 0, len(ext.TrafficObservers))
 	for _, o := range ext.TrafficObservers {
 		obs, ok := o.(projTrafficObs)
@@ -196,7 +189,7 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	}
 	require.Equal(t, []string{"feat-u", "host-u", "host-u2"}, gotUsage)
 
-	extNoHosts := extensionsFromMerged(merged, nil)
+	extNoHosts := extensionsFromMerged(merged, gen, nil)
 	require.Len(t, extNoHosts.TrafficObservers, 2)
 	require.Len(t, extNoHosts.UsageObservers, 1)
 }

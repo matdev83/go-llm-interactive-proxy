@@ -22,6 +22,7 @@ import (
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -81,7 +82,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
-	ext := extensionsFromMerged(merged, ps.opts)
+	ext := extensionsFromMerged(merged, genMerged, ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
@@ -231,15 +232,14 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 		}
 	}
 	if cand != nil && cand.security.geoip != nil && cand.security.geoip.Policy() != nil {
+		var geoObs httpcontract.GeoIPObserver
+		if cand.process.metrics != nil {
+			geoObs = cand.process.metrics.GeoIP
+		}
 		geoInput = httpcontract.GeoIPSecurityInput{
-			Policy: cand.security.geoip.Policy(),
-			Lookup: cand.process.geoip,
-			Observer: func() httpcontract.GeoIPObserver {
-				if cand.process.metrics != nil {
-					return cand.process.metrics.GeoIP
-				}
-				return nil
-			}(),
+			Policy:   cand.security.geoip.Policy(),
+			Lookup:   cand.process.geoip,
+			Observer: geoObs,
 			Resolver: httpcontract.GeoIPResolverConfig{
 				Source:         cand.security.geoip.ClientIPSource(),
 				TrustedProxies: cand.security.geoip.TrustedProxies(),
@@ -309,7 +309,7 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 }
 
-func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
+func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
 		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
 		WorkspaceResolvers:               append(merged.WorkspaceResolvers[:0:0], merged.WorkspaceResolvers...),
@@ -323,11 +323,11 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts
 		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
 		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
 		StreamObserverFactories:          append(merged.StreamObserverFactories[:0:0], merged.StreamObserverFactories...),
-		TrafficObservers:                 append(merged.TrafficObservers[:0:0], merged.TrafficObservers...),
-		UsageObservers:                   append(merged.UsageObservers[:0:0], merged.UsageObservers...),
+		TrafficObservers:                 lipfeature.Get(genMerged.Frozen, lipfeature.PlaneTrafficObservers),
+		UsageObservers:                   lipfeature.Get(genMerged.Frozen, lipfeature.PlaneUsageObservers),
 		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
-		RawCaptureSinks:                  append(merged.RawCaptureSinks[:0:0], merged.RawCaptureSinks...),
-		TrafficRedactors:                 append(merged.TrafficRedactors[:0:0], merged.TrafficRedactors...),
+		RawCaptureSinks:                  lipfeature.Get(genMerged.Frozen, lipfeature.PlaneRawCaptureSinks),
+		TrafficRedactors:                 lipfeature.Get(genMerged.Frozen, lipfeature.PlaneTrafficRedactors),
 		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
 		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 		TerminalDecisionProvider:         merged.TerminalDecisionProvider,

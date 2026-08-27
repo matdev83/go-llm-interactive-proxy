@@ -77,26 +77,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	assert.Equal(tb, legacy.StreamObserverFactories, genStreamObserverFactories, "StreamObserverFactories mismatch")
 	assert.Equal(tb, legacy.StreamObserverFactories == nil, genStreamObserverFactories == nil, "StreamObserverFactories nilness mismatch")
 
-	// 17. TrafficObservers
-	genTrafficObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
-	assert.Equal(tb, legacy.TrafficObservers, genTrafficObservers, "TrafficObservers mismatch")
-	assert.Equal(tb, legacy.TrafficObservers == nil, genTrafficObservers == nil, "TrafficObservers nilness mismatch")
-
-	// 18. UsageObservers
-	genUsageObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
-	assert.Equal(tb, legacy.UsageObservers, genUsageObservers, "UsageObservers mismatch")
-	assert.Equal(tb, legacy.UsageObservers == nil, genUsageObservers == nil, "UsageObservers nilness mismatch")
-
-	// 19. RawCaptureSinks
-	genRawCaptureSinks := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
-	assert.Equal(tb, legacy.RawCaptureSinks, genRawCaptureSinks, "RawCaptureSinks mismatch")
-	assert.Equal(tb, legacy.RawCaptureSinks == nil, genRawCaptureSinks == nil, "RawCaptureSinks nilness mismatch")
-
-	// 20. TrafficRedactors
-	genTrafficRedactors := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
-	assert.Equal(tb, legacy.TrafficRedactors, genTrafficRedactors, "TrafficRedactors mismatch")
-	assert.Equal(tb, legacy.TrafficRedactors == nil, genTrafficRedactors == nil, "TrafficRedactors nilness mismatch")
-
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
 	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")

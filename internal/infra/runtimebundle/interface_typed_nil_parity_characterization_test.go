@@ -548,7 +548,7 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		assert.Nil(t, m.SecretGuards[2])
 
 		// Extensions extraction and overlay also preserve verbatim on projected slice planes
-		ext := extensionsFromMerged(m, nil)
+		ext := extensionsFromMerged(m, featurebundle.GeneratedMergeSurface{}, nil)
 		require.Len(t, ext.RequestTransforms, 2)
 		assert.Nil(t, ext.RequestTransforms[0])
 		require.Len(t, ext.SecretGuards, 3)
@@ -742,7 +742,7 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
 			m.SessionOpeners = []session.Opener{charStubOpener{tag: "opener-1"}}
-			m.TrafficObservers = []traffic.Observer{charStubTrafficObs{tag: "obs-1"}}
+			m.StreamObserverFactories = []response.StreamObserverFactory{charStubStreamObserverFactory{tag: "obs-1"}}
 
 			snapBefore := m // value copy
 

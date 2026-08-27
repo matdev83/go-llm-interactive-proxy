@@ -21,8 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -42,10 +40,6 @@ type MergedFeatureSurface struct {
 	CompletionGates                  []completion.Gate
 	AttemptTransforms                []request.AttemptTransform
 	StreamObserverFactories          []response.StreamObserverFactory
-	TrafficObservers                 []traffic.Observer
-	UsageObservers                   []usage.Observer
-	RawCaptureSinks                  []traffic.RawCaptureSink
-	TrafficRedactors                 []traffic.Redactor
 	CompactionObservers              []compaction.Observer
 	CompactionPreservers             []compaction.Preserver
 	SecretGuards                     []secretguard.Guard
@@ -107,10 +101,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 	m.CompletionGates = append(m.CompletionGates, b.CompletionGates...)
 	m.AttemptTransforms = append(m.AttemptTransforms, b.AttemptTransforms...)
 	m.StreamObserverFactories = append(m.StreamObserverFactories, b.StreamObserverFactories...)
-	m.TrafficObservers = append(m.TrafficObservers, b.TrafficObservers...)
-	m.UsageObservers = append(m.UsageObservers, b.UsageObservers...)
-	m.RawCaptureSinks = append(m.RawCaptureSinks, b.RawCaptureSinks...)
-	m.TrafficRedactors = append(m.TrafficRedactors, b.TrafficRedactors...)
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)

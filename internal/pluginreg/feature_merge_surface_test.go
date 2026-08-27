@@ -111,14 +111,17 @@ func TestMergeFeatureSurface_concatTraffic(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.TrafficObservers) != 1 || len(m.RawCaptureSinks) != 1 || len(m.TrafficRedactors) != 1 {
-		t.Fatalf("traffic merge obs=%d raw=%d red=%d", len(m.TrafficObservers), len(m.RawCaptureSinks), len(m.TrafficRedactors))
+	to := feature.Get(gen.Frozen, feature.PlaneTrafficObservers)
+	rc := feature.Get(gen.Frozen, feature.PlaneRawCaptureSinks)
+	tr := feature.Get(gen.Frozen, feature.PlaneTrafficRedactors)
+	if len(to) != 1 || len(rc) != 1 || len(tr) != 1 {
+		t.Fatalf("traffic merge obs=%d raw=%d red=%d", len(to), len(rc), len(tr))
 	}
 }
 
@@ -287,7 +290,7 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, []lipsdk.Registration{
+	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "en-a", FactoryKind: facPol, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "dis", FactoryKind: facPanic, Enabled: false, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "en-b", FactoryKind: facUsage, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
@@ -298,16 +301,17 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	if len(m.ToolCallPolicies) != 1 || m.ToolCallPolicies[0].ID() != "policy-from-first" {
 		t.Fatalf("policies %+v", m.ToolCallPolicies)
 	}
-	if len(m.UsageObservers) != 2 {
-		t.Fatalf("usage observers=%d", len(m.UsageObservers))
+	usageObs := feature.Get(gen.Frozen, feature.PlaneUsageObservers)
+	if len(usageObs) != 2 {
+		t.Fatalf("usage observers=%d", len(usageObs))
 	}
-	u0, ok := m.UsageObservers[0].(mergeTraceUsage)
+	u0, ok := usageObs[0].(mergeTraceUsage)
 	if !ok || u0.tag != "usage-from-first" {
-		t.Fatalf("first usage observer %#v", m.UsageObservers[0])
+		t.Fatalf("first usage observer %#v", usageObs[0])
 	}
-	u1, ok := m.UsageObservers[1].(mergeTraceUsage)
+	u1, ok := usageObs[1].(mergeTraceUsage)
 	if !ok || u1.tag != "usage-from-second" {
-		t.Fatalf("second usage observer %#v", m.UsageObservers[1])
+		t.Fatalf("second usage observer %#v", usageObs[1])
 	}
 }
 
