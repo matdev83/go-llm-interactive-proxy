@@ -4,205 +4,232 @@
 
 Issue #503 asks Go-LIP to reduce heap growth, allocation pressure, and redundant JSON work for large request bodies by forwarding a verified same-wire request without constructing the full canonical request tree. This is a brownfield optimization of already-supported request flows, not a new proxy mode and not native provider passthrough (#490).
 
-Correctness has priority over optimization. The existing materialize → shape-preflight → frontend-decode → canonical-core → backend-encode path is the behavioral oracle. A request may use the large-payload path only when Go-LIP can prove, before any provider request body byte is committed, that doing so preserves every enabled authority and every relevant frontend/core/backend behavior. When that proof is unavailable, incomplete, unsupported, or fails, the same request shall use the existing canonical path without weakening validation or silently disabling features.
+Correctness has priority over optimization. The existing materialize → shared JSON preflight → decode admission → frontend decode/validation → canonical core → backend encode path is the behavioral oracle. A request may use the large-payload lane only when Go-LIP can prove, before any provider request body byte is committed, that doing so preserves every enabled authority and every relevant frontend/core/backend behavior. When proof is unavailable, incomplete, unsupported, or fails, the same request shall use the existing canonical path without weakening validation or silently disabling features.
+
+This revision incorporates a post-PR brownfield audit against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` (PR #533 merged). In particular, the typed extension-plane manifest/FrozenPlaneSet path is now the only target; current frontend decode QoS, frontend response-state dependencies, OpenResponses storage defaults, and post-identity `lipapi.Call` dependencies are explicit requirements rather than implementation assumptions.
 
 ## Boundary Context
 
-- **In scope**: optional large-payload ingress capture; bounded-memory pre-commit spooling; streaming JSON validation and metadata extraction; explicit fast-path eligibility; same-wire backend capability proof; bounded token-aware model rewrite; retry/failover replay from the captured body; gzip-compatible follow-up support; cancellation/backpressure/resource cleanup; metrics; differential conformance tests; allocation/load benchmarks; conservative rollout.
-- **Out of scope**: native provider passthrough (#490); cross-protocol forwarding; removing or weakening canonical validation; changing default request size limits; changing routing/failover semantics; changing response canonicalization; bypassing secret/DLP/guardrail policy; silently dropping configured hooks/observers/accounting; adding new request content encodings as a side effect; provider SDK types in core; broad capability-profile work owned by #495.
-- **Boundary ownership**: shared frontend ingress owns capture/scanning and canonical fallback; core/runtime owns authoritative eligibility, identity/session lifecycle, routing, billing/admission, attempt sequencing, and no-post-output-failover; backend plugins own wire-compatibility declaration and outbound HTTP construction; SDK/public contracts contain only provider-neutral wire-body contracts needed across those boundaries; composition root freezes generation-scoped eligibility facts.
-- **Optional hexagonal lens**: request-body proof and eligibility are domain policy; wire execution and fallback are app orchestration; HTTP frontend is the driving adapter; same-wire backend transport is a driven adapter; runtimebundle is the composition root.
-- **Revalidation triggers**: changes to JSON-shape rules (#434), frontend decode normalization, secure-session preparation, request/billing authority, request/attempt transforms, routing/capability negotiation, traffic capture/redaction, failover/replay semantics (#476), backend wire contracts (#495), or response commit ownership.
+- **In scope**: optional large-payload ingress capture; bounded-memory pre-commit spooling; streaming JSON validation and bounded metadata extraction; decode-QoS-preserving semantic proof; explicit fast-path eligibility; same-wire backend capability proof; bounded token-aware model rewrite; retry/failover replay; frontend response-envelope parity; gzip-compatible follow-up support; cancellation/resource cleanup; metrics; differential conformance tests; allocation/load benchmarks; conservative rollout.
+- **Out of scope**: native provider passthrough (#490); cross-protocol forwarding; removing or weakening canonical validation; changing default request-size limits; changing routing/failover semantics to make a request eligible; bypassing secret/DLP/guardrail policy; silently dropping hooks/observers/accounting; arbitrary new request content encodings; provider SDK types in core; broad capability-profile work owned by #495.
+- **Boundary ownership**: shared frontend ingress owns capture/shared JSON validation, decode admission, protocol profile proof, frontend-only state, and canonical fallback; core/runtime owns authoritative eligibility, identity/session lifecycle, routing, billing/admission, attempt sequencing, and no-post-output-failover; backend plugins own wire-compatibility declaration and outbound HTTP construction; composition root freezes generation-scoped eligibility facts.
+- **Revalidation triggers**: changes to JSON-shape rules (#434), frontend decode normalization or `AfterDecode`, decode admission, secure-session preparation, request/billing authority, request/attempt transforms, typed extension planes, routing/capability negotiation, traffic capture/redaction, failover/replay semantics (#476), backend wire contracts (#495), or frontend response-envelope/cancellation ownership.
 
 ## Requirements
 
 ### Requirement 1: Compatibility-First Activation and Lossless Fallback
-**Objective:** As an operator, I want the optimization to be incapable of silently bypassing normal proxy behavior, so that enabling it does not trade correctness for memory savings.
+**Objective:** Enabling the optimization must not silently bypass normal proxy behavior.
 
 #### Acceptance Criteria
-1. When the large-payload optimization is not explicitly enabled, the system shall execute every request through the pre-existing canonical request path with no new body-spool, scanner, or wire-execution behavior.
-2. When the optimization is enabled but any eligibility condition is unknown, unsupported, or false, the system shall execute the request through the existing canonical path and preserve the original request bytes needed by that path.
-3. While a request is still being evaluated for fast-path use, the system shall not commit any request body byte to an upstream provider.
-4. If an eligibility or spool decision changes after some client bytes have been consumed but before upstream commitment, the system shall make those consumed bytes available to the canonical decoder in original order and continue reading the remaining body exactly once.
-5. The system shall not convert an otherwise valid canonical request into an error merely because the fast path is unavailable, its configurable resource budget is exhausted, a compatible backend is absent, or an optional optimization component declines the request, except when the original request itself violates an existing limit or the body can no longer be read because of an underlying I/O failure.
-6. The system shall preserve existing frontend HTTP status/error mapping for malformed JSON, request-too-large, unsupported media/content encoding, authentication, policy denial, and canonical decode errors.
-7. The system shall keep the existing `Execute(*lipapi.Call)` path as the behavioral baseline and shall not require unrelated frontends, tests, or external executor implementations to implement the new wire path.
+1. Disabled configuration shall execute every request through the existing canonical path with no spool/scanner/wire-path allocation beyond trivial configuration checks.
+2. Any unknown, unsupported, unclassified, or false eligibility fact shall select canonical processing while the original decoded body remains replayable.
+3. No upstream provider request body byte shall be committed before complete body validation and final route/backend/authority eligibility proof.
+4. If fast-path evaluation declines after consuming client bytes, already-consumed and remaining bytes shall be presented to the canonical decoder exactly once and in order.
+5. Optimization budget exhaustion, missing wire support, profile uncertainty, or recoverable spool failure shall not convert an otherwise valid canonical request into a new client error.
+6. Existing HTTP/error mappings for malformed JSON, request-too-large, content type/encoding, authentication, decode admission, policy denial, and decode errors shall be preserved.
+7. Existing `ExecutorView.Execute(ctx, *lipapi.Call)` remains supported and behaviorally unchanged for ordinary frontends/executors.
+8. Expected fallback is an internal decision/result, not an error path and not error-level logging.
 
 ### Requirement 2: Threshold and Existing Request-Admission Semantics
-**Objective:** As an operator, I want large-payload consideration to be bounded by existing admission rules, so that the optimization does not broaden accepted traffic.
+**Objective:** The optimization must not broaden accepted traffic or create a second request limit.
 
 #### Acceptance Criteria
-1. Where the feature is enabled, a configurable size threshold shall control whether a request is considered for the fast path; the threshold alone shall never establish eligibility.
-2. When a known positive `Content-Length` is below the configured threshold, the system shall use the canonical path without first spooling the whole body.
-3. When body length is unknown or chunked, the system shall preserve bounded memory usage while determining final size and shall use canonical processing if the final decoded body is below the threshold.
-4. The system shall continue to enforce each frontend's effective `MaxRequestBodyBytes`/protocol limits and shall not increase the current default 8 MiB request limit as part of this feature.
-5. When a configured request limit is larger than the historical default, the fast path shall enforce that configured limit rather than substituting its own smaller or larger acceptance limit.
-6. If the request exceeds the effective existing maximum, the system shall return the same request-too-large class/status as the canonical path and shall not open an upstream request.
+1. A configurable decoded-size threshold controls consideration only; it never proves eligibility.
+2. Known positive identity-body `Content-Length` below threshold shall take the canonical path without spooling.
+3. Unknown/chunked length may enter bounded capture; if final decoded size is below threshold it shall materialize and continue canonically.
+4. Each frontend's effective `MaxRequestBodyBytes` and protocol limits remain authoritative; this feature shall not change the current default request limit.
+5. Configured limits above/below the default shall be honored exactly.
+6. Exceeding the existing maximum shall produce the same request-too-large class/status and open no provider request.
+7. `Content-Length` shall never be trusted as decoded length for compressed bodies.
 
 ### Requirement 3: Streaming JSON Safety Parity
-**Objective:** As a security-conscious operator, I want low-memory scanning to preserve existing JSON hardening, so that large bodies do not create a weaker parser path.
+**Objective:** Large bodies must receive the same shared JSON-shape protections without proportional heap growth.
 
 #### Acceptance Criteria
-1. When a JSON request is considered for the fast path, the system shall validate the entire decoded JSON body before upstream commitment.
-2. The streaming validator shall enforce the same effective request-envelope byte, depth, token, array-element, object-member, key-length, string-length, number-length, UTF-8, empty-body, incomplete-body, multiple-root-value, and trailing-data rules as the applicable canonical frontend path.
-3. Where a protocol applies stricter rules than shared `jsonshape.RequestEnvelopeLimits`, including duplicate-member rejection or protocol-specific depth/count limits, the fast-path validator shall enforce the stricter protocol rule before declaring the request eligible.
-4. The streaming validator shall not rely on `encoding/json.Decoder.Token` for large scalar strings if doing so would allocate the full scalar value; it shall be capable of validating and skipping bounded legal string values incrementally.
-5. The validator shall check cancellation at bounded intervals while scanning large strings, arrays, and objects rather than only between top-level fields.
-6. If streaming validation cannot reproduce a canonical parser rule for a particular request shape, the system shall classify that request as canonical-only before upstream commitment rather than approximating the rule.
-7. Tests shall differentially compare streaming validation outcomes and error classes against current canonical/shared validators over malformed, adversarial, boundary, fuzz-generated, and representative production-shaped JSON corpora.
+1. The streaming scanner shall enforce the same normalized byte/depth/token/root/object/array/key/string/number bounds as current shared preflight.
+2. It shall validate JSON string escapes, UTF-8, surrogate pairs, numbers, delimiters, incomplete/trailing values, and cancellation across buffer boundaries.
+3. Ordinary large scalar content shall not be retained solely for validation.
+4. Existing slice preflight shall remain the differential oracle; randomized/fuzz corpora shall compare pass/fail class and aggregate counts.
+5. Shared scanner code shall remain provider-neutral and shall not duplicate protocol lexers.
+6. Profile uncertainty shall select canonical decode rather than inventing a new approximation of a frontend error.
 
-### Requirement 4: Bounded Metadata Extraction with Arbitrary JSON Ordering
-**Objective:** As the routing core, I want only the metadata necessary for pre-commit decisions extracted without materializing conversation history, so that routing remains correct for large legal JSON documents.
-
-#### Acceptance Criteria
-1. The fast-path scanner shall extract only explicitly declared bounded metadata required by the selected frontend profile, including at minimum model/route input, client stream intent, operation identity, and protocol feature facts needed for safe candidate admission.
-2. The scanner shall find required top-level fields regardless of their legal position in the JSON object and shall not assume `model`, `stream`, or other required fields occur in a fixed prefix.
-3. The scanner shall distinguish top-level field names from identical strings or field names nested inside messages, tool arguments, schemas, or arbitrary content.
-4. When shared canonical decoding uses last-wins semantics for duplicate member names, the scanner shall either reproduce that result for extracted metadata or classify the request as canonical-only when retaining duplicates on the upstream wire could change semantics.
-5. When protocol decoding rejects duplicate names, the scanner shall reject the same duplicates before upstream commitment.
-6. Metadata values retained in memory shall have explicit independent bounds; when an otherwise valid metadata value exceeds a fast-path extraction bound, the system shall fall back to canonical processing rather than truncate it.
-7. The scanner shall preserve byte offsets for any field whose wire token may need a bounded rewrite, without retaining the surrounding large payload in memory.
-8. Unknown or extension fields shall never be interpreted as routing/policy authority merely because they contain familiar names.
-
-### Requirement 5: Explicit Eligibility Proof Across All Pre-Commit Authorities
-**Objective:** As a maintainer, I want a single explainable eligibility decision, so that new features cannot accidentally be bypassed by a scattered collection of fast-path conditionals.
+### Requirement 4: Bounded Metadata Extraction With Arbitrary Field Ordering
+**Objective:** Routing/wire proof must not depend on fixed prefixes or field order.
 
 #### Acceptance Criteria
-1. Before wire execution, the system shall evaluate a generation-pinned eligibility proof that accounts for every configured stage that can reject, reroute, inspect content, transform content, alter canonical conversation state, require token/content-derived admission, or require a materialized request representation.
-2. If any enabled pre-commit stage requires a full canonical call and has no separately implemented wire-compatible contract, the request shall use canonical processing.
-3. Content-bearing secret guards/DLP, request transforms, pre-request transforms, attempt transforms, conversation projection/steering, canonical submit hooks, content-derived route-hint providers, content-derived local-turn handlers, and equivalent future planes shall be canonical-only unless explicitly supported by a typed wire contract.
-4. Metadata-only stages may remain compatible only when their existing behavior can be executed from trusted extracted metadata without fabricating canonical content.
-5. Where traffic raw capture, redaction, or observation requires the complete request body as a `[]byte`, the request shall use canonical processing until that traffic consumer has an explicitly tested streaming contract.
-6. Where request metering, billing, credit authorization, context estimation, or capability admission requires facts that cannot be derived exactly from bounded wire metadata, the request shall use canonical processing.
-7. The system shall expose a bounded non-content eligibility/fallback reason suitable for metrics/debug diagnostics, such as disabled, below-threshold, frontend-unsupported, compressed-unsupported, canonical-stage-active, traffic-capture-active, billing-requires-canonical, route-plan-incompatible, backend-wire-incompatible, replay-incompatible, rewrite-unsafe, or validation-failed.
-8. The eligibility proof shall be computed from the same immutable request generation/configuration that governs the request; a reload shall not change eligibility or backend wire contracts mid-request.
+1. Profiles shall locate required top-level fields irrespective of order and body size.
+2. Selected values such as `model`, `stream`, bounded output-token controls, and protocol discriminators may be retained only within explicit bounds.
+3. Exact raw byte offsets shall be available for bounded rewrites such as the top-level model token.
+4. A nested key or matching text inside content shall never be mistaken for a selected top-level field.
+5. Exceeding a metadata bound shall select canonical-only behavior, never truncation.
+6. For OpenAI-style profiles, duplicate names in any protocol-owned object that canonical decode/re-encode would collapse or normalize shall be canonical-only unless that exact duplicate behavior is separately parity-certified; OpenResponses retains its stricter duplicate rejection behavior.
 
-### Requirement 6: Canonical Path Preservation and Dedicated Wire Execution Use Case
-**Objective:** As a maintainer, I want the optimization isolated from ordinary execution, so that canonical behavior remains stable and easy to compare.
+### Requirement 5: Explicit Generation-Pinned Eligibility for Every Request-Affecting Plane
+**Objective:** Configured features must never disappear merely because a request uses the wire lane.
 
 #### Acceptance Criteria
-1. The system shall not pass a fabricated or intentionally incomplete `lipapi.Call` through code that assumes a validated canonical request.
-2. Where wire execution is used, core shall retain ownership of trace identity, principal/workspace resolution, secure-session/A-leg authority, route authority, request authority, routing, candidate ordering, B-leg creation, billing/usage lifecycle that can be satisfied without canonical content, and response stream assembly.
-3. The existing canonical preparation sequence shall remain functionally unchanged except for refactoring that extracts shared metadata-only orchestration used by both paths.
-4. Any shared refactor shall have characterization tests proving identical canonical outputs, stage order, error order, A-leg/B-leg lifecycle, and cleanup before the fast path is activated.
-5. The wire use case shall return the same canonical `lipapi.EventStream` abstraction as ordinary execution so existing frontend response encoding, no-post-output-failover, response guardrails, and completion behavior remain in force.
-6. If the wire use case cannot satisfy an existing mandatory core authority from the wire request facts, it shall decline before provider commitment and allow canonical fallback rather than skip the authority.
+1. The current typed `pkg/lipsdk/feature` plane manifest/FrozenPlaneSet architecture is the sole production classification source; this spec shall not recreate a legacy named-field mirror.
+2. Every declared production plane shall carry an explicit request-body access classification such as unclassified/canonical-required/metadata-only/response-only.
+3. `unclassified` shall be a declaration/architecture-test failure for the production manifest and shall also fail closed to canonical-required at runtime as defense in depth.
+4. Occupied request/content-mutating or content-inspecting planes without a typed wire contract shall block wire execution.
+5. Response-only planes may remain active because provider responses continue as canonical events, subject to normal downstream parity tests.
+6. Session/workspace/metadata planes require explicit proof that their inputs are available without request content; otherwise they block.
+7. Generation reload shall pin the classification for the request lifetime.
+8. A ratchet test shall fail whenever a new plane is added without an access classification.
 
-### Requirement 7: Backend-Authored Same-Wire Compatibility
-**Objective:** As the routing core, I want backends to explicitly certify request-wire compatibility, so that provider identity or protocol names are never used as a proxy for equivalence.
-
-#### Acceptance Criteria
-1. A backend shall be eligible for wire execution only when it exposes an explicit provider-neutral request-wire capability matching the frontend wire profile, operation, and delivery mode.
-2. `BackendTransportCaps` or “same provider family” alone shall not establish raw request-wire compatibility.
-3. The core shall not contain provider-name switches to decide whether a request body may be forwarded.
-4. A wire capability shall declare whether it accepts the incoming body unchanged, requires a bounded model-token rewrite, supports replay, supports compressed/decompressed source mode, and has any additional eligibility constraints needed before open.
-5. When a route can select or fail over to multiple candidates before client-visible output, the fast path shall preserve the configured candidate semantics; it shall not silently prune an incompatible candidate merely to retain optimization.
-6. If any candidate that can legally be used under the frozen route/recovery plan cannot consume the replayable wire body with equivalent semantics, the request shall use the canonical path unless the existing route semantics prove that candidate is unreachable for that request.
-7. Initial support shall be additive and narrow: only backend implementations with explicit conformance tests may advertise the capability; all other internal and external backends remain canonical-only without behavior change.
-8. Future #495 capability-profile integration may consume this contract, but #503 shall not depend on #495 being implemented first and shall not duplicate general model-feature capability tables.
-
-### Requirement 8: Token-Aware Model Rewrite
-**Objective:** As a routing core, I want route/model normalization to work on large opaque bodies, so that inline backend selectors and aliases do not leak into provider model IDs.
+### Requirement 6: One Logical Turn, One Authority Lifecycle
+**Objective:** Dynamic fallback must not duplicate session/A-leg/accounting side effects.
 
 #### Acceptance Criteria
-1. When the selected candidate's native model string differs from the effective client `model` token, the system shall perform only a token-aware rewrite of the actual top-level model JSON value identified by the validated scanner.
-2. The rewrite shall work with legal arbitrary whitespace, member ordering, JSON string escaping, and model-token length changes without regex replacement or raw substring search.
-3. The rewrite shall emit a valid JSON string for the candidate-native model and preserve every byte outside the identified rewrite span.
-4. If duplicate top-level model fields, unexpected token types, ambiguous spans, or another condition makes exact rewrite equivalence uncertain, the system shall use canonical processing.
-5. The system shall update outbound body length semantics correctly after rewrite and shall not send a stale client `Content-Length`.
-6. Tests shall cover longer/shorter replacements, escaped client models, misleading `"model"` strings in content, nested model keys, whitespace variants, last-field placement, and adversarial duplicate-key cases.
+1. Static blockers shall be evaluated before `BeginTurn` or other durable per-turn side effects whenever possible.
+2. Any preparation split shall first be characterized against current order/error/finalization behavior.
+3. If a post-identity blocker is discovered, canonical continuation shall reuse the already-bound logical turn and shall not call fresh `Execute`/`BeginTurn` again.
+4. Request authority, billing identity/exposure, A-leg/B-leg lifecycle, submit/capture stages, and terminal finalization shall each occur at most once for a logical turn.
+5. Any frontend validation/error-producing work required before executor entry on the canonical path shall either also complete before identity side effects on a wire candidate or make that profile canonical-only; the design shall not move potentially client-visible frontend errors behind `BeginTurn` merely to retain the optimization.
+6. Unexpected parity failures after a turn has begun shall abort/finalize that turn once and surface an internal diagnostic rather than creating a second turn.
 
-### Requirement 9: Routing, Retry, Failover, Race, and Replay Preservation
-**Objective:** As an operator, I want large requests to retain existing recovery behavior, so that lower allocations do not reduce availability.
-
-#### Acceptance Criteria
-1. Wire execution shall use the core-owned route selector/alias/native-model binding and B2BUA attempt lifecycle rather than moving candidate selection into frontends or backends.
-2. Before first client-visible output, a retry/failover attempt shall receive a fresh reader beginning at byte zero of the validated/re-written request body.
-3. The replayable body source shall support the number and concurrency of readers required by the exact selected route strategy before that strategy is declared fast-path eligible.
-4. If an execution strategy requires parallel/racing request-body readers and the body source/backend contracts do not safely support them, the request shall use canonical processing; the system shall not silently convert a race to a sequential route.
-5. After the first client-visible output, wire execution shall obey the same prohibition on retry/failover as canonical execution.
-6. B-leg allocation, attempt sequence, candidate failure classification, TTFT budget, affinity/session routing state, and terminal accounting shall retain their canonical ownership and ordering.
-7. A provider open/read failure before visible output shall remain eligible for the same recovery classes as the canonical backend path when the backend wire adapter classifies it equivalently.
-
-### Requirement 10: Request Compression Compatibility
-**Objective:** As an operator, I want compressed requests to remain safe and behaviorally compatible, so that decompression does not introduce bombs, leaks, or wire changes.
+### Requirement 7: Explicit Same-Wire Backend Compatibility
+**Objective:** Protocol name equality alone must never authorize raw forwarding.
 
 #### Acceptance Criteria
-1. The first implementation wave shall preserve current gzip-only request-content-encoding support and shall route gzip requests through the canonical path until streaming decompression-to-spool parity is implemented and enabled.
-2. The feature shall not add acceptance for Brotli, zstd, deflate, or any other request encoding that Go-LIP does not already accept.
-3. When gzip fast-path support is added, the decompressed byte stream shall be subject to the same effective `MaxRequestBodyBytes` ceiling as canonical `reqbody.ReadAll` and shall be the stream validated/spooled for downstream use.
-4. When gzip fast-path support is added, the outbound request shall match canonical effective semantics: the backend receives the validated uncompressed JSON body unless that backend's explicit wire contract proves preservation of compressed bytes is equivalent.
-5. Cancellation or malformed gzip input shall close/release the decompressor and spool resources deterministically and map to the same error class as canonical processing.
-6. Any pooling introduced for gzip readers/buffers shall reset all references before reuse and shall have tests preventing cross-request data retention.
+1. Core shall invoke an explicit optional backend wire-compatibility contract for the exact frontend profile, operation, delivery mode, requirements, candidate model, and body mode.
+2. Nil/zero wire support means canonical-only.
+3. Every candidate reachable under the frozen route/recovery semantics shall be proven compatible before the first provider body open.
+4. An incompatible reachable fallback/race candidate shall cause whole-request canonical continuation; the system shall not prune/reorder candidates to preserve the optimization.
+5. Backend compatibility resolution shall not perform provider network I/O.
+6. External backend plugin ABI remains unchanged unless a separate compatibility extension is explicitly designed.
 
-### Requirement 11: HTTP Transport and Credential Semantics
-**Objective:** As an operator, I want the low-copy body path to preserve normal outbound HTTP behavior, so that transport edge cases do not become correctness regressions.
-
-#### Acceptance Criteria
-1. A same-wire backend adapter shall construct its own target URL, provider credentials, required headers, client identity, and transport options using the backend's existing configuration; it shall not blindly forward client authorization or hop-by-hop headers.
-2. The adapter shall preserve streaming versus non-streaming response selection and use the existing canonical response parser/event-stream path for provider responses.
-3. The adapter shall set or omit `Content-Length` consistently with the actual replay/rewrite source and shall permit Go's HTTP transport to use chunked/H2 framing when length is unknown.
-4. The system shall not forward hop-by-hop headers, stale content-encoding headers, stale transfer-encoding state, or client trailers unless an explicit contract says they are part of the supported wire profile.
-5. `Expect: 100-continue`, HTTP/1.1, HTTP/2, connection reuse, cancellation, and redirect policy shall follow the same shared outbound client/security policy as existing backend calls.
-6. A backend wire adapter shall disable hidden SDK-level request retries that would replay the body outside core ownership; retries remain core-owned.
-
-### Requirement 12: Guardrails, Accounting, and Traffic Observability
-**Objective:** As an operator, I want security and accounting features to remain authoritative, so that the optimization cannot create a monitoring or policy blind spot.
+### Requirement 8: Safe Model Rewrite
+**Objective:** Route/native-model rewriting must remain correct without materializing the body.
 
 #### Acceptance Criteria
-1. If an enabled secret/DLP/guardrail requires complete canonical content or a full-buffer body, the request shall use canonical processing.
-2. A future incremental wire inspector may keep a request eligible only through a typed contract that states whether it is metadata-only, incremental/full-body streaming, transforming, or canonical-only and that preserves existing failure policy.
-3. If billing/credit/routing admission requires exact request-token or semantic facts unavailable from wire metadata, the request shall use canonical processing rather than estimate differently.
-4. Byte accounting that depends only on validated decoded body size may use the fast path and shall record the same logical ingress byte count as canonical processing.
-5. Canonical traffic capture (`lip/canonical+json`) shall not be fabricated from an opaque body; if a configured observer requires that representation, the request shall use canonical processing.
-6. Raw A-leg/body traffic capture and redaction shall force canonical processing until the traffic API supports a separately reviewed streaming representation with equivalent privacy/failure semantics.
-7. Fast-path metrics/logs shall contain only bounded metadata and reason codes; they shall not log request content, model secrets, tool arguments, prompt prefixes, or spool file names containing user-derived data.
+1. Rewrite shall use the scanner-recorded exact top-level model token span, never regex or bounded-prefix searching.
+2. Replacement shall be a complete JSON token produced with normal JSON escaping.
+3. The streaming splice reader shall emit prefix + replacement + suffix without constructing a second full body.
+4. Span/size arithmetic shall be validated with checked `int64` math before provider open.
+5. Ambiguous/duplicate/repaired model forms shall be canonical-only unless explicitly certified.
+6. Different candidates may receive different native-model replacements while all other request bytes remain semantically unchanged.
 
-### Requirement 13: Cancellation, Backpressure, Resource Ownership, and Spool Safety
-**Objective:** As an operator, I want large-body resource use to remain bounded and leak-free under concurrency and cancellation.
-
-#### Acceptance Criteria
-1. Ingress capture and outbound replay shall use bounded reusable copy buffers and shall not spawn one goroutine per body chunk.
-2. Backpressure from client read, spool write, spool read, or provider write shall propagate through blocking I/O/context cancellation rather than unbounded queues.
-3. The replayable body shall have one clear owner and deterministic close semantics covering in-memory buffers, temp files, gzip readers, open replay readers, and any reservation accounting.
-4. Temp files shall be created with non-user-derived randomized names in a configured/private temp directory, shall not be exposed through diagnostics, and shall be removed on success, fallback completion, error, timeout, or cancellation.
-5. The spool shall never persist beyond request lifetime for later reuse and shall not become a cache.
-6. If a configured global spool budget cannot be reserved, the system shall prefer canonical fallback while the consumed prefix remains recoverable rather than silently exceeding the budget.
-7. If a spill-to-disk creation/write step fails after bytes have been consumed, the system shall attempt canonical fallback by replaying the successfully retained prefix plus the current unread/remainder stream; only irrecoverable underlying I/O loss may terminate the request with a system error.
-8. Race-enabled replay readers shall not share mutable seek state; each reader shall have independent read position.
-9. Leak/goleak, cancellation, short-read/short-write, client-disconnect, provider-disconnect, and filesystem-error tests shall demonstrate cleanup.
-
-### Requirement 14: Initial Protocol Coverage and Conservative Subset Proof
-**Objective:** As a maintainer, I want protocol rollout to be explicit and independently certifiable, so that adding one compatible lane cannot affect unrelated frontends/backends.
+### Requirement 9: Replay, Retry, Failover, and Race Semantics
+**Objective:** Wire transport must preserve current retry/recovery ownership.
 
 #### Acceptance Criteria
-1. An optional frontend wire profile shall be nil/absent by default; a frontend without a profile shall always use canonical processing.
-2. The first certified lanes shall be limited to same-wire create operations whose frontend/backend pair has a differential conformance suite; recommended implementation order is OpenResponses→OpenResponses-compatible, OpenAI Responses→OpenAI-compatible Responses, then OpenAI Chat Completions→OpenAI-compatible Chat.
-3. Anthropic, Gemini, cross-protocol matrices, compaction endpoints, WebSocket-specific request flows, continuation-materialization flows, and other unproven lanes shall remain canonical-only until separately certified under the same contract.
-4. For OpenAI adapters that contain compatibility normalization such as malformed-history cleanup, reasoning aliases, legacy function-call handling, session metadata extraction, or extension capture, the wire profile shall either reproduce the relevant validation/normalization proof or mark those request shapes canonical-only.
-5. A protocol profile shall maintain an explicit list of normalization-sensitive/disallowed fast-path constructs rather than depending on implementer intuition.
-6. Differential tests shall run each certified request corpus once through the canonical encoder path and once through the wire path against a capture server, then compare effective provider request semantics and canonical response events.
+1. The captured source shall be immutable after capture and provide independent offset-zero readers.
+2. Every provider/credential retry obtains a fresh reader and closes it on all exits.
+3. Parallel/race routes may use the wire lane only when independent readers and every racing candidate's wire contract support the exact route semantics.
+4. Current attempt budgets, affinity/interleaved state, weighted/race ordering, first-event commitment, and pre-output recovery classification remain authoritative.
+5. No new retry/failover may occur after client-visible output.
+6. Replay tests shall prove byte-complete delivery after a failed first attempt and independent concurrent cursor state.
 
-### Requirement 15: Performance Evidence and No-Hot-Path Regression
-**Objective:** As a performance maintainer, I want measured evidence that the complexity buys real memory/GC improvements without regressing ordinary traffic.
-
-#### Acceptance Criteria
-1. Before activation, benchmarks shall capture the canonical baseline and fast path for representative body sizes including 32 KiB, 256 KiB, 1 MiB, 5 MiB, and a larger configured-limit case such as 20 MiB where the test raises the normal request cap.
-2. Benchmarks shall report at minimum allocations/request, allocated bytes/request, peak/steady RSS or heap under concurrency, GC count/pause, CPU/request, ingress-to-upstream-open latency, TTFT, throughput, copy volume where measurable, goroutine count, and cancellation cleanup.
-3. Load scenarios shall include concurrency 1, 100, 1000, and the highest stable environment-supported concurrency, with a target scenario of 5000+ when the host can sustain it.
-4. Variants shall cover unchanged body, model rewrite, canonical fallback, retry/replay, unknown/chunked length, gzip canonical fallback, and gzip fast path once implemented.
-5. The fast path shall demonstrate materially lower heap allocation for eligible multi-megabyte bodies; if a certified lane does not reduce memory/GC pressure versus canonical processing, it shall not be enabled merely because the code path exists.
-6. When the feature is disabled or the request is below threshold, benchmarks shall demonstrate no material allocation/latency regression attributable to the optimization gate.
-7. Benchmarks shall not replace correctness gates; all parity, security, race, and leak tests must pass before performance results are considered.
-
-### Requirement 16: Rollout, Diagnostics, and Architecture Ratchets
-**Objective:** As an operator and maintainer, I want a reversible rollout and durable safeguards, so that future changes cannot silently widen an unsafe fast path.
+### Requirement 10: Compression Is Staged
+**Objective:** Compression support must not weaken decoded-byte limits or broaden scope accidentally.
 
 #### Acceptance Criteria
-1. The feature shall ship disabled by default in the first implementation release; enabling it shall require explicit configuration.
-2. Configuration reload shall publish fast-path settings and body-access/compatibility facts as part of a new immutable generation; in-flight requests shall retain the generation they started with.
-3. Metrics shall include considered, eligible, used, fallback, validation-failure, rewrite, replay, spool-memory/spill, spool bytes, and fallback-reason counters/histograms with bounded labels.
-4. Debug diagnostics shall make it possible to determine why a request was canonical-only without including body content.
-5. Architecture tests shall prevent provider-name branching in core, prevent frontends from taking ownership of routing/failover, and prevent an opaque body from being coerced into a fake canonical `lipapi.Call`.
-6. Adding a new frontend/backend wire profile shall require its capability declaration, protocol proof tests, canonical differential corpus, cancellation/replay tests, and benchmark evidence.
-7. `make quality-checks`, `make test`, `make parity-checks`, and `make qa` shall pass before the feature is declared implementation-ready for merge.
+1. Wave 1 shall route gzip requests through the existing canonical `reqbody.ReadAll` behavior.
+2. A later wave may capture the decoded identity JSON stream only after matching current compressed/decoded limit semantics.
+3. Decoded-body capture shall strip stale outbound content-encoding state and send valid identity JSON.
+4. Brotli/zstd/deflate support is not introduced by #503.
+5. Compressed `Content-Length` shall not be used for decoded-size threshold or reservation proof.
+
+### Requirement 11: Backend HTTP and Credential Semantics
+**Objective:** Raw-body transport must reuse established backend security/transport policy.
+
+#### Acceptance Criteria
+1. Wire adapters shall reuse existing endpoint/base-URL resolution, credential selection/cooldown, shared HTTP client/TLS/proxy settings, response limits, parsers, and error classification.
+2. Client `Authorization`, hop-by-hop headers, stale transfer/content-encoding headers, and frontend-only headers shall not be blindly forwarded.
+3. Core remains the owner of retry; hidden SDK retries that replay bodies independently shall be disabled/avoided.
+4. Outbound content length shall reflect the actual rewritten body when known; otherwise valid streaming HTTP semantics may be used.
+5. Provider response parsing shall still emit canonical `lipapi.Event` streams.
+
+### Requirement 12: Traffic, Guardrails, Conversation, and Accounting Are Authorities
+**Objective:** The optimization must not bypass safety/observability/accounting features.
+
+#### Acceptance Criteria
+1. Frontend-owned ingress traffic capture that requires the full `[]byte` shall gate to canonical processing before spooling unless/until it gains a streaming-compatible contract.
+2. Core/composed raw capture, request traffic observation/redaction, secret guards, DLP/content policy, request transforms, submit hooks, local turns, conversation projection, and similar content stages shall block unless explicitly parity-certified for wire facts/body streaming.
+3. Active conversation exclusion/steering that changes backend-effective content shall force canonical continuation.
+4. Monetary admission, account/pricing identity, charge policy, token estimation, and context-size policies shall not use byte-count approximations as substitutes for current semantics.
+5. Response usage settlement and response-only observers continue from canonical provider events.
+6. No wire path may disable an enabled authority merely to improve eligibility.
+
+### Requirement 13: Replay-Spool Resource Safety and Confidentiality
+**Objective:** Pre-commit replay must stay bounded, deterministic, and safe for prompt data.
+
+#### Acceptance Criteria
+1. Memory retained by capture shall be bounded by configured per-request memory spool bytes plus fixed scanner/copy buffers and bounded metadata.
+2. Spill files shall use unpredictable temp names without user/session/model data and restrictive owner-only permissions where the platform supports them.
+3. Spool paths/body prefixes shall not appear in normal logs/metrics/traces.
+4. Global logical spool reservation shall be bounded and released exactly once on success/fallback/cancel/error.
+5. Reservation exhaustion is an optimization decline, not a new 413; documentation/metrics shall explicitly state that canonical fallback may still allocate according to the pre-existing path and therefore this budget is not a global memory-admission guarantee.
+6. `Source.Close` shall be idempotent and shall not deadlock waiting for leaked readers; it marks the root closed and final deletion occurs when outstanding tracked readers close. No cleanup goroutine is required.
+7. File create/write/read/remove failures, cancellation, server timeout, and Windows-style open-file deletion constraints shall be injection/state tested.
+8. Operator documentation shall state that spool files can contain request plaintext and describe `spool_dir`, filesystem/volume protection, retention lifetime, and threat-model implications.
+
+### Requirement 14: Conservative Protocol Certification Matrix
+**Objective:** Only request subsets proven equivalent to canonical decode→encode may use raw forwarding.
+
+#### Acceptance Criteria
+1. Each certified profile shall enumerate known fields/types, duplicate policy, required controls, normalization/repair triggers, protocol-requirement derivation, rewrite rules, frontend pre/post-decode side effects, and response-state dependencies.
+2. Unknown/extra fields that canonical encoding would discard or normalize shall be canonical-only unless explicitly proven safe for that backend.
+3. Malformed histories or aliases that current decoders repair/drop/normalize shall be canonical-only.
+4. OpenResponses HTTP create is not eligible merely because `previous_response_id` is absent: current decode defaults `store=true`. The first OpenResponses wire certification shall require **explicit `store:false`**, absent `previous_response_id`, no compaction, and no WebSocket ingress unless storage/continuation and frontend `AfterDecode` parity are separately implemented and tested.
+5. OpenAI Responses/Chat profiles shall conservatively decline proxy/session body metadata, legacy/alias forms, malformed tool/function history, and any frontend response-state dependency not covered by Requirement 18.
+6. Profile broadening requires new differential corpus in the same change.
+7. Protocol differential tests compare canonical-vs-wire provider-effective semantics and explicitly normalize only fields documented as protocol-opaque/non-deterministic.
+
+### Requirement 15: Evidence-Based Performance and Eligibility
+**Objective:** The feature must demonstrate real heap/GC benefit without becoming a permanently-falling-back code path.
+
+#### Acceptance Criteria
+1. Baselines and wire-path benchmarks shall cover 32 KiB, 256 KiB, 1 MiB, 5 MiB, and a test-only raised-limit 20 MiB body.
+2. Record `allocs/op`, `B/op`, CPU time, capture/preflight/proof latency, provider-open latency, GC/heap behavior, and temp-file I/O.
+3. Include concurrent load at realistic session counts and spool-budget saturation; compare against the disabled canonical baseline rather than claiming the spool budget itself prevents canonical heap pressure.
+4. Include malformed/late-field/large-single-string and replay/failover workloads.
+5. Publish an eligibility/fallback matrix for representative configurations, including standard extension planes and billing on/off.
+6. At least one realistic supported configuration/lane shall actually reach wire execution in integration/load tests; a design that compiles but always falls back under normal composition is not considered complete.
+7. Default threshold/memory-spool values are rollout defaults, not universal performance claims.
+
+### Requirement 16: Conservative Rollout, Diagnostics, and Architecture Ratchets
+**Objective:** Operators must be able to enable/observe/revert the optimization safely.
+
+#### Acceptance Criteria
+1. Feature is default-off for the first release.
+2. Metrics use bounded static labels only (frontend/profile/fallback-reason) and never backend/model/session/user IDs.
+3. Traces/logs may record body size/spill/profile/rewrite/replay/fallback reason but never request content or spool path.
+4. Architecture tests shall prevent provider-name switches in core, provider types in request-body SDK contracts, duplicate extension-plane classification systems, and unclassified new planes.
+5. Full QA/race/static checks and all canonical characterization suites must pass before enabling any production profile.
+6. Spec/design shall be revalidated if main materially changes in any revalidation-trigger area before implementation begins.
+
+### Requirement 17: Preserve Decode Admission / Decode QoS Exactly
+**Objective:** Streaming proof must not bypass the existing byte-weighted concurrency guard around expensive protocol decoding.
+
+#### Acceptance Criteria
+1. The shared JSON lexical/shape pass may run while capturing the client body because current shared preflight precedes decode admission.
+2. The implementation shall not hold a decode-admission permit while waiting on client network upload; this would change current permit occupancy and DoS characteristics.
+3. After the complete decoded body size is known and shared preflight has passed, fast-path protocol semantic proof shall acquire `DecodeAdmission` with the same decoded-byte weight used by the canonical path.
+4. The protocol semantic verifier shall run while that permit is held. A safe implementation may reopen the immutable source for a second low-allocation semantic pass rather than performing protocol proof during upload.
+5. If the profile declines and canonical protocol decode is needed, the canonical decode shall preserve current admission/error/release semantics; permits shall be released exactly once on success/error/panic.
+6. Saturation/overweight/cancellation behavior and `Retry-After` mapping shall match current `decodeqos` tests for both canonical and wire-candidate requests.
+
+### Requirement 18: Preserve Frontend Response/Envelope State Without a Fake Call
+**Objective:** Bypassing canonical request materialization must not break response IDs, cancellation carriers, timestamps, wrappers, or frontend-specific response state.
+
+#### Acceptance Criteria
+1. A large-body execution API that returns only `lipapi.EventStream` is insufficient and shall not be the final contract if the frontend needs post-execution facts currently obtained from `*lipapi.Call` or `Decoded.Extra`.
+2. The design shall define a bounded provider-neutral execution-result/response-facts contract (for example call/trace identity, authoritative A-leg/session identity, delivery/operation facts, and explicitly needed opaque-response identity facts) and keep frontend-specific response state at the frontend boundary.
+3. The wire path shall not fabricate a partial `lipapi.Call` solely to satisfy existing response encoders/loggers.
+4. Each certified frontend shall inventory `BuildEncodeOpts`, `WrapStream`, response writers, cancellation endpoints, debug/trace calls, and `AfterDecode` state and either refactor them onto the bounded response contract or mark the profile canonical-only.
+5. OpenAI Responses cancellation IDs shall remain correctly bound to the authoritative A-leg/session or otherwise retain equivalent cancellation semantics; optimized requests must not become uncancellable.
+6. Opaque response IDs/timestamps may differ from the canonical implementation only when the protocol permits it and the certification explicitly documents/normalizes that field; semantic guarantees, uniqueness, correlation, cancellation/continuation behavior, and format remain required.
+7. Dynamic canonical continuation shall restore/use the frontend's canonical decoded/AfterDecode state exactly once; the core shall not own arbitrary frontend/provider state.
+
+### Requirement 19: Close Every Post-Identity `lipapi.Call` Dependency Before Wire Execution
+**Objective:** The implementation must not discover late that downstream runtime machinery still requires canonical request content.
+
+#### Acceptance Criteria
+1. Before implementing wire execution, the project shall inventory every production read of `preparedRequest.call`, `identity.ingressCall`, canonical baselines, and `lipapi.Call`-typed callback used after the proposed identity split.
+2. Each dependency shall be classified as: content-requiring blocker; exact metadata fact that can be added to a bounded wire-execution facts object; or response-only behavior covered by Requirement 18.
+3. A ratchet/coverage test or generated inventory shall prevent new post-identity full-call dependencies from silently becoming wire-safe.
+4. Routing, continuation support, interleaved-thinking setup, `recvTurnFacts`, billing identity/exposure, request-token/context estimation, terminal usage records, and any current full-call callback shall be included in this audit.
+5. Stock billing composition shall be tested explicitly. If its policy/identity/max-output admission can be represented exactly from bounded wire facts, implement that typed path; otherwise billing-enabled requests remain canonical-only and the eligibility matrix must say so.
+6. No consumer may receive a fake/partial canonical Call. If exact semantics cannot be represented without materialization, fallback is required.
