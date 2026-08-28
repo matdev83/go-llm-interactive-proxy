@@ -327,30 +327,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"ToolCatalogFilters", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCatalogFilters, func(f toolcatalog.Filter) string {
-				if cf, ok := f.(charCatalogFilter); ok {
-					return cf.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolCallPolicies", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallPolicies, func(p toolpolicy.Policy) string {
-				if cp, ok := p.(charPolicy); ok {
-					return cp.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolCallFinalizers", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallFinalizers, func(f toolcall.Finalizer) string {
-				if cf, ok := f.(charFinalizer); ok {
-					return cf.tag
-				}
-				return ""
-			})
-		}},
 		{"CompactionObservers", func(m MergedFeatureSurface) []string {
 			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
 				if co, ok := o.(charCompactionObs); ok {
@@ -455,9 +431,9 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.ToolCatalogFilters, 2)
+		require.Len(t, merged.CompactionObservers, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.ToolCatalogFilters).IsNil())
+		require.False(t, reflect.ValueOf(merged.CompactionObservers).IsNil())
 	})
 }
 

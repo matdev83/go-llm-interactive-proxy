@@ -12,25 +12,18 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order.
 type MergedFeatureSurface struct {
-	Lifecycles                       []lipplugin.Lifecycle
-	ToolCatalogFilters               []toolcatalog.Filter
-	ToolCallPolicies                 []toolpolicy.Policy
-	ToolCallFinalizers               []toolcall.Finalizer
-	ToolCallFinalizationMaxArgsBytes int
-	CompactionObservers              []compaction.Observer
-	CompactionPreservers             []compaction.Preserver
-	SecretGuards                     []secretguard.Guard
-	LocalTurnHandlers                []localturn.Handler
-	TerminalDecisionProvider         terminaldecision.Provider
-	terminalDecisionProviderID       string
+	Lifecycles                 []lipplugin.Lifecycle
+	CompactionObservers        []compaction.Observer
+	CompactionPreservers       []compaction.Preserver
+	SecretGuards               []secretguard.Guard
+	LocalTurnHandlers          []localturn.Handler
+	TerminalDecisionProvider   terminaldecision.Provider
+	terminalDecisionProviderID string
 }
 
 // ErrTerminalDecisionProviderConflict reports an attempted second provider
@@ -68,16 +61,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		providerID = incomingID
 	}
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	m.ToolCatalogFilters = append(m.ToolCatalogFilters, b.ToolCatalogFilters...)
-	m.ToolCallPolicies = append(m.ToolCallPolicies, b.ToolCallPolicies...)
-	m.ToolCallFinalizers = append(m.ToolCallFinalizers, b.ToolCallFinalizers...)
-	// Non-positive values are not merge contributions (zero = unset; negatives are
-	// rejected by FeatureBundle.Validate before a valid bundle is merged).
-	if b.ToolCallFinalizationMaxArgsBytes > 0 {
-		if m.ToolCallFinalizationMaxArgsBytes <= 0 || b.ToolCallFinalizationMaxArgsBytes < m.ToolCallFinalizationMaxArgsBytes {
-			m.ToolCallFinalizationMaxArgsBytes = b.ToolCallFinalizationMaxArgsBytes
-		}
-	}
 	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
 	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
 	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)

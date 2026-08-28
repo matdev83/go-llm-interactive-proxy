@@ -198,40 +198,6 @@ func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e
 
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
 
-// TestOverlayExtensions_FinalizerCapOverwriteIfPositiveDivergence pins requirement 4.4, 5.1:
-// - Overlay uses overwrite-if-positive (NOT min-reduction).
-// - If src has a positive value, it overwrites dst regardless of whether src is smaller OR LARGER than dst.
-// - If src is zero or negative, dst remains unchanged.
-func TestOverlayExtensions_FinalizerCapOverwriteIfPositiveDivergence(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		dstV int
-		srcV int
-		want int
-	}{
-		{"both_zero", 0, 0, 0},
-		{"dst_zero_src_positive", 0, 2048, 2048},
-		{"src_zero_keeps_dst", 4096, 0, 4096},
-		{"src_positive_overwrites_larger_dst", 8192, 1024, 1024},
-		{"src_positive_overwrites_smaller_dst_divergence", 1024, 8192, 8192}, // Divergence from merge min-reduction!
-		{"equal_values", 2048, 2048, 2048},
-		{"src_negative_ignored", 2048, -1, 2048},
-		{"both_zero_or_negative", 0, -1, 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			dst := &ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.dstV}
-			src := ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.srcV}
-			overlayExtensions(dst, src)
-			require.Equal(t, tt.want, dst.ToolCallFinalizationMaxArgsBytes)
-		})
-	}
-}
-
 // --- Acceptance Criteria 2 & 3: Overlay Terminal Decision Provider First-Wins ---
 
 // TestOverlayExtensions_TerminalDecisionFirstWins pins requirement 1.2, 4.2, 5.1:
@@ -277,35 +243,26 @@ func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
 	})
 }
 
-// --- Acceptance Criteria 3: Remaining 12 Handled Slice Planes Append Order ---
+// --- Acceptance Criteria 3: Remaining Handled Slice Planes Append Order ---
 
 // TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
-// - For remaining 12 slice planes handled by overlayExtensions (W3-W5), source elements append after destination elements in registration order.
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors) are omitted and handled via generated plane adapters.
+// - For remaining slice planes handled by overlayExtensions, source elements append after destination elements in registration order.
+// - Migrated tool planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers) are omitted and handled via generated plane adapters.
 func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
-		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
-		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "d-guard"}},
-		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
+		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "d-guard"}},
+		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
 	}
 
 	src := ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
-		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
-		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "s-guard"}},
-		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
+		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "s-guard"}},
+		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
 	}
 
 	overlayExtensions(dst, src)
 
-	require.Equal(t, []string{"d-filter", "s-filter"}, []string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
-	require.Equal(t, []string{"d-pol", "s-pol"}, []string{dst.ToolCallPolicies[0].ID(), dst.ToolCallPolicies[1].ID()})
-	require.Equal(t, []string{"d-fin", "s-fin"}, []string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})
 	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
 	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 }
@@ -400,7 +357,7 @@ func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 func TestOverlayExtensions_NilSafety(t *testing.T) {
 	t.Parallel()
 	require.NotPanics(t, func() {
-		overlayExtensions(nil, ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: 1024})
+		overlayExtensions(nil, ExtensionsOptions{})
 	})
 }
 

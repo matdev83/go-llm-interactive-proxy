@@ -141,41 +141,41 @@ func TestFinalizerCap_MergePathMinReductionAndZeroSemantics(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			merged, err := MergeBundlesChecked(tt.bundles...)
+			gen, err := MergeBundlesGenerated(tt.bundles...)
 			require.NoError(t, err)
-			require.Equal(t, tt.want, merged.ToolCallFinalizationMaxArgsBytes)
+			require.Equal(t, tt.want, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 		})
 	}
 
 	t.Run("step_by_step_receiver_append_mutation", func(t *testing.T) {
 		t.Parallel()
-		var m MergedFeatureSurface
-		require.Equal(t, 0, m.ToolCallFinalizationMaxArgsBytes)
+		cs := lipfeature.NewContributionSet()
+		require.Equal(t, 0, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 
 		// 1. First contribution sets value
-		err := m.Append(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096})
+		err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-1", 4096)
 		require.NoError(t, err)
-		require.Equal(t, 4096, m.ToolCallFinalizationMaxArgsBytes)
+		require.Equal(t, 4096, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 
 		// 2. Larger contribution ignored (min-reduction)
-		err = m.Append(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 8192})
+		err = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-2", 8192)
 		require.NoError(t, err)
-		require.Equal(t, 4096, m.ToolCallFinalizationMaxArgsBytes)
+		require.Equal(t, 4096, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 
 		// 3. Smaller contribution reduces value
-		err = m.Append(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048})
+		err = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-3", 2048)
 		require.NoError(t, err)
-		require.Equal(t, 2048, m.ToolCallFinalizationMaxArgsBytes)
+		require.Equal(t, 2048, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 
 		// 4. Zero contribution ignored (unset)
-		err = m.Append(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0})
+		err = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-4", 0)
 		require.NoError(t, err)
-		require.Equal(t, 2048, m.ToolCallFinalizationMaxArgsBytes)
+		require.Equal(t, 2048, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 
-		// 5. Negative contribution ignored
-		err = m.Append(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -100})
-		require.NoError(t, err)
-		require.Equal(t, 2048, m.ToolCallFinalizationMaxArgsBytes)
+		// 5. Negative contribution fails validation
+		err = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "plugin-5", -100)
+		require.Error(t, err)
+		require.Equal(t, 2048, lipfeature.Get(cs.Freeze(), lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
 	})
 }
 

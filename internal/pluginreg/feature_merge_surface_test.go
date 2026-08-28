@@ -203,15 +203,16 @@ func TestMergeFeatureSurface_concatCatalogAndTransforms(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	filters := feature.Get(gen.Frozen, feature.PlaneToolCatalogFilters)
 	transforms := feature.Get(gen.Frozen, feature.PlaneRequestTransforms)
-	if len(m.ToolCatalogFilters) != 1 || len(transforms) != 1 {
-		t.Fatalf("catalog=%d transforms=%d", len(m.ToolCatalogFilters), len(transforms))
+	if len(filters) != 1 || len(transforms) != 1 {
+		t.Fatalf("catalog=%d transforms=%d", len(filters), len(transforms))
 	}
 }
 
@@ -295,7 +296,7 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "en-a", FactoryKind: facPol, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "dis", FactoryKind: facPanic, Enabled: false, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "en-b", FactoryKind: facUsage, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
@@ -303,8 +304,9 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.ToolCallPolicies) != 1 || m.ToolCallPolicies[0].ID() != "policy-from-first" {
-		t.Fatalf("policies %+v", m.ToolCallPolicies)
+	pols := feature.Get(gen.Frozen, feature.PlaneToolCallPolicies)
+	if len(pols) != 1 || pols[0].ID() != "policy-from-first" {
+		t.Fatalf("policies %+v", pols)
 	}
 	usageObs := feature.Get(gen.Frozen, feature.PlaneUsageObservers)
 	if len(usageObs) != 2 {

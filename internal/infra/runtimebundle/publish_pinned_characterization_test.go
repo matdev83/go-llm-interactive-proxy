@@ -187,15 +187,6 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 // buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
 	return runtimebundle.ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{
-			charBundleToolCatalogFilter{id: label + "-catalog"},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			charBundleToolCallPolicy{id: label + "-policy", ord: int(gen)},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			charBundleToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
-		},
 		SecretGuards: []secretguard.Guard{
 			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
 		},
@@ -219,6 +210,15 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 			SchemaVersion: lipfeature.SchemaVersionV1,
 			SessionOpeners: []session.Opener{
 				charBundleSessionOpener{id: label + "-session"},
+			},
+			ToolCatalogFilters: []toolcatalog.Filter{
+				charBundleToolCatalogFilter{id: label + "-catalog"},
+			},
+			ToolCallPolicies: []toolpolicy.Policy{
+				charBundleToolCallPolicy{id: label + "-policy"},
+			},
+			ToolCallFinalizers: []toolcall.Finalizer{
+				charBundleToolCallFinalizer{id: label + "-finalizer"},
 			},
 			RequestTransforms: []request.Transform{
 				charBundleRequestTransform{id: label + "-reqxform"},

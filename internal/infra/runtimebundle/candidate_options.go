@@ -45,11 +45,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 }
 
 func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return len(e.ToolCatalogFilters) > 0 ||
-		len(e.ToolCallPolicies) > 0 ||
-		len(e.ToolCallFinalizers) > 0 ||
-		e.ToolCallFinalizationMaxArgsBytes > 0 ||
-		len(e.SecretGuards) > 0 ||
+	return len(e.SecretGuards) > 0 ||
 		e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil
 }
