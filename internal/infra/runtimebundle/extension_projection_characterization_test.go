@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
@@ -130,13 +129,11 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
 		merged := featurebundle.MergedFeatureSurface{
-			CompactionObservers: []compaction.Observer{},
-			LocalTurnHandlers:   []localturn.Handler{},
+			LocalTurnHandlers: []localturn.Handler{},
 		}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		for name, got := range map[string]any{
-			"CompactionObservers": ext.CompactionObservers,
-			"LocalTurnHandlers":   ext.LocalTurnHandlers,
+			"LocalTurnHandlers": ext.LocalTurnHandlers,
 		} {
 			rv := reflect.ValueOf(got)
 			require.False(t, rv.IsNil(), "%s must stay non-nil empty", name)

@@ -123,11 +123,12 @@ func buildRuntimeSnapshot(
 		trafficRaw = traffic.MultiRawCapture(rawSinks...)
 	}
 	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
+	compactionObservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionObservers)
+	compactionPreservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionPreservers)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
-	compactionObservers := slices.Clone(opts.Extensions.CompactionObservers)
 	stateStore := extensionState
 	if stateStore == nil {
 		stateStore = corestate.NewMem(nowFn)
@@ -151,6 +152,7 @@ func buildRuntimeSnapshot(
 		RawCapture:               trafficRaw,
 		TrafficRedactors:         trafficRedactors,
 		CompactionObservers:      compactionObservers,
+		CompactionPreservers:     compactionPreservers,
 		LocalTurnHandlers:        slices.Clone(opts.Extensions.LocalTurnHandlers),
 		TerminalDecisionProvider: opts.Extensions.TerminalDecisionProvider,
 		SecretGuardPlane:         sgPlane,

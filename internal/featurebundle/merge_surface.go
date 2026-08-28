@@ -6,11 +6,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
@@ -18,9 +16,6 @@ import (
 // registration order.
 type MergedFeatureSurface struct {
 	Lifecycles                 []lipplugin.Lifecycle
-	CompactionObservers        []compaction.Observer
-	CompactionPreservers       []compaction.Preserver
-	SecretGuards               []secretguard.Guard
 	LocalTurnHandlers          []localturn.Handler
 	TerminalDecisionProvider   terminaldecision.Provider
 	terminalDecisionProviderID string
@@ -61,9 +56,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		providerID = incomingID
 	}
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	m.CompactionObservers = append(m.CompactionObservers, b.CompactionObservers...)
-	m.CompactionPreservers = append(m.CompactionPreservers, b.CompactionPreservers...)
-	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
 	m.LocalTurnHandlers = append(m.LocalTurnHandlers, b.LocalTurnHandlers...)
 	if b.TerminalDecisionProvider != nil {
 		m.TerminalDecisionProvider = b.TerminalDecisionProvider

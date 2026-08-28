@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -949,4 +950,64 @@ func (r *errProneRegistry) BuildFeatureBundle(factoryKey string, _ yaml.Node) (l
 		return b, nil
 	}
 	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+}
+
+type charStubCompactionObs struct{}
+
+func (charStubCompactionObs) OnCompaction(context.Context, compaction.Event) error {
+	return nil
+}
+
+type charStubCompactionPreserver struct {
+	id string
+}
+
+func (p charStubCompactionPreserver) ID() string { return p.id }
+func (charStubCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (charStubCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (charStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+// TestInventoryExtensions_CompactionPlaneExactEquivalenceWithBase proves that contributing
+// compaction observers and compaction preservers onto features does not alter the inventory
+// stage occupancy, privilege flags, generic ports, or overall snapshot JSON bytes, matching base.
+func TestInventoryExtensions_CompactionPlaneExactEquivalenceWithBase(t *testing.T) {
+	t.Parallel()
+
+	cfgBase, extrasBase := buildPopulatedMultiFeatureFixture()
+	snapBase, err := InventorySnapshotForConfig(t.Context(), cfgBase, extrasBase)
+	require.NoError(t, err)
+
+	bytesBase, err := json.MarshalIndent(snapBase, "", "  ")
+	require.NoError(t, err)
+
+	// Now add compaction observers and preservers to multiple features
+	reg, ok := extrasBase.Reg.(*populatedMultiFeatureRegistry)
+	require.True(t, ok)
+	bAlpha := reg.bundles["sec-gate"]
+	bAlpha.CompactionObservers = []compaction.Observer{charStubCompactionObs{}}
+	bAlpha.CompactionPreservers = []compaction.Preserver{charStubCompactionPreserver{id: "preserver-sec"}}
+	reg.bundles["sec-gate"] = bAlpha
+
+	bBravo := reg.bundles["tool-governance"]
+	bBravo.CompactionObservers = []compaction.Observer{charStubCompactionObs{}, nil, charStubCompactionObs{}}
+	bBravo.CompactionPreservers = []compaction.Preserver{charStubCompactionPreserver{id: "preserver-tool"}}
+	reg.bundles["tool-governance"] = bBravo
+
+	snapWithCompaction, err := InventorySnapshotForConfig(t.Context(), cfgBase, extrasBase)
+	require.NoError(t, err)
+
+	bytesWithCompaction, err := json.MarshalIndent(snapWithCompaction, "", "  ")
+	require.NoError(t, err)
+
+	// Exact byte-for-byte equivalence
+	require.Equal(t, string(bytesBase), string(bytesWithCompaction),
+		"adding compaction observers/preservers must produce byte-for-byte identical inventory snapshot as base")
 }

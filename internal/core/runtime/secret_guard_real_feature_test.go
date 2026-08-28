@@ -26,7 +26,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -153,14 +152,6 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 	scanMaxBytes := len(first) + 1
 	h := &realSecretGuardHarness{ownerID: ownerID}
 
-	sgCfg, err := featuresg.DecodeConfig(mustYAMLNode(t, fmt.Sprintf(
-		"action: %s\naudit_failure_policy: fail_closed\nscan_max_bytes: %d\n",
-		action, scanMaxBytes,
-	)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle := featuresg.FeatureBundle(sgCfg)
 	reg := pluginreg.NewRegistry()
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
@@ -206,7 +197,6 @@ func newRealSecretGuardHarness(t *testing.T, action, ownerID string) *realSecret
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry: reg,
 			Extensions: runtimebundle.ExtensionsOptions{
-				SecretGuards: bundle.SecretGuards,
 				SecretGuardEnvironment: secretGuardEnv{
 					"OPENAI_API_KEY": secret,
 				},

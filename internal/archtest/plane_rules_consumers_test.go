@@ -234,3 +234,154 @@ func ConsumeToolPlane(f lipfeature.FrozenPlaneSet) any {
 		})
 	}
 }
+
+// TestForbiddenMirrorPredicate_SecretGuardRuntimeStageConsumersAllowlistAndSpoofing verifies that exact
+// observer projection internal/infra/runtimebundle.buildSecretGuardRuntime is allowed, while unauthorized or
+// spoofed functions reading PlaneSecretGuards via Get are strictly rejected under Wave 5a.
+func TestForbiddenMirrorPredicate_SecretGuardRuntimeStageConsumersAllowlistAndSpoofing(t *testing.T) {
+	t.Parallel()
+
+	// 1. Unauthorized function reading PlaneSecretGuards via Get is REJECTED
+	unauthorizedSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+)
+
+func unauthorizedSGConsumer(f lipfeature.FrozenPlaneSet) []secretguard.Guard {
+	return lipfeature.Get(f, lipfeature.PlaneSecretGuards)
+}
+`
+	findingsUnauth := scanSyntheticSource(t, "internal/infra/runtimebundle/unauthorized.go", unauthorizedSrc, Wave5a_GuardsCompaction)
+	if len(findingsUnauth) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for unauthorizedSGConsumer at Wave5a")
+	}
+	if findingsUnauth[0].ShapeKind != MirrorStageConsumer || findingsUnauth[0].PlaneID != "secret_guards" {
+		t.Fatalf("unexpected finding: %+v", findingsUnauth[0])
+	}
+
+	// 2. Spoofed variants (e.g. buildSecretGuardRuntime2, buildSecretGuardRuntime_evil) are REJECTED
+	spoofVariants := []struct {
+		name     string
+		funcName string
+	}{
+		{name: "numbered spoof", funcName: "buildSecretGuardRuntime2"},
+		{name: "suffix spoof", funcName: "buildSecretGuardRuntime_evil"},
+	}
+
+	for _, tc := range spoofVariants {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+)
+
+func ` + tc.funcName + `(f lipfeature.FrozenPlaneSet) []secretguard.Guard {
+	return lipfeature.Get(f, lipfeature.PlaneSecretGuards)
+}
+`
+			findings := scanSyntheticSource(t, "internal/infra/runtimebundle/secret_guard_runtime.go", src, Wave5a_GuardsCompaction)
+			if len(findings) == 0 {
+				t.Fatalf("expected forbidden stage consumer finding for spoofed %s (%s) at Wave5a", tc.name, tc.funcName)
+			}
+			if findings[0].ShapeKind != MirrorStageConsumer || findings[0].PlaneID != "secret_guards" {
+				t.Fatalf("unexpected finding for %s: %+v", tc.funcName, findings[0])
+			}
+		})
+	}
+
+	// 3. Legitimate exact allowlist function (buildSecretGuardRuntime) is ALLOWED
+	allowedSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+)
+
+func buildSecretGuardRuntime(f lipfeature.FrozenPlaneSet) []secretguard.Guard {
+	return lipfeature.Get(f, lipfeature.PlaneSecretGuards)
+}
+`
+	allowedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/secret_guard_runtime.go", allowedSrc, Wave5a_GuardsCompaction)
+	if len(allowedFindings) != 0 {
+		t.Fatalf("expected 0 findings for allowed exact buildSecretGuardRuntime function, got: %+v", allowedFindings)
+	}
+
+	// 4. Same-name function in foreign package (foreign spoof) is REJECTED
+	foreignFindings := scanSyntheticSource(t, "internal/foreign/fake_secret_guard.go", allowedSrc, Wave5a_GuardsCompaction)
+	if len(foreignFindings) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for foreign same-name spoof buildSecretGuardRuntime at Wave5a")
+	}
+	if foreignFindings[0].ShapeKind != MirrorStageConsumer || foreignFindings[0].PlaneID != "secret_guards" {
+		t.Fatalf("unexpected finding for foreign spoof: %+v", foreignFindings[0])
+	}
+}
+
+// TestForbiddenMirrorPredicate_CompactionStageConsumersAllowlistAndSpoofing verifies that exact
+// stage consumer internal/infra/runtimebundle.buildRuntimeSnapshot is allowed to read compaction planes,
+// while unauthorized or spoofed functions reading PlaneCompactionObservers or PlaneCompactionPreservers
+// via Get are strictly rejected under Wave 5a.
+func TestForbiddenMirrorPredicate_CompactionStageConsumersAllowlistAndSpoofing(t *testing.T) {
+	t.Parallel()
+
+	// 1. Unauthorized function reading PlaneCompactionObservers via Get is REJECTED
+	unauthObsSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+)
+
+func unauthorizedCompactionObsConsumer(f lipfeature.FrozenPlaneSet) []compaction.Observer {
+	return lipfeature.Get(f, lipfeature.PlaneCompactionObservers)
+}
+`
+	findingsUnauthObs := scanSyntheticSource(t, "internal/infra/runtimebundle/unauthorized.go", unauthObsSrc, Wave5a_GuardsCompaction)
+	if len(findingsUnauthObs) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for unauthorizedCompactionObsConsumer at Wave5a")
+	}
+	if findingsUnauthObs[0].ShapeKind != MirrorStageConsumer || findingsUnauthObs[0].PlaneID != "compaction_observers" {
+		t.Fatalf("unexpected finding: %+v", findingsUnauthObs[0])
+	}
+
+	// 2. Unauthorized function reading PlaneCompactionPreservers via Get is REJECTED
+	unauthPresSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+)
+
+func unauthorizedCompactionPresConsumer(f lipfeature.FrozenPlaneSet) []compaction.Preserver {
+	return lipfeature.Get(f, lipfeature.PlaneCompactionPreservers)
+}
+`
+	findingsUnauthPres := scanSyntheticSource(t, "internal/infra/runtimebundle/unauthorized.go", unauthPresSrc, Wave5a_GuardsCompaction)
+	if len(findingsUnauthPres) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for unauthorizedCompactionPresConsumer at Wave5a")
+	}
+	if findingsUnauthPres[0].ShapeKind != MirrorStageConsumer || findingsUnauthPres[0].PlaneID != "compaction_preservers" {
+		t.Fatalf("unexpected finding: %+v", findingsUnauthPres[0])
+	}
+
+	// 3. Legitimate exact allowlist function (buildRuntimeSnapshot) is ALLOWED
+	allowedSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+)
+
+func buildRuntimeSnapshot(f lipfeature.FrozenPlaneSet) ([]compaction.Observer, []compaction.Preserver) {
+	return lipfeature.Get(f, lipfeature.PlaneCompactionObservers), lipfeature.Get(f, lipfeature.PlaneCompactionPreservers)
+}
+`
+	allowedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_extension.go", allowedSrc, Wave5a_GuardsCompaction)
+	if len(allowedFindings) != 0 {
+		t.Fatalf("expected 0 findings for allowed exact buildRuntimeSnapshot function, got: %+v", allowedFindings)
+	}
+
+	// 4. Same-name function in foreign package (foreign spoof) is REJECTED
+	foreignFindings := scanSyntheticSource(t, "internal/foreign/fake_compaction.go", allowedSrc, Wave5a_GuardsCompaction)
+	if len(foreignFindings) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for foreign same-name spoof buildRuntimeSnapshot at Wave5a")
+	}
+}

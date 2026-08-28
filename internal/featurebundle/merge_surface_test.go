@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -214,6 +215,19 @@ func (testTerminalDecisionProvider) Decide(context.Context, terminaldecision.Inp
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
+type testLocalTurnHandler struct{ tag string }
+
+func (h testLocalTurnHandler) ID() string                      { return h.tag }
+func (testLocalTurnHandler) Order() int                        { return 0 }
+func (testLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (testLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
+	return localturn.MatchResult{}, nil
+}
+
+func (testLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
+	return localturn.Reply{}, nil
+}
+
 func (g testSecretGuard) ID() string                         { return g.tag }
 func (testSecretGuard) Order() int                           { return 0 }
 func (testSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
@@ -226,7 +240,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.CompactionObservers) != 0 {
+	if len(m.LocalTurnHandlers) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -244,7 +258,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
 	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		CompactionObservers:      []compaction.Observer{testCompactionObs{tag: "existing"}},
+		LocalTurnHandlers:        []localturn.Handler{testLocalTurnHandler{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
@@ -253,9 +267,9 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	obs, ok := merged.CompactionObservers[0].(testCompactionObs)
-	if len(merged.CompactionObservers) != 1 || !ok || obs.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.CompactionObservers)
+	lh, ok := merged.LocalTurnHandlers[0].(testLocalTurnHandler)
+	if len(merged.LocalTurnHandlers) != 1 || !ok || lh.tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.LocalTurnHandlers)
 	}
 }
 
@@ -276,7 +290,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.CompactionObservers) != 0 {
+	if merged.TerminalDecisionProvider != nil || len(merged.LocalTurnHandlers) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
@@ -326,6 +340,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co1"}},
 		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp1"}},
 		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg1"}},
+		LocalTurnHandlers:    []localturn.Handler{testLocalTurnHandler{tag: "lh1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:        lipfeature.SchemaVersionV1,
@@ -346,6 +361,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co2"}},
 		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp2"}},
 		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg2"}},
+		LocalTurnHandlers:    []localturn.Handler{testLocalTurnHandler{tag: "lh2"}},
 	}
 	m := MergeBundles(b1, b2)
 
@@ -353,25 +369,17 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		name string
 		got  int
 	}{
-		{"CompactionObservers", len(m.CompactionObservers)},
-		{"CompactionPreservers", len(m.CompactionPreservers)},
-		{"SecretGuards", len(m.SecretGuards)},
+		{"LocalTurnHandlers", len(m.LocalTurnHandlers)},
 	}
 	for _, c := range checks {
 		if c.got != 2 {
 			t.Fatalf("%s: got %d want 2", c.name, c.got)
 		}
 	}
-	for i, want := range []string{"co1", "co2"} {
-		observer, ok := m.CompactionObservers[i].(testCompactionObs)
-		if !ok || observer.tag != want {
-			t.Fatalf("CompactionObservers[%d]=%T/%q want %q", i, m.CompactionObservers[i], observer.tag, want)
-		}
-	}
-	for i, want := range []string{"cp1", "cp2"} {
-		preserver, ok := m.CompactionPreservers[i].(testCompactionPreserver)
-		if !ok || preserver.tag != want {
-			t.Fatalf("CompactionPreservers[%d]=%T/%q want %q", i, m.CompactionPreservers[i], preserver.tag, want)
+	for i, want := range []string{"lh1", "lh2"} {
+		handler, ok := m.LocalTurnHandlers[i].(testLocalTurnHandler)
+		if !ok || handler.tag != want {
+			t.Fatalf("LocalTurnHandlers[%d]=%T/%q want %q", i, m.LocalTurnHandlers[i], handler.tag, want)
 		}
 	}
 }
@@ -412,23 +420,23 @@ func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesIgnoresNonPositiv
 func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "first"}},
-		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "first"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		LocalTurnHandlers:  []localturn.Handler{testLocalTurnHandler{tag: "first"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "first"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "second"}},
-		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "second"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		LocalTurnHandlers:  []localturn.Handler{testLocalTurnHandler{tag: "second"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "second"}},
 	}
 	b3 := lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "third"}},
-		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "third"}},
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		LocalTurnHandlers:  []localturn.Handler{testLocalTurnHandler{tag: "third"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "third"}},
 	}
 	m := MergeBundles(b1, b2, b3)
-	if len(m.CompactionObservers) != 3 {
-		t.Fatalf("CompactionObservers: got %d want 3", len(m.CompactionObservers))
+	if len(m.LocalTurnHandlers) != 3 {
+		t.Fatalf("LocalTurnHandlers: got %d want 3", len(m.LocalTurnHandlers))
 	}
 
 	gen, err := MergeBundlesGenerated(b1, b2, b3)

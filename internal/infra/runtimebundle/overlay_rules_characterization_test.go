@@ -247,23 +247,20 @@ func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
 
 // TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
 // - For remaining slice planes handled by overlayExtensions, source elements append after destination elements in registration order.
-// - Migrated tool planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers) are omitted and handled via generated plane adapters.
+// - Migrated planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, SecretGuards) are omitted and handled via generated plane adapters.
 func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "d-guard"}},
 		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
 	}
 
 	src := ExtensionsOptions{
-		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "s-guard"}},
 		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
 	}
 
 	overlayExtensions(dst, src)
 
-	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
 	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 }
 
@@ -316,24 +313,11 @@ func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testi
 // --- Acceptance Criteria 3: Omitted Fields Characterization ---
 
 // TestOverlayExtensions_OmittedFieldsBehavior pins omitted fields:
-// - CompactionObservers: present on ExtensionsOptions, but overlayExtensions does not append it (dst keeps dst only, src ignored).
 // - SecretGuardInputs: present on ExtensionsOptions, but overlayExtensions does not touch it (no copy/overlay logic).
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors): omitted from overlayExtensions.
-// - CompactionPreservers: present on MergedFeatureSurface, NOT on ExtensionsOptions.
+// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors, CompactionObservers): omitted from overlayExtensions.
+// - CompactionPreservers: handled via generated plane adapters, NOT on ExtensionsOptions.
 func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 	t.Parallel()
-
-	t.Run("compaction_observers_is_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{
-			CompactionObservers: []compaction.Observer{overCompactionObs{tag: "d-comp"}},
-		}
-		src := ExtensionsOptions{
-			CompactionObservers: []compaction.Observer{overCompactionObs{tag: "s-comp"}},
-		}
-		overlayExtensions(dst, src)
-		require.Len(t, dst.CompactionObservers, 1, "CompactionObservers is omitted from overlay and not appended")
-	})
 
 	t.Run("secret_guard_inputs_is_omitted_from_overlay", func(t *testing.T) {
 		t.Parallel()

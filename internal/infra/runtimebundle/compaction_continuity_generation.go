@@ -13,10 +13,10 @@ func validateCompactionContinuityGeneration(ps *ProcessServices, regs []lipsdk.R
 	return compactioncompose.ValidateFeaturePrerequisites(regs, ps.CompactionDetector != nil, ps.BranchCoordinator != nil, ps.BackgroundAux != nil)
 }
 
-func bindCompactionContinuity(merged featurebundle.MergedFeatureSurface, ps *ProcessServices, regs []lipsdk.Registration) (featurebundle.MergedFeatureSurface, error) {
+func bindCompactionContinuity(genMerged featurebundle.GeneratedMergeSurface, ps *ProcessServices, regs []lipsdk.Registration) (featurebundle.GeneratedMergeSurface, error) {
 	var parent *compactioncompose.CompactionContinuityParentPort
 	if ps != nil {
 		parent = ps.CompactionParentPort
 	}
-	return compactioncompose.BindFeatureSurface(merged, parent, regs)
+	return compactioncompose.BindFeatureSurface(genMerged, parent, regs)
 }

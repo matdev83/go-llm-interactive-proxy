@@ -329,9 +329,7 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 	t.Run("injected_guards_nil_logger_fails", func(t *testing.T) {
 		t.Parallel()
 		opts := &BuildOptions{
-			Extensions: ExtensionsOptions{
-				SecretGuards: []sdksg.Guard{charSGStubGuard{id: "injected-guard", ord: 1}},
-			},
+			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
 		}
 		res, err := buildSecretGuardRuntime(&config.Config{}, nil, opts, nil)
 		require.Error(t, err)
@@ -343,8 +341,8 @@ func TestSecretGuard_NilLoggerErrorPinned(t *testing.T) {
 		t.Parallel()
 		obs := &charSGCustomObserver{}
 		opts := &BuildOptions{
+			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected-guard", ord: 1}),
 			Extensions: ExtensionsOptions{
-				SecretGuards:           []sdksg.Guard{charSGStubGuard{id: "injected-guard", ord: 1}},
 				SecretDecisionObserver: obs,
 			},
 		}
@@ -378,17 +376,16 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 			SchemaVersion: lipfeature.SchemaVersionV1,
 			SecretGuards:  []sdksg.Guard{charSGStubGuard{id: "guard-m", ord: 5}},
 		}
-		merged, err := featurebundle.MergeBundlesChecked(b1, b2)
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 		require.NoError(t, err)
-		require.Len(t, merged.SecretGuards, 3)
-		assert.Equal(t, "guard-z", merged.SecretGuards[0].ID())
-		assert.Equal(t, "guard-a", merged.SecretGuards[1].ID())
-		assert.Equal(t, "guard-m", merged.SecretGuards[2].ID())
 
-		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
-		require.Len(t, ext.SecretGuards, 3)
+		frozenGuards := lipfeature.Get(gen.Frozen, lipfeature.PlaneSecretGuards)
+		require.Len(t, frozenGuards, 3)
+		assert.Equal(t, "guard-z", frozenGuards[0].ID())
+		assert.Equal(t, "guard-a", frozenGuards[1].ID())
+		assert.Equal(t, "guard-m", frozenGuards[2].ID())
 
-		opts := &BuildOptions{Extensions: ext}
+		opts := &BuildOptions{FeaturePlanes: gen.Frozen}
 		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 		require.NoError(t, err)
 		require.NotNil(t, res)
@@ -398,10 +395,6 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		assert.Equal(t, "guard-z", res.Plane.Guards[0].ID())
 		assert.Equal(t, "guard-a", res.Plane.Guards[1].ID())
 		assert.Equal(t, "guard-m", res.Plane.Guards[2].ID())
-
-		// Mutating caller slice does not mutate plane
-		opts.Extensions.SecretGuards[0] = charSGStubGuard{id: "mutated", ord: 0}
-		assert.Equal(t, "guard-z", res.Plane.Guards[0].ID())
 
 		// Snapshot materializes in sorted order (ord ascending, then ID)
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
@@ -445,8 +438,8 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		t.Parallel()
 		env := &charSGPanicEnv{}
 		opts := &BuildOptions{
+			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "injected", ord: 1}),
 			Extensions: ExtensionsOptions{
-				SecretGuards:           []sdksg.Guard{charSGStubGuard{id: "injected", ord: 1}},
 				SecretGuardEnvironment: env,
 			},
 		}
@@ -496,8 +489,8 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		// 1. Explicit non-nil observer is chained
 		customObs := &charSGCustomObserver{}
 		optsWithObs := &BuildOptions{
+			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
 			Extensions: ExtensionsOptions{
-				SecretGuards:           []sdksg.Guard{charSGStubGuard{id: "g1", ord: 1}},
 				SecretDecisionObserver: customObs,
 			},
 		}
@@ -511,8 +504,8 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		// 2. Typed-nil observer falls back to slog observer
 		var typedNilObs *charSGCustomObserver
 		optsTypedNil := &BuildOptions{
+			FeaturePlanes: frozenSecretGuards(charSGStubGuard{id: "g1", ord: 1}),
 			Extensions: ExtensionsOptions{
-				SecretGuards:           []sdksg.Guard{charSGStubGuard{id: "g1", ord: 1}},
 				SecretDecisionObserver: typedNilObs,
 			},
 		}

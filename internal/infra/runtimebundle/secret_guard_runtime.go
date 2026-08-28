@@ -3,7 +3,6 @@ package runtimebundle
 import (
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -13,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -47,7 +47,10 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 		return nil, fmt.Errorf("runtimebundle: secret guard source: %w", err)
 	}
 	// Snapshot owns MaterializeSorted; composition only freezes a defensive clone.
-	guards := slices.Clone(opts.Extensions.SecretGuards)
+	var guards []sdk.Guard
+	if opts != nil {
+		guards = lipfeature.Get(opts.FeaturePlanes, lipfeature.PlaneSecretGuards)
+	}
 	accessPolicy := sdk.AuditFailClosed
 	if runtimeCfg.Enabled {
 		accessPolicy = sdk.AuditFailurePolicy(runtimeCfg.AuditFailurePolicy)

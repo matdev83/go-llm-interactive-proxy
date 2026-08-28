@@ -333,11 +333,12 @@ func TestMergeFeatureSurface_ignoresExplicitOtherFactoryEvenWhenIDMatches(t *tes
 	regs := []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "secrets-guard", FactoryKind: "other-feature", Enabled: true, Config: lipsdk.ConfigPayload{Node: yaml.Node{}}},
 	}
-	m, err := featurebundle.MergeFeatureSurface(reg, regs)
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.SecretGuards) != 0 {
-		t.Fatalf("secret guards should come only from the explicit factory, got %+v", m.SecretGuards)
+	guards := feature.Get(gen.Frozen, feature.PlaneSecretGuards)
+	if len(guards) != 0 {
+		t.Fatalf("secret guards should come only from the explicit factory, got %+v", guards)
 	}
 }

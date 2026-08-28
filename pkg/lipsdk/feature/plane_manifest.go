@@ -726,6 +726,18 @@ var PlaneCompactionObservers = Plane[[]compaction.Observer]{
 	},
 }
 
+func safePreserverID(p compaction.Preserver) (id string) {
+	defer func() {
+		if recover() != nil {
+			id = ""
+		}
+	}()
+	if p != nil {
+		return p.ID()
+	}
+	return ""
+}
+
 // PlaneCompactionPreservers declares the CompactionPreservers extension plane.
 var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 	ID:           "compaction_preservers",
@@ -734,10 +746,13 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
 	},
-	NilPolicy: NilReject,
+	NilPolicy: NilNotApplicable,
 	Identity: func(v []compaction.Preserver) (string, bool) {
 		if len(v) > 0 && v[0] != nil {
-			return v[0].ID(), true
+			id := safePreserverID(v[0])
+			if id != "" {
+				return id, true
+			}
 		}
 		return "", false
 	},
@@ -754,10 +769,13 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 			if len(incoming) == 0 || incoming[0] == nil {
 				return current, nil
 			}
-			incID := incoming[0].ID()
+			incID := safePreserverID(incoming[0])
+			if incID == "" {
+				return append(current, incoming...), nil
+			}
 			out := make([]compaction.Preserver, 0, len(current)+len(incoming))
 			for _, p := range current {
-				if p != nil && p.ID() == incID {
+				if p != nil && safePreserverID(p) == incID {
 					continue
 				}
 				out = append(out, p)
@@ -893,4 +911,7 @@ var StandardCandidatePlanes = []string{
 	"route_hint_providers",
 	"completion_gates",
 	"attempt_transforms",
+	"secret_guards",
+	"compaction_observers",
+	"compaction_preservers",
 }

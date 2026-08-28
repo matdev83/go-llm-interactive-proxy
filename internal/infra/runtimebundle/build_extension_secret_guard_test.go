@@ -18,9 +18,7 @@ func TestBuildRuntimeSnapshot_SecretGuardsCloneSortedAndIsolated(t *testing.T) {
 		stubSecretGuard{id: "a", ord: 1},
 		stubSecretGuard{id: "b", ord: 1},
 	}
-	opts := &BuildOptions{
-		Extensions: ExtensionsOptions{SecretGuards: guards},
-	}
+	opts := &BuildOptions{}
 	bus := hooks.New(hooks.Config{})
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{Guards: guards}, nil)
 	got := snap.SecretGuardPlane().Guards

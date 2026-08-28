@@ -327,30 +327,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"CompactionObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
-				if co, ok := o.(charCompactionObs); ok {
-					return co.tag
-				}
-				return ""
-			})
-		}},
-		{"CompactionPreservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionPreservers, func(p compaction.Preserver) string {
-				if cp, ok := p.(charCompactionPreserver); ok {
-					return cp.tag
-				}
-				return ""
-			})
-		}},
-		{"SecretGuards", func(m MergedFeatureSurface) []string {
-			return charTags(m.SecretGuards, func(g secretguard.Guard) string {
-				if sg, ok := g.(charSecretGuard); ok {
-					return sg.tag
-				}
-				return ""
-			})
-		}},
 		{"LocalTurnHandlers", func(m MergedFeatureSurface) []string {
 			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string {
 				if lh, ok := h.(charLocalTurnHandler); ok {
@@ -431,9 +407,9 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.CompactionObservers, 2)
+		require.Len(t, merged.LocalTurnHandlers, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.CompactionObservers).IsNil())
+		require.False(t, reflect.ValueOf(merged.LocalTurnHandlers).IsNil())
 	})
 }
 
