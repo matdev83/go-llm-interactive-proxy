@@ -28,11 +28,6 @@ func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeature
 	assert.Equal(tb, legacy.CompactionPreservers, genCompactionPreservers, "CompactionPreservers mismatch")
 	assert.Equal(tb, legacy.CompactionPreservers == nil, genCompactionPreservers == nil, "CompactionPreservers nilness mismatch")
 
-	// 23. SecretGuards
-	genSecretGuards := lipfeature.Get(gen.Frozen, lipfeature.PlaneSecretGuards)
-	assert.Equal(tb, legacy.SecretGuards, genSecretGuards, "SecretGuards mismatch")
-	assert.Equal(tb, legacy.SecretGuards == nil, genSecretGuards == nil, "SecretGuards nilness mismatch")
-
 	// 24. LocalTurnHandlers
 	genLocalTurnHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
 	assert.Equal(tb, legacy.LocalTurnHandlers, genLocalTurnHandlers, "LocalTurnHandlers mismatch")

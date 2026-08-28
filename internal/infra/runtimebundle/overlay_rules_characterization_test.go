@@ -247,23 +247,20 @@ func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
 
 // TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
 // - For remaining slice planes handled by overlayExtensions, source elements append after destination elements in registration order.
-// - Migrated tool planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers) are omitted and handled via generated plane adapters.
+// - Migrated planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, SecretGuards) are omitted and handled via generated plane adapters.
 func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "d-guard"}},
 		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
 	}
 
 	src := ExtensionsOptions{
-		SecretGuards:      []sdk.Guard{overSecretGuard{tag: "s-guard"}},
 		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
 	}
 
 	overlayExtensions(dst, src)
 
-	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
 	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 }
 

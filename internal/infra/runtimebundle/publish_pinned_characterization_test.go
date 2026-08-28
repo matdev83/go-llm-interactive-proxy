@@ -187,9 +187,6 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 // buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
 	return runtimebundle.ExtensionsOptions{
-		SecretGuards: []secretguard.Guard{
-			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
-		},
 		LocalTurnHandlers: []localturn.Handler{
 			charBundleLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
 		},
@@ -234,6 +231,9 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 			},
 			AttemptTransforms: []request.AttemptTransform{
 				charBundleAttemptTransform{id: label + "-attxform"},
+			},
+			SecretGuards: []secretguard.Guard{
+				charBundleSecretGuard{id: label + "-sg", ord: 0},
 			},
 		}, nil
 	})

@@ -355,7 +355,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 	}{
 		{"CompactionObservers", len(m.CompactionObservers)},
 		{"CompactionPreservers", len(m.CompactionPreservers)},
-		{"SecretGuards", len(m.SecretGuards)},
 	}
 	for _, c := range checks {
 		if c.got != 2 {

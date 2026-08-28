@@ -343,14 +343,14 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		// Seed receiver with some initial data
-		m.SecretGuards = []sdksg.Guard{&charStubSGGuard{id: "initial-guard", ord: 1}}
+		m.LocalTurnHandlers = []localturn.Handler{&charStubLocalTurnHandler{id: "initial-handler", ord: 1}}
 		m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
 
 		snapshotBefore := m // value copy
 
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SecretGuards:             []sdksg.Guard{&charStubSGGuard{id: "incoming-guard", ord: 2}},
+			LocalTurnHandlers:        []localturn.Handler{&charStubLocalTurnHandler{id: "incoming-handler", ord: 2}},
 			TerminalDecisionProvider: typedNilProvider,
 		}
 
@@ -361,8 +361,8 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 
 		// Fail-before-mutate assertion: receiver is unchanged
 		assert.True(t, reflect.DeepEqual(snapshotBefore, m), "MergedFeatureSurface receiver must not be mutated on validation error")
-		assert.Len(t, m.SecretGuards, 1)
-		assert.Equal(t, "initial-guard", m.SecretGuards[0].ID())
+		assert.Len(t, m.LocalTurnHandlers, 1)
+		assert.Equal(t, "initial-handler", m.LocalTurnHandlers[0].ID())
 	})
 
 	t.Run("incoming_typed_nil_fails_identity_before_conflict_check", func(t *testing.T) {
@@ -526,25 +526,69 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:      lipfeature.SchemaVersionV1,
-			SecretGuards:       []sdksg.Guard{nil, &charStubSGGuard{id: "sg1", ord: 1}, nil},
+			LocalTurnHandlers:  []localturn.Handler{nil, &charStubLocalTurnHandler{id: "lh1", ord: 1}, nil},
 			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
 		}
 
 		require.NoError(t, m.Append(b))
-		require.Len(t, m.SecretGuards, 3)
-		assert.Nil(t, m.SecretGuards[0])
-		assert.NotNil(t, m.SecretGuards[1])
-		assert.Nil(t, m.SecretGuards[2])
+		require.Len(t, m.LocalTurnHandlers, 3)
+		assert.Nil(t, m.LocalTurnHandlers[0])
+		assert.NotNil(t, m.LocalTurnHandlers[1])
+		assert.Nil(t, m.LocalTurnHandlers[2])
 
 		// Extensions extraction and overlay also preserve verbatim on projected slice planes
 		ext := extensionsFromMerged(m, featurebundle.GeneratedMergeSurface{}, nil)
-		require.Len(t, ext.SecretGuards, 3)
-		assert.Nil(t, ext.SecretGuards[0])
+		require.Len(t, ext.LocalTurnHandlers, 3)
+		assert.Nil(t, ext.LocalTurnHandlers[0])
 
 		dst := ExtensionsOptions{}
 		overlayExtensions(&dst, ext)
-		require.Len(t, dst.SecretGuards, 3)
-		assert.Nil(t, dst.SecretGuards[0])
+		require.Len(t, dst.LocalTurnHandlers, 3)
+		assert.Nil(t, dst.LocalTurnHandlers[0])
+	})
+
+	t.Run("secret_guards_plane_and_generated_storage_preserves_literal_and_typed_nil_verbatim", func(t *testing.T) {
+		t.Parallel()
+		var typedNilSGGuard *charStubSGGuard
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test-plugin", []sdksg.Guard{
+			nil,
+			typedNilSGGuard,
+			&charStubSGGuard{id: "sg1", ord: 1},
+			nil,
+		})
+		require.NoError(t, err)
+
+		frozen := cs.Freeze()
+		guards := lipfeature.Get(frozen, lipfeature.PlaneSecretGuards)
+		require.Len(t, guards, 4)
+		assert.Nil(t, guards[0])
+		assert.True(t, guards[1] != nil, "boxed typed-nil must not equal untyped nil interface")
+		assert.True(t, sdksg.IsNilGuard(guards[1]), "IsNilGuard must report true for typed nil")
+		assert.NotNil(t, guards[2])
+		assert.Equal(t, "sg1", guards[2].ID())
+		assert.Nil(t, guards[3])
+
+		// Build runtime options with FeaturePlanes
+		opts := &BuildOptions{
+			FeaturePlanes: frozen,
+		}
+		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		// Composition preserves defensive copy with nil elements without invoking methods
+		require.Len(t, res.Plane.Guards, 4)
+
+		// Runtime snapshot materialization filters both untyped nil and typed nil
+		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+		execGuards := snap.SecretGuardExecutionPlane().Guards
+		require.Len(t, execGuards, 1)
+		assert.Equal(t, "sg1", execGuards[0].ID())
+
+		// Diagnostics materialization also filters both untyped nil and typed nil
+		occupants := lipfeature.PlaneSecretGuards.Diagnostics.Materialize(guards)
+		require.Len(t, occupants, 1)
+		assert.Equal(t, "secret_guard:sg1", occupants[0].Label)
 	})
 }
 
@@ -726,13 +770,13 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
-			m.SecretGuards = []sdksg.Guard{&charStubSGGuard{id: "guard-1", ord: 1}}
+			m.LocalTurnHandlers = []localturn.Handler{&charStubLocalTurnHandler{id: "handler-1", ord: 1}}
 
 			snapBefore := m // value copy
 
 			b := lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SecretGuards:             []sdksg.Guard{&charStubSGGuard{id: "guard-2", ord: 2}},
+				LocalTurnHandlers:        []localturn.Handler{&charStubLocalTurnHandler{id: "handler-2", ord: 2}},
 				TerminalDecisionProvider: tc.provider,
 			}
 

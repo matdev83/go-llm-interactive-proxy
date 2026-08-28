@@ -343,14 +343,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"SecretGuards", func(m MergedFeatureSurface) []string {
-			return charTags(m.SecretGuards, func(g secretguard.Guard) string {
-				if sg, ok := g.(charSecretGuard); ok {
-					return sg.tag
-				}
-				return ""
-			})
-		}},
 		{"LocalTurnHandlers", func(m MergedFeatureSurface) []string {
 			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string {
 				if lh, ok := h.(charLocalTurnHandler); ok {

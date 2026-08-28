@@ -111,6 +111,7 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 		"route_hint_providers",
 		"completion_gates",
 		"attempt_transforms",
+		"secret_guards",
 	}
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)
 }

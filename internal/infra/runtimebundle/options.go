@@ -137,7 +137,6 @@ type SecretGuardInputs struct {
 }
 type ExtensionsOptions struct {
 	CompactionObservers []compaction.Observer
-	SecretGuards        []sdk.Guard
 	LocalTurnHandlers   []localturn.Handler
 	// TerminalDecisionProvider is the singular provider projection for this
 	// immutable generation. A nil provider preserves the no-provider runtime.

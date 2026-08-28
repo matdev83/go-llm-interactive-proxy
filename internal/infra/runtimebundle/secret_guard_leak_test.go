@@ -10,7 +10,6 @@ import (
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -62,12 +61,6 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
-	sgCfg, err := featuresg.DecodeConfig(mustSecretGuardYAML(t, "action: block\naudit_failure_policy: fail_closed\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle := featuresg.FeatureBundle(sgCfg)
-
 	cfg := &config.Config{
 		Access:     config.AccessConfig{Mode: "single_user"},
 		Server:     config.ServerConfig{Address: "127.0.0.1:8080", AuthMode: config.AuthModeNoAuth},
@@ -92,7 +85,6 @@ func TestBuild_secretGuardBlock_noSyntheticSecretLeakageInLogsOrErrors(t *testin
 	_, b := mustProcessAndCandidateLog(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Extensions: runtimebundle.ExtensionsOptions{
-			SecretGuards: bundle.SecretGuards,
 			SecretGuardEnvironment: &leakTestEnv{vals: map[string]string{
 				"OPENAI_API_KEY": secret,
 			}},

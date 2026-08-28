@@ -201,7 +201,7 @@
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... ./internal/qa`
 
 - [ ] 8. Migrate guarded, compaction, local-turn, and terminal planes as W5
-- [ ] 8.1 Migrate secret-guard contributions and host capabilities
+- [x] 8.1 Migrate secret-guard contributions and host capabilities
   - Preserve root uniqueness, access-mode/env consultation rules, input/observer fallback, typed-nil behavior, redaction, and operator inventory.
   - Observable completion: secret-guard plane mirrors are deleted and every fail-closed fixture from 1.4 remains green.
   - _Requirements: 1.4, 4.5, 5.1, 5.3, 5.5, 6.1_

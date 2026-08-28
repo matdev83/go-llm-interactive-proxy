@@ -355,6 +355,20 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			return err
 		}
 	}
+	if gf.secretGuards != nil {
+		if PlaneSecretGuards.Validate != nil {
+			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -524,6 +538,21 @@ func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, sourc
 				}
 			}
 			if err := ContributeSource(dst, PlaneAttemptTransforms, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneSecretGuards.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]secretguard.Guard)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: expected []secretguard.Guard, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneSecretGuards, source, contributorID, typed); err != nil {
 				return err
 			}
 		}

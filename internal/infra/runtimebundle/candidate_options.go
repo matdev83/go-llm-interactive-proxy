@@ -45,7 +45,6 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 }
 
 func hasExtensionOverlay(e ExtensionsOptions) bool {
-	return len(e.SecretGuards) > 0 ||
-		e.SecretGuardEnvironment != nil ||
+	return e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil
 }

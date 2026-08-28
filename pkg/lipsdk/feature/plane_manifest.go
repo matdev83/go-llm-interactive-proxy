@@ -893,4 +893,5 @@ var StandardCandidatePlanes = []string{
 	"route_hint_providers",
 	"completion_gates",
 	"attempt_transforms",
+	"secret_guards",
 }

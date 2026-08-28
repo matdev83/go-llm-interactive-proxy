@@ -1427,3 +1427,227 @@ func TestContributeCandidateTo_ToolCallFinalizationMaxArgsBytes_InvalidNegativeR
 	maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
 	assert.Equal(t, 4096, maxArgs)
 }
+
+type freezeTestSecretGuard struct {
+	id  string
+	ord int
+}
+
+func (g freezeTestSecretGuard) ID() string                         { return g.id }
+func (g freezeTestSecretGuard) Order() int                         { return g.ord }
+func (freezeTestSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+func (freezeTestSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+// TestContributeCandidateTo_SecretGuards_SuccessOrderAndIsolation verifies that
+// candidate contributions of SecretGuards in generated and map storage append
+// in source order (base then candidate) and preserve backing-array isolation.
+func TestContributeCandidateTo_SecretGuards_SuccessOrderAndIsolation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage_ordering_and_isolation", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg-1", ord: 1},
+			freezeTestSecretGuard{id: "base-sg-2", ord: 2},
+		}))
+
+		candSrc := feature.NewContributionSet()
+		candGuards := []secretguard.Guard{
+			freezeTestSecretGuard{id: "cand-sg-1", ord: 10},
+		}
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneSecretGuards, "cand-plugin", candGuards))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 3)
+		assert.Equal(t, "base-sg-1", guards[0].ID())
+		assert.Equal(t, "base-sg-2", guards[1].ID())
+		assert.Equal(t, "cand-sg-1", guards[2].ID())
+
+		// Backing array isolation
+		candGuards[0] = freezeTestSecretGuard{id: "mutated", ord: 99}
+		guardsAgain := feature.Get(frozen, feature.PlaneSecretGuards)
+		assert.Equal(t, "cand-sg-1", guardsAgain[2].ID())
+	})
+
+	t.Run("map_fallback_storage_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg"},
+		}))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneSecretGuards.ID: []secretguard.Guard{
+					freezeTestSecretGuard{id: "cand-map-sg"},
+				},
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 2)
+		assert.Equal(t, "base-sg", guards[0].ID())
+		assert.Equal(t, "cand-map-sg", guards[1].ID())
+	})
+
+	t.Run("literal_and_typed_nil_elements_preserved", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg-1", ord: 1},
+		}))
+
+		var typedNil *freezeTestSecretGuard
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneSecretGuards, "cand-plugin", []secretguard.Guard{
+			nil,
+			typedNil,
+			freezeTestSecretGuard{id: "cand-sg-1", ord: 10},
+		}))
+		candFrozen := candSrc.Freeze()
+
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 4)
+		assert.Equal(t, "base-sg-1", guards[0].ID())
+		assert.Nil(t, guards[1])
+		assert.True(t, guards[2] != nil, "boxed typed-nil must not equal untyped nil interface")
+		assert.True(t, secretguard.IsNilGuard(guards[2]))
+		assert.Equal(t, "cand-sg-1", guards[3].ID())
+	})
+}
+
+// TestContributeCandidateTo_MapFallback_SecretGuards_WrongDynamicType verifies that wrong dynamic type
+// on secret_guards in map fallback returns ErrInvalidContribution attributed to secret_guards and candidate,
+// and leaves the destination unchanged.
+func TestContributeCandidateTo_MapFallback_SecretGuards_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneSecretGuards.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneSecretGuards.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []secretguard.Guard")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_MapFallback_SecretGuards_AtomicRollback verifies that if candidate projection
+// fails on secret_guards (wrong dynamic type) after earlier valid contributions (e.g. session openers),
+// earlier contributions are rolled back atomically and destination remains completely unchanged.
+func TestContributeCandidateTo_MapFallback_SecretGuards_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSessionOpeners, "base-plugin", []session.Opener{
+		freezeTestSessionOpener{id: "base-so"},
+	}))
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Candidate with earlier valid SessionOpeners and later invalid SecretGuards (wrong dynamic type)
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneSessionOpeners.ID: []session.Opener{
+				freezeTestSessionOpener{id: "cand-so"},
+			},
+			feature.PlaneSecretGuards.ID: 12345, // invalid type
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneSecretGuards.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []secretguard.Guard")
+
+	// Destination must remain completely unchanged across all planes and identities
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_GeneratedStorage_SecretGuards_AtomicRollback verifies that if candidate projection
+// in generated storage encounters a validation failure on a later candidate plane (e.g. invalid attempt transforms),
+// earlier valid candidate secret guards are rolled back atomically and the destination remains unchanged.
+func TestContributeCandidateTo_GeneratedStorage_SecretGuards_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid SecretGuards and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenSecretGuardsCandidateForTest(
+		[]secretguard.Guard{
+			freezeTestSecretGuard{id: "cand-sg", ord: 10},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}

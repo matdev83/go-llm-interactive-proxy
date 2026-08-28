@@ -130,7 +130,6 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
 		CompactionObservers:      lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
 		CompactionPreservers:     lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
-		SecretGuards:             lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
 		LocalTurnHandlers:        lipfeature.Get(g.Frozen, lipfeature.PlaneLocalTurnHandlers),
 		TerminalDecisionProvider: lipfeature.Get(g.Frozen, lipfeature.PlaneTerminalDecisionProvider),
 		Lifecycles:               g.Lifecycles,
