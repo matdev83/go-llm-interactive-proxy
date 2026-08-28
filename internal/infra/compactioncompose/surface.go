@@ -6,45 +6,31 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	featurecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
 
 // BindFeatureSurface replaces the configuration-only official preserver with
-// the explicitly composed process parent port before extension snapshots.
-func BindFeatureSurface(merged featurebundle.MergedFeatureSurface, parent *CompactionContinuityParentPort, regs []lipsdk.Registration) (featurebundle.MergedFeatureSurface, error) {
+// the explicitly composed process parent port using generated typed replacement operations.
+// The binder stages all registration replacements and commits only when the entire loop succeeds,
+// ensuring fail-before-mutate transactional atomicity across all feature registrations.
+func BindFeatureSurface(genMerged featurebundle.GeneratedMergeSurface, parent *CompactionContinuityParentPort, regs []lipsdk.Registration) (featurebundle.GeneratedMergeSurface, error) {
+	staged := genMerged
 	for _, reg := range regs {
 		if reg.Kind != lipsdk.PluginKindFeature || !reg.Enabled || reg.RegistryFactoryKey() != featurecontinuity.ID {
 			continue
 		}
 		cfg, err := featurecontinuity.DecodeConfig(reg.Config.Node)
 		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, fmt.Errorf("compactioncompose: compaction-continuity config: %w", err)
+			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("compactioncompose: compaction-continuity config: %w", err)
 		}
 		bundle, err := featurecontinuity.FeatureBundleWithPort(cfg, parent)
 		if err != nil {
-			return featurebundle.MergedFeatureSurface{}, fmt.Errorf("compactioncompose: compaction-continuity composition: %w", err)
+			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("compactioncompose: compaction-continuity composition: %w", err)
 		}
-		preservers := make([]compaction.Preserver, 0, len(merged.CompactionPreservers)+len(bundle.CompactionPreservers))
-		for _, preserver := range merged.CompactionPreservers {
-			if safePreserverID(preserver) == featurecontinuity.ID {
-				continue
-			}
-			preservers = append(preservers, preserver)
+		var bindErr error
+		staged, bindErr = staged.BindCompactionPreservers(featurecontinuity.ID, bundle.CompactionPreservers)
+		if bindErr != nil {
+			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("compactioncompose: compaction-continuity binding: %w", bindErr)
 		}
-		preservers = append(preservers, bundle.CompactionPreservers...)
-		merged.CompactionPreservers = preservers
 	}
-	return merged, nil
-}
-
-func safePreserverID(p compaction.Preserver) (id string) {
-	defer func() {
-		if recover() != nil {
-			id = ""
-		}
-	}()
-	if p != nil {
-		return p.ID()
-	}
-	return ""
+	return staged, nil
 }

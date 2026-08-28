@@ -16,7 +16,6 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
@@ -136,8 +135,7 @@ type SecretGuardInputs struct {
 	SingleUser coresg.SingleUserOptions
 }
 type ExtensionsOptions struct {
-	CompactionObservers []compaction.Observer
-	LocalTurnHandlers   []localturn.Handler
+	LocalTurnHandlers []localturn.Handler
 	// TerminalDecisionProvider is the singular provider projection for this
 	// immutable generation. A nil provider preserves the no-provider runtime.
 	TerminalDecisionProvider terminaldecision.Provider

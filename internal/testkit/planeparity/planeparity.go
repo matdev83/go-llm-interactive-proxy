@@ -18,16 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 21. CompactionObservers
-	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
-	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")
-	assert.Equal(tb, legacy.CompactionObservers == nil, genCompactionObservers == nil, "CompactionObservers nilness mismatch")
-
-	// 22. CompactionPreservers
-	genCompactionPreservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionPreservers)
-	assert.Equal(tb, legacy.CompactionPreservers, genCompactionPreservers, "CompactionPreservers mismatch")
-	assert.Equal(tb, legacy.CompactionPreservers == nil, genCompactionPreservers == nil, "CompactionPreservers nilness mismatch")
-
 	// 24. LocalTurnHandlers
 	genLocalTurnHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
 	assert.Equal(tb, legacy.LocalTurnHandlers, genLocalTurnHandlers, "LocalTurnHandlers mismatch")

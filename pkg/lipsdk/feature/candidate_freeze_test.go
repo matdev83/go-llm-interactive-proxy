@@ -134,6 +134,54 @@ func (freezeTestFinalizer) Finalize(context.Context, toolcall.CompletedCall, lip
 	return toolcall.Result{Action: toolcall.ActionPass}, nil
 }
 
+type freezeTestCompactionObserver struct {
+	tag string
+}
+
+func (o freezeTestCompactionObserver) OnCompaction(context.Context, compaction.Event) error {
+	return nil
+}
+
+type freezeTestCompactionPreserver struct {
+	id string
+}
+
+func (p freezeTestCompactionPreserver) ID() string { return p.id }
+func (freezeTestCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+type freezeTestPanicPreserver struct {
+	panicVal any
+}
+
+func (p freezeTestPanicPreserver) ID() string {
+	if p.panicVal != nil {
+		panic(p.panicVal)
+	}
+	panic("panicking preserver")
+}
+
+func (freezeTestPanicPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestPanicPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestPanicPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
 // TestContribute_FailBeforeMutate_TableDriven proves that any failed contribution
 // (validation, conflict, combiner, nil reject, unhandled source, empty plugin ID)
 // leaves the ContributionSet state byte-for-byte identical before and after.
@@ -1650,4 +1698,312 @@ func TestContributeCandidateTo_GeneratedStorage_SecretGuards_AtomicRollback(t *t
 	// Destination must remain completely unchanged across all planes and identities (rollback)
 	afterFreeze := dst.Freeze()
 	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_CompactionObservers_GeneratedAndMapParity verifies that
+// candidate contributions of CompactionObservers in generated and map storage append in source order.
+func TestContributeCandidateTo_CompactionObservers_GeneratedAndMapParity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "base-obs-1"},
+		}))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneCompactionObservers, "cand-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "cand-obs-1"},
+		}))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+		o0, ok0 := obs[0].(freezeTestCompactionObserver)
+		o1, ok1 := obs[1].(freezeTestCompactionObserver)
+		require.True(t, ok0)
+		require.True(t, ok1)
+		assert.Equal(t, "base-obs-1", o0.tag)
+		assert.Equal(t, "cand-obs-1", o1.tag)
+	})
+
+	t.Run("map_fallback_storage", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "base-obs-1"},
+		}))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneCompactionObservers.ID: []compaction.Observer{
+					freezeTestCompactionObserver{tag: "cand-map-obs-1"},
+				},
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+		o0, ok0 := obs[0].(freezeTestCompactionObserver)
+		o1, ok1 := obs[1].(freezeTestCompactionObserver)
+		require.True(t, ok0)
+		require.True(t, ok1)
+		assert.Equal(t, "base-obs-1", o0.tag)
+		assert.Equal(t, "cand-map-obs-1", o1.tag)
+	})
+}
+
+// TestContributeCandidateTo_GeneratedStorage_CompactionObservers_AtomicRollback verifies that if candidate projection
+// in generated storage encounters a validation failure on a later candidate plane, earlier valid compaction observers are rolled back.
+func TestContributeCandidateTo_GeneratedStorage_CompactionObservers_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+		freezeTestCompactionObserver{tag: "base-obs"},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid CompactionObservers and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenCompactionCandidateForTest(
+		[]compaction.Observer{
+			freezeTestCompactionObserver{tag: "cand-obs"},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_MapFallback_CompactionObservers_WrongDynamicType verifies that wrong dynamic type
+// on compaction_observers in map fallback returns ErrInvalidContribution and leaves destination unchanged.
+func TestContributeCandidateTo_MapFallback_CompactionObservers_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+		freezeTestCompactionObserver{tag: "base-obs"},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneCompactionObservers.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneCompactionObservers.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []compaction.Observer")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributionSet_BindCompactionPreservers_GenerationBinderSemantics verifies the complete
+// generation-binder semantics for PlaneCompactionPreservers.
+func TestContributionSet_BindCompactionPreservers_GenerationBinderSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("replace_by_identity_replaces_matching_official_and_moves_to_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Initial contributions from features
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		// Generation binder replaces official-continuity
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("no_prior_matching_appends_to_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("multiple_duplicates_all_stripped_and_replaced_at_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("repeated_bindings_are_idempotent", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 2)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "official-continuity", preservers[1].ID())
+	})
+
+	t.Run("panic_safety_during_identity_extraction", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestPanicPreserver{panicVal: "deliberate panic"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 4)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.IsType(t, freezeTestPanicPreserver{}, preservers[1])
+		assert.Equal(t, "custom-b", preservers[2].ID())
+		assert.Equal(t, "official-continuity", preservers[3].ID())
+	})
+
+	t.Run("compaction_observers_exact_historical_nil_semantics", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Nil slice is accepted
+		err := feature.Contribute(s, feature.PlaneCompactionObservers, "p1", nil)
+		require.NoError(t, err)
+
+		// Slice with literal nil is accepted
+		err = feature.Contribute(s, feature.PlaneCompactionObservers, "p2", []compaction.Observer{nil})
+		require.NoError(t, err)
+
+		// Slice with boxed typed nil is accepted
+		var typedNil *freezeTestCompactionObserver
+		err = feature.Contribute(s, feature.PlaneCompactionObservers, "p3", []compaction.Observer{typedNil})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+	})
+
+	t.Run("compaction_preservers_exact_historical_nil_semantics", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Nil slice is accepted on feature contribution
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "p1", nil)
+		require.NoError(t, err)
+
+		// Slice with literal nil is rejected by Validate
+		err = feature.Contribute(s, feature.PlaneCompactionPreservers, "p2", []compaction.Preserver{nil})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, feature.ErrInvalidContribution)
+		assert.Contains(t, err.Error(), "CompactionPreservers[0] must not be nil")
+
+		// Slice with boxed typed nil is accepted (historical FeatureBundle.Validate checked p == nil only)
+		var typedNil *freezeTestCompactionPreserver
+		err = feature.Contribute(s, feature.PlaneCompactionPreservers, "p3", []compaction.Preserver{typedNil})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		pres := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, pres, 1)
+	})
 }

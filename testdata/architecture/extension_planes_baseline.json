@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
-  "active_wave": "W4_Tools",
-  "active_wave_ordinal": 4,
+  "active_wave": "W5a_GuardsCompaction",
+  "active_wave_ordinal": 5,
   "total_planes": 25,
-  "total_remaining_mirrors": 108,
+  "total_remaining_mirrors": 102,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -126,7 +126,7 @@
         "compaction_observers",
         "compaction_preservers"
       ],
-      "measured_mirrors": 11,
+      "measured_mirrors": 5,
       "active_forbidden": 0
     },
     {

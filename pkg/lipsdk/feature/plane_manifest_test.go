@@ -112,6 +112,8 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 		"completion_gates",
 		"attempt_transforms",
 		"secret_guards",
+		"compaction_observers",
+		"compaction_preservers",
 	}
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)
 }

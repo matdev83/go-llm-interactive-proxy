@@ -117,21 +117,25 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, lipfeature.FeatureBundle{
 		SchemaVersion:       lipfeature.SchemaVersionV1,
 		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "m"}},
 	})
-	if len(merged.CompactionObservers) != 3 {
-		t.Fatalf("CompactionObservers len=%d want 3", len(merged.CompactionObservers))
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
+	if len(obs) != 3 {
+		t.Fatalf("CompactionObservers len=%d want 3", len(obs))
 	}
 	for i, want := range []string{"a", "z", "m"} {
-		got, ok := merged.CompactionObservers[i].(mergeStubCompactionObserver)
+		got, ok := obs[i].(mergeStubCompactionObserver)
 		if !ok || got.id != want {
-			t.Fatalf("merged observer[%d]=%T/%q want %q", i, merged.CompactionObservers[i], got.id, want)
+			t.Fatalf("merged observer[%d]=%T/%q want %q", i, obs[i], got.id, want)
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionObservers: merged.CompactionObservers}
+	opts := extensions.SnapshotOptions{CompactionObservers: obs}
 	if len(opts.CompactionObservers) != 3 {
 		t.Fatalf("SnapshotOptions CompactionObservers len=%d want 3", len(opts.CompactionObservers))
 	}
@@ -165,27 +169,31 @@ func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, lipfeature.FeatureBundle{
 		SchemaVersion:        lipfeature.SchemaVersionV1,
 		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}},
 	})
-	if len(merged.CompactionPreservers) != 3 {
-		t.Fatalf("CompactionPreservers len=%d want 3", len(merged.CompactionPreservers))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionPreservers)
+	if len(pres) != 3 {
+		t.Fatalf("CompactionPreservers len=%d want 3", len(pres))
 	}
 	for i, want := range []string{"a", "z", "m"} {
-		got, ok := merged.CompactionPreservers[i].(mergeStubCompactionPreserver)
+		got, ok := pres[i].(mergeStubCompactionPreserver)
 		if !ok || got.id != want {
-			t.Fatalf("merged preserver[%d]=%T/%q want %q", i, merged.CompactionPreservers[i], got.id, want)
+			t.Fatalf("merged preserver[%d]=%T/%q want %q", i, pres[i], got.id, want)
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionPreservers: merged.CompactionPreservers}
+	opts := extensions.SnapshotOptions{CompactionPreservers: pres}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
 	got := snap.CompactionPreservers()
 	if len(got) != 3 {
 		t.Fatalf("snapshot CompactionPreservers len=%d want 3", len(got))
 	}
-	merged.CompactionPreservers[0] = nil
+	pres[0] = nil
 	if frozen := snap.CompactionPreservers(); frozen[0] == nil {
 		t.Fatal("snapshot must freeze an input defensive copy")
 	}

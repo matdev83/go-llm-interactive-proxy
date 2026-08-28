@@ -40,37 +40,18 @@ func (g genCompactionObs) OnCompaction(context.Context, compaction.Event) error 
 // merges do not share slice backing arrays across generations.
 func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
-	a := featurebundle.MergeBundles(lipfeature.FeatureBundle{
+	genA, errA := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
 		SchemaVersion:       lipfeature.SchemaVersionV1,
 		CompactionObservers: []compaction.Observer{genCompactionObs{tag: "gen-a"}},
-	})
-	b := featurebundle.MergeBundles(lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{genCompactionObs{tag: "gen-b"}},
-	})
-	if len(a.CompactionObservers) != 1 {
-		t.Fatalf("A compaction observers=%v", a.CompactionObservers)
-	}
-	if len(b.CompactionObservers) != 1 {
-		t.Fatalf("B compaction observers=%v", b.CompactionObservers)
-	}
-	// Mutating one merged surface must not affect the other candidate.
-	a.CompactionObservers = append(a.CompactionObservers, genCompactionObs{tag: "mutated"})
-	if len(b.CompactionObservers) != 1 {
-		t.Fatalf("B leaked A mutation: %d", len(b.CompactionObservers))
-	}
-
-	// Also verify generated path isolation for migrated ToolCallFinalizers and ToolCatalogFilters
-	genA, errA := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{genFinalizer{id: "gen-a"}},
+		ToolCallFinalizers:  []toolcall.Finalizer{genFinalizer{id: "gen-a"}},
 	})
 	if errA != nil {
 		t.Fatalf("genA error: %v", errA)
 	}
 	genB, errB := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{genFinalizer{id: "gen-b"}},
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{genCompactionObs{tag: "gen-b"}},
+		ToolCallFinalizers:  []toolcall.Finalizer{genFinalizer{id: "gen-b"}},
 	})
 	if errB != nil {
 		t.Fatalf("genB error: %v", errB)
@@ -82,5 +63,13 @@ func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	}
 	if len(fB) != 1 || fB[0].ID() != "gen-b" {
 		t.Fatalf("genB finalizers=%v", fB)
+	}
+	oA := lipfeature.Get(genA.Frozen, lipfeature.PlaneCompactionObservers)
+	oB := lipfeature.Get(genB.Frozen, lipfeature.PlaneCompactionObservers)
+	if len(oA) != 1 {
+		t.Fatalf("genA observers=%v", oA)
+	}
+	if len(oB) != 1 {
+		t.Fatalf("genB observers=%v", oB)
 	}
 }

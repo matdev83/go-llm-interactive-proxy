@@ -3,6 +3,7 @@ package feature
 import (
 	"maps"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -112,6 +113,21 @@ func NewMalformedGeneratedFrozenSecretGuardsCandidateForTest(
 	gf := &generatedFrozen{
 		secretGuards:      cloneSlice(sg),
 		attemptTransforms: cloneSlice(attTr),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenCompactionCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with candidate compaction observers and attempt transforms for transaction testing.
+func NewMalformedGeneratedFrozenCompactionCandidateForTest(
+	obs []compaction.Observer,
+	attTr []request.AttemptTransform,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		compactionObservers: cloneSlice(obs),
+		attemptTransforms:   cloneSlice(attTr),
 	}
 	return FrozenPlaneSet{
 		frozen: gf,

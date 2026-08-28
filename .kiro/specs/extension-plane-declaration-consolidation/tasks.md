@@ -208,7 +208,7 @@
   - _Boundary: composition root, secret-guard runtime_
   - _Depends: 7.2_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... -run 'SecretGuard|PlaneParity'`
-- [ ] 8.2 Migrate compaction observer/preserver planes and continuity replacement binder
+- [x] 8.2 Migrate compaction observer/preserver planes and continuity replacement binder
   - Preserve official-preserver replacement order, panic-safe identity extraction, and observer/preserver diagnostics.
   - Observable completion: compaction binder uses generated typed operations, direct field surgery is gone, and parity tests pass.
   - _Requirements: 1.1, 4.5, 5.1, 5.3, 5.5, 6.1_

@@ -84,14 +84,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 			return nil, fmt.Errorf("runtimebundle: candidate feature planes: %w", err)
 		}
 	}
-	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
+	if genMerged, err = bindCompactionContinuity(genMerged, ps, regs); err != nil {
 		return nil, err
 	}
 	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
-	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
+	lifecycles := append([]lipplugin.Lifecycle(nil), genMerged.Lifecycles...)
 	ext := extensionsFromMerged(merged, genMerged, ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
@@ -315,7 +315,6 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
-		CompactionObservers:      append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
 		LocalTurnHandlers:        append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 		TerminalDecisionProvider: merged.TerminalDecisionProvider,
 	}
