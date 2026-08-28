@@ -77,7 +77,7 @@ func TestAssertDualPathParity_Success(t *testing.T) {
 	planeparity.AssertDualPathParity(t, b1, b2)
 }
 
-func TestAssertDualPathParity_Conflict(t *testing.T) {
+func TestMergeBundlesGenerated_Conflict(t *testing.T) {
 	t.Parallel()
 
 	b1 := lipfeature.FeatureBundle{
@@ -89,7 +89,10 @@ func TestAssertDualPathParity_Conflict(t *testing.T) {
 		TerminalDecisionProvider: harnessTerminalProvider{id: "term-2"},
 	}
 
-	planeparity.AssertDualPathParity(t, b1, b2)
+	res, err := featurebundle.MergeBundlesGenerated(b1, b2)
+	require.Error(t, err)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+	require.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
 }
 
 func TestMergeBundlesViaGenerated_Equivalence(t *testing.T) {

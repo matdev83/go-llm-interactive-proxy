@@ -20,6 +20,7 @@ func (a streamAssembler) assemble(ctx context.Context, prep *preparedRequest, pl
 	terminal := newTurnTerminalWithALeg(prep.aScope, aLegEndBase)
 	if e != nil && e.RuntimeSnapshot != nil && prep.terminalDecisionEnabled {
 		terminal.terminalDecisionProvider = e.RuntimeSnapshot.TerminalDecisionProvider()
+		terminal.terminalDecisionProviderID, terminal.terminalDecisionProviderHasID = e.RuntimeSnapshot.TerminalDecisionProviderIdentity()
 	}
 	if prep.call != nil {
 		terminal.supportsContinuation = supportsContinuationForCall(*prep.call)

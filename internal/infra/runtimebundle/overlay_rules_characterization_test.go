@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -157,19 +156,6 @@ func (overSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 	return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 }
 
-type overLocalTurnHandler struct{ tag string }
-
-func (h overLocalTurnHandler) ID() string                      { return h.tag }
-func (overLocalTurnHandler) Order() int                        { return 0 }
-func (overLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
-func (overLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
-	return localturn.MatchResult{}, nil
-}
-
-func (overLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
-	return localturn.Reply{}, nil
-}
-
 type overTerminalProvider struct{ tag string }
 
 func (p overTerminalProvider) ID() string { return p.tag }
@@ -197,72 +183,6 @@ func (e overEnv) Lookup(name string) (string, bool) { return e.tag, true }
 func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e.tag} }
 
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
-
-// --- Acceptance Criteria 2 & 3: Overlay Terminal Decision Provider First-Wins ---
-
-// TestOverlayExtensions_TerminalDecisionFirstWins pins requirement 1.2, 4.2, 5.1:
-// - In overlayExtensions, the terminal-decision provider slot is FIRST-WINS (unlike merge path which errors on conflict).
-// - If dst already has a provider, src is ignored and no error is raised.
-// - If dst is nil, src provider occupies the slot.
-func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
-	t.Parallel()
-
-	provA := overTerminalProvider{tag: "prov-a"}
-	provB := overTerminalProvider{tag: "prov-b"}
-
-	t.Run("dst_has_provider_src_has_different_provider_first_wins", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider, "first provider must win; second is silently dropped")
-	})
-
-	t.Run("dst_nil_src_has_provider", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provB, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("dst_has_provider_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("both_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Nil(t, dst.TerminalDecisionProvider)
-	})
-}
-
-// --- Acceptance Criteria 3: Remaining Handled Slice Planes Append Order ---
-
-// TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
-// - For remaining slice planes handled by overlayExtensions, source elements append after destination elements in registration order.
-// - Migrated planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, SecretGuards) are omitted and handled via generated plane adapters.
-func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
-	}
-
-	src := ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
-	}
-
-	overlayExtensions(dst, src)
-
-	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
-}
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 

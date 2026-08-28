@@ -44,7 +44,7 @@ func (h *ptrLTHandler) Handle(_ context.Context, _ localturn.HandleInput) (local
 	return localturn.Reply{Text: "ok"}, nil
 }
 
-func TestMergeBundles_LocalTurnHandlersConcatenates(t *testing.T) {
+func TestMergeBundlesGenerated_LocalTurnHandlersConcatenates(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
@@ -54,13 +54,15 @@ func TestMergeBundles_LocalTurnHandlersConcatenates(t *testing.T) {
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "b", ord: 1}},
 	}
-	m := MergeBundles(b1, b2)
-	require.Len(t, m.LocalTurnHandlers, 2)
-	require.Equal(t, "a", m.LocalTurnHandlers[0].ID())
-	require.Equal(t, "b", m.LocalTurnHandlers[1].ID())
+	gen, err := MergeBundlesGenerated(b1, b2)
+	require.NoError(t, err)
+	handlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	require.Equal(t, "a", handlers[0].ID())
+	require.Equal(t, "b", handlers[1].ID())
 }
 
-func TestMergeBundles_LocalTurnHandlersOrderViaMaterializeSorted(t *testing.T) {
+func TestMergeBundlesGenerated_LocalTurnHandlersOrderViaMaterializeSorted(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
@@ -70,28 +72,32 @@ func TestMergeBundles_LocalTurnHandlersOrderViaMaterializeSorted(t *testing.T) {
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "a", ord: 1}, ltHandler{id: "c", ord: 1}},
 	}
-	m := MergeBundles(b1, b2)
-	sorted := localturn.MaterializeSorted(m.LocalTurnHandlers)
+	gen, err := MergeBundlesGenerated(b1, b2)
+	require.NoError(t, err)
+	handlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	sorted := localturn.MaterializeSorted(handlers)
 	require.Len(t, sorted, 3)
 	require.Equal(t, "a", sorted[0].ID())
 	require.Equal(t, "c", sorted[1].ID())
 	require.Equal(t, "b", sorted[2].ID())
 }
 
-func TestMergeBundles_LocalTurnHandlersImmutableSnapshot(t *testing.T) {
+func TestMergeBundlesGenerated_LocalTurnHandlersImmutableSnapshot(t *testing.T) {
 	t.Parallel()
 	b := lipfeature.FeatureBundle{
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "a", ord: 1}},
 	}
-	m := MergeBundles(b)
+	gen, err := MergeBundlesGenerated(b)
+	require.NoError(t, err)
+	handlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
 	// Mutate source after merge must not affect merged snapshot.
 	b.LocalTurnHandlers[0] = ltHandler{id: "mut", ord: 99}
-	require.Equal(t, "a", m.LocalTurnHandlers[0].ID())
-	// Mutate merged slice must not affect original sort input isolation
-	sorted := localturn.MaterializeSorted(m.LocalTurnHandlers)
+	require.Equal(t, "a", handlers[0].ID())
+	// Mutate merged slice copy must not affect original sort input isolation
+	sorted := localturn.MaterializeSorted(handlers)
 	sorted[0] = ltHandler{id: "mut2", ord: 99}
-	require.Equal(t, "a", m.LocalTurnHandlers[0].ID())
+	require.Equal(t, "a", lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)[0].ID())
 }
 
 func TestFeatureBundle_Validate_LocalTurnHandlersNilRejected(t *testing.T) {
@@ -122,15 +128,17 @@ func TestFeatureBundle_Validate_LocalTurnHandlersRequiresSchemaV1(t *testing.T) 
 	require.NoError(t, ok.Validate())
 }
 
-func TestMergeBundles_LocalTurnHandlersNilListPreserved(t *testing.T) {
+func TestMergeBundlesGenerated_LocalTurnHandlersNilListPreserved(t *testing.T) {
 	t.Parallel()
-	m := MergeBundles()
-	require.Nil(t, m.LocalTurnHandlers)
-	m2 := MergeBundles(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1})
-	require.Nil(t, m2.LocalTurnHandlers)
+	gen, err := MergeBundlesGenerated()
+	require.NoError(t, err)
+	require.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers))
+	gen2, err := MergeBundlesGenerated(lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1})
+	require.NoError(t, err)
+	require.Nil(t, lipfeature.Get(gen2.Frozen, lipfeature.PlaneLocalTurnHandlers))
 }
 
-func TestMergeBundles_LocalTurnHandlersDuplicateIDsAllowed(t *testing.T) {
+func TestMergeBundlesGenerated_LocalTurnHandlersDuplicateIDsAllowed(t *testing.T) {
 	t.Parallel()
 	// Duplicate ID policy consistent with SecretGuards: duplicates are allowed at merge time;
 	// uniqueness enforcement is at runtime composition if needed, not here.
@@ -142,23 +150,13 @@ func TestMergeBundles_LocalTurnHandlersDuplicateIDsAllowed(t *testing.T) {
 		SchemaVersion:     lipfeature.SchemaVersionV1,
 		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "dup", ord: 2}},
 	}
-	m := MergeBundles(b1, b2)
-	require.Len(t, m.LocalTurnHandlers, 2)
-	require.Equal(t, "dup", m.LocalTurnHandlers[0].ID())
-	require.Equal(t, "dup", m.LocalTurnHandlers[1].ID())
+	gen, err := MergeBundlesGenerated(b1, b2)
+	require.NoError(t, err)
+	handlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	require.Equal(t, "dup", handlers[0].ID())
+	require.Equal(t, "dup", handlers[1].ID())
 	// MaterializeSorted keeps both, stable sort preserves order for exact ties on Order+ID
-	sorted := localturn.MaterializeSorted(m.LocalTurnHandlers)
+	sorted := localturn.MaterializeSorted(handlers)
 	require.Len(t, sorted, 2)
-}
-
-func TestMergedFeatureSurface_Append_LocalTurn(t *testing.T) {
-	t.Parallel()
-	var m MergedFeatureSurface
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		LocalTurnHandlers: []localturn.Handler{ltHandler{id: "x", ord: 5}},
-	}
-	require.NoError(t, m.Append(b))
-	require.Len(t, m.LocalTurnHandlers, 1)
-	require.Equal(t, "x", m.LocalTurnHandlers[0].ID())
 }

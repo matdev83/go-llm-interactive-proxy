@@ -200,7 +200,7 @@
   - _Depends: 7.1_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... ./internal/qa`
 
-- [ ] 8. Migrate guarded, compaction, local-turn, and terminal planes as W5
+- [x] 8. Migrate guarded, compaction, local-turn, and terminal planes as W5
 - [x] 8.1 Migrate secret-guard contributions and host capabilities
   - Preserve root uniqueness, access-mode/env consultation rules, input/observer fallback, typed-nil behavior, redaction, and operator inventory.
   - Observable completion: secret-guard plane mirrors are deleted and every fail-closed fixture from 1.4 remains green.
@@ -215,14 +215,14 @@
   - _Boundary: composition root, internal/infra/compactioncompose_
   - _Depends: 8.1_
   - **Validation:** `go test ./internal/infra/compactioncompose ./internal/infra/runtimebundle ./internal/testkit/... -run 'Compaction|PlaneParity'`
-- [ ] 8.3 Migrate admission/execution local-turn planes
+- [x] 8.3 Migrate admission/execution local-turn planes
   - Keep the two binding times distinct and preserve materialized ordering plus inventory labels.
   - Observable completion: both plane mirrors are deleted and focused wiring tests pass.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_
   - _Boundary: composition root, core/runtime_
   - _Depends: 8.2_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/... -run 'LocalTurn|PlaneParity'`
-- [ ] 8.4 Migrate terminal-decision exclusive slot and validated identity metadata
+- [x] 8.4 Migrate terminal-decision exclusive slot and validated identity metadata
   - Preserve fail-before-mutate identity validation, exact conflict classification/text shape, generation freeze, policy/control projection, and no-provider fallback.
   - Observable completion: terminal-decision field/sidecar mirrors are deleted and toggle/reload tests are green.
   - _Requirements: 1.2, 1.4, 4.2, 4.3, 5.1, 5.3, 5.5_

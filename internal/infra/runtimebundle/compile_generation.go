@@ -97,9 +97,6 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
-	if err := validateTerminalDecisionProvider(ext.TerminalDecisionProvider); err != nil {
-		return nil, fmt.Errorf("runtimebundle: terminal decision provider: %w", err)
-	}
 	bus := in.Bus
 	if bus == nil {
 		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
@@ -185,22 +182,22 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
 	}
 	bundle := newGenerationBundle(generationBundleInput{
-		handler:                  handler,
-		executor:                 cand.execution.executor,
-		routing:                  FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
-		frontends:                frozen.Plugins.Frontends,
-		registrations:            regs,
-		httpAuth:                 authProviders,
-		models:                   cand.models.registryRuntime,
-		catalog:                  cand.models.catalog,
-		backendIDs:               backendIDsOf(cand.execution.executor),
-		ledger:                   ledger,
-		terminalProviders:        terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
-		terminalDecisionProvider: ext.TerminalDecisionProvider,
-		readiness:                cand.operations.readinessReport,
-		keepwarm:                 keepwarmManager,
-		keepwarmRegistry:         cand.process.keepwarmRegistry,
-		keepwarmID:               keepwarmID,
+		handler:           handler,
+		executor:          cand.execution.executor,
+		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
+		frontends:         frozen.Plugins.Frontends,
+		registrations:     regs,
+		httpAuth:          authProviders,
+		models:            cand.models.registryRuntime,
+		catalog:           cand.models.catalog,
+		backendIDs:        backendIDsOf(cand.execution.executor),
+		ledger:            ledger,
+		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
+		frozen:            genMerged.Frozen,
+		readiness:         cand.operations.readinessReport,
+		keepwarm:          keepwarmManager,
+		keepwarmRegistry:  cand.process.keepwarmRegistry,
+		keepwarmID:        keepwarmID,
 	})
 	return bundle, nil
 }
@@ -314,10 +311,7 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 }
 
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
-	ext := ExtensionsOptions{
-		LocalTurnHandlers:        append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
-		TerminalDecisionProvider: merged.TerminalDecisionProvider,
-	}
+	ext := ExtensionsOptions{}
 	if processOpts != nil {
 		ext.SecretGuardEnvironment, ext.SecretGuardInputs, ext.SecretDecisionObserver = processOpts.Extensions.SecretGuardEnvironment, processOpts.Extensions.SecretGuardInputs, processOpts.Extensions.SecretDecisionObserver
 	}
@@ -327,10 +321,6 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
-	}
-	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
-	if dst.TerminalDecisionProvider == nil {
-		dst.TerminalDecisionProvider = src.TerminalDecisionProvider
 	}
 	if src.SecretGuardEnvironment != nil {
 		dst.SecretGuardEnvironment = src.SecretGuardEnvironment

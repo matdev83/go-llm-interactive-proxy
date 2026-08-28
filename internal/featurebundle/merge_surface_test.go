@@ -3,7 +3,6 @@ package featurebundle
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -15,6 +14,7 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -235,54 +235,58 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
 }
 
+type testLifecycle struct{ tag string }
+
+func (testLifecycle) Start(context.Context) error     { return nil }
+func (testLifecycle) Stop(context.Context) error      { return nil }
+func (testLifecycle) SafeUnderCandidateOverlap() bool { return true }
+
 // --- Tests ---
 
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.LocalTurnHandlers) != 0 {
+	if len(m.Lifecycles) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	t.Parallel()
-	empty, err := MergeBundlesChecked()
+	empty, err := MergeBundlesGenerated()
 	if err != nil {
 		t.Fatalf("empty merge error: %v", err)
 	}
-	if empty.TerminalDecisionProvider != nil {
+	if lipfeature.Get(empty.Frozen, lipfeature.PlaneTerminalDecisionProvider) != nil {
 		t.Fatal("empty merge unexpectedly contributed provider")
 	}
 
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
-	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+	merged, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		LocalTurnHandlers:        []localturn.Handler{testLocalTurnHandler{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
 		t.Fatalf("one-provider merge error: %v", err)
 	}
-	if merged.TerminalDecisionProvider != provider {
-		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
-	}
-	lh, ok := merged.LocalTurnHandlers[0].(testLocalTurnHandler)
-	if len(merged.LocalTurnHandlers) != 1 || !ok || lh.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.LocalTurnHandlers)
+	if lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider) != provider {
+		t.Fatalf("merged provider = %#v, want %#v", lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider), provider)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
 	t.Parallel()
 	first := testTerminalDecisionProvider{tag: "provider.first"}
 	second := testTerminalDecisionProvider{tag: "provider.second"}
-	merged, err := MergeBundlesChecked(
+	merged, err := MergeBundlesGenerated(
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: first},
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: second},
 	)
 	if err == nil {
 		t.Fatal("duplicate providers were accepted")
+	}
+	if !errors.Is(err, lipfeature.ErrExclusiveConflict) {
+		t.Fatalf("conflict error = %v, want ErrExclusiveConflict", err)
 	}
 	if !errors.Is(err, ErrTerminalDecisionProviderConflict) {
 		t.Fatalf("conflict error = %v, want ErrTerminalDecisionProviderConflict", err)
@@ -290,15 +294,15 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.LocalTurnHandlers) != 0 {
+	if !merged.Frozen.IsZero() || len(merged.Lifecycles) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
 	t.Parallel()
 	var typedNil *testTerminalDecisionProvider
-	_, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+	_, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
 		TerminalDecisionProvider: typedNil,
 	})
@@ -307,81 +311,18 @@ func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *t
 	}
 }
 
-func TestMergedFeatureSurfaceTerminalDecisionContributionIsSingular(t *testing.T) {
-	t.Parallel()
-	field, ok := reflect.TypeFor[MergedFeatureSurface]().FieldByName("TerminalDecisionProvider")
-	if !ok {
-		t.Fatal("MergedFeatureSurface is missing TerminalDecisionProvider")
-	}
-	want := reflect.TypeFor[terminaldecision.Provider]()
-	if field.Type != want {
-		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
-	}
-}
-
-func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
+func TestMergedFeatureSurfaceAppend_concatenatesLifecycles(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		SubmitHooks:          []sdkhooks.SubmitHook{testSubmitHook{tag: "s1"}},
-		RequestPartHooks:     []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r1"}},
-		ResponsePartHooks:    []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp1"}},
-		ToolReactors:         []sdkhooks.ToolReactor{testToolReactor{tag: "tr1"}},
-		SessionOpeners:       []session.Opener{testOpener{tag: "o1"}},
-		WorkspaceResolvers:   []lipworkspace.Resolver{testResolver{tag: "w1"}},
-		ToolCatalogFilters:   []toolcatalog.Filter{testCatalogFilter{tag: "c1"}},
-		ToolCallPolicies:     []toolpolicy.Policy{testPolicy{tag: "p1"}},
-		ToolCallFinalizers:   []toolcall.Finalizer{testFinalizer{tag: "f1"}},
-		RequestTransforms:    []request.Transform{testTransform{tag: "rt1"}},
-		PreRequestHandlers:   []prerequest.Handler{testPreReq{tag: "pr1"}},
-		RouteHintProviders:   []routehint.Provider{testRouteHint{tag: "rh1"}},
-		CompletionGates:      []completion.Gate{testCompGate{tag: "cg1"}},
-		AttemptTransforms:    []request.AttemptTransform{testAttemptTransform{tag: "at1"}},
-		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co1"}},
-		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp1"}},
-		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg1"}},
-		LocalTurnHandlers:    []localturn.Handler{testLocalTurnHandler{tag: "lh1"}},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		Lifecycles:    []lipplugin.Lifecycle{testLifecycle{tag: "l1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		SubmitHooks:          []sdkhooks.SubmitHook{testSubmitHook{tag: "s2"}},
-		RequestPartHooks:     []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r2"}},
-		ResponsePartHooks:    []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp2"}},
-		ToolReactors:         []sdkhooks.ToolReactor{testToolReactor{tag: "tr2"}},
-		SessionOpeners:       []session.Opener{testOpener{tag: "o2"}},
-		WorkspaceResolvers:   []lipworkspace.Resolver{testResolver{tag: "w2"}},
-		ToolCatalogFilters:   []toolcatalog.Filter{testCatalogFilter{tag: "c2"}},
-		ToolCallPolicies:     []toolpolicy.Policy{testPolicy{tag: "p2"}},
-		ToolCallFinalizers:   []toolcall.Finalizer{testFinalizer{tag: "f2"}},
-		RequestTransforms:    []request.Transform{testTransform{tag: "rt2"}},
-		PreRequestHandlers:   []prerequest.Handler{testPreReq{tag: "pr2"}},
-		RouteHintProviders:   []routehint.Provider{testRouteHint{tag: "rh2"}},
-		CompletionGates:      []completion.Gate{testCompGate{tag: "cg2"}},
-		AttemptTransforms:    []request.AttemptTransform{testAttemptTransform{tag: "at2"}},
-		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co2"}},
-		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp2"}},
-		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg2"}},
-		LocalTurnHandlers:    []localturn.Handler{testLocalTurnHandler{tag: "lh2"}},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		Lifecycles:    []lipplugin.Lifecycle{testLifecycle{tag: "l2"}},
 	}
 	m := MergeBundles(b1, b2)
-
-	checks := []struct {
-		name string
-		got  int
-	}{
-		{"LocalTurnHandlers", len(m.LocalTurnHandlers)},
-	}
-	for _, c := range checks {
-		if c.got != 2 {
-			t.Fatalf("%s: got %d want 2", c.name, c.got)
-		}
-	}
-	for i, want := range []string{"lh1", "lh2"} {
-		handler, ok := m.LocalTurnHandlers[i].(testLocalTurnHandler)
-		if !ok || handler.tag != want {
-			t.Fatalf("LocalTurnHandlers[%d]=%T/%q want %q", i, m.LocalTurnHandlers[i], handler.tag, want)
-		}
-	}
+	require.Len(t, m.Lifecycles, 2)
 }
 
 func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
@@ -434,14 +375,13 @@ func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 		LocalTurnHandlers:  []localturn.Handler{testLocalTurnHandler{tag: "third"}},
 		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "third"}},
 	}
-	m := MergeBundles(b1, b2, b3)
-	if len(m.LocalTurnHandlers) != 3 {
-		t.Fatalf("LocalTurnHandlers: got %d want 3", len(m.LocalTurnHandlers))
-	}
-
 	gen, err := MergeBundlesGenerated(b1, b2, b3)
 	if err != nil {
 		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	lts := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	if len(lts) != 3 {
+		t.Fatalf("LocalTurnHandlers: got %d want 3", len(lts))
 	}
 	fins := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
 	if len(fins) != 3 {

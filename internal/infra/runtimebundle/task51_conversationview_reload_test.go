@@ -164,14 +164,14 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	gen1Cfg.Plugins.Features = append(gen1Cfg.Plugins.Features, config.PluginConfig{
 		ID: "traffic-cap-1", Enabled: true,
 	})
+	cs1 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneLocalTurnHandlers, "h1", []localturn.Handler{handler1}))
 	gen1, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: gen1Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
 		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				LocalTurnHandlers: []localturn.Handler{handler1},
-			},
+			FeaturePlanes: cs1.Freeze(),
 		},
 	})
 	if err != nil {
@@ -229,11 +229,6 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 		Process:   ps,
 		Candidate: gen2Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
-		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				LocalTurnHandlers: nil, // no handlers
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration gen2: %v", err)

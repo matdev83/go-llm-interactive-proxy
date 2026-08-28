@@ -836,6 +836,23 @@ var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 	Combine: func(source SourceKind, current, incoming []localturn.Handler) ([]localturn.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	Diagnostics: DiagnosticDescriptor[[]localturn.Handler]{
+		StageID: StageIDPreRequest,
+		Materialize: func(v []localturn.Handler) []DiagnosticOccupant {
+			sorted := localturn.MaterializeSorted(v)
+			if len(sorted) == 0 {
+				return nil
+			}
+			occupants := make([]DiagnosticOccupant, 0, len(sorted))
+			for _, h := range sorted {
+				if h == nil || localturn.IsNilHandler(h) {
+					continue
+				}
+				occupants = append(occupants, DiagnosticOccupant{Label: "local_turn:" + h.ID()})
+			}
+			return occupants
+		},
+	},
 }
 
 // PlaneTerminalDecisionProvider declares the TerminalDecisionProvider extension plane.
@@ -846,13 +863,6 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 		Feature: CombExclusive,
 	},
 	NilPolicy: NilReject,
-	IsNil: func(v terminaldecision.Provider) bool {
-		if v == nil {
-			return true
-		}
-		_, err := terminaldecision.ProviderIdentity(v)
-		return err != nil
-	},
 	Identity: func(v terminaldecision.Provider) (string, bool) {
 		id, err := terminaldecision.ProviderIdentity(v)
 		if err != nil {
@@ -867,6 +877,7 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 	Combine: func(source SourceKind, current, incoming terminaldecision.Provider) (terminaldecision.Provider, error) {
 		return incoming, nil
 	},
+	ExclusiveConflictError: ErrTerminalDecisionProviderConflict,
 }
 
 // StandardPlanes is the ordered slice of all standard feature planes.
@@ -914,4 +925,6 @@ var StandardCandidatePlanes = []string{
 	"secret_guards",
 	"compaction_observers",
 	"compaction_preservers",
+	"local_turn_handlers",
+	"terminal_decision_provider",
 }

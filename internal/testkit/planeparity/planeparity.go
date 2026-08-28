@@ -18,22 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 24. LocalTurnHandlers
-	genLocalTurnHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
-	assert.Equal(tb, legacy.LocalTurnHandlers, genLocalTurnHandlers, "LocalTurnHandlers mismatch")
-	assert.Equal(tb, legacy.LocalTurnHandlers == nil, genLocalTurnHandlers == nil, "LocalTurnHandlers nilness mismatch")
-
-	// 25. TerminalDecisionProvider
-	genTerminalProvider := lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider)
-	assert.Equal(tb, legacy.TerminalDecisionProvider, genTerminalProvider, "TerminalDecisionProvider mismatch")
-	genID, hasID := lipfeature.FrozenIdentity(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider)
-	if legacy.TerminalDecisionProvider != nil {
-		assert.True(tb, hasID, "expected frozen identity to be present for TerminalDecisionProvider")
-		assert.NotEmpty(tb, genID, "expected non-empty frozen identity for TerminalDecisionProvider")
-	} else {
-		assert.False(tb, hasID, "expected no frozen identity when TerminalDecisionProvider is nil")
-	}
-
 	// 26. Lifecycles (Side-channel)
 	assert.Equal(tb, legacy.Lifecycles, gen.Lifecycles, "Lifecycles side-channel mismatch")
 	assert.Equal(tb, legacy.Lifecycles == nil, gen.Lifecycles == nil, "Lifecycles nilness mismatch")

@@ -142,6 +142,8 @@ func newTask91TerminalPathHarness(t *testing.T, continueThrough int32) (*turnTer
 	terminal, stream, b1, authority, _ := newContinuationRedHarness(t, nil)
 	provider := &task91TerminalDecisionProvider{continueThrough: continueThrough}
 	terminal.terminalDecisionProvider = provider
+	terminal.terminalDecisionProviderID = provider.ID()
+	terminal.terminalDecisionProviderHasID = true
 	terminal.continuationTransaction = func(ctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
 		return runContinuationTransaction(ctx, terminal, stream, intent)
 	}

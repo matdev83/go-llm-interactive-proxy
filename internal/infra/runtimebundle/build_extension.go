@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"slices"
 	"strings"
 	"time"
 
@@ -125,6 +124,7 @@ func buildRuntimeSnapshot(
 	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
 	compactionObservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionObservers)
 	compactionPreservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionPreservers)
+	localTurnHandlers := lipfeature.Get(frozen, lipfeature.PlaneLocalTurnHandlers)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
@@ -134,29 +134,29 @@ func buildRuntimeSnapshot(
 		stateStore = corestate.NewMem(nowFn)
 	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:                    stateStore,
-		Aux:                      auxreq.NewClient(execRunnerProvider),
-		Workspace:                ws,
-		SessionOpeners:           openers,
-		ToolCatalogFilters:       catalogFilters,
-		ToolCallPolicies:         toolPolicies,
-		ToolCallFinalizers:       toolFinalizers,
-		RequestTransforms:        reqTransforms,
-		PreRequestHandlers:       preReqs,
-		RouteHintProviders:       routeHints,
-		CompletionGates:          compGates,
-		AttemptTransforms:        attemptXforms,
-		StreamObserverFactories:  streamObs,
-		TrafficObserver:          trafficObs,
-		UsageObserver:            usageObs,
-		RawCapture:               trafficRaw,
-		TrafficRedactors:         trafficRedactors,
-		CompactionObservers:      compactionObservers,
-		CompactionPreservers:     compactionPreservers,
-		LocalTurnHandlers:        slices.Clone(opts.Extensions.LocalTurnHandlers),
-		TerminalDecisionProvider: opts.Extensions.TerminalDecisionProvider,
-		SecretGuardPlane:         sgPlane,
-		PolicyObserver:           policyObs,
-		TimeoutBudgetSource:      budgetSrc,
+		State:                   stateStore,
+		Aux:                     auxreq.NewClient(execRunnerProvider),
+		Workspace:               ws,
+		SessionOpeners:          openers,
+		ToolCatalogFilters:      catalogFilters,
+		ToolCallPolicies:        toolPolicies,
+		ToolCallFinalizers:      toolFinalizers,
+		RequestTransforms:       reqTransforms,
+		PreRequestHandlers:      preReqs,
+		RouteHintProviders:      routeHints,
+		CompletionGates:         compGates,
+		AttemptTransforms:       attemptXforms,
+		StreamObserverFactories: streamObs,
+		TrafficObserver:         trafficObs,
+		UsageObserver:           usageObs,
+		RawCapture:              trafficRaw,
+		TrafficRedactors:        trafficRedactors,
+		CompactionObservers:     compactionObservers,
+		CompactionPreservers:    compactionPreservers,
+		LocalTurnHandlers:       localTurnHandlers,
+		FeaturePlanes:           frozen,
+		SecretGuardPlane:        sgPlane,
+		PolicyObserver:          policyObs,
+		TimeoutBudgetSource:     budgetSrc,
 	})
 }

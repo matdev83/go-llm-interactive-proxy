@@ -196,6 +196,15 @@ func TestAllowedStageConsumers_AllWhitelistedEntriesExercised(t *testing.T) {
 			funcName:  "TerminalDecisionProvider",
 		},
 		{
+			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProviderIdentity",
+			relPath:   "internal/core/extensions/snapshot.go",
+			planeID:   "terminal_decision_provider",
+			planeExpr: "lipfeature.PlaneTerminalDecisionProvider",
+			wave:      Wave5b_LocalTurnTerminal,
+			isMethod:  true,
+			funcName:  "TerminalDecisionProviderIdentity",
+		},
+		{
 			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver",
 			relPath:   "internal/core/extensions/snapshot.go",
 			planeID:   "traffic_observers",

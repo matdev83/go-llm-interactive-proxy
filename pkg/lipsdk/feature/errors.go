@@ -18,9 +18,25 @@ var (
 	// ErrExclusiveConflict reports an attempted second contribution to an exclusive plane slot.
 	ErrExclusiveConflict = errors.New("feature: exclusive slot conflict")
 
+	// ErrTerminalDecisionProviderConflict reports a conflict when multiple terminal-decision providers are registered.
+	ErrTerminalDecisionProviderConflict = errors.New("featurebundle: terminal-decision provider conflict")
+
 	// ErrNilContribution reports a nil contribution rejected by plane nil policy.
 	ErrNilContribution = errors.New("feature: nil contribution")
 )
+
+// makeExclusiveConflictError creates a single *AttributedError for an exclusive plane conflict.
+func makeExclusiveConflictError(contributorID, planeID string, compatErr error, existingID, incomingID string) *AttributedError {
+	cause := error(ErrExclusiveConflict)
+	if compatErr != nil {
+		cause = errors.Join(cause, compatErr)
+	}
+	return &AttributedError{
+		PluginID: contributorID,
+		PlaneID:  planeID,
+		Err:      fmt.Errorf("%w: %q and %q", cause, existingID, incomingID),
+	}
+}
 
 // AttributedError wraps an underlying error with the plugin ID and plane ID
 // where the contribution or validation failure occurred.
