@@ -18,15 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 9. ToolCallFinalizers
-	genToolCallFinalizers := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
-	assert.Equal(tb, legacy.ToolCallFinalizers, genToolCallFinalizers, "ToolCallFinalizers mismatch")
-	assert.Equal(tb, legacy.ToolCallFinalizers == nil, genToolCallFinalizers == nil, "ToolCallFinalizers nilness mismatch")
-
-	// 10. ToolCallFinalizationMaxArgsBytes
-	genFinalizationCap := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
-	assert.Equal(tb, legacy.ToolCallFinalizationMaxArgsBytes, genFinalizationCap, "ToolCallFinalizationMaxArgsBytes mismatch")
-
 	// 21. CompactionObservers
 	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
 	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")

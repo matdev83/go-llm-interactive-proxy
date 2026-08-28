@@ -128,14 +128,12 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 // via lipfeature.FrozenIdentity.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 	m := MergedFeatureSurface{
-		ToolCallFinalizers:               lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizers),
-		ToolCallFinalizationMaxArgsBytes: lipfeature.Get(g.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes),
-		CompactionObservers:              lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
-		CompactionPreservers:             lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
-		SecretGuards:                     lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
-		LocalTurnHandlers:                lipfeature.Get(g.Frozen, lipfeature.PlaneLocalTurnHandlers),
-		TerminalDecisionProvider:         lipfeature.Get(g.Frozen, lipfeature.PlaneTerminalDecisionProvider),
-		Lifecycles:                       g.Lifecycles,
+		CompactionObservers:      lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionObservers),
+		CompactionPreservers:     lipfeature.Get(g.Frozen, lipfeature.PlaneCompactionPreservers),
+		SecretGuards:             lipfeature.Get(g.Frozen, lipfeature.PlaneSecretGuards),
+		LocalTurnHandlers:        lipfeature.Get(g.Frozen, lipfeature.PlaneLocalTurnHandlers),
+		TerminalDecisionProvider: lipfeature.Get(g.Frozen, lipfeature.PlaneTerminalDecisionProvider),
+		Lifecycles:               g.Lifecycles,
 	}
 	if id, hasID := lipfeature.FrozenIdentity(g.Frozen, lipfeature.PlaneTerminalDecisionProvider); hasID {
 		m.terminalDecisionProviderID = id

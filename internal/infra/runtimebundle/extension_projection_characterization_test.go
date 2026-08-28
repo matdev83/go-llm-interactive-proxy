@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
@@ -119,23 +120,23 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		t.Parallel()
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
-		require.Len(t, ext.ToolCallFinalizers, len(merged.ToolCallFinalizers))
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers), 1)
 		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
-		assert.Equal(t, "finalizer", ext.ToolCallFinalizers[0].ID())
+		assert.Equal(t, "finalizer", lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)[0].ID())
 		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
 	})
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
 		merged := featurebundle.MergedFeatureSurface{
-			ToolCallFinalizers: []toolcall.Finalizer{},
-			LocalTurnHandlers:  []localturn.Handler{},
+			CompactionObservers: []compaction.Observer{},
+			LocalTurnHandlers:   []localturn.Handler{},
 		}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
 		for name, got := range map[string]any{
-			"ToolCallFinalizers": ext.ToolCallFinalizers,
-			"LocalTurnHandlers":  ext.LocalTurnHandlers,
+			"CompactionObservers": ext.CompactionObservers,
+			"LocalTurnHandlers":   ext.LocalTurnHandlers,
 		} {
 			rv := reflect.ValueOf(got)
 			require.False(t, rv.IsNil(), "%s must stay non-nil empty", name)
@@ -213,43 +214,20 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 }
 
 // Pins overlayExtensions legacy semantics: source contributions append after
-// destination contributions per plane, the finalizer-cap scalar uses
-// overwrite-if-positive (NOT min-reduce), and exclusive slots are first-wins.
+// destination contributions per plane, and exclusive slots are first-wins.
 func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 	t.Parallel()
 
 	dst := &ExtensionsOptions{
-		ToolCallFinalizers:               []toolcall.Finalizer{projFinalizer{id: "d-open"}},
-		ToolCallFinalizationMaxArgsBytes: 4096,
+		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "d-open", ord: 1}},
 	}
 	src := ExtensionsOptions{
-		ToolCallFinalizers:               []toolcall.Finalizer{projFinalizer{id: "s-open"}},
-		ToolCallFinalizationMaxArgsBytes: 1024,
+		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "s-open", ord: 2}},
 	}
 
 	overlayExtensions(dst, src)
 	require.Equal(t, []string{"d-open", "s-open"},
-		[]string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})
-
-	tests := []struct {
-		name string
-		dstV int
-		srcV int
-		want int
-	}{
-		{"src_zero_keeps_dst", 4096, 0, 4096},
-		{"src_positive_overwrites_larger_dst", 8192, 1024, 1024},
-		{"src_positive_overwrites_smaller_dst", 1024, 8192, 8192},
-		{"both_zero", 0, 0, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := &ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.dstV}
-			overlayExtensions(d, ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.srcV})
-			require.Equal(t, tt.want, d.ToolCallFinalizationMaxArgsBytes)
-		})
-	}
+		[]string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 
 	t.Run("terminal_decision_slot_is_first_wins", func(t *testing.T) {
 		t.Parallel()

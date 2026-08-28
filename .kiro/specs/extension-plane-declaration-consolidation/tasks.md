@@ -184,7 +184,7 @@
   - _Depends: 6.2_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/core/diag ./internal/infra/runtimebundle ./internal/testkit/... ./internal/qa`
 
-- [ ] 7. Migrate tool planes as W4
+- [x] 7. Migrate tool planes as W4
 - [x] 7.1 Migrate tool-catalog filters and admission/execution policy planes
   - Preserve sorting, nil policy, decision evidence, and diagnostics coalescing with tool reactors/finalizers.
   - Observable completion: focused runtime and inventory parity tests pass with the named mirrors removed.
@@ -192,7 +192,7 @@
   - _Boundary: composition root, core/runtime, core/runtime diagnostics_
   - _Depends: 6.3_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/core/diag ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 7.2 Migrate tool finalizers and finalizer-buffer reduction
+- [x] 7.2 Migrate tool finalizers and finalizer-buffer reduction
   - Preserve bundle min-reduction, executor clamp behavior, and apply the explicit overlay decision recorded by task 1.2 rather than re-litigating it during W4.
   - Observable completion: scalar special-case field branches are deleted and reduce/clamp tests remain green.
   - _Requirements: 4.4, 5.1, 5.3, 5.5_

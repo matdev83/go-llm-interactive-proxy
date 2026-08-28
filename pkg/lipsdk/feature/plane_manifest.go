@@ -886,6 +886,8 @@ var StandardCandidatePlanes = []string{
 	"workspace_resolvers",
 	"tool_catalog_filters",
 	"tool_call_policies",
+	"tool_call_finalizers",
+	"tool_call_finalization_max_args_bytes",
 	"request_transforms",
 	"pre_request_handlers",
 	"route_hint_providers",

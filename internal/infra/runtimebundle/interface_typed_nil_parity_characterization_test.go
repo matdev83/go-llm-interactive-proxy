@@ -343,14 +343,14 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		// Seed receiver with some initial data
-		m.ToolCallFinalizers = []toolcall.Finalizer{&charStubFinalizer{tag: "initial-finalizer"}}
+		m.SecretGuards = []sdksg.Guard{&charStubSGGuard{id: "initial-guard", ord: 1}}
 		m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
 
 		snapshotBefore := m // value copy
 
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:            lipfeature.SchemaVersionV1,
-			ToolCallFinalizers:       []toolcall.Finalizer{&charStubFinalizer{tag: "incoming-finalizer"}},
+			SecretGuards:             []sdksg.Guard{&charStubSGGuard{id: "incoming-guard", ord: 2}},
 			TerminalDecisionProvider: typedNilProvider,
 		}
 
@@ -361,8 +361,8 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 
 		// Fail-before-mutate assertion: receiver is unchanged
 		assert.True(t, reflect.DeepEqual(snapshotBefore, m), "MergedFeatureSurface receiver must not be mutated on validation error")
-		assert.Len(t, m.ToolCallFinalizers, 1)
-		assert.Equal(t, "initial-finalizer", m.ToolCallFinalizers[0].ID())
+		assert.Len(t, m.SecretGuards, 1)
+		assert.Equal(t, "initial-guard", m.SecretGuards[0].ID())
 	})
 
 	t.Run("incoming_typed_nil_fails_identity_before_conflict_check", func(t *testing.T) {
@@ -526,17 +526,11 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:      lipfeature.SchemaVersionV1,
-			ToolCallFinalizers: []toolcall.Finalizer{&charStubFinalizer{tag: "f1"}, nil, &charStubFinalizer{tag: "f2"}},
 			SecretGuards:       []sdksg.Guard{nil, &charStubSGGuard{id: "sg1", ord: 1}, nil},
 			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
 		}
 
 		require.NoError(t, m.Append(b))
-		require.Len(t, m.ToolCallFinalizers, 3)
-		assert.NotNil(t, m.ToolCallFinalizers[0])
-		assert.Nil(t, m.ToolCallFinalizers[1])
-		assert.NotNil(t, m.ToolCallFinalizers[2])
-
 		require.Len(t, m.SecretGuards, 3)
 		assert.Nil(t, m.SecretGuards[0])
 		assert.NotNil(t, m.SecretGuards[1])
@@ -732,13 +726,13 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
-			m.ToolCallFinalizers = []toolcall.Finalizer{&charStubFinalizer{tag: "finalizer-1"}}
+			m.SecretGuards = []sdksg.Guard{&charStubSGGuard{id: "guard-1", ord: 1}}
 
 			snapBefore := m // value copy
 
 			b := lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
-				ToolCallFinalizers:       []toolcall.Finalizer{&charStubFinalizer{tag: "finalizer-2"}},
+				SecretGuards:             []sdksg.Guard{&charStubSGGuard{id: "guard-2", ord: 2}},
 				TerminalDecisionProvider: tc.provider,
 			}
 

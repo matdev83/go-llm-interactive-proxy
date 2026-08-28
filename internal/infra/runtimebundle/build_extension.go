@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -79,10 +78,7 @@ func buildRuntimeSnapshot(
 	}
 	catalogFilters := lipfeature.Get(frozen, lipfeature.PlaneToolCatalogFilters)
 	toolPolicies := lipfeature.Get(frozen, lipfeature.PlaneToolCallPolicies)
-	var toolFinalizers []toolcall.Finalizer
-	if len(opts.Extensions.ToolCallFinalizers) > 0 {
-		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
-	}
+	toolFinalizers := lipfeature.Get(frozen, lipfeature.PlaneToolCallFinalizers)
 	wsResolvers := lipfeature.Get(frozen, lipfeature.PlaneWorkspaceResolvers)
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(wsResolvers) > 0 {

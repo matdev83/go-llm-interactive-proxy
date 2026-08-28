@@ -121,10 +121,11 @@ var (
 		"internal/infra/runtimebundle.HooksConfigFromFrozen":    true,
 	}
 
-	// AllowedObserverProjections is the qualified-symbol allowlist of observer projection functions.
-	// Any other function whose body reads observer planes via Get past Wave 2 is forbidden.
+	// AllowedObserverProjections is the qualified-symbol allowlist of observer and tool projection functions.
+	// Any other function whose body reads observer/tool planes via Get past Wave 2/4 is forbidden.
 	AllowedObserverProjections = map[string]bool{
 		"internal/infra/runtimebundle.buildRuntimeSnapshot": true,
+		"internal/infra/runtimebundle.buildExecutorRuntime": true,
 	}
 )
 

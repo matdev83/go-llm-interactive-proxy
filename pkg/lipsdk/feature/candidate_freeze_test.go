@@ -124,6 +124,16 @@ func (r freezeTestWorkspaceResolver) Resolve(context.Context) (workspace.Workspa
 	return workspace.WorkspaceView{ID: r.id, ProjectRoot: "/tmp/" + r.id}, nil
 }
 
+type freezeTestFinalizer struct {
+	id string
+}
+
+func (f freezeTestFinalizer) ID() string { return f.id }
+func (freezeTestFinalizer) Order() int   { return 0 }
+func (freezeTestFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass}, nil
+}
+
 // TestContribute_FailBeforeMutate_TableDriven proves that any failed contribution
 // (validation, conflict, combiner, nil reject, unhandled source, empty plugin ID)
 // leaves the ContributionSet state byte-for-byte identical before and after.
@@ -797,6 +807,7 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		require.NoError(t, feature.Contribute(src, feature.PlaneWorkspaceResolvers, "cand", []workspace.Resolver{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneToolCatalogFilters, "cand", []toolcatalog.Filter{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallPolicies, "cand", []toolpolicy.Policy{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallFinalizers, "cand", []toolcall.Finalizer{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRequestTransforms, "cand", []request.Transform{}))
 		require.NoError(t, feature.Contribute(src, feature.PlanePreRequestHandlers, "cand", []prerequest.Handler{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRouteHintProviders, "cand", []routehint.Provider{}))
@@ -825,6 +836,10 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
 		assert.NotNil(t, pol)
 		assert.Empty(t, pol)
+
+		fin := feature.Get(dstFrozen, feature.PlaneToolCallFinalizers)
+		assert.NotNil(t, fin)
+		assert.Empty(t, fin)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)
@@ -856,6 +871,7 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 				feature.PlaneWorkspaceResolvers.ID: []workspace.Resolver{},
 				feature.PlaneToolCatalogFilters.ID: []toolcatalog.Filter{},
 				feature.PlaneToolCallPolicies.ID:   []toolpolicy.Policy{},
+				feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{},
 				feature.PlaneRequestTransforms.ID:  []request.Transform{},
 				feature.PlanePreRequestHandlers.ID: []prerequest.Handler{},
 				feature.PlaneRouteHintProviders.ID: []routehint.Provider{},
@@ -885,6 +901,10 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
 		assert.NotNil(t, pol)
 		assert.Empty(t, pol)
+
+		fin := feature.Get(dstFrozen, feature.PlaneToolCallFinalizers)
+		assert.NotNil(t, fin)
+		assert.Empty(t, fin)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)
@@ -1284,4 +1304,126 @@ func TestContributeCandidateTo_SessionAndWorkspace_SuccessOrderAndIsolation(t *t
 		assert.Equal(t, "base-wr", mapWr0.id)
 		assert.Equal(t, "cand-map-wr", mapWr1.id)
 	})
+}
+
+// TestContributeCandidateTo_ToolFinalizersAndBufferReduction_SuccessOrderAndMinReduction verifies that
+// candidate contributions of ToolCallFinalizers and ToolCallFinalizationMaxArgsBytes in generated and map storage
+// append in source order for finalizers and min-reduce positive buffer caps.
+func TestContributeCandidateTo_ToolFinalizersAndBufferReduction_SuccessOrderAndMinReduction(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage_min_reduction_and_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "base-fin"},
+		}))
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizers, "cand-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "cand-fin"},
+		}))
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizationMaxArgsBytes, "cand-plugin", 1024))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+		require.Len(t, fins, 2)
+		assert.Equal(t, "base-fin", fins[0].ID())
+		assert.Equal(t, "cand-fin", fins[1].ID())
+
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 1024, maxArgs, "candidate overlay must min-reduce buffer cap (1024 vs 4096)")
+	})
+
+	t.Run("generated_storage_candidate_larger_does_not_overwrite", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 1024))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizationMaxArgsBytes, "cand-plugin", 8192))
+		candFrozen := candSrc.Freeze()
+
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 1024, maxArgs, "candidate larger cap must NOT overwrite smaller base cap (min-reduction)")
+	})
+
+	t.Run("map_fallback_storage_min_reduction_and_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "base-fin"},
+		}))
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{
+					freezeTestFinalizer{id: "cand-map-fin"},
+				},
+				feature.PlaneToolCallFinalizationMaxArgsBytes.ID: 2048,
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+		require.Len(t, fins, 2)
+		assert.Equal(t, "base-fin", fins[0].ID())
+		assert.Equal(t, "cand-map-fin", fins[1].ID())
+
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 2048, maxArgs)
+	})
+}
+
+// TestContributeCandidateTo_ToolCallFinalizationMaxArgsBytes_InvalidNegativeRollback verifies that
+// invalid candidate buffer reduction values fail and roll back destination atomically.
+func TestContributeCandidateTo_ToolCallFinalizationMaxArgsBytes_InvalidNegativeRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+		freezeTestFinalizer{id: "base-fin"},
+	}))
+	require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{
+				freezeTestFinalizer{id: "cand-fin"},
+			},
+			feature.PlaneToolCallFinalizationMaxArgsBytes.ID: -100, // Invalid negative
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	// Validate atomic rollback: dst is untouched
+	frozen := dst.Freeze()
+	fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+	require.Len(t, fins, 1)
+	assert.Equal(t, "base-fin", fins[0].ID())
+
+	maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+	assert.Equal(t, 4096, maxArgs)
 }

@@ -226,7 +226,7 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.ToolCallFinalizers) != 0 {
+	if len(m.CompactionObservers) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
@@ -244,7 +244,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
 	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
-		ToolCallFinalizers:       []toolcall.Finalizer{testFinalizer{tag: "existing"}},
+		CompactionObservers:      []compaction.Observer{testCompactionObs{tag: "existing"}},
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
@@ -253,9 +253,9 @@ func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	if merged.TerminalDecisionProvider != provider {
 		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
 	}
-	fin, ok := merged.ToolCallFinalizers[0].(testFinalizer)
-	if len(merged.ToolCallFinalizers) != 1 || !ok || fin.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.ToolCallFinalizers)
+	obs, ok := merged.CompactionObservers[0].(testCompactionObs)
+	if len(merged.CompactionObservers) != 1 || !ok || obs.tag != "existing" {
+		t.Fatalf("existing fields changed during provider merge: %#v", merged.CompactionObservers)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.ToolCallFinalizers) != 0 {
+	if merged.TerminalDecisionProvider != nil || len(merged.CompactionObservers) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
@@ -353,7 +353,6 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		name string
 		got  int
 	}{
-		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
 		{"CompactionObservers", len(m.CompactionObservers)},
 		{"CompactionPreservers", len(m.CompactionPreservers)},
 		{"SecretGuards", len(m.SecretGuards)},
@@ -377,61 +376,80 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 	}
 }
 
-func TestMergeBundles_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
+func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
 	t.Parallel()
-	m := MergeBundles(
+	gen, err := MergeBundlesGenerated(
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
 	)
-	if m.ToolCallFinalizationMaxArgsBytes != 1024 {
-		t.Fatalf("got %d want 1024 (min of positives)", m.ToolCallFinalizationMaxArgsBytes)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	got := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if got != 1024 {
+		t.Fatalf("got %d want 1024 (min of positives)", got)
 	}
 }
 
-func TestMergeBundles_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *testing.T) {
+func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *testing.T) {
 	t.Parallel()
 	// Merge keeps min of positives only; Validate rejects negatives on FeatureBundle.
 	// Non-positive values are not contributions at the merge surface.
-	m := MergeBundles(
+	gen, err := MergeBundlesGenerated(
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -1},
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
 	)
-	if m.ToolCallFinalizationMaxArgsBytes != 2048 {
-		t.Fatalf("got %d want 2048 (negatives/zero ignored at merge)", m.ToolCallFinalizationMaxArgsBytes)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	got := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if got != 2048 {
+		t.Fatalf("got %d want 2048 (zero ignored at merge)", got)
 	}
 }
 
 func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "first"}},
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "first"}},
+		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "first"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "second"}},
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "second"}},
+		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "second"}},
 	}
 	b3 := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "third"}},
+		SchemaVersion:       lipfeature.SchemaVersionV1,
+		CompactionObservers: []compaction.Observer{testCompactionObs{tag: "third"}},
+		ToolCallFinalizers:  []toolcall.Finalizer{testFinalizer{tag: "third"}},
 	}
 	m := MergeBundles(b1, b2, b3)
-	if len(m.ToolCallFinalizers) != 3 {
-		t.Fatalf("ToolCallFinalizers: got %d want 3", len(m.ToolCallFinalizers))
+	if len(m.CompactionObservers) != 3 {
+		t.Fatalf("CompactionObservers: got %d want 3", len(m.CompactionObservers))
 	}
-	f0, ok := m.ToolCallFinalizers[0].(testFinalizer)
+
+	gen, err := MergeBundlesGenerated(b1, b2, b3)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	fins := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
+	if len(fins) != 3 {
+		t.Fatalf("ToolCallFinalizers: got %d want 3", len(fins))
+	}
+	f0, ok := fins[0].(testFinalizer)
 	if !ok || f0.tag != "first" {
-		t.Fatalf("first finalizer: %#v", m.ToolCallFinalizers[0])
+		t.Fatalf("first finalizer: %#v", fins[0])
 	}
-	f1, ok := m.ToolCallFinalizers[1].(testFinalizer)
+	f1, ok := fins[1].(testFinalizer)
 	if !ok || f1.tag != "second" {
-		t.Fatalf("second finalizer: %#v", m.ToolCallFinalizers[1])
+		t.Fatalf("second finalizer: %#v", fins[1])
 	}
-	f2, ok := m.ToolCallFinalizers[2].(testFinalizer)
+	f2, ok := fins[2].(testFinalizer)
 	if !ok || f2.tag != "third" {
-		t.Fatalf("third finalizer: %#v", m.ToolCallFinalizers[2])
+		t.Fatalf("third finalizer: %#v", fins[2])
 	}
 }
 
