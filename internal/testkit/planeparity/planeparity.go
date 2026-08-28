@@ -18,11 +18,6 @@ import (
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
 
-	// 24. LocalTurnHandlers
-	genLocalTurnHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
-	assert.Equal(tb, legacy.LocalTurnHandlers, genLocalTurnHandlers, "LocalTurnHandlers mismatch")
-	assert.Equal(tb, legacy.LocalTurnHandlers == nil, genLocalTurnHandlers == nil, "LocalTurnHandlers nilness mismatch")
-
 	// 25. TerminalDecisionProvider
 	genTerminalProvider := lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider)
 	assert.Equal(tb, legacy.TerminalDecisionProvider, genTerminalProvider, "TerminalDecisionProvider mismatch")

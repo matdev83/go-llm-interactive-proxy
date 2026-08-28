@@ -2007,3 +2007,120 @@ func TestContributionSet_BindCompactionPreservers_GenerationBinderSemantics(t *t
 		require.Len(t, pres, 1)
 	})
 }
+
+func TestContributeCandidateTo_GeneratedStorage_LocalTurnHandlers(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt-1", ord: 10},
+	}))
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneLocalTurnHandlers, "cand-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "cand-lt-1", ord: 20},
+	}))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	handlers := feature.Get(frozen, feature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	assert.Equal(t, "base-lt-1", handlers[0].ID())
+	assert.Equal(t, "cand-lt-1", handlers[1].ID())
+}
+
+func TestContributeCandidateTo_MapFallback_LocalTurnHandlers(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt-1", ord: 10},
+	}))
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneLocalTurnHandlers.ID: []localturn.Handler{
+				freezeTestLocalTurnHandler{id: "cand-map-lt-1", ord: 20},
+			},
+		},
+		nil,
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	handlers := feature.Get(frozen, feature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	assert.Equal(t, "base-lt-1", handlers[0].ID())
+	assert.Equal(t, "cand-map-lt-1", handlers[1].ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_LocalTurnHandlers_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid LocalTurnHandlers and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenLocalTurnCandidateForTest(
+		[]localturn.Handler{
+			freezeTestLocalTurnHandler{id: "cand-lt", ord: 20},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_LocalTurnHandlers_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneLocalTurnHandlers.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneLocalTurnHandlers.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []localturn.Handler")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}

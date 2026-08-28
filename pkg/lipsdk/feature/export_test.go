@@ -4,6 +4,7 @@ import (
 	"maps"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -48,28 +49,6 @@ func NewFrozenPlaneSetWithGeneratedForTest(frozen *generatedFrozen) FrozenPlaneS
 // NewGeneratedContributionsForTest creates a new generatedContributions for testing.
 func NewGeneratedContributionsForTest() *generatedContributions {
 	return newGeneratedContributions()
-}
-
-// NewFrozenPlaneSetFromMapForTest creates a map-backed FrozenPlaneSet for testing,
-// defensively cloning the input maps to ensure frozen immutability.
-func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[string]string) FrozenPlaneSet {
-	var valuesCopy map[string]any
-	if values != nil {
-		valuesCopy = make(map[string]any, len(values))
-		for k, v := range values {
-			valuesCopy[k] = cloneAny(v)
-		}
-	}
-	var identitiesCopy map[string]string
-	if identities != nil {
-		identitiesCopy = make(map[string]string, len(identities))
-		maps.Copy(identitiesCopy, identities)
-	}
-	return FrozenPlaneSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		frozen:     nil,
-	}
 }
 
 // NewMalformedGeneratedFrozenCandidateForTest constructs a test-only generated FrozenPlaneSet
@@ -131,5 +110,42 @@ func NewMalformedGeneratedFrozenCompactionCandidateForTest(
 	}
 	return FrozenPlaneSet{
 		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenLocalTurnCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with candidate local turn handlers and attempt transforms for transaction testing.
+func NewMalformedGeneratedFrozenLocalTurnCandidateForTest(
+	lt []localturn.Handler,
+	attTr []request.AttemptTransform,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		localTurnHandlers: cloneSlice(lt),
+		attemptTransforms: cloneSlice(attTr),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewFrozenPlaneSetFromMapForTest creates a map-backed FrozenPlaneSet for testing,
+// defensively cloning the input maps to ensure frozen immutability.
+func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[string]string) FrozenPlaneSet {
+	var valuesCopy map[string]any
+	if values != nil {
+		valuesCopy = make(map[string]any, len(values))
+		for k, v := range values {
+			valuesCopy[k] = cloneAny(v)
+		}
+	}
+	var identitiesCopy map[string]string
+	if identities != nil {
+		identitiesCopy = make(map[string]string, len(identities))
+		maps.Copy(identitiesCopy, identities)
+	}
+	return FrozenPlaneSet{
+		values:     valuesCopy,
+		identities: identitiesCopy,
+		frozen:     nil,
 	}
 }

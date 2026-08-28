@@ -343,14 +343,13 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		// Seed receiver with some initial data
-		m.LocalTurnHandlers = []localturn.Handler{&charStubLocalTurnHandler{id: "initial-handler", ord: 1}}
 		m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
 
 		snapshotBefore := m // value copy
 
 		b := lipfeature.FeatureBundle{
 			SchemaVersion:            lipfeature.SchemaVersionV1,
-			LocalTurnHandlers:        []localturn.Handler{&charStubLocalTurnHandler{id: "incoming-handler", ord: 2}},
+			Lifecycles:               []lipplugin.Lifecycle{charStubLifecycle{tag: "incoming-lifecycle"}},
 			TerminalDecisionProvider: typedNilProvider,
 		}
 
@@ -361,8 +360,7 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 
 		// Fail-before-mutate assertion: receiver is unchanged
 		assert.True(t, reflect.DeepEqual(snapshotBefore, m), "MergedFeatureSurface receiver must not be mutated on validation error")
-		assert.Len(t, m.LocalTurnHandlers, 1)
-		assert.Equal(t, "initial-handler", m.LocalTurnHandlers[0].ID())
+		assert.Len(t, m.Lifecycles, 1)
 	})
 
 	t.Run("incoming_typed_nil_fails_identity_before_conflict_check", func(t *testing.T) {
@@ -525,26 +523,15 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
-			LocalTurnHandlers:  []localturn.Handler{nil, &charStubLocalTurnHandler{id: "lh1", ord: 1}, nil},
-			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			Lifecycles:    []lipplugin.Lifecycle{nil, charStubLifecycle{tag: "l1"}, nil},
 		}
 
 		require.NoError(t, m.Append(b))
-		require.Len(t, m.LocalTurnHandlers, 3)
-		assert.Nil(t, m.LocalTurnHandlers[0])
-		assert.NotNil(t, m.LocalTurnHandlers[1])
-		assert.Nil(t, m.LocalTurnHandlers[2])
-
-		// Extensions extraction and overlay also preserve verbatim on projected slice planes
-		ext := extensionsFromMerged(m, featurebundle.GeneratedMergeSurface{}, nil)
-		require.Len(t, ext.LocalTurnHandlers, 3)
-		assert.Nil(t, ext.LocalTurnHandlers[0])
-
-		dst := ExtensionsOptions{}
-		overlayExtensions(&dst, ext)
-		require.Len(t, dst.LocalTurnHandlers, 3)
-		assert.Nil(t, dst.LocalTurnHandlers[0])
+		require.Len(t, m.Lifecycles, 3)
+		assert.Nil(t, m.Lifecycles[0])
+		assert.NotNil(t, m.Lifecycles[1])
+		assert.Nil(t, m.Lifecycles[2])
 	})
 
 	t.Run("secret_guards_plane_and_generated_storage_preserves_literal_and_typed_nil_verbatim", func(t *testing.T) {
@@ -770,13 +757,13 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var m featurebundle.MergedFeatureSurface
-			m.LocalTurnHandlers = []localturn.Handler{&charStubLocalTurnHandler{id: "handler-1", ord: 1}}
+			m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
 
 			snapBefore := m // value copy
 
 			b := lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
-				LocalTurnHandlers:        []localturn.Handler{&charStubLocalTurnHandler{id: "handler-2", ord: 2}},
+				Lifecycles:               []lipplugin.Lifecycle{charStubLifecycle{tag: "incoming-lifecycle"}},
 				TerminalDecisionProvider: tc.provider,
 			}
 

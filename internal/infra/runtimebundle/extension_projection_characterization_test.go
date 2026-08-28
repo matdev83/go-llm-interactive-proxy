@@ -120,25 +120,18 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers), 1)
-		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers), 1)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
 		assert.Equal(t, "finalizer", lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)[0].ID())
-		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
+		assert.Equal(t, "handler", lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)[0].ID())
+		_ = ext
 	})
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
-		merged := featurebundle.MergedFeatureSurface{
-			LocalTurnHandlers: []localturn.Handler{},
-		}
+		merged := featurebundle.MergedFeatureSurface{}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
-		for name, got := range map[string]any{
-			"LocalTurnHandlers": ext.LocalTurnHandlers,
-		} {
-			rv := reflect.ValueOf(got)
-			require.False(t, rv.IsNil(), "%s must stay non-nil empty", name)
-			require.Zero(t, rv.Len(), "%s must stay empty", name)
-		}
+		assertAllSliceFieldsNil(t, ext)
 	})
 }
 
@@ -148,16 +141,16 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) {
 	t.Parallel()
 
-	merged, gen := projMerged(t)
-	ext := extensionsFromMerged(merged, gen, nil)
+	_, gen := projMerged(t)
+	ltFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	require.Len(t, ltFrozen, 1)
+	require.Equal(t, "handler", ltFrozen[0].ID())
 
-	ext.LocalTurnHandlers[0] = wiringHandler{id: "mutated", ord: 1}
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, toFrozen, 1)
 	trafficObs, trafficObsOK := toFrozen[0].(projTrafficObs)
 	require.True(t, trafficObsOK)
 	require.Equal(t, "feat-traffic", trafficObs.tag)
-	require.Equal(t, "handler", merged.LocalTurnHandlers[0].ID())
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uoFrozen, 1)
@@ -214,17 +207,6 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 // destination contributions per plane, and exclusive slots are first-wins.
 func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
 	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "d-open", ord: 1}},
-	}
-	src := ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{wiringHandler{id: "s-open", ord: 2}},
-	}
-
-	overlayExtensions(dst, src)
-	require.Equal(t, []string{"d-open", "s-open"},
-		[]string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 
 	t.Run("terminal_decision_slot_is_first_wins", func(t *testing.T) {
 		t.Parallel()

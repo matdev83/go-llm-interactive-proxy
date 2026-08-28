@@ -7,7 +7,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
@@ -16,7 +15,6 @@ import (
 // registration order.
 type MergedFeatureSurface struct {
 	Lifecycles                 []lipplugin.Lifecycle
-	LocalTurnHandlers          []localturn.Handler
 	TerminalDecisionProvider   terminaldecision.Provider
 	terminalDecisionProviderID string
 }
@@ -56,7 +54,6 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 		providerID = incomingID
 	}
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	m.LocalTurnHandlers = append(m.LocalTurnHandlers, b.LocalTurnHandlers...)
 	if b.TerminalDecisionProvider != nil {
 		m.TerminalDecisionProvider = b.TerminalDecisionProvider
 		m.terminalDecisionProviderID = providerID

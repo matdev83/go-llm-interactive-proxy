@@ -187,9 +187,6 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 // buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
 	return runtimebundle.ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{
-			charBundleLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
-		},
 		TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
 	}
 }
@@ -205,6 +202,9 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 		label := cfg.Label
 		return lipfeature.FeatureBundle{
 			SchemaVersion: lipfeature.SchemaVersionV1,
+			LocalTurnHandlers: []localturn.Handler{
+				charBundleLocalTurnHandler{id: label + "-localturn", ord: 0},
+			},
 			SessionOpeners: []session.Opener{
 				charBundleSessionOpener{id: label + "-session"},
 			},

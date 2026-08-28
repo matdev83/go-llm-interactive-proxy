@@ -836,6 +836,23 @@ var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 	Combine: func(source SourceKind, current, incoming []localturn.Handler) ([]localturn.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	Diagnostics: DiagnosticDescriptor[[]localturn.Handler]{
+		StageID: StageIDPreRequest,
+		Materialize: func(v []localturn.Handler) []DiagnosticOccupant {
+			sorted := localturn.MaterializeSorted(v)
+			if len(sorted) == 0 {
+				return nil
+			}
+			occupants := make([]DiagnosticOccupant, 0, len(sorted))
+			for _, h := range sorted {
+				if h == nil || localturn.IsNilHandler(h) {
+					continue
+				}
+				occupants = append(occupants, DiagnosticOccupant{Label: "local_turn:" + h.ID()})
+			}
+			return occupants
+		},
+	},
 }
 
 // PlaneTerminalDecisionProvider declares the TerminalDecisionProvider extension plane.
@@ -914,4 +931,5 @@ var StandardCandidatePlanes = []string{
 	"secret_guards",
 	"compaction_observers",
 	"compaction_preservers",
+	"local_turn_handlers",
 }

@@ -315,7 +315,6 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
 	ext := ExtensionsOptions{
-		LocalTurnHandlers:        append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
 		TerminalDecisionProvider: merged.TerminalDecisionProvider,
 	}
 	if processOpts != nil {
@@ -328,7 +327,6 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
 	}
-	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
 	if dst.TerminalDecisionProvider == nil {
 		dst.TerminalDecisionProvider = src.TerminalDecisionProvider
 	}

@@ -4,7 +4,7 @@
   "active_wave": "W5a_GuardsCompaction",
   "active_wave_ordinal": 5,
   "total_planes": 25,
-  "total_remaining_mirrors": 102,
+  "total_remaining_mirrors": 97,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -139,7 +139,7 @@
         "local_turn_handlers",
         "terminal_decision_provider"
       ],
-      "measured_mirrors": 24,
+      "measured_mirrors": 19,
       "active_forbidden": 0
     },
     {

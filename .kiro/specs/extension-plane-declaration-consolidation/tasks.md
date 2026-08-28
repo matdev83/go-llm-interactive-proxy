@@ -215,7 +215,7 @@
   - _Boundary: composition root, internal/infra/compactioncompose_
   - _Depends: 8.1_
   - **Validation:** `go test ./internal/infra/compactioncompose ./internal/infra/runtimebundle ./internal/testkit/... -run 'Compaction|PlaneParity'`
-- [ ] 8.3 Migrate admission/execution local-turn planes
+- [x] 8.3 Migrate admission/execution local-turn planes
   - Keep the two binding times distinct and preserve materialized ordering plus inventory labels.
   - Observable completion: both plane mirrors are deleted and focused wiring tests pass.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_

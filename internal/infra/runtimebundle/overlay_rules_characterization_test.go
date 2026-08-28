@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -157,19 +156,6 @@ func (overSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 	return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 }
 
-type overLocalTurnHandler struct{ tag string }
-
-func (h overLocalTurnHandler) ID() string                      { return h.tag }
-func (overLocalTurnHandler) Order() int                        { return 0 }
-func (overLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
-func (overLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
-	return localturn.MatchResult{}, nil
-}
-
-func (overLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
-	return localturn.Reply{}, nil
-}
-
 type overTerminalProvider struct{ tag string }
 
 func (p overTerminalProvider) ID() string { return p.tag }
@@ -241,27 +227,6 @@ func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
 		overlayExtensions(dst, src)
 		require.Nil(t, dst.TerminalDecisionProvider)
 	})
-}
-
-// --- Acceptance Criteria 3: Remaining Handled Slice Planes Append Order ---
-
-// TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
-// - For remaining slice planes handled by overlayExtensions, source elements append after destination elements in registration order.
-// - Migrated planes (ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, SecretGuards) are omitted and handled via generated plane adapters.
-func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
-	}
-
-	src := ExtensionsOptions{
-		LocalTurnHandlers: []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
-	}
-
-	overlayExtensions(dst, src)
-
-	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
 }
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---

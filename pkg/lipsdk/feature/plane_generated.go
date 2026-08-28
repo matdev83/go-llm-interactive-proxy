@@ -397,6 +397,20 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			return err
 		}
 	}
+	if gf.localTurnHandlers != nil {
+		if PlaneLocalTurnHandlers.Validate != nil {
+			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -611,6 +625,21 @@ func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, sourc
 				}
 			}
 			if err := ContributeSource(dst, PlaneSecretGuards, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneLocalTurnHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]localturn.Handler)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: expected []localturn.Handler, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneLocalTurnHandlers, source, contributorID, typed); err != nil {
 				return err
 			}
 		}

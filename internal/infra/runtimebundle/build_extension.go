@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"slices"
 	"strings"
 	"time"
 
@@ -125,6 +124,7 @@ func buildRuntimeSnapshot(
 	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
 	compactionObservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionObservers)
 	compactionPreservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionPreservers)
+	localTurnHandlers := lipfeature.Get(frozen, lipfeature.PlaneLocalTurnHandlers)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
@@ -153,7 +153,7 @@ func buildRuntimeSnapshot(
 		TrafficRedactors:         trafficRedactors,
 		CompactionObservers:      compactionObservers,
 		CompactionPreservers:     compactionPreservers,
-		LocalTurnHandlers:        slices.Clone(opts.Extensions.LocalTurnHandlers),
+		LocalTurnHandlers:        localTurnHandlers,
 		TerminalDecisionProvider: opts.Extensions.TerminalDecisionProvider,
 		SecretGuardPlane:         sgPlane,
 		PolicyObserver:           policyObs,

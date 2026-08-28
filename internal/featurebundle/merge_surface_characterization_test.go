@@ -327,14 +327,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"LocalTurnHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string {
-				if lh, ok := h.(charLocalTurnHandler); ok {
-					return lh.tag
-				}
-				return ""
-			})
-		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,9 +399,8 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.LocalTurnHandlers, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.LocalTurnHandlers).IsNil())
+		require.False(t, reflect.ValueOf(merged.Lifecycles).IsNil())
 	})
 }
 
