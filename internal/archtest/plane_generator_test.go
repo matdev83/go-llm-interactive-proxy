@@ -396,6 +396,11 @@ var StandardPlanes = []any{PlaneA}
 			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []int{1}} }`,
 			wantErrPart: `plane PlaneA: Flags element type must be string, got *ast.Ident`,
 		},
+		{
+			name:        "22. Variadic len in condition rejected",
+			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v...) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
+			wantErrPart: `plane PlaneA: variadic/ellipsis len is unsupported in privilege condition`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -438,6 +443,7 @@ func TestValidatePrivilegeCondition(t *testing.T) {
 		{name: "method call is rejected", condSrc: `v.Check()`, wantError: true, errSubstr: `selector/method call "v.Check" is not allowed`},
 		{name: "len with call argument is rejected", condSrc: `len(helper(v)) > 0`, wantError: true, errSubstr: `len argument in privilege condition must be a bare parameter identifier`},
 		{name: "len with multiple arguments is rejected", condSrc: `len(v, x) > 0`, wantError: true, errSubstr: `len call in privilege condition must have exactly 1 argument`},
+		{name: "len with ellipsis is rejected", condSrc: `len(v...) > 0`, wantError: true, errSubstr: `variadic/ellipsis len is unsupported`},
 		{name: "len with selector argument is rejected", condSrc: `len(foreign.V) > 0`, wantError: true, errSubstr: `len argument in privilege condition must be a bare parameter identifier`},
 		{name: "arithmetic in scalar operand is rejected", condSrc: `len(v) + 1 > 0`, wantError: true, errSubstr: `arithmetic/binary expression`},
 		{name: "slice indexing is rejected", condSrc: `v[0] == 0`, wantError: true, errSubstr: `index or slice expression is not allowed`},
@@ -452,8 +458,7 @@ func TestValidatePrivilegeCondition(t *testing.T) {
 
 			err = validatePrivilegeCondition("TestPlane", parsedExpr)
 			if tt.wantError {
-				assert.Error(t, err)
-				if tt.errSubstr != "" {
+				if assert.Error(t, err) && tt.errSubstr != "" {
 					assert.Contains(t, err.Error(), tt.errSubstr)
 				}
 			} else {

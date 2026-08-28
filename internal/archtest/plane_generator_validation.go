@@ -221,6 +221,9 @@ func validatePrivilegeScalarExpr(varName string, expr ast.Expr) error {
 		if !ok || fnIdent.Name != "len" {
 			return validatePrivilegeDisallowedCall(varName, e)
 		}
+		if e.Ellipsis != token.NoPos {
+			return fmt.Errorf("plane %s: variadic/ellipsis len is unsupported in privilege condition", varName)
+		}
 		if len(e.Args) != 1 {
 			return fmt.Errorf("plane %s: len call in privilege condition must have exactly 1 argument, got %d", varName, len(e.Args))
 		}
