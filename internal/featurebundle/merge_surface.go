@@ -4,12 +4,18 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"gopkg.in/yaml.v3"
+
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
+
+// FeatureBundleRegistry represents any registry or catalog capable of building FeatureBundles.
+type FeatureBundleRegistry interface {
+	BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error)
+}
 
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order.
@@ -54,7 +60,7 @@ func MergeBundlesChecked(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurf
 }
 
 // BuildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
-func BuildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+func BuildEnabledFeatureBundles(reg FeatureBundleRegistry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
 	nFeat := 0
 	for _, regEntry := range registrations {
 		if regEntry.Kind == lipsdk.PluginKindFeature && regEntry.Enabled {
@@ -76,7 +82,7 @@ func BuildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 	return bundles, nil
 }
 
-func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
+func buildEnabledFeatureBundles(reg FeatureBundleRegistry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
 	return BuildEnabledFeatureBundles(reg, registrations)
 }
 
@@ -84,7 +90,7 @@ func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 // It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
 // Secrets-guard uniqueness is enforced at the runtimebundle composition root
 // ([runtimebundle.BuildHost] / [buildSecretGuardRuntime]), not in this generic merge helper.
-func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
+func MergeFeatureSurface(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
 	bundles, err := buildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
 		return MergedFeatureSurface{}, err
@@ -94,14 +100,14 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 
 // MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
 // and GeneratedMergeSurface using the same bundle instances.
-func MergeFeatureSurfaces(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+func MergeFeatureSurfaces(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
 	return MergeFeatureSurfacesWithHost(reg, registrations, HostContributions{})
 }
 
 // MergeFeatureSurfacesWithHost merges enabled feature plugins, host contributions, and optional candidate feature bundles into
 // legacy MergedFeatureSurface and GeneratedMergeSurface. Feature bundles are contributed under SourceFeature (plugins first, candidate extras last),
 // and host observer contributions are contributed under SourceHost between initial feature plugins and candidate extras.
-func MergeFeatureSurfacesWithHost(reg *pluginreg.Registry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
+func MergeFeatureSurfacesWithHost(reg FeatureBundleRegistry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
 	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
 		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err

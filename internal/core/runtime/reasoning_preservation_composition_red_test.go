@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"slices"
 	"strings"
 	"sync"
@@ -162,10 +163,13 @@ func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensi
 	}
 	bus := hooks.New(hooks.Config{ResponsePartHooks: bundle.ResponsePartHooks})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
-		CompletionGates:         lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates),
-		AttemptTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
-		StreamObserverFactories: bundle.StreamObserverFactories,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			RequestTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
+			CompletionGates:         lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates),
+			AttemptTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
+			StreamObserverFactories: bundle.StreamObserverFactories,
+		}),
 	})
 	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)

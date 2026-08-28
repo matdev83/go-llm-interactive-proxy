@@ -775,19 +775,10 @@ func TestInventoryExtensions_NilFilteringAllPlanesCharacterization(t *testing.T)
 			charStubTrafficRedactor{id: "redact-valid"},
 			nil,
 		},
-		AttemptTransforms: []request.AttemptTransform{
-			nil,
-			charStubAttemptTransform{id: "attempt-valid", ord: 1},
-			nil,
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			nil,
-			charStubStreamObserverFactory{id: "stream-valid", ord: 1},
-			nil,
-		},
 	}
 
 	occ := stageOccupancyFromBundle(b)
+	require.Len(t, occ, 5, "must contain exactly 5 stage occupancy rows")
 	for _, o := range occ {
 		switch o.StageID {
 		case extensions.StageSecretGuard:
@@ -805,14 +796,23 @@ func TestInventoryExtensions_NilFilteringAllPlanesCharacterization(t *testing.T)
 		case extensions.StageTrafficObservation:
 			require.Equal(t, []string{"traffic_observer:1", "usage_observer:1", "raw_capture:1", "traffic_redactor:redact-valid"}, o.HandlerIDs)
 			require.Equal(t, 4, o.Count)
-		case extensions.StageCandidateAttemptTransform:
-			require.Equal(t, []string{"attempt_transform:attempt-valid"}, o.HandlerIDs)
-			require.Equal(t, 1, o.Count)
-		case extensions.StageFinalStreamObservation:
-			require.Equal(t, []string{"stream_observer:stream-valid"}, o.HandlerIDs)
-			require.Equal(t, 1, o.Count)
 		}
 	}
+
+	// Verify attempt transforms and stream observer factories filter nils during materialization
+	atOccs := lipfeature.PlaneAttemptTransforms.MaterializeOccupants([]request.AttemptTransform{
+		nil,
+		charStubAttemptTransform{id: "attempt-valid", ord: 1},
+		nil,
+	})
+	require.Equal(t, []lipfeature.DiagnosticOccupant{{Label: "attempt_transform:attempt-valid"}}, atOccs)
+
+	soOccs := lipfeature.PlaneStreamObserverFactories.MaterializeOccupants([]response.StreamObserverFactory{
+		nil,
+		charStubStreamObserverFactory{id: "stream-valid", ord: 1},
+		nil,
+	})
+	require.Equal(t, []lipfeature.DiagnosticOccupant{{Label: "stream_observer:stream-valid"}}, soOccs)
 }
 
 // TestInventoryExtensions_FamilySpecificOrderingCharacterization pins ordering differences across planes:

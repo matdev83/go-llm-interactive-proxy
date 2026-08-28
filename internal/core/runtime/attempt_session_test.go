@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"testing"
 	"time"
@@ -162,7 +163,10 @@ func TestTryReplacementIterationInstallsFreshAttemptResources(t *testing.T) {
 	}
 	observerFactory := &attemptSessionTestObserverFactory{}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		}),
 	})
 	ex.Rand = routing.NewSeededRng(1)
 	ex.MaxAttempts = 3

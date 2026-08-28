@@ -3,6 +3,8 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"sync"
 	"testing"
@@ -93,7 +95,10 @@ func TestStreamToolPolicyMetaCarriesAuthoritativeScope(t *testing.T) {
 	}
 	pol := &scopeCaptureToolPolicy{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{pol},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:    lipfeature.SchemaVersionV1,
+			ToolCallPolicies: []toolpolicy.Policy{pol},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	call.Tools = []lipapi.ToolDef{{Name: "search", Parameters: []byte(`{}`)}}
@@ -143,7 +148,10 @@ func TestStreamCompletionMetaCarriesAuthoritativeScope(t *testing.T) {
 	}
 	gate := &scopeCaptureGate{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gate},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{gate},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-scope-completion"), call)

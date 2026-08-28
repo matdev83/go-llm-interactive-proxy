@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -154,8 +155,12 @@ func TestExecutor_secretGuardBlock_zeroDispatch(t *testing.T) {
 		Workspace:       workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		TrafficObserver: &countingTrafficObs{n: &trafficCalls},
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&blockingSecretGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&blockingSecretGuard{evals: &guardEvals}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()
@@ -247,8 +252,12 @@ func TestExecutor_secretGuardUnsupportedJSONTokenBlock_zeroDispatch(t *testing.T
 		Workspace:       workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		TrafficObserver: &countingTrafficObs{n: &trafficCalls},
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&unsupportedJSONTokenBlockGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&unsupportedJSONTokenBlockGuard{evals: &guardEvals}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()

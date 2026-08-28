@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -172,8 +173,11 @@ func TestConversationView_SeamOrder(t *testing.T) {
 	requestHook := requestFn{id: "request", fn: func() { record("RequestTransform") }}
 	preHook := prereqFn{id: "prereq", fn: func() { record("PreRequest") }}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{SubmitHooks: []sdkhooks.SubmitHook{submitHook}}), extensions.SnapshotOptions{
-		RequestTransforms:  []request.Transform{requestHook},
-		PreRequestHandlers: []prerequest.Handler{preHook},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{requestHook},
+			PreRequestHandlers: []prerequest.Handler{preHook},
+		}),
 	})
 	ex := TestExecutor()
 	baseStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -384,7 +388,12 @@ func TestConversationView_TaggedViaPrepareRequest_MemoryStore(t *testing.T) {
 	memStore, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	cv := memStore.ConversationViewStore()
 	transformHook := requestTransformCapture{fn: func(call *lipapi.Call) { _ = call }}
-	snapOpts := extensions.SnapshotOptions{RequestTransforms: []request.Transform{transformHook}}
+	snapOpts := extensions.SnapshotOptions{
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{transformHook},
+		}),
+	}
 	ex := TestExecutor()
 	ex.Store = memStore
 	ex.Bus = hooks.New(hooks.Config{})
@@ -452,7 +461,12 @@ func TestConversationView_SteeringViaPrepareRequest_MemoryStore(t *testing.T) {
 		transformSeen = append([]lipapi.Message(nil), call.Messages...)
 		transformInstr = append([]lipapi.Message(nil), call.Instructions...)
 	}}
-	snapOpts := extensions.SnapshotOptions{RequestTransforms: []request.Transform{transformHook}}
+	snapOpts := extensions.SnapshotOptions{
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{transformHook},
+		}),
+	}
 	ex := TestExecutor()
 	ex.Store = memStore
 	ex.Bus = hooks.New(hooks.Config{})
@@ -543,16 +557,22 @@ func TestConversationView_SecureSeamOrder(t *testing.T) {
 	requestHook := requestFn{id: "request", fn: func() { record("RequestTransform") }}
 	preHook := prereqFn{id: "prereq", fn: func() { record("PreRequest") }}
 	ex, _ := newSecureExecutorForCV(t, counting, extensions.SnapshotOptions{
-		RequestTransforms:  []request.Transform{requestHook},
-		PreRequestHandlers: []prerequest.Handler{preHook},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{requestHook},
+			PreRequestHandlers: []prerequest.Handler{preHook},
+		}),
 	})
 	// Wrap store to record FetchALeg
 	origStore := ex.Store
 	ex.Store = &recordingStoreWrapper{Store: origStore, onFetch: func() { record("FetchALeg") }}
 	ex.Bus = hooks.New(hooks.Config{SubmitHooks: []sdkhooks.SubmitHook{submitHook}})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		RequestTransforms:  []request.Transform{requestHook},
-		PreRequestHandlers: []prerequest.Handler{preHook},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{requestHook},
+			PreRequestHandlers: []prerequest.Handler{preHook},
+		}),
 	})
 	ex.ConversationViewReader = counting
 	call := &lipapi.Call{
@@ -658,8 +678,11 @@ func TestConversationView_FailureCountersZero(t *testing.T) {
 	ex.ConversationViewReader = failing
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		PreRequestHandlers: []prerequest.Handler{preHook},
-		RouteHintProviders: []routehint.Provider{routeHook},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			PreRequestHandlers: []prerequest.Handler{preHook},
+			RouteHintProviders: []routehint.Provider{routeHook},
+		}),
 	})
 	ex.Backends = backends
 	ex.Rand = routing.NewSeededRng(1)
@@ -698,8 +721,11 @@ func TestConversationView_FailureCountersZero(t *testing.T) {
 	ex2.ConversationViewReader = reader2
 	ex2.Bus = hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex2.Bus, extensions.SnapshotOptions{
-		PreRequestHandlers: []prerequest.Handler{preHook},
-		RouteHintProviders: []routehint.Provider{routeHook},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			PreRequestHandlers: []prerequest.Handler{preHook},
+			RouteHintProviders: []routehint.Provider{routeHook},
+		}),
 	})
 	ex2.Backends = backends
 	ex2.Rand = routing.NewSeededRng(1)

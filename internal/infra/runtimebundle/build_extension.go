@@ -12,7 +12,6 @@ import (
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -75,9 +74,6 @@ func buildRuntimeSnapshot(
 	if opts != nil {
 		frozen = opts.FeaturePlanes
 	}
-	catalogFilters := lipfeature.Get(frozen, lipfeature.PlaneToolCatalogFilters)
-	toolPolicies := lipfeature.Get(frozen, lipfeature.PlaneToolCallPolicies)
-	toolFinalizers := lipfeature.Get(frozen, lipfeature.PlaneToolCallFinalizers)
 	wsResolvers := lipfeature.Get(frozen, lipfeature.PlaneWorkspaceResolvers)
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(wsResolvers) > 0 {
@@ -91,16 +87,6 @@ func buildRuntimeSnapshot(
 			ws = coreworkspace.NewResolverChain(wsResolvers)
 		}
 	}
-	var openers []session.Opener
-	if rawOpeners := lipfeature.Get(frozen, lipfeature.PlaneSessionOpeners); len(rawOpeners) > 0 {
-		openers = rawOpeners
-	}
-	reqTransforms := lipfeature.Get(frozen, lipfeature.PlaneRequestTransforms)
-	preReqs := lipfeature.Get(frozen, lipfeature.PlanePreRequestHandlers)
-	routeHints := lipfeature.Get(frozen, lipfeature.PlaneRouteHintProviders)
-	compGates := lipfeature.Get(frozen, lipfeature.PlaneCompletionGates)
-	attemptXforms := lipfeature.Get(frozen, lipfeature.PlaneAttemptTransforms)
-	streamObs := lipfeature.Get(frozen, lipfeature.PlaneStreamObserverFactories)
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
 	if rawObs := lipfeature.Get(frozen, lipfeature.PlaneTrafficObservers); len(rawObs) > 0 {
 		trafficObs = traffic.ChainObservers(rawObs...)
@@ -121,12 +107,8 @@ func buildRuntimeSnapshot(
 	if rawSinks := lipfeature.Get(frozen, lipfeature.PlaneRawCaptureSinks); len(rawSinks) > 0 {
 		trafficRaw = traffic.MultiRawCapture(rawSinks...)
 	}
-	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
-	compactionObservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionObservers)
-	compactionPreservers := lipfeature.Get(frozen, lipfeature.PlaneCompactionPreservers)
-	localTurnHandlers := lipfeature.Get(frozen, lipfeature.PlaneLocalTurnHandlers)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
-	if opts.Policy.PolicyTimeoutBudgetSource != nil {
+	if opts != nil && opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
 	stateStore := extensionState
@@ -134,29 +116,15 @@ func buildRuntimeSnapshot(
 		stateStore = corestate.NewMem(nowFn)
 	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:                   stateStore,
-		Aux:                     auxreq.NewClient(execRunnerProvider),
-		Workspace:               ws,
-		SessionOpeners:          openers,
-		ToolCatalogFilters:      catalogFilters,
-		ToolCallPolicies:        toolPolicies,
-		ToolCallFinalizers:      toolFinalizers,
-		RequestTransforms:       reqTransforms,
-		PreRequestHandlers:      preReqs,
-		RouteHintProviders:      routeHints,
-		CompletionGates:         compGates,
-		AttemptTransforms:       attemptXforms,
-		StreamObserverFactories: streamObs,
-		TrafficObserver:         trafficObs,
-		UsageObserver:           usageObs,
-		RawCapture:              trafficRaw,
-		TrafficRedactors:        trafficRedactors,
-		CompactionObservers:     compactionObservers,
-		CompactionPreservers:    compactionPreservers,
-		LocalTurnHandlers:       localTurnHandlers,
-		FeaturePlanes:           frozen,
-		SecretGuardPlane:        sgPlane,
-		PolicyObserver:          policyObs,
-		TimeoutBudgetSource:     budgetSrc,
+		State:               stateStore,
+		Aux:                 auxreq.NewClient(execRunnerProvider),
+		Workspace:           ws,
+		TrafficObserver:     trafficObs,
+		UsageObserver:       usageObs,
+		RawCapture:          trafficRaw,
+		FeaturePlanes:       frozen,
+		SecretGuardPlane:    sgPlane,
+		PolicyObserver:      policyObs,
+		TimeoutBudgetSource: budgetSrc,
 	})
 }

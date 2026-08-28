@@ -103,6 +103,31 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("\treturn gc\n")
 	buf.WriteString("}\n\n")
 
+	// 6b. freezeRequest method on generatedFrozen
+	buf.WriteString("func (gf *generatedFrozen) freezeRequest() *generatedFrozen {\n")
+	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tnext := &generatedFrozen{\n")
+	for _, p := range planes {
+		if p.hasRequestMaterializer {
+			if strings.HasPrefix(p.typeExpr, "[]") {
+				fmt.Fprintf(&buf, "\t\t%s: materializeRequestSlice(gf.%s, %s.RequestMaterializer),\n", p.fieldName, p.fieldName, p.varName)
+			} else {
+				fmt.Fprintf(&buf, "\t\t%s: %s.RequestMaterializer(gf.%s),\n", p.fieldName, p.varName, p.fieldName)
+			}
+		} else if strings.HasPrefix(p.typeExpr, "[]") {
+			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gf.%s),\n", p.fieldName, p.fieldName)
+		} else {
+			fmt.Fprintf(&buf, "\t\t%s: gf.%s,\n", p.fieldName, p.fieldName)
+		}
+		if p.isExclusive {
+			fmt.Fprintf(&buf, "\t\t%sID: gf.%sID,\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t%sHasID: gf.%sHasID,\n", p.fieldName, p.fieldName)
+		}
+	}
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn next\n")
+	buf.WriteString("}\n\n")
+
 	// 7. contributeCandidateTo method on generatedFrozen
 	buf.WriteString("func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
 	buf.WriteString("\tif gf == nil || gc == nil {\n\t\treturn nil\n\t}\n")
@@ -244,7 +269,32 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	}
 	buf.WriteString("}\n\n")
 
-	// 5. Generation binder methods on *ContributionSet for replace-by-identity planes
+	// 10. RequestExecutionView and methods
+	buf.WriteString("// RequestExecutionView is an immutable borrowed view over request-materialized planes.\n")
+	buf.WriteString("// Its returned slices must not be mutated.\n")
+	buf.WriteString("type RequestExecutionView struct {\n")
+	buf.WriteString("\tfrozen FrozenPlaneSet\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("// RequestExecution constructs a RequestExecutionView over the request-materialized planes in in.\n")
+	buf.WriteString("func RequestExecution(in FrozenPlaneSet) RequestExecutionView {\n")
+	buf.WriteString("\treturn RequestExecutionView{frozen: in}\n")
+	buf.WriteString("}\n\n")
+
+	for _, p := range planes {
+		if !p.requestBorrow {
+			continue
+		}
+		pascalName := strings.TrimPrefix(p.varName, "Plane")
+		fmt.Fprintf(&buf, "// %s returns the request-materialized %s without cloning.\n", pascalName, pascalName)
+		buf.WriteString("// The returned slice is immutable borrowed storage and MUST NOT be mutated.\n")
+		fmt.Fprintf(&buf, "func (v RequestExecutionView) %s() %s {\n", pascalName, p.typeExpr)
+		buf.WriteString("\tif v.frozen.frozen == nil {\n\t\treturn nil\n\t}\n")
+		fmt.Fprintf(&buf, "\treturn v.frozen.frozen.%s\n", p.fieldName)
+		buf.WriteString("}\n\n")
+	}
+
+	// 11. Generation binder methods on *ContributionSet for replace-by-identity planes
 	for _, p := range planes {
 		if p.genBinderRule == "CombReplaceByIdentity" {
 			pascalName := strings.TrimPrefix(p.varName, "Plane")
@@ -260,5 +310,126 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 		}
 	}
 
+	// 12. ProjectDiagnostics function
+	buf.WriteString("// ProjectDiagnostics projects diagnostic occupants and privileges from a frozen plane set.\n")
+	buf.WriteString("func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {\n")
+	buf.WriteString("\tif in.IsZero() {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tgf := in.frozen\n")
+	buf.WriteString("\tif gf == nil && (in.values != nil || in.identities != nil) {\n")
+	buf.WriteString("\t\tcset := in.ToContributions()\n")
+	buf.WriteString("\t\tgf = cset.Freeze().frozen\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tvar projections []DiagnosticPlaneProjection\n\n")
+
+	for _, p := range planes {
+		if !p.hasDiagStageID {
+			continue
+		}
+		fmt.Fprintf(&buf, "\t// Project %s\n", p.varName)
+		buf.WriteString("\t{\n")
+		fmt.Fprintf(&buf, "\t\tval := gf.%s\n", p.fieldName)
+		fmt.Fprintf(&buf, "\t\tocc := %s.MaterializeOccupants(val)\n", p.varName)
+		fmt.Fprintf(&buf, "\t\tpriv := %s.ProjectPrivileges(val)\n", p.varName)
+		buf.WriteString("\t\tif len(occ) > 0 || len(priv.Flags) > 0 {\n")
+		buf.WriteString("\t\t\tvar occCopy []DiagnosticOccupant\n")
+		buf.WriteString("\t\t\tif len(occ) > 0 {\n")
+		buf.WriteString("\t\t\t\toccCopy = make([]DiagnosticOccupant, len(occ))\n")
+		buf.WriteString("\t\t\t\tfor i := 0; i < len(occ); i++ {\n")
+		buf.WriteString("\t\t\t\t\to := occ[i]\n")
+		buf.WriteString("\t\t\t\t\tvar pCopy []string\n")
+		buf.WriteString("\t\t\t\t\tif len(o.Privileges) > 0 {\n")
+		buf.WriteString("\t\t\t\t\t\tpCopy = append([]string(nil), o.Privileges...)\n")
+		buf.WriteString("\t\t\t\t\t}\n")
+		buf.WriteString("\t\t\t\t\toccCopy[i] = DiagnosticOccupant{\n")
+		buf.WriteString("\t\t\t\t\t\tLabel:      o.Label,\n")
+		buf.WriteString("\t\t\t\t\t\tPluginID:   o.PluginID,\n")
+		buf.WriteString("\t\t\t\t\t\tPrivileges: pCopy,\n")
+		buf.WriteString("\t\t\t\t\t}\n")
+		buf.WriteString("\t\t\t\t}\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString("\t\t\tvar privCopy []string\n")
+		buf.WriteString("\t\t\tif len(priv.Flags) > 0 {\n")
+		buf.WriteString("\t\t\t\tprivCopy = append([]string(nil), priv.Flags...)\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString("\t\t\tprojections = append(projections, DiagnosticPlaneProjection{\n")
+		fmt.Fprintf(&buf, "\t\t\t\tPlaneID:       %s.ID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\t\tStageID:       %s.Diagnostics.StageID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\t\tCoalesceGroup: %s.Diagnostics.CoalesceGroup,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\t\tOrder:         %s.Diagnostics.Order,\n", p.varName)
+		buf.WriteString("\t\t\t\tOccupants:     occCopy,\n")
+		buf.WriteString("\t\t\t\tPrivileges:    PrivilegeProjection{Flags: privCopy},\n")
+		buf.WriteString("\t\t\t})\n")
+		buf.WriteString("\t\t}\n")
+		buf.WriteString("\t}\n\n")
+	}
+
+	buf.WriteString("\treturn projections\n")
+	buf.WriteString("}\n\n")
+
 	return buf.Bytes(), nil
+}
+
+func generateBundleProjectionCode(planes []planeInfo) ([]byte, error) {
+	var buf bytes.Buffer
+
+	buf.WriteString("// Code generated by scripts/generate-feature-planes.go. DO NOT EDIT.\n\n")
+	buf.WriteString("package featurebundle\n\n")
+	buf.WriteString("import (\n")
+	buf.WriteString("\t\"errors\"\n\n")
+	buf.WriteString("\tlipfeature \"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature\"\n")
+	buf.WriteString(")\n\n")
+
+	buf.WriteString("// contributeFeatureBundleGenerated contributes all non-empty / non-nil planes from FeatureBundle b into cs.\n")
+	buf.WriteString("func contributeFeatureBundleGenerated(cs *lipfeature.ContributionSet, pluginID string, b lipfeature.FeatureBundle) error {\n")
+	buf.WriteString("\tif cs == nil {\n")
+	buf.WriteString("\t\treturn errors.New(\"featurebundle: nil ContributionSet\")\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tif pluginID == \"\" {\n")
+	buf.WriteString("\t\tpluginID = \"feature\"\n")
+	buf.WriteString("\t}\n")
+
+	for _, p := range planes {
+		pascalName := strings.TrimPrefix(p.varName, "Plane")
+		switch {
+		case isNilPresenceSlicePlane(p.planeID):
+			fmt.Fprintf(&buf, "\tif b.%s != nil {\n", pascalName)
+			fmt.Fprintf(&buf, "\t\tif err := lipfeature.Contribute(cs, lipfeature.%s, pluginID, b.%s); err != nil {\n", p.varName, pascalName)
+			buf.WriteString("\t\t\treturn err\n")
+			buf.WriteString("\t\t}\n")
+			buf.WriteString("\t}\n")
+		case strings.HasPrefix(p.typeExpr, "[]"):
+			fmt.Fprintf(&buf, "\tif len(b.%s) > 0 {\n", pascalName)
+			fmt.Fprintf(&buf, "\t\tif err := lipfeature.Contribute(cs, lipfeature.%s, pluginID, b.%s); err != nil {\n", p.varName, pascalName)
+			buf.WriteString("\t\t\treturn err\n")
+			buf.WriteString("\t\t}\n")
+			buf.WriteString("\t}\n")
+		case p.typeExpr == "int":
+			fmt.Fprintf(&buf, "\tif b.%s > 0 {\n", pascalName)
+			fmt.Fprintf(&buf, "\t\tif err := lipfeature.Contribute(cs, lipfeature.%s, pluginID, b.%s); err != nil {\n", p.varName, pascalName)
+			buf.WriteString("\t\t\treturn err\n")
+			buf.WriteString("\t\t}\n")
+			buf.WriteString("\t}\n")
+		default: // exclusive / pointer / interface
+			fmt.Fprintf(&buf, "\tif b.%s != nil {\n", pascalName)
+			fmt.Fprintf(&buf, "\t\tif err := lipfeature.Contribute(cs, lipfeature.%s, pluginID, b.%s); err != nil {\n", p.varName, pascalName)
+			buf.WriteString("\t\t\treturn err\n")
+			buf.WriteString("\t\t}\n")
+			buf.WriteString("\t}\n")
+		}
+	}
+
+	buf.WriteString("\treturn nil\n")
+	buf.WriteString("}\n")
+
+	return buf.Bytes(), nil
+}
+
+func isNilPresenceSlicePlane(planeID string) bool {
+	switch planeID {
+	case "session_openers", "workspace_resolvers", "route_hint_providers", "completion_gates":
+		return true
+	default:
+		return false
+	}
 }

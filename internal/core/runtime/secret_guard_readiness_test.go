@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -51,8 +52,12 @@ func TestReadinessReport_secretGuardQuarantineFaultWithoutSecretMaterial(t *test
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&blockingSecretGuard{}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&blockingSecretGuard{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial

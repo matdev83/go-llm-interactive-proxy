@@ -231,14 +231,14 @@
   - **Validation:** `make quality-checks && go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/stdhttp/... ./internal/testkit/... ./internal/qa`
 
 - [ ] 9. Complete derived projections and remove compatibility transport fields
-- [ ] 9.1 Complete generation and request-snapshot freeze delegation
+- [x] 9.1 Complete generation and request-snapshot freeze delegation
   - Make generation operations and request snapshots delegate to generated frozen storage while preserving the lifecycle side channel and host/config capabilities that are not feature contributions.
   - Observable completion: all stage consumers use generated frozen reads and deterministic publish-versus-pinned-request evidence remains green under Linux CI race execution.
   - _Requirements: 1.4, 1.5, 7.1_
   - _Boundary: composition root, core/runtime_
   - _Depends: 8.4_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
-- [ ] 9.2 Complete diagnostics occupancy and privilege derivation
+- [x] 9.2 Complete diagnostics occupancy and privilege derivation
   - Derive occupancy, coalescing, labels, ordering, nil filtering, and privilege flags solely from declaration diagnostics descriptors.
   - Observable completion: inventory goldens are byte-equivalent and a disposable manifest plane automatically appears without a projector branch.
   - _Requirements: 6.1, 6.2_

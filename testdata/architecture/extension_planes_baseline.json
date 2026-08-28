@@ -4,7 +4,7 @@
   "active_wave": "W5b_LocalTurnTerminal",
   "active_wave_ordinal": 6,
   "total_planes": 25,
-  "total_remaining_mirrors": 80,
+  "total_remaining_mirrors": 25,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -63,7 +63,7 @@
         "response_part_hooks",
         "tool_reactors"
       ],
-      "measured_mirrors": 20,
+      "measured_mirrors": 4,
       "active_forbidden": 0
     },
     {
@@ -79,7 +79,7 @@
         "traffic_redactors",
         "stream_observer_factories"
       ],
-      "measured_mirrors": 16,
+      "measured_mirrors": 5,
       "active_forbidden": 0
     },
     {
@@ -97,7 +97,7 @@
         "session_openers",
         "workspace_resolvers"
       ],
-      "measured_mirrors": 26,
+      "measured_mirrors": 7,
       "active_forbidden": 0
     },
     {
@@ -112,7 +112,7 @@
         "tool_call_finalizers",
         "tool_call_finalization_max_args_bytes"
       ],
-      "measured_mirrors": 11,
+      "measured_mirrors": 4,
       "active_forbidden": 0
     },
     {
@@ -126,7 +126,7 @@
         "compaction_observers",
         "compaction_preservers"
       ],
-      "measured_mirrors": 5,
+      "measured_mirrors": 3,
       "active_forbidden": 0
     },
     {

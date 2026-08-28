@@ -1,27 +1,20 @@
 package diag
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
 type FeatureRegistry interface {
@@ -210,15 +203,30 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 						"factory_kind", entry.FactoryKind,
 					)
 				} else {
-					entry.StageOccupancy = stageOccupancyFromBundle(b)
-					if len(b.RequestTransforms) > 0 || len(b.PreRequestHandlers) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 || len(b.AttemptTransforms) > 0 {
-						entry.Privileges.AuxiliaryRequests = true
-					}
-					if len(b.CompletionGates) > 0 {
-						entry.Privileges.CompletionGate = true
-					}
-					if len(b.RawCaptureSinks) > 0 {
-						entry.Privileges.RawCapture = true
+					frozen, err := featurebundle.FreezeBundle(b, entry.InstanceID)
+					if err != nil {
+						entry.BundleError = err.Error()
+						slog.Default().Warn(
+							"inventory extensions",
+							"bundle_error", err.Error(),
+							"instance_id", entry.InstanceID,
+							"factory_kind", entry.FactoryKind,
+						)
+					} else {
+						projections := lipfeature.ProjectDiagnostics(frozen)
+						stageOcc, privs, redErr := reduceDiagnosticProjections(projections)
+						if redErr != nil {
+							entry.BundleError = redErr.Error()
+							slog.Default().Warn(
+								"inventory extensions",
+								"bundle_error", redErr.Error(),
+								"instance_id", entry.InstanceID,
+								"factory_kind", entry.FactoryKind,
+							)
+						} else {
+							entry.StageOccupancy = stageOcc
+							entry.Privileges = privs
+						}
 					}
 				}
 			}
@@ -250,281 +258,97 @@ func findFeatureRegistration(regs []lipsdk.Registration, instanceID string) (lip
 	return lipsdk.Registration{}, false
 }
 
-func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupancy {
-	ms := hooks.MaterializeSorted(hooks.Config{
-		SubmitHooks:       b.SubmitHooks,
-		RequestPartHooks:  b.RequestPartHooks,
-		ResponsePartHooks: b.ResponsePartHooks,
-		ToolReactors:      b.ToolReactors,
+func reduceDiagnosticProjections(projections []lipfeature.DiagnosticPlaneProjection) ([]InventoryStageOccupancy, InventoryPrivileges, error) {
+	if len(projections) == 0 {
+		return []InventoryStageOccupancy{}, InventoryPrivileges{}, nil
+	}
+
+	sorted := make([]lipfeature.DiagnosticPlaneProjection, len(projections))
+	copy(sorted, projections)
+	slices.SortStableFunc(sorted, func(a, b lipfeature.DiagnosticPlaneProjection) int {
+		if c := cmp.Compare(a.Order, b.Order); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PlaneID, b.PlaneID)
 	})
-	out := make([]InventoryStageOccupancy, 0, 4)
-	if n := len(ms.SubmitHooks); n > 0 {
-		ids := make([]string, n)
-		for i := range ms.SubmitHooks {
-			ids[i] = ms.SubmitHooks[i].ID()
-		}
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageSubmit,
-			HandlerIDs: ids,
-			Count:      n,
-		})
-	}
-	if n := len(b.ToolCatalogFilters); n > 0 {
-		sorted := toolcatalog.MaterializeSorted(b.ToolCatalogFilters)
-		ids := make([]string, 0, n)
-		for _, f := range sorted {
-			if f == nil {
-				continue
+
+	stageOccupancy := make([]InventoryStageOccupancy, 0, len(sorted))
+	coalescedGroupIndex := make(map[string]int)
+	var privs InventoryPrivileges
+
+	for _, p := range sorted {
+		for _, f := range p.Privileges.Flags {
+			if err := applyPrivilegeFlag(&privs, f); err != nil {
+				return nil, InventoryPrivileges{}, err
 			}
-			ids = append(ids, "tool_catalog:"+f.ID())
 		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StageToolCatalog,
-				HandlerIDs: ids,
-				Count:      len(ids),
-			})
-		}
-	}
-	if n := len(b.RequestTransforms); n > 0 {
-		sorted := request.MaterializeSorted(b.RequestTransforms)
-		ids := make([]string, 0, n)
-		for _, tr := range sorted {
-			if tr == nil {
-				continue
+		for _, occ := range p.Occupants {
+			for _, f := range occ.Privileges {
+				if err := applyPrivilegeFlag(&privs, f); err != nil {
+					return nil, InventoryPrivileges{}, err
+				}
 			}
-			ids = append(ids, "request_transform:"+tr.ID())
 		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StageRequestWide,
-				HandlerIDs: ids,
-				Count:      len(ids),
+
+		if len(p.Occupants) == 0 {
+			continue
+		}
+
+		labels := make([]string, len(p.Occupants))
+		for i, occ := range p.Occupants {
+			labels[i] = occ.Label
+		}
+
+		if p.CoalesceGroup == "" {
+			stageOccupancy = append(stageOccupancy, InventoryStageOccupancy{
+				StageID:    p.StageID,
+				HandlerIDs: labels,
+				Count:      len(labels),
 			})
-		}
-	}
-	if n := len(b.PreRequestHandlers); n > 0 {
-		sorted := prerequest.MaterializeSorted(b.PreRequestHandlers)
-		ids := make([]string, 0, n)
-		for _, h := range sorted {
-			if h == nil {
-				continue
+		} else {
+			if idx, exists := coalescedGroupIndex[p.CoalesceGroup]; exists {
+				stageOccupancy[idx].HandlerIDs = append(stageOccupancy[idx].HandlerIDs, labels...)
+				stageOccupancy[idx].Count = len(stageOccupancy[idx].HandlerIDs)
+			} else {
+				newIdx := len(stageOccupancy)
+				coalescedGroupIndex[p.CoalesceGroup] = newIdx
+				stageOccupancy = append(stageOccupancy, InventoryStageOccupancy{
+					StageID:    p.StageID,
+					HandlerIDs: labels,
+					Count:      len(labels),
+				})
 			}
-			ids = append(ids, "pre_request:"+h.ID())
-		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StagePreRequest,
-				HandlerIDs: ids,
-				Count:      len(ids),
-			})
 		}
 	}
-	if n := len(b.RouteHintProviders); n > 0 {
-		sorted := routehint.MaterializeSorted(b.RouteHintProviders)
-		ids := make([]string, 0, n)
-		for _, p := range sorted {
-			if p == nil {
-				continue
-			}
-			ids = append(ids, "route_hint:"+p.ID())
-		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StageRouteHinting,
-				HandlerIDs: ids,
-				Count:      len(ids),
-			})
-		}
-	}
-	if n := len(ms.RequestPartHooks); n > 0 {
-		ids := make([]string, n)
-		for i := range ms.RequestPartHooks {
-			ids[i] = "request_part:" + ms.RequestPartHooks[i].ID()
-		}
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageRequestWide,
-			HandlerIDs: ids,
-			Count:      n,
-		})
-	}
-	if n := len(ms.ResponsePartHooks); n > 0 {
-		ids := make([]string, n)
-		for i := range ms.ResponsePartHooks {
-			ids[i] = ms.ResponsePartHooks[i].ID()
-		}
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageStreamEventMutation,
-			HandlerIDs: ids,
-			Count:      n,
-		})
-	}
-	toolReactionIDs := make([]string, 0, len(b.ToolCallPolicies)+len(b.ToolCallFinalizers)+len(ms.ToolReactors))
-	for _, pol := range toolpolicy.MaterializeSorted(b.ToolCallPolicies) {
-		if pol == nil {
-			continue
-		}
-		toolReactionIDs = append(toolReactionIDs, "tool_policy:"+pol.ID())
-	}
-	for _, fin := range toolcall.MaterializeSorted(b.ToolCallFinalizers) {
-		if fin == nil {
-			continue
-		}
-		toolReactionIDs = append(toolReactionIDs, "tool_finalizer:"+fin.ID())
-	}
-	for i := range ms.ToolReactors {
-		toolReactionIDs = append(toolReactionIDs, ms.ToolReactors[i].ID())
-	}
-	if len(toolReactionIDs) > 0 {
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageToolEventReaction,
-			HandlerIDs: toolReactionIDs,
-			Count:      len(toolReactionIDs),
-		})
-	}
-	sessionOpenIDs := make([]string, 0, len(b.SessionOpeners)+len(b.WorkspaceResolvers))
-	for _, o := range b.SessionOpeners {
-		if o == nil {
-			continue
-		}
-		sessionOpenIDs = append(sessionOpenIDs, "opener:"+o.ID())
-	}
-	for i := range b.WorkspaceResolvers {
-		if b.WorkspaceResolvers[i] == nil {
-			continue
-		}
-		sessionOpenIDs = append(sessionOpenIDs, fmt.Sprintf("workspace_resolver:%d", i))
-	}
-	if len(sessionOpenIDs) > 0 {
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageSessionOpen,
-			HandlerIDs: sessionOpenIDs,
-			Count:      len(sessionOpenIDs),
-		})
-	}
-	if n := len(b.SecretGuards); n > 0 {
-		sorted := secretguard.MaterializeSorted(b.SecretGuards)
-		ids := make([]string, 0, n)
-		for _, g := range sorted {
-			if g == nil {
-				continue
-			}
-			ids = append(ids, "secret_guard:"+g.ID())
-		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StageSecretGuard,
-				HandlerIDs: ids,
-				Count:      len(ids),
-			})
-		}
-	}
-	if n := len(b.CompletionGates); n > 0 {
-		sorted := completion.MaterializeSorted(b.CompletionGates)
-		ids := make([]string, 0, n)
-		for _, g := range sorted {
-			if g == nil {
-				continue
-			}
-			ids = append(ids, "completion_gate:"+g.ID())
-		}
-		if len(ids) > 0 {
-			out = append(out, InventoryStageOccupancy{
-				StageID:    extensions.StageCompletionGating,
-				HandlerIDs: ids,
-				Count:      len(ids),
-			})
-		}
-	}
-	if attemptTransforms := inventoryNonNilAttemptTransforms(b.AttemptTransforms); len(attemptTransforms) > 0 {
-		sorted := request.MaterializeAttemptsSorted(attemptTransforms)
-		ids := make([]string, 0, len(sorted))
-		for _, tr := range sorted {
-			ids = append(ids, "attempt_transform:"+tr.ID())
-		}
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageCandidateAttemptTransform,
-			HandlerIDs: ids,
-			Count:      len(ids),
-		})
-	}
-	if streamObservers := inventoryNonNilStreamObserverFactories(b.StreamObserverFactories); len(streamObservers) > 0 {
-		sorted := response.MaterializeSorted(streamObservers)
-		ids := make([]string, 0, len(sorted))
-		for _, f := range sorted {
-			ids = append(ids, "stream_observer:"+f.ID())
-		}
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageFinalStreamObservation,
-			HandlerIDs: ids,
-			Count:      len(ids),
-		})
-	}
-	trafficIDs := make([]string, 0, len(b.TrafficObservers)+len(b.UsageObservers)+len(b.RawCaptureSinks)+len(b.TrafficRedactors))
-	for i, o := range b.TrafficObservers {
-		if o == nil {
-			continue
-		}
-		trafficIDs = append(trafficIDs, fmt.Sprintf("traffic_observer:%d", i))
-	}
-	for i, o := range b.UsageObservers {
-		if o == nil {
-			continue
-		}
-		trafficIDs = append(trafficIDs, fmt.Sprintf("usage_observer:%d", i))
-	}
-	for i := range b.RawCaptureSinks {
-		if b.RawCaptureSinks[i] == nil {
-			continue
-		}
-		trafficIDs = append(trafficIDs, fmt.Sprintf("raw_capture:%d", i))
-	}
-	for _, r := range b.TrafficRedactors {
-		if r == nil {
-			continue
-		}
-		trafficIDs = append(trafficIDs, "traffic_redactor:"+r.ID())
-	}
-	if len(trafficIDs) > 0 {
-		out = append(out, InventoryStageOccupancy{
-			StageID:    extensions.StageTrafficObservation,
-			HandlerIDs: trafficIDs,
-			Count:      len(trafficIDs),
-		})
-	}
-	return out
+
+	return stageOccupancy, privs, nil
 }
 
-// inventoryNonNilAttemptTransforms drops nil entries before sort so occupancy
-// never panics on an invalid bundle; validated bundles already reject nils.
-func inventoryNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
-	if len(in) == 0 {
-		return nil
+func applyPrivilegeFlag(privs *InventoryPrivileges, flag string) error {
+	switch flag {
+	case lipfeature.PrivilegeRawCapture:
+		privs.RawCapture = true
+	case lipfeature.PrivilegeAuxiliaryRequests:
+		privs.AuxiliaryRequests = true
+	case lipfeature.PrivilegeCompletionGate:
+		privs.CompletionGate = true
+	case lipfeature.PrivilegeAuthProvider:
+		privs.AuthProvider = true
+	default:
+		return fmt.Errorf("diag: unknown privilege flag %q", flag)
 	}
-	out := make([]request.AttemptTransform, 0, len(in))
-	for _, tr := range in {
-		if tr != nil {
-			out = append(out, tr)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return nil
 }
 
-func inventoryNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
-	if len(in) == 0 {
-		return nil
+func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupancy {
+	frozen, err := featurebundle.FreezeBundle(b, "feature")
+	if err != nil {
+		return []InventoryStageOccupancy{}
 	}
-	out := make([]response.StreamObserverFactory, 0, len(in))
-	for _, f := range in {
-		if f != nil {
-			out = append(out, f)
-		}
+	projections := lipfeature.ProjectDiagnostics(frozen)
+	occ, _, _ := reduceDiagnosticProjections(projections)
+	if occ == nil {
+		return []InventoryStageOccupancy{}
 	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return occ
 }

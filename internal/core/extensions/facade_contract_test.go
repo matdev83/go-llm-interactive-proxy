@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -24,8 +25,10 @@ func (gateID) Handle(context.Context, completion.Meta, completion.Buffered, comp
 func TestCompletionGatesFromContext_withoutSnapshotUsesFallback(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "test", []completion.Gate{gateID("fb")})
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gateID("fb")},
+		FeaturePlanes: cset.Freeze(),
 	})
 	// t.Context() (like Background/TODO) has no snapshot; must hit fallback path.
 	got := extensions.CompletionGatesFromContext(t.Context(), fallback)
@@ -37,11 +40,15 @@ func TestCompletionGatesFromContext_withoutSnapshotUsesFallback(t *testing.T) {
 func TestCompletionGatesFromContext_prefersContextOverFallback(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	csetCtx := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(csetCtx, lipfeature.PlaneCompletionGates, "test", []completion.Gate{gateID("ctx")})
 	ctxSnap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gateID("ctx")},
+		FeaturePlanes: csetCtx.Freeze(),
 	})
+	csetFb := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(csetFb, lipfeature.PlaneCompletionGates, "test", []completion.Gate{gateID("fb")})
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gateID("fb")},
+		FeaturePlanes: csetFb.Freeze(),
 	})
 	ctx := extensions.WithRequestRuntimeSnapshot(t.Context(), ctxSnap)
 	got := extensions.CompletionGatesFromContext(ctx, fallback)
@@ -53,8 +60,10 @@ func TestCompletionGatesFromContext_prefersContextOverFallback(t *testing.T) {
 func TestCompletionGatesFromContext_missingContextUsesFallback(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "test", []completion.Gate{gateID("fb")})
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gateID("fb")},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := extensions.CompletionGatesFromContext(t.Context(), fallback)
 	if len(got) != 1 || got[0].ID() != "fb" {
@@ -102,9 +111,11 @@ func TestRequestRuntimeSnapshot_TrafficPortBundle_nil(t *testing.T) {
 func TestRequestRuntimeSnapshot_TrafficPortBundle_matchesPortBundleFromSnapshot(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "test", []sdktraffic.Redactor{stubTrafficRed{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		TrafficObserver:  sdktraffic.NoopObserver{},
-		TrafficRedactors: []sdktraffic.Redactor{stubTrafficRed{}},
+		TrafficObserver: sdktraffic.NoopObserver{},
+		FeaturePlanes:   cset.Freeze(),
 	})
 	got := snap.TrafficPortBundle()
 	want := coretraffic.PortBundleFromSnapshot(snap)

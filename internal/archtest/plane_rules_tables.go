@@ -43,6 +43,36 @@ var KnownPlaneFields = map[string]PlaneFieldMetadata{
 	"terminalDecisionProvider":   {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
 }
 
+// KnownPlaneIDs maps canonical plane IDs to plane metadata.
+var KnownPlaneIDs = map[string]PlaneFieldMetadata{
+	"submit_hooks":                          {PlaneID: "submit_hooks", Wave: Wave1_HookBus},
+	"request_part_hooks":                    {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
+	"response_part_hooks":                   {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
+	"tool_reactors":                         {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
+	"tool_reactor_error_policy":             {PlaneID: "tool_reactor_error_policy", Wave: Wave1_HookBus},
+	"traffic_observers":                     {PlaneID: "traffic_observers", Wave: Wave2_Observers},
+	"usage_observers":                       {PlaneID: "usage_observers", Wave: Wave2_Observers},
+	"raw_capture_sinks":                     {PlaneID: "raw_capture_sinks", Wave: Wave2_Observers},
+	"traffic_redactors":                     {PlaneID: "traffic_redactors", Wave: Wave2_Observers},
+	"stream_observer_factories":             {PlaneID: "stream_observer_factories", Wave: Wave2_Observers},
+	"request_transforms":                    {PlaneID: "request_transforms", Wave: Wave3_RequestShaping},
+	"pre_request_handlers":                  {PlaneID: "pre_request_handlers", Wave: Wave3_RequestShaping},
+	"route_hint_providers":                  {PlaneID: "route_hint_providers", Wave: Wave3_RequestShaping},
+	"completion_gates":                      {PlaneID: "completion_gates", Wave: Wave3_RequestShaping},
+	"attempt_transforms":                    {PlaneID: "attempt_transforms", Wave: Wave3_RequestShaping},
+	"session_openers":                       {PlaneID: "session_openers", Wave: Wave3_RequestShaping},
+	"workspace_resolvers":                   {PlaneID: "workspace_resolvers", Wave: Wave3_RequestShaping},
+	"tool_catalog_filters":                  {PlaneID: "tool_catalog_filters", Wave: Wave4_Tools},
+	"tool_call_policies":                    {PlaneID: "tool_call_policies", Wave: Wave4_Tools},
+	"tool_call_finalizers":                  {PlaneID: "tool_call_finalizers", Wave: Wave4_Tools},
+	"tool_call_finalization_max_args_bytes": {PlaneID: "tool_call_finalization_max_args_bytes", Wave: Wave4_Tools},
+	"secret_guards":                         {PlaneID: "secret_guards", Wave: Wave5a_GuardsCompaction},
+	"compaction_observers":                  {PlaneID: "compaction_observers", Wave: Wave5a_GuardsCompaction},
+	"compaction_preservers":                 {PlaneID: "compaction_preservers", Wave: Wave5a_GuardsCompaction},
+	"local_turn_handlers":                   {PlaneID: "local_turn_handlers", Wave: Wave5b_LocalTurnTerminal},
+	"terminal_decision_provider":            {PlaneID: "terminal_decision_provider", Wave: Wave5b_LocalTurnTerminal},
+}
+
 // Whitelisted non-plane fields for individual structs.
 var (
 	AllowedFeatureBundleFields = map[string]bool{
@@ -82,6 +112,22 @@ var (
 		"billingExposureRecovery": true,
 	}
 
+	AllowedRequestRuntimeSnapshotFields = map[string]bool{
+		"hookBus":          true,
+		"state":            true,
+		"aux":              true,
+		"obs":              true,
+		"usageObs":         true,
+		"raw":              true,
+		"ws":               true,
+		"secretGuardPlane": true,
+		"policyObserver":   true,
+		"timeoutBudget":    true,
+		"timeoutGuard":     true,
+		"featurePlanes":    true,
+		"gen":              true,
+	}
+
 	// AllowedStageConsumers is the explicit allowlist of fully-qualified Go symbol paths
 	// permitted to act as stage consumers accessing extension planes. Any stage-consumer accessor
 	// or method outside this allowlist is rejected by the forbidden-mirror architecture scanner.
@@ -98,8 +144,8 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallPoliciesExecution":        true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallFinalizers":               true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallFinalizersExecution":      true,
-		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardPlane":                 true,
-		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardExecutionPlane":        true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuards":                     true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardsExecution":            true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).CompactionObservers":              true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).CompactionPreservers":             true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).LocalTurnHandlers":                true,

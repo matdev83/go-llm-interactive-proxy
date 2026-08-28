@@ -3,6 +3,8 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -267,10 +269,13 @@ func TestExecutor_preRequestRewriteThenOverrideWinsForHintAndBaseline(t *testing
 		"adminbe":  overrideStreamingBackend(cap, "adminbe"),
 	})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:          voidWorkspaceResolver{},
-		TrafficObserver:    ctp,
-		RequestTransforms:  []request.Transform{selectorRewriteTransform{from: overrideClientSelector, to: overrideHookSelector}},
-		RouteHintProviders: []routehint.Provider{hint},
+		Workspace:       voidWorkspaceResolver{},
+		TrafficObserver: ctp,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{selectorRewriteTransform{from: overrideClientSelector, to: overrideHookSelector}},
+			RouteHintProviders: []routehint.Provider{hint},
+		}),
 	})
 	seed := seedOverrideALeg(t, ex, st, "ov-rewrite-hint", overrideAdminSelector)
 	resetRouteOpenCapture(cap)

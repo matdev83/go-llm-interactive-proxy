@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -88,7 +89,10 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		bus := hooks.New(hooks.Config{})
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			ToolCallPolicies: []toolpolicy.Policy{denyingToolPolicyStub{}},
+			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:    lipfeature.SchemaVersionV1,
+				ToolCallPolicies: []toolpolicy.Policy{denyingToolPolicyStub{}},
+			}),
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "search"}
@@ -131,7 +135,10 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		gateErr := errors.New("gate boom")
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{failingCompletionGateStub{err: gateErr}},
+			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:   lipfeature.SchemaVersionV1,
+				CompletionGates: []completion.Gate{failingCompletionGateStub{err: gateErr}},
+			}),
 		})
 		bindTestRuntimeOwners(rs, ex)
 		ev := lipapi.Event{Kind: lipapi.EventResponseFinished}
@@ -146,7 +153,10 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		recErr := errors.New("recorder boom")
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{replaceCompletionGateStub{}},
+			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:   lipfeature.SchemaVersionV1,
+				CompletionGates: []completion.Gate{replaceCompletionGateStub{}},
+			}),
 		})
 		ex.SecureSessionRecorder = failingSecureRecorderStub{err: recErr}
 		ex.SecureSessionRecordingMandatory = true

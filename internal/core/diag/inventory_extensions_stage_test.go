@@ -2,6 +2,7 @@ package diag
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -10,14 +11,29 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+func freezeBundleForDiagTest(b lipfeature.FeatureBundle) lipfeature.FrozenPlaneSet {
+	cs := lipfeature.NewContributionSet()
+	if len(b.AttemptTransforms) > 0 {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", b.AttemptTransforms)
+	}
+	if len(b.StreamObserverFactories) > 0 {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", b.StreamObserverFactories)
+	}
+	return cs.Freeze()
+}
 
 type invPol struct {
 	id  string
@@ -207,20 +223,45 @@ func (invStreamObserverFactory) Open(context.Context, response.StreamMeta, respo
 
 func TestStageOccupancyFromBundle_nilAttemptAndStreamEntriesSkippedWithoutPanic(t *testing.T) {
 	t.Parallel()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
-			nil,
-			invAttemptTransform{id: "keep", ord: 1},
-			nil,
+	at := []request.AttemptTransform{
+		nil,
+		invAttemptTransform{id: "keep", ord: 1},
+		nil,
+	}
+	so := []response.StreamObserverFactory{
+		nil,
+		invStreamObserverFactory{id: "keep", ord: 1},
+		nil,
+	}
+
+	atOccs := lipfeature.PlaneAttemptTransforms.MaterializeOccupants(at)
+	if len(atOccs) != 1 || atOccs[0].Label != "attempt_transform:keep" {
+		t.Fatalf("unexpected at occupants: %+v", atOccs)
+	}
+
+	soOccs := lipfeature.PlaneStreamObserverFactories.MaterializeOccupants(so)
+	if len(soOccs) != 1 || soOccs[0].Label != "stream_observer:keep" {
+		t.Fatalf("unexpected so occupants: %+v", soOccs)
+	}
+
+	proj := []lipfeature.DiagnosticPlaneProjection{
+		{
+			PlaneID:   lipfeature.PlaneAttemptTransforms.ID,
+			StageID:   lipfeature.PlaneAttemptTransforms.Diagnostics.StageID,
+			Order:     lipfeature.PlaneAttemptTransforms.Diagnostics.Order,
+			Occupants: atOccs,
 		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			nil,
-			invStreamObserverFactory{id: "keep", ord: 1},
-			nil,
+		{
+			PlaneID:   lipfeature.PlaneStreamObserverFactories.ID,
+			StageID:   lipfeature.PlaneStreamObserverFactories.Diagnostics.StageID,
+			Order:     lipfeature.PlaneStreamObserverFactories.Diagnostics.Order,
+			Occupants: soOccs,
 		},
 	}
-	occ := stageOccupancyFromBundle(b)
+	occ, _, err := reduceDiagnosticProjections(proj)
+	if err != nil {
+		t.Fatalf("reduceDiagnosticProjections err: %v", err)
+	}
 	var atOcc, soOcc *InventoryStageOccupancy
 	for i := range occ {
 		switch occ[i].StageID {
@@ -286,8 +327,7 @@ func TestStageOccupancyFromBundle_attemptTransformsAndStreamObservers(t *testing
 		}
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		AttemptTransforms:       b.AttemptTransforms,
-		StreamObserverFactories: b.StreamObserverFactories,
+		FeaturePlanes: freezeBundleForDiagTest(b),
 	})
 	if got := snap.AttemptTransforms(); len(got) != 2 || got[0].ID() != "a" || got[1].ID() != "z" {
 		t.Fatalf("snapshot AttemptTransforms sort mismatch: %#v", got)
@@ -331,4 +371,260 @@ func TestStageOccupancyFromBundle_secretGuardsSortedWithPrefix(t *testing.T) {
 	if guardOcc.Count != len(want) {
 		t.Fatalf("count %d want %d", guardOcc.Count, len(want))
 	}
+}
+
+func TestReduceDiagnosticProjections_DisposableProbePlane(t *testing.T) {
+	t.Parallel()
+
+	projections := []lipfeature.DiagnosticPlaneProjection{
+		{
+			PlaneID:       "disposable_probe",
+			StageID:       extensions.StageToolEventReaction,
+			CoalesceGroup: "probe_group",
+			Order:         85,
+			Occupants: []lipfeature.DiagnosticOccupant{
+				{Label: "probe:alpha"},
+			},
+			Privileges: lipfeature.PrivilegeProjection{
+				Flags: []string{lipfeature.PrivilegeAuxiliaryRequests},
+			},
+		},
+		{
+			PlaneID:       "tool_policies",
+			StageID:       extensions.StageToolEventReaction,
+			CoalesceGroup: "probe_group",
+			Order:         85,
+			Occupants: []lipfeature.DiagnosticOccupant{
+				{Label: "tool_policy:beta"},
+			},
+		},
+	}
+
+	stageOcc, privs, err := reduceDiagnosticProjections(projections)
+	require.NoError(t, err)
+	require.Len(t, stageOcc, 1)
+	assert.Equal(t, extensions.StageToolEventReaction, stageOcc[0].StageID)
+	assert.Equal(t, 2, stageOcc[0].Count)
+	assert.Equal(t, []string{"probe:alpha", "tool_policy:beta"}, stageOcc[0].HandlerIDs)
+	assert.True(t, privs.AuxiliaryRequests)
+	assert.False(t, privs.RawCapture)
+	assert.False(t, privs.CompletionGate)
+	assert.False(t, privs.AuthProvider)
+}
+
+func TestReduceDiagnosticProjections_UnknownPrivilegeFlagError(t *testing.T) {
+	t.Parallel()
+
+	projections := []lipfeature.DiagnosticPlaneProjection{
+		{
+			PlaneID: "bad_priv_plane",
+			StageID: extensions.StagePreRequest,
+			Order:   10,
+			Privileges: lipfeature.PrivilegeProjection{
+				Flags: []string{"unknown_priv_flag_xyz"},
+			},
+		},
+	}
+
+	_, _, err := reduceDiagnosticProjections(projections)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown privilege flag "unknown_priv_flag_xyz"`)
+}
+
+type mixedTestRegistry struct {
+	bundles map[string]lipfeature.FeatureBundle
+}
+
+func (r *mixedTestRegistry) BuildFeatureBundle(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+	if b, ok := r.bundles[factoryKey]; ok {
+		return b, nil
+	}
+	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+}
+
+func TestBuildInventoryExtensions_ValidMixedBundleSortingAndNils(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Plugins: config.PluginsConfig{
+			Features: []config.PluginConfig{
+				{ID: "feat-mixed", Kind: "mixed", Enabled: true},
+			},
+		},
+	}
+
+	b := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		SubmitHooks: []sdkhooks.SubmitHook{
+			nil,
+			charStubSubmitHook{id: "sub-z", ord: 20},
+			charStubSubmitHook{id: "sub-a", ord: 10},
+			nil,
+		},
+		ToolCallPolicies: []toolpolicy.Policy{
+			nil,
+			charStubToolPolicy{id: "pol-b", ord: 10},
+			charStubToolPolicy{id: "pol-a", ord: 10},
+			nil,
+		},
+		SessionOpeners: []session.Opener{
+			nil,
+			charStubSessionOpener{id: "opener-1"},
+			nil,
+		},
+		AttemptTransforms: []request.AttemptTransform{
+			charStubAttemptTransform{id: "att-z", ord: 20},
+			charStubAttemptTransform{id: "att-a", ord: 10},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			charStubStreamObserverFactory{id: "so-z", ord: 20},
+			charStubStreamObserverFactory{id: "so-a", ord: 10},
+		},
+	}
+
+	reg := &mixedTestRegistry{
+		bundles: map[string]lipfeature.FeatureBundle{
+			"mixed": b,
+		},
+	}
+
+	extras := &InventoryExtras{
+		Reg:           reg,
+		Registrations: config.RegistrationsFromConfig(cfg),
+	}
+
+	ext := buildInventoryExtensions(t.Context(), cfg, extras)
+	require.Len(t, ext.Features, 1)
+	f0 := ext.Features[0]
+	require.Empty(t, f0.BundleError)
+	require.NotEmpty(t, f0.StageOccupancy)
+
+	// Verify sorting and nil filtering
+	for _, occ := range f0.StageOccupancy {
+		switch occ.StageID {
+		case extensions.StageSubmit:
+			assert.Equal(t, []string{"sub-a", "sub-z"}, occ.HandlerIDs)
+		case extensions.StageToolEventReaction:
+			assert.Equal(t, []string{"tool_policy:pol-a", "tool_policy:pol-b"}, occ.HandlerIDs)
+		case extensions.StageSessionOpen:
+			assert.Equal(t, []string{"opener:opener-1"}, occ.HandlerIDs)
+		case extensions.StageCandidateAttemptTransform:
+			assert.Equal(t, []string{"attempt_transform:att-a", "attempt_transform:att-z"}, occ.HandlerIDs)
+		case extensions.StageFinalStreamObservation:
+			assert.Equal(t, []string{"stream_observer:so-a", "stream_observer:so-z"}, occ.HandlerIDs)
+		}
+	}
+
+	assert.True(t, ext.GenericPorts.AttemptTransformOccupied)
+	assert.Equal(t, 2, ext.GenericPorts.AttemptTransformHandlers)
+	assert.True(t, ext.GenericPorts.FinalStreamObservationOccupied)
+	assert.Equal(t, 2, ext.GenericPorts.FinalStreamObservationHandlers)
+}
+
+func TestBuildInventoryExtensions_InvalidAttemptOrStreamBundleValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		bundle    lipfeature.FeatureBundle
+		wantError string
+	}{
+		{
+			name: "invalid attempt",
+			bundle: lipfeature.FeatureBundle{
+				SchemaVersion:     lipfeature.SchemaVersionV1,
+				AttemptTransforms: []request.AttemptTransform{nil},
+			},
+			wantError: "feature: FeatureBundle: AttemptTransforms[0] must not be nil",
+		},
+		{
+			name: "invalid stream observer",
+			bundle: lipfeature.FeatureBundle{
+				SchemaVersion:           lipfeature.SchemaVersionV1,
+				StreamObserverFactories: []response.StreamObserverFactory{nil},
+			},
+			wantError: "feature: FeatureBundle: StreamObserverFactories[0] must not be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{
+				Plugins: config.PluginsConfig{
+					Features: []config.PluginConfig{
+						{ID: "feat-invalid", Kind: "invalid-kind", Enabled: true},
+					},
+				},
+			}
+
+			reg := &mixedTestRegistry{
+				bundles: map[string]lipfeature.FeatureBundle{
+					"invalid-kind": tt.bundle,
+				},
+			}
+
+			extras := &InventoryExtras{
+				Reg:           reg,
+				Registrations: config.RegistrationsFromConfig(cfg),
+			}
+
+			ext := buildInventoryExtensions(t.Context(), cfg, extras)
+			require.Len(t, ext.Features, 1)
+			f0 := ext.Features[0]
+			require.Equal(t, tt.wantError, f0.BundleError)
+			require.NotNil(t, f0.StageOccupancy)
+			require.Len(t, f0.StageOccupancy, 0)
+			require.Equal(t, InventoryPrivileges{}, f0.Privileges)
+			require.Equal(t, InventoryGenericPorts{}, ext.GenericPorts)
+			require.False(t, ext.GenericPorts.AttemptTransformOccupied)
+			require.Equal(t, 0, ext.GenericPorts.AttemptTransformHandlers)
+			require.False(t, ext.GenericPorts.FinalStreamObservationOccupied)
+			require.Equal(t, 0, ext.GenericPorts.FinalStreamObservationHandlers)
+		})
+	}
+}
+
+type diagDummyLTHandler struct {
+	id  string
+	ord int
+}
+
+func (h diagDummyLTHandler) ID() string                      { return h.id }
+func (h diagDummyLTHandler) Order() int                      { return h.ord }
+func (diagDummyLTHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (diagDummyLTHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
+	return localturn.MatchResult{Claimed: false}, nil
+}
+func (diagDummyLTHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
+	return localturn.Reply{}, nil
+}
+
+func TestPlaneLocalTurnHandlers_OrderingAndMaterialize(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, lipfeature.StageIDPreRequest, lipfeature.PlaneLocalTurnHandlers.Diagnostics.StageID)
+	assert.Equal(t, "", lipfeature.PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup)
+
+	var typedNil *diagDummyLTHandler
+	handlers := []localturn.Handler{
+		diagDummyLTHandler{id: "lt-z", ord: 20},
+		nil,
+		diagDummyLTHandler{id: "lt-a", ord: 10},
+		typedNil,
+		diagDummyLTHandler{id: "lt-m", ord: 10},
+	}
+
+	require.NotNil(t, lipfeature.PlaneLocalTurnHandlers.Diagnostics.Materialize)
+	occupants := lipfeature.PlaneLocalTurnHandlers.Diagnostics.Materialize(handlers)
+	require.Len(t, occupants, 3)
+	assert.Equal(t, "local_turn:lt-a", occupants[0].Label)
+	assert.Equal(t, "local_turn:lt-m", occupants[1].Label)
+	assert.Equal(t, "local_turn:lt-z", occupants[2].Label)
+
+	jsonBytes, err := json.Marshal(occupants)
+	require.NoError(t, err)
+	expectedJSON := `[{"Label":"local_turn:lt-a","PluginID":"","Privileges":null},{"Label":"local_turn:lt-m","PluginID":"","Privileges":null},{"Label":"local_turn:lt-z","PluginID":"","Privileges":null}]`
+	assert.Equal(t, expectedJSON, string(jsonBytes))
 }

@@ -197,6 +197,42 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	return gc
 }
 
+func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
+	if gf == nil {
+		return nil
+	}
+	next := &generatedFrozen{
+		submitHooks:                      cloneSlice(gf.submitHooks),
+		requestPartHooks:                 cloneSlice(gf.requestPartHooks),
+		responsePartHooks:                cloneSlice(gf.responsePartHooks),
+		toolReactors:                     cloneSlice(gf.toolReactors),
+		sessionOpeners:                   materializeRequestSlice(gf.sessionOpeners, PlaneSessionOpeners.RequestMaterializer),
+		workspaceResolvers:               cloneSlice(gf.workspaceResolvers),
+		toolCatalogFilters:               cloneSlice(gf.toolCatalogFilters),
+		toolCallPolicies:                 materializeRequestSlice(gf.toolCallPolicies, PlaneToolCallPolicies.RequestMaterializer),
+		toolCallFinalizers:               materializeRequestSlice(gf.toolCallFinalizers, PlaneToolCallFinalizers.RequestMaterializer),
+		toolCallFinalizationMaxArgsBytes: gf.toolCallFinalizationMaxArgsBytes,
+		requestTransforms:                cloneSlice(gf.requestTransforms),
+		preRequestHandlers:               materializeRequestSlice(gf.preRequestHandlers, PlanePreRequestHandlers.RequestMaterializer),
+		routeHintProviders:               cloneSlice(gf.routeHintProviders),
+		completionGates:                  cloneSlice(gf.completionGates),
+		attemptTransforms:                materializeRequestSlice(gf.attemptTransforms, PlaneAttemptTransforms.RequestMaterializer),
+		streamObserverFactories:          materializeRequestSlice(gf.streamObserverFactories, PlaneStreamObserverFactories.RequestMaterializer),
+		trafficObservers:                 cloneSlice(gf.trafficObservers),
+		usageObservers:                   cloneSlice(gf.usageObservers),
+		rawCaptureSinks:                  cloneSlice(gf.rawCaptureSinks),
+		trafficRedactors:                 materializeRequestSlice(gf.trafficRedactors, PlaneTrafficRedactors.RequestMaterializer),
+		compactionObservers:              cloneSlice(gf.compactionObservers),
+		compactionPreservers:             cloneSlice(gf.compactionPreservers),
+		secretGuards:                     materializeRequestSlice(gf.secretGuards, PlaneSecretGuards.RequestMaterializer),
+		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, PlaneLocalTurnHandlers.RequestMaterializer),
+		terminalDecisionProvider:         gf.terminalDecisionProvider,
+		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
+		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+	}
+	return next
+}
+
 func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {
 	if gf == nil || gc == nil {
 		return nil
@@ -1222,6 +1258,53 @@ func init() {
 	}
 }
 
+// RequestExecutionView is an immutable borrowed view over request-materialized planes.
+// Its returned slices must not be mutated.
+type RequestExecutionView struct {
+	frozen FrozenPlaneSet
+}
+
+// RequestExecution constructs a RequestExecutionView over the request-materialized planes in in.
+func RequestExecution(in FrozenPlaneSet) RequestExecutionView {
+	return RequestExecutionView{frozen: in}
+}
+
+// ToolCallPolicies returns the request-materialized ToolCallPolicies without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallPolicies() []toolpolicy.Policy {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallPolicies
+}
+
+// ToolCallFinalizers returns the request-materialized ToolCallFinalizers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallFinalizers() []toolcall.Finalizer {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallFinalizers
+}
+
+// SecretGuards returns the request-materialized SecretGuards without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) SecretGuards() []secretguard.Guard {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.secretGuards
+}
+
+// LocalTurnHandlers returns the request-materialized LocalTurnHandlers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) LocalTurnHandlers() []localturn.Handler {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.localTurnHandlers
+}
+
 // BindAttemptTransforms replaces AttemptTransforms under SourceGenerationBinder semantics.
 func (s *ContributionSet) BindAttemptTransforms(contributorID string, v []request.AttemptTransform) error {
 	return ContributeSource(s, PlaneAttemptTransforms, SourceGenerationBinder, contributorID, v)
@@ -1250,4 +1333,799 @@ func (s *ContributionSet) BindCompactionPreservers(contributorID string, v []com
 // ReplaceCompactionPreservers replaces CompactionPreservers under SourceGenerationBinder semantics.
 func (s *ContributionSet) ReplaceCompactionPreservers(contributorID string, v []compaction.Preserver) error {
 	return ContributeSource(s, PlaneCompactionPreservers, SourceGenerationBinder, contributorID, v)
+}
+
+// ProjectDiagnostics projects diagnostic occupants and privileges from a frozen plane set.
+func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
+	if in.IsZero() {
+		return nil
+	}
+	gf := in.frozen
+	if gf == nil && (in.values != nil || in.identities != nil) {
+		cset := in.ToContributions()
+		gf = cset.Freeze().frozen
+	}
+	if gf == nil {
+		return nil
+	}
+	var projections []DiagnosticPlaneProjection
+
+	// Project PlaneSubmitHooks
+	{
+		val := gf.submitHooks
+		occ := PlaneSubmitHooks.MaterializeOccupants(val)
+		priv := PlaneSubmitHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSubmitHooks.ID,
+				StageID:       PlaneSubmitHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneSubmitHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneSubmitHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRequestPartHooks
+	{
+		val := gf.requestPartHooks
+		occ := PlaneRequestPartHooks.MaterializeOccupants(val)
+		priv := PlaneRequestPartHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRequestPartHooks.ID,
+				StageID:       PlaneRequestPartHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneRequestPartHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneRequestPartHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneResponsePartHooks
+	{
+		val := gf.responsePartHooks
+		occ := PlaneResponsePartHooks.MaterializeOccupants(val)
+		priv := PlaneResponsePartHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneResponsePartHooks.ID,
+				StageID:       PlaneResponsePartHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneResponsePartHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneResponsePartHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolReactors
+	{
+		val := gf.toolReactors
+		occ := PlaneToolReactors.MaterializeOccupants(val)
+		priv := PlaneToolReactors.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolReactors.ID,
+				StageID:       PlaneToolReactors.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolReactors.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolReactors.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneSessionOpeners
+	{
+		val := gf.sessionOpeners
+		occ := PlaneSessionOpeners.MaterializeOccupants(val)
+		priv := PlaneSessionOpeners.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSessionOpeners.ID,
+				StageID:       PlaneSessionOpeners.Diagnostics.StageID,
+				CoalesceGroup: PlaneSessionOpeners.Diagnostics.CoalesceGroup,
+				Order:         PlaneSessionOpeners.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneWorkspaceResolvers
+	{
+		val := gf.workspaceResolvers
+		occ := PlaneWorkspaceResolvers.MaterializeOccupants(val)
+		priv := PlaneWorkspaceResolvers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneWorkspaceResolvers.ID,
+				StageID:       PlaneWorkspaceResolvers.Diagnostics.StageID,
+				CoalesceGroup: PlaneWorkspaceResolvers.Diagnostics.CoalesceGroup,
+				Order:         PlaneWorkspaceResolvers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCatalogFilters
+	{
+		val := gf.toolCatalogFilters
+		occ := PlaneToolCatalogFilters.MaterializeOccupants(val)
+		priv := PlaneToolCatalogFilters.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCatalogFilters.ID,
+				StageID:       PlaneToolCatalogFilters.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCatalogFilters.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCatalogFilters.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCallPolicies
+	{
+		val := gf.toolCallPolicies
+		occ := PlaneToolCallPolicies.MaterializeOccupants(val)
+		priv := PlaneToolCallPolicies.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCallPolicies.ID,
+				StageID:       PlaneToolCallPolicies.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCallPolicies.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCallPolicies.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCallFinalizers
+	{
+		val := gf.toolCallFinalizers
+		occ := PlaneToolCallFinalizers.MaterializeOccupants(val)
+		priv := PlaneToolCallFinalizers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCallFinalizers.ID,
+				StageID:       PlaneToolCallFinalizers.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCallFinalizers.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCallFinalizers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRequestTransforms
+	{
+		val := gf.requestTransforms
+		occ := PlaneRequestTransforms.MaterializeOccupants(val)
+		priv := PlaneRequestTransforms.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRequestTransforms.ID,
+				StageID:       PlaneRequestTransforms.Diagnostics.StageID,
+				CoalesceGroup: PlaneRequestTransforms.Diagnostics.CoalesceGroup,
+				Order:         PlaneRequestTransforms.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlanePreRequestHandlers
+	{
+		val := gf.preRequestHandlers
+		occ := PlanePreRequestHandlers.MaterializeOccupants(val)
+		priv := PlanePreRequestHandlers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlanePreRequestHandlers.ID,
+				StageID:       PlanePreRequestHandlers.Diagnostics.StageID,
+				CoalesceGroup: PlanePreRequestHandlers.Diagnostics.CoalesceGroup,
+				Order:         PlanePreRequestHandlers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRouteHintProviders
+	{
+		val := gf.routeHintProviders
+		occ := PlaneRouteHintProviders.MaterializeOccupants(val)
+		priv := PlaneRouteHintProviders.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRouteHintProviders.ID,
+				StageID:       PlaneRouteHintProviders.Diagnostics.StageID,
+				CoalesceGroup: PlaneRouteHintProviders.Diagnostics.CoalesceGroup,
+				Order:         PlaneRouteHintProviders.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneCompletionGates
+	{
+		val := gf.completionGates
+		occ := PlaneCompletionGates.MaterializeOccupants(val)
+		priv := PlaneCompletionGates.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneCompletionGates.ID,
+				StageID:       PlaneCompletionGates.Diagnostics.StageID,
+				CoalesceGroup: PlaneCompletionGates.Diagnostics.CoalesceGroup,
+				Order:         PlaneCompletionGates.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneAttemptTransforms
+	{
+		val := gf.attemptTransforms
+		occ := PlaneAttemptTransforms.MaterializeOccupants(val)
+		priv := PlaneAttemptTransforms.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneAttemptTransforms.ID,
+				StageID:       PlaneAttemptTransforms.Diagnostics.StageID,
+				CoalesceGroup: PlaneAttemptTransforms.Diagnostics.CoalesceGroup,
+				Order:         PlaneAttemptTransforms.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneStreamObserverFactories
+	{
+		val := gf.streamObserverFactories
+		occ := PlaneStreamObserverFactories.MaterializeOccupants(val)
+		priv := PlaneStreamObserverFactories.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneStreamObserverFactories.ID,
+				StageID:       PlaneStreamObserverFactories.Diagnostics.StageID,
+				CoalesceGroup: PlaneStreamObserverFactories.Diagnostics.CoalesceGroup,
+				Order:         PlaneStreamObserverFactories.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneTrafficObservers
+	{
+		val := gf.trafficObservers
+		occ := PlaneTrafficObservers.MaterializeOccupants(val)
+		priv := PlaneTrafficObservers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneTrafficObservers.ID,
+				StageID:       PlaneTrafficObservers.Diagnostics.StageID,
+				CoalesceGroup: PlaneTrafficObservers.Diagnostics.CoalesceGroup,
+				Order:         PlaneTrafficObservers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneUsageObservers
+	{
+		val := gf.usageObservers
+		occ := PlaneUsageObservers.MaterializeOccupants(val)
+		priv := PlaneUsageObservers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneUsageObservers.ID,
+				StageID:       PlaneUsageObservers.Diagnostics.StageID,
+				CoalesceGroup: PlaneUsageObservers.Diagnostics.CoalesceGroup,
+				Order:         PlaneUsageObservers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRawCaptureSinks
+	{
+		val := gf.rawCaptureSinks
+		occ := PlaneRawCaptureSinks.MaterializeOccupants(val)
+		priv := PlaneRawCaptureSinks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRawCaptureSinks.ID,
+				StageID:       PlaneRawCaptureSinks.Diagnostics.StageID,
+				CoalesceGroup: PlaneRawCaptureSinks.Diagnostics.CoalesceGroup,
+				Order:         PlaneRawCaptureSinks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneTrafficRedactors
+	{
+		val := gf.trafficRedactors
+		occ := PlaneTrafficRedactors.MaterializeOccupants(val)
+		priv := PlaneTrafficRedactors.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneTrafficRedactors.ID,
+				StageID:       PlaneTrafficRedactors.Diagnostics.StageID,
+				CoalesceGroup: PlaneTrafficRedactors.Diagnostics.CoalesceGroup,
+				Order:         PlaneTrafficRedactors.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneSecretGuards
+	{
+		val := gf.secretGuards
+		occ := PlaneSecretGuards.MaterializeOccupants(val)
+		priv := PlaneSecretGuards.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSecretGuards.ID,
+				StageID:       PlaneSecretGuards.Diagnostics.StageID,
+				CoalesceGroup: PlaneSecretGuards.Diagnostics.CoalesceGroup,
+				Order:         PlaneSecretGuards.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneLocalTurnHandlers
+	{
+		val := gf.localTurnHandlers
+		occ := PlaneLocalTurnHandlers.MaterializeOccupants(val)
+		priv := PlaneLocalTurnHandlers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneLocalTurnHandlers.ID,
+				StageID:       PlaneLocalTurnHandlers.Diagnostics.StageID,
+				CoalesceGroup: PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup,
+				Order:         PlaneLocalTurnHandlers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	return projections
 }

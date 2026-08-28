@@ -121,8 +121,7 @@ func TestCompactionProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T)
 
 	// 2. Verify SnapshotOptions materializes exact frozen order
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		CompactionObservers:  frozenObs,
-		CompactionPreservers: frozenPres,
+		FeaturePlanes: gen.Frozen,
 	})
 
 	snapObs := snap.CompactionObservers()
@@ -433,8 +432,7 @@ func TestCompactionProjection_DefensiveIsolationAndRaceSafety(t *testing.T) {
 	require.NoError(t, err)
 
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		CompactionObservers:  lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers),
-		CompactionPreservers: lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionPreservers),
+		FeaturePlanes: gen.Frozen,
 	})
 
 	// Defensive copy check: modifying returned slice does not modify snapshot

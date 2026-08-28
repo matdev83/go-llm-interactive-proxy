@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"sync"
@@ -280,7 +281,10 @@ func TestPhase6_FaultMatrix_AcquisitionAndReadiness(t *testing.T) {
 		wireDummyBilling(ex)
 
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:           lipfeature.SchemaVersionV1,
+				StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+			}),
 		})
 		ex.Backends = map[string]execbackend.Backend{
 			"ok": {

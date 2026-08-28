@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -137,138 +136,26 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 // ContributionSet on error; ContributeBundle itself is incremental and caller must discard
 // candidate on error.
 func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeature.FeatureBundle) error {
-	if cs == nil {
-		return errors.New("featurebundle: nil ContributionSet")
-	}
+	return contributeFeatureBundleGenerated(cs, pluginID, b)
+}
+
+// FreezeBundle converts a single FeatureBundle into a FrozenPlaneSet with pluginID.
+func FreezeBundle(b lipfeature.FeatureBundle, pluginID string) (lipfeature.FrozenPlaneSet, error) {
+	cs := lipfeature.NewContributionSet()
 	if pluginID == "" {
-		pluginID = "feature"
-	}
-	if len(b.SubmitHooks) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, pluginID, b.SubmitHooks); err != nil {
-			return err
+		if b.TerminalDecisionProvider != nil {
+			if id, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err == nil && id != "" {
+				pluginID = id
+			}
+		}
+		if pluginID == "" {
+			pluginID = "feature"
 		}
 	}
-	if len(b.RequestPartHooks) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, pluginID, b.RequestPartHooks); err != nil {
-			return err
-		}
+	if err := ContributeBundle(cs, pluginID, b); err != nil {
+		return lipfeature.FrozenPlaneSet{}, err
 	}
-	if len(b.ResponsePartHooks) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, pluginID, b.ResponsePartHooks); err != nil {
-			return err
-		}
-	}
-	if len(b.ToolReactors) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, pluginID, b.ToolReactors); err != nil {
-			return err
-		}
-	}
-	if b.SessionOpeners != nil {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, pluginID, b.SessionOpeners); err != nil {
-			return err
-		}
-	}
-	if b.WorkspaceResolvers != nil {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, pluginID, b.WorkspaceResolvers); err != nil {
-			return err
-		}
-	}
-	if len(b.ToolCatalogFilters) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, pluginID, b.ToolCatalogFilters); err != nil {
-			return err
-		}
-	}
-	if len(b.ToolCallPolicies) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, pluginID, b.ToolCallPolicies); err != nil {
-			return err
-		}
-	}
-	if len(b.ToolCallFinalizers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, pluginID, b.ToolCallFinalizers); err != nil {
-			return err
-		}
-	}
-	if b.ToolCallFinalizationMaxArgsBytes > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, pluginID, b.ToolCallFinalizationMaxArgsBytes); err != nil {
-			return err
-		}
-	}
-	if len(b.RequestTransforms) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, pluginID, b.RequestTransforms); err != nil {
-			return err
-		}
-	}
-	if len(b.PreRequestHandlers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, pluginID, b.PreRequestHandlers); err != nil {
-			return err
-		}
-	}
-	if b.RouteHintProviders != nil {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, pluginID, b.RouteHintProviders); err != nil {
-			return err
-		}
-	}
-	if b.CompletionGates != nil {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, pluginID, b.CompletionGates); err != nil {
-			return err
-		}
-	}
-	if len(b.AttemptTransforms) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, pluginID, b.AttemptTransforms); err != nil {
-			return err
-		}
-	}
-	if len(b.StreamObserverFactories) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, pluginID, b.StreamObserverFactories); err != nil {
-			return err
-		}
-	}
-	if len(b.TrafficObservers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, pluginID, b.TrafficObservers); err != nil {
-			return err
-		}
-	}
-	if len(b.UsageObservers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, pluginID, b.UsageObservers); err != nil {
-			return err
-		}
-	}
-	if len(b.RawCaptureSinks) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, pluginID, b.RawCaptureSinks); err != nil {
-			return err
-		}
-	}
-	if len(b.TrafficRedactors) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, pluginID, b.TrafficRedactors); err != nil {
-			return err
-		}
-	}
-	if len(b.CompactionObservers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, pluginID, b.CompactionObservers); err != nil {
-			return err
-		}
-	}
-	if len(b.CompactionPreservers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, pluginID, b.CompactionPreservers); err != nil {
-			return err
-		}
-	}
-	if len(b.SecretGuards) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, pluginID, b.SecretGuards); err != nil {
-			return err
-		}
-	}
-	if len(b.LocalTurnHandlers) > 0 {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, pluginID, b.LocalTurnHandlers); err != nil {
-			return err
-		}
-	}
-	if b.TerminalDecisionProvider != nil {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, pluginID, b.TerminalDecisionProvider); err != nil {
-			return err
-		}
-	}
-	return nil
+	return cs.Freeze(), nil
 }
 
 // MergeBundlesGenerated merges one or more FeatureBundles through generated plane adapters
@@ -310,7 +197,7 @@ func MergeBundlesViaGenerated(bundles ...lipfeature.FeatureBundle) (MergedFeatur
 // MergeFeatureSurfaceGenerated merges enabled feature plugins into a GeneratedMergeSurface.
 // It builds bundles from enabled feature registrations in order and merges them through
 // generated plane adapters.
-func MergeFeatureSurfaceGenerated(reg *pluginreg.Registry, registrations []lipsdk.Registration) (GeneratedMergeSurface, error) {
+func MergeFeatureSurfaceGenerated(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (GeneratedMergeSurface, error) {
 	bundles, err := buildEnabledFeatureBundles(reg, registrations)
 	if err != nil {
 		return GeneratedMergeSurface{}, err
@@ -345,7 +232,7 @@ func MergeFeatureSurfaceGenerated(reg *pluginreg.Registry, registrations []lipsd
 
 // MergeFeatureSurfaceViaGenerated merges enabled feature plugins using generated adapters
 // and projects the result into a MergedFeatureSurface.
-func MergeFeatureSurfaceViaGenerated(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
+func MergeFeatureSurfaceViaGenerated(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
 	gen, err := MergeFeatureSurfaceGenerated(reg, registrations)
 	if err != nil {
 		return MergedFeatureSurface{}, err

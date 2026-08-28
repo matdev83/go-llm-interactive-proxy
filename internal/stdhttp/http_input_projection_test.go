@@ -31,6 +31,7 @@ import (
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	"github.com/prometheus/client_golang/prometheus"
@@ -186,8 +187,10 @@ func TestStandardHTTPInput_defensiveClones(t *testing.T) {
 	regs := []lipsdk.Registration{{ID: "feat-a", Config: lipsdk.ConfigPayload{Node: pluginYAML}}}
 	redA := stubProjectionRedactor{id: "red-a"}
 	reds := []traffic.Redactor{redA}
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "test", reds)
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		TrafficRedactors: reds,
+		FeaturePlanes: cset.Freeze(),
 	})
 	cfg := &config.Config{Plugins: config.PluginsConfig{Frontends: plugins}}
 	got := StandardHTTPInput{

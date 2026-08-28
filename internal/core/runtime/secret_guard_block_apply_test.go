@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
@@ -390,8 +391,12 @@ func TestExecutor_applySecretGuardBlock_cancelDuringQuarantineStillCancelsALeg(t
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&blockingSecretGuard{}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&blockingSecretGuard{}},
+		}),
 	})
 	ex.SecureSession = mgr
 	ex.ALegLifecycle = leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})

@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"io"
 	"strings"
 	"sync"
@@ -165,8 +166,11 @@ func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*
 		ResponsePartHooks: bundle.ResponsePartHooks,
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         bundle.CompletionGates,
-		StreamObserverFactories: bundle.StreamObserverFactories,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			CompletionGates:         bundle.CompletionGates,
+			StreamObserverFactories: bundle.StreamObserverFactories,
+		}),
 	})
 	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
 		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
