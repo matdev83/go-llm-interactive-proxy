@@ -293,6 +293,67 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 			},
 			wantError: false,
 		},
+		{
+			name: "valid exclusive plane with identity and ExclusiveConflictError passes",
+			plane: feature.Plane[testProvider]{
+				ID:           "test.valid_exclusive_with_sentinel",
+				Multiplicity: feature.MultExclusive,
+				Rules: feature.SourceRules{
+					Feature: feature.CombExclusive,
+				},
+				Identity: func(v testProvider) (string, bool) {
+					if v.id == "" {
+						return "", false
+					}
+					return v.id, true
+				},
+				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
+					return inc, nil
+				},
+				ExclusiveConflictError: errors.New("sentinel conflict error"),
+			},
+			wantError: false,
+		},
+		{
+			name: "ordered plane with ExclusiveConflictError is rejected",
+			plane: feature.Plane[[]string]{
+				ID:           "test.ordered_with_exclusive_conflict_error",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+				ExclusiveConflictError: errors.New("sentinel conflict error"),
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "ExclusiveConflictError requires at least one exclusive source rule",
+		},
+		{
+			name: "exclusive multiplicity with non-exclusive rules and ExclusiveConflictError is rejected",
+			plane: feature.Plane[testProvider]{
+				ID:           "test.exclusive_no_comb_exclusive_with_sentinel",
+				Multiplicity: feature.MultExclusive,
+				Rules: feature.SourceRules{
+					GenerationBinder: feature.CombReplaceByIdentity,
+				},
+				Identity: func(v testProvider) (string, bool) {
+					if v.id == "" {
+						return "", false
+					}
+					return v.id, true
+				},
+				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
+					return inc, nil
+				},
+				ExclusiveConflictError: errors.New("sentinel conflict error"),
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "ExclusiveConflictError requires at least one exclusive source rule",
+		},
 	}
 
 	for _, tc := range tests {

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
-  "active_wave": "W5a_GuardsCompaction",
-  "active_wave_ordinal": 5,
+  "active_wave": "W5b_LocalTurnTerminal",
+  "active_wave_ordinal": 6,
   "total_planes": 25,
-  "total_remaining_mirrors": 97,
+  "total_remaining_mirrors": 80,
   "active_forbidden_mirrors": 0,
   "manifest": {
     "plane_count": 25,
@@ -139,7 +139,7 @@
         "local_turn_handlers",
         "terminal_decision_provider"
       ],
-      "measured_mirrors": 19,
+      "measured_mirrors": 2,
       "active_forbidden": 0
     },
     {

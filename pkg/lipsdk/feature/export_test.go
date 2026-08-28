@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -122,6 +123,34 @@ func NewMalformedGeneratedFrozenLocalTurnCandidateForTest(
 	gf := &generatedFrozen{
 		localTurnHandlers: cloneSlice(lt),
 		attemptTransforms: cloneSlice(attTr),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenTerminalDecisionCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with candidate terminal decision provider and attempt transforms for transaction testing.
+func NewMalformedGeneratedFrozenTerminalDecisionCandidateForTest(
+	provider terminaldecision.Provider,
+	attTr []request.AttemptTransform,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		terminalDecisionProvider: provider,
+		attemptTransforms:        cloneSlice(attTr),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest constructs a test-only generated FrozenPlaneSet
+// with candidate terminal decision provider but missing frozen identity.
+func NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(
+	provider terminaldecision.Provider,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		terminalDecisionProvider: provider,
 	}
 	return FrozenPlaneSet{
 		frozen: gf,

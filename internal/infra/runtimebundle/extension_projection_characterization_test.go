@@ -202,23 +202,3 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneTrafficObservers), 2)
 	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneUsageObservers), 1)
 }
-
-// Pins overlayExtensions legacy semantics: source contributions append after
-// destination contributions per plane, and exclusive slots are first-wins.
-func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
-	t.Parallel()
-
-	t.Run("terminal_decision_slot_is_first_wins", func(t *testing.T) {
-		t.Parallel()
-		firstProv := projTerminalProvider{tag: "first-provider"}
-		secondProv := projTerminalProvider{tag: "second-provider"}
-		dstWithFirst := &ExtensionsOptions{TerminalDecisionProvider: firstProv}
-		srcWithSecond := ExtensionsOptions{TerminalDecisionProvider: secondProv}
-		overlayExtensions(dstWithFirst, srcWithSecond)
-		require.Equal(t, firstProv, dstWithFirst.TerminalDecisionProvider)
-
-		emptyDst := &ExtensionsOptions{}
-		overlayExtensions(emptyDst, srcWithSecond)
-		require.Equal(t, secondProv, emptyDst.TerminalDecisionProvider)
-	})
-}

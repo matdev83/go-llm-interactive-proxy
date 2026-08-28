@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -2123,4 +2124,333 @@ func TestContributeCandidateTo_MapFallback_LocalTurnHandlers_WrongDynamicType(t 
 
 	afterFreeze := dst.Freeze()
 	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-term-1"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	provider := feature.Get(frozen, feature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, provider)
+	assert.Equal(t, "cand-term-1", provider.ID())
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-term-1", id)
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_ExclusiveConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "base-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-term"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"base-term" and "cand-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+	assert.Equal(t, "base-term", feature.Get(afterFreeze, feature.PlaneTerminalDecisionProvider).ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_SameIDConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "same-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "same-term"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"same-term" and "same-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-map-term-1"}),
+		},
+		map[string]string{
+			feature.PlaneTerminalDecisionProvider.ID: "cand-map-term-1",
+		},
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	provider := feature.Get(frozen, feature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, provider)
+	assert.Equal(t, "cand-map-term-1", provider.ID())
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-map-term-1", id)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider_ExclusiveConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "base-map-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-map-term"}),
+		},
+		map[string]string{
+			feature.PlaneTerminalDecisionProvider.ID: "cand-map-term",
+		},
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"base-map-term" and "cand-map-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+	assert.Equal(t, "base-map-term", feature.Get(afterFreeze, feature.PlaneTerminalDecisionProvider).ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid TerminalDecisionProvider and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenTerminalDecisionCandidateForTest(
+		freezeTestTerminalProvider{id: "cand-term"},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected terminaldecision.Provider")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+type freezeTestSealingTerminalDecisionProvider struct {
+	id     string
+	calls  atomic.Int32
+	sealed atomic.Bool
+}
+
+func (p *freezeTestSealingTerminalDecisionProvider) ID() string {
+	if p.sealed.Load() {
+		panic("ID() called after sealing")
+	}
+	p.calls.Add(1)
+	return p.id
+}
+
+func (p *freezeTestSealingTerminalDecisionProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop}, nil
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_NoIDCallAfterFreeze_Success(t *testing.T) {
+	t.Parallel()
+
+	prov := &freezeTestSealingTerminalDecisionProvider{id: "cand-sealed"}
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(prov)))
+	candFrozen := candSrc.Freeze()
+
+	idCallsBefore := prov.calls.Load()
+	require.Greater(t, idCallsBefore, int32(0))
+
+	// Provider is sealed: any subsequent ID() call will panic.
+	prov.sealed.Store(true)
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "candidate merge must not invoke ID()")
+
+	frozenDst := dst.Freeze()
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "freeze must not invoke ID() on merged plane")
+	assert.Equal(t, prov, feature.Get(frozenDst, feature.PlaneTerminalDecisionProvider))
+	id, hasID := feature.FrozenIdentity(frozenDst, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-sealed", id)
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "FrozenIdentity must read stored identity without calling ID()")
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_NoIDCallAfterFreeze_Conflict(t *testing.T) {
+	t.Parallel()
+
+	provCand := &freezeTestSealingTerminalDecisionProvider{id: "cand-sealed"}
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(provCand)))
+	candFrozen := candSrc.Freeze()
+
+	idCallsBeforeCand := provCand.calls.Load()
+	provCand.sealed.Store(true)
+
+	provBase := &freezeTestSealingTerminalDecisionProvider{id: "base-provider"}
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(provBase)))
+	idCallsBeforeBase := provBase.calls.Load()
+	provBase.sealed.Store(true)
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	require.ErrorIs(t, err, feature.ErrTerminalDecisionProviderConflict)
+	assert.Contains(t, err.Error(), `"base-provider" and "cand-sealed"`)
+
+	assert.Equal(t, idCallsBeforeCand, provCand.calls.Load(), "conflict check must use candidate frozen ID without calling ID()")
+	assert.Equal(t, idCallsBeforeBase, provBase.calls.Load(), "conflict check must use destination frozen ID without calling ID()")
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_MissingFrozenIdentity(t *testing.T) {
+	t.Parallel()
+
+	prov := &freezeTestSealingTerminalDecisionProvider{id: "malformed-provider"}
+	malformedCand := feature.NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(prov)
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+	beforeFreeze := dst.Freeze()
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "frozen exclusive identity is missing")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestTerminalDecisionProvider_ExactAttributedErrorStringAndErrorsIs(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	provA := &freezeTestSealingTerminalDecisionProvider{id: "provider-a"}
+	provB := &freezeTestSealingTerminalDecisionProvider{id: "provider-b"}
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-a-plugin", terminaldecision.Provider(provA)))
+
+	err := feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-b-plugin", terminaldecision.Provider(provB))
+	require.Error(t, err)
+
+	expectedErrStr := "feature: plugin \"provider-b-plugin\" plane \"terminal_decision_provider\": feature: exclusive slot conflict\nfeaturebundle: terminal-decision provider conflict: \"provider-a\" and \"provider-b\""
+	assert.Equal(t, expectedErrStr, err.Error())
+	require.True(t, errors.Is(err, feature.ErrExclusiveConflict))
+	require.True(t, errors.Is(err, feature.ErrTerminalDecisionProviderConflict))
+
+	var attributed *feature.AttributedError
+	require.True(t, errors.As(err, &attributed))
+	assert.Equal(t, "provider-b-plugin", attributed.PluginID)
+	assert.Equal(t, "terminal_decision_provider", attributed.PlaneID)
+
+	// Second same-ID contribution is also rejected
+	errSame := feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-b-plugin", terminaldecision.Provider(provA))
+	require.Error(t, errSame)
+	require.True(t, errors.Is(errSame, feature.ErrExclusiveConflict))
+	require.True(t, errors.Is(errSame, feature.ErrTerminalDecisionProviderConflict))
+
+	// Destination remains provider A
+	frozen := dst.Freeze()
+	assert.Equal(t, provA, feature.Get(frozen, feature.PlaneTerminalDecisionProvider))
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "provider-a", id)
 }

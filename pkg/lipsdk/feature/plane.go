@@ -183,6 +183,8 @@ type Plane[T any] struct {
 	Combine func(source SourceKind, current, incoming T) (T, error)
 	// Identity extracts the stable identity string for an exclusive or replace-by-identity plane value.
 	Identity func(v T) (string, bool)
+	// ExclusiveConflictError is an optional legacy compatibility error joined with ErrExclusiveConflict on conflict.
+	ExclusiveConflictError error
 	// Diagnostics configures operator inventory and privilege projection metadata for this plane.
 	Diagnostics DiagnosticDescriptor[T]
 	generated   generatedAccess[T]
@@ -236,6 +238,7 @@ func (p Plane[T]) ValidateDeclaration() error {
 
 	sources := []SourceKind{SourceFeature, SourceHost, SourceGenerationBinder}
 	hasSupportedSource := false
+	hasExclusiveRule := false
 	requiresIdentity := (p.Multiplicity == MultExclusive)
 
 	for _, src := range sources {
@@ -249,6 +252,10 @@ func (p Plane[T]) ValidateDeclaration() error {
 			return fmt.Errorf("%w: plane %q: invalid combination rule %v on source %v", ErrInvalidPlane, p.ID, rule, src)
 		}
 		hasSupportedSource = true
+
+		if rule == CombExclusive {
+			hasExclusiveRule = true
+		}
 
 		if p.Multiplicity == MultExclusive {
 			if rule == CombConcatenate {
@@ -273,6 +280,14 @@ func (p Plane[T]) ValidateDeclaration() error {
 
 	if !hasSupportedSource {
 		return fmt.Errorf("%w: plane %q: at least one source rule must be supported", ErrInvalidPlane, p.ID)
+	}
+
+	if p.ExclusiveConflictError != nil && !hasExclusiveRule {
+		return fmt.Errorf(
+			"%w: plane %q: ExclusiveConflictError requires at least one exclusive source rule",
+			ErrInvalidPlane,
+			p.ID,
+		)
 	}
 
 	if requiresIdentity {

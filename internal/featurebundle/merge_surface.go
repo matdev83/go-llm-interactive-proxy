@@ -14,50 +14,20 @@ import (
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order.
 type MergedFeatureSurface struct {
-	Lifecycles                 []lipplugin.Lifecycle
-	TerminalDecisionProvider   terminaldecision.Provider
-	terminalDecisionProviderID string
+	Lifecycles []lipplugin.Lifecycle
 }
 
 // ErrTerminalDecisionProviderConflict reports an attempted second provider
 // contribution to one immutable feature surface.
-var ErrTerminalDecisionProviderConflict = errors.New("featurebundle: terminal-decision provider conflict")
+var ErrTerminalDecisionProviderConflict = lipfeature.ErrTerminalDecisionProviderConflict
 
 // Append concatenates all fields from bundle b into the receiver. This is the single
 // merge point: every new FeatureBundle field requires exactly one append line here.
-// Exclusive-provider validation runs before any receiver field is changed.
 func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 	if m == nil {
 		return errors.New("featurebundle: nil merged feature surface")
 	}
-	var providerID string
-	if m.TerminalDecisionProvider != nil {
-		providerID = m.terminalDecisionProviderID
-		if providerID == "" {
-			var err error
-			providerID, err = terminaldecision.ProviderIdentity(m.TerminalDecisionProvider)
-			if err != nil {
-				return fmt.Errorf("featurebundle: merged terminal-decision provider: %w", err)
-			}
-		} else if err := terminaldecision.ValidateProviderID(providerID); err != nil {
-			return fmt.Errorf("featurebundle: merged terminal-decision provider: %w", err)
-		}
-	}
-	if b.TerminalDecisionProvider != nil {
-		incomingID, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider)
-		if err != nil {
-			return fmt.Errorf("featurebundle: contributed terminal-decision provider: %w", err)
-		}
-		if m.TerminalDecisionProvider != nil {
-			return fmt.Errorf("%w: %q and %q", ErrTerminalDecisionProviderConflict, providerID, incomingID)
-		}
-		providerID = incomingID
-	}
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	if b.TerminalDecisionProvider != nil {
-		m.TerminalDecisionProvider = b.TerminalDecisionProvider
-		m.terminalDecisionProviderID = providerID
-	}
 	return nil
 }
 

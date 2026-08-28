@@ -3,7 +3,6 @@ package featurebundle
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -184,10 +183,10 @@ func TestFinalizerCap_MergePathMinReductionAndZeroSemantics(t *testing.T) {
 // TestTerminalDecision_ExclusiveOccupationAndConflictText pins requirement 1.2, 4.2, and 5.1:
 // - Zero providers leaves slot nil.
 // - Single valid provider occupies slot.
-// - Second distinct provider fails with exact ErrTerminalDecisionProviderConflict wrapping and %q and %q formatting.
+// - Second distinct provider fails with exact ErrExclusiveConflict wrapping and %q and %q formatting.
 // - Candidate is discarded on conflict.
-// - Same-provider re-contribution is characterized (legacy returns conflict error with duplicate IDs).
-// - Fail-before-mutate: invalid or conflicting provider contribution leaves receiver completely unmodified.
+// - Same-provider re-contribution is characterized (returns conflict error with duplicate IDs).
+// - Fail-before-mutate: invalid or conflicting provider contribution leaves candidate completely unmodified.
 func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 	t.Parallel()
 
@@ -196,132 +195,120 @@ func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 
 	t.Run("zero_providers_leaves_slot_nil", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked(
+		gen, err := MergeBundlesGenerated(
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, SubmitHooks: []sdkhooks.SubmitHook{charStubSubmitHook{tag: "h1"}}},
 		)
 		require.NoError(t, err)
-		require.Nil(t, merged.TerminalDecisionProvider)
+		require.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 	})
 
 	t.Run("single_valid_provider_occupies_slot", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked(
+		gen, err := MergeBundlesGenerated(
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
 		)
 		require.NoError(t, err)
-		require.Equal(t, provA, merged.TerminalDecisionProvider)
+		require.Equal(t, provA, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 	})
 
 	t.Run("distinct_providers_conflict_exact_text_and_type", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked(
+		gen, err := MergeBundlesGenerated(
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provB},
 		)
 		require.Error(t, err)
+		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 		require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-		wantText := fmt.Sprintf("%v: %q and %q", ErrTerminalDecisionProviderConflict, provA.ID(), provB.ID())
-		require.Equal(t, wantText, err.Error())
-		require.Equal(t, MergedFeatureSurface{}, merged)
+		require.Contains(t, err.Error(), `"alg.provider.a" and "alg.provider.b"`)
+		require.Equal(t, GeneratedMergeSurface{}, gen)
 	})
 
 	t.Run("same_provider_recontribution_characterization", func(t *testing.T) {
 		t.Parallel()
-		// Legacy behavior: second contribution is rejected regardless of identity match
-		merged, err := MergeBundlesChecked(
+		gen, err := MergeBundlesGenerated(
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
 			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
 		)
 		require.Error(t, err)
+		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 		require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-		wantText := fmt.Sprintf("%v: %q and %q", ErrTerminalDecisionProviderConflict, provA.ID(), provA.ID())
-		require.Equal(t, wantText, err.Error())
-		require.Equal(t, MergedFeatureSurface{}, merged)
+		require.Contains(t, err.Error(), `"alg.provider.a" and "alg.provider.a"`)
+		require.Equal(t, GeneratedMergeSurface{}, gen)
 	})
 
 	t.Run("fail_before_mutate_on_exclusive_conflict", func(t *testing.T) {
 		t.Parallel()
-		var m MergedFeatureSurface
-		err := m.Append(lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-			TerminalDecisionProvider: provA,
-		})
-		require.NoError(t, err)
-		snapshot := m
-
-		// Attempt appending a bundle with new hooks AND a conflicting provider
-		err = m.Append(lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-			TerminalDecisionProvider: provB,
-		})
+		gen, err := MergeBundlesGenerated(
+			lipfeature.FeatureBundle{
+				SchemaVersion:            lipfeature.SchemaVersionV1,
+				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
+				TerminalDecisionProvider: provA,
+			},
+			lipfeature.FeatureBundle{
+				SchemaVersion:            lipfeature.SchemaVersionV1,
+				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
+				TerminalDecisionProvider: provB,
+			},
+		)
 		require.Error(t, err)
-		require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-		require.Equal(t, snapshot, m, "receiver must not mutate when exclusive provider conflicts")
+		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when exclusive provider conflicts")
 	})
 
 	t.Run("fail_before_mutate_on_invalid_incoming_provider", func(t *testing.T) {
 		t.Parallel()
-		var m MergedFeatureSurface
-		err := m.Append(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-		})
-		require.NoError(t, err)
-		snapshot := m
-
-		// Append bundle with bad provider ID (empty string)
 		badProv := charStubBadIDTerminalProvider{badID: ""}
-		err = m.Append(lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-			TerminalDecisionProvider: badProv,
-		})
+		gen, err := MergeBundlesGenerated(
+			lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
+			},
+			lipfeature.FeatureBundle{
+				SchemaVersion:            lipfeature.SchemaVersionV1,
+				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
+				TerminalDecisionProvider: badProv,
+			},
+		)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "featurebundle: contributed terminal-decision provider")
-		require.Equal(t, snapshot, m, "receiver must not mutate when incoming provider is invalid")
+		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider is invalid")
 	})
 
 	t.Run("fail_before_mutate_on_typed_nil_provider", func(t *testing.T) {
 		t.Parallel()
-		var m MergedFeatureSurface
-		err := m.Append(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-		})
-		require.NoError(t, err)
-		snapshot := m
-
 		var typedNil *charStubTerminalProvider
-		err = m.Append(lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-			TerminalDecisionProvider: typedNil,
-		})
+		gen, err := MergeBundlesGenerated(
+			lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
+			},
+			lipfeature.FeatureBundle{
+				SchemaVersion:            lipfeature.SchemaVersionV1,
+				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
+				TerminalDecisionProvider: typedNil,
+			},
+		)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		require.Equal(t, snapshot, m, "receiver must not mutate when incoming provider is typed nil")
+		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider is typed nil")
 	})
 
 	t.Run("fail_before_mutate_on_panicking_provider", func(t *testing.T) {
 		t.Parallel()
-		var m MergedFeatureSurface
-		err := m.Append(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-		})
-		require.NoError(t, err)
-		snapshot := m
-
-		err = m.Append(lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-			TerminalDecisionProvider: charStubPanicTerminalProvider{},
-		})
+		gen, err := MergeBundlesGenerated(
+			lipfeature.FeatureBundle{
+				SchemaVersion: lipfeature.SchemaVersionV1,
+				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
+			},
+			lipfeature.FeatureBundle{
+				SchemaVersion:            lipfeature.SchemaVersionV1,
+				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
+				TerminalDecisionProvider: charStubPanicTerminalProvider{},
+			},
+		)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		require.Equal(t, snapshot, m, "receiver must not mutate when incoming provider panics during ID()")
+		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider panics during ID()")
 	})
 }
 
@@ -339,12 +326,12 @@ func TestTerminalDecision_ProviderIdentityValidation(t *testing.T) {
 		t.Run("valid_"+id, func(t *testing.T) {
 			t.Parallel()
 			prov := charStubTerminalProvider{tag: id}
-			merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+			gen, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
 				TerminalDecisionProvider: prov,
 			})
 			require.NoError(t, err)
-			require.Equal(t, prov, merged.TerminalDecisionProvider)
+			require.Equal(t, prov, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 		})
 	}
 
@@ -362,7 +349,7 @@ func TestTerminalDecision_ProviderIdentityValidation(t *testing.T) {
 	for _, tc := range invalidCases {
 		t.Run("invalid_"+tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+			_, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 				SchemaVersion:            lipfeature.SchemaVersionV1,
 				TerminalDecisionProvider: tc.provider,
 			})

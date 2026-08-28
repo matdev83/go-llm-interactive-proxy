@@ -184,51 +184,6 @@ func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e
 
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
 
-// --- Acceptance Criteria 2 & 3: Overlay Terminal Decision Provider First-Wins ---
-
-// TestOverlayExtensions_TerminalDecisionFirstWins pins requirement 1.2, 4.2, 5.1:
-// - In overlayExtensions, the terminal-decision provider slot is FIRST-WINS (unlike merge path which errors on conflict).
-// - If dst already has a provider, src is ignored and no error is raised.
-// - If dst is nil, src provider occupies the slot.
-func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
-	t.Parallel()
-
-	provA := overTerminalProvider{tag: "prov-a"}
-	provB := overTerminalProvider{tag: "prov-b"}
-
-	t.Run("dst_has_provider_src_has_different_provider_first_wins", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider, "first provider must win; second is silently dropped")
-	})
-
-	t.Run("dst_nil_src_has_provider", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provB, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("dst_has_provider_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("both_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Nil(t, dst.TerminalDecisionProvider)
-	})
-}
-
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 
 // TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil pins overwrite-if-non-nil:

@@ -3,7 +3,6 @@ package featurebundle
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -247,44 +246,47 @@ func (testLifecycle) SafeUnderCandidateOverlap() bool { return true }
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if m.TerminalDecisionProvider != nil || len(m.Lifecycles) != 0 {
+	if len(m.Lifecycles) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	t.Parallel()
-	empty, err := MergeBundlesChecked()
+	empty, err := MergeBundlesGenerated()
 	if err != nil {
 		t.Fatalf("empty merge error: %v", err)
 	}
-	if empty.TerminalDecisionProvider != nil {
+	if lipfeature.Get(empty.Frozen, lipfeature.PlaneTerminalDecisionProvider) != nil {
 		t.Fatal("empty merge unexpectedly contributed provider")
 	}
 
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
-	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+	merged, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
 		TerminalDecisionProvider: provider,
 	})
 	if err != nil {
 		t.Fatalf("one-provider merge error: %v", err)
 	}
-	if merged.TerminalDecisionProvider != provider {
-		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
+	if lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider) != provider {
+		t.Fatalf("merged provider = %#v, want %#v", lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider), provider)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
 	t.Parallel()
 	first := testTerminalDecisionProvider{tag: "provider.first"}
 	second := testTerminalDecisionProvider{tag: "provider.second"}
-	merged, err := MergeBundlesChecked(
+	merged, err := MergeBundlesGenerated(
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: first},
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: second},
 	)
 	if err == nil {
 		t.Fatal("duplicate providers were accepted")
+	}
+	if !errors.Is(err, lipfeature.ErrExclusiveConflict) {
+		t.Fatalf("conflict error = %v, want ErrExclusiveConflict", err)
 	}
 	if !errors.Is(err, ErrTerminalDecisionProviderConflict) {
 		t.Fatalf("conflict error = %v, want ErrTerminalDecisionProviderConflict", err)
@@ -292,32 +294,20 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.Lifecycles) != 0 {
+	if !merged.Frozen.IsZero() || len(merged.Lifecycles) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
 	t.Parallel()
 	var typedNil *testTerminalDecisionProvider
-	_, err := MergeBundlesChecked(lipfeature.FeatureBundle{
+	_, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
 		SchemaVersion:            lipfeature.SchemaVersionV1,
 		TerminalDecisionProvider: typedNil,
 	})
 	if !errors.Is(err, terminaldecision.ErrInvalidProvider) {
 		t.Fatalf("typed-nil provider error = %v, want ErrInvalidProvider", err)
-	}
-}
-
-func TestMergedFeatureSurfaceTerminalDecisionContributionIsSingular(t *testing.T) {
-	t.Parallel()
-	field, ok := reflect.TypeFor[MergedFeatureSurface]().FieldByName("TerminalDecisionProvider")
-	if !ok {
-		t.Fatal("MergedFeatureSurface is missing TerminalDecisionProvider")
-	}
-	want := reflect.TypeFor[terminaldecision.Provider]()
-	if field.Type != want {
-		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
 	}
 }
 

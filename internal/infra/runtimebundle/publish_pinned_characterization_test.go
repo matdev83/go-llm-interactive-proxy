@@ -184,11 +184,9 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "char-done"}, nil
 }
 
-// buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
+// buildBundleExtensions creates an ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
-	return runtimebundle.ExtensionsOptions{
-		TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
-	}
+	return runtimebundle.ExtensionsOptions{}
 }
 
 func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices {
@@ -201,7 +199,8 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 		_ = n.Decode(&cfg)
 		label := cfg.Label
 		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
+			SchemaVersion:            lipfeature.SchemaVersionV1,
+			TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
 			LocalTurnHandlers: []localturn.Handler{
 				charBundleLocalTurnHandler{id: label + "-localturn", ord: 0},
 			},

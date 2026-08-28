@@ -50,7 +50,7 @@ func (w MigrationWave) String() string {
 
 // ActiveMigrationWave defines the currently active migration wave ratchet.
 // As migration waves complete, advance this constant to lock in forbidden mirror rules.
-const ActiveMigrationWave = Wave5a_GuardsCompaction
+const ActiveMigrationWave = Wave5b_LocalTurnTerminal
 
 // MirrorShapeKind classifies the forbidden hand-authored mirror pattern.
 type MirrorShapeKind string

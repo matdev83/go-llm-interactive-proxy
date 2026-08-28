@@ -124,17 +124,11 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 }
 
 // ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
-// accessing each plane value via lipfeature.Get and the terminal-decision provider identity
-// via lipfeature.FrozenIdentity.
+// retaining the Lifecycles side channel.
 func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
-	m := MergedFeatureSurface{
-		TerminalDecisionProvider: lipfeature.Get(g.Frozen, lipfeature.PlaneTerminalDecisionProvider),
-		Lifecycles:               g.Lifecycles,
+	return MergedFeatureSurface{
+		Lifecycles: g.Lifecycles,
 	}
-	if id, hasID := lipfeature.FrozenIdentity(g.Frozen, lipfeature.PlaneTerminalDecisionProvider); hasID {
-		m.terminalDecisionProviderID = id
-	}
-	return m
 }
 
 // ContributeBundle contributes all non-empty / non-nil planes from FeatureBundle b into

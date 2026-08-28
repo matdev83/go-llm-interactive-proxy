@@ -93,6 +93,7 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 	// Exclusive plane: TerminalDecisionProvider
 	assert.Equal(t, feature.CombExclusive, feature.PlaneTerminalDecisionProvider.Rules.Feature)
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
+	assert.Equal(t, feature.ErrTerminalDecisionProviderConflict, feature.PlaneTerminalDecisionProvider.ExclusiveConflictError)
 }
 
 // TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.
@@ -115,6 +116,7 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 		"compaction_observers",
 		"compaction_preservers",
 		"local_turn_handlers",
+		"terminal_decision_provider",
 	}
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)
 }

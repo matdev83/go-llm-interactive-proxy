@@ -427,7 +427,10 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 			SchemaVersion:            lipfeature.SchemaVersionV1,
 			TerminalDecisionProvider: provB,
 		}
-		planeparity.AssertDualPathParity(t, b1, b2)
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
+		require.Error(t, err)
+		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+		require.Equal(t, featurebundle.GeneratedMergeSurface{}, gen)
 	})
 
 	t.Run("same_provider_recontribution_conflict", func(t *testing.T) {
@@ -440,7 +443,10 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 			SchemaVersion:            lipfeature.SchemaVersionV1,
 			TerminalDecisionProvider: provA,
 		}
-		planeparity.AssertDualPathParity(t, b1, b2)
+		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
+		require.Error(t, err)
+		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+		require.Equal(t, featurebundle.GeneratedMergeSurface{}, gen)
 	})
 }
 
@@ -491,7 +497,9 @@ func TestPlaneParity_DualPathInvalidContributions(t *testing.T) {
 	for _, tc := range invalidCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			planeparity.AssertDualPathParity(t, tc.bundle)
+			gen, err := featurebundle.MergeBundlesGenerated(tc.bundle)
+			require.Error(t, err)
+			require.Equal(t, featurebundle.GeneratedMergeSurface{}, gen)
 		})
 	}
 }
@@ -508,10 +516,7 @@ func TestPlaneParity_DualPathFailBeforeMutate(t *testing.T) {
 	bConflicting := makeParityBundle("Bad", false)
 	bConflicting.TerminalDecisionProvider = provB
 
-	// 1. Dual-path parity on multi-bundle conflict
-	planeparity.AssertDualPathParity(t, bGood, bConflicting)
-
-	// 2. Direct verification that generated merge produces empty result on error
+	// Direct verification that generated merge produces empty result on error
 	res, err := featurebundle.MergeBundlesGenerated(bGood, bConflicting)
 	require.Error(t, err)
 	require.Equal(t, featurebundle.GeneratedMergeSurface{}, res, "candidate must be discarded on conflict")

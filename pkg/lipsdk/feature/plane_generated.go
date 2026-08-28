@@ -411,6 +411,21 @@ func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, sou
 			return err
 		}
 	}
+	if gf.terminalDecisionProvider != nil {
+		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.terminalDecisionProviderHasID {
+			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
+		}
+		gc.terminalDecisionProvider = gf.terminalDecisionProvider
+		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
+		gc.terminalDecisionProviderHasID = true
+	}
 	return nil
 }
 
@@ -640,6 +655,21 @@ func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, sourc
 				}
 			}
 			if err := ContributeSource(dst, PlaneLocalTurnHandlers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneTerminalDecisionProvider.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.(terminaldecision.Provider)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTerminalDecisionProvider.ID,
+					Err:      fmt.Errorf("%w: expected terminaldecision.Provider, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneTerminalDecisionProvider, source, contributorID, typed); err != nil {
 				return err
 			}
 		}

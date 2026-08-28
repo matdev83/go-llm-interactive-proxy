@@ -183,12 +183,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	// 4. Exclusive conflict check.
 	if rule == CombExclusive {
 		if existingID, occupied := s.identities[p.ID]; occupied {
-			conflictErr := fmt.Errorf("%w: %q and %q", ErrExclusiveConflict, existingID, incomingID)
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  p.ID,
-				Err:      conflictErr,
-			}
+			return makeExclusiveConflictError(contributorID, p.ID, p.ExclusiveConflictError, existingID, incomingID)
 		}
 	}
 

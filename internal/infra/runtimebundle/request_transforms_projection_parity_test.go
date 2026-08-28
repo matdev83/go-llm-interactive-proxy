@@ -858,9 +858,6 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *test
 				id: "unrelated-cand-so",
 			},
 		},
-		TerminalDecisionProvider: charTerminalProvider{
-			id: "unrelated-cand-terminal",
-		},
 	}
 
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
@@ -932,7 +929,6 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *test
 	assert.Equal(t, traffic.NoopObserver{}, snap.TrafficObserver(), "unrelated candidate traffic observer must be ignored")
 	assert.Equal(t, usage.NoopObserver{}, snap.UsageObserver(), "unrelated candidate usage observer must be ignored")
 	assert.Empty(t, snap.StreamObserverFactories(), "unrelated candidate stream observer factory must be ignored")
-	assert.Nil(t, snap.TerminalDecisionProvider(), "unrelated candidate terminal decision provider must be ignored")
 }
 
 func TestCompileGeneration_CandidateFeaturePlanes_ReasoningPreservationAttemptReplacement(t *testing.T) {

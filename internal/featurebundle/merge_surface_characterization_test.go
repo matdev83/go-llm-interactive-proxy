@@ -336,12 +336,12 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 	}
 
 	// Exclusive slot: a later bundle's provider lands after ordered slice
-	// contributions; the single contribution wins the one slot.
+	// contributions; the single contribution wins the one slot in GeneratedMergeSurface.
 	provider := charTerminalProvider{tag: "C-provider"}
-	final, err := MergeBundlesChecked(charOrderedBundle("A"), charOrderedBundle("B"),
+	finalGen, err := MergeBundlesGenerated(charOrderedBundle("A"), charOrderedBundle("B"),
 		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provider})
 	require.NoError(t, err)
-	require.Equal(t, provider, final.TerminalDecisionProvider)
+	require.Equal(t, provider, lipfeature.Get(finalGen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 }
 
 // Pins actual nil-vs-empty semantics of the legacy merge: nothing materializes
@@ -407,32 +407,28 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 // Pins validate-before-mutate: a rejected contribution leaves the accumulated
 // receiver byte-for-byte unchanged, so lifecycles/hooks already merged are
 // neither lost nor reordered by a failing Append.
-func TestMergedFeatureSurface_Append_failureLeavesReceiverUnchanged(t *testing.T) {
+func TestMergeBundlesGenerated_failureLeavesCandidateDiscarded(t *testing.T) {
 	t.Parallel()
 
-	m, err := MergeBundlesChecked(charBundle("A"))
-	require.NoError(t, err)
-	snapshot := m
-
-	err = m.Append(charBundle("B"))
+	gen, err := MergeBundlesGenerated(charBundle("A"), charBundle("B"))
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 	require.Contains(t, err.Error(), "A-provider")
 	require.Contains(t, err.Error(), "B-provider")
-	require.Equal(t, snapshot, m)
+	require.Equal(t, GeneratedMergeSurface{}, gen)
 }
 
 // Pins fail-closed candidate discard: when a later bundle conflicts, the whole
 // accumulated candidate (including earlier lifecycles) is discarded rather
 // than returned partially merged.
-func TestMergeBundlesChecked_conflictDiscardsAccumulatedCandidate(t *testing.T) {
+func TestMergeBundlesGenerated_conflictDiscardsAccumulatedCandidate(t *testing.T) {
 	t.Parallel()
 
-	merged, err := MergeBundlesChecked(
+	merged, err := MergeBundlesGenerated(
 		charBundle("A"),
 		charBundle("B"),
 	)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-	require.Equal(t, MergedFeatureSurface{}, merged)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+	require.Equal(t, GeneratedMergeSurface{}, merged)
 }

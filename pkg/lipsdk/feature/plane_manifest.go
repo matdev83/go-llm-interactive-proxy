@@ -863,13 +863,6 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 		Feature: CombExclusive,
 	},
 	NilPolicy: NilReject,
-	IsNil: func(v terminaldecision.Provider) bool {
-		if v == nil {
-			return true
-		}
-		_, err := terminaldecision.ProviderIdentity(v)
-		return err != nil
-	},
 	Identity: func(v terminaldecision.Provider) (string, bool) {
 		id, err := terminaldecision.ProviderIdentity(v)
 		if err != nil {
@@ -884,6 +877,7 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 	Combine: func(source SourceKind, current, incoming terminaldecision.Provider) (terminaldecision.Provider, error) {
 		return incoming, nil
 	},
+	ExclusiveConflictError: ErrTerminalDecisionProviderConflict,
 }
 
 // StandardPlanes is the ordered slice of all standard feature planes.
@@ -932,4 +926,5 @@ var StandardCandidatePlanes = []string{
 	"compaction_observers",
 	"compaction_preservers",
 	"local_turn_handlers",
+	"terminal_decision_provider",
 }
