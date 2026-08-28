@@ -238,7 +238,7 @@
   - _Boundary: composition root, core/runtime_
   - _Depends: 8.4_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
-- [ ] 9.2 Complete diagnostics occupancy and privilege derivation
+- [x] 9.2 Complete diagnostics occupancy and privilege derivation
   - Derive occupancy, coalescing, labels, ordering, nil filtering, and privilege flags solely from declaration diagnostics descriptors.
   - Observable completion: inventory goldens are byte-equivalent and a disposable manifest plane automatically appears without a projector branch.
   - _Requirements: 6.1, 6.2_

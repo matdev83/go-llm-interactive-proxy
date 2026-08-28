@@ -145,10 +145,38 @@ type PrivilegeProjection struct {
 	Flags []string
 }
 
+// Canonical privilege flag constants.
+const (
+	PrivilegeRawCapture        = "raw_capture"
+	PrivilegeAuxiliaryRequests = "auxiliary_requests"
+	PrivilegeAuthProvider      = "auth_provider"
+	PrivilegeCompletionGate    = "completion_gate"
+)
+
+func validatePrivilegeFlag(flag string) error {
+	switch flag {
+	case PrivilegeRawCapture, PrivilegeAuxiliaryRequests, PrivilegeAuthProvider, PrivilegeCompletionGate:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown privilege flag %q", ErrInvalidPlane, flag)
+	}
+}
+
+// DiagnosticPlaneProjection represents the type-erased diagnostic projection of a single plane.
+type DiagnosticPlaneProjection struct {
+	PlaneID       string
+	StageID       string
+	CoalesceGroup string
+	Order         int
+	Occupants     []DiagnosticOccupant
+	Privileges    PrivilegeProjection
+}
+
 // DiagnosticDescriptor describes how a plane's frozen values are materialized for diagnostics.
 type DiagnosticDescriptor[T any] struct {
 	StageID       string
 	CoalesceGroup string
+	Order         int
 	Materialize   func(T) []DiagnosticOccupant
 	Privileges    func(T) PrivilegeProjection
 }
@@ -218,11 +246,29 @@ func (p Plane[T]) ProjectPrivileges(v T) PrivilegeProjection {
 type PlaneDeclaration interface {
 	PlaneID() string
 	ValidateDeclaration() error
+	DiagnosticOrder() int
+	DiagnosticStageID() string
+	DiagnosticCoalesceGroup() string
 }
 
 // PlaneID returns the stable ID of the plane.
 func (p Plane[T]) PlaneID() string {
 	return p.ID
+}
+
+// DiagnosticOrder returns the explicit diagnostic order of the plane.
+func (p Plane[T]) DiagnosticOrder() int {
+	return p.Diagnostics.Order
+}
+
+// DiagnosticStageID returns the diagnostics stage ID of the plane.
+func (p Plane[T]) DiagnosticStageID() string {
+	return p.Diagnostics.StageID
+}
+
+// DiagnosticCoalesceGroup returns the diagnostics coalesce group of the plane.
+func (p Plane[T]) DiagnosticCoalesceGroup() string {
+	return p.Diagnostics.CoalesceGroup
 }
 
 // ValidateDeclaration verifies that the plane declaration is well-formed, complete,
@@ -319,8 +365,14 @@ func (p Plane[T]) ValidateDeclaration() error {
 		if p.Diagnostics.Materialize == nil {
 			return fmt.Errorf("%w: plane %q: diagnostics StageID is set but Materialize function is nil", ErrInvalidPlane, p.ID)
 		}
+		if p.Diagnostics.Order <= 0 {
+			return fmt.Errorf("%w: plane %q: diagnostics StageID is set but Order must be > 0 (got %d)", ErrInvalidPlane, p.ID, p.Diagnostics.Order)
+		}
+		if !ValidateStageID(p.Diagnostics.StageID) {
+			return fmt.Errorf("%w: plane %q: invalid diagnostics stage ID %q", ErrInvalidPlane, p.ID, p.Diagnostics.StageID)
+		}
 	} else {
-		if p.Diagnostics.Materialize != nil || p.Diagnostics.Privileges != nil || p.Diagnostics.CoalesceGroup != "" {
+		if p.Diagnostics.Materialize != nil || p.Diagnostics.Privileges != nil || p.Diagnostics.CoalesceGroup != "" || p.Diagnostics.Order != 0 {
 			return fmt.Errorf("%w: plane %q: diagnostics StageID must not be empty when diagnostics metadata is provided", ErrInvalidPlane, p.ID)
 		}
 	}
@@ -328,10 +380,13 @@ func (p Plane[T]) ValidateDeclaration() error {
 	return nil
 }
 
-// ValidateManifest checks that a collection of plane declarations contains no duplicate IDs
-// and that every plane declaration is valid.
+// ValidateManifest checks that a collection of plane declarations contains no duplicate IDs,
+// consistent diagnostic orders and coalesce groups, and that every plane declaration is valid.
 func ValidateManifest(declarations ...PlaneDeclaration) error {
 	seen := make(map[string]struct{}, len(declarations))
+	seenOrders := make(map[int]PlaneDeclaration)
+	coalesceStages := make(map[string]string)
+
 	for _, decl := range declarations {
 		if decl == nil {
 			return fmt.Errorf("%w: nil plane declaration in manifest", ErrInvalidPlane)
@@ -344,6 +399,32 @@ func ValidateManifest(declarations ...PlaneDeclaration) error {
 			return fmt.Errorf("%w: duplicate plane ID %q in manifest", ErrInvalidPlane, id)
 		}
 		seen[id] = struct{}{}
+
+		order := decl.DiagnosticOrder()
+		if order > 0 {
+			if prev, exists := seenOrders[order]; exists {
+				// duplicate order values are allowed only for declarations sharing the same non-empty CoalesceGroup and StageID
+				if decl.DiagnosticCoalesceGroup() == "" || prev.DiagnosticCoalesceGroup() == "" ||
+					decl.DiagnosticCoalesceGroup() != prev.DiagnosticCoalesceGroup() ||
+					decl.DiagnosticStageID() != prev.DiagnosticStageID() {
+					return fmt.Errorf("%w: duplicate diagnostic order %d between plane %q and %q with different coalesce groups", ErrInvalidPlane, order, decl.PlaneID(), prev.PlaneID())
+				}
+			} else {
+				seenOrders[order] = decl
+			}
+		}
+
+		cg := decl.DiagnosticCoalesceGroup()
+		if cg != "" {
+			stage := decl.DiagnosticStageID()
+			if prevStage, exists := coalesceStages[cg]; exists {
+				if prevStage != stage {
+					return fmt.Errorf("%w: mismatching stage IDs %q and %q for coalesce group %q", ErrInvalidPlane, prevStage, stage, cg)
+				}
+			} else {
+				coalesceStages[cg] = stage
+			}
+		}
 	}
 	return nil
 }

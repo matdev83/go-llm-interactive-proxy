@@ -6,7 +6,6 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"slices"
 	"strings"
 	"unicode"
 )
@@ -23,6 +22,12 @@ type planeInfo struct {
 	candidate              bool   // whether plane allows candidate overlay contribution
 	hasRequestMaterializer bool   // whether plane has a RequestMaterializer
 	requestBorrow          bool   // whether plane exposes RequestExecutionView method
+	hasDiagStageID         bool
+	diagStageID            string
+	diagOrder              int
+	diagCoalesceGroup      string
+	hasDiagMaterialize     bool
+	hasDiagPrivileges      bool
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -56,36 +61,30 @@ func GenerateFeaturePlanesCode(manifestBytes []byte) ([]byte, error) {
 	return formatted, nil
 }
 
-func deriveImports(f *ast.File) ([]string, error) {
-	var sdkImports []string
-	seen := make(map[string]bool)
-
-	for _, imp := range f.Imports {
-		if imp.Path == nil {
-			continue
-		}
-		path := strings.Trim(imp.Path.Value, `"`)
-		if !strings.Contains(path, "/") {
-			continue
-		}
-		var importClause string
-		if imp.Name != nil && imp.Name.Name != "" && imp.Name.Name != "_" {
-			importClause = fmt.Sprintf("%s %q", imp.Name.Name, path)
-		} else {
-			importClause = fmt.Sprintf("%q", path)
-		}
-		if !seen[importClause] {
-			seen[importClause] = true
-			sdkImports = append(sdkImports, importClause)
-		}
+// GenerateFeatureBundleProjectionCode parses plane_manifest.go source bytes and returns the formatted Go code for internal/featurebundle/bundle_projection_generated.go.
+func GenerateFeatureBundleProjectionCode(manifestBytes []byte) ([]byte, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "plane_manifest.go", manifestBytes, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 
-	if len(sdkImports) == 0 {
-		return nil, fmt.Errorf("no SDK imports found in manifest")
+	planes, err := extractPlanes(file, manifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("extract planes: %w", err)
 	}
 
-	slices.Sort(sdkImports)
-	return sdkImports, nil
+	generatedCode, err := generateBundleProjectionCode(planes)
+	if err != nil {
+		return nil, fmt.Errorf("generate bundle projection code: %w", err)
+	}
+
+	formatted, err := format.Source(generatedCode)
+	if err != nil {
+		return nil, fmt.Errorf("format generated bundle projection code: %w\n---\n%s\n---", err, string(generatedCode))
+	}
+
+	return formatted, nil
 }
 
 func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
@@ -209,6 +208,10 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 		}
 	}
 
+	if err := validateDiagnosticsCrossPlane(orderedPlanes); err != nil {
+		return nil, err
+	}
+
 	return orderedPlanes, nil
 }
 
@@ -253,6 +256,9 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	var hasIdentity bool
 	var hasRequestMaterializer bool
 	var requestBorrow bool
+	var diagStageID string
+	var diagOrder int
+	var diagCoalesceGroup string
 	var hasDiagStageID bool
 	var hasDiagMaterialize bool
 	var hasDiagPrivileges bool
@@ -334,6 +340,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
 										hasDiagStageID = true
+										diagStageID = val
 									}
 								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
 									hasDiagStageID = false
@@ -341,6 +348,14 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
 										hasDiagStageID = true
+										diagStageID = valStr
+									}
+								}
+							case "Order":
+								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.INT {
+									var ord int
+									if _, err := fmt.Sscanf(basicLit.Value, "%d", &ord); err == nil {
+										diagOrder = ord
 									}
 								}
 							case "Materialize":
@@ -353,6 +368,9 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
 									hasDiagPrivileges = false
 								} else {
+									if err := validatePrivilegesFunc(varName, dKV.Value); err != nil {
+										return planeInfo{}, err
+									}
 									hasDiagPrivileges = true
 								}
 							case "CoalesceGroup":
@@ -360,6 +378,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
 										hasDiagCoalesce = true
+										diagCoalesceGroup = val
 									}
 								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
 									hasDiagCoalesce = false
@@ -367,6 +386,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
 										hasDiagCoalesce = true
+										diagCoalesceGroup = valStr
 									}
 								}
 							}
@@ -429,10 +449,15 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		}
 	}
 
-	if hasDiagStageID && !hasDiagMaterialize {
-		return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
+	if hasDiagStageID {
+		if !hasDiagMaterialize {
+			return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
+		}
+		if diagOrder <= 0 {
+			return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Order must be > 0 (got %d)", diagOrder)
+		}
 	}
-	if !hasDiagStageID && (hasDiagMaterialize || hasDiagPrivileges || hasDiagCoalesce) {
+	if !hasDiagStageID && (hasDiagMaterialize || hasDiagPrivileges || hasDiagCoalesce || diagOrder != 0) {
 		return planeInfo{}, fmt.Errorf("diagnostics StageID must not be empty when diagnostics metadata is provided")
 	}
 
@@ -447,22 +472,11 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		genBinderRule:          genBinderRule,
 		hasRequestMaterializer: hasRequestMaterializer,
 		requestBorrow:          requestBorrow,
+		hasDiagStageID:         hasDiagStageID,
+		diagStageID:            diagStageID,
+		diagOrder:              diagOrder,
+		diagCoalesceGroup:      diagCoalesceGroup,
+		hasDiagMaterialize:     hasDiagMaterialize,
+		hasDiagPrivileges:      hasDiagPrivileges,
 	}, nil
-}
-
-func validateRequestMaterializerExpr(expr ast.Expr, varName string) error {
-	e := expr
-	for {
-		if p, ok := e.(*ast.ParenExpr); ok {
-			e = p.X
-			continue
-		}
-		break
-	}
-	switch e.(type) {
-	case *ast.FuncLit, *ast.Ident, *ast.SelectorExpr:
-		return nil
-	default:
-		return fmt.Errorf("plane %s: RequestMaterializer expression must be a function literal, identifier, or package selector, got %T", varName, expr)
-	}
 }

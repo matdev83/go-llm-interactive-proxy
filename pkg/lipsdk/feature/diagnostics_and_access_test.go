@@ -152,8 +152,9 @@ func TestPlaneDeclarationValidation_DiagnosticsCompleteness(t *testing.T) {
 					Feature: feature.CombConcatenate,
 				},
 				Diagnostics: feature.DiagnosticDescriptor[[]string]{
-					StageID:       "stage.submit",
+					StageID:       feature.StageIDSubmit,
 					CoalesceGroup: "submit_group",
+					Order:         10,
 					Materialize: func(v []string) []feature.DiagnosticOccupant {
 						occupants := make([]feature.DiagnosticOccupant, 0, len(v))
 						for _, item := range v {
@@ -175,6 +176,71 @@ func TestPlaneDeclarationValidation_DiagnosticsCompleteness(t *testing.T) {
 				},
 			},
 			wantError: false,
+		},
+		{
+			name: "zero order with stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_zero_order",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					StageID: feature.StageIDSubmit,
+					Order:   0,
+					Materialize: func(v []string) []feature.DiagnosticOccupant {
+						return nil
+					},
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "Order must be > 0",
+		},
+		{
+			name: "negative order with stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_neg_order",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					StageID: feature.StageIDSubmit,
+					Order:   -5,
+					Materialize: func(v []string) []feature.DiagnosticOccupant {
+						return nil
+					},
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "Order must be > 0",
+		},
+		{
+			name: "positive order without stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_order_no_stage",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					Order: 10,
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "diagnostics StageID must not be empty when diagnostics metadata is provided",
 		},
 		{
 			name: "omitted diagnostics descriptor passes validation",
@@ -392,8 +458,9 @@ func TestDiagnosticsDescriptor_MaterializeAndPrivileges(t *testing.T) {
 			Feature: feature.CombConcatenate,
 		},
 		Diagnostics: feature.DiagnosticDescriptor[[]string]{
-			StageID:       "stage.submit",
+			StageID:       feature.StageIDSubmit,
 			CoalesceGroup: "group.hooks",
+			Order:         10,
 			Materialize: func(v []string) []feature.DiagnosticOccupant {
 				occupants := make([]feature.DiagnosticOccupant, 0, len(v))
 				for _, s := range v {
@@ -727,4 +794,13 @@ func TestPlaneLocalTurnHandlers_DiagnosticsDescriptor(t *testing.T) {
 	// Empty / all nil input returns nil or empty occupants
 	assert.Empty(t, feature.PlaneLocalTurnHandlers.Diagnostics.Materialize(nil))
 	assert.Empty(t, feature.PlaneLocalTurnHandlers.Diagnostics.Materialize([]localturn.Handler{nil, typedNil}))
+}
+
+func TestPrivilegeConstants(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "raw_capture", feature.PrivilegeRawCapture)
+	assert.Equal(t, "auxiliary_requests", feature.PrivilegeAuxiliaryRequests)
+	assert.Equal(t, "auth_provider", feature.PrivilegeAuthProvider)
+	assert.Equal(t, "completion_gate", feature.PrivilegeCompletionGate)
 }

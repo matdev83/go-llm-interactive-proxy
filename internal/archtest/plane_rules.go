@@ -289,6 +289,10 @@ func isRequestExecutionViewCall(relPath string, call *ast.CallExpr, f *ast.File)
 	}
 }
 
+func isDiagnosticsTargetFile(relPath string) bool {
+	return filepath.ToSlash(relPath) == "internal/core/diag/inventory_extensions.go"
+}
+
 // ScanForbiddenMirrors walks all production files and finds forbidden mirrors past maxCompletedWave.
 func ScanForbiddenMirrors(root string, maxCompletedWave MigrationWave) ([]MirrorFinding, error) {
 	var findings []MirrorFinding
@@ -396,7 +400,9 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 		case *ast.FuncDecl:
 			funcName := node.Name.Name
 			qualSym := QualifiedSymbol(relPath, node)
-			if funcName == "Append" {
+			if isDiagnosticsTargetFile(relPath) {
+				inspectDiagnosticsBody(f, node, fset, maxCompletedWave, addFinding)
+			} else if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
 			} else if IsAllowedHookProjection(qualSym) {
 				// Exact qualified symbol allowlist: Hook-bus view projection via Get is allowed
@@ -409,8 +415,6 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 				inspectProjectionBody(node, fset, maxCompletedWave, addFinding)
 			} else if isGenerationOpMethod(node) {
 				inspectGenerationOpMethod(relPath, f, node, fset, maxCompletedWave, addFinding)
-			} else if strings.Contains(relPath, "internal/core/diag") || strings.Contains(funcName, "stageOccupancy") {
-				inspectDiagnosticsBody(node, fset, maxCompletedWave, addFinding)
 			} else if strings.Contains(relPath, "internal/testkit/") || strings.Contains(relPath, "internal/refbackend/") || strings.Contains(relPath, "internal/refclient/") {
 				// Test harness and emulator packages are allowed to read planes via Get
 			} else {
