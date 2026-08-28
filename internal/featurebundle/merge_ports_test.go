@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -72,13 +73,18 @@ func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
 	}
 }
 
-func TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers(t *testing.T) {
+func TestSnapshotOptions_carriesFeaturePlanes(t *testing.T) {
 	t.Parallel()
-	opts := extensions.SnapshotOptions{
+	frozen := testkit.FreezeBundle(lipfeature.FeatureBundle{
+		SchemaVersion:           lipfeature.SchemaVersionV1,
 		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
 		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+	})
+	opts := extensions.SnapshotOptions{
+		FeaturePlanes: frozen,
 	}
-	if len(opts.AttemptTransforms) != 1 || len(opts.StreamObserverFactories) != 1 {
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
+	if len(snap.AttemptTransforms()) != 1 || len(snap.StreamObserverFactories()) != 1 {
 		t.Fatalf("SnapshotOptions fields missing: %+v", opts)
 	}
 }
@@ -135,10 +141,7 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionObservers: obs}
-	if len(opts.CompactionObservers) != 3 {
-		t.Fatalf("SnapshotOptions CompactionObservers len=%d want 3", len(opts.CompactionObservers))
-	}
+	opts := extensions.SnapshotOptions{FeaturePlanes: gen.Frozen}
 
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
 	got := snap.CompactionObservers()
@@ -187,7 +190,7 @@ func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionPreservers: pres}
+	opts := extensions.SnapshotOptions{FeaturePlanes: gen.Frozen}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
 	got := snap.CompactionPreservers()
 	if len(got) != 3 {
@@ -206,8 +209,11 @@ func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
+			StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+		}),
 	})
 	gotAT := snap.AttemptTransforms()
 	gotSO := snap.StreamObserverFactories()

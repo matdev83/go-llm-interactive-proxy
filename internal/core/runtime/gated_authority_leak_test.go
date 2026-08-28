@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -92,7 +93,10 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 			responsePipeline: newResponsePipeline(),
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:   lipfeature.SchemaVersionV1,
+				CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			}),
 		})
 		bindTestRuntimeOwners(rs, ex)
 		return ex, rs

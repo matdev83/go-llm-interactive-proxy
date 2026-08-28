@@ -397,7 +397,10 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 		assert.Equal(t, "guard-m", res.Plane.Guards[2].ID())
 
 		// Snapshot materializes in sorted order (ord ascending, then ID)
-		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+			SecretGuardPlane: res.Plane,
+			FeaturePlanes:    gen.Frozen,
+		})
 		execGuards := snap.SecretGuardExecutionPlane().Guards
 		require.Len(t, execGuards, 3)
 		assert.Equal(t, "guard-a", execGuards[0].ID())

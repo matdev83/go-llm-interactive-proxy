@@ -64,6 +64,24 @@ func sortHooks[T hookParticipant](h []T) []T {
 	return out
 }
 
+func requireNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
+	for _, t := range in {
+		if t == nil {
+			panic("extensions: SnapshotOptions.AttemptTransforms contains nil entry")
+		}
+	}
+	return in
+}
+
+func requireNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
+	for _, f := range in {
+		if f == nil {
+			panic("extensions: SnapshotOptions.StreamObserverFactories contains nil entry")
+		}
+	}
+	return in
+}
+
 // PlaneSubmitHooks declares the SubmitHooks extension plane.
 var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 	ID:           "submit_hooks",
@@ -172,6 +190,12 @@ var PlaneSessionOpeners = Plane[[]session.Opener]{
 	Combine: func(source SourceKind, current, incoming []session.Opener) ([]session.Opener, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: func(v []session.Opener) []session.Opener {
+		if len(v) == 0 {
+			return nil
+		}
+		return cloneSlice(v)
+	},
 	Diagnostics: DiagnosticDescriptor[[]session.Opener]{
 		StageID:       StageIDSessionOpen,
 		CoalesceGroup: "session_open",
@@ -259,6 +283,8 @@ var PlaneToolCallPolicies = Plane[[]toolpolicy.Policy]{
 	Combine: func(source SourceKind, current, incoming []toolpolicy.Policy) ([]toolpolicy.Policy, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: toolpolicy.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
 		StageID:       StageIDToolEventReaction,
 		CoalesceGroup: "tool_reaction",
@@ -287,6 +313,8 @@ var PlaneToolCallFinalizers = Plane[[]toolcall.Finalizer]{
 	Combine: func(source SourceKind, current, incoming []toolcall.Finalizer) ([]toolcall.Finalizer, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: toolcall.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]toolcall.Finalizer]{
 		StageID:       StageIDToolEventReaction,
 		CoalesceGroup: "tool_reaction",
@@ -377,6 +405,7 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	Combine: func(source SourceKind, current, incoming []prerequest.Handler) ([]prerequest.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: prerequest.MaterializeSorted,
 	Diagnostics: DiagnosticDescriptor[[]prerequest.Handler]{
 		StageID: StageIDPreRequest,
 		Materialize: func(v []prerequest.Handler) []DiagnosticOccupant {
@@ -506,6 +535,9 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		}
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: func(v []request.AttemptTransform) []request.AttemptTransform {
+		return request.MaterializeAttemptsSorted(requireNonNilAttemptTransforms(v))
+	},
 	Diagnostics: DiagnosticDescriptor[[]request.AttemptTransform]{
 		StageID: StageIDCandidateAttemptTransform,
 		Materialize: func(v []request.AttemptTransform) []DiagnosticOccupant {
@@ -574,6 +606,9 @@ var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
 			return out, nil
 		}
 		return append(current, incoming...), nil
+	},
+	RequestMaterializer: func(v []response.StreamObserverFactory) []response.StreamObserverFactory {
+		return response.MaterializeSorted(requireNonNilStreamObserverFactories(v))
 	},
 	Diagnostics: DiagnosticDescriptor[[]response.StreamObserverFactory]{
 		StageID: StageIDFinalStreamObservation,
@@ -697,6 +732,7 @@ var PlaneTrafficRedactors = Plane[[]traffic.Redactor]{
 	Combine: func(source SourceKind, current, incoming []traffic.Redactor) ([]traffic.Redactor, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: traffic.MaterializeSortedRedactors,
 	Diagnostics: DiagnosticDescriptor[[]traffic.Redactor]{
 		StageID:       StageIDTrafficObservation,
 		CoalesceGroup: "traffic_observation",
@@ -798,6 +834,8 @@ var PlaneSecretGuards = Plane[[]secretguard.Guard]{
 	Combine: func(source SourceKind, current, incoming []secretguard.Guard) ([]secretguard.Guard, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: secretguard.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]secretguard.Guard]{
 		StageID: StageIDSecretGuard,
 		Materialize: func(v []secretguard.Guard) []DiagnosticOccupant {
@@ -836,6 +874,8 @@ var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 	Combine: func(source SourceKind, current, incoming []localturn.Handler) ([]localturn.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: localturn.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]localturn.Handler]{
 		StageID: StageIDPreRequest,
 		Materialize: func(v []localturn.Handler) []DiagnosticOccupant {

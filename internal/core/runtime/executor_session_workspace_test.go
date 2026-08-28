@@ -2,6 +2,8 @@ package runtime_test
 
 import (
 	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -38,8 +40,11 @@ func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) 
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		SessionOpeners: []session.Opener{labelOpener{}},
-		Workspace:      coreworkspace.NewResolverChain([]lipworkspace.Resolver{memWS{}}),
+		Workspace: coreworkspace.NewResolverChain([]lipworkspace.Resolver{memWS{}}),
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:  lipfeature.SchemaVersionV1,
+			SessionOpeners: []session.Opener{labelOpener{}},
+		}),
 	})
 	var openCtx context.Context
 	ex := runtime.TestExecutor()

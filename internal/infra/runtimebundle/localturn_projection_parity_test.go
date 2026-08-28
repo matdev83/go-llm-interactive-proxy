@@ -454,11 +454,7 @@ func TestLocalTurnProjection_NilAndBoxedTypedNilSemantics(t *testing.T) {
 	t.Run("snapshot_materialize_sorted_filters_nil_and_typed_nil", func(t *testing.T) {
 		t.Parallel()
 		validH := &parityTestLTHandler{id: "valid", ord: 1}
-		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			LocalTurnHandlers: []localturn.Handler{nil, typedNil, validH, nil},
-		})
-		require.NotNil(t, snap)
-		handlers := snap.LocalTurnHandlers()
+		handlers := lipfeature.PlaneLocalTurnHandlers.RequestMaterializer([]localturn.Handler{nil, typedNil, validH, nil})
 		require.Len(t, handlers, 1)
 		assert.Equal(t, "valid", handlers[0].ID())
 	})

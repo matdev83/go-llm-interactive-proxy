@@ -3,6 +3,8 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -749,17 +751,20 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: voidWorkspaceResolver{},
-		RequestTransforms: []request.Transform{oaRtx{
-			runs:    &rtxRuns,
-			order:   &stageOrder,
-			orderMu: &orderMu,
-			marker:  "rtx:",
-		}},
-		CompletionGates: []completion.Gate{oaGate{
-			runs:    &gateRuns,
-			order:   &stageOrder,
-			orderMu: &orderMu,
-		}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{oaRtx{
+				runs:    &rtxRuns,
+				order:   &stageOrder,
+				orderMu: &orderMu,
+				marker:  "rtx:",
+			}},
+			CompletionGates: []completion.Gate{oaGate{
+				runs:    &gateRuns,
+				order:   &stageOrder,
+				orderMu: &orderMu,
+			}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()

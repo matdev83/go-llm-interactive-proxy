@@ -3,6 +3,8 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"testing"
@@ -40,7 +42,10 @@ func TestExecute_completionGateReplacesStream(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testReplaceGate{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{testReplaceGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -116,7 +121,10 @@ func TestExecute_completionGate_truncatedUpstreamNoSyntheticSuccess(t *testing.T
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testReplaceGate{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{testReplaceGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -196,7 +204,10 @@ func TestExecute_completionGateOverflowLivePassthrough(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testPassGate{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{testPassGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -277,7 +288,10 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{preOutputPanicOnlyGate{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{preOutputPanicOnlyGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -326,7 +340,10 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	ex2.Bus = hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(
 		hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{testPassGate{}},
+			FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+				SchemaVersion:   lipfeature.SchemaVersionV1,
+				CompletionGates: []completion.Gate{testPassGate{}},
+			}),
 		},
 	)
 	ex2.Backends = map[string]execbackend.Backend{
@@ -375,7 +392,10 @@ func TestExecute_completionGatePanic_postCommittedNotRecoverable(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{panicCompletionGate{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:   lipfeature.SchemaVersionV1,
+			CompletionGates: []completion.Gate{panicCompletionGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st

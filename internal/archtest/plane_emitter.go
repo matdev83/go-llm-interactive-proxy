@@ -103,6 +103,31 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	buf.WriteString("\treturn gc\n")
 	buf.WriteString("}\n\n")
 
+	// 6b. freezeRequest method on generatedFrozen
+	buf.WriteString("func (gf *generatedFrozen) freezeRequest() *generatedFrozen {\n")
+	buf.WriteString("\tif gf == nil {\n\t\treturn nil\n\t}\n")
+	buf.WriteString("\tnext := &generatedFrozen{\n")
+	for _, p := range planes {
+		if p.hasRequestMaterializer {
+			if strings.HasPrefix(p.typeExpr, "[]") {
+				fmt.Fprintf(&buf, "\t\t%s: materializeRequestSlice(gf.%s, %s.RequestMaterializer),\n", p.fieldName, p.fieldName, p.varName)
+			} else {
+				fmt.Fprintf(&buf, "\t\t%s: %s.RequestMaterializer(gf.%s),\n", p.fieldName, p.varName, p.fieldName)
+			}
+		} else if strings.HasPrefix(p.typeExpr, "[]") {
+			fmt.Fprintf(&buf, "\t\t%s: cloneSlice(gf.%s),\n", p.fieldName, p.fieldName)
+		} else {
+			fmt.Fprintf(&buf, "\t\t%s: gf.%s,\n", p.fieldName, p.fieldName)
+		}
+		if p.isExclusive {
+			fmt.Fprintf(&buf, "\t\t%sID: gf.%sID,\n", p.fieldName, p.fieldName)
+			fmt.Fprintf(&buf, "\t\t%sHasID: gf.%sHasID,\n", p.fieldName, p.fieldName)
+		}
+	}
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn next\n")
+	buf.WriteString("}\n\n")
+
 	// 7. contributeCandidateTo method on generatedFrozen
 	buf.WriteString("func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {\n")
 	buf.WriteString("\tif gf == nil || gc == nil {\n\t\treturn nil\n\t}\n")
@@ -244,7 +269,32 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	}
 	buf.WriteString("}\n\n")
 
-	// 5. Generation binder methods on *ContributionSet for replace-by-identity planes
+	// 10. RequestExecutionView and methods
+	buf.WriteString("// RequestExecutionView is an immutable borrowed view over request-materialized planes.\n")
+	buf.WriteString("// Its returned slices must not be mutated.\n")
+	buf.WriteString("type RequestExecutionView struct {\n")
+	buf.WriteString("\tfrozen FrozenPlaneSet\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("// RequestExecution constructs a RequestExecutionView over the request-materialized planes in in.\n")
+	buf.WriteString("func RequestExecution(in FrozenPlaneSet) RequestExecutionView {\n")
+	buf.WriteString("\treturn RequestExecutionView{frozen: in}\n")
+	buf.WriteString("}\n\n")
+
+	for _, p := range planes {
+		if !p.requestBorrow {
+			continue
+		}
+		pascalName := strings.TrimPrefix(p.varName, "Plane")
+		fmt.Fprintf(&buf, "// %s returns the request-materialized %s without cloning.\n", pascalName, pascalName)
+		buf.WriteString("// The returned slice is immutable borrowed storage and MUST NOT be mutated.\n")
+		fmt.Fprintf(&buf, "func (v RequestExecutionView) %s() %s {\n", pascalName, p.typeExpr)
+		buf.WriteString("\tif v.frozen.frozen == nil {\n\t\treturn nil\n\t}\n")
+		fmt.Fprintf(&buf, "\treturn v.frozen.frozen.%s\n", p.fieldName)
+		buf.WriteString("}\n\n")
+	}
+
+	// 11. Generation binder methods on *ContributionSet for replace-by-identity planes
 	for _, p := range planes {
 		if p.genBinderRule == "CombReplaceByIdentity" {
 			pascalName := strings.TrimPrefix(p.varName, "Plane")

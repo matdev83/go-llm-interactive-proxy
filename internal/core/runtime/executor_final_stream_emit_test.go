@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -103,8 +104,11 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 	}, accountingstream.Config{})
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         gates,
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			CompletionGates:         gates,
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -547,7 +551,10 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -645,8 +652,11 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         []completion.Gate{equalReplaceGate{}},
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			CompletionGates:         []completion.Gate{equalReplaceGate{}},
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -693,8 +703,11 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         []completion.Gate{equalReplaceGate{}},
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			CompletionGates:         []completion.Gate{equalReplaceGate{}},
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -735,7 +748,10 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	rs := &retryRecvStream{
 		terminal: newTurnTerminal(),
@@ -784,7 +800,10 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{factory},
+		}),
 	})
 	start := time.Unix(1, 0)
 	rs := &retryRecvStream{
@@ -841,7 +860,10 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	ex2, _, aLegID2 := newAuthorityRuntimeTestExecutor(t, auth)
 	bus2 := hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus2, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{factory2},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{factory2},
+		}),
 	})
 	rs2 := &retryRecvStream{
 		terminal: newTurnTerminal(),

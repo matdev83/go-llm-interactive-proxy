@@ -185,6 +185,12 @@ type Plane[T any] struct {
 	Identity func(v T) (string, bool)
 	// ExclusiveConflictError is an optional legacy compatibility error joined with ErrExclusiveConflict on conflict.
 	ExclusiveConflictError error
+	// RequestMaterializer is an optional function that materializes/sorts the plane value
+	// for request-scoped snapshot execution. When nil, the value is preserved as-is.
+	RequestMaterializer func(v T) T
+	// RequestBorrow indicates whether this plane exposes a narrow, immutable borrowed execution accessor
+	// on RequestExecutionView for the runtime executor hot path.
+	RequestBorrow bool
 	// Diagnostics configures operator inventory and privilege projection metadata for this plane.
 	Diagnostics DiagnosticDescriptor[T]
 	generated   generatedAccess[T]
@@ -301,6 +307,12 @@ func (p Plane[T]) ValidateDeclaration() error {
 
 	if p.Combine == nil {
 		return fmt.Errorf("%w: plane %q: Combine function must not be nil", ErrInvalidPlane, p.ID)
+	}
+
+	if p.RequestBorrow {
+		if p.RequestMaterializer == nil {
+			return fmt.Errorf("%w: plane %q: RequestBorrow requires non-nil RequestMaterializer", ErrInvalidPlane, p.ID)
+		}
 	}
 
 	if p.Diagnostics.StageID != "" {

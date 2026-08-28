@@ -2,6 +2,7 @@ package feature_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -84,4 +85,20 @@ func TestLegalPipeline_candidateAttemptTransformBetweenRouteHintAndAttemptLifecy
 	if !ok || life.MutationRole != feature.StageRoleObserve {
 		t.Fatalf("attempt_lifecycle must remain observe-only: ok=%v role=%v", ok, life.MutationRole)
 	}
+}
+
+func TestFreezeRequestPlanes_panicsOnNilAttemptTransform(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil AttemptTransform")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "AttemptTransforms contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenCandidateForTest(nil, []request.AttemptTransform{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
 }

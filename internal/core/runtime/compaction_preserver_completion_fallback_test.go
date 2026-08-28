@@ -2,6 +2,8 @@ package runtime_test
 
 import (
 	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"sync"
 	"testing"
@@ -73,7 +75,10 @@ func TestCompactionPreserver_completionOnlyReleaseUsesCommittedRequestTransactio
 	p := &completionFallbackPreserver{}
 	ex := compactionTestExecutor(t, d, nil)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		CompactionPreservers: []compaction.Preserver{p},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:        lipfeature.SchemaVersionV1,
+			CompactionPreservers: []compaction.Preserver{p},
+		}),
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"openai": openStubBackend(func() lipapi.ManagedEventStream {
@@ -115,7 +120,10 @@ func TestCompactionPreserver_completionOnlyAbortRetainsPendingTransaction(t *tes
 	p := &completionFallbackPreserver{}
 	ex := compactionTestExecutor(t, d, nil)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		CompactionPreservers: []compaction.Preserver{p},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:        lipfeature.SchemaVersionV1,
+			CompactionPreservers: []compaction.Preserver{p},
+		}),
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"openai": openStubBackend(func() lipapi.ManagedEventStream {

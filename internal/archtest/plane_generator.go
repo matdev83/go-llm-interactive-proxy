@@ -12,15 +12,17 @@ import (
 )
 
 type planeInfo struct {
-	varName          string // e.g. PlaneSubmitHooks
-	planeID          string // e.g. "submit_hooks"
-	fieldName        string // e.g. submitHooks
-	typeExpr         string // e.g. []hooks.SubmitHook
-	isExclusive      bool   // e.g. terminaldecision.Provider
-	hasIdentity      bool   // whether plane has an identity accessor
-	hasGenBinderRule bool   // whether GenerationBinder rule is declared
-	genBinderRule    string // e.g. CombReplaceByIdentity
-	candidate        bool   // whether plane allows candidate overlay contribution
+	varName                string // e.g. PlaneSubmitHooks
+	planeID                string // e.g. "submit_hooks"
+	fieldName              string // e.g. submitHooks
+	typeExpr               string // e.g. []hooks.SubmitHook
+	isExclusive            bool   // e.g. terminaldecision.Provider
+	hasIdentity            bool   // whether plane has an identity accessor
+	hasGenBinderRule       bool   // whether GenerationBinder rule is declared
+	genBinderRule          string // e.g. CombReplaceByIdentity
+	candidate              bool   // whether plane allows candidate overlay contribution
+	hasRequestMaterializer bool   // whether plane has a RequestMaterializer
+	requestBorrow          bool   // whether plane exposes RequestExecutionView method
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -249,6 +251,8 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	var genBinderRule string
 	var hasCombine bool
 	var hasIdentity bool
+	var hasRequestMaterializer bool
+	var requestBorrow bool
 	var hasDiagStageID bool
 	var hasDiagMaterialize bool
 	var hasDiagPrivileges bool
@@ -283,6 +287,19 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 				hasCombine = false
 			} else {
 				hasCombine = true
+			}
+		case "RequestMaterializer":
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+				hasRequestMaterializer = false
+			} else {
+				if err := validateRequestMaterializerExpr(kv.Value, varName); err != nil {
+					return planeInfo{}, err
+				}
+				hasRequestMaterializer = true
+			}
+		case "RequestBorrow":
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "true" {
+				requestBorrow = true
 			}
 		case "Rules":
 			hasRules = true
@@ -403,6 +420,15 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		return planeInfo{}, fmt.Errorf("combine function is required")
 	}
 
+	if requestBorrow {
+		if !hasRequestMaterializer {
+			return planeInfo{}, fmt.Errorf("plane %s: RequestBorrow requires non-nil RequestMaterializer", varName)
+		}
+		if !strings.HasPrefix(typeArgStr, "[]") {
+			return planeInfo{}, fmt.Errorf("plane %s: RequestBorrow cannot be used on non-slice plane type %s", varName, typeArgStr)
+		}
+	}
+
 	if hasDiagStageID && !hasDiagMaterialize {
 		return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
 	}
@@ -411,13 +437,32 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	}
 
 	return planeInfo{
-		varName:          varName,
-		planeID:          planeID,
-		fieldName:        fieldName,
-		typeExpr:         typeArgStr,
-		isExclusive:      isExclusive,
-		hasIdentity:      hasIdentity,
-		hasGenBinderRule: hasGenBinderRule,
-		genBinderRule:    genBinderRule,
+		varName:                varName,
+		planeID:                planeID,
+		fieldName:              fieldName,
+		typeExpr:               typeArgStr,
+		isExclusive:            isExclusive,
+		hasIdentity:            hasIdentity,
+		hasGenBinderRule:       hasGenBinderRule,
+		genBinderRule:          genBinderRule,
+		hasRequestMaterializer: hasRequestMaterializer,
+		requestBorrow:          requestBorrow,
 	}, nil
+}
+
+func validateRequestMaterializerExpr(expr ast.Expr, varName string) error {
+	e := expr
+	for {
+		if p, ok := e.(*ast.ParenExpr); ok {
+			e = p.X
+			continue
+		}
+		break
+	}
+	switch e.(type) {
+	case *ast.FuncLit, *ast.Ident, *ast.SelectorExpr:
+		return nil
+	default:
+		return fmt.Errorf("plane %s: RequestMaterializer expression must be a function literal, identifier, or package selector, got %T", varName, expr)
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -32,8 +34,11 @@ func TestPreparePreRequestDenialNoBackendAttempt(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:     obs,
-		PreRequestHandlers: []prerequest.Handler{pdDenyPreReq{message: "blocked"}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			PreRequestHandlers: []prerequest.Handler{pdDenyPreReq{message: "blocked"}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	_, err := ex.Execute(principalCtx("user-pd-deny"), call)
@@ -90,8 +95,11 @@ func TestPrepareRequestTransformMutationEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdMutateRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdMutateRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-mut"), call)
@@ -137,8 +145,11 @@ func TestPrepareRequestTransformPassthroughEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-pass"), call)
@@ -175,8 +186,11 @@ func TestPrepareRequestTransformFailureEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdFailRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdFailRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	_, err := ex.Execute(principalCtx("user-pd-fail"), call)
@@ -221,8 +235,11 @@ func TestPrepareEffectiveCapabilityAfterPolicyShaping(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdAppendToolRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdAppendToolRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	call.Tools = []lipapi.ToolDef{{Name: "orig", Parameters: []byte(`{}`)}}
@@ -251,8 +268,11 @@ func TestPreparePolicyNoninterferenceNoObserver(t *testing.T) {
 	}
 	// No PolicyObserver configured; default snapshot (no-op observer).
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		RequestTransforms:  []request.Transform{pdMutateRtx{}},
-		PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{pdMutateRtx{}},
+			PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-ni"), call)
@@ -279,8 +299,11 @@ func TestPreparePolicyNoninterferenceNoObserverEmitsNoPolicyLog(t *testing.T) {
 	}
 	// No PolicyObserver configured; default snapshot (no-op observer).
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		RequestTransforms:  []request.Transform{pdMutateRtx{}},
-		PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			RequestTransforms:  []request.Transform{pdMutateRtx{}},
+			PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
+		}),
 	})
 	var buf bytes.Buffer
 	ex.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -311,9 +334,12 @@ func TestPrepareNoObserverTimeoutStillEnforces(t *testing.T) {
 	}
 	// No PolicyObserver configured: default no-op observer, nil emitter.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PreRequestHandlers:  []prerequest.Handler{pdHungPreReq{id: "pd-hung-prereq", mode: sdkhooks.FailClosed}},
-		RequestTransforms:   []request.Transform{pdNoopRtx{}},
 		TimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 40 * time.Millisecond},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:      lipfeature.SchemaVersionV1,
+			PreRequestHandlers: []prerequest.Handler{pdHungPreReq{id: "pd-hung-prereq", mode: sdkhooks.FailClosed}},
+			RequestTransforms:  []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	start := time.Now()
@@ -346,8 +372,11 @@ func TestPrepareSubmitRejectEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	}, []sdkhooks.SubmitHook{pdRejectSubmitHook{reason: "blocked"}})
 	call := pdBaseCall("openai:gpt-4")
 	_, err := ex.Execute(principalCtx("user-pd-submit-reject"), call)
@@ -392,8 +421,11 @@ func TestPrepareSubmitAnnotateEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	}, []sdkhooks.SubmitHook{pdAnnotateSubmitHook{}})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-submit-annotate"), call)
@@ -438,8 +470,11 @@ func TestPrepareSubmitFailClosedEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	}, []sdkhooks.SubmitHook{pdFailSubmitHook{mode: sdkhooks.FailClosed}})
 	call := pdBaseCall("openai:gpt-4")
 	_, err := ex.Execute(principalCtx("user-pd-submit-fail"), call)
@@ -477,7 +512,10 @@ func TestPrepareSubmitNoninterferenceNoObserver(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	// No PolicyObserver configured; obs is only used to assert no records.
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	}, []sdkhooks.SubmitHook{pdAnnotateSubmitHook{}})
 	var buf bytes.Buffer
 	ex.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))

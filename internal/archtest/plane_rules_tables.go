@@ -82,6 +82,22 @@ var (
 		"billingExposureRecovery": true,
 	}
 
+	AllowedRequestRuntimeSnapshotFields = map[string]bool{
+		"hookBus":          true,
+		"state":            true,
+		"aux":              true,
+		"obs":              true,
+		"usageObs":         true,
+		"raw":              true,
+		"ws":               true,
+		"secretGuardPlane": true,
+		"policyObserver":   true,
+		"timeoutBudget":    true,
+		"timeoutGuard":     true,
+		"featurePlanes":    true,
+		"gen":              true,
+	}
+
 	// AllowedStageConsumers is the explicit allowlist of fully-qualified Go symbol paths
 	// permitted to act as stage consumers accessing extension planes. Any stage-consumer accessor
 	// or method outside this allowlist is rejected by the forbidden-mirror architecture scanner.
@@ -98,8 +114,8 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallPoliciesExecution":        true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallFinalizers":               true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).ToolCallFinalizersExecution":      true,
-		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardPlane":                 true,
-		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardExecutionPlane":        true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuards":                     true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).SecretGuardsExecution":            true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).CompactionObservers":              true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).CompactionPreservers":             true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).LocalTurnHandlers":                true,

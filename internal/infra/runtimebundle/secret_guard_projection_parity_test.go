@@ -131,7 +131,10 @@ func TestSecretGuardProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T
 	assert.Equal(t, "sg-b2-5", res.Plane.Guards[2].ID())
 
 	// 4. Snapshot SecretGuardExecutionPlane materializes in sorted order (ord ascending, then ID)
-	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+		SecretGuardPlane: res.Plane,
+		FeaturePlanes:    gen.Frozen,
+	})
 	execGuards := snap.SecretGuardExecutionPlane().Guards
 	require.Len(t, execGuards, 3)
 	assert.Equal(t, "sg-b2-5", execGuards[0].ID())
@@ -198,7 +201,10 @@ func TestSecretGuardProjection_NilAndEmptySlicePreservation(t *testing.T) {
 		require.Len(t, res.Plane.Guards, 4)
 
 		// Snapshot execution plane filters both literal nil and typed nil
-		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+			SecretGuardPlane: res.Plane,
+			FeaturePlanes:    frozen,
+		})
 		execGuards := snap.SecretGuardExecutionPlane().Guards
 		require.Len(t, execGuards, 1)
 		assert.Equal(t, "valid-sg", execGuards[0].ID())

@@ -231,7 +231,7 @@
   - **Validation:** `make quality-checks && go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/stdhttp/... ./internal/testkit/... ./internal/qa`
 
 - [ ] 9. Complete derived projections and remove compatibility transport fields
-- [ ] 9.1 Complete generation and request-snapshot freeze delegation
+- [x] 9.1 Complete generation and request-snapshot freeze delegation
   - Make generation operations and request snapshots delegate to generated frozen storage while preserving the lifecycle side channel and host/config capabilities that are not feature contributions.
   - Observable completion: all stage consumers use generated frozen reads and deterministic publish-versus-pinned-request evidence remains green under Linux CI race execution.
   - _Requirements: 1.4, 1.5, 7.1_

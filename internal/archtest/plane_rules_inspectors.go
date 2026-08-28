@@ -131,6 +131,16 @@ func resolvePlaneMeta(expr ast.Expr) (PlaneFieldMetadata, bool) {
 }
 
 func extractPlaneMetaFromCall(call *ast.CallExpr) (PlaneFieldMetadata, bool) {
+	if call == nil {
+		return PlaneFieldMetadata{}, false
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if allowedRequestExecutionMethods[sel.Sel.Name] {
+			if meta, ok := KnownPlaneFields[sel.Sel.Name]; ok {
+				return meta, true
+			}
+		}
+	}
 	for _, arg := range call.Args {
 		if meta, ok := resolvePlaneMeta(arg); ok {
 			return meta, true

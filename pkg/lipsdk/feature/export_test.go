@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
@@ -151,6 +152,19 @@ func NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(
 ) FrozenPlaneSet {
 	gf := &generatedFrozen{
 		terminalDecisionProvider: provider,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenStreamObserversCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with candidate stream observer factories for testing.
+func NewMalformedGeneratedFrozenStreamObserversCandidateForTest(
+	so []response.StreamObserverFactory,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		streamObserverFactories: cloneSlice(so),
 	}
 	return FrozenPlaneSet{
 		frozen: gf,

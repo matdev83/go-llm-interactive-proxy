@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -43,9 +44,13 @@ func TestSecretGuardOrdering_BeforeLocalTurn(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []sdksecret.Guard{secretGuard},
+			AuditFailurePolicy: sdksecret.AuditFailClosed,
 		},
-		LocalTurnHandlers: []localturn.Handler{localHandler},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			SecretGuards:      []sdksecret.Guard{secretGuard},
+			LocalTurnHandlers: []localturn.Handler{localHandler},
+		}),
 	})
 	ex.RuntimeSnapshot = snap
 	ex.Bus = hooks.New(hooks.Config{})

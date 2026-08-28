@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,8 +119,11 @@ func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*h
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
-		AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
+		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:     lipfeature.SchemaVersionV1,
+			RequestTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
+			AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
+		}),
 	})
 	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)

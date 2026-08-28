@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -443,7 +444,10 @@ func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 	}}
 	// Attempt transform that reintroduces tagged and deletes steering
 	lateTransform := &reintroduceAndDeleteTransform{tagged: taggedMsg, steeringText: "runtime-steering"}
-	snapOpts.RequestTransforms = []request.Transform{lateTransform}
+	snapOpts.FeaturePlanes = freezeBundle(lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		RequestTransforms: []request.Transform{lateTransform},
+	})
 	snapOpts.Workspace = voidResolver()
 	ex := TestExecutor()
 	ex.Store = st

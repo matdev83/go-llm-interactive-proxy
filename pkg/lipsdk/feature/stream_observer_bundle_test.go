@@ -2,6 +2,7 @@ package feature_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -91,4 +92,20 @@ func TestLegalPipeline_finalStreamObservationBetweenCompletionGatingAndTraffic(t
 	if !ok || life.MutationRole != feature.StageRoleObserve {
 		t.Fatalf("attempt_lifecycle must remain observe-only: ok=%v role=%v", ok, life.MutationRole)
 	}
+}
+
+func TestFreezeRequestPlanes_panicsOnNilStreamObserverFactory(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil StreamObserverFactory")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "StreamObserverFactories contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenStreamObserversCandidateForTest([]response.StreamObserverFactory{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
 }

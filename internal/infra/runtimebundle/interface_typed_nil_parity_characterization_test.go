@@ -535,7 +535,7 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		require.Len(t, res.Plane.Guards, 4)
 
 		// Runtime snapshot materialization filters both untyped nil and typed nil
-		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{FeaturePlanes: frozen, SecretGuardPlane: res.Plane})
 		execGuards := snap.SecretGuardExecutionPlane().Guards
 		require.Len(t, execGuards, 1)
 		assert.Equal(t, "sg1", execGuards[0].ID())
@@ -564,54 +564,73 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 	var typedNilFinalizer *charStubFinalizer
 	var typedNilRedactor *charStubRedactor
 
+	// 1. Reflection-based filtering planes: RequestMaterializer filters BOTH untyped nil and typed nil
+	sgMaterialized := lipfeature.PlaneSecretGuards.RequestMaterializer([]sdksg.Guard{
+		nil,
+		typedNilSGGuard,
+		&charStubSGGuard{id: "sg-valid-2", ord: 20},
+		&charStubSGGuard{id: "sg-valid-1", ord: 10},
+		nil,
+	})
+	require.Len(t, sgMaterialized, 2)
+	assert.Equal(t, "sg-valid-1", sgMaterialized[0].ID())
+	assert.Equal(t, "sg-valid-2", sgMaterialized[1].ID())
+
+	ltMaterialized := lipfeature.PlaneLocalTurnHandlers.RequestMaterializer([]localturn.Handler{
+		nil,
+		typedNilLTHandler,
+		&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
+		&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
+	})
+	require.Len(t, ltMaterialized, 2)
+	assert.Equal(t, "lt-valid-1", ltMaterialized[0].ID())
+	assert.Equal(t, "lt-valid-2", ltMaterialized[1].ID())
+
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSecretGuards, "test", []sdksg.Guard{
+		&charStubSGGuard{id: "sg-valid-2", ord: 20},
+		&charStubSGGuard{id: "sg-valid-1", ord: 10},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneLocalTurnHandlers, "test", []localturn.Handler{
+		&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
+		&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{
+		nil,
+		typedNilFinalizer,
+		&charStubFinalizer{tag: "tf-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "test", []traffic.Redactor{
+		nil,
+		typedNilRedactor,
+		&charStubRedactor{tag: "tr-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		&charStubPolicy{tag: "tp-valid"},
+		nil,
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlanePreRequestHandlers, "test", []prerequest.Handler{
+		&charStubPreReq{tag: "pr-valid-2"},
+		&charStubPreReq{tag: "pr-valid-1"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRequestTransforms, "test", []request.Transform{
+		nil,
+		&charStubTransform{tag: "rt-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "test", []completion.Gate{
+		nil,
+		&charStubCompGate{tag: "cg-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "test", []session.Opener{charStubOpener{tag: "so-1"}, nil})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCatalogFilters, "test", []toolcatalog.Filter{nil, charStubCatalogFilter{tag: "cf-1"}})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRouteHintProviders, "test", []routehint.Provider{charStubRouteHint{tag: "rh-1"}, nil})
+
+	frozen := cset.Freeze()
+
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []sdksg.Guard{
-				nil,
-				typedNilSGGuard,
-				&charStubSGGuard{id: "sg-valid-2", ord: 20},
-				&charStubSGGuard{id: "sg-valid-1", ord: 10},
-				nil,
-			},
-		},
-		LocalTurnHandlers: []localturn.Handler{
-			nil,
-			typedNilLTHandler,
-			&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
-			&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			nil,
-			typedNilFinalizer,
-			&charStubFinalizer{tag: "tf-valid"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			nil,
-			typedNilRedactor,
-			&charStubRedactor{tag: "tr-valid"},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			&charStubPolicy{tag: "tp-valid"},
-			nil,
-		},
-		PreRequestHandlers: []prerequest.Handler{
-			&charStubPreReq{tag: "pr-valid-2"},
-			&charStubPreReq{tag: "pr-valid-1"},
-		},
-		RequestTransforms: []request.Transform{
-			nil,
-			&charStubTransform{tag: "rt-valid"},
-		},
-		CompletionGates: []completion.Gate{
-			nil,
-			&charStubCompGate{tag: "cg-valid"},
-		},
-		SessionOpeners:     []session.Opener{charStubOpener{tag: "so-1"}, nil},
-		ToolCatalogFilters: []toolcatalog.Filter{nil, charStubCatalogFilter{tag: "cf-1"}},
-		RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh-1"}, nil},
+		FeaturePlanes: frozen,
 	})
 
-	// 1. Reflection-based filtering planes: filters BOTH untyped nil and typed nil
 	sgExec := snap.SecretGuardExecutionPlane().Guards
 	require.Len(t, sgExec, 2)
 	assert.Equal(t, "sg-valid-1", sgExec[0].ID())
@@ -667,14 +686,10 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 
 	// 4. Strict planes panic on nil
 	assert.Panics(t, func() {
-		extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			AttemptTransforms: []request.AttemptTransform{nil},
-		})
+		lipfeature.PlaneAttemptTransforms.RequestMaterializer([]request.AttemptTransform{nil})
 	})
 	assert.Panics(t, func() {
-		extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			StreamObserverFactories: []response.StreamObserverFactory{nil},
-		})
+		lipfeature.PlaneStreamObserverFactories.RequestMaterializer([]response.StreamObserverFactory{nil})
 	})
 }
 

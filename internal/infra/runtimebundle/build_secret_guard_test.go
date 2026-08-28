@@ -174,7 +174,10 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	if got := res.Plane.Guards[0].ID(); got != "z" {
 		t.Fatalf("plane guards mutated via caller slice; got %q want z (unsorted clone)", got)
 	}
-	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+		SecretGuardPlane: res.Plane,
+		FeaturePlanes:    opts.FeaturePlanes,
+	})
 	if got := snap.SecretGuardExecutionPlane().Guards[0].ID(); got != "a" {
 		t.Fatalf("snapshot must sort guards; got %q want a", got)
 	}

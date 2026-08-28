@@ -2,13 +2,13 @@ package extensions_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -33,7 +33,9 @@ func TestNewRequestRuntimeSnapshot_sessionOpenersIsolatedFromCallerSliceMutation
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
 	openers := []session.Opener{stubSessionOpener("stable-id")}
-	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{SessionOpeners: openers})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "test", openers)
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{FeaturePlanes: cset.Freeze()})
 	openers[0] = stubSessionOpener("caller-mutated")
 	got := snap.SessionOpeners()
 	if len(got) != 1 || got[0].ID() != "stable-id" {
@@ -81,8 +83,10 @@ func TestWithRequestRuntimeSnapshot_nilSnap(t *testing.T) {
 func TestRequestRuntimeSnapshot_SessionOpeners_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "test", []session.Opener{stubSessionOpener("a")})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		SessionOpeners: []session.Opener{stubSessionOpener("a")},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.SessionOpeners()
 	if len(got) != 1 || got[0].ID() != "a" {
@@ -116,8 +120,10 @@ func (stubRtx) Handle(context.Context, *lipapi.Call, request.RequestMeta, reques
 func TestRequestRuntimeSnapshot_ToolCatalogFilters_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCatalogFilters, "test", []toolcatalog.Filter{stubCat{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{stubCat{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.ToolCatalogFilters()
 	if len(got) != 1 {
@@ -133,8 +139,10 @@ func TestRequestRuntimeSnapshot_ToolCatalogFilters_returnsDefensiveCopy(t *testi
 func TestRequestRuntimeSnapshot_RequestTransforms_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRequestTransforms, "test", []request.Transform{stubRtx{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{stubRtx{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.RequestTransforms()
 	if len(got) != 1 {
@@ -174,52 +182,20 @@ func (stubStreamObserverFactory) Open(context.Context, response.StreamMeta, resp
 	return nil, nil
 }
 
-func TestNewRequestRuntimeSnapshot_panicsOnNilAttemptTransform(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("want panic on nil AttemptTransform")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "AttemptTransforms contains nil entry") {
-			t.Fatalf("panic=%v", r)
-		}
-	}()
-	_ = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		AttemptTransforms: []request.AttemptTransform{nil},
-	})
-}
-
-func TestNewRequestRuntimeSnapshot_panicsOnNilStreamObserverFactory(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("want panic on nil StreamObserverFactory")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "StreamObserverFactories contains nil entry") {
-			t.Fatalf("panic=%v", r)
-		}
-	}()
-	_ = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{nil},
-	})
-}
-
 func TestRequestRuntimeSnapshot_AttemptTransformsAndStreamObservers_defensiveCopyAndSort(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{
+		stubAttemptTransform{id: "z"},
+		stubAttemptTransform{id: "a"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{
+		stubStreamObserverFactory{id: "z"},
+		stubStreamObserverFactory{id: "a"},
+	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		AttemptTransforms: []request.AttemptTransform{
-			stubAttemptTransform{id: "z"},
-			stubAttemptTransform{id: "a"},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			stubStreamObserverFactory{id: "z"},
-			stubStreamObserverFactory{id: "a"},
-		},
+		FeaturePlanes: cset.Freeze(),
 	})
 	gotAT := snap.AttemptTransforms()
 	if len(gotAT) != 2 || gotAT[0].ID() != "a" || gotAT[1].ID() != "z" {
@@ -268,8 +244,10 @@ func idsOfStreamObs(in []response.StreamObserverFactory) []string {
 func TestRequestRuntimeSnapshot_CompletionGates_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "test", []completion.Gate{stubGate{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{stubGate{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.CompletionGates()
 	if len(got) != 1 {
@@ -315,11 +293,13 @@ func (snapOrdPol) Handle(context.Context, lipapi.ToolEvent, toolpolicy.Meta, too
 func TestRequestRuntimeSnapshot_ToolCallPoliciesExecution_sortedAtSnapshotBuild(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		snapOrdPol{id: "zzz", ord: 10},
+		snapOrdPol{id: "aaa", ord: 0},
+	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{
-			snapOrdPol{id: "zzz", ord: 10},
-			snapOrdPol{id: "aaa", ord: 0},
-		},
+		FeaturePlanes: cset.Freeze(),
 	})
 	exec := snap.ToolCallPoliciesExecution()
 	if len(exec) != 2 {
@@ -337,8 +317,10 @@ func TestRequestRuntimeSnapshot_ToolCallPoliciesExecution_sortedAtSnapshotBuild(
 func TestRequestRuntimeSnapshot_ToolCallPolicies_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{stubSnapPolicy{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{stubSnapPolicy{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.ToolCallPolicies()
 	if len(got) != 1 {
@@ -365,12 +347,14 @@ func (snapOrdFin) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolD
 func TestRequestRuntimeSnapshot_ToolCallFinalizersExecution_sortedAtSnapshotBuild(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{
+		snapOrdFin{id: "zzz", ord: 10},
+		snapOrdFin{id: "aaa", ord: 0},
+		nil,
+	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallFinalizers: []toolcall.Finalizer{
-			snapOrdFin{id: "zzz", ord: 10},
-			snapOrdFin{id: "aaa", ord: 0},
-			nil,
-		},
+		FeaturePlanes: cset.Freeze(),
 	})
 	exec := snap.ToolCallFinalizersExecution()
 	if len(exec) != 2 {
@@ -388,8 +372,10 @@ func TestRequestRuntimeSnapshot_ToolCallFinalizersExecution_sortedAtSnapshotBuil
 func TestRequestRuntimeSnapshot_ToolCallFinalizers_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{snapOrdFin{id: "f1", ord: 0}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallFinalizers: []toolcall.Finalizer{snapOrdFin{id: "f1", ord: 0}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.ToolCallFinalizers()
 	if len(got) != 1 {
@@ -418,8 +404,10 @@ func TestRequestRuntimeSnapshot_UsageObserver_defaultsWhenUnsetAndCallable(t *te
 func TestRequestRuntimeSnapshot_TrafficRedactors_returnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "test", []sdktraffic.Redactor{stubTrafficRed{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		TrafficRedactors: []sdktraffic.Redactor{stubTrafficRed{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	got := snap.TrafficRedactors()
 	if len(got) != 1 {

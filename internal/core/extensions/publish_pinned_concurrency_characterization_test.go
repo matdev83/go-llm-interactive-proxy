@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -77,10 +78,13 @@ func (charPinnedRequestTransform) Handle(context.Context, *lipapi.Call, request.
 	return nil
 }
 
-type charPinnedPreRequestHandler struct{ id string }
+type charPinnedPreRequestHandler struct {
+	id  string
+	ord int
+}
 
 func (p charPinnedPreRequestHandler) ID() string                      { return p.id }
-func (charPinnedPreRequestHandler) Order() int                        { return 0 }
+func (p charPinnedPreRequestHandler) Order() int                      { return p.ord }
 func (charPinnedPreRequestHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (charPinnedPreRequestHandler) Handle(context.Context, *lipapi.Call, prerequest.Meta, prerequest.Services) (prerequest.Decision, error) {
 	return prerequest.Allow(), nil
@@ -104,19 +108,25 @@ func (charPinnedCompletionGate) Handle(context.Context, completion.Meta, complet
 	return completion.PassOriginalOutcome(), nil
 }
 
-type charPinnedAttemptTransform struct{ id string }
+type charPinnedAttemptTransform struct {
+	id  string
+	ord int
+}
 
 func (a charPinnedAttemptTransform) ID() string                      { return a.id }
-func (charPinnedAttemptTransform) Order() int                        { return 0 }
+func (a charPinnedAttemptTransform) Order() int                      { return a.ord }
 func (charPinnedAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
 func (charPinnedAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }
 
-type charPinnedStreamObserverFactory struct{ id string }
+type charPinnedStreamObserverFactory struct {
+	id  string
+	ord int
+}
 
 func (s charPinnedStreamObserverFactory) ID() string                      { return s.id }
-func (charPinnedStreamObserverFactory) Order() int                        { return 0 }
+func (s charPinnedStreamObserverFactory) Order() int                      { return s.ord }
 func (charPinnedStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (charPinnedStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, nil
@@ -198,63 +208,156 @@ func (p *charPinnedTerminalDecisionProvider) Decide(context.Context, terminaldec
 }
 
 // buildPopulatedSnapshot creates a snapshot with all extension planes populated
-// using a distinct label and generation number.
+// with at least two entries per plane (including sorting ties for materialized planes),
+// and immediately mutates the retained source slices after snapshot construction (Finding 6).
 func buildPopulatedSnapshot(gen int64, label string) *extensions.RequestRuntimeSnapshot {
 	bus := hooks.New(hooks.Config{})
-	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		Generation: gen,
-		SessionOpeners: []session.Opener{
-			charPinnedSessionOpener{id: label + "-session"},
-		},
-		ToolCatalogFilters: []toolcatalog.Filter{
-			charPinnedToolCatalogFilter{id: label + "-catalog"},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			charPinnedToolCallPolicy{id: label + "-policy", ord: int(gen)},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			charPinnedToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
-		},
-		RequestTransforms: []request.Transform{
-			charPinnedRequestTransform{id: label + "-reqxform"},
-		},
-		PreRequestHandlers: []prerequest.Handler{
-			charPinnedPreRequestHandler{id: label + "-prereq"},
-		},
-		RouteHintProviders: []routehint.Provider{
-			charPinnedRouteHintProvider{id: label + "-routehint"},
-		},
-		CompletionGates: []completion.Gate{
-			charPinnedCompletionGate{id: label + "-gate"},
-		},
-		AttemptTransforms: []request.AttemptTransform{
-			charPinnedAttemptTransform{id: label + "-attxform"},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charPinnedStreamObserverFactory{id: label + "-streamobs"},
-		},
-		TrafficRedactors: []sdktraffic.Redactor{
-			charPinnedTrafficRedactor{id: label + "-redactor"},
-		},
-		CompactionObservers: []compaction.Observer{
-			charPinnedCompactionObserver{},
-		},
-		CompactionPreservers: []compaction.Preserver{
-			charPinnedCompactionPreserver{id: label + "-comppres"},
-		},
+	cset := lipfeature.NewContributionSet()
+
+	// Retained source slices with extra capacity so append does not reallocate
+	sourceSessionOpeners := make([]session.Opener, 0, 10)
+	sourceSessionOpeners = append(sourceSessionOpeners,
+		charPinnedSessionOpener{id: label + "-session-1"},
+		charPinnedSessionOpener{id: label + "-session-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "plugin-"+label, sourceSessionOpeners)
+
+	sourceCatalogFilters := make([]toolcatalog.Filter, 0, 10)
+	sourceCatalogFilters = append(sourceCatalogFilters,
+		charPinnedToolCatalogFilter{id: label + "-catalog-1"},
+		charPinnedToolCatalogFilter{id: label + "-catalog-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCatalogFilters, "plugin-"+label, sourceCatalogFilters)
+
+	// Materialized sorted: pol-c (30), pol-a (10), pol-b (10 tie) -> sorted: [pol-a, pol-b, pol-c]
+	sourcePolicies := make([]toolpolicy.Policy, 0, 10)
+	sourcePolicies = append(sourcePolicies,
+		charPinnedToolCallPolicy{id: label + "-policy-c", ord: 30},
+		charPinnedToolCallPolicy{id: label + "-policy-b", ord: 10},
+		charPinnedToolCallPolicy{id: label + "-policy-a", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "plugin-"+label, sourcePolicies)
+
+	sourceFinalizers := make([]toolcall.Finalizer, 0, 10)
+	sourceFinalizers = append(sourceFinalizers,
+		charPinnedToolCallFinalizer{id: label + "-finalizer-b", ord: 20},
+		charPinnedToolCallFinalizer{id: label + "-finalizer-a", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallFinalizers, "plugin-"+label, sourceFinalizers)
+
+	sourceReqTransforms := make([]request.Transform, 0, 10)
+	sourceReqTransforms = append(sourceReqTransforms,
+		charPinnedRequestTransform{id: label + "-reqxform-1"},
+		charPinnedRequestTransform{id: label + "-reqxform-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRequestTransforms, "plugin-"+label, sourceReqTransforms)
+
+	sourcePreReq := make([]prerequest.Handler, 0, 10)
+	sourcePreReq = append(sourcePreReq,
+		charPinnedPreRequestHandler{id: label + "-prereq-2", ord: 20},
+		charPinnedPreRequestHandler{id: label + "-prereq-1", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlanePreRequestHandlers, "plugin-"+label, sourcePreReq)
+
+	sourceRouteHints := make([]routehint.Provider, 0, 10)
+	sourceRouteHints = append(sourceRouteHints,
+		charPinnedRouteHintProvider{id: label + "-routehint-1"},
+		charPinnedRouteHintProvider{id: label + "-routehint-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRouteHintProviders, "plugin-"+label, sourceRouteHints)
+
+	sourceGates := make([]completion.Gate, 0, 10)
+	sourceGates = append(sourceGates,
+		charPinnedCompletionGate{id: label + "-gate-1"},
+		charPinnedCompletionGate{id: label + "-gate-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "plugin-"+label, sourceGates)
+
+	sourceAttempt := make([]request.AttemptTransform, 0, 10)
+	sourceAttempt = append(sourceAttempt,
+		charPinnedAttemptTransform{id: label + "-attxform-2", ord: 20},
+		charPinnedAttemptTransform{id: label + "-attxform-1", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneAttemptTransforms, "plugin-"+label, sourceAttempt)
+
+	sourceStreamObs := make([]response.StreamObserverFactory, 0, 10)
+	sourceStreamObs = append(sourceStreamObs,
+		charPinnedStreamObserverFactory{id: label + "-streamobs-2", ord: 20},
+		charPinnedStreamObserverFactory{id: label + "-streamobs-1", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneStreamObserverFactories, "plugin-"+label, sourceStreamObs)
+
+	sourceRedactors := make([]sdktraffic.Redactor, 0, 10)
+	sourceRedactors = append(sourceRedactors,
+		charPinnedTrafficRedactor{id: label + "-redactor-b"},
+		charPinnedTrafficRedactor{id: label + "-redactor-a"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "plugin-"+label, sourceRedactors)
+
+	sourceCompObs := make([]compaction.Observer, 0, 10)
+	sourceCompObs = append(sourceCompObs,
+		charPinnedCompactionObserver{id: label + "-compobs-1"},
+		charPinnedCompactionObserver{id: label + "-compobs-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompactionObservers, "plugin-"+label, sourceCompObs)
+
+	sourceCompPres := make([]compaction.Preserver, 0, 10)
+	sourceCompPres = append(sourceCompPres,
+		charPinnedCompactionPreserver{id: label + "-comppres-1"},
+		charPinnedCompactionPreserver{id: label + "-comppres-2"},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompactionPreservers, "plugin-"+label, sourceCompPres)
+
+	sourceSecretGuards := make([]secretguard.Guard, 0, 10)
+	sourceSecretGuards = append(sourceSecretGuards,
+		charPinnedSecretGuard{id: label + "-sg-2", ord: 20},
+		charPinnedSecretGuard{id: label + "-sg-1", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSecretGuards, "plugin-"+label, sourceSecretGuards)
+
+	sourceLocalTurn := make([]localturn.Handler, 0, 10)
+	sourceLocalTurn = append(sourceLocalTurn,
+		charPinnedLocalTurnHandler{id: label + "-localturn-2", ord: 20},
+		charPinnedLocalTurnHandler{id: label + "-localturn-1", ord: 10},
+	)
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneLocalTurnHandlers, "plugin-"+label, sourceLocalTurn)
+
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTerminalDecisionProvider, "plugin-"+label, terminaldecision.Provider(&charPinnedTerminalDecisionProvider{id: label + "-terminal"}))
+
+	frozen := cset.Freeze()
+
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		Generation:    gen,
+		FeaturePlanes: frozen,
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			ConfigVersion:      label + "-sg-v",
 			AccessMode:         "single_user",
 			AuditFailurePolicy: secretguard.AuditFailClosed,
-			Guards: []secretguard.Guard{
-				charPinnedSecretGuard{id: label + "-sg", ord: int(gen)},
-			},
 		},
-		LocalTurnHandlers: []localturn.Handler{
-			charPinnedLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
-		},
-		TerminalDecisionProvider: &charPinnedTerminalDecisionProvider{id: label + "-terminal"},
 	})
+
+	// Immediate source slice mutations (replace, reorder, append within capacity) to prove isolation
+	sourceSessionOpeners[0] = charPinnedSessionOpener{id: "mutated-session"}
+	sourceSessionOpeners = append(sourceSessionOpeners, charPinnedSessionOpener{id: "leaked-session"})
+
+	sourcePolicies[0] = charPinnedToolCallPolicy{id: "mutated-policy", ord: 999}
+	sourcePolicies[1], sourcePolicies[2] = sourcePolicies[2], sourcePolicies[1]
+	sourcePolicies = append(sourcePolicies, charPinnedToolCallPolicy{id: "leaked-policy", ord: 1})
+
+	sourceFinalizers[0] = charPinnedToolCallFinalizer{id: "mutated-finalizer", ord: 999}
+	sourceReqTransforms[0] = charPinnedRequestTransform{id: "mutated-reqxform"}
+	sourcePreReq[0] = charPinnedPreRequestHandler{id: "mutated-prereq", ord: 999}
+	sourceRouteHints[0] = charPinnedRouteHintProvider{id: "mutated-routehint"}
+	sourceGates[0] = charPinnedCompletionGate{id: "mutated-gate"}
+	sourceAttempt[0] = charPinnedAttemptTransform{id: "mutated-attxform", ord: 999}
+	sourceStreamObs[0] = charPinnedStreamObserverFactory{id: "mutated-streamobs", ord: 999}
+	sourceRedactors[0] = charPinnedTrafficRedactor{id: "mutated-redactor"}
+	sourceCompObs[0] = charPinnedCompactionObserver{id: "mutated-compobs"}
+	sourceCompPres[0] = charPinnedCompactionPreserver{id: "mutated-comppres"}
+	sourceSecretGuards[0] = charPinnedSecretGuard{id: "mutated-sg", ord: 999}
+	sourceLocalTurn[0] = charPinnedLocalTurnHandler{id: "mutated-localturn", ord: 999}
+
+	return snap
 }
 
 // assertSnapshotPlanesMatch asserts that every accessible plane on snap matches expectedGen and expectedLabel.
@@ -266,98 +369,118 @@ func assertSnapshotPlanesMatch(t *testing.T, snap *extensions.RequestRuntimeSnap
 	assert.Equal(t, expectedGen, snap.Generation())
 
 	sess := snap.SessionOpeners()
-	if assert.Len(t, sess, 1) {
-		assert.Equal(t, expectedLabel+"-session", sess[0].ID())
+	if assert.Len(t, sess, 2) {
+		assert.Equal(t, expectedLabel+"-session-1", sess[0].ID())
+		assert.Equal(t, expectedLabel+"-session-2", sess[1].ID())
 	}
 
 	cat := snap.ToolCatalogFilters()
-	if assert.Len(t, cat, 1) {
-		assert.Equal(t, expectedLabel+"-catalog", cat[0].ID())
+	if assert.Len(t, cat, 2) {
+		assert.Equal(t, expectedLabel+"-catalog-1", cat[0].ID())
+		assert.Equal(t, expectedLabel+"-catalog-2", cat[1].ID())
 	}
 
 	pols := snap.ToolCallPolicies()
-	if assert.Len(t, pols, 1) {
-		assert.Equal(t, expectedLabel+"-policy", pols[0].ID())
+	if assert.Len(t, pols, 3) {
+		assert.Equal(t, expectedLabel+"-policy-a", pols[0].ID())
+		assert.Equal(t, expectedLabel+"-policy-b", pols[1].ID())
+		assert.Equal(t, expectedLabel+"-policy-c", pols[2].ID())
 	}
 
 	polsExec := snap.ToolCallPoliciesExecution()
-	if assert.Len(t, polsExec, 1) {
-		assert.Equal(t, expectedLabel+"-policy", polsExec[0].ID())
+	if assert.Len(t, polsExec, 3) {
+		assert.Equal(t, expectedLabel+"-policy-a", polsExec[0].ID())
+		assert.Equal(t, expectedLabel+"-policy-b", polsExec[1].ID())
+		assert.Equal(t, expectedLabel+"-policy-c", polsExec[2].ID())
 	}
 
 	fins := snap.ToolCallFinalizers()
-	if assert.Len(t, fins, 1) {
-		assert.Equal(t, expectedLabel+"-finalizer", fins[0].ID())
+	if assert.Len(t, fins, 2) {
+		assert.Equal(t, expectedLabel+"-finalizer-a", fins[0].ID())
+		assert.Equal(t, expectedLabel+"-finalizer-b", fins[1].ID())
 	}
 
 	finsExec := snap.ToolCallFinalizersExecution()
-	if assert.Len(t, finsExec, 1) {
-		assert.Equal(t, expectedLabel+"-finalizer", finsExec[0].ID())
+	if assert.Len(t, finsExec, 2) {
+		assert.Equal(t, expectedLabel+"-finalizer-a", finsExec[0].ID())
+		assert.Equal(t, expectedLabel+"-finalizer-b", finsExec[1].ID())
 	}
 
 	rx := snap.RequestTransforms()
-	if assert.Len(t, rx, 1) {
-		assert.Equal(t, expectedLabel+"-reqxform", rx[0].ID())
+	if assert.Len(t, rx, 2) {
+		assert.Equal(t, expectedLabel+"-reqxform-1", rx[0].ID())
+		assert.Equal(t, expectedLabel+"-reqxform-2", rx[1].ID())
 	}
 
 	pr := snap.PreRequestHandlers()
-	if assert.Len(t, pr, 1) {
-		assert.Equal(t, expectedLabel+"-prereq", pr[0].ID())
+	if assert.Len(t, pr, 2) {
+		assert.Equal(t, expectedLabel+"-prereq-1", pr[0].ID())
+		assert.Equal(t, expectedLabel+"-prereq-2", pr[1].ID())
 	}
 
 	rh := snap.RouteHintProviders()
-	if assert.Len(t, rh, 1) {
-		assert.Equal(t, expectedLabel+"-routehint", rh[0].ID())
+	if assert.Len(t, rh, 2) {
+		assert.Equal(t, expectedLabel+"-routehint-1", rh[0].ID())
+		assert.Equal(t, expectedLabel+"-routehint-2", rh[1].ID())
 	}
 
 	cg := snap.CompletionGates()
-	if assert.Len(t, cg, 1) {
-		assert.Equal(t, expectedLabel+"-gate", cg[0].ID())
+	if assert.Len(t, cg, 2) {
+		assert.Equal(t, expectedLabel+"-gate-1", cg[0].ID())
+		assert.Equal(t, expectedLabel+"-gate-2", cg[1].ID())
 	}
 
 	at := snap.AttemptTransforms()
-	if assert.Len(t, at, 1) {
-		assert.Equal(t, expectedLabel+"-attxform", at[0].ID())
+	if assert.Len(t, at, 2) {
+		assert.Equal(t, expectedLabel+"-attxform-1", at[0].ID())
+		assert.Equal(t, expectedLabel+"-attxform-2", at[1].ID())
 	}
 
 	so := snap.StreamObserverFactories()
-	if assert.Len(t, so, 1) {
-		assert.Equal(t, expectedLabel+"-streamobs", so[0].ID())
+	if assert.Len(t, so, 2) {
+		assert.Equal(t, expectedLabel+"-streamobs-1", so[0].ID())
+		assert.Equal(t, expectedLabel+"-streamobs-2", so[1].ID())
 	}
 
 	tr := snap.TrafficRedactors()
-	if assert.Len(t, tr, 1) {
-		assert.Equal(t, expectedLabel+"-redactor", tr[0].ID())
+	if assert.Len(t, tr, 2) {
+		assert.Equal(t, expectedLabel+"-redactor-a", tr[0].ID())
+		assert.Equal(t, expectedLabel+"-redactor-b", tr[1].ID())
 	}
 
 	co := snap.CompactionObservers()
-	assert.Len(t, co, 1)
+	assert.Len(t, co, 2)
 
 	cp := snap.CompactionPreservers()
-	if assert.Len(t, cp, 1) {
-		assert.Equal(t, expectedLabel+"-comppres", cp[0].ID())
+	if assert.Len(t, cp, 2) {
+		assert.Equal(t, expectedLabel+"-comppres-1", cp[0].ID())
+		assert.Equal(t, expectedLabel+"-comppres-2", cp[1].ID())
 	}
 
 	sg := snap.SecretGuardPlane()
 	assert.Equal(t, expectedLabel+"-sg-v", sg.ConfigVersion)
-	if assert.Len(t, sg.Guards, 1) {
-		assert.Equal(t, expectedLabel+"-sg", sg.Guards[0].ID())
+	if assert.Len(t, sg.Guards, 2) {
+		assert.Equal(t, expectedLabel+"-sg-1", sg.Guards[0].ID())
+		assert.Equal(t, expectedLabel+"-sg-2", sg.Guards[1].ID())
 	}
 
 	sgExec := snap.SecretGuardExecutionPlane()
 	assert.Equal(t, expectedLabel+"-sg-v", sgExec.ConfigVersion)
-	if assert.Len(t, sgExec.Guards, 1) {
-		assert.Equal(t, expectedLabel+"-sg", sgExec.Guards[0].ID())
+	if assert.Len(t, sgExec.Guards, 2) {
+		assert.Equal(t, expectedLabel+"-sg-1", sgExec.Guards[0].ID())
+		assert.Equal(t, expectedLabel+"-sg-2", sgExec.Guards[1].ID())
 	}
 
 	lt := snap.LocalTurnHandlers()
-	if assert.Len(t, lt, 1) {
-		assert.Equal(t, expectedLabel+"-localturn", lt[0].ID())
+	if assert.Len(t, lt, 2) {
+		assert.Equal(t, expectedLabel+"-localturn-1", lt[0].ID())
+		assert.Equal(t, expectedLabel+"-localturn-2", lt[1].ID())
 	}
 
 	ltExec := snap.LocalTurnHandlersExecution()
-	if assert.Len(t, ltExec, 1) {
-		assert.Equal(t, expectedLabel+"-localturn", ltExec[0].ID())
+	if assert.Len(t, ltExec, 2) {
+		assert.Equal(t, expectedLabel+"-localturn-1", ltExec[0].ID())
+		assert.Equal(t, expectedLabel+"-localturn-2", ltExec[1].ID())
 	}
 
 	td := snap.TerminalDecisionProvider()
@@ -426,16 +549,16 @@ func TestRequestRuntimeSnapshot_PublishPinned_ConcurrentIsolation(t *testing.T) 
 
 		// Stage 3: Verify execution slice accessors (hot-path non-cloning methods)
 		if len(observedSnap2.ToolCallPoliciesExecution()) > 0 {
-			assert.Equal(t, "gen1-policy", observedSnap2.ToolCallPoliciesExecution()[0].ID())
+			assert.Equal(t, "gen1-policy-a", observedSnap2.ToolCallPoliciesExecution()[0].ID())
 		}
 		if len(observedSnap2.ToolCallFinalizersExecution()) > 0 {
-			assert.Equal(t, "gen1-finalizer", observedSnap2.ToolCallFinalizersExecution()[0].ID())
+			assert.Equal(t, "gen1-finalizer-a", observedSnap2.ToolCallFinalizersExecution()[0].ID())
 		}
 		if len(observedSnap2.SecretGuardExecutionPlane().Guards) > 0 {
-			assert.Equal(t, "gen1-sg", observedSnap2.SecretGuardExecutionPlane().Guards[0].ID())
+			assert.Equal(t, "gen1-sg-1", observedSnap2.SecretGuardExecutionPlane().Guards[0].ID())
 		}
 		if len(observedSnap2.LocalTurnHandlersExecution()) > 0 {
-			assert.Equal(t, "gen1-localturn", observedSnap2.LocalTurnHandlersExecution()[0].ID())
+			assert.Equal(t, "gen1-localturn-1", observedSnap2.LocalTurnHandlersExecution()[0].ID())
 		}
 
 		// Stage 4: Defensive copy isolation — mutations to returned slices must not corrupt the snapshot
@@ -444,7 +567,7 @@ func TestRequestRuntimeSnapshot_PublishPinned_ConcurrentIsolation(t *testing.T) 
 			clonedPolicies[0] = charPinnedToolCallPolicy{id: "caller-mutated", ord: 999}
 			recheckedPolicies := observedSnap2.ToolCallPolicies()
 			if len(recheckedPolicies) > 0 {
-				assert.Equal(t, "gen1-policy", recheckedPolicies[0].ID(), "snapshot must be isolated from caller slice mutations")
+				assert.Equal(t, "gen1-policy-a", recheckedPolicies[0].ID(), "snapshot must be isolated from caller slice mutations")
 			}
 		}
 	}()

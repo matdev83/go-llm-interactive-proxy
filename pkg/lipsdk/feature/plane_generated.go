@@ -197,6 +197,42 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	return gc
 }
 
+func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
+	if gf == nil {
+		return nil
+	}
+	next := &generatedFrozen{
+		submitHooks:                      cloneSlice(gf.submitHooks),
+		requestPartHooks:                 cloneSlice(gf.requestPartHooks),
+		responsePartHooks:                cloneSlice(gf.responsePartHooks),
+		toolReactors:                     cloneSlice(gf.toolReactors),
+		sessionOpeners:                   materializeRequestSlice(gf.sessionOpeners, PlaneSessionOpeners.RequestMaterializer),
+		workspaceResolvers:               cloneSlice(gf.workspaceResolvers),
+		toolCatalogFilters:               cloneSlice(gf.toolCatalogFilters),
+		toolCallPolicies:                 materializeRequestSlice(gf.toolCallPolicies, PlaneToolCallPolicies.RequestMaterializer),
+		toolCallFinalizers:               materializeRequestSlice(gf.toolCallFinalizers, PlaneToolCallFinalizers.RequestMaterializer),
+		toolCallFinalizationMaxArgsBytes: gf.toolCallFinalizationMaxArgsBytes,
+		requestTransforms:                cloneSlice(gf.requestTransforms),
+		preRequestHandlers:               materializeRequestSlice(gf.preRequestHandlers, PlanePreRequestHandlers.RequestMaterializer),
+		routeHintProviders:               cloneSlice(gf.routeHintProviders),
+		completionGates:                  cloneSlice(gf.completionGates),
+		attemptTransforms:                materializeRequestSlice(gf.attemptTransforms, PlaneAttemptTransforms.RequestMaterializer),
+		streamObserverFactories:          materializeRequestSlice(gf.streamObserverFactories, PlaneStreamObserverFactories.RequestMaterializer),
+		trafficObservers:                 cloneSlice(gf.trafficObservers),
+		usageObservers:                   cloneSlice(gf.usageObservers),
+		rawCaptureSinks:                  cloneSlice(gf.rawCaptureSinks),
+		trafficRedactors:                 materializeRequestSlice(gf.trafficRedactors, PlaneTrafficRedactors.RequestMaterializer),
+		compactionObservers:              cloneSlice(gf.compactionObservers),
+		compactionPreservers:             cloneSlice(gf.compactionPreservers),
+		secretGuards:                     materializeRequestSlice(gf.secretGuards, PlaneSecretGuards.RequestMaterializer),
+		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, PlaneLocalTurnHandlers.RequestMaterializer),
+		terminalDecisionProvider:         gf.terminalDecisionProvider,
+		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
+		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+	}
+	return next
+}
+
 func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {
 	if gf == nil || gc == nil {
 		return nil
@@ -1220,6 +1256,53 @@ func init() {
 			return gf.terminalDecisionProviderID, gf.terminalDecisionProviderHasID
 		},
 	}
+}
+
+// RequestExecutionView is an immutable borrowed view over request-materialized planes.
+// Its returned slices must not be mutated.
+type RequestExecutionView struct {
+	frozen FrozenPlaneSet
+}
+
+// RequestExecution constructs a RequestExecutionView over the request-materialized planes in in.
+func RequestExecution(in FrozenPlaneSet) RequestExecutionView {
+	return RequestExecutionView{frozen: in}
+}
+
+// ToolCallPolicies returns the request-materialized ToolCallPolicies without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallPolicies() []toolpolicy.Policy {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallPolicies
+}
+
+// ToolCallFinalizers returns the request-materialized ToolCallFinalizers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallFinalizers() []toolcall.Finalizer {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallFinalizers
+}
+
+// SecretGuards returns the request-materialized SecretGuards without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) SecretGuards() []secretguard.Guard {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.secretGuards
+}
+
+// LocalTurnHandlers returns the request-materialized LocalTurnHandlers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) LocalTurnHandlers() []localturn.Handler {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.localTurnHandlers
 }
 
 // BindAttemptTransforms replaces AttemptTransforms under SourceGenerationBinder semantics.

@@ -19,6 +19,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func freezeBundleForDiagTest(b lipfeature.FeatureBundle) lipfeature.FrozenPlaneSet {
+	cs := lipfeature.NewContributionSet()
+	if len(b.AttemptTransforms) > 0 {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", b.AttemptTransforms)
+	}
+	if len(b.StreamObserverFactories) > 0 {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", b.StreamObserverFactories)
+	}
+	return cs.Freeze()
+}
+
 type invPol struct {
 	id  string
 	ord int
@@ -286,8 +297,7 @@ func TestStageOccupancyFromBundle_attemptTransformsAndStreamObservers(t *testing
 		}
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		AttemptTransforms:       b.AttemptTransforms,
-		StreamObserverFactories: b.StreamObserverFactories,
+		FeaturePlanes: freezeBundleForDiagTest(b),
 	})
 	if got := snap.AttemptTransforms(); len(got) != 2 || got[0].ID() != "a" || got[1].ID() != "z" {
 		t.Fatalf("snapshot AttemptTransforms sort mismatch: %#v", got)

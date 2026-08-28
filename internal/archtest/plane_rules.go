@@ -56,14 +56,15 @@ const ActiveMigrationWave = Wave5b_LocalTurnTerminal
 type MirrorShapeKind string
 
 const (
-	MirrorFeatureBundleField     MirrorShapeKind = "FeatureBundleField"
-	MirrorMergedSurfaceField     MirrorShapeKind = "MergedFeatureSurfaceField"
-	MirrorAppendBranch           MirrorShapeKind = "AppendBranch"
-	MirrorProjectionBranch       MirrorShapeKind = "ProjectionBranch"
-	MirrorExtensionsOptionsField MirrorShapeKind = "ExtensionsOptionsField"
-	MirrorGenerationOpField      MirrorShapeKind = "GenerationOperationField"
-	MirrorDiagArm                MirrorShapeKind = "DiagnosticsArm"
-	MirrorStageConsumer          MirrorShapeKind = "StageConsumer"
+	MirrorFeatureBundleField          MirrorShapeKind = "FeatureBundleField"
+	MirrorMergedSurfaceField          MirrorShapeKind = "MergedFeatureSurfaceField"
+	MirrorAppendBranch                MirrorShapeKind = "AppendBranch"
+	MirrorProjectionBranch            MirrorShapeKind = "ProjectionBranch"
+	MirrorExtensionsOptionsField      MirrorShapeKind = "ExtensionsOptionsField"
+	MirrorGenerationOpField           MirrorShapeKind = "GenerationOperationField"
+	MirrorRequestRuntimeSnapshotField MirrorShapeKind = "RequestRuntimeSnapshotField"
+	MirrorDiagArm                     MirrorShapeKind = "DiagnosticsArm"
+	MirrorStageConsumer               MirrorShapeKind = "StageConsumer"
 )
 
 // MirrorFinding is one violation where a forbidden mirror exists past its wave.
@@ -171,7 +172,10 @@ func isGetCall(relPath string, expr ast.Expr, f *ast.File) bool {
 	if !ok {
 		return false
 	}
-	return isGetOrFrozenIdentity(relPath, call.Fun, f)
+	if isGetOrFrozenIdentity(relPath, call.Fun, f) {
+		return true
+	}
+	return isRequestExecutionViewCall(relPath, call, f)
 }
 
 func isFeaturePkgImport(imp *ast.ImportSpec) bool {
@@ -180,6 +184,48 @@ func isFeaturePkgImport(imp *ast.ImportSpec) bool {
 	}
 	path := strings.Trim(imp.Path.Value, `"`)
 	return path == "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+}
+
+func isFeaturePkgDotImportOrSamePkg(relPath string, f *ast.File) bool {
+	if f == nil {
+		return false
+	}
+	if f.Name != nil && f.Name.Name == "feature" {
+		slash := filepath.ToSlash(relPath)
+		dir := path.Dir(slash)
+		if dir == "pkg/lipsdk/feature" {
+			return true
+		}
+	}
+	for _, imp := range f.Imports {
+		if isFeaturePkgImport(imp) && imp.Name != nil && imp.Name.Name == "." {
+			return true
+		}
+	}
+	return false
+}
+
+func isFeaturePkgIdent(relPath string, expr ast.Expr, f *ast.File) bool {
+	pkgIdent, ok := expr.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	pkgName := pkgIdent.Name
+	if f == nil {
+		return false
+	}
+	for _, imp := range f.Imports {
+		if isFeaturePkgImport(imp) {
+			if imp.Name != nil {
+				if imp.Name.Name == pkgName {
+					return true
+				}
+			} else if pkgName == "feature" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isGetOrFrozenIdentity(relPath string, fn ast.Expr, f *ast.File) bool {
@@ -194,46 +240,50 @@ func isGetOrFrozenIdentity(relPath string, fn ast.Expr, f *ast.File) bool {
 		if e.Name != "Get" && e.Name != "FrozenIdentity" {
 			return false
 		}
-		if f == nil {
-			return false
-		}
-		if f.Name != nil && f.Name.Name == "feature" {
-			slash := filepath.ToSlash(relPath)
-			dir := path.Dir(slash)
-			if dir == "pkg/lipsdk/feature" || strings.HasPrefix(dir, "pkg/lipsdk/feature/") {
-				return true
-			}
-		}
-		for _, imp := range f.Imports {
-			if isFeaturePkgImport(imp) && imp.Name != nil && imp.Name.Name == "." {
-				return true
-			}
-		}
-		return false
+		return isFeaturePkgDotImportOrSamePkg(relPath, f)
 	case *ast.SelectorExpr:
 		if e.Sel.Name != "Get" && e.Sel.Name != "FrozenIdentity" {
 			return false
 		}
-		pkgIdent, ok := e.X.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		pkgName := pkgIdent.Name
-		if f == nil {
-			return false
-		}
-		for _, imp := range f.Imports {
-			if isFeaturePkgImport(imp) {
-				if imp.Name != nil {
-					if imp.Name.Name == pkgName {
-						return true
-					}
-				} else if pkgName == "feature" {
-					return true
-				}
-			}
-		}
+		return isFeaturePkgIdent(relPath, e.X, f)
+	default:
 		return false
+	}
+}
+
+var allowedRequestExecutionMethods = map[string]bool{
+	"ToolCallPolicies":   true,
+	"ToolCallFinalizers": true,
+	"SecretGuards":       true,
+	"LocalTurnHandlers":  true,
+}
+
+func isRequestExecutionViewCall(relPath string, call *ast.CallExpr, f *ast.File) bool {
+	if call == nil {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if !allowedRequestExecutionMethods[sel.Sel.Name] {
+		return false
+	}
+	innerCall, ok := sel.X.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	switch fn := innerCall.Fun.(type) {
+	case *ast.SelectorExpr:
+		if fn.Sel.Name != "RequestExecution" {
+			return false
+		}
+		return isFeaturePkgIdent(relPath, fn.X, f)
+	case *ast.Ident:
+		if fn.Name != "RequestExecution" {
+			return false
+		}
+		return isFeaturePkgDotImportOrSamePkg(relPath, f)
 	default:
 		return false
 	}
@@ -317,6 +367,9 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 			case "generationOperations":
 				allowed = AllowedGenerationOperationsFields
 				shapeKind = MirrorGenerationOpField
+			case "RequestRuntimeSnapshot":
+				allowed = AllowedRequestRuntimeSnapshotFields
+				shapeKind = MirrorRequestRuntimeSnapshotField
 			default:
 				return true
 			}
@@ -327,6 +380,10 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 						continue
 					}
 					meta, exists := KnownPlaneFields[name.Name]
+					if !exists && len(name.Name) > 0 {
+						exported := strings.ToUpper(name.Name[:1]) + name.Name[1:]
+						meta, exists = KnownPlaneFields[exported]
+					}
 					if exists && meta.Wave <= maxCompletedWave {
 						pos := fset.Position(name.Pos())
 						addFinding(shapeKind, name.Name, meta.PlaneID,

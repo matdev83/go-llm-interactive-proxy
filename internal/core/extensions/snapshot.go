@@ -2,7 +2,6 @@ package extensions
 
 import (
 	"context"
-	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
@@ -46,61 +45,30 @@ type SecretGuardPlane struct {
 // or rebinding must publish a new snapshot (new [RequestRuntimeSnapshot] value and new executor
 // wiring from [github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle.Build]).
 type RequestRuntimeSnapshot struct {
-	hookBus                 *hooks.Bus
-	state                   state.Store
-	aux                     auxiliary.Client
-	obs                     traffic.Observer
-	usageObs                usage.Observer
-	raw                     traffic.RawCaptureSink
-	ws                      workspace.Resolver
-	sessionOpeners          []session.Opener
-	toolCatalogFilters      []toolcatalog.Filter
-	toolCallPolicies        []toolpolicy.Policy
-	toolCallFinalizers      []toolcall.Finalizer
-	requestTransforms       []request.Transform
-	preRequestHandlers      []prerequest.Handler
-	routeHintProviders      []routehint.Provider
-	completionGates         []completion.Gate
-	attemptTransforms       []request.AttemptTransform
-	streamObserverFactories []response.StreamObserverFactory
-	trafficRedactors        []traffic.Redactor
-	compactionObservers     []compaction.Observer
-	compactionPreservers    []compaction.Preserver
-	secretGuardPlane        SecretGuardPlane
-	policyObserver          policydecision.Observer
-	timeoutBudget           TimeoutBudgetSource
-	timeoutGuard            *ProviderTimeoutGuard
-	localTurnHandlers       []localturn.Handler
-	featurePlanes           lipfeature.FrozenPlaneSet
-	gen                     int64
+	hookBus          *hooks.Bus
+	state            state.Store
+	aux              auxiliary.Client
+	obs              traffic.Observer
+	usageObs         usage.Observer
+	raw              traffic.RawCaptureSink
+	ws               workspace.Resolver
+	secretGuardPlane SecretGuardPlane
+	policyObserver   policydecision.Observer
+	timeoutBudget    TimeoutBudgetSource
+	timeoutGuard     *ProviderTimeoutGuard
+	featurePlanes    lipfeature.FrozenPlaneSet
+	gen              int64
 }
 
 // SnapshotOptions configures optional facades; zero value uses disabled placeholders.
 type SnapshotOptions struct {
-	State                   state.Store
-	Aux                     auxiliary.Client
-	TrafficObserver         traffic.Observer
-	UsageObserver           usage.Observer
-	RawCapture              traffic.RawCaptureSink
-	Workspace               workspace.Resolver
-	SessionOpeners          []session.Opener
-	ToolCatalogFilters      []toolcatalog.Filter
-	ToolCallPolicies        []toolpolicy.Policy
-	ToolCallFinalizers      []toolcall.Finalizer
-	RequestTransforms       []request.Transform
-	PreRequestHandlers      []prerequest.Handler
-	RouteHintProviders      []routehint.Provider
-	CompletionGates         []completion.Gate
-	AttemptTransforms       []request.AttemptTransform
-	StreamObserverFactories []response.StreamObserverFactory
-	TrafficRedactors        []traffic.Redactor
-	// CompactionObservers subscribe to typed, fail-open proxy-derived compaction
-	// lifecycle observations. Nil defaults to an empty frozen slice.
-	CompactionObservers []compaction.Observer
-	// CompactionPreservers are ordered content-bearing preservation callbacks.
-	// Nil defaults to an empty frozen slice.
-	CompactionPreservers []compaction.Preserver
-	SecretGuardPlane     SecretGuardPlane
+	State            state.Store
+	Aux              auxiliary.Client
+	TrafficObserver  traffic.Observer
+	UsageObserver    usage.Observer
+	RawCapture       traffic.RawCaptureSink
+	Workspace        workspace.Resolver
+	SecretGuardPlane SecretGuardPlane
 	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
 	// disabled no-op observer so deployments without policy evidence keep current request
 	// outcomes (requirements 7.6, 10.5).
@@ -109,12 +77,8 @@ type SnapshotOptions struct {
 	// budgets. Nil defaults to [DefaultTimeoutBudgetSource] (zero budget for every
 	// stage/provider) so legacy extension behavior is unchanged (requirements 6.3, 10.5).
 	TimeoutBudgetSource TimeoutBudgetSource
-	LocalTurnHandlers   []localturn.Handler
 	FeaturePlanes       lipfeature.FrozenPlaneSet
-	// TerminalDecisionProvider is frozen with the request snapshot. A nil
-	// provider preserves the platform's no-provider behavior.
-	TerminalDecisionProvider terminaldecision.Provider
-	Generation               int64
+	Generation          int64
 }
 
 // NewRequestRuntimeSnapshot captures bus and facades for the lifetime of the returned value.
@@ -148,23 +112,8 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	if ws == nil {
 		ws = workspace.DisabledResolver{}
 	}
-	openers := slices.Clone(opts.SessionOpeners)
-	catalog := slices.Clone(opts.ToolCatalogFilters)
-	// Frozen execution order for the request lifetime (same contract as [toolpolicy.MaterializeSorted]).
-	policies := toolpolicy.MaterializeSorted(opts.ToolCallPolicies)
-	finalizers := toolcall.MaterializeSorted(opts.ToolCallFinalizers)
-	transforms := slices.Clone(opts.RequestTransforms)
-	preReqs := prerequest.MaterializeSorted(opts.PreRequestHandlers)
-	routeHints := slices.Clone(opts.RouteHintProviders)
-	compGates := slices.Clone(opts.CompletionGates)
-	attemptXforms := request.MaterializeAttemptsSorted(requireNonNilAttemptTransforms(opts.AttemptTransforms))
-	streamObs := response.MaterializeSorted(requireNonNilStreamObserverFactories(opts.StreamObserverFactories))
-	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
-	compactObs := slices.Clone(opts.CompactionObservers)
-	compactPreservers := slices.Clone(opts.CompactionPreservers)
 	plane := opts.SecretGuardPlane
-	// Snapshot owns cloning/sorting for secret guards (same contract as tool policies).
-	plane.Guards = secretguard.MaterializeSorted(plane.Guards)
+	plane.Guards = nil
 	if secretguard.IsNilObserver(plane.DecisionObserver) {
 		plane.DecisionObserver = nil
 	}
@@ -179,41 +128,24 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	if budget == nil {
 		budget = DefaultTimeoutBudgetSource{}
 	}
-	localTurns := localturn.MaterializeSorted(opts.LocalTurnHandlers)
-	featurePlanes := opts.FeaturePlanes
-	if featurePlanes.IsZero() && opts.TerminalDecisionProvider != nil {
-		cset := lipfeature.NewContributionSet()
-		_ = lipfeature.Contribute(cset, lipfeature.PlaneTerminalDecisionProvider, "snapshot_compat", opts.TerminalDecisionProvider)
-		featurePlanes = cset.Freeze()
-	}
+
+	// Materialize request planes once at snapshot construction via generated freeze:
+	featurePlanes := lipfeature.FreezeRequestPlanes(opts.FeaturePlanes)
+
 	return &RequestRuntimeSnapshot{
-		hookBus:                 bus,
-		state:                   st,
-		aux:                     ax,
-		obs:                     ob,
-		usageObs:                uob,
-		raw:                     raw,
-		ws:                      ws,
-		sessionOpeners:          openers,
-		toolCatalogFilters:      catalog,
-		toolCallPolicies:        policies,
-		toolCallFinalizers:      finalizers,
-		requestTransforms:       transforms,
-		preRequestHandlers:      preReqs,
-		routeHintProviders:      routeHints,
-		completionGates:         compGates,
-		attemptTransforms:       attemptXforms,
-		streamObserverFactories: streamObs,
-		trafficRedactors:        reds,
-		compactionObservers:     compactObs,
-		compactionPreservers:    compactPreservers,
-		secretGuardPlane:        plane,
-		policyObserver:          polObs,
-		timeoutBudget:           budget,
-		timeoutGuard:            NewProviderTimeoutGuard(),
-		localTurnHandlers:       localTurns,
-		featurePlanes:           featurePlanes,
-		gen:                     opts.Generation,
+		hookBus:          bus,
+		state:            st,
+		aux:              ax,
+		obs:              ob,
+		usageObs:         uob,
+		raw:              raw,
+		ws:               ws,
+		secretGuardPlane: plane,
+		policyObserver:   polObs,
+		timeoutBudget:    budget,
+		timeoutGuard:     NewProviderTimeoutGuard(),
+		featurePlanes:    featurePlanes,
+		gen:              opts.Generation,
 	}
 }
 
@@ -276,27 +208,18 @@ func (s *RequestRuntimeSnapshot) Workspace() workspace.Resolver {
 // SessionOpeners returns a defensive copy of the frozen session-open stage handlers (may be empty).
 // Mutating the returned slice does not affect the snapshot.
 func (s *RequestRuntimeSnapshot) SessionOpeners() []session.Opener {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.sessionOpeners)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSessionOpeners)
 }
 
 // ToolCatalogFilters returns a defensive copy of frozen catalog filters (may be empty).
 func (s *RequestRuntimeSnapshot) ToolCatalogFilters() []toolcatalog.Filter {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.toolCatalogFilters)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneToolCatalogFilters)
 }
 
 // ToolCallPolicies returns a defensive copy of frozen tool-call policies (may be empty).
 // Mutating the returned slice does not affect the snapshot.
 func (s *RequestRuntimeSnapshot) ToolCallPolicies() []toolpolicy.Policy {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.toolCallPolicies)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneToolCallPolicies)
 }
 
 // ToolCallPoliciesExecution returns the frozen tool-call policy slice in execution order
@@ -304,118 +227,74 @@ func (s *RequestRuntimeSnapshot) ToolCallPolicies() []toolpolicy.Policy {
 // mutated; it is the snapshot's internal backing store. Prefer [RequestRuntimeSnapshot.ToolCallPolicies]
 // for a defensive copy; this accessor exists for the runtime executor hot path.
 func (s *RequestRuntimeSnapshot) ToolCallPoliciesExecution() []toolpolicy.Policy {
-	if s == nil {
-		return nil
-	}
-	return s.toolCallPolicies
+	return lipfeature.RequestExecution(s.featurePlaneSet()).ToolCallPolicies()
 }
 
 func (s *RequestRuntimeSnapshot) ToolCallFinalizers() []toolcall.Finalizer {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.toolCallFinalizers)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneToolCallFinalizers)
 }
 
 func (s *RequestRuntimeSnapshot) ToolCallFinalizersExecution() []toolcall.Finalizer {
-	if s == nil {
-		return nil
-	}
-	return s.toolCallFinalizers
+	return lipfeature.RequestExecution(s.featurePlaneSet()).ToolCallFinalizers()
 }
 
 // RequestTransforms returns a defensive copy of frozen request-wide transforms (may be empty).
 func (s *RequestRuntimeSnapshot) RequestTransforms() []request.Transform {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.requestTransforms)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneRequestTransforms)
 }
 
 // PreRequestHandlers returns a defensive copy of frozen pre-request admission handlers (may be empty).
 func (s *RequestRuntimeSnapshot) PreRequestHandlers() []prerequest.Handler {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.preRequestHandlers)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlanePreRequestHandlers)
 }
 
 // RouteHintProviders returns a defensive copy of frozen route hint providers (may be empty).
 func (s *RequestRuntimeSnapshot) RouteHintProviders() []routehint.Provider {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.routeHintProviders)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneRouteHintProviders)
 }
 
 // CompletionGates returns a defensive copy of frozen completion gates (may be empty).
 func (s *RequestRuntimeSnapshot) CompletionGates() []completion.Gate {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.completionGates)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneCompletionGates)
 }
 
 // AttemptTransforms returns a defensive copy of frozen candidate attempt transforms (may be empty).
 func (s *RequestRuntimeSnapshot) AttemptTransforms() []request.AttemptTransform {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.attemptTransforms)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneAttemptTransforms)
 }
 
 // StreamObserverFactories returns a defensive copy of frozen stream observer factories (may be empty).
 func (s *RequestRuntimeSnapshot) StreamObserverFactories() []response.StreamObserverFactory {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.streamObserverFactories)
-}
-
-func requireNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
-	for _, t := range in {
-		if t == nil {
-			panic("extensions: SnapshotOptions.AttemptTransforms contains nil entry")
-		}
-	}
-	return in
-}
-
-func requireNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
-	for _, f := range in {
-		if f == nil {
-			panic("extensions: SnapshotOptions.StreamObserverFactories contains nil entry")
-		}
-	}
-	return in
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneStreamObserverFactories)
 }
 
 // TrafficRedactors returns a defensive copy of frozen redactors for the traffic pipeline (may be empty).
 func (s *RequestRuntimeSnapshot) TrafficRedactors() []traffic.Redactor {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.trafficRedactors)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneTrafficRedactors)
 }
 
 // CompactionObservers returns a defensive copy of the frozen compaction
 // observer slice (may be empty). Mutating the returned slice does not affect
 // the snapshot; the snapshot's internal backing slice must never be mutated.
 func (s *RequestRuntimeSnapshot) CompactionObservers() []compaction.Observer {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.compactionObservers)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneCompactionObservers)
 }
 
 // CompactionPreservers returns a defensive copy of the frozen content-bearing
 // preservation callback slice. Mutating the returned slice does not affect the
 // snapshot.
 func (s *RequestRuntimeSnapshot) CompactionPreservers() []compaction.Preserver {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.compactionPreservers)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneCompactionPreservers)
+}
+
+// SecretGuards returns a defensive copy of the frozen secret guard slice.
+func (s *RequestRuntimeSnapshot) SecretGuards() []secretguard.Guard {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSecretGuards)
+}
+
+// SecretGuardsExecution returns the frozen secret guard slice without cloning.
+func (s *RequestRuntimeSnapshot) SecretGuardsExecution() []secretguard.Guard {
+	return lipfeature.RequestExecution(s.featurePlaneSet()).SecretGuards()
 }
 
 // SecretGuardPlane returns a defensive copy of the SecretGuardPlane configuration
@@ -426,7 +305,7 @@ func (s *RequestRuntimeSnapshot) SecretGuardPlane() SecretGuardPlane {
 		return SecretGuardPlane{}
 	}
 	plane := s.secretGuardPlane
-	plane.Guards = slices.Clone(plane.Guards)
+	plane.Guards = s.SecretGuards()
 	return plane
 }
 
@@ -438,7 +317,9 @@ func (s *RequestRuntimeSnapshot) SecretGuardExecutionPlane() SecretGuardPlane {
 	if s == nil {
 		return SecretGuardPlane{}
 	}
-	return s.secretGuardPlane
+	plane := s.secretGuardPlane
+	plane.Guards = s.SecretGuardsExecution()
+	return plane
 }
 
 // Generation is an opaque build stamp (e.g. config reload generation in a future spec).
@@ -483,19 +364,13 @@ func (s *RequestRuntimeSnapshot) ProviderTimeoutGuard() *ProviderTimeoutGuard {
 // LocalTurnHandlers returns a defensive copy of frozen local-turn handlers (may be empty).
 // Mutating the returned slice does not affect the snapshot.
 func (s *RequestRuntimeSnapshot) LocalTurnHandlers() []localturn.Handler {
-	if s == nil {
-		return nil
-	}
-	return slices.Clone(s.localTurnHandlers)
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneLocalTurnHandlers)
 }
 
 // LocalTurnHandlersExecution returns the frozen local-turn handler slice in execution order
 // (sorted by Order then ID). The returned slice must not be mutated.
 func (s *RequestRuntimeSnapshot) LocalTurnHandlersExecution() []localturn.Handler {
-	if s == nil {
-		return nil
-	}
-	return s.localTurnHandlers
+	return lipfeature.RequestExecution(s.featurePlaneSet()).LocalTurnHandlers()
 }
 
 func (s *RequestRuntimeSnapshot) featurePlaneSet() lipfeature.FrozenPlaneSet {

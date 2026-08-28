@@ -193,8 +193,12 @@ func TestExecutor_secretGuardRedact_checkpointAndBackendSanitized(t *testing.T) 
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&redactingSecretGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(feature.FeatureBundle{
+			SchemaVersion: feature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&redactingSecretGuard{evals: &guardEvals}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
@@ -272,8 +276,12 @@ func TestExecutor_secretGuardLog_scanLimitContinuesToBackend(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&scanLimitLoggingSecretGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeBundle(feature.FeatureBundle{
+			SchemaVersion: feature.SchemaVersionV1,
+			SecretGuards:  []secretguard.Guard{&scanLimitLoggingSecretGuard{evals: &guardEvals}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial

@@ -20,6 +20,18 @@ func cloneSlice[T any](s []T) []T {
 	return append(make([]T, 0, len(s)), s...)
 }
 
+// materializeRequestSlice evaluates a slice request materializer, cloning the resulting slice
+// to guarantee isolation of the frozen request view.
+func materializeRequestSlice[T any](
+	source []T,
+	materialize func([]T) []T,
+) []T {
+	if materialize == nil {
+		return cloneSlice(source)
+	}
+	return cloneSlice(materialize(source))
+}
+
 // Get retrieves the typed value for plane p from the frozen set.
 // For planes bound to generated storage, Get dispatches directly via generated.get with zero map lookups,
 // zero reflection, and zero type assertions on the request path.
@@ -42,6 +54,23 @@ func Get[P any](s FrozenPlaneSet, p Plane[P]) P {
 	}
 	var zero P
 	return zero
+}
+
+// FreezeRequestPlanes materializes request-scoped feature planes into an immutable FrozenPlaneSet.
+// Planes with a declared RequestMaterializer (e.g. sorted execution planes) are materialized
+// once at snapshot construction; all other planes are preserved in their frozen order.
+func FreezeRequestPlanes(in FrozenPlaneSet) FrozenPlaneSet {
+	if in.IsZero() {
+		return FrozenPlaneSet{}
+	}
+	if in.frozen != nil {
+		return FrozenPlaneSet{
+			frozen: in.frozen.freezeRequest(),
+		}
+	}
+	cset := in.ToContributions()
+	frozen := cset.Freeze()
+	return FreezeRequestPlanes(frozen)
 }
 
 // FrozenIdentity retrieves the validated identity associated with an exclusive

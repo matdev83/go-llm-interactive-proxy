@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"sort"
 	"sync"
@@ -64,7 +65,10 @@ func TestTurnRecvDomainReplacementPreservesProviderEvidenceAndObserver(t *testin
 		},
 	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
+			SchemaVersion:           lipfeature.SchemaVersionV1,
+			StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		}),
 	})
 
 	failedEvidence := lipapi.Event{

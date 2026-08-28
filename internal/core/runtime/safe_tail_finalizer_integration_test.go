@@ -2,6 +2,8 @@ package runtime_test
 
 import (
 	"context"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"sync/atomic"
 	"testing"
 
@@ -51,7 +53,12 @@ func TestRetryRecvStream_RealToolCallFinalizerSafeTailRepairs(t *testing.T) {
 			var opens atomic.Int32
 			ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 				"openai": recordingBackend("openai", &opens, backendStream),
-			}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+			}, extensions.SnapshotOptions{
+				FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
+					SchemaVersion:     lipfeature.SchemaVersionV1,
+					RequestTransforms: []request.Transform{pdNoopRtx{}},
+				}),
+			})
 			fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
 				ID:             corerepair.DefaultFinalizerID,
 				MaxArgsBytes:   corerepair.DefaultMaxArgsBytes,
