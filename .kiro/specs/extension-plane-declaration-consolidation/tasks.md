@@ -230,7 +230,7 @@
   - _Depends: 8.3_
   - **Validation:** `make quality-checks && go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/stdhttp/... ./internal/testkit/... ./internal/qa`
 
-- [ ] 9. Complete derived projections and remove compatibility transport fields
+- [x] 9. Complete derived projections and remove compatibility transport fields
 - [x] 9.1 Complete generation and request-snapshot freeze delegation
   - Make generation operations and request snapshots delegate to generated frozen storage while preserving the lifecycle side channel and host/config capabilities that are not feature contributions.
   - Observable completion: all stage consumers use generated frozen reads and deterministic publish-versus-pinned-request evidence remains green under Linux CI race execution.
@@ -245,14 +245,14 @@
   - _Boundary: core/runtime diagnostics_
   - _Depends: 9.1_
   - **Validation:** `go test ./internal/core/diag ./internal/testkit/...`
-- [ ] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
+- [x] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
   - Delete deprecated adapters only after every consumer/binder has migrated; keep YAML/config and lifecycle compatibility intact.
   - Observable completion: the whole-tree mirror ratchet reports zero forbidden remnants and all generated output is current.
   - _Requirements: 2.2, 5.2, 5.4, 5.5, 8.1_
   - _Boundary: SDK/public contract, composition root, core/runtime_
   - _Depends: 9.1, 9.2_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/infra/runtimebundle ./internal/core/extensions ./internal/testkit/... ./internal/archtest/...`
-- [ ] 9.4 Publish the deterministic SDK migration contract
+- [x] 9.4 Publish the deterministic SDK migration contract
   - Add godoc/examples for package-level `Contribute`/`Get`, declaration requirements, generated-file policy, and the one allowed standard-distribution registration edit.
   - Observable completion: in-repo plugins/examples compile exclusively through the final public contract.
   - _Requirements: 3.1, 3.3, 5.2_

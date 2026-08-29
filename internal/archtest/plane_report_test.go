@@ -59,8 +59,8 @@ func TestExtensionPlanesMirrorMeasurements(t *testing.T) {
 		t.Fatalf("expected 0 active forbidden mirrors at Wave0 baseline, got %d", activeForbidden)
 	}
 
-	if totalRemaining == 0 {
-		t.Fatalf("expected non-zero hand-authored mirrors before migration waves, got 0")
+	if totalRemaining != 0 && ActiveMigrationWave == Wave5c_Residual {
+		t.Fatalf("expected 0 hand-authored mirrors at Wave5c_Residual, got %d", totalRemaining)
 	}
 
 	if len(waves) != 8 {
@@ -288,5 +288,98 @@ func TestMeasureManifestStatus_StaleDetection(t *testing.T) {
 	}
 	if !statusValid.IsGeneratedUpToDate {
 		t.Errorf("expected IsGeneratedUpToDate true for valid generated file, got %v (%s)", statusValid.IsGeneratedUpToDate, statusValid.GeneratedOutputCurrency)
+	}
+}
+
+func TestWriteGeneratedFileAtomic_Success(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plane_generated.go")
+
+	origContent := []byte("// orig\n")
+	if err := os.WriteFile(path, origContent, 0o644); err != nil {
+		t.Fatalf("write orig file failed: %v", err)
+	}
+
+	newContent := []byte("// new\n")
+	if err := WriteGeneratedFileAtomic(path, newContent); err != nil {
+		t.Fatalf("WriteGeneratedFileAtomic failed: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file failed: %v", err)
+	}
+	if string(got) != string(newContent) {
+		t.Fatalf("got %q, want %q", string(got), string(newContent))
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file in dir, got %d", len(entries))
+	}
+}
+
+func TestPlaneGenerator_PrivilegeAcceptedForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{
+			name: "bare canonical identifier accepted",
+			manifest: `package feature
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
+var PlaneA = Plane[[]toolpolicy.Policy]{
+	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
+	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	Validate: func(v []toolpolicy.Policy) error { return nil },
+	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
+	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
+		StageID: StageIDToolEventReaction, Order: 10,
+		Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil },
+		Privileges: func(v []toolpolicy.Policy) PrivilegeProjection {
+			return PrivilegeProjection{Flags: []string{PrivilegeRawCapture, PrivilegeAuxiliaryRequests, PrivilegeAuthProvider, PrivilegeCompletionGate}}
+		},
+	},
+}
+var StandardPlanes = []any{PlaneA}
+`,
+		},
+		{
+			name: "exact canonical literal accepted",
+			manifest: `package feature
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
+var PlaneA = Plane[[]toolpolicy.Policy]{
+	ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate},
+	NilPolicy: NilReject, Identity: func(v []toolpolicy.Policy) (string, bool) { return "", false },
+	Validate: func(v []toolpolicy.Policy) error { return nil },
+	Combine: func(s SourceKind, c, in []toolpolicy.Policy) ([]toolpolicy.Policy, error) { return append(c, in...), nil },
+	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
+		StageID: StageIDToolEventReaction, Order: 10,
+		Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil },
+		Privileges: func(v []toolpolicy.Policy) PrivilegeProjection {
+			return PrivilegeProjection{Flags: []string{"raw_capture", "auxiliary_requests", "auth_provider", "completion_gate"}}
+		},
+	},
+}
+var StandardPlanes = []any{PlaneA}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := GenerateFeaturePlanesCode([]byte(tt.manifest))
+			if err != nil {
+				t.Fatalf("GenerateFeaturePlanesCode failed: %v", err)
+			}
+		})
 	}
 }

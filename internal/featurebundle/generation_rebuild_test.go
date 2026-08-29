@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -36,23 +37,24 @@ func (g genCompactionObs) OnCompaction(context.Context, compaction.Event) error 
 	return nil
 }
 
+func makeGenBundle(t *testing.T, tag string) lipfeature.FeatureBundle {
+	return testkit.FeatureBundle(t, tag, func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, tag, []compaction.Observer{genCompactionObs{tag: tag}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, tag, []toolcall.Finalizer{genFinalizer{id: tag}})
+	}, nil)
+}
+
 // TestMergeFeatureSurface_GenerationRebuildIsolated proves candidate feature
 // merges do not share slice backing arrays across generations.
 func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
-	genA, errA := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{genCompactionObs{tag: "gen-a"}},
-		ToolCallFinalizers:  []toolcall.Finalizer{genFinalizer{id: "gen-a"}},
-	})
+	genA, errA := featurebundle.MergeBundlesGenerated(makeGenBundle(t, "gen-a"))
 	if errA != nil {
 		t.Fatalf("genA error: %v", errA)
 	}
-	genB, errB := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{genCompactionObs{tag: "gen-b"}},
-		ToolCallFinalizers:  []toolcall.Finalizer{genFinalizer{id: "gen-b"}},
-	})
+	genB, errB := featurebundle.MergeBundlesGenerated(makeGenBundle(t, "gen-b"))
 	if errB != nil {
 		t.Fatalf("genB error: %v", errB)
 	}

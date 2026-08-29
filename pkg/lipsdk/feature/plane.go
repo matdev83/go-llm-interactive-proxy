@@ -188,7 +188,7 @@ type generatedAccess[T any] struct {
 }
 
 // Plane declares an extension plane contract with multiplicity, per-source combination rules,
-// validation, and diagnostics metadata.
+// validation, nil policy, and diagnostics metadata.
 type Plane[T any] struct {
 	ID           string
 	Multiplicity Multiplicity
@@ -206,8 +206,11 @@ type Plane[T any] struct {
 	IsNil func(v T) bool
 	// Validate validates incoming contribution values.
 	Validate func(v T) error
-	// Combine combines an incoming contribution with current accumulated state for a source.
-	// Combiners MUST NOT mutate inputs directly on failure (fail-before-mutate).
+	// ValidateIdentity validates a cached identity string (e.g. for exclusive planes).
+	ValidateIdentity func(string) error
+	// Combine combines an incoming contribution with current accumulated state for a source,
+	// returning the retained value for the specified source rule. Combiners must not mutate
+	// caller-owned or current stored state on failure (fail-before-mutate).
 	Combine func(source SourceKind, current, incoming T) (T, error)
 	// Identity extracts the stable identity string for an exclusive or replace-by-identity plane value.
 	Identity func(v T) (string, bool)
@@ -345,6 +348,9 @@ func (p Plane[T]) ValidateDeclaration() error {
 	if requiresIdentity {
 		if p.Identity == nil {
 			return fmt.Errorf("%w: plane %q: identity extractor required for exclusive plane", ErrInvalidPlane, p.ID)
+		}
+		if p.ValidateIdentity == nil {
+			return fmt.Errorf("%w: plane %q: cached identity validator required", ErrInvalidPlane, p.ID)
 		}
 		if (p.generated.contribute != nil || p.generated.get != nil) && p.generated.identity == nil {
 			return fmt.Errorf("%w: plane %q: generated identity accessor required when generated access is bound", ErrInvalidPlane, p.ID)

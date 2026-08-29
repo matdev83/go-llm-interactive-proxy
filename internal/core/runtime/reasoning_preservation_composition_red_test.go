@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"slices"
 	"strings"
 	"sync"
@@ -18,7 +17,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -157,24 +155,14 @@ func rpHasReasoningText(call lipapi.Call, want string) bool {
 
 func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	gen, err := featurebundle.MergeBundlesGenerated(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bus := hooks.New(hooks.Config{ResponsePartHooks: bundle.ResponsePartHooks})
+	bus := hooks.New(hooks.Config{ResponsePartHooks: lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneResponsePartHooks)})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			RequestTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
-			CompletionGates:         lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates),
-			AttemptTransforms:       lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
-			StreamObserverFactories: bundle.StreamObserverFactories,
-		}),
+		FeaturePlanes: bundle.PlaneSet,
 	})
-	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
+	if want, got := len(lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
 	}
-	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+	if want, got := len(lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneStreamObserverFactories)), len(snap.StreamObserverFactories()); want != got {
 		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
 	}
 	return bus, snap
@@ -183,7 +171,9 @@ func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensi
 func rpExecutor(t *testing.T, xform *reasoningPreservationTransform, mutate func(*runtime.Executor)) (*runtime.Executor, *reasoningPreservationTransform) {
 	t.Helper()
 	st, _ := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	b := lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, AttemptTransforms: []request.AttemptTransform{xform}}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "xform", []request.AttemptTransform{xform})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
@@ -534,12 +524,10 @@ func TestReasoningPreservationComposition_weightedRestorationIndependentClones(t
 func TestReasoningPreservationComposition_responseHookAndGateCapture_RED(t *testing.T) {
 	t.Parallel()
 	factory := &recordingStreamObserverFactory{opens: &atomic.Int64{}}
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
-		ResponsePartHooks:       []sdkhooks.ResponsePartHook{mutateTextResponseHook{}},
-		CompletionGates:         nil,
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "obs", []response.StreamObserverFactory{factory})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "hook", []sdkhooks.ResponsePartHook{mutateTextResponseHook{}})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -591,11 +579,10 @@ func TestReasoningPreservationComposition_responseHookAndGateCapture_RED(t *test
 	}
 
 	factory2 := &recordingStreamObserverFactory{opens: &atomic.Int64{}}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{factory2},
-		CompletionGates:         []completion.Gate{replaceAllGate{}},
-	}
+	cs2 := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs2, lipfeature.PlaneStreamObserverFactories, "obs", []response.StreamObserverFactory{factory2})
+	_ = lipfeature.Contribute(cs2, lipfeature.PlaneCompletionGates, "gate", []completion.Gate{replaceAllGate{}})
+	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), nil)
 	if err := b2.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +633,10 @@ func TestReasoningPreservationComposition_streamObserverContributionDropped(t *t
 	t.Parallel()
 	xform := &reasoningPreservationTransform{mode: "restore_missing", artifacts: []reasoningpreservation.TurnArtifact{rpStoredArtifact}, replay: rpReplaySupport, calls: &atomic.Int64{}}
 	factory := &recordingStreamObserverFactory{opens: &atomic.Int64{}}
-	b := lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, AttemptTransforms: []request.AttemptTransform{xform}, StreamObserverFactories: []response.StreamObserverFactory{factory}}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "xform", []request.AttemptTransform{xform})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "obs", []response.StreamObserverFactory{factory})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatal(err)
 	}

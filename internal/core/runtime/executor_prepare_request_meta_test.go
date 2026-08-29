@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -80,8 +79,7 @@ func TestExecutor_prepareSubmitAndALeg_preRequestRunsBeforeRouteHint(t *testing.
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			PreRequestHandlers: []prerequest.Handler{prereqOrderSpy{order: &order}},
 			RouteHintProviders: []routehint.Provider{hint},
 		}),
@@ -128,8 +126,7 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_propagatesIsNewForNewT
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			RequestTransforms: []request.Transform{spy},
 		}),
 	})
@@ -182,8 +179,7 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_resumeTurnIsNotNew(t *
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			RequestTransforms: []request.Transform{spy},
 		}),
 	})

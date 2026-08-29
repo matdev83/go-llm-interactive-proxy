@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	featurecontinuity "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 // BindFeatureSurface replaces the configuration-only official preserver with
@@ -27,7 +28,7 @@ func BindFeatureSurface(genMerged featurebundle.GeneratedMergeSurface, parent *C
 			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("compactioncompose: compaction-continuity composition: %w", err)
 		}
 		var bindErr error
-		staged, bindErr = staged.BindCompactionPreservers(featurecontinuity.ID, bundle.CompactionPreservers)
+		staged, bindErr = staged.BindCompactionPreservers(featurecontinuity.ID, lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneCompactionPreservers))
 		if bindErr != nil {
 			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("compactioncompose: compaction-continuity binding: %w", bindErr)
 		}

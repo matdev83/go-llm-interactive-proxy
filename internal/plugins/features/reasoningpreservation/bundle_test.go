@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -19,11 +20,11 @@ func TestFeatureBundle_contributesPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FeatureBundle: %v", err)
 	}
-	if len(b.AttemptTransforms) != 1 {
-		t.Fatalf("AttemptTransforms=%d", len(b.AttemptTransforms))
+	if transforms := lipfeature.Get(b.PlaneSet, lipfeature.PlaneAttemptTransforms); len(transforms) != 1 {
+		t.Fatalf("AttemptTransforms=%d", len(transforms))
 	}
-	if len(b.StreamObserverFactories) != 1 {
-		t.Fatalf("StreamObserverFactories=%d", len(b.StreamObserverFactories))
+	if observers := lipfeature.Get(b.PlaneSet, lipfeature.PlaneStreamObserverFactories); len(observers) != 1 {
+		t.Fatalf("StreamObserverFactories=%d", len(observers))
 	}
 	if err := b.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

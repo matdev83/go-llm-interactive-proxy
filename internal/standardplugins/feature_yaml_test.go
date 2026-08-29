@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,11 +43,12 @@ handlers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.PreRequestHandlers) != 1 {
-		t.Fatalf("pre-request handlers: %d", len(b.PreRequestHandlers))
+	handlers := lipfeature.Get(b.PlaneSet, lipfeature.PlanePreRequestHandlers)
+	if len(handlers) != 1 {
+		t.Fatalf("pre-request handlers: %d", len(handlers))
 	}
-	if b.PreRequestHandlers[0].ID() != "compliance" {
-		t.Fatalf("handler id: %q", b.PreRequestHandlers[0].ID())
+	if handlers[0].ID() != "compliance" {
+		t.Fatalf("handler id: %q", handlers[0].ID())
 	}
 }
 
@@ -61,11 +63,12 @@ func TestStandardBundle_buildsSecretsGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.SecretGuards) != 1 {
-		t.Fatalf("secret guards: %d", len(b.SecretGuards))
+	guards := lipfeature.Get(b.PlaneSet, lipfeature.PlaneSecretGuards)
+	if len(guards) != 1 {
+		t.Fatalf("secret guards: %d", len(guards))
 	}
-	if b.SecretGuards[0].ID() != "secrets-guard" {
-		t.Fatalf("guard id: %q", b.SecretGuards[0].ID())
+	if guards[0].ID() != "secrets-guard" {
+		t.Fatalf("guard id: %q", guards[0].ID())
 	}
 }
 
@@ -82,8 +85,8 @@ func TestStandardBundle_registersCompactionContinuity(t *testing.T) {
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
-	if len(b.CompactionPreservers) != 0 {
-		t.Fatalf("composition slice must remain no-op before semantic task: %d", len(b.CompactionPreservers))
+	if preservers := lipfeature.Get(b.PlaneSet, lipfeature.PlaneCompactionPreservers); len(preservers) != 0 {
+		t.Fatalf("composition slice must remain no-op before semantic task: %d", len(preservers))
 	}
 }
 

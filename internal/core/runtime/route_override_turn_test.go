@@ -3,13 +3,13 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -271,8 +271,7 @@ func TestExecutor_preRequestRewriteThenOverrideWinsForHintAndBaseline(t *testing
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace:       voidWorkspaceResolver{},
 		TrafficObserver: ctp,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms:  []request.Transform{selectorRewriteTransform{from: overrideClientSelector, to: overrideHookSelector}},
 			RouteHintProviders: []routehint.Provider{hint},
 		}),

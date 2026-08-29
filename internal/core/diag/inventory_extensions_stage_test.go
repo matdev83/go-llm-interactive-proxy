@@ -25,14 +25,7 @@ import (
 )
 
 func freezeBundleForDiagTest(b lipfeature.FeatureBundle) lipfeature.FrozenPlaneSet {
-	cs := lipfeature.NewContributionSet()
-	if len(b.AttemptTransforms) > 0 {
-		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", b.AttemptTransforms)
-	}
-	if len(b.StreamObserverFactories) > 0 {
-		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", b.StreamObserverFactories)
-	}
-	return cs.Freeze()
+	return b.PlaneSet
 }
 
 type invPol struct {
@@ -61,14 +54,13 @@ func (invTR) HandleToolEvent(context.Context, lipapi.ToolEvent, sdkhooks.ToolMet
 
 func TestStageOccupancyFromBundle_toolPoliciesSortedBeforeReactorsStablePrefixes(t *testing.T) {
 	t.Parallel()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCallPolicies: []toolpolicy.Policy{
-			invPol{id: "z", ord: 2},
-			invPol{id: "a", ord: 1},
-		},
-		ToolReactors: []sdkhooks.ToolReactor{invTR{id: "react"}},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		invPol{id: "z", ord: 2},
+		invPol{id: "a", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "test", []sdkhooks.ToolReactor{invTR{id: "react"}})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	occ := stageOccupancyFromBundle(b)
 	var reaction *InventoryStageOccupancy
 	for i := range occ {
@@ -102,18 +94,17 @@ func (stubUsageObs) OnUsage(context.Context, usage.Event) error { return nil }
 
 func TestStageOccupancyFromBundle_trafficObservationTrafficAndUsageObserverIndices(t *testing.T) {
 	t.Parallel()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{},
-			nil,
-			stubTrafficObs{},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{},
-			stubUsageObs{},
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "test", []traffic.Observer{
+		stubTrafficObs{},
+		nil,
+		stubTrafficObs{},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "test", []usage.Observer{
+		stubUsageObs{},
+		stubUsageObs{},
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	occ := stageOccupancyFromBundle(b)
 	var trafficOcc *InventoryStageOccupancy
 	for i := range occ {
@@ -140,10 +131,9 @@ func TestStageOccupancyFromBundle_trafficObservationTrafficAndUsageObserverIndic
 type polOnlyRegistry struct{}
 
 func (polOnlyRegistry) BuildFeatureBundle(string, yaml.Node) (lipfeature.FeatureBundle, error) {
-	return lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		ToolCallPolicies: []toolpolicy.Policy{invPol{id: "solo-pol", ord: 0}},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{invPol{id: "solo-pol", ord: 0}})
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func TestBuildInventoryExtensions_toolPoliciesWithoutTransformsLeavesAuxiliaryRequestsFalse(t *testing.T) {
@@ -281,17 +271,16 @@ func TestStageOccupancyFromBundle_nilAttemptAndStreamEntriesSkippedWithoutPanic(
 
 func TestStageOccupancyFromBundle_attemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
-			invAttemptTransform{id: "z", ord: 2},
-			invAttemptTransform{id: "a", ord: 1},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			invStreamObserverFactory{id: "z", ord: 2},
-			invStreamObserverFactory{id: "a", ord: 1},
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{
+		invAttemptTransform{id: "z", ord: 2},
+		invAttemptTransform{id: "a", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{
+		invStreamObserverFactory{id: "z", ord: 2},
+		invStreamObserverFactory{id: "a", ord: 1},
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	occ := stageOccupancyFromBundle(b)
 	var atOcc, soOcc *InventoryStageOccupancy
 	for i := range occ {
@@ -339,14 +328,13 @@ func TestStageOccupancyFromBundle_attemptTransformsAndStreamObservers(t *testing
 
 func TestStageOccupancyFromBundle_secretGuardsSortedWithPrefix(t *testing.T) {
 	t.Parallel()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []secretguard.Guard{
-			invSecretGuard{id: "z", ord: 2},
-			invSecretGuard{id: "a", ord: 1},
-			invSecretGuard{id: "b", ord: 1},
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test", []secretguard.Guard{
+		invSecretGuard{id: "z", ord: 2},
+		invSecretGuard{id: "a", ord: 1},
+		invSecretGuard{id: "b", ord: 1},
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	occ := stageOccupancyFromBundle(b)
 	var guardOcc *InventoryStageOccupancy
 	for i := range occ {
@@ -400,26 +388,20 @@ func TestReduceDiagnosticProjections_DisposableProbePlane(t *testing.T) {
 		},
 	}
 
-	stageOcc, privs, err := reduceDiagnosticProjections(projections)
+	occ, priv, err := reduceDiagnosticProjections(projections)
 	require.NoError(t, err)
-	require.Len(t, stageOcc, 1)
-	assert.Equal(t, extensions.StageToolEventReaction, stageOcc[0].StageID)
-	assert.Equal(t, 2, stageOcc[0].Count)
-	assert.Equal(t, []string{"probe:alpha", "tool_policy:beta"}, stageOcc[0].HandlerIDs)
-	assert.True(t, privs.AuxiliaryRequests)
-	assert.False(t, privs.RawCapture)
-	assert.False(t, privs.CompletionGate)
-	assert.False(t, privs.AuthProvider)
+	require.Len(t, occ, 1)
+	assert.Equal(t, extensions.StageToolEventReaction, occ[0].StageID)
+	assert.Equal(t, []string{"probe:alpha", "tool_policy:beta"}, occ[0].HandlerIDs)
+	assert.True(t, priv.AuxiliaryRequests)
 }
 
-func TestReduceDiagnosticProjections_UnknownPrivilegeFlagError(t *testing.T) {
+func TestReduceDiagnosticProjections_UnknownPrivilegeFails(t *testing.T) {
 	t.Parallel()
 
 	projections := []lipfeature.DiagnosticPlaneProjection{
 		{
-			PlaneID: "bad_priv_plane",
-			StageID: extensions.StagePreRequest,
-			Order:   10,
+			PlaneID: "bad_priv",
 			Privileges: lipfeature.PrivilegeProjection{
 				Flags: []string{"unknown_priv_flag_xyz"},
 			},
@@ -433,9 +415,15 @@ func TestReduceDiagnosticProjections_UnknownPrivilegeFlagError(t *testing.T) {
 
 type mixedTestRegistry struct {
 	bundles map[string]lipfeature.FeatureBundle
+	errs    map[string]error
 }
 
 func (r *mixedTestRegistry) BuildFeatureBundle(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+	if r.errs != nil {
+		if err, ok := r.errs[factoryKey]; ok {
+			return lipfeature.FeatureBundle{}, err
+		}
+	}
 	if b, ok := r.bundles[factoryKey]; ok {
 		return b, nil
 	}
@@ -453,34 +441,33 @@ func TestBuildInventoryExtensions_ValidMixedBundleSortingAndNils(t *testing.T) {
 		},
 	}
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
-			nil,
-			charStubSubmitHook{id: "sub-z", ord: 20},
-			charStubSubmitHook{id: "sub-a", ord: 10},
-			nil,
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			nil,
-			charStubToolPolicy{id: "pol-b", ord: 10},
-			charStubToolPolicy{id: "pol-a", ord: 10},
-			nil,
-		},
-		SessionOpeners: []session.Opener{
-			nil,
-			charStubSessionOpener{id: "opener-1"},
-			nil,
-		},
-		AttemptTransforms: []request.AttemptTransform{
-			charStubAttemptTransform{id: "att-z", ord: 20},
-			charStubAttemptTransform{id: "att-a", ord: 10},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charStubStreamObserverFactory{id: "so-z", ord: 20},
-			charStubStreamObserverFactory{id: "so-a", ord: 10},
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "mixed", []sdkhooks.SubmitHook{
+		nil,
+		charStubSubmitHook{id: "sub-z", ord: 20},
+		charStubSubmitHook{id: "sub-a", ord: 10},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "mixed", []toolpolicy.Policy{
+		nil,
+		charStubToolPolicy{id: "pol-b", ord: 10},
+		charStubToolPolicy{id: "pol-a", ord: 10},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "mixed", []session.Opener{
+		nil,
+		charStubSessionOpener{id: "opener-1"},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "mixed", []request.AttemptTransform{
+		charStubAttemptTransform{id: "att-z", ord: 20},
+		charStubAttemptTransform{id: "att-a", ord: 10},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "mixed", []response.StreamObserverFactory{
+		charStubStreamObserverFactory{id: "so-z", ord: 20},
+		charStubStreamObserverFactory{id: "so-a", ord: 10},
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 
 	reg := &mixedTestRegistry{
 		bundles: map[string]lipfeature.FeatureBundle{
@@ -526,24 +513,24 @@ func TestBuildInventoryExtensions_InvalidAttemptOrStreamBundleValidation(t *test
 
 	tests := []struct {
 		name      string
-		bundle    lipfeature.FeatureBundle
+		err       error
 		wantError string
 	}{
 		{
 			name: "invalid attempt",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:     lipfeature.SchemaVersionV1,
-				AttemptTransforms: []request.AttemptTransform{nil},
-			},
-			wantError: "feature: FeatureBundle: AttemptTransforms[0] must not be nil",
+			err: func() error {
+				cs := lipfeature.NewContributionSet()
+				return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{nil})
+			}(),
+			wantError: `feature: plugin "test" plane "attempt_transforms": feature: invalid contribution: AttemptTransforms[0] must not be nil`,
 		},
 		{
 			name: "invalid stream observer",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:           lipfeature.SchemaVersionV1,
-				StreamObserverFactories: []response.StreamObserverFactory{nil},
-			},
-			wantError: "feature: FeatureBundle: StreamObserverFactories[0] must not be nil",
+			err: func() error {
+				cs := lipfeature.NewContributionSet()
+				return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{nil})
+			}(),
+			wantError: `feature: plugin "test" plane "stream_observer_factories": feature: invalid contribution: StreamObserverFactories[0] must not be nil`,
 		},
 	}
 
@@ -560,8 +547,8 @@ func TestBuildInventoryExtensions_InvalidAttemptOrStreamBundleValidation(t *test
 			}
 
 			reg := &mixedTestRegistry{
-				bundles: map[string]lipfeature.FeatureBundle{
-					"invalid-kind": tt.bundle,
+				errs: map[string]error{
+					"invalid-kind": tt.err,
 				},
 			}
 

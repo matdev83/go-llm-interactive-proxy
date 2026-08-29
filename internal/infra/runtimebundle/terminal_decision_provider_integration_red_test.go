@@ -129,10 +129,9 @@ func TestTerminalDecisionProviderFeatureIntegrationAndRemoval(t *testing.T) {
 		registry := stdFactoryCatalog(t)
 		factoryID := "terminal-decision-removal-test"
 		require.NoError(t, registry.RegisterFeature(factoryID, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: provider,
-			}, nil
+			return testkit.FeatureBundle(t, factoryID, func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, factoryID, terminaldecision.Provider(provider))
+			}, nil), nil
 		}))
 		process, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 			Cfg:  processBaseConfig(),
@@ -226,10 +225,9 @@ func TestTerminalDecisionProvider_RequestPathUsesFrozenIdentityWithoutCallingID(
 	registry := stdFactoryCatalog(t)
 	factoryID := "terminal-decision-sealed-provider"
 	require.NoError(t, registry.RegisterFeature(factoryID, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provider,
-		}, nil
+		return testkit.FeatureBundle(t, factoryID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, factoryID, terminaldecision.Provider(provider))
+		}, nil), nil
 	}))
 	process, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg:  processBaseConfig(),
@@ -361,10 +359,9 @@ func TestTerminalDecisionGeneratedCandidateSuccessThroughCompileGeneration(t *te
 	registry := stdFactoryCatalog(t)
 	featFactory := "feature-conflict-factory"
 	require.NoError(t, registry.RegisterFeature(featFactory, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provConflict1,
-		}, nil
+		return testkit.FeatureBundle(t, featFactory, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, featFactory, terminaldecision.Provider(provConflict1))
+		}, nil), nil
 	}))
 	psConflict, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg:  processBaseConfig(),
@@ -398,10 +395,9 @@ func compileIntegrationProviderGeneration(t *testing.T, provider terminaldecisio
 	registry := stdFactoryCatalog(t)
 	factoryID := "terminal-decision-integration"
 	if err := registry.RegisterFeature(factoryID, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provider,
-		}, nil
+		return testkit.FeatureBundle(t, factoryID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, factoryID, provider)
+		}, nil), nil
 	}); err != nil {
 		t.Fatalf("RegisterFeature(%q): %v", factoryID, err)
 	}

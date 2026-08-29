@@ -107,10 +107,9 @@ func TestTerminalDecisionMapBackedCandidate_CompileGenerationConflictWithBase(t 
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-term-base", func(n yaml.Node) (feature.FeatureBundle, error) {
-		return feature.FeatureBundle{
-			SchemaVersion:            feature.SchemaVersionV1,
-			TerminalDecisionProvider: baseProvider,
-		}, nil
+		cs := feature.NewContributionSet()
+		_ = feature.Contribute(cs, feature.PlaneTerminalDecisionProvider, "feature-term-base", terminaldecision.Provider(baseProvider))
+		return feature.BundleFromPlanes(cs.Freeze(), nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -187,10 +186,9 @@ func TestTerminalDecisionMalformedMapCandidate_CompileGenerationAttributed(t *te
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-term-base", func(n yaml.Node) (feature.FeatureBundle, error) {
-		return feature.FeatureBundle{
-			SchemaVersion:            feature.SchemaVersionV1,
-			TerminalDecisionProvider: baseProvider,
-		}, nil
+		cs := feature.NewContributionSet()
+		_ = feature.Contribute(cs, feature.PlaneTerminalDecisionProvider, "feature-term-base", terminaldecision.Provider(baseProvider))
+		return feature.BundleFromPlanes(cs.Freeze(), nil), nil
 	}))
 
 	cfg := &config.Config{

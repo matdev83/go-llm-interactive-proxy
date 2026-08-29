@@ -257,40 +257,54 @@ func (parityPanicTerminalProvider) Decide(context.Context, terminaldecision.Inpu
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
+func makeBundle(fn func(cs *lipfeature.ContributionSet), lifecycles ...lipplugin.Lifecycle) lipfeature.FeatureBundle {
+	cs := lipfeature.NewContributionSet()
+	if fn != nil {
+		fn(cs)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), lifecycles)
+}
+
+func makeScalarBundle(bytes int) lipfeature.FeatureBundle {
+	return makeBundle(func(cs *lipfeature.ContributionSet) {
+		if bytes > 0 {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "p", bytes)
+		}
+	})
+}
+
 // makeParityBundle generates a populated feature bundle with tagged items across all planes.
 func makeParityBundle(prefix string, includeTerminalProvider bool) lipfeature.FeatureBundle {
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:                    lipfeature.SchemaVersionV1,
-		SubmitHooks:                      []sdkhooks.SubmitHook{paritySubmitHook{tag: prefix + "-sub-1"}, paritySubmitHook{tag: prefix + "-sub-2"}},
-		RequestPartHooks:                 []sdkhooks.RequestPartHook{parityRequestPartHook{tag: prefix + "-reqpart-1"}, parityRequestPartHook{tag: prefix + "-reqpart-2"}},
-		ResponsePartHooks:                []sdkhooks.ResponsePartHook{parityResponsePartHook{tag: prefix + "-resppart-1"}, parityResponsePartHook{tag: prefix + "-resppart-2"}},
-		ToolReactors:                     []sdkhooks.ToolReactor{parityToolReactor{tag: prefix + "-reactor-1"}, parityToolReactor{tag: prefix + "-reactor-2"}},
-		Lifecycles:                       []lipplugin.Lifecycle{parityLifecycle{tag: prefix + "-lifecycle-1"}, parityLifecycle{tag: prefix + "-lifecycle-2"}},
-		SessionOpeners:                   []session.Opener{parityOpener{tag: prefix + "-opener-1"}, parityOpener{tag: prefix + "-opener-2"}},
-		WorkspaceResolvers:               []lipworkspace.Resolver{parityResolver{tag: prefix + "-resolver-1"}, parityResolver{tag: prefix + "-resolver-2"}},
-		ToolCatalogFilters:               []toolcatalog.Filter{parityCatalogFilter{tag: prefix + "-filter-1"}, parityCatalogFilter{tag: prefix + "-filter-2"}},
-		ToolCallPolicies:                 []toolpolicy.Policy{parityPolicy{tag: prefix + "-policy-1"}, parityPolicy{tag: prefix + "-policy-2"}},
-		ToolCallFinalizers:               []toolcall.Finalizer{parityFinalizer{tag: prefix + "-finalizer-1"}, parityFinalizer{tag: prefix + "-finalizer-2"}},
-		ToolCallFinalizationMaxArgsBytes: 4096,
-		RequestTransforms:                []request.Transform{parityTransform{tag: prefix + "-transform-1"}, parityTransform{tag: prefix + "-transform-2"}},
-		PreRequestHandlers:               []prerequest.Handler{parityPreReq{tag: prefix + "-prereq-1"}, parityPreReq{tag: prefix + "-prereq-2"}},
-		RouteHintProviders:               []routehint.Provider{parityRouteHint{tag: prefix + "-hint-1"}, parityRouteHint{tag: prefix + "-hint-2"}},
-		CompletionGates:                  []completion.Gate{parityCompGate{tag: prefix + "-gate-1"}, parityCompGate{tag: prefix + "-gate-2"}},
-		AttemptTransforms:                []request.AttemptTransform{parityAttemptTransform{tag: prefix + "-attempt-1"}, parityAttemptTransform{tag: prefix + "-attempt-2"}},
-		StreamObserverFactories:          []response.StreamObserverFactory{parityStreamObserverFactory{tag: prefix + "-streamobs-1"}, parityStreamObserverFactory{tag: prefix + "-streamobs-2"}},
-		TrafficObservers:                 []traffic.Observer{parityTrafficObs{tag: prefix + "-trafficobs-1"}, parityTrafficObs{tag: prefix + "-trafficobs-2"}},
-		UsageObservers:                   []usage.Observer{parityUsageObs{tag: prefix + "-usageobs-1"}, parityUsageObs{tag: prefix + "-usageobs-2"}},
-		RawCaptureSinks:                  []traffic.RawCaptureSink{parityRawSink{tag: prefix + "-rawsink-1"}, parityRawSink{tag: prefix + "-rawsink-2"}},
-		TrafficRedactors:                 []traffic.Redactor{parityRedactor{tag: prefix + "-redactor-1"}, parityRedactor{tag: prefix + "-redactor-2"}},
-		CompactionObservers:              []compaction.Observer{parityCompactionObs{tag: prefix + "-compactobs-1"}, parityCompactionObs{tag: prefix + "-compactobs-2"}},
-		CompactionPreservers:             []compaction.Preserver{parityCompactionPreserver{tag: prefix + "-compactpres-1"}, parityCompactionPreserver{tag: prefix + "-compactpres-2"}},
-		SecretGuards:                     []secretguard.Guard{paritySecretGuard{tag: prefix + "-secret-1"}, paritySecretGuard{tag: prefix + "-secret-2"}},
-		LocalTurnHandlers:                []localturn.Handler{parityLocalTurnHandler{tag: prefix + "-turn-1"}, parityLocalTurnHandler{tag: prefix + "-turn-2"}},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, prefix, []sdkhooks.SubmitHook{paritySubmitHook{tag: prefix + "-sub-1"}, paritySubmitHook{tag: prefix + "-sub-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, prefix, []sdkhooks.RequestPartHook{parityRequestPartHook{tag: prefix + "-reqpart-1"}, parityRequestPartHook{tag: prefix + "-reqpart-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, prefix, []sdkhooks.ResponsePartHook{parityResponsePartHook{tag: prefix + "-resppart-1"}, parityResponsePartHook{tag: prefix + "-resppart-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, prefix, []sdkhooks.ToolReactor{parityToolReactor{tag: prefix + "-reactor-1"}, parityToolReactor{tag: prefix + "-reactor-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, prefix, []session.Opener{parityOpener{tag: prefix + "-opener-1"}, parityOpener{tag: prefix + "-opener-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, prefix, []lipworkspace.Resolver{parityResolver{tag: prefix + "-resolver-1"}, parityResolver{tag: prefix + "-resolver-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, prefix, []toolcatalog.Filter{parityCatalogFilter{tag: prefix + "-filter-1"}, parityCatalogFilter{tag: prefix + "-filter-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, prefix, []toolpolicy.Policy{parityPolicy{tag: prefix + "-policy-1"}, parityPolicy{tag: prefix + "-policy-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, prefix, []toolcall.Finalizer{parityFinalizer{tag: prefix + "-finalizer-1"}, parityFinalizer{tag: prefix + "-finalizer-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, prefix, 4096)
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, prefix, []request.Transform{parityTransform{tag: prefix + "-transform-1"}, parityTransform{tag: prefix + "-transform-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, prefix, []prerequest.Handler{parityPreReq{tag: prefix + "-prereq-1"}, parityPreReq{tag: prefix + "-prereq-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, prefix, []routehint.Provider{parityRouteHint{tag: prefix + "-hint-1"}, parityRouteHint{tag: prefix + "-hint-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, prefix, []completion.Gate{parityCompGate{tag: prefix + "-gate-1"}, parityCompGate{tag: prefix + "-gate-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, prefix, []request.AttemptTransform{parityAttemptTransform{tag: prefix + "-attempt-1"}, parityAttemptTransform{tag: prefix + "-attempt-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, prefix, []response.StreamObserverFactory{parityStreamObserverFactory{tag: prefix + "-streamobs-1"}, parityStreamObserverFactory{tag: prefix + "-streamobs-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, prefix, []traffic.Observer{parityTrafficObs{tag: prefix + "-trafficobs-1"}, parityTrafficObs{tag: prefix + "-trafficobs-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, prefix, []usage.Observer{parityUsageObs{tag: prefix + "-usageobs-1"}, parityUsageObs{tag: prefix + "-usageobs-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, prefix, []traffic.RawCaptureSink{parityRawSink{tag: prefix + "-rawsink-1"}, parityRawSink{tag: prefix + "-rawsink-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, prefix, []traffic.Redactor{parityRedactor{tag: prefix + "-redactor-1"}, parityRedactor{tag: prefix + "-redactor-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, prefix, []compaction.Observer{parityCompactionObs{tag: prefix + "-compactobs-1"}, parityCompactionObs{tag: prefix + "-compactobs-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, prefix, []compaction.Preserver{parityCompactionPreserver{tag: prefix + "-compactpres-1"}, parityCompactionPreserver{tag: prefix + "-compactpres-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, prefix, []secretguard.Guard{paritySecretGuard{tag: prefix + "-secret-1"}, paritySecretGuard{tag: prefix + "-secret-2"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, prefix, []localturn.Handler{parityLocalTurnHandler{tag: prefix + "-turn-1"}, parityLocalTurnHandler{tag: prefix + "-turn-2"}})
 	if includeTerminalProvider {
-		b.TerminalDecisionProvider = parityTerminalProvider{tag: prefix + "-termprov"}
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, prefix, terminaldecision.Provider(parityTerminalProvider{tag: prefix + "-termprov"}))
 	}
-	return b
+	lifecycles := []lipplugin.Lifecycle{parityLifecycle{tag: prefix + "-lifecycle-1"}, parityLifecycle{tag: prefix + "-lifecycle-2"}}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), lifecycles)
 }
 
 // --- Parity Test Suite ---
@@ -320,33 +334,31 @@ func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
 
 	t.Run("explicitly_empty_slices", func(t *testing.T) {
 		t.Parallel()
-		emptyBundle := lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			SubmitHooks:             []sdkhooks.SubmitHook{},
-			RequestPartHooks:        []sdkhooks.RequestPartHook{},
-			ResponsePartHooks:       []sdkhooks.ResponsePartHook{},
-			ToolReactors:            []sdkhooks.ToolReactor{},
-			Lifecycles:              []lipplugin.Lifecycle{},
-			SessionOpeners:          []session.Opener{},
-			WorkspaceResolvers:      []lipworkspace.Resolver{},
-			ToolCatalogFilters:      []toolcatalog.Filter{},
-			ToolCallPolicies:        []toolpolicy.Policy{},
-			ToolCallFinalizers:      []toolcall.Finalizer{},
-			RequestTransforms:       []request.Transform{},
-			PreRequestHandlers:      []prerequest.Handler{},
-			RouteHintProviders:      []routehint.Provider{},
-			CompletionGates:         []completion.Gate{},
-			AttemptTransforms:       []request.AttemptTransform{},
-			StreamObserverFactories: []response.StreamObserverFactory{},
-			TrafficObservers:        []traffic.Observer{},
-			UsageObservers:          []usage.Observer{},
-			RawCaptureSinks:         []traffic.RawCaptureSink{},
-			TrafficRedactors:        []traffic.Redactor{},
-			CompactionObservers:     []compaction.Observer{},
-			CompactionPreservers:    []compaction.Preserver{},
-			SecretGuards:            []secretguard.Guard{},
-			LocalTurnHandlers:       []localturn.Handler{},
-		}
+		emptyBundle := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p", []sdkhooks.SubmitHook{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "p", []sdkhooks.RequestPartHook{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "p", []sdkhooks.ResponsePartHook{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "p", []sdkhooks.ToolReactor{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "p", []session.Opener{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "p", []lipworkspace.Resolver{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "p", []toolcatalog.Filter{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "p", []toolpolicy.Policy{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "p", []toolcall.Finalizer{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "p", []request.Transform{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "p", []prerequest.Handler{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "p", []routehint.Provider{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "p", []completion.Gate{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "p", []request.AttemptTransform{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "p", []response.StreamObserverFactory{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "p", []traffic.Observer{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "p", []usage.Observer{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "p", []traffic.RawCaptureSink{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "p", []traffic.Redactor{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "p", []compaction.Observer{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "p", []compaction.Preserver{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "p", []secretguard.Guard{})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "p", []localturn.Handler{})
+		})
 		planeparity.AssertDualPathParity(t, emptyBundle)
 	})
 }
@@ -361,34 +373,34 @@ func TestPlaneParity_DualPathScalarMinReduction(t *testing.T) {
 		{
 			name: "decreasing",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 8192},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
+				makeScalarBundle(8192),
+				makeScalarBundle(4096),
+				makeScalarBundle(1024),
 			},
 		},
 		{
 			name: "increasing",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 8192},
+				makeScalarBundle(1024),
+				makeScalarBundle(4096),
+				makeScalarBundle(8192),
 			},
 		},
 		{
 			name: "equal_idempotence",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
+				makeScalarBundle(2048),
+				makeScalarBundle(2048),
 			},
 		},
 		{
 			name: "interspersed_zeros_and_negatives",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -1},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+				makeScalarBundle(0),
+				makeScalarBundle(4096),
+				makeScalarBundle(-1),
+				makeScalarBundle(1024),
+				makeScalarBundle(0),
 			},
 		},
 	}
@@ -409,24 +421,21 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 
 	t.Run("single_provider", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{paritySubmitHook{tag: "h1"}},
-			TerminalDecisionProvider: provA,
-		}
+		b := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p", []sdkhooks.SubmitHook{paritySubmitHook{tag: "h1"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
+		})
 		planeparity.AssertDualPathParity(t, b)
 	})
 
 	t.Run("distinct_providers_conflict", func(t *testing.T) {
 		t.Parallel()
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provA,
-		}
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provB,
-		}
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
+		})
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provB", terminaldecision.Provider(provB))
+		})
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
@@ -435,14 +444,12 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 
 	t.Run("same_provider_recontribution_conflict", func(t *testing.T) {
 		t.Parallel()
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provA,
-		}
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provA,
-		}
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
+		})
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
+		})
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
@@ -454,52 +461,22 @@ func TestPlaneParity_DualPathInvalidContributions(t *testing.T) {
 	t.Parallel()
 
 	invalidCases := []struct {
-		name   string
-		bundle lipfeature.FeatureBundle
+		name     string
+		provider terminaldecision.Provider
 	}{
-		{
-			name: "empty_provider_id",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: parityBadIDTerminalProvider{badID: ""},
-			},
-		},
-		{
-			name: "invalid_utf8_provider_id",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: parityBadIDTerminalProvider{badID: "\xff\xfe\xfd"},
-			},
-		},
-		{
-			name: "excessive_provider_id",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: parityBadIDTerminalProvider{badID: strings.Repeat("x", terminaldecision.MaxProviderIDBytes+1)},
-			},
-		},
-		{
-			name: "panicking_provider",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: parityPanicTerminalProvider{},
-			},
-		},
-		{
-			name: "typed_nil_provider",
-			bundle: lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: (*parityTerminalProvider)(nil),
-			},
-		},
+		{"empty_provider_id", parityBadIDTerminalProvider{badID: ""}},
+		{"invalid_utf8_provider_id", parityBadIDTerminalProvider{badID: "\xff\xfe\xfd"}},
+		{"excessive_provider_id", parityBadIDTerminalProvider{badID: strings.Repeat("x", terminaldecision.MaxProviderIDBytes+1)}},
+		{"panicking_provider", parityPanicTerminalProvider{}},
+		{"typed_nil_provider", (*parityTerminalProvider)(nil)},
 	}
 
 	for _, tc := range invalidCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			gen, err := featurebundle.MergeBundlesGenerated(tc.bundle)
+			cs := lipfeature.NewContributionSet()
+			err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "test", tc.provider)
 			require.Error(t, err)
-			require.Equal(t, featurebundle.GeneratedMergeSurface{}, gen)
 		})
 	}
 }
@@ -511,10 +488,16 @@ func TestPlaneParity_DualPathFailBeforeMutate(t *testing.T) {
 	provB := parityTerminalProvider{tag: "alg.provider.b"}
 
 	bGood := makeParityBundle("Good", false)
-	bGood.TerminalDecisionProvider = provA
+	csGood := lipfeature.NewContributionSet()
+	_ = bGood.PlaneSet.ReplayTo(csGood, "Good")
+	_ = lipfeature.Contribute(csGood, lipfeature.PlaneTerminalDecisionProvider, "Good", terminaldecision.Provider(provA))
+	bGood = lipfeature.BundleFromPlanes(csGood.Freeze(), bGood.Lifecycles)
 
 	bConflicting := makeParityBundle("Bad", false)
-	bConflicting.TerminalDecisionProvider = provB
+	csBad := lipfeature.NewContributionSet()
+	_ = bConflicting.PlaneSet.ReplayTo(csBad, "Bad")
+	_ = lipfeature.Contribute(csBad, lipfeature.PlaneTerminalDecisionProvider, "Bad", terminaldecision.Provider(provB))
+	bConflicting = lipfeature.BundleFromPlanes(csBad.Freeze(), bConflicting.Lifecycles)
 
 	// Direct verification that generated merge produces empty result on error
 	res, err := featurebundle.MergeBundlesGenerated(bGood, bConflicting)
@@ -547,44 +530,32 @@ func TestPlaneParity_DualPathInvalidSliceItems(t *testing.T) {
 
 	t.Run("nil_attempt_transform", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			AttemptTransforms: []request.AttemptTransform{nil},
-		}
-		_, err := featurebundle.MergeBundlesGenerated(b)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "p", []request.AttemptTransform{nil})
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrInvalidContribution)
 	})
 
 	t.Run("nil_local_turn_handler", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{nil},
-		}
-		_, err := featurebundle.MergeBundlesGenerated(b)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "p", []localturn.Handler{nil})
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrInvalidContribution)
 	})
 
 	t.Run("nil_compaction_preserver", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:        lipfeature.SchemaVersionV1,
-			CompactionPreservers: []compaction.Preserver{nil},
-		}
-		_, err := featurebundle.MergeBundlesGenerated(b)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "p", []compaction.Preserver{nil})
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrInvalidContribution)
 	})
 
 	t.Run("nil_stream_observer_factory", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			StreamObserverFactories: []response.StreamObserverFactory{nil},
-		}
-		_, err := featurebundle.MergeBundlesGenerated(b)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "p", []response.StreamObserverFactory{nil})
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrInvalidContribution)
 	})
@@ -596,31 +567,26 @@ func TestPlaneParity_DualPathMergeFeatureSurfaceWithRegistry(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 
 	err := reg.RegisterFeature("feat-alpha", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:                    lipfeature.SchemaVersionV1,
-			SubmitHooks:                      []sdkhooks.SubmitHook{paritySubmitHook{tag: "alpha-sub"}},
-			ToolCallFinalizationMaxArgsBytes: 4096,
-			Lifecycles:                       []lipplugin.Lifecycle{parityLifecycle{tag: "alpha-life"}},
-		}, nil
+		return makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "feat-alpha", []sdkhooks.SubmitHook{paritySubmitHook{tag: "alpha-sub"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "feat-alpha", 4096)
+		}, parityLifecycle{tag: "alpha-life"}), nil
 	})
 	require.NoError(t, err)
 
 	err = reg.RegisterFeature("feat-beta", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:                    lipfeature.SchemaVersionV1,
-			SubmitHooks:                      []sdkhooks.SubmitHook{paritySubmitHook{tag: "beta-sub"}},
-			ToolCallFinalizationMaxArgsBytes: 2048,
-			TerminalDecisionProvider:         parityTerminalProvider{tag: "beta-provider"},
-			Lifecycles:                       []lipplugin.Lifecycle{parityLifecycle{tag: "beta-life"}},
-		}, nil
+		return makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "feat-beta", []sdkhooks.SubmitHook{paritySubmitHook{tag: "beta-sub"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "feat-beta", 2048)
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "beta-provider", terminaldecision.Provider(parityTerminalProvider{tag: "beta-provider"}))
+		}, parityLifecycle{tag: "beta-life"}), nil
 	})
 	require.NoError(t, err)
 
 	err = reg.RegisterFeature("feat-gamma-disabled", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{paritySubmitHook{tag: "gamma-sub"}},
-		}, nil
+		return makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "feat-gamma", []sdkhooks.SubmitHook{paritySubmitHook{tag: "gamma-sub"}})
+		}), nil
 	})
 	require.NoError(t, err)
 
@@ -731,46 +697,43 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 	t.Parallel()
 
 	makeBundles := func(execLog *[]string, mu *sync.Mutex) (lipfeature.FeatureBundle, lipfeature.FeatureBundle, lipfeature.FeatureBundle) {
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b1", []sdkhooks.SubmitHook{
 				trackingSubmitHook{id: "sub-b1-10", order: 10, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
 				trackingSubmitHook{id: "sub-b1-5", order: 5, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			RequestPartHooks: []sdkhooks.RequestPartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "b1", []sdkhooks.RequestPartHook{
 				trackingRequestPartHook{id: "reqpart-b1-2", order: 2, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			ResponsePartHooks: []sdkhooks.ResponsePartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "b1", []sdkhooks.ResponsePartHook{
 				trackingResponsePartHook{id: "resppart-b1-20", order: 20, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b2", []sdkhooks.SubmitHook{
 				trackingSubmitHook{id: "sub-b2-5", order: 5, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
 				trackingSubmitHook{id: "sub-b2-1", order: 1, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			RequestPartHooks: []sdkhooks.RequestPartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "b2", []sdkhooks.RequestPartHook{
 				trackingRequestPartHook{id: "reqpart-b2-1", order: 1, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			ResponsePartHooks: []sdkhooks.ResponsePartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "b2", []sdkhooks.ResponsePartHook{
 				trackingResponsePartHook{id: "resppart-b2-10", order: 10, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b3 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		b3 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b3", []sdkhooks.SubmitHook{
 				trackingSubmitHook{id: "sub-b3-1", order: 1, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			RequestPartHooks: []sdkhooks.RequestPartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "b3", []sdkhooks.RequestPartHook{
 				trackingRequestPartHook{id: "reqpart-b3-0", order: 0, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-			ResponsePartHooks: []sdkhooks.ResponsePartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "b3", []sdkhooks.ResponsePartHook{
 				trackingResponsePartHook{id: "resppart-b3-5", order: 5, mode: sdkhooks.FailOpen, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 		return b1, b2, b3
 	}
 
@@ -860,18 +823,16 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 		var execLog []string
 		var mu sync.Mutex
 
-		bPanicFailOpen := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		bPanicFailOpen := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p1", []sdkhooks.SubmitHook{
 				trackingSubmitHook{id: "panic-open", order: 1, mode: sdkhooks.FailOpen, log: &execLog, mu: &mu, panics: true},
-			},
-		}
-		bFollower := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+			})
+		})
+		bFollower := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p2", []sdkhooks.SubmitHook{
 				trackingSubmitHook{id: "follower", order: 2, mode: sdkhooks.FailOpen, log: &execLog, mu: &mu},
-			},
-		}
+			})
+		})
 
 		gen, err := featurebundle.MergeBundlesGenerated(bPanicFailOpen, bFollower)
 		require.NoError(t, err)
@@ -887,12 +848,11 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 		require.Equal(t, []string{"panic-open", "follower"}, execLog, "follower hook must run after fail-open panic in generated hook pipeline")
 
 		// Fail closed panic surfaces *safety.PanicError
-		bPanicFailClosed := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RequestPartHooks: []sdkhooks.RequestPartHook{
+		bPanicFailClosed := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "p3", []sdkhooks.RequestPartHook{
 				trackingRequestPartHook{id: "panic-closed", order: 1, mode: sdkhooks.FailClosed, panics: true},
-			},
-		}
+			})
+		})
 		genClosed, err := featurebundle.MergeBundlesGenerated(bPanicFailClosed)
 		require.NoError(t, err)
 
@@ -967,28 +927,25 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 	t.Parallel()
 
 	makeBundles := func(execLog *[]string, mu *sync.Mutex) (lipfeature.FeatureBundle, lipfeature.FeatureBundle, lipfeature.FeatureBundle) {
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b1", []sdkhooks.ToolReactor{
 				trackingToolReactor{id: "reactor-b1-10", order: 10, log: execLog, mu: mu},
 				trackingToolReactor{id: "reactor-b1-5", order: 5, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b2", []sdkhooks.ToolReactor{
 				trackingToolReactor{id: "reactor-b2-5", order: 5, log: execLog, mu: mu},
 				trackingToolReactor{id: "reactor-b2-1", order: 1, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b3 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b3 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b3", []sdkhooks.ToolReactor{
 				trackingToolReactor{id: "reactor-b3-1", order: 1, log: execLog, mu: mu},
-			},
-		}
+			})
+		})
 		return b1, b2, b3
 	}
 
@@ -1020,7 +977,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), b1.ToolReactors...), b2.ToolReactors...), b3.ToolReactors...)
+		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -1086,20 +1043,18 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		var execLog []string
 		var mu sync.Mutex
 
-		bPanic := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		bPanic := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "p1", []sdkhooks.ToolReactor{
 				trackingToolReactor{id: "reactor-panic", order: 1, log: &execLog, mu: &mu, panics: true},
-			},
-		}
-		bFollower := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+			})
+		})
+		bFollower := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "p2", []sdkhooks.ToolReactor{
 				trackingToolReactor{id: "reactor-follower", order: 2, log: &execLog, mu: &mu},
-			},
-		}
+			})
+		})
 
-		legacyReactors := append(append([]sdkhooks.ToolReactor(nil), bPanic.ToolReactors...), bFollower.ToolReactors...)
+		legacyReactors := append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(bPanic.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(bFollower.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(bPanic, bFollower)
 		require.NoError(t, err)
@@ -1236,9 +1191,8 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			hasValidation bool
 		}
 
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b1", []sdkhooks.ToolReactor{
 				// Order 1: valid rewrite
 				trackingToolReactor{
 					id:       "reactor-rewrite",
@@ -1249,12 +1203,11 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 						return ev
 					},
 				},
-			},
-		}
+			})
+		})
 
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b2", []sdkhooks.ToolReactor{
 				// Order 2: invalid rewrite (fails validation because ToolCallID is cleared)
 				trackingToolReactor{
 					id:       "reactor-invalid-rewrite",
@@ -1271,22 +1224,21 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 					order: 3,
 					err:   errors.New("reactor failure"),
 				},
-			},
-		}
+			})
+		})
 
-		b3 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors: []sdkhooks.ToolReactor{
+		b3 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b3", []sdkhooks.ToolReactor{
 				// Order 4: reactor pass
 				trackingToolReactor{
 					id:       "reactor-pass",
 					order:    4,
 					decision: sdkhooks.ToolPass,
 				},
-			},
-		}
+			})
+		})
 
-		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), b1.ToolReactors...), b2.ToolReactors...), b3.ToolReactors...)
+		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -1472,56 +1424,53 @@ func TestPlaneParity_ObserverFamilies_GeneratedEndToEnd(t *testing.T) {
 	t.Parallel()
 
 	makeObserverBundles := func(tLog, uLog, rLog, redLog *[]string, mu *sync.Mutex) (lipfeature.FeatureBundle, lipfeature.FeatureBundle, lipfeature.FeatureBundle) {
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
+		b1 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b1", []traffic.Observer{
 				trackingTrafficObs{id: "to-b1-1", log: tLog, mu: mu},
 				trackingTrafficObs{id: "to-b1-2", log: tLog, mu: mu},
-			},
-			UsageObservers: []usage.Observer{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b1", []usage.Observer{
 				trackingUsageObs{id: "uo-b1-1", log: uLog, mu: mu},
-			},
-			RawCaptureSinks: []traffic.RawCaptureSink{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b1", []traffic.RawCaptureSink{
 				trackingRawSink{id: "raw-b1-1", log: rLog, mu: mu},
-			},
-			TrafficRedactors: []traffic.Redactor{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b1", []traffic.Redactor{
 				trackingRedactor{id: "red-b1-1", tag: "R1", log: redLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
+		b2 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b2", []traffic.Observer{
 				trackingTrafficObs{id: "to-b2-1", log: tLog, mu: mu},
-			},
-			UsageObservers: []usage.Observer{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b2", []usage.Observer{
 				trackingUsageObs{id: "uo-b2-1", log: uLog, mu: mu},
 				trackingUsageObs{id: "uo-b2-2", log: uLog, mu: mu},
-			},
-			RawCaptureSinks: []traffic.RawCaptureSink{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b2", []traffic.RawCaptureSink{
 				trackingRawSink{id: "raw-b2-1", log: rLog, mu: mu},
 				trackingRawSink{id: "raw-b2-2", log: rLog, mu: mu},
-			},
-			TrafficRedactors: []traffic.Redactor{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b2", []traffic.Redactor{
 				trackingRedactor{id: "red-b2-1", tag: "R2", log: redLog, mu: mu},
-			},
-		}
+			})
+		})
 
-		b3 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
+		b3 := makeBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b3", []traffic.Observer{
 				trackingTrafficObs{id: "to-b3-1", log: tLog, mu: mu},
-			},
-			UsageObservers: []usage.Observer{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b3", []usage.Observer{
 				trackingUsageObs{id: "uo-b3-1", log: uLog, mu: mu},
-			},
-			RawCaptureSinks: []traffic.RawCaptureSink{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b3", []traffic.RawCaptureSink{
 				trackingRawSink{id: "raw-b3-1", log: rLog, mu: mu},
-			},
-			TrafficRedactors: []traffic.Redactor{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b3", []traffic.Redactor{
 				trackingRedactor{id: "red-b3-1", tag: "R3", log: redLog, mu: mu},
-			},
-		}
+			})
+		})
 		return b1, b2, b3
 	}
 

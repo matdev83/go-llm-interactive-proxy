@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -41,8 +41,7 @@ func TestStreamToolPolicyDenialNoRetry(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
@@ -116,8 +115,7 @@ func TestStreamCompletionRejectNoFailover(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates:   []completion.Gate{pdRejectGate{}},
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
@@ -181,8 +179,7 @@ func TestStreamCompletionPassEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates:   []completion.Gate{pdPassGate{}},
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
@@ -237,8 +234,7 @@ func TestStreamPolicyNoninterferenceNoObserver(t *testing.T) {
 	}
 	// No PolicyObserver configured; default no-op observer.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "nonexistent"}},
 			CompletionGates:   []completion.Gate{pdPassGate{}},
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
@@ -284,8 +280,7 @@ func TestStreamAttemptFailureEmitsEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -351,8 +346,7 @@ func TestStreamAttemptFailureNoninterferenceNoObserver(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	// No PolicyObserver configured; default no-op observer.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})

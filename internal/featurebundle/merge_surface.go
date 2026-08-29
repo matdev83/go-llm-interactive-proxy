@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // FeatureBundleRegistry represents any registry or catalog capable of building FeatureBundles.
@@ -143,11 +142,6 @@ func MergeFeatureSurfacesWithHost(reg FeatureBundleRegistry, registrations []lip
 	}
 	for i, eb := range extraFeatureBundles {
 		extraID := fmt.Sprintf("candidate-feature-%d", i)
-		if eb.TerminalDecisionProvider != nil {
-			if id, err := terminaldecision.ProviderIdentity(eb.TerminalDecisionProvider); err == nil && id != "" {
-				extraID = id
-			}
-		}
 		if err := ContributeBundle(cs, extraID, eb); err != nil {
 			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
 		}

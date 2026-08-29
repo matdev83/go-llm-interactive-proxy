@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -86,8 +85,7 @@ func admissionExecutor(provider terminaldecision.Provider) *Executor {
 	return &Executor{
 		ExtensionRuntime: ExtensionRuntime{
 			RuntimeSnapshot: extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-				FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-					SchemaVersion:            lipfeature.SchemaVersionV1,
+				FeaturePlanes: freezeBundle(testFeatureBundle{
 					TerminalDecisionProvider: provider,
 				}),
 			}),

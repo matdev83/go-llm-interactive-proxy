@@ -2,11 +2,11 @@ package runtime_test
 
 import (
 	"context"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -77,8 +77,7 @@ func nonInterferenceSecureExecutor(t *testing.T, backends map[string]execbackend
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: voidWorkspaceResolver{},
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms:  []request.Transform{niRtx{prefix: "rtx:"}},
 			PreRequestHandlers: []prerequest.Handler{niPreReq{prefix: "pre:"}},
 		}),

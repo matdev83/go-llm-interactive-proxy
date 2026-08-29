@@ -21,10 +21,9 @@ func TestBuildRuntimeSnapshot_SecretGuardsCloneSortedAndIsolated(t *testing.T) {
 		stubSecretGuard{id: "b", ord: 1},
 	}
 	opts := &BuildOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  guards,
-		}),
+		FeaturePlanes: testkit.FreezeBundle(testkit.FeatureBundle(t, "test-feature", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test-feature", guards)
+		}, nil)),
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{Guards: guards}, nil)

@@ -3,11 +3,11 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -50,8 +50,7 @@ func TestExecutor_toolCatalogFilter_beforeBackendOpen(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCatalogFilters: []toolcatalog.Filter{dropToolNamed{name: "b"}},
 		}),
 	})
@@ -126,8 +125,7 @@ func TestExecutor_toolPolicy_recvHydratesMetaFromExecctx(t *testing.T) {
 	bus := hooks.New(hooks.Config{})
 	spy := &captureToolPolicyMeta{}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCallPolicies: []toolpolicy.Policy{spy},
 		}),
 	})
@@ -194,8 +192,7 @@ func TestExecutor_toolPolicy_deniesStreamToolCall(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCallPolicies: []toolpolicy.Policy{denyToolPolicy{name: "blocked"}},
 		}),
 	})
@@ -261,8 +258,7 @@ func TestExecutor_reftoolpolicy_proofBundle_deniesEmittedBlockedTool(t *testing.
 		BlockPrefixes: nil,
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
 			ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
 		}),

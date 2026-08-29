@@ -368,14 +368,12 @@ func TestSecretGuard_SourcePolicyFeatureAndHostCapabilities(t *testing.T) {
 
 	t.Run("feature_guards_appended_in_registration_order_and_isolated", func(t *testing.T) {
 		t.Parallel()
-		b1 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  []sdksg.Guard{charSGStubGuard{id: "guard-z", ord: 10}, charSGStubGuard{id: "guard-a", ord: 1}},
-		}
-		b2 := lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  []sdksg.Guard{charSGStubGuard{id: "guard-m", ord: 5}},
-		}
+		b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "b1", []sdksg.Guard{charSGStubGuard{id: "guard-z", ord: 10}, charSGStubGuard{id: "guard-a", ord: 1}})
+		}, nil)
+		b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "b2", []sdksg.Guard{charSGStubGuard{id: "guard-m", ord: 5}})
+		}, nil)
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 		require.NoError(t, err)
 

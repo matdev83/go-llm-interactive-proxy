@@ -106,26 +106,28 @@ func TestToolPlanesProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T)
 	var events []string
 	var mu sync.Mutex
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "b1", []toolcatalog.Filter{
 			toolTestFilter{id: "filter-b1-20", ord: 20, events: &events, mu: &mu},
 			toolTestFilter{id: "filter-b1-10", ord: 10, events: &events, mu: &mu},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "b1", []toolpolicy.Policy{
 			toolTestPolicy{id: "pol-b1-20", ord: 20, decision: toolpolicy.DecisionAllow, events: &events, mu: &mu},
 			toolTestPolicy{id: "pol-b1-10", ord: 10, decision: toolpolicy.DecisionAllow, events: &events, mu: &mu},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{
+		})
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "b2", []toolcatalog.Filter{
 			toolTestFilter{id: "filter-b2-5", ord: 5, events: &events, mu: &mu},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "b2", []toolpolicy.Policy{
 			toolTestPolicy{id: "pol-b2-5", ord: 5, decision: toolpolicy.DecisionAllow, events: &events, mu: &mu},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -232,15 +234,16 @@ func TestToolPlanesProjection_NilAndEmptySlicePreservation(t *testing.T) {
 func TestToolPlanesProjection_DefensiveCopyingAndBackingSlice(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{
+	b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "b", []toolcatalog.Filter{
 			toolTestFilter{id: "f1", ord: 1},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "b", []toolpolicy.Policy{
 			toolTestPolicy{id: "p1", ord: 1, decision: toolpolicy.DecisionAllow},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -281,15 +284,16 @@ func TestToolPlanesProjection_CompileGenerationCandidateOverlay(t *testing.T) {
 
 	reg := obsTestFactoryCatalog(t)
 	require.NoError(t, reg.RegisterFeature("tool-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolCatalogFilters: []toolcatalog.Filter{
+		return testkit.FeatureBundle(t, "tool-feature", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "tool-feature", []toolcatalog.Filter{
 				toolTestFilter{id: "base-filter", ord: 20},
-			},
-			ToolCallPolicies: []toolpolicy.Policy{
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "tool-feature", []toolpolicy.Policy{
 				toolTestPolicy{id: "base-policy", ord: 20, decision: toolpolicy.DecisionAllow},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -370,27 +374,32 @@ func TestToolPlanesProjection_StageCoalescingAndDiagnostics(t *testing.T) {
 	t.Parallel()
 
 	// Feature with ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, and ToolReactors
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{
+	b := testkit.FeatureBundle(t, "feat-tool", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "feat-tool", []toolcatalog.Filter{
 			toolTestFilter{id: "filter-cat-2", ord: 20},
 			toolTestFilter{id: "filter-cat-1", ord: 10},
 			nil, // nil filtering
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "feat-tool", []toolpolicy.Policy{
 			toolTestPolicy{id: "pol-2", ord: 20, decision: toolpolicy.DecisionAllow},
 			nil, // nil filtering
 			toolTestPolicy{id: "pol-1", ord: 10, decision: toolpolicy.DecisionAllow},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "feat-tool", []toolcall.Finalizer{
 			toolTestFinalizer{id: "fin-2", ord: 20},
 			toolTestFinalizer{id: "fin-1", ord: 10},
-		},
-		ToolReactors: []sdkhooks.ToolReactor{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "feat-tool", []sdkhooks.ToolReactor{
 			toolTestReactor{id: "reac-2", ord: 20},
 			toolTestReactor{id: "reac-1", ord: 10},
-		},
-	}
+		})
+	}, nil)
 
 	reg := &featurebundleStubRegistry{bundle: b}
 	cfg := &config.Config{
@@ -451,32 +460,34 @@ func TestToolPlanesProjection_StageCoalescingAndDiagnostics(t *testing.T) {
 func TestToolPlanesProjection_FinalizersAndBufferReduction_ParityAndReduction(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b1", []toolcall.Finalizer{
 			toolTestFinalizer{id: "fin-b1-20", ord: 20},
 			toolTestFinalizer{id: "fin-b1-10", ord: 10},
-		},
-		ToolCallFinalizationMaxArgsBytes: 4096,
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b1", 4096)
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b2", []toolcall.Finalizer{
 			toolTestFinalizer{id: "fin-b2-5", ord: 5},
-		},
-		ToolCallFinalizationMaxArgsBytes: 1024,
-	}
-	b3 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b2", 1024)
+	}, nil)
+	b3 := testkit.FeatureBundle(t, "b3", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b3", []toolcall.Finalizer{
 			toolTestFinalizer{id: "fin-b3-30", ord: 30},
-		},
-		ToolCallFinalizationMaxArgsBytes: 8192,
-	}
-	b4 := lipfeature.FeatureBundle{
-		SchemaVersion:                    lipfeature.SchemaVersionV1,
-		ToolCallFinalizationMaxArgsBytes: 0, // 0 is unset
-	}
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b3", 8192)
+	}, nil)
+	b4 := testkit.FeatureBundle(t, "b4", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b4", 0)
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3, b4)
 	require.NoError(t, err)
@@ -595,12 +606,11 @@ func TestToolPlanesProjection_FinalizersNilAndEmptySlicePreservation(t *testing.
 func TestToolPlanesProjection_FinalizersDefensiveCopyingAndBackingSlice(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{
+	b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b", []toolcall.Finalizer{
 			toolTestFinalizer{id: "fin-1", ord: 1},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -632,13 +642,14 @@ func TestToolPlanesProjection_FinalizersAndBufferReduction_CompileGenerationCand
 
 	reg := obsTestFactoryCatalog(t)
 	require.NoError(t, reg.RegisterFeature("tool-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolCallFinalizers: []toolcall.Finalizer{
+		return testkit.FeatureBundle(t, "tool-feature", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "tool-feature", []toolcall.Finalizer{
 				toolTestFinalizer{id: "base-fin", ord: 20},
-			},
-			ToolCallFinalizationMaxArgsBytes: 4096,
-		}, nil
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "tool-feature", 4096)
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()

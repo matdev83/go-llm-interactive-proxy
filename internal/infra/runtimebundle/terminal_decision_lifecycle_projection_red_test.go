@@ -70,10 +70,11 @@ func newTerminalDecisionFeatureFixture(t *testing.T) *terminalDecisionFeatureFix
 	register := func(factoryID string, provider terminaldecision.Provider) {
 		t.Helper()
 		err := registry.RegisterFeature(factoryID, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: provider,
-			}, nil
+			cs := lipfeature.NewContributionSet()
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, factoryID, provider); err != nil {
+				return lipfeature.FeatureBundle{}, err
+			}
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 		})
 		if err != nil {
 			t.Fatalf("RegisterFeature(%q): %v", factoryID, err)

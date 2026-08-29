@@ -96,25 +96,27 @@ func TestGatesAndRouteHintsProjection_ParityWithFrozenAndRegistrationOrder(t *te
 	var events []string
 	var mu sync.Mutex
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RouteHintProviders: []routehint.Provider{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "b1", []routehint.Provider{
 			stubRouteHintProvider{id: "rh-1", ord: 10, hints: []string{"cand-b"}, events: &events, mu: &mu},
 			stubRouteHintProvider{id: "rh-2", ord: 20, hints: []string{"cand-c"}, events: &events, mu: &mu},
-		},
-		CompletionGates: []completion.Gate{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b1", []completion.Gate{
 			stubCompletionGate{id: "cg-1", ord: 10, events: &events, mu: &mu},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RouteHintProviders: []routehint.Provider{
+		})
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "b2", []routehint.Provider{
 			stubRouteHintProvider{id: "rh-3", ord: 5, hints: []string{"cand-a"}, events: &events, mu: &mu},
-		},
-		CompletionGates: []completion.Gate{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b2", []completion.Gate{
 			stubCompletionGate{id: "cg-2", ord: 5, events: &events, mu: &mu},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -178,11 +180,12 @@ func TestGatesAndRouteHintsProjection_NilVsEmptySemantics(t *testing.T) {
 
 	t.Run("explicit_empty_completion_gates_preserves_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
-			CompletionGates:    []completion.Gate{},
-			RouteHintProviders: []routehint.Provider{},
-		}
+		b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b", []completion.Gate{}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "b", []routehint.Provider{})
+		}, nil)
 		gen, err := featurebundle.MergeBundlesGenerated(b)
 		require.NoError(t, err)
 
@@ -207,11 +210,12 @@ func TestGatesAndRouteHintsProjection_BackingArrayIsolation(t *testing.T) {
 	origRH := []routehint.Provider{stubRouteHintProvider{id: "rh-orig"}}
 	origCG := []completion.Gate{stubCompletionGate{id: "cg-orig"}}
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		RouteHintProviders: origRH,
-		CompletionGates:    origCG,
-	}
+	b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "b", origRH); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b", origCG)
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -244,10 +248,9 @@ func TestGatesAndRouteHintsProjection_SeamViewsSourceCompatibility(t *testing.T)
 	t.Parallel()
 
 	cg := []completion.Gate{stubCompletionGate{id: "cg-seam"}}
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:   lipfeature.SchemaVersionV1,
-		CompletionGates: cg,
-	}
+	b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b", cg)
+	}, nil)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
 
@@ -285,9 +288,8 @@ func TestCompileGeneration_GatesAndRouteHintsExecution(t *testing.T) {
 
 	// Register feature 1: route hint provider (returns preferred backend "stub-backend:preferred")
 	require.NoError(t, reg.RegisterFeature("test-hints-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{
+		return testkit.FeatureBundle(t, "test-hints-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test-hints-1", []routehint.Provider{
 				stubRouteHintProvider{
 					id:     "rh-preferred",
 					ord:    1,
@@ -295,23 +297,22 @@ func TestCompileGeneration_GatesAndRouteHintsExecution(t *testing.T) {
 					events: &executedRouteHints,
 					mu:     &mu,
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	// Register feature 2: completion gate (passes completion)
 	require.NoError(t, reg.RegisterFeature("test-gates-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			CompletionGates: []completion.Gate{
+		return testkit.FeatureBundle(t, "test-gates-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "test-gates-1", []completion.Gate{
 				stubCompletionGate{
 					id:     "cg-verify",
 					ord:    1,
 					events: &executedGates,
 					mu:     &mu,
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -414,17 +415,16 @@ func TestCompileGeneration_RouteHintErrorEvidence_FailOpen(t *testing.T) {
 
 	// Route hint provider that errors with FailOpen
 	require.NoError(t, reg.RegisterFeature("test-failopen-hint", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{
+		return testkit.FeatureBundle(t, "test-failopen-hint", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test-failopen-hint", []routehint.Provider{
 				stubRouteHintProvider{
 					id:   "rh-error-failopen",
 					ord:  1,
 					mode: sdkhooks.FailOpen,
 					err:  errors.New("hint provider computation failed"),
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -543,9 +543,8 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayGatesAndRouteHints(t *te
 	var executedGates []string
 	var mu sync.Mutex
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RouteHintProviders: []routehint.Provider{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "cand", []routehint.Provider{
 			stubRouteHintProvider{
 				id:     "cand-rh-1",
 				ord:    1,
@@ -553,16 +552,18 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayGatesAndRouteHints(t *te
 				events: &executedRouteHints,
 				mu:     &mu,
 			},
-		},
-		CompletionGates: []completion.Gate{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "cand", []completion.Gate{
 			stubCompletionGate{
 				id:     "cand-cg-1",
 				ord:    1,
 				events: &executedGates,
 				mu:     &mu,
 			},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -649,9 +650,8 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnoredWithGate
 	// AND populated UNRELATED planes that must be ignored for this wave:
 	// - TrafficObservers (ignored)
 	// - UsageObservers (ignored)
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RouteHintProviders: []routehint.Provider{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "cand", []routehint.Provider{
 			stubRouteHintProvider{
 				id:  "cand-rh-valid",
 				ord: 1,
@@ -661,8 +661,10 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnoredWithGate
 				}(),
 				mu: &mu,
 			},
-		},
-		CompletionGates: []completion.Gate{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "cand", []completion.Gate{
 			stubCompletionGate{
 				id:  "cand-cg-valid",
 				ord: 1,
@@ -672,14 +674,18 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnoredWithGate
 				}(),
 				mu: &mu,
 			},
-		},
-		TrafficObservers: []traffic.Observer{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand", []traffic.Observer{
 			stubTrafficObs{id: "unrelated-traffic-obs"},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "cand", []usage.Observer{
 			stubUsageObs{id: "unrelated-usage-obs"},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -733,10 +739,9 @@ func TestCompileGeneration_CandidateExplicitEmptyCompletionGates(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ps.Close() })
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion:   lipfeature.SchemaVersionV1,
-		CompletionGates: []completion.Gate{},
-	}
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "cand", []completion.Gate{})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -780,23 +785,21 @@ func TestCompileGeneration_MultiRouteHintProvidersExecutionAndEvidenceOrder(t *t
 	// 4. rh-a-2: ord=10
 	// 5. rh-first: ord=5
 	require.NoError(t, reg.RegisterFeature("test-hints-multi-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{
+		return testkit.FeatureBundle(t, "test-hints-multi-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test-hints-multi-1", []routehint.Provider{
 				stubRouteHintProvider{id: "rh-z", ord: 20, hints: []string{"cand-z"}, events: &executedRouteHints, mu: &mu},
 				stubRouteHintProvider{id: "rh-b", ord: 10, hints: []string{"cand-b"}, events: &executedRouteHints, mu: &mu},
 				stubRouteHintProvider{id: "rh-a-1", ord: 10, hints: []string{"cand-a1"}, events: &executedRouteHints, mu: &mu},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 	require.NoError(t, reg.RegisterFeature("test-hints-multi-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{
+		return testkit.FeatureBundle(t, "test-hints-multi-2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test-hints-multi-2", []routehint.Provider{
 				stubRouteHintProvider{id: "rh-a-2", ord: 10, hints: []string{"cand-a2"}, events: &executedRouteHints, mu: &mu},
 				stubRouteHintProvider{id: "rh-first", ord: 5, hints: []string{"cand-first"}, events: &executedRouteHints, mu: &mu},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -898,17 +901,16 @@ func TestCompileGeneration_RouteHintErrorEvidence_FailClosed_RequestFailsBackend
 
 	// Route hint provider that errors with FailClosed
 	require.NoError(t, reg.RegisterFeature("test-failclosed-hint", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{
+		return testkit.FeatureBundle(t, "test-failclosed-hint", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test-failclosed-hint", []routehint.Provider{
 				stubRouteHintProvider{
 					id:   "rh-error-failclosed",
 					ord:  1,
 					mode: sdkhooks.FailClosed,
 					err:  errors.New("strict route hint evaluation failed"),
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -1041,11 +1043,12 @@ func TestGatesAndRouteHints_LiteralNilAndBoxedTypedNilLegacyCharacterization(t *
 	validCG := stubCompletionGate{id: "cg-valid", ord: 10}
 
 	// 1. Bundle merging preserves literal nil and boxed typed-nil without error
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		RouteHintProviders: []routehint.Provider{literalNilRH, typedNilRH, validRH},
-		CompletionGates:    []completion.Gate{literalNilCG, typedNilCG, validCG},
-	}
+	b := testkit.FeatureBundle(t, "b", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "b", []routehint.Provider{literalNilRH, typedNilRH, validRH}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "b", []completion.Gate{literalNilCG, typedNilCG, validCG})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err, "contribute/merge must not reject literal nil or boxed typed nil for gates and route hints")

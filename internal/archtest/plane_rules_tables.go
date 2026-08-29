@@ -76,13 +76,9 @@ var KnownPlaneIDs = map[string]PlaneFieldMetadata{
 // Whitelisted non-plane fields for individual structs.
 var (
 	AllowedFeatureBundleFields = map[string]bool{
-		"SchemaVersion":   true,
-		"Lifecycles":      true,
-		"contributions":   true,
-		"ContributionSet": true,
-		"PlaneSet":        true,
-		"frozen":          true,
-		"Frozen":          true,
+		"SchemaVersion": true,
+		"PlaneSet":      true,
+		"Lifecycles":    true,
 	}
 
 	AllowedMergedSurfaceFields = map[string]bool{
@@ -171,9 +167,11 @@ var (
 	// AllowedObserverProjections is the qualified-symbol allowlist of observer and tool projection functions.
 	// Any other function whose body reads observer/tool planes via Get past Wave 2/4 is forbidden.
 	AllowedObserverProjections = map[string]bool{
-		"internal/infra/runtimebundle.buildRuntimeSnapshot":    true,
-		"internal/infra/runtimebundle.buildExecutorRuntime":    true,
-		"internal/infra/runtimebundle.buildSecretGuardRuntime": true,
+		"internal/infra/runtimebundle.buildRuntimeSnapshot":                 true,
+		"internal/infra/runtimebundle.buildExecutorRuntime":                 true,
+		"internal/infra/runtimebundle.buildSecretGuardRuntime":              true,
+		"internal/infra/compactioncompose.BindFeatureSurface":               true,
+		"internal/infra/runtimebundle.bindReasoningPreservationCompression": true,
 	}
 )
 

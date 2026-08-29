@@ -3,12 +3,12 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -158,8 +158,7 @@ func configureRuntimeCompactionPreserver(t *testing.T, d *compactiondetect.Detec
 	ex := compactionTestExecutor(t, d, observer)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		State: st,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:        lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompactionObservers:  []compaction.Observer{observer},
 			CompactionPreservers: []compaction.Preserver{p},
 		}),
@@ -179,8 +178,7 @@ func TestCompactionPreserverRuntime_orderMutationVisibleToDetectorAndClient(t *t
 	orderedObserver := &orderedRuntimeObserver{order: &order}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		State: st,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:        lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompactionObservers:  []compaction.Observer{observer, orderedObserver},
 			CompactionPreservers: []compaction.Preserver{p},
 		}),

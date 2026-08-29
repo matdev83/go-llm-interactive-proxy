@@ -2,10 +2,10 @@ package runtime_test
 
 import (
 	"context"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"sync/atomic"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -54,8 +54,7 @@ func TestRetryRecvStream_RealToolCallFinalizerSafeTailRepairs(t *testing.T) {
 			ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 				"openai": recordingBackend("openai", &opens, backendStream),
 			}, extensions.SnapshotOptions{
-				FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-					SchemaVersion:     lipfeature.SchemaVersionV1,
+				FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 					RequestTransforms: []request.Transform{pdNoopRtx{}},
 				}),
 			})

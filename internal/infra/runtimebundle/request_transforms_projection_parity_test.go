@@ -135,31 +135,38 @@ func TestRequestTransformsProjection_ParityWithFrozenAndRegistrationOrder(t *tes
 	var events []string
 	var mu sync.Mutex
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "b1", []request.Transform{
 			stubReqTransform{id: "rt-1", ord: 10, events: &events, mu: &mu},
 			stubReqTransform{id: "rt-2", ord: 20, events: &events, mu: &mu},
-		},
-		PreRequestHandlers: []prerequest.Handler{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "b1", []prerequest.Handler{
 			stubPreReqHandler{id: "pr-1", ord: 10, events: &events, mu: &mu},
-		},
-		AttemptTransforms: []request.AttemptTransform{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "b1", []request.AttemptTransform{
 			stubAttemptTransform{id: "at-1", ord: 10, events: &events, mu: &mu},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+		})
+	}, nil)
+
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "b2", []request.Transform{
 			stubReqTransform{id: "rt-3", ord: 5, events: &events, mu: &mu},
-		},
-		PreRequestHandlers: []prerequest.Handler{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "b2", []prerequest.Handler{
 			stubPreReqHandler{id: "pr-2", ord: 5, events: &events, mu: &mu},
-		},
-		AttemptTransforms: []request.AttemptTransform{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "b2", []request.AttemptTransform{
 			stubAttemptTransform{id: "at-2", ord: 5, events: &events, mu: &mu},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -232,24 +239,36 @@ func TestRequestTransformsProjection_NilVsEmptySemantics(t *testing.T) {
 
 	t.Run("explicitly_empty_slices_normalize_properly", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
-			RequestTransforms:  []request.Transform{},
-			PreRequestHandlers: []prerequest.Handler{},
-			AttemptTransforms:  []request.AttemptTransform{},
-		}
+		b := testkit.FeatureBundle(t, "empty", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "empty", []request.Transform{}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "empty", []prerequest.Handler{}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "empty", []request.AttemptTransform{})
+		}, nil)
 		gen, err := featurebundle.MergeBundlesGenerated(b)
 		require.NoError(t, err)
 
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms))
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers))
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms))
+		gotRT := lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)
+		assert.NotNil(t, gotRT)
+		assert.Empty(t, gotRT)
+
+		gotPR := lipfeature.Get(gen.Frozen, lipfeature.PlanePreRequestHandlers)
+		assert.NotNil(t, gotPR)
+		assert.Empty(t, gotPR)
+
+		gotAT := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
+		assert.NotNil(t, gotAT)
+		assert.Empty(t, gotAT)
 
 		bus := hooks.New(hooks.Config{})
 		opts := &BuildOptions{FeaturePlanes: gen.Frozen}
 		snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
 
-		assert.Nil(t, snap.RequestTransforms())
+		assert.NotNil(t, snap.RequestTransforms())
+		assert.Empty(t, snap.RequestTransforms())
 		assert.Nil(t, snap.PreRequestHandlers())
 		assert.Nil(t, snap.AttemptTransforms())
 	})
@@ -262,12 +281,15 @@ func TestRequestTransformsProjection_BackingArrayIsolation(t *testing.T) {
 	origPR := []prerequest.Handler{stubPreReqHandler{id: "pr-orig"}}
 	origAT := []request.AttemptTransform{stubAttemptTransform{id: "at-orig"}}
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		RequestTransforms:  origRT,
-		PreRequestHandlers: origPR,
-		AttemptTransforms:  origAT,
-	}
+	b := testkit.FeatureBundle(t, "orig", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "orig", origRT); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "orig", origPR); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "orig", origAT)
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -298,14 +320,13 @@ func TestRequestTransformsProjection_RequestTransformsNilAcceptance(t *testing.T
 
 	var typedNilTransform *stubReqTransform
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+	b := testkit.FeatureBundle(t, "nil-rt", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "nil-rt", []request.Transform{
 			nil,
 			typedNilTransform,
 			stubReqTransform{id: "rt-valid"},
-		},
-	}
+		})
+	}, nil)
 
 	require.NoError(t, b.Validate())
 
@@ -334,14 +355,13 @@ func TestRequestTransformsProjection_PreRequestHandlersNilAcceptance(t *testing.
 
 	var typedNilHandler *stubPreReqHandler
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		PreRequestHandlers: []prerequest.Handler{
+	b := testkit.FeatureBundle(t, "nil-pr", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "nil-pr", []prerequest.Handler{
 			nil,
 			typedNilHandler,
 			stubPreReqHandler{id: "pr-valid", ord: 1},
-		},
-	}
+		})
+	}, nil)
 
 	require.NoError(t, b.Validate())
 
@@ -369,15 +389,9 @@ func TestRequestTransformsProjection_AttemptTransformsTypedNilRejection(t *testi
 
 	t.Run("literal_nil_rejected", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			AttemptTransforms: []request.AttemptTransform{nil},
-		}
-
-		require.Error(t, b.Validate())
-
-		_, err := featurebundle.MergeBundlesGenerated(b)
-		require.Error(t, err, "literal nil AttemptTransforms element must fail MergeBundlesGenerated")
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{nil})
+		require.Error(t, err, "literal nil AttemptTransforms element must fail Contribute")
 		var attrErr *lipfeature.AttributedError
 		require.ErrorAs(t, err, &attrErr)
 		assert.Equal(t, lipfeature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
@@ -385,15 +399,9 @@ func TestRequestTransformsProjection_AttemptTransformsTypedNilRejection(t *testi
 
 	t.Run("boxed_typed_nil_rejected", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			AttemptTransforms: []request.AttemptTransform{typedNilAttempt},
-		}
-
-		require.Error(t, b.Validate())
-
-		_, err := featurebundle.MergeBundlesGenerated(b)
-		require.Error(t, err, "boxed typed nil AttemptTransforms element must fail MergeBundlesGenerated")
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{typedNilAttempt})
+		require.Error(t, err, "boxed typed nil AttemptTransforms element must fail Contribute")
 		var attrErr *lipfeature.AttributedError
 		require.ErrorAs(t, err, &attrErr)
 		assert.Equal(t, lipfeature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
@@ -403,13 +411,12 @@ func TestRequestTransformsProjection_AttemptTransformsTypedNilRejection(t *testi
 func TestRequestTransformsProjection_TransactionalBinderReplacement(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
+	b := testkit.FeatureBundle(t, "init", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "init", []request.AttemptTransform{
 			stubAttemptTransform{id: "at-initial-1"},
 			stubAttemptTransform{id: "at-initial-2"},
-		},
-	}
+		})
+	}, nil)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
 
@@ -450,9 +457,8 @@ func TestCompileGeneration_RequestTransformsExecution(t *testing.T) {
 
 	// Register feature 1: request transform and pre-request handler
 	require.NoError(t, reg.RegisterFeature("test-shaping-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RequestTransforms: []request.Transform{
+		return testkit.FeatureBundle(t, "test-shaping-1", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test-shaping-1", []request.Transform{
 				stubReqTransform{
 					id:     "tx-prefix",
 					ord:    1,
@@ -464,18 +470,19 @@ func TestCompileGeneration_RequestTransformsExecution(t *testing.T) {
 						}
 					},
 				},
-			},
-			PreRequestHandlers: []prerequest.Handler{
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "test-shaping-1", []prerequest.Handler{
 				stubPreReqHandler{id: "pr-check", ord: 1, events: &executedPreReqs, mu: &mu},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	// Register feature 2: attempt transform
 	require.NoError(t, reg.RegisterFeature("test-shaping-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			AttemptTransforms: []request.AttemptTransform{
+		return testkit.FeatureBundle(t, "test-shaping-2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test-shaping-2", []request.AttemptTransform{
 				stubAttemptTransform{
 					id:     "at-modify",
 					ord:    1,
@@ -487,8 +494,8 @@ func TestCompileGeneration_RequestTransformsExecution(t *testing.T) {
 						}
 					},
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -583,18 +590,21 @@ func TestCompileGeneration_DisabledFeatureContributesNothing(t *testing.T) {
 	reg := obsTestFactoryCatalog(t)
 
 	require.NoError(t, reg.RegisterFeature("test-disabled-shaping", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			RequestTransforms: []request.Transform{
+		return testkit.FeatureBundle(t, "test-disabled-shaping", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test-disabled-shaping", []request.Transform{
 				stubReqTransform{id: "disabled-tx"},
-			},
-			PreRequestHandlers: []prerequest.Handler{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "test-disabled-shaping", []prerequest.Handler{
 				stubPreReqHandler{id: "disabled-pr"},
-			},
-			AttemptTransforms: []request.AttemptTransform{
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test-disabled-shaping", []request.AttemptTransform{
 				stubAttemptTransform{id: "disabled-at"},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -660,9 +670,8 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayShaping(t *testing.T) {
 	var executedAttempts []string
 	var mu sync.Mutex
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "cand", []request.Transform{
 			stubReqTransform{
 				id:     "cand-tx-prefix",
 				ord:    1,
@@ -674,11 +683,15 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayShaping(t *testing.T) {
 					}
 				},
 			},
-		},
-		PreRequestHandlers: []prerequest.Handler{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "cand", []prerequest.Handler{
 			stubPreReqHandler{id: "cand-pr-check", ord: 1, events: &executedPreReqs, mu: &mu},
-		},
-		AttemptTransforms: []request.AttemptTransform{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "cand", []request.AttemptTransform{
 			stubAttemptTransform{
 				id:     "cand-at-modify",
 				ord:    1,
@@ -690,8 +703,8 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlayShaping(t *testing.T) {
 					}
 				},
 			},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -803,9 +816,8 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *test
 	// - SubmitHooks
 	// - StreamObserverFactories
 	// - TerminalDecisionProvider
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "cand", []request.Transform{
 			stubReqTransform{
 				id:  "cand-rt",
 				ord: 1,
@@ -815,14 +827,18 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *test
 					mu.Unlock()
 				},
 			},
-		},
-		PreRequestHandlers: []prerequest.Handler{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "cand", []prerequest.Handler{
 			stubPreReqHandler{
 				id:  "cand-pr",
 				ord: 1,
 			},
-		},
-		AttemptTransforms: []request.AttemptTransform{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "cand", []request.AttemptTransform{
 			stubAttemptTransform{
 				id:  "cand-at",
 				ord: 1,
@@ -832,33 +848,41 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnored(t *test
 					mu.Unlock()
 				},
 			},
-		},
-		TrafficObservers: []traffic.Observer{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand", []traffic.Observer{
 			stubTrafficObs{
 				id:     "unrelated-cand-to",
 				events: &[]string{},
 				mu:     &mu,
 			},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "cand", []usage.Observer{
 			stubUsageObs{
 				id:     "unrelated-cand-uo",
 				events: &[]string{},
 				mu:     &mu,
 			},
-		},
-		SubmitHooks: []sdkhooks.SubmitHook{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "cand", []sdkhooks.SubmitHook{
 			stubSubmitHook{
 				id:    "unrelated-cand-submit",
 				order: 1,
 			},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "cand", []response.StreamObserverFactory{
 			stubStreamObsFactory{
 				id: "unrelated-cand-so",
 			},
-		},
-	}
+		})
+	}, nil)
 
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
@@ -975,17 +999,18 @@ func TestCompileGeneration_CandidateFeaturePlanes_ReasoningPreservationAttemptRe
 	reasoningXformID := reasoningpreservation.ID + "-transform"
 
 	// Candidate overlay: contributes cand-at-1, a stub attempt transform with matching reasoning ID, and cand-at-2
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "cand", []request.Transform{
 			stubReqTransform{
 				id:     "cand-rt",
 				ord:    1,
 				events: &executionSequence,
 				mu:     &mu,
 			},
-		},
-		AttemptTransforms: []request.AttemptTransform{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "cand", []request.AttemptTransform{
 			stubAttemptTransform{
 				id:     "cand-at-survivor-1",
 				ord:    -10,
@@ -1009,8 +1034,8 @@ func TestCompileGeneration_CandidateFeaturePlanes_ReasoningPreservationAttemptRe
 				events: &executionSequence,
 				mu:     &mu,
 			},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -1102,12 +1127,13 @@ func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
 	var mu sync.Mutex
 
 	require.NoError(t, reg.RegisterFeature("test-deny-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			PreRequestHandlers: []prerequest.Handler{
+		return testkit.FeatureBundle(t, "test-deny-feature", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "test-deny-feature", []prerequest.Handler{
 				stubPreReqHandler{id: "pr-deny-gate", ord: 1, deny: true},
-			},
-			RequestTransforms: []request.Transform{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test-deny-feature", []request.Transform{
 				stubReqTransform{
 					id:  "tx-should-not-run",
 					ord: 1,
@@ -1117,8 +1143,10 @@ func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
 						mu.Unlock()
 					},
 				},
-			},
-			AttemptTransforms: []request.AttemptTransform{
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test-deny-feature", []request.AttemptTransform{
 				stubAttemptTransform{
 					id:  "at-should-not-run",
 					ord: 1,
@@ -1128,8 +1156,8 @@ func TestCompileGeneration_PreRequestDenyDecisionEvidence(t *testing.T) {
 						mu.Unlock()
 					},
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()

@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -25,18 +26,16 @@ func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 		if err != nil {
 			return lipfeature.FeatureBundle{}, err
 		}
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
-		}, nil
+		return testkit.FeatureBundle(t, submitFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, submitFacID, []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.RegisterFeature(toolFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors:  []sdk.ToolReactor{toolreactornoop.NewToolReactor()},
-		}, nil
+		return testkit.FeatureBundle(t, toolFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, toolFacID, []sdk.ToolReactor{toolreactornoop.NewToolReactor()})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

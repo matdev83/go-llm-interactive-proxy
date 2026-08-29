@@ -52,6 +52,14 @@ func (charStubPanicTerminalProvider) Decide(context.Context, terminaldecision.In
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
+func testBundle(fn func(cs *lipfeature.ContributionSet)) lipfeature.FeatureBundle {
+	cs := lipfeature.NewContributionSet()
+	if fn != nil {
+		fn(cs)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+}
+
 // --- Acceptance Criteria 1: Finalizer-Cap Merge Path ---
 
 // TestFinalizerCap_MergePathMinReductionAndZeroSemantics pins requirement 4.4 and 1.2:
@@ -71,62 +79,88 @@ func TestFinalizerCap_MergePathMinReductionAndZeroSemantics(t *testing.T) {
 		{
 			name: "single_positive_cap",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 4096)
+				}),
 			},
 			want: 4096,
 		},
 		{
 			name: "decreasing_sequence_min_reduction",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 8192},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 8192)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 4096)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 1024)
+				}),
 			},
 			want: 1024,
 		},
 		{
 			name: "increasing_sequence_min_reduction",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 8192},
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 1024)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 4096)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 8192)
+				}),
 			},
 			want: 1024,
 		},
 		{
 			name: "equal_value_idempotence",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 2048)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 2048)
+				}),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 2048)
+				}),
 			},
 			want: 2048,
 		},
 		{
 			name: "interspersed_zeros_zero_as_unset",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+				testBundle(nil),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 4096)
+				}),
+				testBundle(nil),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 1024)
+				}),
+				testBundle(nil),
 			},
 			want: 1024,
 		},
 		{
 			name: "interspersed_negatives_ignored",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -1},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -500},
+				testBundle(nil),
+				testBundle(func(cs *lipfeature.ContributionSet) {
+					_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "test", 2048)
+				}),
+				testBundle(nil),
 			},
 			want: 2048,
 		},
 		{
 			name: "all_zero_bundles",
 			bundles: []lipfeature.FeatureBundle{
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
-				{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+				testBundle(nil),
+				testBundle(nil),
 			},
 			want: 0,
 		},
@@ -196,7 +230,9 @@ func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 	t.Run("zero_providers_leaves_slot_nil", func(t *testing.T) {
 		t.Parallel()
 		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, SubmitHooks: []sdkhooks.SubmitHook{charStubSubmitHook{tag: "h1"}}},
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "test", []sdkhooks.SubmitHook{charStubSubmitHook{tag: "h1"}})
+			}),
 		)
 		require.NoError(t, err)
 		require.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
@@ -205,7 +241,9 @@ func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 	t.Run("single_valid_provider_occupies_slot", func(t *testing.T) {
 		t.Parallel()
 		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-a", terminaldecision.Provider(provA))
+			}),
 		)
 		require.NoError(t, err)
 		require.Equal(t, provA, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
@@ -214,42 +252,48 @@ func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 	t.Run("distinct_providers_conflict_exact_text_and_type", func(t *testing.T) {
 		t.Parallel()
 		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provB},
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-a", terminaldecision.Provider(provA))
+			}),
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(provB))
+			}),
 		)
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 		require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-		require.Contains(t, err.Error(), `"alg.provider.a" and "alg.provider.b"`)
+		require.Contains(t, err.Error(), `"`+provA.ID()+`" and "`+provB.ID()+`"`)
 		require.Equal(t, GeneratedMergeSurface{}, gen)
 	})
 
 	t.Run("same_provider_recontribution_characterization", func(t *testing.T) {
 		t.Parallel()
 		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
-			lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provA},
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-a", terminaldecision.Provider(provA))
+			}),
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(provA))
+			}),
 		)
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 		require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-		require.Contains(t, err.Error(), `"alg.provider.a" and "alg.provider.a"`)
+		require.Contains(t, err.Error(), `"`+provA.ID()+`" and "`+provA.ID()+`"`)
 		require.Equal(t, GeneratedMergeSurface{}, gen)
 	})
 
 	t.Run("fail_before_mutate_on_exclusive_conflict", func(t *testing.T) {
 		t.Parallel()
 		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-				TerminalDecisionProvider: provA,
-			},
-			lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-				TerminalDecisionProvider: provB,
-			},
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "plugin-a", []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}})
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-a", terminaldecision.Provider(provA))
+			}),
+			testBundle(func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "plugin-b", []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}})
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(provB))
+			}),
 		)
 		require.Error(t, err)
 		require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
@@ -259,56 +303,29 @@ func TestTerminalDecision_ExclusiveOccupationAndConflictText(t *testing.T) {
 	t.Run("fail_before_mutate_on_invalid_incoming_provider", func(t *testing.T) {
 		t.Parallel()
 		badProv := charStubBadIDTerminalProvider{badID: ""}
-		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-			},
-			lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-				TerminalDecisionProvider: badProv,
-			},
-		)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(badProv))
 		require.Error(t, err)
-		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider is invalid")
+		require.Nil(t, lipfeature.Get(cs.Freeze(), lipfeature.PlaneTerminalDecisionProvider), "candidate must not be mutated when incoming provider is invalid")
 	})
 
 	t.Run("fail_before_mutate_on_typed_nil_provider", func(t *testing.T) {
 		t.Parallel()
 		var typedNil *charStubTerminalProvider
-		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-			},
-			lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-				TerminalDecisionProvider: typedNil,
-			},
-		)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(typedNil))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider is typed nil")
+		require.Nil(t, lipfeature.Get(cs.Freeze(), lipfeature.PlaneTerminalDecisionProvider), "candidate must not be mutated when incoming provider is typed nil")
 	})
 
 	t.Run("fail_before_mutate_on_panicking_provider", func(t *testing.T) {
 		t.Parallel()
-		gen, err := MergeBundlesGenerated(
-			lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				SubmitHooks:   []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-init"}},
-			},
-			lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				SubmitHooks:              []sdkhooks.SubmitHook{charStubSubmitHook{tag: "hook-new"}},
-				TerminalDecisionProvider: charStubPanicTerminalProvider{},
-			},
-		)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "plugin-b", terminaldecision.Provider(charStubPanicTerminalProvider{}))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		require.Equal(t, GeneratedMergeSurface{}, gen, "candidate must not be returned when incoming provider panics during ID()")
+		require.Nil(t, lipfeature.Get(cs.Freeze(), lipfeature.PlaneTerminalDecisionProvider), "candidate must not be mutated when incoming provider panics during ID()")
 	})
 }
 
@@ -326,12 +343,10 @@ func TestTerminalDecision_ProviderIdentityValidation(t *testing.T) {
 		t.Run("valid_"+id, func(t *testing.T) {
 			t.Parallel()
 			prov := charStubTerminalProvider{tag: id}
-			gen, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: prov,
-			})
+			cs := lipfeature.NewContributionSet()
+			err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "test", terminaldecision.Provider(prov))
 			require.NoError(t, err)
-			require.Equal(t, prov, lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
+			require.Equal(t, prov, lipfeature.Get(cs.Freeze(), lipfeature.PlaneTerminalDecisionProvider))
 		})
 	}
 
@@ -349,10 +364,8 @@ func TestTerminalDecision_ProviderIdentityValidation(t *testing.T) {
 	for _, tc := range invalidCases {
 		t.Run("invalid_"+tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := MergeBundlesGenerated(lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				TerminalDecisionProvider: tc.provider,
-			})
+			cs := lipfeature.NewContributionSet()
+			err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "test", tc.provider)
 			require.Error(t, err)
 		})
 	}
