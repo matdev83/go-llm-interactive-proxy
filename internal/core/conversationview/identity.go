@@ -257,7 +257,7 @@ func HashAtom(atom MessageAtomV1) (MessageIdentity, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(b)
-	return MessageIdentity(fmt.Sprintf("%s:%s", IdentityVersion1, hex.EncodeToString(sum[:]))), nil
+	return MessageIdentity(IdentityVersion1 + ":" + hex.EncodeToString(sum[:])), nil
 }
 
 // CanonicalAtomBytes returns the deterministic JSON bytes for atom.

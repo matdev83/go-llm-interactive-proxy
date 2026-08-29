@@ -2,6 +2,7 @@ package conversationview
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -25,7 +26,7 @@ func (a MessageAnchor) Validate() error {
 
 // String returns the formatted anchor representation "v1:<hex>#<occurrence>".
 func (a MessageAnchor) String() string {
-	return fmt.Sprintf("%s#%d", a.Identity, a.Occurrence)
+	return string(a.Identity) + "#" + strconv.FormatUint(uint64(a.Occurrence), 10)
 }
 
 // ComputeItemAnchors computes occurrence-indexed MessageAnchors for all message items in items.

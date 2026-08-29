@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -236,7 +237,7 @@ func turnOutcomeFromCommand(command sdkterminal.Command) billing.TurnOutcome {
 }
 
 func billingSyntheticBLegID(seq int) string {
-	return fmt.Sprintf("seq_%d", seq)
+	return "seq_" + strconv.Itoa(seq)
 }
 
 func billingProviderID(primary routing.Primary) string {
