@@ -10,8 +10,8 @@ import (
 // fields may be added in backward-compatible ways; bump only when breaking stable fields.
 const SchemaVersionV1 = 1
 
-// FeatureBundle is the typed contribution of one feature plugin instance: version
-// metadata, immutable plane set, and optional lifecycles.
+// FeatureBundle is the versioned unit a feature factory contributes: schema version
+// metadata, an immutable [FrozenPlaneSet], and optional plugin lifecycles.
 type FeatureBundle struct {
 	SchemaVersion int
 
@@ -21,9 +21,9 @@ type FeatureBundle struct {
 	Lifecycles []lipplugin.Lifecycle
 }
 
-// BundleFromPlanes constructs a FeatureBundle from a FrozenPlaneSet and optional lifecycles.
-// It sets SchemaVersion to SchemaVersionV1, defensively clones the FrozenPlaneSet and lifecycles
-// (preserving nil vs explicit empty slice semantics), and performs no validation side-effects.
+// BundleFromPlanes constructs a [FeatureBundle] from a [FrozenPlaneSet] and optional lifecycles.
+// It sets SchemaVersion to [SchemaVersionV1], defensively clones the [FrozenPlaneSet] and lifecycles
+// (preserving nil vs explicit empty slice semantics), and performs no validation side effects.
 func BundleFromPlanes(planes FrozenPlaneSet, lifecycles []lipplugin.Lifecycle) FeatureBundle {
 	return FeatureBundle{
 		SchemaVersion: SchemaVersionV1,

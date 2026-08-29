@@ -36,9 +36,11 @@ func materializeRequestSlice[T any](
 }
 
 // Get retrieves the typed value for plane p from the frozen set.
-// For planes bound to generated storage, Get dispatches directly via generated.get with zero map lookups,
-// zero reflection, and zero type assertions on the request path.
 // If the plane was not contributed or is absent, the zero value of P is returned.
+// For slice-valued planes, ordinary Get calls return defensive copies to ensure that
+// caller modifications cannot corrupt the frozen snapshot.
+// For planes bound to generated storage, Get dispatches directly with zero map lookups,
+// zero reflection, and zero type assertions.
 func Get[P any](s FrozenPlaneSet, p Plane[P]) P {
 	if p.generated.get != nil && s.frozen != nil {
 		return p.generated.get(s.frozen)
@@ -72,10 +74,10 @@ func FreezeRequestPlanes(in FrozenPlaneSet) FrozenPlaneSet {
 	return FreezeRequestPlanes(frozen)
 }
 
-// FrozenIdentity retrieves the validated identity associated with an exclusive
+// FrozenIdentity retrieves the validated identity string associated with an exclusive
 // or replace-by-identity plane in the frozen set, if present.
-// For planes bound to generated storage, FrozenIdentity dispatches directly via generated.identity
-// with zero map lookups on the request path.
+// FrozenIdentity reads validated cached identity metadata and does not invoke live identity methods.
+// For planes bound to generated storage, FrozenIdentity dispatches directly with zero map lookups.
 func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
 	if p.generated.identity != nil && s.frozen != nil {
 		return p.generated.identity(s.frozen)
