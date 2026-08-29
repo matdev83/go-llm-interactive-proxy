@@ -24,6 +24,7 @@ The original spool/replay direction was sound, but implementation-readiness requ
 10. Standard memory and Bun continuity stores implement route overrides and runtimebundle wires `RouteOverrideReader` when available. Treating reader presence as a blocker would make V1 effectively dead in normal deployments. Late-bound routing instead needs a pre-certified **route-domain envelope**.
 11. OpenResponses create defaults `store=true`; absence of `previous_response_id` is not enough for a stateless first lane.
 12. `preparedRequest.call` remains consumed by routing, metering/accounting, billing, `recvTurnFacts`, continuation/interleaved-thinking, and terminal/session paths. Every post-commit dependency must be closed or blocked before assessment succeeds.
+13. `frontendpipe.Spec.ResolveRouteSelector`, when configured, is a separate **pre-preflight full-body route authority**: it receives the complete `[]byte` request before shared JSON preflight. V1 cannot silently skip or reorder it, and invoking the legacy callback from replay by reconstructing another full body would defeat the retention goal. A configured legacy callback is therefore canonical-only before capture unless a separately designed bounded route-resolution contract preserves the same ordering, precedence, and authority.
 
 ---
 
@@ -36,10 +37,13 @@ frontend handler
   ├─ method/path/auth/content-type checks
   └─ frontendpipe.ServeHTTP
        ├─ reqbody.ReadAll (gzip decode + MaxBytesReader)
-       ├─ preliminary route selector/model resolution
+       ├─ header route selector
+       ├─ Spec.ResolveRouteSelector(r, full []byte, path) when configured
        ├─ jsonguard.PreflightWithContext
        ├─ decodeqos.TryAdmit(weight = decoded body bytes)
-       │    └─ decodeqos.Guard(Spec.Decode)
+       │    └─ decodeqos.Guard
+       │         ├─ RouteFromBodyModel defaulting when selector is still empty
+       │         └─ Spec.Decode
        ├─ authoritative session headers
        ├─ Call.Validate
        ├─ Spec.AfterDecode (if any)
@@ -60,7 +64,7 @@ frontend handler
        └─ protocol response writer
 ```
 
-Characterization tests must freeze this ordering for target profiles before production refactoring.
+Characterization tests must freeze this ordering for target profiles before production refactoring. In particular, the full-body route resolver is an authority before shared preflight, whereas `RouteFromBodyModel` defaulting occurs under the existing decode-admission guard.
 
 ---
 
@@ -83,6 +87,9 @@ type LargeBodyExecutorView interface {
 ```text
 handler cheap gates
   ↓
+legacy full-body route-resolver gate
+  (`ResolveRouteSelector != nil` without bounded wire contract → canonical)
+  ↓
 bounded replay capture to EOF
   + shared streaming JSON preflight
   ↓
@@ -91,11 +98,14 @@ final decoded size known
 decodeqos.TryAdmit(exact decoded bytes)
   ↓ permit held
 frontend protocol semantic proof from Source.Open()
+  + canonical RouteFromBodyModel/default selector derivation
   ↓
 exact canonical identity digest + bounded wire facts
   ↓
 core AssessLargeBody(wire facts)
 ```
+
+The legacy `ResolveRouteSelector` gate is intentionally before capture. If that callback is configured, V1 enters the unchanged canonical path, which reads the normal body and invokes the callback at today's point before preflight. The wire lane must not invoke the callback after streaming preflight (ordering drift), skip it (authority drift), or materialize a second whole body solely to satisfy its `[]byte` signature (memory regression). A future bounded route-resolution contract is allowed only as a separately characterized extension preserving current precedence and ordering.
 
 `AssessLargeBody` is side-effect-free: no `BeginTurn`, store read or mutation, DB I/O, billing reservation, provider network call, spill filesystem work, client-body wait, or arbitrary unbounded plugin work. It reads only immutable/frozen generation composition and calls pure backend wire-support functions. Its additional decode-permit hold is explicitly benchmarked and bounded by generation-sized data structures.
 
@@ -289,6 +299,10 @@ Exact types/names may differ, but the constraints are fixed:
 - sensitive session token fields are explicitly marked and never serialized to telemetry/backend requests;
 - semantic fact memory has an explicit bound; overflow selects canonical.
 
+### Route-selector precedence
+
+Header-derived selector precedence remains unchanged. A configured legacy `Spec.ResolveRouteSelector` is a V1 pre-capture canonical gate unless a future bounded resolver is explicitly characterized. For profiles using `RouteFromBodyModel`, semantic proof derives the body-model selector/default **under the held decode permit** with the same prefix/default semantics as the canonical guarded decode path. The resulting `Proof.RouteSelector` is the exact selector used for canonical identity derivation and core assessment.
+
 ### Session precedence
 
 `frontendpipe`/profile owns the same authoritative header/body precedence as current `sessionwire.ApplyAuthoritativeHeaders`. Initial OpenAI profiles may simply reject body-carried LIP session metadata while supporting the normal LIP session/resume headers.
@@ -376,7 +390,7 @@ The generation summary also records standard runtime capabilities/modes that mat
 - Call-shaped custom billing/policy callbacks;
 - any additional non-plane Call dependency discovered by the ratchet inventory.
 
-The summary is built at composition time and pinned with the request generation. There is one plane declaration system, but wire eligibility intentionally spans more than planes because the brownfield runtime does.
+The summary is built at composition time and pinned with the request generation. There is one plane declaration system, but wire eligibility intentionally spans more than planes because the brownfield runtime does. The legacy frontend full-body resolver is handled even earlier as a frontend-owned pre-capture gate because its current callback contract itself requires the complete body.
 
 ---
 
@@ -393,7 +407,7 @@ It performs only pure/frozen work:
 5. bind direct candidate models where semantics are pure/generation-fixed;
 6. build the exact initial candidate superset needed by weighted/fallback/race selection;
 7. build any **late-bound route authority domain**;
-8. ask backends for exact and/or domain-wide wire compatibility;
+8. ask backends for exact and/or domain-wide wire compatibility, including the immutable profile body mode and permitted rewrite semantics;
 9. validate replay/parallel/model-rewrite requirements;
 10. return a generation-bound assessment stamp.
 
@@ -436,7 +450,7 @@ A heterogeneous generation containing a canonical-only backend may make the rout
 
 ## 11. Backend Wire Contract
 
-Backends need both exact-candidate and, where necessary, domain-wide proof. Illustrative internal shape:
+Backends need both exact-candidate and, where necessary, domain-wide proof. Body form and permitted rewrite behavior are **inputs** to proof, not facts inferred from a compatibility result. Illustrative internal shape:
 
 ```go
 type WireRequestFacts struct {
@@ -444,6 +458,8 @@ type WireRequestFacts struct {
     Operation            lipapi.Operation
     DeliveryMode         lipapi.DeliveryMode
     ProtocolRequirements lipapi.ProtocolRequirements
+    BodyMode             largebody.BodyMode
+    RewriteSemantics     largebody.RewriteSemantics
     ClientModel          string
     CandidateModel       string
     BodyBytes            int64
@@ -454,6 +470,8 @@ type WireDomainFacts struct {
     Operation            lipapi.Operation
     DeliveryMode         lipapi.DeliveryMode
     ProtocolRequirements lipapi.ProtocolRequirements
+    BodyMode             largebody.BodyMode
+    RewriteSemantics     largebody.RewriteSemantics
     ModelDomain          ModelDomain // exact set or AnyAcceptedModel
     ExecutionModes       ExecutionModeSet
 }
@@ -465,6 +483,10 @@ type WireSupport struct {
     Reason               WireSupportReason
 }
 ```
+
+`BodyMode` and `RewriteSemantics` are immutable, provider-neutral profile facts. They identify the exact body representation being forwarded (for example, the first-wave decoded identity-JSON form) and the exact transformations the profile has certified (for example, only the scanner-proven top-level model-token splice, with all other body bytes unchanged). Domain proof receives the same contract and must certify it for the whole declared model/execution domain.
+
+`NeedsModelRewrite` remains an **assessment output**: it says the selected backend/candidate requires the already-certified model rewrite. It is not a substitute for the rewrite-semantics input. A resolver may report `Compatible` only after validating the supplied body mode and permitted rewrite contract; if it requires a transformation outside that contract, or a rewrite is required but the profile lacks the exact certified model span/semantics, assessment declines.
 
 `ResolveWireRequest` / `ResolveWireDomain` are pure and perform no provider I/O. Nil/unknown means canonical-only.
 
@@ -668,6 +690,7 @@ Reasons:
 
 - high-value agentic workload;
 - shared `frontendpipe` create path;
+- it uses `RouteFromBodyModel` rather than the legacy full-body `ResolveRouteSelector` callback, so the conservative V1 route-resolver gate does not make this lane unreachable;
 - no current create `AfterDecode` stateful hook comparable to OpenResponses;
 - forces response/cancellation/session-carrier/identity parity early.
 
@@ -717,6 +740,7 @@ All threshold/reservation limits are decoded bytes.
 
 | Stage | Decode permit held? | Turn begun? | Provider body committed? | Outcome |
 |---|---:|---:|---:|---|
+| legacy full-body route resolver configured without bounded wire contract | no | no | no | unchanged canonical path; resolver runs at current pre-preflight point |
 | body limit/shared JSON error | no | no | no | existing frontend error |
 | mid-capture replay/spill decline | no | no | no | lossless stitched canonical continuation; existing path |
 | decode admission reject | no permit acquired | no | no | existing 429/503 semantics |
@@ -737,6 +761,7 @@ All threshold/reservation limits are decoded bytes.
 
 - no upstream provider body before full request validation + assessment;
 - decode QoS still governs expensive protocol proof;
+- configured pre-preflight route authority is never skipped/reordered merely for optimization;
 - sensitive resume tokens are isolated from provider facts/telemetry;
 - spool files are short-lived secrets and may contain plaintext prompts;
 - no client Authorization/hop-by-hop header passthrough;
@@ -751,7 +776,7 @@ All threshold/reservation limits are decoded bytes.
 Bounded metrics:
 
 - considered / assessed-eligible / wire / canonical counts;
-- decline reason enum (`below_threshold`, `gzip`, `frontend_traffic`, `profile_decline`, `plane_blocker`, `hook_blocker`, `accounting_counter`, `route_domain`, `backend_wire`, `spool_budget`, etc.);
+- decline reason enum (`below_threshold`, `gzip`, `frontend_route_resolver`, `frontend_traffic`, `profile_decline`, `plane_blocker`, `hook_blocker`, `accounting_counter`, `route_domain`, `backend_wire`, `spool_budget`, etc.);
 - body-size buckets;
 - memory/file spill;
 - replay/rewrite counts;
@@ -771,6 +796,7 @@ Publish realistic eligibility for:
 - accounting/billing enabled/disabled;
 - empty vs occupied typed planes and hook chains;
 - frontend/core traffic;
+- legacy full-body route-resolver absent/present;
 - route override under homogeneous same-wire vs heterogeneous backend generations;
 - sequential/fallback/race selectors.
 
@@ -786,12 +812,14 @@ Tests/codegen fail if:
 - a production hook/non-plane request authority is absent from wire eligibility inventory;
 - provider names/types enter core/internal large-body contracts;
 - V1 low-level replay/proof/assessment types are promoted to public SDK without explicit API/ABI review;
+- a configured legacy full-body `ResolveRouteSelector` is skipped/reordered or invoked by materializing a second whole body solely for wire eligibility;
 - protocol semantic proof runs outside decode admission;
 - assessment performs turn/store/provider side effects;
 - expected canonical fallback is added after wire commit;
 - wire code fabricates a partial Call;
 - a wire checkpoint clones/retains a full Call;
 - a wire request uses a raw-body identity in place of exact canonical stable identity;
+- backend compatibility can report success without receiving the exact profile body mode and rewrite semantics;
 - a late route authority can select outside the pre-certified domain;
 - route eligibility prunes/reorders candidates to retain wire mode;
 - post-commit wire code acquires a new unclassified full-Call dependency.
@@ -802,7 +830,7 @@ Tests/codegen fail if:
 
 No production profile advertises wire support until these are green:
 
-1. canonical ingress/decode-admission/lifecycle/response/economic identity characterization;
+1. canonical ingress/route-resolution/decode-admission/lifecycle/response/economic identity characterization;
 2. replay source + mid-capture continuation + shared scanner differential/fuzz suite;
 3. exact canonical identity-digest differential suite;
 4. typed plane + hook + non-plane frozen eligibility summary/ratchets;
@@ -810,7 +838,7 @@ No production profile advertises wire support until these are green:
 6. wire-native metering checkpoint path;
 7. accounting/billing disposition or exact wire contracts;
 8. two-phase assessment tests proving declines occur under the same decode permit and before `BeginTurn`;
-9. initial-route + late-route-domain backend proof tests;
+9. initial-route + late-route-domain backend proof tests, including exact body-mode/rewrite-contract inputs;
 10. complete post-commit Call-dependency closure;
 11. first-lane canonical-vs-wire provider/frontend/retry/cancel conformance;
 12. performance and realistic eligibility evidence.
