@@ -4,26 +4,26 @@
 
 Issue #503 asks Go-LIP to reduce heap growth, allocation pressure, and redundant JSON work for large request bodies by forwarding a verified same-wire request without constructing the full canonical request tree. This is a brownfield optimization of already-supported request flows, not a new proxy mode and not native provider passthrough (#490).
 
-Correctness has priority over optimization. The existing materialize → shared JSON preflight → decode admission → frontend decode/validation → canonical core → backend encode path is the behavioral oracle. A request may use the large-payload lane only when Go-LIP can prove that all enabled authorities and relevant frontend/core/backend semantics are preserved. Unknown or unproven behavior always selects the existing canonical path.
+Correctness has priority over optimization. The existing materialize → body-based route resolution → shared JSON preflight → decode admission → frontend decode/validation → canonical core → backend encode path is the behavioral oracle. A request may use the large-payload lane only when Go-LIP can prove that all enabled authorities and relevant frontend/core/backend semantics are preserved. Unknown or unproven behavior always selects the existing canonical path.
 
-This revision was cross-checked against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533. The audit identified contracts that the original draft did not model strongly enough: the typed plane architecture, the still-separate hook bus, decode QoS, deterministic request/economic identity, secure-session recorder/session-response carriers, full-Call retention in metering checkpoints, standard route-override availability, frontend response state, OpenResponses `store=true` defaulting, lossless mid-capture recovery, and deep post-commit Call dependencies.
+This revision was cross-checked against `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533. The audit identified contracts that the original draft did not model strongly enough: the typed plane architecture, the still-separate hook bus, the pre-preflight full-body route-selector callback, decode QoS, deterministic request/economic identity, secure-session recorder/session-response carriers, full-Call retention in metering checkpoints, standard route-override availability, frontend response state, OpenResponses `store=true` defaulting, lossless mid-capture recovery, and deep post-commit Call dependencies.
 
 V1 therefore uses a **two-phase executor seam with a one-way wire commit**:
 
-1. capture + shared JSON validation;
+1. fail closed to the unchanged canonical path before capture when a configured legacy full-body route resolver has no bounded wire contract, then capture + shared JSON validation;
 2. acquire the existing decode-admission permit;
-3. run low-allocation protocol semantic proof and canonical semantic identity derivation under that permit;
+3. run low-allocation protocol semantic proof, canonical route/model derivation, and canonical semantic identity derivation under that permit;
 4. while the same permit is still held, run a bounded side-effect-free core wire-eligibility assessment;
 5. if assessment declines, run the ordinary canonical protocol decoder under the same permit and continue on the unchanged canonical path;
 6. if assessment succeeds, release the permit and begin wire execution; from that point no expected canonical fallback is allowed.
 
-This keeps all expected optimization declines before `SecureSession.BeginTurn`, avoids duplicate lifecycle/accounting effects, and avoids a fallback-induced second decode-admission decision.
+This keeps all expected optimization declines before `SecureSession.BeginTurn`, avoids duplicate lifecycle/accounting effects, preserves existing route-selection authority, and avoids a fallback-induced second decode-admission decision.
 
 ## Boundary Context
 
-- **In scope**: optional large-payload capture; bounded-memory replay/spill; lossless mid-capture canonical continuation; streaming shared JSON validation; bounded protocol proof and canonical identity digest; decode-QoS parity; side-effect-free pre-turn eligibility; typed extension/hook/non-plane authority classification; late-bound route-authority compatibility envelopes; exact/domain same-wire backend proof; bounded model rewrite; secure-session/metering wire views; retry/failover replay; frontend response/session-carrier parity; gzip follow-up; cancellation/resource cleanup; metrics; differential conformance; allocation/load benchmarks; conservative rollout.
+- **In scope**: optional large-payload capture; bounded-memory replay/spill; lossless mid-capture canonical continuation; streaming shared JSON validation; bounded protocol proof and canonical identity digest; pre-preflight body-route authority preservation; decode-QoS parity; side-effect-free pre-turn eligibility; typed extension/hook/non-plane authority classification; late-bound route-authority compatibility envelopes; exact/domain same-wire backend proof; bounded model rewrite; secure-session/metering wire views; retry/failover replay; frontend response/session-carrier parity; gzip follow-up; cancellation/resource cleanup; metrics; differential conformance; allocation/load benchmarks; conservative rollout.
 - **Out of scope**: native provider passthrough (#490); cross-protocol raw forwarding; weakening canonical validation; changing default request-size limits; changing route/failover semantics to manufacture eligibility; bypassing secret/DLP/guardrail/accounting/traffic authorities; arbitrary new content encodings; provider SDK types in core; broad capability-profile work owned by #495; expected post-commit canonical fallback in V1; incidental public stabilization of the low-level replay/assessment API.
-- **Boundary ownership**: frontend ingress owns capture, shared JSON validation, decode admission, protocol proof, exact canonical fallback decode, and frontend-only response state; core/runtime owns side-effect-free assessment, secure-session/B2BUA lifecycle, route authority, metering/accounting, attempts, and terminal ownership; backend plugins own exact/domain wire compatibility and HTTP construction; composition freezes generation-scoped eligibility summaries.
+- **Boundary ownership**: frontend ingress owns cheap eligibility gates, preservation of pre-preflight route-selection authority, capture, shared JSON validation, decode admission, protocol proof, exact canonical fallback decode, and frontend-only response state; core/runtime owns side-effect-free assessment, secure-session/B2BUA lifecycle, route authority, metering/accounting, attempts, and terminal ownership; backend plugins own exact/domain wire compatibility and HTTP construction; composition freezes generation-scoped eligibility summaries.
 
 ## Requirements
 
@@ -74,6 +74,7 @@ This keeps all expected optimization declines before `SecureSession.BeginTurn`, 
 5. Exceeding a semantic-fact bound shall select canonical processing, never truncation.
 6. Duplicate protocol-owned names that canonical decode/re-encode would collapse or normalize are canonical-only unless exact duplicate behavior is separately certified; OpenResponses retains its stricter duplicate rejection behavior.
 7. Profile proof shall include the certified-subset `Call.Validate`/frontend normalization semantics required before executor entry.
+8. For frontends using `RouteFromBodyModel`, protocol proof shall derive the same selector/default behavior as the canonical guarded decode path before canonical identity derivation and core assessment.
 
 ### Requirement 5: One Generation-Pinned Wire-Eligibility Summary
 **Objective:** Every production authority that can invalidate raw forwarding must be represented explicitly without creating a second extension architecture.
@@ -168,14 +169,15 @@ This keeps all expected optimization declines before `SecureSession.BeginTurn`, 
 5. Provider responses still become canonical `lipapi.Event` streams.
 
 ### Requirement 13: Content, Policy, Hook, and Traffic Authorities Remain Authoritative
-**Objective:** Large bodies shall not bypass safety, feature, or observation stages.
+**Objective:** Large bodies shall not bypass safety, feature, routing, or observation stages.
 
 #### Acceptance Criteria
 1. Frontend ingress traffic features requiring a full body shall select canonical handling before spooling unless a streaming/wire contract exists.
-2. Active secret guards, raw capture/redaction, submit hooks, request/request-part/pre-request/attempt transforms, conversation projection/steering, tool-catalog request changes, local-turn content logic, compaction preservers, or similar Call/content stages block unless explicitly wire-certified.
-3. Response-only observers/gates may remain active if canonical provider events preserve their inputs/semantics.
-4. Metadata-only session/workspace stages may remain active only with exact bounded inputs.
-5. No authority may be disabled or skipped merely to make a request eligible.
+2. A configured `frontendpipe.Spec.ResolveRouteSelector` callback is canonical-only in V1 because the current contract receives the complete `[]byte` body and runs before shared preflight. A future bounded route-resolution contract may make such a frontend eligible only if it preserves the same ordering, precedence, and selector semantics; the wire lane shall neither skip the legacy callback nor materialize a second full body merely to invoke it.
+3. Active secret guards, raw capture/redaction, submit hooks, request/request-part/pre-request/attempt transforms, conversation projection/steering, tool-catalog request changes, local-turn content logic, compaction preservers, or similar Call/content stages block unless explicitly wire-certified.
+4. Response-only observers/gates may remain active if canonical provider events preserve their inputs/semantics.
+5. Metadata-only session/workspace stages may remain active only with exact bounded inputs.
+6. No authority may be disabled or skipped merely to make a request eligible.
 
 ### Requirement 14: Secure-Session Parity Without a Canonical Call
 **Objective:** The standard secure-session lifecycle must remain usable on the wire path.
@@ -286,8 +288,8 @@ This keeps all expected optimization declines before `SecureSession.BeginTurn`, 
 1. Feature is default-off in the first release.
 2. Metrics use bounded static labels only and never backend/model/session/user IDs.
 3. Logs/traces may record body size, spill/profile, rewrite/replay, assessment result, and fallback reason but never body content, spool path, or resume token.
-4. Architecture tests prevent provider-name switches in core, provider types in large-body contracts, duplicate typed-plane classification systems, unclassified request authorities, fake Calls, expected fallback after wire commit, and protocol proof outside decode admission.
+4. Architecture tests prevent provider-name switches in core, provider types in large-body contracts, duplicate typed-plane classification systems, unclassified request authorities, fake Calls, expected fallback after wire commit, protocol proof outside decode admission, and skipping a configured pre-preflight full-body route resolver.
 5. The V1 replay/proof/assessment/rewrite seam shall remain in an internal provider-neutral package unless a concrete supported external plugin consumer requires an explicit API/ABI/versioning review; existing public `lipsdk.ExecutorView` remains unchanged.
 6. External backend/frontend/manual executor contracts remain source-compatible and canonical-only unless separately extended through a deliberate versioned capability.
 7. Full QA/race/static checks, canonical characterization suites, identity-digest differential tests, and protocol differential tests pass before any production profile advertises wire support.
-8. The spec/design shall be revalidated if main materially changes in frontend decode/admission, secure-session lifecycle, metering/accounting, extension/hook composition, routing authority, backend contracts, or response encoding before implementation begins.
+8. The spec/design shall be revalidated if main materially changes in frontend route selection/decode/admission, secure-session lifecycle, metering/accounting, extension/hook composition, routing authority, backend contracts, or response encoding before implementation begins.
