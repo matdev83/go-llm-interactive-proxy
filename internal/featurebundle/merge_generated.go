@@ -132,10 +132,18 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 
 // ContributeBundle contributes all non-empty / non-nil planes from FeatureBundle b into
 // the given ContributionSet using the provided pluginID.
+// If b.PlaneSet is non-zero, it replays all planes from PlaneSet transactionally into cs.
+// Otherwise it contributes legacy named fields via contributeFeatureBundleGenerated.
 // MergeBundlesGenerated provides fail-before-mutate at the candidate level by discarding local
 // ContributionSet on error; ContributeBundle itself is incremental and caller must discard
 // candidate on error.
 func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeature.FeatureBundle) error {
+	if cs == nil {
+		return errors.New("featurebundle: nil ContributionSet")
+	}
+	if !b.PlaneSet.IsZero() {
+		return b.PlaneSet.ReplayTo(cs, pluginID)
+	}
 	return contributeFeatureBundleGenerated(cs, pluginID, b)
 }
 
@@ -145,6 +153,10 @@ func FreezeBundle(b lipfeature.FeatureBundle, pluginID string) (lipfeature.Froze
 	if pluginID == "" {
 		if b.TerminalDecisionProvider != nil {
 			if id, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err == nil && id != "" {
+				pluginID = id
+			}
+		} else if !b.PlaneSet.IsZero() {
+			if id, ok := lipfeature.FrozenIdentity(b.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); ok && id != "" {
 				pluginID = id
 			}
 		}
@@ -169,6 +181,10 @@ func MergeBundlesGenerated(bundles ...lipfeature.FeatureBundle) (GeneratedMergeS
 		pluginID := fmt.Sprintf("bundle-%d", i)
 		if b.TerminalDecisionProvider != nil {
 			if id, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err == nil && id != "" {
+				pluginID = id
+			}
+		} else if !b.PlaneSet.IsZero() {
+			if id, ok := lipfeature.FrozenIdentity(b.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); ok && id != "" {
 				pluginID = id
 			}
 		}

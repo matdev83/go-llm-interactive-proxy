@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -419,10 +420,9 @@ func TestReasoningPreservation_OrdinaryStreamObserversPreservedWithCompression(t
 		stubStreamObsFactory{id: "ordinary-obs-2"},
 	}
 	err = reg.RegisterFeature("ordinary-features", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			StreamObserverFactories: ordinaryFactories,
-		}, nil
+		return testkit.FeatureBundle(t, "ordinary-features", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "ordinary-features", ordinaryFactories)
+		}, nil), nil
 	})
 	if err != nil {
 		t.Fatal(err)

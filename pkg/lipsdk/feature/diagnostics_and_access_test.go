@@ -616,6 +616,9 @@ func TestPlaneDeclarationValidation_GeneratedIdentityRequiredWhenBound(t *testin
 		Identity: func(v testDummyHandler) (string, bool) {
 			return v.id, true
 		},
+		ValidateIdentity: func(id string) error {
+			return nil
+		},
 		Combine: func(source feature.SourceKind, cur, inc testDummyHandler) (testDummyHandler, error) {
 			return inc, nil
 		},

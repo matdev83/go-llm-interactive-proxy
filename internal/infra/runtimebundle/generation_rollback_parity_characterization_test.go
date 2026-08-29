@@ -109,16 +109,14 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				provB := &charRollbackTerminalProvider{id: "term-provider-b"}
 
 				require.NoError(t, reg.RegisterFeature("term-feat-a", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-					return lipfeature.FeatureBundle{
-						SchemaVersion:            lipfeature.SchemaVersionV1,
-						TerminalDecisionProvider: provA,
-					}, nil
+					return testkit.FeatureBundle(t, "term-feat-a", func(cs *lipfeature.ContributionSet) error {
+						return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-provider-a", terminaldecision.Provider(provA))
+					}, nil), nil
 				}))
 				require.NoError(t, reg.RegisterFeature("term-feat-b", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-					return lipfeature.FeatureBundle{
-						SchemaVersion:            lipfeature.SchemaVersionV1,
-						TerminalDecisionProvider: provB,
-					}, nil
+					return testkit.FeatureBundle(t, "term-feat-b", func(cs *lipfeature.ContributionSet) error {
+						return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-provider-b", terminaldecision.Provider(provB))
+					}, nil), nil
 				}))
 			},
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
@@ -136,10 +134,11 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 			setupRegistry: func(t *testing.T, reg *pluginreg.Registry) {
 				t.Helper()
 				require.NoError(t, reg.RegisterFeature("term-feat-nil", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-					return lipfeature.FeatureBundle{
-						SchemaVersion:            lipfeature.SchemaVersionV1,
-						TerminalDecisionProvider: (*charRollbackTerminalProvider)(nil),
-					}, nil
+					cs := lipfeature.NewContributionSet()
+					if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-feat-nil", terminaldecision.Provider((*charRollbackTerminalProvider)(nil))); err != nil {
+						return lipfeature.FeatureBundle{}, err
+					}
+					return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 				}))
 			},
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {

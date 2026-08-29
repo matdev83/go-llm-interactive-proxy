@@ -17,6 +17,11 @@ type planeInfo struct {
 	typeExpr               string // e.g. []hooks.SubmitHook
 	isExclusive            bool   // e.g. terminaldecision.Provider
 	hasIdentity            bool   // whether plane has an identity accessor
+	hasValidateIdentity    bool   // whether plane has a ValidateIdentity validator
+	hasFeatureRule         bool   // whether Feature rule is declared
+	featureRule            string // e.g. CombConcatenate, CombExclusive
+	hasHostRule            bool   // whether Host rule is declared
+	hostRule               string // e.g. CombConcatenate, CombExclusive
 	hasGenBinderRule       bool   // whether GenerationBinder rule is declared
 	genBinderRule          string // e.g. CombReplaceByIdentity
 	candidate              bool   // whether plane allows candidate overlay contribution
@@ -215,6 +220,11 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	return orderedPlanes, nil
 }
 
+func isNilIdent(e ast.Expr) bool {
+	ident, ok := e.(*ast.Ident)
+	return ok && ident.Name == "nil"
+}
+
 func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, error) {
 	compLit, ok := expr.(*ast.CompositeLit)
 	if !ok {
@@ -254,6 +264,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	var genBinderRule string
 	var hasCombine bool
 	var hasIdentity bool
+	var hasValidateIdentity bool
 	var hasRequestMaterializer bool
 	var requestBorrow bool
 	var diagStageID string
@@ -283,19 +294,13 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		case "Multiplicity":
 			multiplicity = string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
 		case "Identity":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
-				hasIdentity = false
-			} else {
-				hasIdentity = true
-			}
+			hasIdentity = !isNilIdent(kv.Value)
+		case "ValidateIdentity":
+			hasValidateIdentity = !isNilIdent(kv.Value)
 		case "Combine":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
-				hasCombine = false
-			} else {
-				hasCombine = true
-			}
+			hasCombine = !isNilIdent(kv.Value)
 		case "RequestMaterializer":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
+			if isNilIdent(kv.Value) {
 				hasRequestMaterializer = false
 			} else {
 				if err := validateRequestMaterializerExpr(kv.Value, varName); err != nil {
@@ -316,14 +321,11 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 							valStr := string(src[rKV.Value.Pos()-1 : rKV.Value.End()-1])
 							switch rKIdent.Name {
 							case "Feature":
-								hasFeatureRule = true
-								featureRule = valStr
+								hasFeatureRule, featureRule = true, valStr
 							case "Host":
-								hasHostRule = true
-								hostRule = valStr
+								hasHostRule, hostRule = true, valStr
 							case "GenerationBinder":
-								hasGenBinderRule = true
-								genBinderRule = valStr
+								hasGenBinderRule, genBinderRule = true, valStr
 							}
 						}
 					}
@@ -339,33 +341,22 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
-										hasDiagStageID = true
-										diagStageID = val
+										hasDiagStageID, diagStageID = true, val
 									}
-								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagStageID = false
-								} else {
+								} else if !isNilIdent(dKV.Value) {
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
-										hasDiagStageID = true
-										diagStageID = valStr
+										hasDiagStageID, diagStageID = true, valStr
 									}
 								}
 							case "Order":
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.INT {
-									var ord int
-									if _, err := fmt.Sscanf(basicLit.Value, "%d", &ord); err == nil {
-										diagOrder = ord
-									}
+									fmt.Sscanf(basicLit.Value, "%d", &diagOrder)
 								}
 							case "Materialize":
-								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagMaterialize = false
-								} else {
-									hasDiagMaterialize = true
-								}
+								hasDiagMaterialize = !isNilIdent(dKV.Value)
 							case "Privileges":
-								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+								if isNilIdent(dKV.Value) {
 									hasDiagPrivileges = false
 								} else {
 									if err := validatePrivilegesFunc(varName, dKV.Value); err != nil {
@@ -377,16 +368,12 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
-										hasDiagCoalesce = true
-										diagCoalesceGroup = val
+										hasDiagCoalesce, diagCoalesceGroup = true, val
 									}
-								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagCoalesce = false
-								} else {
+								} else if !isNilIdent(dKV.Value) {
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
-										hasDiagCoalesce = true
-										diagCoalesceGroup = valStr
+										hasDiagCoalesce, diagCoalesceGroup = true, valStr
 									}
 								}
 							}
@@ -428,12 +415,18 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	}
 
 	requiresIdentity := isExclusive ||
+		strings.Contains(featureRule, "CombExclusive") ||
 		strings.Contains(featureRule, "CombReplaceByIdentity") ||
+		strings.Contains(hostRule, "CombExclusive") ||
 		strings.Contains(hostRule, "CombReplaceByIdentity") ||
+		strings.Contains(genBinderRule, "CombExclusive") ||
 		strings.Contains(genBinderRule, "CombReplaceByIdentity")
 
 	if requiresIdentity && !hasIdentity {
 		return planeInfo{}, fmt.Errorf("identity function is required for exclusive or replace-by-identity plane")
+	}
+	if requiresIdentity && !hasValidateIdentity {
+		return planeInfo{}, fmt.Errorf("cached identity validator is required for exclusive or replace-by-identity plane")
 	}
 
 	if !hasCombine {
@@ -468,6 +461,11 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		typeExpr:               typeArgStr,
 		isExclusive:            isExclusive,
 		hasIdentity:            hasIdentity,
+		hasValidateIdentity:    hasValidateIdentity,
+		hasFeatureRule:         hasFeatureRule,
+		featureRule:            featureRule,
+		hasHostRule:            hasHostRule,
+		hostRule:               hostRule,
 		hasGenBinderRule:       hasGenBinderRule,
 		genBinderRule:          genBinderRule,
 		hasRequestMaterializer: hasRequestMaterializer,

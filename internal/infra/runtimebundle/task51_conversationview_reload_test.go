@@ -132,16 +132,14 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 
 	reg := generationRegistry(t)
 	require.NoError(t, reg.RegisterFeature("traffic-cap-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{trafficCap},
-		}, nil
+		return testkit.FeatureBundle(t, "traffic-cap-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "traffic-cap-1", []traffic.Observer{trafficCap})
+		}, nil), nil
 	}))
 	require.NoError(t, reg.RegisterFeature("traffic-cap-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{trafficCap2},
-		}, nil
+		return testkit.FeatureBundle(t, "traffic-cap-2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "traffic-cap-2", []traffic.Observer{trafficCap2})
+		}, nil), nil
 	}))
 
 	cfg := task51BaseConfig()

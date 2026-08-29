@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -41,7 +42,6 @@ type noopCat struct{}
 func (noopCat) ID() string                        { return "cat" }
 func (noopCat) Order() int                        { return 0 }
 func (noopCat) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-
 func (noopCat) Handle(context.Context, *lipapi.Call, toolcatalog.CatalogMeta, toolcatalog.Services) error {
 	return nil
 }
@@ -51,7 +51,6 @@ type noopRtx struct{}
 func (noopRtx) ID() string                        { return "rtx" }
 func (noopRtx) Order() int                        { return 0 }
 func (noopRtx) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-
 func (noopRtx) Handle(context.Context, *lipapi.Call, request.RequestMeta, request.Services) error {
 	return nil
 }
@@ -98,12 +97,15 @@ func TestMergeFeatureSurface_concatTraffic(t *testing.T) {
 	fac := "fac-traffic-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(fac, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:    feature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{noopTrafficObs{}},
-			RawCaptureSinks:  []traffic.RawCaptureSink{noopRawSink{}},
-			TrafficRedactors: []traffic.Redactor{noopTrafficRed{}},
-		}, nil
+		return testkit.FeatureBundle(t, fac, func(cs *feature.ContributionSet) error {
+			if err := feature.Contribute(cs, feature.PlaneTrafficObservers, fac, []traffic.Observer{noopTrafficObs{}}); err != nil {
+				return err
+			}
+			if err := feature.Contribute(cs, feature.PlaneRawCaptureSinks, fac, []traffic.RawCaptureSink{noopRawSink{}}); err != nil {
+				return err
+			}
+			return feature.Contribute(cs, feature.PlaneTrafficRedactors, fac, []traffic.Redactor{noopTrafficRed{}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,10 +133,9 @@ func TestMergeFeatureSurface_concatCompletionGates(t *testing.T) {
 	fac := "fac-cg-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(fac, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:   feature.SchemaVersionV1,
-			CompletionGates: []completion.Gate{noopCompGate{}},
-		}, nil
+		return testkit.FeatureBundle(t, fac, func(cs *feature.ContributionSet) error {
+			return feature.Contribute(cs, feature.PlaneCompletionGates, fac, []completion.Gate{noopCompGate{}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -160,11 +161,12 @@ func TestMergeFeatureSurface_concatOpenersAndResolvers(t *testing.T) {
 	fac := "fac-ext-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(fac, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:      feature.SchemaVersionV1,
-			SessionOpeners:     []session.Opener{noopOpen{}},
-			WorkspaceResolvers: []lipworkspace.Resolver{rootRes{}},
-		}, nil
+		return testkit.FeatureBundle(t, fac, func(cs *feature.ContributionSet) error {
+			if err := feature.Contribute(cs, feature.PlaneSessionOpeners, fac, []session.Opener{noopOpen{}}); err != nil {
+				return err
+			}
+			return feature.Contribute(cs, feature.PlaneWorkspaceResolvers, fac, []lipworkspace.Resolver{rootRes{}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +193,12 @@ func TestMergeFeatureSurface_concatCatalogAndTransforms(t *testing.T) {
 	fac := "fac-cat-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(fac, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:      feature.SchemaVersionV1,
-			ToolCatalogFilters: []toolcatalog.Filter{noopCat{}},
-			RequestTransforms:  []request.Transform{noopRtx{}},
-		}, nil
+		return testkit.FeatureBundle(t, fac, func(cs *feature.ContributionSet) error {
+			if err := feature.Contribute(cs, feature.PlaneToolCatalogFilters, fac, []toolcatalog.Filter{noopCat{}}); err != nil {
+				return err
+			}
+			return feature.Contribute(cs, feature.PlaneRequestTransforms, fac, []request.Transform{noopRtx{}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -222,10 +225,9 @@ func TestMergeFeatureSurface_concatRouteHints(t *testing.T) {
 	fac := "fac-rh-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(fac, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:      feature.SchemaVersionV1,
-			RouteHintProviders: []routehint.Provider{noopRH{}},
-		}, nil
+		return testkit.FeatureBundle(t, fac, func(cs *feature.ContributionSet) error {
+			return feature.Contribute(cs, feature.PlaneRouteHintProviders, fac, []routehint.Provider{noopRH{}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -270,11 +272,12 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	facUsage := "fac-merge-use-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := reg.RegisterFeature(facPol, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:    feature.SchemaVersionV1,
-			ToolCallPolicies: []toolpolicy.Policy{mergeTracePolicy{tag: "policy-from-first"}},
-			UsageObservers:   []usage.Observer{mergeTraceUsage{tag: "usage-from-first"}},
-		}, nil
+		return testkit.FeatureBundle(t, facPol, func(cs *feature.ContributionSet) error {
+			if err := feature.Contribute(cs, feature.PlaneToolCallPolicies, facPol, []toolpolicy.Policy{mergeTracePolicy{tag: "policy-from-first"}}); err != nil {
+				return err
+			}
+			return feature.Contribute(cs, feature.PlaneUsageObservers, facPol, []usage.Observer{mergeTraceUsage{tag: "usage-from-first"}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -285,10 +288,9 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	}
 	if err := reg.RegisterFeature(facUsage, func(n yaml.Node) (feature.FeatureBundle, error) {
 		_ = n
-		return feature.FeatureBundle{
-			SchemaVersion:  feature.SchemaVersionV1,
-			UsageObservers: []usage.Observer{mergeTraceUsage{tag: "usage-from-second"}},
-		}, nil
+		return testkit.FeatureBundle(t, facUsage, func(cs *feature.ContributionSet) error {
+			return feature.Contribute(cs, feature.PlaneUsageObservers, facUsage, []usage.Observer{mergeTraceUsage{tag: "usage-from-second"}})
+		}, nil), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

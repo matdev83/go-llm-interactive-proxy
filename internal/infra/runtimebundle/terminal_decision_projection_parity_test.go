@@ -54,16 +54,14 @@ func TestTerminalDecisionGenerationProjectionAndReloadPinning(t *testing.T) {
 
 	registry := pluginreg.NewRegistry()
 	require.NoError(t, registry.RegisterFeature("feature-term-a", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provA,
-		}, nil
+		return testkit.FeatureBundle(t, "feature-term-a", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "feature-term-a", terminaldecision.Provider(provA))
+		}, nil), nil
 	}))
 	require.NoError(t, registry.RegisterFeature("feature-term-b", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: provB,
-		}, nil
+		return testkit.FeatureBundle(t, "feature-term-b", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "feature-term-b", terminaldecision.Provider(provB))
+		}, nil), nil
 	}))
 
 	baseCfg := &config.Config{

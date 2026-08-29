@@ -82,6 +82,13 @@ func requireNonNilStreamObserverFactories(in []response.StreamObserverFactory) [
 	return in
 }
 
+func validateNonEmptyCachedIdentity(id string) error {
+	if id == "" {
+		return fmt.Errorf("identity must not be empty")
+	}
+	return nil
+}
+
 // PlaneSubmitHooks declares the SubmitHooks extension plane.
 var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 	ID:           "submit_hooks",
@@ -530,6 +537,7 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []request.AttemptTransform) ([]request.AttemptTransform, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || isNilValue(incoming[0]) {
@@ -603,6 +611,7 @@ var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []response.StreamObserverFactory) ([]response.StreamObserverFactory, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || incoming[0] == nil {
@@ -819,6 +828,7 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []compaction.Preserver) ([]compaction.Preserver, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || incoming[0] == nil {
@@ -935,6 +945,7 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 		_, err := terminaldecision.ProviderIdentity(v)
 		return err
 	},
+	ValidateIdentity: terminaldecision.ValidateProviderID,
 	Combine: func(source SourceKind, current, incoming terminaldecision.Provider) (terminaldecision.Provider, error) {
 		return incoming, nil
 	},

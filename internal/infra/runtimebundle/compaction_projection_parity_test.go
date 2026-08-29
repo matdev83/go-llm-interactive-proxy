@@ -76,26 +76,28 @@ func (parityPanicPreserver) BeforeResponseRelease(context.Context, *lipapi.Event
 func TestCompactionProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "b1", []compaction.Observer{
 			parityCompactionObs{id: "obs-b1-1"},
 			parityCompactionObs{id: "obs-b1-2"},
-		},
-		CompactionPreservers: []compaction.Preserver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "b1", []compaction.Preserver{
 			parityCompactionPreserver{id: "pres-b1-1"},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{
+		})
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "b2", []compaction.Observer{
 			parityCompactionObs{id: "obs-b2-1"},
-		},
-		CompactionPreservers: []compaction.Preserver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "b2", []compaction.Preserver{
 			parityCompactionPreserver{id: "pres-b2-1"},
 			parityCompactionPreserver{id: "pres-b2-2"},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -209,15 +211,16 @@ func TestCompactionProjection_CandidateFeaturePlanesOverlay(t *testing.T) {
 
 	reg := obsTestFactoryCatalog(t)
 	require.NoError(t, reg.RegisterFeature("compaction-feat", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			CompactionObservers: []compaction.Observer{
+		return testkit.FeatureBundle(t, "compaction-feat", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "compaction-feat", []compaction.Observer{
 				parityCompactionObs{id: "base-obs"},
-			},
-			CompactionPreservers: []compaction.Preserver{
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "compaction-feat", []compaction.Preserver{
 				parityCompactionPreserver{id: "base-pres"},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -236,15 +239,16 @@ func TestCompactionProjection_CandidateFeaturePlanesOverlay(t *testing.T) {
 
 	cand := obsTestCandidateConfig(t, "compaction-feat")
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "cand", []compaction.Observer{
 			parityCompactionObs{id: "cand-obs"},
-		},
-		CompactionPreservers: []compaction.Preserver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "cand", []compaction.Preserver{
 			parityCompactionPreserver{id: "cand-pres"},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -329,12 +333,11 @@ func TestCompactionProjection_ContinuityGenerationBinder_ReplaceByIdentity(t *te
 	t.Cleanup(func() { _ = ps.Close() })
 
 	// Add an extra preserver via candidate options to check replacement preserves other preservers
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "cand", []compaction.Preserver{
 			parityCompactionPreserver{id: "user-preserver-1"},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -363,13 +366,12 @@ func TestCompactionProjection_ContinuityGenerationBinder_ReplaceByIdentity(t *te
 func TestCompactionProjection_PanicSafeIdentityExtraction(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{
+	initBundle := testkit.FeatureBundle(t, "init", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "init", []compaction.Preserver{
 			parityCompactionPreserver{id: "pres-1"},
 			parityPanicPreserver{},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(initBundle)
 	require.NoError(t, err)
@@ -387,12 +389,11 @@ func TestCompactionProjection_PanicSafeIdentityExtraction(t *testing.T) {
 func TestCompactionProjection_WholeBinderTransactionFailureRollback(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{
+	initBundle := testkit.FeatureBundle(t, "init", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "init", []compaction.Preserver{
 			parityCompactionPreserver{id: "pres-1"},
-		},
-	}
+		})
+	}, nil)
 
 	g0, err := featurebundle.MergeBundlesGenerated(initBundle)
 	require.NoError(t, err)
@@ -420,15 +421,16 @@ func TestCompactionProjection_WholeBinderTransactionFailureRollback(t *testing.T
 func TestCompactionProjection_DefensiveIsolationAndRaceSafety(t *testing.T) {
 	t.Parallel()
 
-	gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{
+	gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "feat-1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-1", []compaction.Observer{
 			parityCompactionObs{id: "obs-1"},
-		},
-		CompactionPreservers: []compaction.Preserver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
 			parityCompactionPreserver{id: "pres-1"},
-		},
-	})
+		})
+	}, nil))
 	require.NoError(t, err)
 
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{

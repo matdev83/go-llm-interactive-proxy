@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -121,10 +122,9 @@ func TestLocalTurnProjection_CompileGenerationEndToEnd(t *testing.T) {
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{h1, h2},
-		}, nil
+		return testkit.FeatureBundle(t, "feature-lt", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feature-lt", []localturn.Handler{h1, h2})
+		}, nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -176,10 +176,9 @@ func TestLocalTurnProjection_CandidateGeneratedStorage_CompileGeneration(t *test
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt-base", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{hBase},
-		}, nil
+		return testkit.FeatureBundle(t, "feature-lt-base", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feature-lt-base", []localturn.Handler{hBase})
+		}, nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -257,10 +256,9 @@ func TestLocalTurnProjection_CandidateAtomicFailureAndRollback(t *testing.T) {
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt-base", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{hBase},
-		}, nil
+		return testkit.FeatureBundle(t, "feature-lt-base", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feature-lt-base", []localturn.Handler{hBase})
+		}, nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -333,10 +331,9 @@ func TestLocalTurnProjection_BindingTimeSensitivity_MatchDeclinedLeavesHandleZer
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{h1, h2},
-		}, nil
+		return testkit.FeatureBundle(t, "feature-lt", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feature-lt", []localturn.Handler{h1, h2})
+		}, nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -413,22 +410,16 @@ func TestLocalTurnProjection_NilAndBoxedTypedNilSemantics(t *testing.T) {
 
 	t.Run("feature_bundle_rejects_untyped_nil", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{nil},
-		}
-		err := b.Validate()
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "test", []localturn.Handler{nil})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "LocalTurnHandlers[0] must not be nil")
 	})
 
 	t.Run("feature_bundle_rejects_typed_nil", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{typedNil},
-		}
-		err := b.Validate()
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "test", []localturn.Handler{typedNil})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "LocalTurnHandlers[0] must not be nil")
 	})

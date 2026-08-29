@@ -87,13 +87,17 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 
 	// GenerationBinder replace-by-identity planes: CompactionPreservers, AttemptTransforms, StreamObserverFactories
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneCompactionPreservers.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneCompactionPreservers.ValidateIdentity)
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneAttemptTransforms.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneAttemptTransforms.ValidateIdentity)
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneStreamObserverFactories.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneStreamObserverFactories.ValidateIdentity)
 
 	// Exclusive plane: TerminalDecisionProvider
 	assert.Equal(t, feature.CombExclusive, feature.PlaneTerminalDecisionProvider.Rules.Feature)
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
 	assert.Equal(t, feature.ErrTerminalDecisionProviderConflict, feature.PlaneTerminalDecisionProvider.ExclusiveConflictError)
+	assert.NotNil(t, feature.PlaneTerminalDecisionProvider.ValidateIdentity)
 }
 
 // TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.

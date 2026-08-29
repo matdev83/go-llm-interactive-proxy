@@ -161,6 +161,26 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 			errSubstr: "identity extractor required",
 		},
 		{
+			name: "exclusive plane without ValidateIdentity is rejected",
+			plane: feature.Plane[testProvider]{
+				ID:           "test.exclusive_no_validate_identity",
+				Multiplicity: feature.MultExclusive,
+				Rules: feature.SourceRules{
+					Feature: feature.CombExclusive,
+				},
+				Identity: func(v testProvider) (string, bool) {
+					return v.id, true
+				},
+				ValidateIdentity: nil,
+				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
+					return inc, nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "cached identity validator required",
+		},
+		{
 			name: "replace by identity rule without identity extractor is rejected",
 			plane: feature.Plane[testProvider]{
 				ID:           "test.replace_no_identity",
@@ -176,6 +196,26 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 			wantError: true,
 			errTarget: feature.ErrInvalidPlane,
 			errSubstr: "identity extractor required",
+		},
+		{
+			name: "replace by identity plane without ValidateIdentity is rejected",
+			plane: feature.Plane[testProvider]{
+				ID:           "test.replace_no_validate_identity",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					GenerationBinder: feature.CombReplaceByIdentity,
+				},
+				Identity: func(v testProvider) (string, bool) {
+					return v.id, true
+				},
+				ValidateIdentity: nil,
+				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
+					return inc, nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "cached identity validator required",
 		},
 		{
 			name: "supported source with nil Combine is rejected",
@@ -287,6 +327,32 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 					}
 					return v.id, true
 				},
+				ValidateIdentity: func(id string) error {
+					return nil
+				},
+				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
+					return inc, nil
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "valid replace by identity plane with identity passes",
+			plane: feature.Plane[testProvider]{
+				ID:           "test.valid_replace_by_identity",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					GenerationBinder: feature.CombReplaceByIdentity,
+				},
+				Identity: func(v testProvider) (string, bool) {
+					if v.id == "" {
+						return "", false
+					}
+					return v.id, true
+				},
+				ValidateIdentity: func(id string) error {
+					return nil
+				},
 				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
 					return inc, nil
 				},
@@ -306,6 +372,9 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 						return "", false
 					}
 					return v.id, true
+				},
+				ValidateIdentity: func(id string) error {
+					return nil
 				},
 				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
 					return inc, nil
@@ -344,6 +413,9 @@ func TestPlaneDeclarationValidation_RuleCompleteness(t *testing.T) {
 						return "", false
 					}
 					return v.id, true
+				},
+				ValidateIdentity: func(id string) error {
+					return nil
 				},
 				Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
 					return inc, nil
@@ -583,6 +655,12 @@ func TestContribute_ExclusiveConflict_FailBeforeMutate(t *testing.T) {
 				return "", false
 			}
 			return v.id, true
+		},
+		ValidateIdentity: func(id string) error {
+			if id == "" {
+				return errors.New("empty identity")
+			}
+			return nil
 		},
 		Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
 			return inc, nil
