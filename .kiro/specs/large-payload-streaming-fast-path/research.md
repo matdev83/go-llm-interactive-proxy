@@ -7,7 +7,7 @@
 - **Post-PR cross-check baseline**: `main` at `40168ce1f3890a1c86c22e898be9d264d63ccd72` after PR #533.
 - **Verdict**: the original pre-commit replay/spool direction was correct, but the first spec draft was not implementation-ready. Cross-checking the current frontend, secure-session, routing, metering/accounting, extension, and response paths exposed several contracts that would otherwise either change behavior or make the optimization effectively unreachable in standard deployments.
 
-The final V1 design is a **two-phase, same-decode-permit assessment followed by a one-way wire commit**. All expected declines happen before `BeginTurn`; canonical fallback uses the already-held decode permit; after commit the execution lane contains no expected canonical fallback.
+The final V1 design is a **two-phase, same-decode-permit assessment followed by a one-way wire commit**. All expected declines happen before `BeginTurn`; canonical fallback uses the already-held decode permit; after commit the execution lane contains no expected canonical fallback. Frontends with the existing full-body pre-preflight route-selector callback remain canonical before capture unless a future bounded contract preserves that authority exactly.
 
 ---
 
@@ -27,19 +27,26 @@ The final V1 design is a **two-phase, same-decode-permit assessment followed by 
 The large LLM request hot path is not primarily `internal/jsonbody`. Shared create frontends currently:
 
 1. read/decompress the full body with `reqbody.ReadAll`;
-2. run shared JSON preflight;
-3. acquire byte-weighted decode admission;
-4. run protocol `Spec.Decode` under that permit;
-5. release the permit;
-6. apply authoritative session headers, validate, run `AfterDecode`, validate again;
-7. derive canonical/stable request identity and emit frontend traffic;
-8. enter `Executor.Execute(*lipapi.Call)`.
+2. derive the header selector and, when configured, run `Spec.ResolveRouteSelector(r, body, pm)` on the complete `[]byte` body;
+3. run shared JSON preflight;
+4. acquire byte-weighted decode admission;
+5. under that permit, apply `RouteFromBodyModel` defaulting when the selector is still empty and run protocol `Spec.Decode`;
+6. release the permit;
+7. apply authoritative session headers, validate, run `AfterDecode`, validate again;
+8. derive canonical/stable request identity and emit frontend traffic;
+9. enter `Executor.Execute(*lipapi.Call)`.
 
 `reqbody.ReadAll` applies the body cap to the **decoded gzip stream**, which is a security/compatibility contract.
 
+### Pre-preflight full-body route authority
+
+`ResolveRouteSelector` is not merely an implementation convenience. Its current contract receives the fully materialized body and its output can override the header-derived selector **before** shared JSON preflight. Moving it after streaming preflight changes observable ordering, skipping it changes routing authority, and invoking it from replay by rebuilding a full `[]byte` body defeats the intended large-body retention improvement.
+
+The initial OpenAI Responses lane does not configure this callback; it uses `RouteFromBodyModel`, which can be reproduced by bounded semantic proof under decode admission. Therefore a conservative V1 rule—configured legacy `ResolveRouteSelector` means canonical before capture—preserves correctness without making the first target lane dead. A future bounded route-resolution interface can be considered separately if a real frontend needs it, but it must preserve current header/body precedence and callback ordering.
+
 ### Decision
 
-#503 belongs at shared frontend capture/proof plus explicit core/backend execution seams. The canonical path remains the fallback oracle.
+#503 belongs at shared frontend capture/proof plus explicit core/backend execution seams. The canonical path remains the fallback oracle. The fast-path candidate gate must also preserve the existing pre-preflight route authority: legacy full-body resolver presence is an early canonical disposition unless an explicit bounded equivalent exists.
 
 ---
 
@@ -95,11 +102,11 @@ The current slice preflight remains the differential oracle. Fuzz/property tests
 
 ### Current contract
 
-`frontendpipe` performs shared preflight first, then roughly:
+After any configured pre-preflight full-body route resolver and shared preflight, `frontendpipe` performs roughly:
 
 ```text
 decodeqos.TryAdmit(ctx, DecodeAdmission, decodedBodyBytes)
-  → decodeqos.Guard(Spec.Decode)
+  → decodeqos.Guard(RouteFromBodyModel defaulting + Spec.Decode)
 ```
 
 The permit protects expensive protocol decoding; it is intentionally **not** held while the client uploads.
@@ -117,11 +124,13 @@ A subtler issue appears if the wire semantic verifier succeeds, releases the per
 Use one permit:
 
 ```text
+legacy full-body route resolver? → canonical before capture
+  ↓ otherwise
 capture + shared preflight
   ↓
 TryAdmit(exact decoded bytes)
   ↓ permit held
-protocol semantic proof + canonical identity digest
+protocol semantic proof + RouteFromBodyModel parity + canonical identity digest
   ↓
 side-effect-free AssessLargeBody
   ├─ decline → materialize + existing Spec.Decode under SAME permit
@@ -397,10 +406,13 @@ Same protocol/backend label is insufficient.
 
 Backends expose pure provider-neutral wire proof for:
 
-- exact profile/operation/delivery/protocol requirements/body mode/candidate model;
-- late-route domains when needed (finite set or universal accepted-model domain);
-- model rewrite semantics;
+- exact profile/operation/delivery/protocol requirements;
+- the immutable profile-derived **body mode** as an input to exact and domain proof;
+- the immutable profile-derived **rewrite semantics** as an input to exact and domain proof;
+- exact candidate model or late-route model domain when needed (finite set or universal accepted-model domain);
 - parallel/race replay capability.
+
+The rewrite contract describes what transformations are permitted (initially the scanner-proven top-level model-token splice with all other body bytes unchanged). `NeedsModelRewrite` is a compatibility **output** for a candidate; it cannot substitute for the input contract. If a backend needs a rewrite not allowed by the profile contract, or the exact model span/semantics are unavailable, compatibility is false and assessment declines.
 
 Support resolution performs no provider network I/O. Nil/unknown/partial support is canonical-only.
 
@@ -444,18 +456,18 @@ Replay files may contain raw prompt/tool data and are treated as short-lived sec
 
 Sensitive secure-session resume tokens are separate from request/backend facts and never logged/metric-labelled.
 
-Client Authorization/hop-by-hop/stale encoding headers are never blindly forwarded. Existing backend credential selection remains authoritative.
+Client Authorization/hop-by-hop/stale encoding headers are never blindly forwarded. Existing backend credential selection remains authoritative. A configured pre-preflight route resolver is also an authority and is not skipped or reordered to manufacture fast-path eligibility.
 
 ---
 
 ## 20. Final Rollout Order
 
-1. rebase + canonical characterization + full dependency/identity inventory;
+1. rebase + canonical ingress/route-resolution characterization + full dependency/identity inventory;
 2. replay source + shared scanner;
 3. exact canonical semantic identity digest;
 4. typed-plane/hook/non-plane frozen eligibility summary;
-5. frontend candidate path with **single decode permit**;
-6. backend exact/domain proof + model rewrite;
+5. frontend candidate path with legacy full-body route-resolver gate and **single decode permit**;
+6. backend exact/domain proof with explicit body-mode/rewrite inputs + model rewrite;
 7. secure-session wire views, recorder shape, sensitive response carrier;
 8. wire-native metering/economic checkpoints and counting disposition;
 9. side-effect-free `AssessLargeBody` + late-route domain proof;
