@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -183,7 +184,7 @@ func ScopedOperationKey(kind, accountID, sourceKey string) string {
 	kind = strings.TrimSpace(kind)
 	accountID = strings.TrimSpace(accountID)
 	sourceKey = strings.TrimSpace(sourceKey)
-	return fmt.Sprintf("%s:v1:%d:%s:%d:%s", kind, len(accountID), accountID, len(sourceKey), sourceKey)
+	return kind + ":v1:" + strconv.Itoa(len(accountID)) + ":" + accountID + ":" + strconv.Itoa(len(sourceKey)) + ":" + sourceKey
 }
 
 func financialJournalIntent(kind string, amount Money, accountID, sourceKey, reason string, direction AdjustmentDirection) (JournalTransaction, error) {

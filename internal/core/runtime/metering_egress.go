@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
@@ -42,7 +42,7 @@ func (e *Executor) emitBackendEgressMeteringFact(
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.BackendEgressCheckpoint(*beSnap, outcome, surfaced),
-		FactID:     fmt.Sprintf("be-egress:%s:%d", strings.TrimSpace(blegID), seq),
+		FactID:     "be-egress:" + strings.TrimSpace(blegID) + ":" + strconv.FormatInt(seq, 10),
 		Sequence:   seq,
 		Quantities: quantitiesFromUsageEvent(usageEv),
 		Outcome:    outcome,
@@ -82,7 +82,7 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.FrontendEgressCheckpoint(*holder.FrontendIngress),
-		FactID:     fmt.Sprintf("fe-egress:%s:%d", strings.TrimSpace(traceID), seq),
+		FactID:     "fe-egress:" + strings.TrimSpace(traceID) + ":" + strconv.FormatInt(seq, 10),
 		Sequence:   seq,
 		Quantities: quantitiesFromUsageEvent(customerEv),
 		Money:      nil,
