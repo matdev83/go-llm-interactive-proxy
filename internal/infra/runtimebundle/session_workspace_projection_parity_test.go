@@ -80,25 +80,28 @@ func TestSessionAndWorkspaceProjection_ParityWithFrozenAndRegistrationOrder(t *t
 	var events []string
 	var mu sync.Mutex
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "b1", []session.Opener{
 			stubSessionOpener{id: "so-1", labels: map[string]string{"k1": "v1"}, events: &events, mu: &mu},
 			stubSessionOpener{id: "so-2", labels: map[string]string{"k2": "v2"}, events: &events, mu: &mu},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "b1", []workspace.Resolver{
 			stubWorkspaceResolver{id: "wr-1", view: workspace.WorkspaceView{ID: "ws-1", ProjectRoot: "/project/1"}, events: &events, mu: &mu},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
+		})
+	}, nil)
+
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "b2", []session.Opener{
 			stubSessionOpener{id: "so-3", labels: map[string]string{"k2": "v2-override", "k3": "v3"}, events: &events, mu: &mu},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "b2", []workspace.Resolver{
 			stubWorkspaceResolver{id: "wr-2", view: workspace.WorkspaceView{ID: "ws-2", ProjectRoot: "/project/2", Markers: []string{"git"}}, events: &events, mu: &mu},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -167,11 +170,12 @@ func TestSessionAndWorkspaceProjection_NilVsEmptySemantics(t *testing.T) {
 
 	t.Run("explicit_empty_slices_preserve_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
-			SessionOpeners:     []session.Opener{},
-			WorkspaceResolvers: []workspace.Resolver{},
-		}
+		b := testkit.FeatureBundle(t, "empty", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "empty", []session.Opener{}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "empty", []workspace.Resolver{})
+		}, nil)
 		gen, err := featurebundle.MergeBundlesGenerated(b)
 		require.NoError(t, err)
 
@@ -198,11 +202,12 @@ func TestSessionAndWorkspaceProjection_BackingArrayIsolation(t *testing.T) {
 	origSO := []session.Opener{stubSessionOpener{id: "so-orig"}}
 	origWR := []workspace.Resolver{stubWorkspaceResolver{id: "wr-orig"}}
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		SessionOpeners:     origSO,
-		WorkspaceResolvers: origWR,
-	}
+	b := testkit.FeatureBundle(t, "orig", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "orig", origSO); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "orig", origWR)
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -238,32 +243,30 @@ func TestCompileGeneration_SessionAndWorkspaceExecution(t *testing.T) {
 
 	// Register feature 1: SessionOpener
 	require.NoError(t, reg.RegisterFeature("test-session-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SessionOpeners: []session.Opener{
+		return testkit.FeatureBundle(t, "test-session-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "test-session-1", []session.Opener{
 				stubSessionOpener{
 					id:     "so-feature-1",
 					labels: map[string]string{"env": "test"},
 					events: &executedOpeners,
 					mu:     &mu,
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	// Register feature 2: WorkspaceResolver
 	require.NoError(t, reg.RegisterFeature("test-workspace-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			WorkspaceResolvers: []workspace.Resolver{
+		return testkit.FeatureBundle(t, "test-workspace-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "test-workspace-1", []workspace.Resolver{
 				stubWorkspaceResolver{
 					id:     "wr-feature-1",
 					view:   workspace.WorkspaceView{ID: "ws-feature-1", ProjectRoot: "/app"},
 					events: &executedResolvers,
 					mu:     &mu,
 				},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -343,25 +346,26 @@ func TestCompileGeneration_CandidateFeaturePlanesOverlaySessionAndWorkspace(t *t
 	var executedResolvers []string
 	var mu sync.Mutex
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "cand", []session.Opener{
 			stubSessionOpener{
 				id:     "cand-so-1",
 				labels: map[string]string{"cand-key": "cand-val"},
 				events: &executedOpeners,
 				mu:     &mu,
 			},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "cand", []workspace.Resolver{
 			stubWorkspaceResolver{
 				id:     "cand-wr-1",
 				view:   workspace.WorkspaceView{ID: "cand-ws-1", ProjectRoot: "/cand-root"},
 				events: &executedResolvers,
 				mu:     &mu,
 			},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -418,11 +422,12 @@ func TestCompileGeneration_CandidateFeaturePlanes_SessionAndWorkspaceCandidateEm
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ps.Close() })
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		SessionOpeners:     []session.Opener{},
-		WorkspaceResolvers: []workspace.Resolver{},
-	}
+	candBundle := testkit.FeatureBundle(t, "empty", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "empty", []session.Opener{}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "empty", []workspace.Resolver{})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -468,21 +473,26 @@ func TestCompileGeneration_CandidateFeaturePlanes_UnrelatedPlanesIgnoredWithSess
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ps.Close() })
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "cand", []session.Opener{
 			stubSessionOpener{id: "cand-so-valid"},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "cand", []workspace.Resolver{
 			stubWorkspaceResolver{id: "cand-wr-valid", view: workspace.WorkspaceView{ID: "ws-valid"}},
-		},
-		TrafficObservers: []traffic.Observer{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand", []traffic.Observer{
 			stubTrafficObs{id: "unrelated-traffic-obs"},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "cand", []usage.Observer{
 			stubUsageObs{id: "unrelated-usage-obs"},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 
@@ -554,11 +564,12 @@ func TestSessionAndWorkspace_LiteralNilAndBoxedTypedNilLegacyCharacterization(t 
 	validWR := stubWorkspaceResolver{id: "wr-valid", view: workspace.WorkspaceView{ID: "ws-valid"}}
 
 	// 1. Bundle merging preserves literal nil and boxed typed-nil without error
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		SessionOpeners:     []session.Opener{literalNilSO, typedNilSO, validSO},
-		WorkspaceResolvers: []workspace.Resolver{literalNilWR, typedNilWR, validWR},
-	}
+	b := testkit.FeatureBundle(t, "test", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "test", []session.Opener{literalNilSO, typedNilSO, validSO}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "test", []workspace.Resolver{literalNilWR, typedNilWR, validWR})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err, "contribute/merge must not reject literal nil or boxed typed nil for session openers and workspace resolvers")
@@ -638,17 +649,18 @@ func TestSessionAndWorkspace_ErrorAndFailOpenBehavior(t *testing.T) {
 func TestSessionAndWorkspace_DiagnosticsCoalescedStageByteEquivalence(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
+	b := testkit.FeatureBundle(t, "diag", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "diag", []session.Opener{
 			stubSessionOpener{id: "user-session"},
 			stubSessionOpener{id: "tenant-session"},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "diag", []workspace.Resolver{
 			stubWorkspaceResolver{id: "local-ws"},
 			stubWorkspaceResolver{id: "remote-ws"},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)

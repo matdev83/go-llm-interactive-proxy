@@ -68,6 +68,7 @@ var PlaneTest = Plane[` + typeParam + `]{
 	ID: "test_policies", Multiplicity: ` + mult + `, Rules: SourceRules{Feature: ` + rules + `},
 	NilPolicy: NilReject,
 	Identity: func(v ` + typeParam + `) (string, bool) { return "id", true },
+	ValidateIdentity: func(id string) error { return nil },
 	Validate: func(v ` + typeParam + `) error { return nil },
 	Combine: func(s SourceKind, c, in ` + typeParam + `) (` + typeParam + `, error) { return in, nil },` + matField + borrowField + `
 }
@@ -87,6 +88,60 @@ var StandardPlanes = []any{PlaneTest}
 	_, err = GenerateFeaturePlanesCode([]byte(makeManifest("[]toolpolicy.Policy", "MultOrdered", "CombConcatenate", false, true)))
 	require.Error(t, err, "slice plane with RequestBorrow: true but no RequestMaterializer must fail")
 	assert.Contains(t, err.Error(), "RequestBorrow requires non-nil RequestMaterializer")
+}
+
+// TestPlaneGenerator_ValidateIdentityRequirement tests generator validation of ValidateIdentity presence on identity planes.
+func TestPlaneGenerator_ValidateIdentityRequirement(t *testing.T) {
+	t.Parallel()
+
+	identManifest := func(mult, rules, extra string) string {
+		return `package feature
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+var PlaneEx = Plane[terminaldecision.Provider]{
+	ID: "test_id_plane", Multiplicity: ` + mult + `, Rules: SourceRules{` + rules + `},
+	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },` + extra + `
+	Combine: func(s SourceKind, c, in terminaldecision.Provider) (terminaldecision.Provider, error) { return in, nil },
+}
+var StandardPlanes = []any{PlaneEx}
+`
+	}
+
+	// 1. Exclusive plane missing ValidateIdentity fails
+	_, err := GenerateFeaturePlanesCode([]byte(identManifest("MultExclusive", "Feature: CombExclusive", "")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cached identity validator is required for exclusive or replace-by-identity plane")
+
+	// 2. Replace-by-identity plane missing ValidateIdentity fails
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "GenerationBinder: CombReplaceByIdentity", "")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cached identity validator is required for exclusive or replace-by-identity plane")
+
+	// 3. Identity plane with ValidateIdentity succeeds
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultExclusive", "Feature: CombExclusive", "\n\tValidateIdentity: func(id string) error { return nil },")))
+	require.NoError(t, err)
+
+	// 4. Ordered plane with Host: CombExclusive, Identity present, ValidateIdentity missing => fail
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "Host: CombExclusive", "")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cached identity validator is required for exclusive or replace-by-identity plane")
+
+	// 5. Ordered plane with GenerationBinder: CombExclusive, Identity present, ValidateIdentity missing => fail
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "GenerationBinder: CombExclusive", "")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cached identity validator is required for exclusive or replace-by-identity plane")
+
+	// 6. Ordered plane with Host: CombExclusive with ValidateIdentity validator => succeeds
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "Host: CombExclusive", "\n\tValidateIdentity: func(id string) error { return nil },")))
+	require.NoError(t, err)
+
+	// 7. Ordered plane with GenerationBinder: CombExclusive with ValidateIdentity validator => succeeds
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "GenerationBinder: CombExclusive", "\n\tValidateIdentity: func(id string) error { return nil },")))
+	require.NoError(t, err)
+
+	// 8. Ordered plane with Feature: CombExclusive is rejected earlier by multiplicity contract
+	_, err = GenerateFeaturePlanesCode([]byte(identManifest("MultOrdered", "Feature: CombExclusive", "")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ordered plane cannot use CombExclusive rule on feature source")
 }
 
 // TestPlaneGenerator_FreezeRequestMaterializerWiring verifies that slice planes with RequestMaterializer
@@ -114,9 +169,9 @@ var StandardPlanes = []any{PlaneSyntheticSlice}
 	require.NoError(t, err)
 	generatedCode := string(generatedBytes)
 
-	assert.Contains(t, generatedCode, "syntheticSlice: materializeRequestSlice(gf.syntheticSlice, PlaneSyntheticSlice.RequestMaterializer),")
+	assert.Contains(t, generatedCode, "materializeRequestSlice(gf.syntheticSlice, PlaneSyntheticSlice.RequestMaterializer)")
 	assert.NotContains(t, generatedCode, "cloneSlice(PlaneSyntheticSlice.RequestMaterializer(gf.syntheticSlice))")
-	assert.NotContains(t, generatedCode, "syntheticSlice: PlaneSyntheticSlice.RequestMaterializer(gf.syntheticSlice)")
+	assert.NotContains(t, generatedCode, "PlaneSyntheticSlice.RequestMaterializer(gf.syntheticSlice)")
 }
 
 // TestPlaneGenerator_DisposableDiagnosticPlaneProof verifies that a synthetic manifest
@@ -217,41 +272,13 @@ var StandardPlanes = []any{PlaneA, PlaneB}
 		manifest    string
 		wantErrPart string
 	}{
-		{
-			name:        "duplicate positive order without coalesce group fails",
-			manifest:    twoPlaneManifest("StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }", "StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }"),
-			wantErrPart: "duplicate diagnostic order 10",
-		},
-		{
-			name:        "same coalesce group with mismatching StageID fails",
-			manifest:    twoPlaneManifest(`StageID: StageIDToolEventReaction, Order: 10, CoalesceGroup: "shared_group", Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }`, `StageID: StageIDPreRequest, Order: 20, CoalesceGroup: "shared_group", Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }`),
-			wantErrPart: "mismatching stage IDs for coalesce group",
-		},
-		{
-			name:        "unknown privilege flag string is rejected",
-			manifest:    diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{"invalid_privilege_typo"}} }`),
-			wantErrPart: `plane PlaneA: unknown privilege flag "invalid_privilege_typo"`,
-		},
-		{
-			name:        "unknown privilege flag identifier is rejected",
-			manifest:    diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{PrivilegeTypo}} }`),
-			wantErrPart: `plane PlaneA: unknown privilege flag identifier "PrivilegeTypo"`,
-		},
-		{
-			name:        "foreign selector privilege is rejected",
-			manifest:    diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foreign.PrivilegeRawCapture}} }`),
-			wantErrPart: `plane PlaneA: privilege selector expression "foreign.PrivilegeRawCapture" not allowed; must use bare identifier or string literal`,
-		},
-		{
-			name:        "foo selector privilege is rejected",
-			manifest:    diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foo.PrivilegeAuxiliaryRequests}} }`),
-			wantErrPart: `plane PlaneA: privilege selector expression "foo.PrivilegeAuxiliaryRequests" not allowed; must use bare identifier or string literal`,
-		},
-		{
-			name:        "order provided without StageID is rejected",
-			manifest:    diagManifest(`Order: 10,`),
-			wantErrPart: "diagnostics StageID must not be empty",
-		},
+		{name: "duplicate positive order without coalesce group fails", manifest: twoPlaneManifest("StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }", "StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }"), wantErrPart: "duplicate diagnostic order 10"},
+		{name: "same coalesce group with mismatching StageID fails", manifest: twoPlaneManifest(`StageID: StageIDToolEventReaction, Order: 10, CoalesceGroup: "shared_group", Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }`, `StageID: StageIDPreRequest, Order: 20, CoalesceGroup: "shared_group", Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }`), wantErrPart: "mismatching stage IDs for coalesce group"},
+		{name: "unknown privilege flag string is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{"invalid_privilege_typo"}} }`), wantErrPart: `plane PlaneA: unknown privilege flag "invalid_privilege_typo"`},
+		{name: "unknown privilege flag identifier is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{PrivilegeTypo}} }`), wantErrPart: `plane PlaneA: unknown privilege flag identifier "PrivilegeTypo"`},
+		{name: "foreign selector privilege is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foreign.PrivilegeRawCapture}} }`), wantErrPart: `plane PlaneA: privilege selector expression "foreign.PrivilegeRawCapture" not allowed; must use bare identifier or string literal`},
+		{name: "foo selector privilege is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foo.PrivilegeAuxiliaryRequests}} }`), wantErrPart: `plane PlaneA: privilege selector expression "foo.PrivilegeAuxiliaryRequests" not allowed; must use bare identifier or string literal`},
+		{name: "order provided without StageID is rejected", manifest: diagManifest(`Order: 10,`), wantErrPart: "diagnostics StageID must not be empty"},
 	}
 
 	for _, tt := range tests {
@@ -294,113 +321,28 @@ var StandardPlanes = []any{PlaneA}
 		body        string
 		wantErrPart string
 	}{
-		{
-			name: "1. Valid current if+two static returns accepted",
-			body: `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-		},
-		{
-			name:        "2. Assignment bypass rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{PrivilegeRawCapture}; return p }`,
-			wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt",
-		},
-		{
-			name:        "3. Foreign selector assignment rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{foreign.PrivilegeRawCapture}; return p }`,
-			wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt",
-		},
-		{
-			name:        "4. Dead static projection plus dynamic return rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { _ = PrivilegeProjection{Flags: []string{PrivilegeRawCapture}}; return helper(v) }`,
-			wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt",
-		},
-		{
-			name:        "5. Direct dynamic return rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return helper(v) }`,
-			wantErrPart: "plane PlaneA: unsupported return expression (*ast.CallExpr)",
-		},
-		{
-			name:        "6. Identifier return rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return p }`,
-			wantErrPart: "plane PlaneA: unsupported return expression (*ast.Ident)",
-		},
-		{
-			name:        "7. Foreign projection type rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return foreign.PrivilegeProjection{Flags: []string{"raw_capture"}} }`,
-			wantErrPart: `plane PlaneA: foreign projection type "foreign.PrivilegeProjection" not allowed; must use local PrivilegeProjection`,
-		},
-		{
-			name:        "8. Unsupported loop statement rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { for i := 0; i < len(v); i++ { return PrivilegeProjection{} }; return PrivilegeProjection{} }`,
-			wantErrPart: "plane PlaneA: unsupported statement type *ast.ForStmt",
-		},
-		{
-			name:        "9. Unsupported switch statement rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { switch len(v) { case 0: return PrivilegeProjection{}; default: return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} } }`,
-			wantErrPart: "plane PlaneA: unsupported statement type *ast.SwitchStmt",
-		},
-		{
-			name: "10. Direct static canonical literal/identifier returns accepted",
-			body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{"raw_capture", "auxiliary_requests"}} }`,
-		},
-		{
-			name:        "11. Condition helper call rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if helper(v) { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: call to helper function "helper" is not allowed in privilege condition`,
-		},
-		{
-			name:        "12. Condition foreign selector call rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if foreign.Mutate(v) { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: selector/method call "foreign.Mutate" is not allowed in privilege condition`,
-		},
-		{
-			name:        "13. Condition len with helper argument rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if len(helper(v)) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: len argument in privilege condition must be a bare parameter identifier, got *ast.CallExpr`,
-		},
-		{
-			name:        "14. Condition method call rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if v.Check() { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: selector/method call "v.Check" is not allowed in privilege condition`,
-		},
-		{
-			name:        "15. If statement with init statement rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if x := 1; len(v) > x { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: unsupported statement type *ast.AssignStmt`,
-		},
-		{
-			name:        "16. Condition nested function call rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if func() bool { return true }() { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: dynamic function literal call in privilege condition is not allowed`,
-		},
-		{
-			name: "17. Valid parenthesized condition with boolean literal accepted",
-			body: `func(v []toolpolicy.Policy) PrivilegeProjection { if (len(v) > 0) && true { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-		},
-		{
-			name:        "18. Untyped elided Flags literal rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: {"raw_capture"}} }`,
-			wantErrPart: `plane PlaneA: Flags must use explicit []string literal`,
-		},
-		{
-			name:        "19. Array Flags type rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: [1]string{"raw_capture"}} }`,
-			wantErrPart: `plane PlaneA: Flags must be a slice of string ([]string), got *ast.ArrayType`,
-		},
-		{
-			name:        "20. Foreign Flags element type rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []foreign.String{"raw_capture"}} }`,
-			wantErrPart: `plane PlaneA: Flags element type must be string, got *ast.SelectorExpr`,
-		},
-		{
-			name:        "21. Non-string Flags element type rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []int{1}} }`,
-			wantErrPart: `plane PlaneA: Flags element type must be string, got *ast.Ident`,
-		},
-		{
-			name:        "22. Variadic len in condition rejected",
-			body:        `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v...) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`,
-			wantErrPart: `plane PlaneA: variadic/ellipsis len is unsupported in privilege condition`,
-		},
+		{name: "1. Valid current if+two static returns accepted", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`},
+		{name: "2. Assignment bypass rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{PrivilegeRawCapture}; return p }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
+		{name: "3. Foreign selector assignment rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{foreign.PrivilegeRawCapture}; return p }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
+		{name: "4. Dead static projection plus dynamic return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { _ = PrivilegeProjection{Flags: []string{PrivilegeRawCapture}}; return helper(v) }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
+		{name: "5. Direct dynamic return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return helper(v) }`, wantErrPart: "plane PlaneA: unsupported return expression (*ast.CallExpr)"},
+		{name: "6. Identifier return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return p }`, wantErrPart: "plane PlaneA: unsupported return expression (*ast.Ident)"},
+		{name: "7. Foreign projection type rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return foreign.PrivilegeProjection{Flags: []string{"raw_capture"}} }`, wantErrPart: `plane PlaneA: foreign projection type "foreign.PrivilegeProjection" not allowed; must use local PrivilegeProjection`},
+		{name: "8. Unsupported loop statement rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { for i := 0; i < len(v); i++ { return PrivilegeProjection{} }; return PrivilegeProjection{} }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.ForStmt"},
+		{name: "9. Unsupported switch statement rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { switch len(v) { case 0: return PrivilegeProjection{}; default: return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} } }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.SwitchStmt"},
+		{name: "10. Direct static canonical literal/identifier returns accepted", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{"raw_capture", "auxiliary_requests"}} }`},
+		{name: "11. Condition helper call rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if helper(v) { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: call to helper function "helper" is not allowed in privilege condition`},
+		{name: "12. Condition foreign selector call rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if foreign.Mutate(v) { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: selector/method call "foreign.Mutate" is not allowed in privilege condition`},
+		{name: "13. Condition len with helper argument rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if len(helper(v)) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: len argument in privilege condition must be a bare parameter identifier, got *ast.CallExpr`},
+		{name: "14. Condition method call rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if v.Check() { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: selector/method call "v.Check" is not allowed in privilege condition`},
+		{name: "15. If statement with init statement rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if x := 1; len(v) > x { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: unsupported statement type *ast.AssignStmt`},
+		{name: "16. Condition nested function call rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if func() bool { return true }() { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: dynamic function literal call in privilege condition is not allowed`},
+		{name: "17. Valid parenthesized condition with boolean literal accepted", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if (len(v) > 0) && true { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`},
+		{name: "18. Untyped elided Flags literal rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: {"raw_capture"}} }`, wantErrPart: `plane PlaneA: Flags must use explicit []string literal`},
+		{name: "19. Array Flags type rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: [1]string{"raw_capture"}} }`, wantErrPart: `plane PlaneA: Flags must be a slice of string ([]string), got *ast.ArrayType`},
+		{name: "20. Foreign Flags element type rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []foreign.String{"raw_capture"}} }`, wantErrPart: `plane PlaneA: Flags element type must be string, got *ast.SelectorExpr`},
+		{name: "21. Non-string Flags element type rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []int{1}} }`, wantErrPart: `plane PlaneA: Flags element type must be string, got *ast.Ident`},
+		{name: "22. Variadic len in condition rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v...) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`, wantErrPart: `plane PlaneA: variadic/ellipsis len is unsupported in privilege condition`},
 	}
 
 	for _, tt := range tests {

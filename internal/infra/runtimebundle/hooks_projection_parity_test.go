@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -87,44 +88,52 @@ func (stubLifecycle) Stop(context.Context) error { return nil }
 func TestHooksConfigFromGenerated_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b1", []sdkhooks.SubmitHook{
 			stubSubmitHook{id: "sub-1", order: 10},
 			stubSubmitHook{id: "sub-2", order: 5},
-		},
-		RequestPartHooks: []sdkhooks.RequestPartHook{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "b1", []sdkhooks.RequestPartHook{
 			stubRequestPartHook{id: "req-1", order: 1},
-		},
-		ResponsePartHooks: []sdkhooks.ResponsePartHook{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "b1", []sdkhooks.ResponsePartHook{
 			stubResponsePartHook{id: "resp-1", order: 20},
-		},
-		ToolReactors: []sdkhooks.ToolReactor{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b1", []sdkhooks.ToolReactor{
 			stubToolReactor{id: "reactor-1", order: 15},
-		},
-		Lifecycles: []lipplugin.Lifecycle{
-			stubLifecycle{id: "life-1"},
-		},
-	}
+		})
+	}, []lipplugin.Lifecycle{
+		stubLifecycle{id: "life-1"},
+	})
 
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b2", []sdkhooks.SubmitHook{
 			stubSubmitHook{id: "sub-3", order: 1},
-		},
-		RequestPartHooks: []sdkhooks.RequestPartHook{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "b2", []sdkhooks.RequestPartHook{
 			stubRequestPartHook{id: "req-2", order: 0},
-		},
-		ResponsePartHooks: []sdkhooks.ResponsePartHook{
+		}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "b2", []sdkhooks.ResponsePartHook{
 			stubResponsePartHook{id: "resp-2", order: 5},
-		},
-		ToolReactors: []sdkhooks.ToolReactor{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "b2", []sdkhooks.ToolReactor{
 			stubToolReactor{id: "reactor-2", order: 2},
-		},
-		Lifecycles: []lipplugin.Lifecycle{
-			stubLifecycle{id: "life-2"},
-		},
-	}
+		})
+	}, []lipplugin.Lifecycle{
+		stubLifecycle{id: "life-2"},
+	})
 
 	policies := []sdkhooks.ToolReactorErrorPolicy{
 		sdkhooks.ToolReactorErrorPolicyUnspecified,
@@ -227,19 +236,15 @@ func TestBuildFeatureHooks_DerivesFromGeneratedMergeSurface(t *testing.T) {
 		if err != nil {
 			return lipfeature.FeatureBundle{}, err
 		}
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
-			Lifecycles:    []lipplugin.Lifecycle{stubLifecycle{id: "submit-life", starts: &startsSubmit}},
-		}, nil
+		return testkit.FeatureBundle(t, submitFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, submitFacID, []sdkhooks.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)})
+		}, []lipplugin.Lifecycle{stubLifecycle{id: "submit-life", starts: &startsSubmit}}), nil
 	}))
 
 	require.NoError(t, reg.RegisterFeature(toolFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolReactors:  []sdkhooks.ToolReactor{toolreactornoop.NewToolReactor()},
-			Lifecycles:    []lipplugin.Lifecycle{stubLifecycle{id: "tool-life", starts: &startsTool}},
-		}, nil
+		return testkit.FeatureBundle(t, toolFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, toolFacID, []sdkhooks.ToolReactor{toolreactornoop.NewToolReactor()})
+		}, []lipplugin.Lifecycle{stubLifecycle{id: "tool-life", starts: &startsTool}}), nil
 	}))
 
 	var cfgNode yaml.Node
@@ -280,12 +285,11 @@ func TestConfigOwnedToolReactorErrorPolicy_FeatureContributionsCannotSetPolicy(t
 	assert.False(t, hasField, "FeatureBundle must NOT have a ToolReactorErrorPolicy field")
 
 	// MergedFeatureSurface created via MergeBundlesGenerated does NOT set ToolReactorErrorPolicy
-	gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolReactors: []sdkhooks.ToolReactor{
+	gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "reactor-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "reactor-1", []sdkhooks.ToolReactor{
 			stubToolReactor{id: "reactor-1", order: 1},
-		},
-	})
+		})
+	}, nil))
 	require.NoError(t, err)
 
 	// Policy is purely injected at projection time from host/config

@@ -71,21 +71,17 @@ func TestBuildFeatureHooks_LifecycleSideChannelRegistrationOrderSkipsDisabled(t 
 	facDisabled := "sc-fac-disabled-" + t.Name()
 	facB := "sc-fac-b-" + t.Name()
 	require.NoError(t, reg.RegisterFeature(facA, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{sideChannelHook{tag: "hook-a"}},
-			Lifecycles:    []lipplugin.Lifecycle{lifeA},
-		}, nil
+		return testkit.FeatureBundle(t, facA, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, facA, []sdkhooks.SubmitHook{sideChannelHook{tag: "hook-a"}})
+		}, []lipplugin.Lifecycle{lifeA}), nil
 	}))
 	require.NoError(t, reg.RegisterFeature(facDisabled, func(yaml.Node) (lipfeature.FeatureBundle, error) {
 		panic("disabled registration must not invoke factory")
 	}))
 	require.NoError(t, reg.RegisterFeature(facB, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks:   []sdkhooks.SubmitHook{sideChannelHook{tag: "hook-b"}},
-			Lifecycles:    []lipplugin.Lifecycle{lifeB1, lifeB2},
-		}, nil
+		return testkit.FeatureBundle(t, facB, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, facB, []sdkhooks.SubmitHook{sideChannelHook{tag: "hook-b"}})
+		}, []lipplugin.Lifecycle{lifeB1, lifeB2}), nil
 	}))
 
 	cfgNode := sideChannelYAMLNode(t)
@@ -125,17 +121,14 @@ func TestBuildFeatureHooks_mergeFailureReturnsZeroConfigAndNilLifecycles(t *test
 	facP1 := "sc-fac-p1-" + t.Name()
 	facP2 := "sc-fac-p2-" + t.Name()
 	require.NoError(t, reg.RegisterFeature(facP1, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: sideChannelProvider{tag: "sc.p1"},
-			Lifecycles:               []lipplugin.Lifecycle{doomed},
-		}, nil
+		return testkit.FeatureBundle(t, "sc.p1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "sc.p1", terminaldecision.Provider(sideChannelProvider{tag: "sc.p1"}))
+		}, []lipplugin.Lifecycle{doomed}), nil
 	}))
 	require.NoError(t, reg.RegisterFeature(facP2, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: sideChannelProvider{tag: "sc.p2"},
-		}, nil
+		return testkit.FeatureBundle(t, "sc.p2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "sc.p2", terminaldecision.Provider(sideChannelProvider{tag: "sc.p2"}))
+		}, nil), nil
 	}))
 
 	cfgNode := sideChannelYAMLNode(t)
@@ -165,16 +158,14 @@ func TestCompileGeneration_TransportsMergedFeatureLifecyclesToGenerationRuntime(
 	facE2eA := "sc-fac-e2e-a-" + t.Name()
 	facE2eB := "sc-fac-e2e-b-" + t.Name()
 	require.NoError(t, reg.RegisterFeature(facE2eA, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			Lifecycles:    []lipplugin.Lifecycle{lifeA},
-		}, nil
+		return testkit.FeatureBundle(t, facE2eA, func(cs *lipfeature.ContributionSet) error {
+			return nil
+		}, []lipplugin.Lifecycle{lifeA}), nil
 	}))
 	require.NoError(t, reg.RegisterFeature(facE2eB, func(yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			Lifecycles:    []lipplugin.Lifecycle{lifeB},
-		}, nil
+		return testkit.FeatureBundle(t, facE2eB, func(cs *lipfeature.ContributionSet) error {
+			return nil
+		}, []lipplugin.Lifecycle{lifeB}), nil
 	}))
 
 	cfg := processBaseConfig()

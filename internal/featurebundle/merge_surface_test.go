@@ -727,3 +727,77 @@ func TestGeneratedMergeSurface_BindCompactionPreservers(t *testing.T) {
 	assert.Equal(t, "pres-1", pres[0].ID())
 	assert.Equal(t, "pres-replace", pres[1].ID())
 }
+
+func TestContributeBundle_PlaneSetReplay(t *testing.T) {
+	t.Parallel()
+
+	// 1. Nil destination exact error
+	err := ContributeBundle(nil, "p", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1})
+	require.Error(t, err)
+	assert.Equal(t, "featurebundle: nil ContributionSet", err.Error())
+
+	// 2. Populated PlaneSet replay
+	csSrc := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneSubmitHooks, "feat", []sdkhooks.SubmitHook{testSubmitHook{tag: "hook-1"}}))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneToolReactors, "feat", []sdkhooks.ToolReactor{testToolReactor{tag: "tool-1"}}))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "feat", 2048))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneTerminalDecisionProvider, "term-prov", terminaldecision.Provider(testTerminalDecisionProvider{tag: "term-prov"})))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneSessionOpeners, "feat", []session.Opener{}))
+
+	bundle := lipfeature.BundleFromPlanes(csSrc.Freeze(), []lipplugin.Lifecycle{testLifecycle{tag: "life-1"}})
+
+	csDst := lipfeature.NewContributionSet()
+	require.NoError(t, ContributeBundle(csDst, "test-plugin", bundle))
+
+	frozen := csDst.Freeze()
+	sh := lipfeature.Get(frozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, sh, 1)
+	assert.Equal(t, "hook-1", sh[0].ID())
+
+	tr := lipfeature.Get(frozen, lipfeature.PlaneToolReactors)
+	require.Len(t, tr, 1)
+	assert.Equal(t, "tool-1", tr[0].ID())
+
+	capBytes := lipfeature.Get(frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	assert.Equal(t, 2048, capBytes)
+
+	tp := lipfeature.Get(frozen, lipfeature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, tp)
+	assert.Equal(t, "term-prov", tp.ID())
+
+	so := lipfeature.Get(frozen, lipfeature.PlaneSessionOpeners)
+	assert.NotNil(t, so)
+	assert.Len(t, so, 0)
+
+	// 3. MergeBundlesGenerated with new-style bundle
+	gen, err := MergeBundlesGenerated(bundle)
+	require.NoError(t, err)
+	require.Len(t, gen.Lifecycles, 1)
+	assert.Equal(t, "life-1", gen.Lifecycles[0].(testLifecycle).tag)
+
+	genSH := lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, genSH, 1)
+	assert.Equal(t, "hook-1", genSH[0].ID())
+
+	// 4. FreezeBundle with new-style bundle
+	frozenDirect, err := FreezeBundle(bundle, "")
+	require.NoError(t, err)
+	fbSH := lipfeature.Get(frozenDirect, lipfeature.PlaneSubmitHooks)
+	require.Len(t, fbSH, 1)
+	assert.Equal(t, "hook-1", fbSH[0].ID())
+
+	// 5. Atomic failure on exclusive conflict
+	conflictDst := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(conflictDst, lipfeature.PlaneTerminalDecisionProvider, "other-term", terminaldecision.Provider(testTerminalDecisionProvider{tag: "other-term"})))
+	require.NoError(t, lipfeature.Contribute(conflictDst, lipfeature.PlaneSubmitHooks, "init", []sdkhooks.SubmitHook{testSubmitHook{tag: "init-hook"}}))
+
+	err = ContributeBundle(conflictDst, "test-plugin", bundle)
+	require.Error(t, err)
+
+	conflictFrozen := conflictDst.Freeze()
+	cSH := lipfeature.Get(conflictFrozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, cSH, 1)
+	assert.Equal(t, "init-hook", cSH[0].ID())
+	cTR := lipfeature.Get(conflictFrozen, lipfeature.PlaneToolReactors)
+	assert.Len(t, cTR, 0)
+}

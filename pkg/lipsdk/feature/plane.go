@@ -206,6 +206,8 @@ type Plane[T any] struct {
 	IsNil func(v T) bool
 	// Validate validates incoming contribution values.
 	Validate func(v T) error
+	// ValidateIdentity validates a cached identity string (e.g. for exclusive planes).
+	ValidateIdentity func(string) error
 	// Combine combines an incoming contribution with current accumulated state for a source.
 	// Combiners MUST NOT mutate inputs directly on failure (fail-before-mutate).
 	Combine func(source SourceKind, current, incoming T) (T, error)
@@ -345,6 +347,9 @@ func (p Plane[T]) ValidateDeclaration() error {
 	if requiresIdentity {
 		if p.Identity == nil {
 			return fmt.Errorf("%w: plane %q: identity extractor required for exclusive plane", ErrInvalidPlane, p.ID)
+		}
+		if p.ValidateIdentity == nil {
+			return fmt.Errorf("%w: plane %q: cached identity validator required", ErrInvalidPlane, p.ID)
 		}
 		if (p.generated.contribute != nil || p.generated.get != nil) && p.generated.identity == nil {
 			return fmt.Errorf("%w: plane %q: generated identity accessor required when generated access is bound", ErrInvalidPlane, p.ID)

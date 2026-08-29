@@ -92,19 +92,17 @@ func (o *parityTestCustomObserver) OnSecretDecision(_ context.Context, ev sdksg.
 func TestSecretGuardProjection_ParityWithFrozenAndRegistrationOrder(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []sdksg.Guard{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "b1", []sdksg.Guard{
 			parityTestSGGuard{id: "sg-b1-20", ord: 20},
 			parityTestSGGuard{id: "sg-b1-10", ord: 10},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []sdksg.Guard{
+		})
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "b2", []sdksg.Guard{
 			parityTestSGGuard{id: "sg-b2-5", ord: 5},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -216,12 +214,11 @@ func TestSecretGuardProjection_CandidateFeaturePlanesOverlay(t *testing.T) {
 
 	reg := obsTestFactoryCatalog(t)
 	require.NoError(t, reg.RegisterFeature("sg-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards: []sdksg.Guard{
+		return testkit.FeatureBundle(t, "sg-feature", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "sg-feature", []sdksg.Guard{
 				parityTestSGGuard{id: "base-guard-1", ord: 10},
-			},
-		}, nil
+			})
+		}, nil), nil
 	}))
 
 	cfg := obsTestProcessConfig()
@@ -240,12 +237,11 @@ func TestSecretGuardProjection_CandidateFeaturePlanesOverlay(t *testing.T) {
 
 	cand := obsTestCandidateConfig(t, "sg-feature")
 
-	candBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []sdksg.Guard{
+	candBundle := testkit.FeatureBundle(t, "cand", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "cand", []sdksg.Guard{
 			parityTestSGGuard{id: "cand-guard-1", ord: 5},
-		},
-	}
+		})
+	}, nil)
 	candGen, err := featurebundle.MergeBundlesGenerated(candBundle)
 	require.NoError(t, err)
 

@@ -158,6 +158,23 @@ func NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(
 	}
 }
 
+// NewMalformedGeneratedFrozenTerminalDecisionForTest constructs a test-only generated FrozenPlaneSet
+// with specific terminal decision provider and cached identity metadata.
+func NewMalformedGeneratedFrozenTerminalDecisionForTest(
+	provider terminaldecision.Provider,
+	id string,
+	hasID bool,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		terminalDecisionProvider:      provider,
+		terminalDecisionProviderID:    id,
+		terminalDecisionProviderHasID: hasID,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
 // NewMalformedGeneratedFrozenStreamObserversCandidateForTest constructs a test-only generated FrozenPlaneSet
 // with candidate stream observer factories for testing.
 func NewMalformedGeneratedFrozenStreamObserversCandidateForTest(
@@ -165,6 +182,57 @@ func NewMalformedGeneratedFrozenStreamObserversCandidateForTest(
 ) FrozenPlaneSet {
 	gf := &generatedFrozen{
 		streamObserverFactories: cloneSlice(so),
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenAttemptTransformsForTest constructs a test-only generated FrozenPlaneSet
+// with specific attempt transforms and cached identity metadata.
+func NewMalformedGeneratedFrozenAttemptTransformsForTest(
+	tr []request.AttemptTransform,
+	id string,
+	hasID bool,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		attemptTransforms:      cloneSlice(tr),
+		attemptTransformsID:    id,
+		attemptTransformsHasID: hasID,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenStreamObserverFactoriesForTest constructs a test-only generated FrozenPlaneSet
+// with specific stream observer factories and cached identity metadata.
+func NewMalformedGeneratedFrozenStreamObserverFactoriesForTest(
+	sof []response.StreamObserverFactory,
+	id string,
+	hasID bool,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		streamObserverFactories:      cloneSlice(sof),
+		streamObserverFactoriesID:    id,
+		streamObserverFactoriesHasID: hasID,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenCompactionPreserversForTest constructs a test-only generated FrozenPlaneSet
+// with specific compaction preservers and cached identity metadata.
+func NewMalformedGeneratedFrozenCompactionPreserversForTest(
+	cp []compaction.Preserver,
+	id string,
+	hasID bool,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		compactionPreservers:      cloneSlice(cp),
+		compactionPreserversID:    id,
+		compactionPreserversHasID: hasID,
 	}
 	return FrozenPlaneSet{
 		frozen: gf,

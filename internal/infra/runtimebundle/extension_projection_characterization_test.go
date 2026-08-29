@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -74,14 +75,21 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 // projection tests observe.
 func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
 	t.Helper()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCallFinalizers: []toolcall.Finalizer{projFinalizer{id: "finalizer"}},
-		RequestTransforms:  []request.Transform{projTransform{tag: "transform"}},
-		TrafficObservers:   []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
-		UsageObservers:     []usage.Observer{projUsageObs{tag: "feat-usage"}},
-		LocalTurnHandlers:  []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
-	}
+	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "feat", []toolcall.Finalizer{projFinalizer{id: "finalizer"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "feat", []request.Transform{projTransform{tag: "transform"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "feat", []traffic.Observer{projTrafficObs{tag: "feat-traffic"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "feat", []usage.Observer{projUsageObs{tag: "feat-usage"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feat", []localturn.Handler{wiringHandler{id: "handler", ord: 1}})
+	}, nil)
 	m := featurebundle.MergeBundles(b)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -164,19 +172,21 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}},
-		UsageObservers:   []usage.Observer{projUsageObs{tag: "feat-u"}},
-	}
+	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "feat", []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "feat", []usage.Observer{projUsageObs{tag: "feat-u"}})
+	}, nil)
 
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, featurebundle.ContributeBundle(cs, "feat", b))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "host-1"}},
-		UsageObservers:   []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}},
-	}))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "host", testkit.FeatureBundle(t, "host", func(csHost *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(csHost, lipfeature.PlaneTrafficObservers, "host", []traffic.Observer{projTrafficObs{tag: "host-1"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(csHost, lipfeature.PlaneUsageObservers, "host", []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}})
+	}, nil)))
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
 	trafficFromFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
