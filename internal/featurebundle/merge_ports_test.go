@@ -41,10 +41,9 @@ func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMet
 
 func TestGeneratedMergeSurface_carriesAttemptTransforms(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +59,9 @@ func TestGeneratedMergeSurface_carriesAttemptTransforms(t *testing.T) {
 
 func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -79,11 +77,12 @@ func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
 
 func TestSnapshotOptions_carriesFeaturePlanes(t *testing.T) {
 	t.Parallel()
-	frozen := testkit.FreezeBundle(lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
-	})
+	frozen := testkit.FreezeBundle(testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+	}, nil))
 	opts := extensions.SnapshotOptions{
 		FeaturePlanes: frozen,
 	}
@@ -120,17 +119,15 @@ func (mergeStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipa
 // snapshot accessor with defensive-copy semantics (requirements 2.1-2.2).
 func TestCompactionObservers_portWiring(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "a"}, mergeStubCompactionObserver{id: "z"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-1", []compaction.Observer{mergeStubCompactionObserver{id: "a"}, mergeStubCompactionObserver{id: "z"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	gen, err := featurebundle.MergeBundlesGenerated(bundle, lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "m"}},
-	})
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, testkit.FeatureBundle(t, "feat-2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-2", []compaction.Observer{mergeStubCompactionObserver{id: "m"}})
+	}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,17 +166,15 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 
 func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "a"}, mergeStubCompactionPreserver{id: "z"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{mergeStubCompactionPreserver{id: "a"}, mergeStubCompactionPreserver{id: "z"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	gen, err := featurebundle.MergeBundlesGenerated(bundle, lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}},
-	})
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, testkit.FeatureBundle(t, "feat-2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-2", []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}})
+	}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,11 +208,12 @@ func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-			StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
-		}),
+		FeaturePlanes: testkit.FreezeBundle(testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+		}, nil)),
 	})
 	gotAT := snap.AttemptTransforms()
 	gotSO := snap.StreamObserverFactories()
@@ -240,12 +236,11 @@ func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *te
 func TestContributeBundle_NilContributionSetError(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
+	b := testkit.FeatureBundle(t, "my-plugin", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "my-plugin", []sdkhooks.SubmitHook{
 			mergeStubSubmitHook{id: "sub-1"},
-		},
-	}
+		})
+	}, nil)
 
 	err := featurebundle.ContributeBundle(nil, "my-plugin", b)
 	require.EqualError(t, err, "featurebundle: nil ContributionSet")
@@ -255,12 +250,11 @@ func TestContributeBundle_EmptyPluginIDFallback(t *testing.T) {
 	t.Parallel()
 
 	cs := lipfeature.NewContributionSet()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
+	b := testkit.FeatureBundle(t, "sub-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "sub-1", []sdkhooks.SubmitHook{
 			mergeStubSubmitHook{id: "sub-1"},
-		},
-	}
+		})
+	}, nil)
 
 	err := featurebundle.ContributeBundle(cs, "", b)
 	require.NoError(t, err)
@@ -298,10 +292,10 @@ func TestFreezeBundle_ParityAndFallbacks(t *testing.T) {
 	t.Parallel()
 
 	// 1. Explicit empty SessionOpeners vs nil SessionOpeners
-	bExplicitEmpty := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{},
-	}
+	csEmpty := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csEmpty, lipfeature.PlaneSessionOpeners, "test-plugin", []session.Opener{}))
+	bExplicitEmpty := lipfeature.BundleFromPlanes(csEmpty.Freeze(), nil)
+
 	frozenEmpty, err := featurebundle.FreezeBundle(bExplicitEmpty, "test-plugin")
 	require.NoError(t, err)
 	gotEmptyOpeners := lipfeature.Get(frozenEmpty, lipfeature.PlaneSessionOpeners)
@@ -309,8 +303,7 @@ func TestFreezeBundle_ParityAndFallbacks(t *testing.T) {
 	assert.Empty(t, gotEmptyOpeners)
 
 	bNilOpeners := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: nil,
+		SchemaVersion: lipfeature.SchemaVersionV1,
 	}
 	frozenNil, err := featurebundle.FreezeBundle(bNilOpeners, "test-plugin")
 	require.NoError(t, err)
@@ -318,10 +311,10 @@ func TestFreezeBundle_ParityAndFallbacks(t *testing.T) {
 	assert.Nil(t, gotNilOpeners, "nil SessionOpeners must remain nil")
 
 	// 2. Empty plugin ID fallback to terminal decision provider identity
-	bWithProvider := lipfeature.FeatureBundle{
-		SchemaVersion:            lipfeature.SchemaVersionV1,
-		TerminalDecisionProvider: mergeStubTerminalProvider{id: "provider-auth"},
-	}
+	csProv := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csProv, lipfeature.PlaneTerminalDecisionProvider, "provider-auth", terminaldecision.Provider(mergeStubTerminalProvider{id: "provider-auth"})))
+	bWithProvider := lipfeature.BundleFromPlanes(csProv.Freeze(), nil)
+
 	frozenProv, err := featurebundle.FreezeBundle(bWithProvider, "")
 	require.NoError(t, err)
 	prov := lipfeature.Get(frozenProv, lipfeature.PlaneTerminalDecisionProvider)
@@ -331,12 +324,12 @@ func TestFreezeBundle_ParityAndFallbacks(t *testing.T) {
 	assert.Equal(t, "provider-auth", id)
 
 	// 3. Empty plugin ID with no provider defaults to "feature"
-	bGeneric := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
-			mergeStubSubmitHook{id: "sub-gen"},
-		},
-	}
+	csGen := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csGen, lipfeature.PlaneSubmitHooks, "sub-gen", []sdkhooks.SubmitHook{
+		mergeStubSubmitHook{id: "sub-gen"},
+	}))
+	bGeneric := lipfeature.BundleFromPlanes(csGen.Freeze(), nil)
+
 	frozenGeneric, err := featurebundle.FreezeBundle(bGeneric, "")
 	require.NoError(t, err)
 	subHooks := lipfeature.Get(frozenGeneric, lipfeature.PlaneSubmitHooks)

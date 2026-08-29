@@ -126,15 +126,19 @@ func TestReasoningPreservation_StandardFactoryPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enabled factory should not error, got %v", err)
 	}
-	if len(b.AttemptTransforms) != 0 || len(b.StreamObserverFactories) != 0 {
-		t.Fatalf("enabled placeholder should be empty, got %d transforms %d observers", len(b.AttemptTransforms), len(b.StreamObserverFactories))
+	bTransforms := lipfeature.Get(b.PlaneSet, lipfeature.PlaneAttemptTransforms)
+	bObservers := lipfeature.Get(b.PlaneSet, lipfeature.PlaneStreamObserverFactories)
+	if len(bTransforms) != 0 || len(bObservers) != 0 {
+		t.Fatalf("enabled placeholder should be empty, got %d transforms %d observers", len(bTransforms), len(bObservers))
 	}
 	disabledNode := reasoningCompressionYAML(t, false, "")
 	b2, err := reg.BuildFeatureBundle(reasoningpreservation.ID, disabledNode)
 	if err != nil {
 		t.Fatalf("disabled factory: %v", err)
 	}
-	if len(b2.AttemptTransforms) == 0 || len(b2.StreamObserverFactories) == 0 {
+	b2Transforms := lipfeature.Get(b2.PlaneSet, lipfeature.PlaneAttemptTransforms)
+	b2Observers := lipfeature.Get(b2.PlaneSet, lipfeature.PlaneStreamObserverFactories)
+	if len(b2Transforms) == 0 || len(b2Observers) == 0 {
 		t.Fatalf("disabled should have participants")
 	}
 }

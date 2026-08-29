@@ -764,8 +764,8 @@ func TestFeatureBundle(t *testing.T) {
 	if b.SchemaVersion != lipfeature.SchemaVersionV1 {
 		t.Fatalf("schema: %d", b.SchemaVersion)
 	}
-	if len(b.SecretGuards) != 1 {
-		t.Fatalf("guards: %d", len(b.SecretGuards))
+	if guards := lipfeature.Get(b.PlaneSet, lipfeature.PlaneSecretGuards); len(guards) != 1 {
+		t.Fatalf("guards: %d", len(guards))
 	}
 	if err := b.Validate(); err != nil {
 		t.Fatal(err)

@@ -22,7 +22,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
@@ -393,9 +392,8 @@ func TestExecutor_applySecretGuardBlock_cancelDuringQuarantineStillCancelsALeg(t
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  []secretguard.Guard{&blockingSecretGuard{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&blockingSecretGuard{}},
 		}),
 	})
 	ex.SecureSession = mgr

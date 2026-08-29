@@ -1,6 +1,8 @@
 package standardplugins
 
 import (
+	"fmt"
+
 	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
@@ -23,6 +25,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -42,10 +45,11 @@ func featureAgentLoopGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if !cfg.Enabled {
 		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:            lipfeature.SchemaVersionV1,
-		TerminalDecisionProvider: agentloopguard.NewProvider(cfg),
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, agentloopguard.ID, agentloopguard.NewProvider(cfg)); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", agentloopguard.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureSubmitNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -53,35 +57,40 @@ func featureSubmitNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks:   []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, submitnoop.ID, []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", submitnoop.ID, err)
 	}
+	var lifecycles []lipplugin.Lifecycle
 	if cfg.LifecycleProbe {
-		bundle.Lifecycles = append(bundle.Lifecycles, submitnoop.NewLifecycleProbeForConfig())
+		lifecycles = append(lifecycles, submitnoop.NewLifecycleProbeForConfig())
 	}
-	return bundle, nil
+	return lipfeature.BundleFromPlanes(cs.Freeze(), lifecycles), nil
 }
 
 func featurePartsNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err := requireEmptyFeatureYAML(partsnoop.ID, n); err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		RequestPartHooks:  []sdk.RequestPartHook{partsnoop.NewRequestPartHook()},
-		ResponsePartHooks: []sdk.ResponsePartHook{partsnoop.NewResponsePartHook()},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, partsnoop.ID, []sdk.RequestPartHook{partsnoop.NewRequestPartHook()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", partsnoop.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, partsnoop.ID, []sdk.ResponsePartHook{partsnoop.NewResponsePartHook()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", partsnoop.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureToolReactorNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err := requireEmptyFeatureYAML(toolreactornoop.ID, n); err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolReactors:  []sdk.ToolReactor{toolreactornoop.NewToolReactor()},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, toolreactornoop.ID, []sdk.ToolReactor{toolreactornoop.NewToolReactor()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", toolreactornoop.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefSubmit(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -89,10 +98,11 @@ func featureRefSubmit(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks:   []sdk.SubmitHook{refsubmit.NewSubmitHook(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, refsubmit.ID, []sdk.SubmitHook{refsubmit.NewSubmitHook(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refsubmit.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefParts(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -100,11 +110,14 @@ func featureRefParts(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		RequestPartHooks:  []sdk.RequestPartHook{refparts.NewRequestPartHook(cfg)},
-		ResponsePartHooks: []sdk.ResponsePartHook{refparts.NewResponsePartHook(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, refparts.ID, []sdk.RequestPartHook{refparts.NewRequestPartHook(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refparts.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, refparts.ID, []sdk.ResponsePartHook{refparts.NewResponsePartHook(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refparts.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefTool(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -112,10 +125,11 @@ func featureRefTool(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		ToolReactors:  []sdk.ToolReactor{reftool.NewToolReactor(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, reftool.ID, []sdk.ToolReactor{reftool.NewToolReactor(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftool.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefAutoappend(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -123,11 +137,14 @@ func featureRefAutoappend(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		SessionOpeners:    []session.Opener{refautoappend.NewSessionOpener()},
-		RequestTransforms: []request.Transform{refautoappend.NewRequestTransform(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, refautoappend.ID, []session.Opener{refautoappend.NewSessionOpener()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refautoappend.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, refautoappend.ID, []request.Transform{refautoappend.NewRequestTransform(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refautoappend.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefToolPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -135,12 +152,17 @@ func featureRefToolPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
-		ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
-		ToolReactors:       []sdk.ToolReactor{reftoolpolicy.NewToolReactor(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, reftoolpolicy.ID, []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftoolpolicy.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, reftoolpolicy.ID, []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftoolpolicy.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, reftoolpolicy.ID, []sdk.ToolReactor{reftoolpolicy.NewToolReactor(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftoolpolicy.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefWorkspaceGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -148,13 +170,20 @@ func featureRefWorkspaceGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		WorkspaceResolvers: []workspace.Resolver{refworkspaceguard.NewStaticResolver(cfg)},
-		RequestTransforms:  []request.Transform{refworkspaceguard.NewSessionUnlockTransform(cfg)},
-		ToolCatalogFilters: []toolcatalog.Filter{refworkspaceguard.NewCatalogFilter(cfg)},
-		ToolReactors:       []sdk.ToolReactor{refworkspaceguard.NewHeatReactor(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, refworkspaceguard.ID, []workspace.Resolver{refworkspaceguard.NewStaticResolver(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refworkspaceguard.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, refworkspaceguard.ID, []request.Transform{refworkspaceguard.NewSessionUnlockTransform(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refworkspaceguard.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, refworkspaceguard.ID, []toolcatalog.Filter{refworkspaceguard.NewCatalogFilter(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refworkspaceguard.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, refworkspaceguard.ID, []sdk.ToolReactor{refworkspaceguard.NewHeatReactor(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refworkspaceguard.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefTrafficTranscript(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -162,13 +191,20 @@ func featureRefTrafficTranscript(n yaml.Node) (lipfeature.FeatureBundle, error) 
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		TrafficObservers: []sdktraffic.Observer{reftraffictranscript.NewTranscript()},
-		UsageObservers:   []usage.Observer{reftraffictranscript.NewUsageLedger()},
-		RawCaptureSinks:  []sdktraffic.RawCaptureSink{reftraffictranscript.NewRawLog()},
-		TrafficRedactors: []sdktraffic.Redactor{reftraffictranscript.NewPatternRedactor(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, reftraffictranscript.ID, []sdktraffic.Observer{reftraffictranscript.NewTranscript()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftraffictranscript.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, reftraffictranscript.ID, []usage.Observer{reftraffictranscript.NewUsageLedger()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftraffictranscript.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, reftraffictranscript.ID, []sdktraffic.RawCaptureSink{reftraffictranscript.NewRawLog()}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftraffictranscript.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, reftraffictranscript.ID, []sdktraffic.Redactor{reftraffictranscript.NewPatternRedactor(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", reftraffictranscript.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureRefVerifier(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -176,10 +212,11 @@ func featureRefVerifier(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:   lipfeature.SchemaVersionV1,
-		CompletionGates: []completion.Gate{refverifier.NewCompletionGate(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, refverifier.ID, []completion.Gate{refverifier.NewCompletionGate(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", refverifier.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featurePreRequestPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -191,10 +228,11 @@ func featurePreRequestPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		PreRequestHandlers: handlers,
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, prerequestpolicy.ID, handlers); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", prerequestpolicy.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureCodexClientCompat(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -202,10 +240,11 @@ func featureCodexClientCompat(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		RequestPartHooks: []sdk.RequestPartHook{codexclientcompat.NewRequestPartHook(cfg)},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, codexclientcompat.ID, []sdk.RequestPartHook{codexclientcompat.NewRequestPartHook(cfg)}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", codexclientcompat.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 func featureSecretGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -260,9 +299,12 @@ func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			MaxCacheBytes:    cfg.Schema.MaxCacheBytes,
 		},
 	})
-	return lipfeature.FeatureBundle{
-		SchemaVersion:                    lipfeature.SchemaVersionV1,
-		ToolCallFinalizers:               []toolcall.Finalizer{fin},
-		ToolCallFinalizationMaxArgsBytes: cfg.MaxArgsBytes,
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, toolcallrepair.ID, []toolcall.Finalizer{fin}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", toolcallrepair.ID, err)
+	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, toolcallrepair.ID, cfg.MaxArgsBytes); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", toolcallrepair.ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,7 +19,7 @@ func TestStandardBundle_AgentLoopGuardDisabledContributesNoProvider(t *testing.T
 	if err != nil {
 		t.Fatalf("BuildFeatureBundle: %v", err)
 	}
-	if bundle.TerminalDecisionProvider != nil {
+	if prov := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); prov != nil {
 		t.Fatal("disabled ALG must contribute no terminal decision provider")
 	}
 }
@@ -35,11 +35,11 @@ func TestStandardBundle_AgentLoopGuardEnabledContributesSingularProvider(t *test
 	if err != nil {
 		t.Fatalf("BuildFeatureBundle: %v", err)
 	}
-	if bundle.TerminalDecisionProvider == nil {
+	if prov := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); prov == nil {
 		t.Fatal("enabled ALG must contribute the singular terminal decision provider")
 	}
-	if _, err := terminaldecision.ProviderIdentity(bundle.TerminalDecisionProvider); err != nil {
-		t.Fatalf("provider identity: %v", err)
+	if id, ok := lipfeature.FrozenIdentity(bundle.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); !ok || id == "" {
+		t.Fatalf("provider identity missing or empty on PlaneSet: id=%q ok=%v", id, ok)
 	}
 }
 

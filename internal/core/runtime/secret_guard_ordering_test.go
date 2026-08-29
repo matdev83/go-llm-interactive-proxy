@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -46,8 +45,7 @@ func TestSecretGuardOrdering_BeforeLocalTurn(t *testing.T) {
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			AuditFailurePolicy: sdksecret.AuditFailClosed,
 		},
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			SecretGuards:      []sdksecret.Guard{secretGuard},
 			LocalTurnHandlers: []localturn.Handler{localHandler},
 		}),

@@ -232,6 +232,9 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 		if err := s.frozen.replayAllPlanesTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
+		if s.identities != nil && staged.identities != nil {
+			maps.Copy(staged.identities, s.identities)
+		}
 	} else {
 		if err := replayAllPlanesMapTo(s.values, s.identities, staged, source, contributorID); err != nil {
 			return err

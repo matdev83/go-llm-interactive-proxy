@@ -3,6 +3,7 @@ package compactioncontinuity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -113,10 +114,11 @@ func FeatureBundleWithPortAndObservability(cfg Config, parent ParentPort, sink o
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	return lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{p},
-	}, nil
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, ID, []compaction.Preserver{p}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", ID, err)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
 
 // FeatureBundle retains the registry's configuration-only compatibility

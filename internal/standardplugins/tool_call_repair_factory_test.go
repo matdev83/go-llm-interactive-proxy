@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,14 +26,16 @@ func TestToolCallRepairFactory_RegistersFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFeatureBundle: %v", err)
 	}
-	if len(bundle.ToolCallFinalizers) != 1 {
-		t.Fatalf("want 1 finalizer, got %d", len(bundle.ToolCallFinalizers))
+	finalizers := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneToolCallFinalizers)
+	if len(finalizers) != 1 {
+		t.Fatalf("want 1 finalizer, got %d", len(finalizers))
 	}
-	if bundle.ToolCallFinalizers[0].ID() != standardplugins.ToolCallRepairFeatureID {
-		t.Fatalf("id=%q", bundle.ToolCallFinalizers[0].ID())
+	if finalizers[0].ID() != standardplugins.ToolCallRepairFeatureID {
+		t.Fatalf("id=%q", finalizers[0].ID())
 	}
-	if bundle.ToolCallFinalizationMaxArgsBytes <= 0 {
-		t.Fatalf("factory must contribute max_args_bytes, got %d", bundle.ToolCallFinalizationMaxArgsBytes)
+	maxArgs := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if maxArgs <= 0 {
+		t.Fatalf("factory must contribute max_args_bytes, got %d", maxArgs)
 	}
 	if err := reg.ValidateBundledFactories([]lipsdk.Requirement{
 		{Kind: lipsdk.PluginKindFeature, ID: standardplugins.ToolCallRepairFeatureID},
@@ -57,12 +60,13 @@ func TestToolCallRepairFactory_DefaultMaxArgsBytesMatchCore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFeatureBundle: %v", err)
 	}
-	if bundle.ToolCallFinalizationMaxArgsBytes != corerepair.DefaultMaxArgsBytes {
+	maxArgs := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if maxArgs != corerepair.DefaultMaxArgsBytes {
 		t.Fatalf("bundle max_args=%d != core DefaultMaxArgsBytes=%d",
-			bundle.ToolCallFinalizationMaxArgsBytes, corerepair.DefaultMaxArgsBytes)
+			maxArgs, corerepair.DefaultMaxArgsBytes)
 	}
-	if bundle.ToolCallFinalizationMaxArgsBytes != toolcallrepair.DefaultMaxArgsBytes {
+	if maxArgs != toolcallrepair.DefaultMaxArgsBytes {
 		t.Fatalf("bundle max_args=%d != feature DefaultMaxArgsBytes=%d",
-			bundle.ToolCallFinalizationMaxArgsBytes, toolcallrepair.DefaultMaxArgsBytes)
+			maxArgs, toolcallrepair.DefaultMaxArgsBytes)
 	}
 }

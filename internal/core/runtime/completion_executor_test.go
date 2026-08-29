@@ -3,11 +3,11 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -42,8 +42,7 @@ func TestExecute_completionGateReplacesStream(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:   lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates: []completion.Gate{testReplaceGate{}},
 		}),
 	})
@@ -121,8 +120,7 @@ func TestExecute_completionGate_truncatedUpstreamNoSyntheticSuccess(t *testing.T
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:   lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates: []completion.Gate{testReplaceGate{}},
 		}),
 	})
@@ -204,8 +202,7 @@ func TestExecute_completionGateOverflowLivePassthrough(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:   lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates: []completion.Gate{testPassGate{}},
 		}),
 	})
@@ -288,8 +285,7 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:   lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates: []completion.Gate{preOutputPanicOnlyGate{}},
 		}),
 	})
@@ -340,8 +336,7 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	ex2.Bus = hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(
 		hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-			FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-				SchemaVersion:   lipfeature.SchemaVersionV1,
+			FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 				CompletionGates: []completion.Gate{testPassGate{}},
 			}),
 		},
@@ -392,8 +387,7 @@ func TestExecute_completionGatePanic_postCommittedNotRecoverable(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:   lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompletionGates: []completion.Gate{panicCompletionGate{}},
 		}),
 	})

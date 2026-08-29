@@ -27,7 +27,6 @@ func main() {
 	if planeOutPath == "" {
 		planeOutPath = filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_generated.go")
 	}
-	bundleOutPath := filepath.Join(repoRoot, "internal", "featurebundle", "bundle_projection_generated.go")
 
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -41,24 +40,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	formattedBundle, err := archtest.GenerateFeatureBundleProjectionCode(manifestBytes)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error generating bundle projection code: %v\n", err)
-		os.Exit(1)
-	}
-
 	if *checkFlag {
 		checkFileMatches(planeOutPath, formattedPlanes)
-		checkFileMatches(bundleOutPath, formattedBundle)
-		fmt.Println("generated feature planes and bundle projection files are up to date.")
+		fmt.Println("generated feature planes file is up to date.")
 		return
 	}
 
-	if err := archtest.WriteGeneratedPairAtomic(planeOutPath, formattedPlanes, bundleOutPath, formattedBundle); err != nil {
-		fmt.Fprintf(os.Stderr, "error writing generated files atomically: %v\n", err)
+	if err := archtest.WriteGeneratedFileAtomic(planeOutPath, formattedPlanes); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing generated file atomically: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Generated %s and %s successfully.\n", planeOutPath, bundleOutPath)
+	fmt.Printf("Generated %s successfully.\n", planeOutPath)
 }
 
 func checkFileMatches(path string, formatted []byte) {

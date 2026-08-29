@@ -110,10 +110,9 @@ func TestLocalTurnMapBackedCandidate_CompileGenerationOrderAndIsolation(t *testi
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt", func(n yaml.Node) (feature.FeatureBundle, error) {
-		return feature.FeatureBundle{
-			SchemaVersion:     feature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{featMid},
-		}, nil
+		cs := feature.NewContributionSet()
+		_ = feature.Contribute(cs, feature.PlaneLocalTurnHandlers, "feature-lt", []localturn.Handler{featMid})
+		return feature.BundleFromPlanes(cs.Freeze(), nil), nil
 	}))
 
 	cfg := &config.Config{
@@ -197,10 +196,9 @@ func TestLocalTurnMalformedMapCandidate_CompileGenerationAttributedAndPriorGener
 
 	reg := pluginreg.NewRegistry()
 	require.NoError(t, reg.RegisterFeature("feature-lt-base", func(n yaml.Node) (feature.FeatureBundle, error) {
-		return feature.FeatureBundle{
-			SchemaVersion:     feature.SchemaVersionV1,
-			LocalTurnHandlers: []localturn.Handler{base},
-		}, nil
+		cs := feature.NewContributionSet()
+		_ = feature.Contribute(cs, feature.PlaneLocalTurnHandlers, "feature-lt-base", []localturn.Handler{base})
+		return feature.BundleFromPlanes(cs.Freeze(), nil), nil
 	}))
 
 	cfg := &config.Config{

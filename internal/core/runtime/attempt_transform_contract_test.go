@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,14 +96,15 @@ func attemptTransformBaseCall(selector string) *lipapi.Call {
 
 func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransform) lipfeature.FeatureBundle {
 	t.Helper()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{xform},
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "xform", []request.AttemptTransform{xform}); err != nil {
+		t.Fatalf("Contribute: %v", err)
 	}
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
-	if len(b.AttemptTransforms) != 1 {
+	if len(lipfeature.Get(b.PlaneSet, lipfeature.PlaneAttemptTransforms)) != 1 {
 		t.Fatal("bundle must carry AttemptTransforms contribution")
 	}
 	return b
@@ -119,11 +119,7 @@ func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*h
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
-			RequestTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms),
-			AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
-		}),
+		FeaturePlanes: gen.Frozen,
 	})
 	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)

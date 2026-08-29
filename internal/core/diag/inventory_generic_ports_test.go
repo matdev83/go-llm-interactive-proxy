@@ -33,16 +33,15 @@ func TestBuildInventoryExtensions_genericPortAggregatePosture(t *testing.T) {
 			},
 		},
 	}
-	reg := genericPortRegistry{bundle: lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
-			invAttemptTransform{id: "at-a", ord: 1},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			invStreamObserverFactory{id: "so-a", ord: 1},
-			invStreamObserverFactory{id: "so-b", ord: 2},
-		},
-	}}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{
+		invAttemptTransform{id: "at-a", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{
+		invStreamObserverFactory{id: "so-a", ord: 1},
+		invStreamObserverFactory{id: "so-b", ord: 2},
+	})
+	reg := genericPortRegistry{bundle: lipfeature.BundleFromPlanes(cs.Freeze(), nil)}
 	ext := buildInventoryExtensions(context.Background(), cfg, &InventoryExtras{
 		Reg: reg,
 		Registrations: []lipsdk.Registration{
@@ -90,15 +89,14 @@ func TestBuildInventoryExtensions_genericPortPosturePrivacyNoSensitiveFields(t *
 			Features: []config.PluginConfig{{ID: "feat-priv", Enabled: true}},
 		},
 	}
-	reg := genericPortRegistry{bundle: lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
-			invAttemptTransform{id: "keep", ord: 1},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			invStreamObserverFactory{id: "keep", ord: 1},
-		},
-	}}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{
+		invAttemptTransform{id: "keep", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{
+		invStreamObserverFactory{id: "keep", ord: 1},
+	})
+	reg := genericPortRegistry{bundle: lipfeature.BundleFromPlanes(cs.Freeze(), nil)}
 	ext := buildInventoryExtensions(context.Background(), cfg, &InventoryExtras{
 		Reg: reg,
 		Registrations: []lipsdk.Registration{

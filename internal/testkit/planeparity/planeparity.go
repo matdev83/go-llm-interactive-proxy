@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,10 +55,8 @@ func AssertDualPathParity(tb testing.TB, bundles ...lipfeature.FeatureBundle) {
 
 			var providerIDs []string
 			for _, b := range bundles {
-				if b.TerminalDecisionProvider != nil {
-					if id, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err == nil && id != "" {
-						providerIDs = append(providerIDs, id)
-					}
+				if id, ok := lipfeature.FrozenIdentity(b.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); ok && id != "" {
+					providerIDs = append(providerIDs, id)
 				}
 			}
 			if len(providerIDs) >= 2 {
