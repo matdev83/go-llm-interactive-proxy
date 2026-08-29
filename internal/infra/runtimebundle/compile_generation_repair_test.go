@@ -15,7 +15,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
@@ -326,10 +325,9 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 	}
 	cat := stdFactoryCatalog(t)
 	err := cat.RegisterFeature("cand-obs-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{countTrafficObs{n: &candObs}},
-		}, nil
+		return testkit.FeatureBundle(t, "cand-obs-feature", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand-obs-feature", []traffic.Observer{countTrafficObs{n: &candObs}})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
@@ -800,10 +798,6 @@ func (c countTransform) Handle(context.Context, *lipapi.Call, request.RequestMet
 
 func frozenRequestTransform(t request.Transform) lipfeature.FrozenPlaneSet {
 	cs := lipfeature.NewContributionSet()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		RequestTransforms: []request.Transform{t},
-	}
-	_ = featurebundle.ContributeBundle(cs, "test-plugin", b)
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test-plugin", []request.Transform{t})
 	return cs.Freeze()
 }

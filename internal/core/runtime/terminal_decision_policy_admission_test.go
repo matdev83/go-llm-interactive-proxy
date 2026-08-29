@@ -85,7 +85,9 @@ func admissionExecutor(provider terminaldecision.Provider) *Executor {
 	return &Executor{
 		ExtensionRuntime: ExtensionRuntime{
 			RuntimeSnapshot: extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-				TerminalDecisionProvider: provider,
+				FeaturePlanes: freezeBundle(testFeatureBundle{
+					TerminalDecisionProvider: provider,
+				}),
 			}),
 		},
 	}

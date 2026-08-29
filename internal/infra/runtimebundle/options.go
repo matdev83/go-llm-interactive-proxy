@@ -16,16 +16,10 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -139,18 +133,6 @@ type SecretGuardInputs struct {
 	SingleUser coresg.SingleUserOptions
 }
 type ExtensionsOptions struct {
-	// ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, and RequestTransforms
-	// are merged from enabled feature bundles.
-	ToolCatalogFilters               []toolcatalog.Filter
-	ToolCallPolicies                 []toolpolicy.Policy
-	ToolCallFinalizers               []toolcall.Finalizer
-	ToolCallFinalizationMaxArgsBytes int
-	CompactionObservers              []compaction.Observer
-	SecretGuards                     []sdk.Guard
-	LocalTurnHandlers                []localturn.Handler
-	// TerminalDecisionProvider is the singular provider projection for this
-	// immutable generation. A nil provider preserves the no-provider runtime.
-	TerminalDecisionProvider terminaldecision.Provider
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.
 	SecretGuardInputs      SecretGuardInputs

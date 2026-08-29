@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
@@ -54,9 +55,11 @@ func TestPortBundle_privilegedRawSeesPreRedaction(t *testing.T) {
 	raw := &testkit.RecordingRawCaptureSink{}
 	obs := &testkit.RecordingTrafficObserver{}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		TrafficObserver:  obs,
-		RawCapture:       raw,
-		TrafficRedactors: []sdktraffic.Redactor{testRedactor{}},
+		TrafficObserver: obs,
+		RawCapture:      raw,
+		FeaturePlanes: testkit.FreezeBundle(testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "feat", []sdktraffic.Redactor{testRedactor{}})
+		}, nil)),
 	})
 	coretraffic.PortBundleFromSnapshot(snap).Emit(context.Background(), sdktraffic.LegBTP, sdktraffic.CaptureMeta{TraceID: "t"}, "p", "application/json", []byte("X"))
 	if len(raw.Data) != 1 || string(raw.Data[0]) != "X" {

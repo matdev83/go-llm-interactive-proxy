@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -110,16 +109,14 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 				provB := &charRollbackTerminalProvider{id: "term-provider-b"}
 
 				require.NoError(t, reg.RegisterFeature("term-feat-a", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-					return lipfeature.FeatureBundle{
-						SchemaVersion:            lipfeature.SchemaVersionV1,
-						TerminalDecisionProvider: provA,
-					}, nil
+					return testkit.FeatureBundle(t, "term-feat-a", func(cs *lipfeature.ContributionSet) error {
+						return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-provider-a", terminaldecision.Provider(provA))
+					}, nil), nil
 				}))
 				require.NoError(t, reg.RegisterFeature("term-feat-b", func(yaml.Node) (lipfeature.FeatureBundle, error) {
-					return lipfeature.FeatureBundle{
-						SchemaVersion:            lipfeature.SchemaVersionV1,
-						TerminalDecisionProvider: provB,
-					}, nil
+					return testkit.FeatureBundle(t, "term-feat-b", func(cs *lipfeature.ContributionSet) error {
+						return lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-provider-b", terminaldecision.Provider(provB))
+					}, nil), nil
 				}))
 			},
 			mutateCandCfg: func(t *testing.T, cand *config.Config) {
@@ -129,17 +126,28 @@ func TestTerminalDecision_GenerationRollback_InvalidContributionRetainsPublished
 					config.PluginConfig{ID: "term-feat-b", Kind: "term-feat-b", Enabled: true},
 				)
 			},
-			wantErrSubstr: "terminal-decision provider conflict",
-			wantSentinel:  featurebundle.ErrTerminalDecisionProviderConflict,
+			wantErrSubstr: `"term-provider-a" and "term-provider-b"`,
+			wantSentinel:  lipfeature.ErrExclusiveConflict,
 		},
 		{
 			name: "typed_nil_terminal_provider",
-			candOpts: &runtimebundle.BuildOptions{
-				Extensions: runtimebundle.ExtensionsOptions{
-					TerminalDecisionProvider: (*charRollbackTerminalProvider)(nil),
-				},
+			setupRegistry: func(t *testing.T, reg *pluginreg.Registry) {
+				t.Helper()
+				require.NoError(t, reg.RegisterFeature("term-feat-nil", func(yaml.Node) (lipfeature.FeatureBundle, error) {
+					cs := lipfeature.NewContributionSet()
+					if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-feat-nil", terminaldecision.Provider((*charRollbackTerminalProvider)(nil))); err != nil {
+						return lipfeature.FeatureBundle{}, err
+					}
+					return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
+				}))
 			},
-			wantErrSubstr: "runtimebundle: terminal decision provider: terminaldecision: invalid provider",
+			mutateCandCfg: func(t *testing.T, cand *config.Config) {
+				t.Helper()
+				cand.Plugins.Features = append(cand.Plugins.Features,
+					config.PluginConfig{ID: "term-feat-nil", Kind: "term-feat-nil", Enabled: true},
+				)
+			},
+			wantErrSubstr: "terminaldecision: invalid provider",
 			wantSentinel:  terminaldecision.ErrInvalidProvider,
 		},
 		{

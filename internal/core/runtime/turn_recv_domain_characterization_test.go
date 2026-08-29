@@ -64,7 +64,9 @@ func TestTurnRecvDomainReplacementPreservesProviderEvidenceAndObserver(t *testin
 		},
 	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		}),
 	})
 
 	failedEvidence := lipapi.Event{

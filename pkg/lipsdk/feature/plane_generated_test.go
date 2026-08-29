@@ -593,6 +593,94 @@ var StandardPlanes = []PlaneDeclaration{
 			expectedErr: "identity function is required for exclusive or replace-by-identity plane",
 		},
 		{
+			name: "exclusive_plane_without_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNoValidateIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_no_validate_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoValidateIdentityExclusive,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "exclusive_plane_with_nil_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNilValidateIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_nil_validate_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },
+	ValidateIdentity: nil,
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNilValidateIdentityExclusive,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "replace_by_identity_without_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneReplaceNoValidateIdentity = Plane[[]hooks.SubmitHook]{
+	ID: "replace_no_validate_identity",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{
+		Feature: CombConcatenate,
+		GenerationBinder: CombReplaceByIdentity,
+	},
+	Identity: func(v []hooks.SubmitHook) (string, bool) { return "id", true },
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneReplaceNoValidateIdentity,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "replace_by_identity_with_nil_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneReplaceNilValidateIdentity = Plane[[]hooks.SubmitHook]{
+	ID: "replace_nil_validate_identity",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{
+		Feature: CombConcatenate,
+		GenerationBinder: CombReplaceByIdentity,
+	},
+	Identity: func(v []hooks.SubmitHook) (string, bool) { return "id", true },
+	ValidateIdentity: nil,
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneReplaceNilValidateIdentity,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
 			name: "diagnostics_missing_stage_id",
 			manifestSrc: `package feature
 
@@ -634,4 +722,43 @@ var StandardPlanes = []PlaneDeclaration{
 			assert.Contains(t, string(out), tc.expectedErr, "generator output must contain expected error for %s", tc.name)
 		})
 	}
+}
+
+// TestGeneratedFrozen_InvalidCachedIdentityTriggersValidator verifies that frozen validation
+// calls ValidateIdentity unconditionally on cached IDs, failing when the cached ID is invalid.
+func TestGeneratedFrozen_InvalidCachedIdentityTriggersValidator(t *testing.T) {
+	t.Parallel()
+
+	provider := dummyTerminalProvider{id: "term-provider-valid"}
+
+	// 1. Valid cached identity passes Validate()
+	frozenValid := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		"term-provider-valid",
+		true,
+	)
+	require.NoError(t, frozenValid.Validate())
+
+	// 2. Invalid cached identity (empty string) fails with missing cached identity error
+	frozenMissingID := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		"",
+		true,
+	)
+	err := frozenMissingID.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing cached identity")
+
+	// 3. Invalid cached identity (violating ValidateIdentity bounds / format) fails validator
+	// terminaldecision.MaxProviderIDBytes is 128
+	oversizedID := strings.Repeat("x", 200)
+	frozenInvalidID := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		oversizedID,
+		true,
+	)
+	err = frozenInvalidID.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), feature.PlaneTerminalDecisionProvider.ID)
+	assert.Contains(t, err.Error(), "exceeds 128 bytes")
 }

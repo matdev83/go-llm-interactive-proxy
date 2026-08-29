@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
@@ -51,7 +53,11 @@ func TestRetryRecvStream_RealToolCallFinalizerSafeTailRepairs(t *testing.T) {
 			var opens atomic.Int32
 			ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 				"openai": recordingBackend("openai", &opens, backendStream),
-			}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+			}, extensions.SnapshotOptions{
+				FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+					RequestTransforms: []request.Transform{pdNoopRtx{}},
+				}),
+			})
 			fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
 				ID:             corerepair.DefaultFinalizerID,
 				MaxArgsBytes:   corerepair.DefaultMaxArgsBytes,

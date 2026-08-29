@@ -162,7 +162,9 @@ func TestTryReplacementIterationInstallsFreshAttemptResources(t *testing.T) {
 	}
 	observerFactory := &attemptSessionTestObserverFactory{}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{observerFactory},
+		}),
 	})
 	ex.Rand = routing.NewSeededRng(1)
 	ex.MaxAttempts = 3

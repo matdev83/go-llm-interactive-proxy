@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -237,7 +239,11 @@ func TestRetryRecvStream_ToolCallFinalizationResponseFinishedClearsAssembler(t *
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-finish-clear"), tcrWeatherCall())
@@ -264,7 +270,9 @@ func TestRetryRecvStream_ToolCallFinalizationHoldsUntilFinished(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
 	}, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
@@ -343,7 +351,11 @@ func TestRetryRecvStream_ToolCallFinalizationParallelInterleave(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-parallel"), tcrWeatherCall())
@@ -422,7 +434,11 @@ func TestRetryRecvStream_ToolCallFinalizationOverflowPassThrough(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrRewriteFinalizer{args: []byte(`{}`)}}, 8)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-overflow"), tcrWeatherCall())
@@ -457,7 +473,11 @@ func TestRetryRecvStream_ToolCallFinalizationRewriteLifecycle(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrRewriteFinalizer{args: repaired}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-rewrite"), tcrWeatherCall())
@@ -488,7 +508,11 @@ func TestRetryRecvStream_ToolCallFinalizationCancelCleanup(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-cancel"), tcrWeatherCall())
@@ -530,7 +554,11 @@ func TestRetryRecvStream_ToolCallFinalizationEOFCleanup(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-eof"), tcrWeatherCall())
@@ -583,7 +611,11 @@ func TestRetryRecvStream_ToolCallFinalizationBLegReplaceClearsState(t *testing.T
 				}), nil
 			},
 		},
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	call := tcrWeatherCall()
@@ -618,7 +650,11 @@ func TestRetryRecvStream_ToolCallFinalizationNoToolsBypass(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrPassFinalizer{}}, 64*1024)
 
 	call := pdBaseCall("openai:gpt-4")
@@ -653,8 +689,10 @@ func TestRetryRecvStream_ToolCallFinalizationOrderingWithPolicy(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
-		ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
+		}),
 	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{
 		tcrRewriteFinalizer{name: "blocked", args: []byte(`{}`)},
@@ -701,7 +739,11 @@ func TestRetryRecvStream_ToolCallFinalizationRejectTyped(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrRejectFinalizer{}}, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-reject"), tcrWeatherCall())
@@ -754,7 +796,11 @@ func TestRetryRecvStream_ToolCallFinalizationFailOpenPanicAndError(t *testing.T)
 			var opens atomic.Int32
 			ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 				"openai": recordingBackend("openai", &opens, backendStream),
-			}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+			}, extensions.SnapshotOptions{
+				FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+					RequestTransforms: []request.Transform{pdNoopRtx{}},
+				}),
+			})
 			ex.SetToolCallFinalizers([]toolcall.Finalizer{tc.fin}, 64*1024)
 			stream, err := ex.Execute(principalCtx("user-tcr-failopen-"+tc.name), tcrWeatherCall())
 			if err != nil {
@@ -790,7 +836,11 @@ func TestRetryRecvStream_ToolCallFinalizationMultiFinalizerOrder(t *testing.T) {
 	var opens atomic.Int32
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
-	}, extensions.SnapshotOptions{RequestTransforms: []request.Transform{pdNoopRtx{}}})
+	}, extensions.SnapshotOptions{
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
+	})
 	ex.SetToolCallFinalizers(fins, 64*1024)
 
 	stream, err := ex.Execute(principalCtx("user-tcr-order"), tcrWeatherCall())
@@ -836,8 +886,10 @@ func TestRetryRecvStream_ToolCallFinalizationBTPvsPTC(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
-		TrafficObserver:   capObs,
+		TrafficObserver: capObs,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	ex.SetToolCallFinalizers([]toolcall.Finalizer{tcrRewriteFinalizer{args: repaired}}, 64*1024)
 

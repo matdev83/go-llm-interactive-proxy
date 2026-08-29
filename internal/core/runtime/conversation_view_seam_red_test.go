@@ -51,8 +51,10 @@ func TestPrepareRequest_SeamOrdering_CharacterizesCurrentFlow(t *testing.T) {
 	injector := &preRequestInjectingHandler{id: "test_injector"}
 
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:          workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		PreRequestHandlers: []prerequest.Handler{injector},
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			PreRequestHandlers: []prerequest.Handler{injector},
+		}),
 	})
 	ex.RuntimeSnapshot = snap
 	ex.Bus = hooks.New(hooks.Config{

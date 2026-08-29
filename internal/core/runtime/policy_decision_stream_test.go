@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -38,9 +40,11 @@ func TestStreamToolPolicyDenialNoRetry(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	call.Tools = []lipapi.ToolDef{{Name: "blocked", Parameters: []byte(`{}`)}}
@@ -110,9 +114,11 @@ func TestStreamCompletionRejectNoFailover(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		CompletionGates:   []completion.Gate{pdRejectGate{}},
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates:   []completion.Gate{pdRejectGate{}},
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-creject"), call)
@@ -172,9 +178,11 @@ func TestStreamCompletionPassEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		CompletionGates:   []completion.Gate{pdPassGate{}},
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates:   []completion.Gate{pdPassGate{}},
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-cpass"), call)
@@ -226,9 +234,11 @@ func TestStreamPolicyNoninterferenceNoObserver(t *testing.T) {
 	}
 	// No PolicyObserver configured; default no-op observer.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "nonexistent"}},
-		CompletionGates:   []completion.Gate{pdPassGate{}},
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "nonexistent"}},
+			CompletionGates:   []completion.Gate{pdPassGate{}},
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-streamni"), call)
@@ -269,8 +279,10 @@ func TestStreamAttemptFailureEmitsEvidence(t *testing.T) {
 	}
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		PolicyObserver:    obs,
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		PolicyObserver: obs,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-pd-attempt-fail"), call)
@@ -334,7 +346,9 @@ func TestStreamAttemptFailureNoninterferenceNoObserver(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	// No PolicyObserver configured; default no-op observer.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		RequestTransforms: []request.Transform{pdNoopRtx{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{pdNoopRtx{}},
+		}),
 	})
 	var buf bytes.Buffer
 	ex.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))

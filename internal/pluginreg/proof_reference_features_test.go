@@ -63,7 +63,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: empty},
 		})
 	}
-	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +75,8 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)) < need {
 		t.Fatalf("request transforms: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)))
 	}
-	if len(m.ToolCatalogFilters) < need {
-		t.Fatalf("catalog: %d", len(m.ToolCatalogFilters))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)) < need {
+		t.Fatalf("catalog: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)))
 	}
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)) < need {
 		t.Fatalf("workspace: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)))

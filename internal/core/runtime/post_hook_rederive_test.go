@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -338,8 +340,10 @@ func TestAttemptMeta_completenessAndDefensiveCopies(t *testing.T) {
 	bus := hooks.New(hooks.Config{})
 	wsView := lipworkspace.WorkspaceView{ID: "ws-1", ProjectRoot: "/proj", Markers: []string{"m1"}}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
-		Workspace:         fixedWorkspaceResolver{view: wsView},
+		Workspace: fixedWorkspaceResolver{view: wsView},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st

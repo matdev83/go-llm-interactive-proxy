@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -48,7 +50,9 @@ func TestExecutor_toolCatalogFilter_beforeBackendOpen(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{dropToolNamed{name: "b"}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCatalogFilters: []toolcatalog.Filter{dropToolNamed{name: "b"}},
+		}),
 	})
 	var toolsSeen int
 	ex := runtime.TestExecutor()
@@ -121,7 +125,9 @@ func TestExecutor_toolPolicy_recvHydratesMetaFromExecctx(t *testing.T) {
 	bus := hooks.New(hooks.Config{})
 	spy := &captureToolPolicyMeta{}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{spy},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCallPolicies: []toolpolicy.Policy{spy},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -186,7 +192,9 @@ func TestExecutor_toolPolicy_deniesStreamToolCall(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{denyToolPolicy{name: "blocked"}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCallPolicies: []toolpolicy.Policy{denyToolPolicy{name: "blocked"}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -250,8 +258,10 @@ func TestExecutor_reftoolpolicy_proofBundle_deniesEmittedBlockedTool(t *testing.
 		BlockPrefixes: nil,
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
-		ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
+			ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st

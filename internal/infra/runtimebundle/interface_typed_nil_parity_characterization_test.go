@@ -5,9 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -325,125 +326,74 @@ func (g *charStubSGGuard) Evaluate(context.Context, *lipapi.Call, sdksg.Meta, sd
 func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testing.T) {
 	t.Parallel()
 
-	var typedNilProvider *charStubTerminalProvider
+	var typedNilProvider terminaldecision.Provider = (*charStubTerminalProvider)(nil)
 
 	t.Run("feature_bundle_validate_rejects_typed_nil", func(t *testing.T) {
 		t.Parallel()
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: typedNilProvider,
-		}
-		err := b.Validate()
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "feat", typedNilProvider)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		assert.Contains(t, err.Error(), "TerminalDecisionProvider: terminaldecision: invalid provider")
+		assert.Contains(t, err.Error(), "terminaldecision: invalid provider")
 	})
 
-	t.Run("merged_feature_surface_append_rejects_typed_nil_and_fails_before_mutate", func(t *testing.T) {
+	t.Run("merge_bundles_generated_rejects_typed_nil_and_fails_before_mutate", func(t *testing.T) {
 		t.Parallel()
-		var m featurebundle.MergedFeatureSurface
-		// Seed receiver with some initial data
-		m.ToolCatalogFilters = []toolcatalog.Filter{charStubCatalogFilter{tag: "initial-filter"}}
-		m.Lifecycles = []lipplugin.Lifecycle{charStubLifecycle{tag: "initial-lifecycle"}}
-
-		snapshotBefore := m // value copy
-
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			ToolCatalogFilters:       []toolcatalog.Filter{charStubCatalogFilter{tag: "incoming-filter"}},
-			TerminalDecisionProvider: typedNilProvider,
-		}
-
-		err := m.Append(b)
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "feat", typedNilProvider)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		assert.Equal(t, "featurebundle: contributed terminal-decision provider: terminaldecision: invalid provider", err.Error())
-
-		// Fail-before-mutate assertion: receiver is unchanged
-		assert.True(t, reflect.DeepEqual(snapshotBefore, m), "MergedFeatureSurface receiver must not be mutated on validation error")
-		assert.Len(t, m.ToolCatalogFilters, 1)
-		assert.Equal(t, "initial-filter", m.ToolCatalogFilters[0].ID())
 	})
 
 	t.Run("incoming_typed_nil_fails_identity_before_conflict_check", func(t *testing.T) {
 		t.Parallel()
-		var m featurebundle.MergedFeatureSurface
-		m.TerminalDecisionProvider = &charStubTerminalProvider{id: "valid-active"}
-
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: typedNilProvider,
-		}
-
-		err := m.Append(b)
-		require.Error(t, err)
-		// Identity error must win over conflict error
-		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		assert.False(t, errors.Is(err, featurebundle.ErrTerminalDecisionProviderConflict))
-		assert.Equal(t, "featurebundle: contributed terminal-decision provider: terminaldecision: invalid provider", err.Error())
-	})
-
-	t.Run("receiver_with_typed_nil_fails_merged_validation", func(t *testing.T) {
-		t.Parallel()
-		var m featurebundle.MergedFeatureSurface
-		m.TerminalDecisionProvider = typedNilProvider
-
-		b := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			TerminalDecisionProvider: &charStubTerminalProvider{id: "valid-incoming"},
-		}
-
-		err := m.Append(b)
+		cs := lipfeature.NewContributionSet()
+		require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "valid-active", terminaldecision.Provider(&charStubTerminalProvider{id: "valid-active"})))
+		err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "feat", typedNilProvider)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		assert.Equal(t, "featurebundle: merged terminal-decision provider: terminaldecision: invalid provider", err.Error())
+		assert.False(t, errors.Is(err, lipfeature.ErrExclusiveConflict))
 	})
 
 	t.Run("compile_generation_rejects_typed_nil_provider", func(t *testing.T) {
 		t.Parallel()
+		reg := pluginreg.NewRegistry()
+		require.NoError(t, reg.RegisterFeature("term-feat-nil", func(yaml.Node) (lipfeature.FeatureBundle, error) {
+			cs := lipfeature.NewContributionSet()
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-feat-nil", typedNilProvider); err != nil {
+				return lipfeature.FeatureBundle{}, err
+			}
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
+		}))
 		cfg := &config.Config{
 			Routing:     config.RoutingConfig{MaxAttempts: 3},
 			Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
 			Server:      config.ServerConfig{MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096},
 			Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
+			Plugins: config.PluginsConfig{
+				Features: []config.PluginConfig{
+					{ID: "term-feat-nil", Enabled: true},
+				},
+			},
 		}
 		require.NoError(t, config.Validate(cfg))
 
 		ps, err := NewProcessServices(context.Background(), ProcessServicesInput{
 			Cfg:  cfg,
 			Log:  slog.Default(),
-			Opts: &BuildOptions{PluginRegistry: pluginreg.NewRegistry()},
+			Opts: &BuildOptions{PluginRegistry: reg},
 		})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = ps.Close() })
 
 		gen, err := CompileGeneration(context.Background(), GenerationCompileInput{
 			Process: ps,
-			CandidateOpts: &BuildOptions{
-				Extensions: ExtensionsOptions{
-					TerminalDecisionProvider: typedNilProvider,
-				},
-			},
 			Compose: func(context.Context, *config.Config, *slog.Logger, httpcontract.StandardHTTPInput) (http.Handler, error) {
 				return http.NotFoundHandler(), nil
 			},
 		})
 		require.Error(t, err)
 		assert.Nil(t, gen)
-		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
-		assert.Equal(t, "runtimebundle: terminal decision provider: terminaldecision: invalid provider", err.Error())
-	})
-
-	t.Run("overlay_extensions_carries_typed_nil_when_dst_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := ExtensionsOptions{}
-		src := ExtensionsOptions{TerminalDecisionProvider: typedNilProvider}
-		overlayExtensions(&dst, src)
-		// Typed nil is copied onto dst because dst was nil
-		assert.Equal(t, typedNilProvider, dst.TerminalDecisionProvider)
-		// But validation in CompileGeneration fails
-		err := validateTerminalDecisionProvider(dst.TerminalDecisionProvider)
-		require.Error(t, err)
 		assert.True(t, errors.Is(err, terminaldecision.ErrInvalidProvider))
 	})
 }
@@ -474,48 +424,96 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		t.Parallel()
 
 		tests := []struct {
-			name      string
-			bundle    lipfeature.FeatureBundle
-			wantError bool
-			errSubstr string
+			name       string
+			contribute func(*lipfeature.ContributionSet) error
+			wantError  bool
+			errSubstr  string
 		}{
-			{"SubmitHooks_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, SubmitHooks: []sdkhooks.SubmitHook{nil}}, false, ""},
-			{"RequestPartHooks_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, RequestPartHooks: []sdkhooks.RequestPartHook{nil}}, false, ""},
-			{"ResponsePartHooks_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ResponsePartHooks: []sdkhooks.ResponsePartHook{nil}}, false, ""},
-			{"ToolReactors_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolReactors: []sdkhooks.ToolReactor{nil}}, false, ""},
-			{"Lifecycles_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, Lifecycles: []lipplugin.Lifecycle{nil}}, false, ""},
-			{"SessionOpeners_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, SessionOpeners: []session.Opener{nil}}, false, ""},
-			{"WorkspaceResolvers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, WorkspaceResolvers: []lipworkspace.Resolver{nil}}, false, ""},
-			{"ToolCatalogFilters_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCatalogFilters: []toolcatalog.Filter{nil}}, false, ""},
-			{"ToolCallPolicies_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallPolicies: []toolpolicy.Policy{nil}}, false, ""},
-			{"ToolCallFinalizers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizers: []toolcall.Finalizer{nil}}, false, ""},
-			{"RequestTransforms_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, RequestTransforms: []request.Transform{nil}}, false, ""},
-			{"PreRequestHandlers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, PreRequestHandlers: []prerequest.Handler{nil}}, false, ""},
-			{"RouteHintProviders_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, RouteHintProviders: []routehint.Provider{nil}}, false, ""},
-			{"CompletionGates_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, CompletionGates: []completion.Gate{nil}}, false, ""},
-			{"TrafficObservers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TrafficObservers: []traffic.Observer{nil}}, false, ""},
-			{"UsageObservers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, UsageObservers: []usage.Observer{nil}}, false, ""},
-			{"RawCaptureSinks_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, RawCaptureSinks: []traffic.RawCaptureSink{nil}}, false, ""},
-			{"TrafficRedactors_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TrafficRedactors: []traffic.Redactor{nil}}, false, ""},
-			{"CompactionObservers_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, CompactionObservers: []compaction.Observer{nil}}, false, ""},
-			{"SecretGuards_accepts_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, SecretGuards: []sdksg.Guard{nil}}, false, ""},
+			{"SubmitHooks_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p", []sdkhooks.SubmitHook{nil})
+			}, false, ""},
+			{"RequestPartHooks_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "p", []sdkhooks.RequestPartHook{nil})
+			}, false, ""},
+			{"ResponsePartHooks_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "p", []sdkhooks.ResponsePartHook{nil})
+			}, false, ""},
+			{"ToolReactors_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "p", []sdkhooks.ToolReactor{nil})
+			}, false, ""},
+			{"SessionOpeners_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "p", []session.Opener{nil})
+			}, false, ""},
+			{"WorkspaceResolvers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "p", []lipworkspace.Resolver{nil})
+			}, false, ""},
+			{"ToolCatalogFilters_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "p", []toolcatalog.Filter{nil})
+			}, false, ""},
+			{"ToolCallPolicies_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "p", []toolpolicy.Policy{nil})
+			}, false, ""},
+			{"ToolCallFinalizers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "p", []toolcall.Finalizer{nil})
+			}, false, ""},
+			{"RequestTransforms_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "p", []request.Transform{nil})
+			}, false, ""},
+			{"PreRequestHandlers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "p", []prerequest.Handler{nil})
+			}, false, ""},
+			{"RouteHintProviders_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "p", []routehint.Provider{nil})
+			}, false, ""},
+			{"CompletionGates_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "p", []completion.Gate{nil})
+			}, false, ""},
+			{"TrafficObservers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "p", []traffic.Observer{nil})
+			}, false, ""},
+			{"UsageObservers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "p", []usage.Observer{nil})
+			}, false, ""},
+			{"RawCaptureSinks_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "p", []traffic.RawCaptureSink{nil})
+			}, false, ""},
+			{"TrafficRedactors_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "p", []traffic.Redactor{nil})
+			}, false, ""},
+			{"CompactionObservers_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "p", []compaction.Observer{nil})
+			}, false, ""},
+			{"SecretGuards_accepts_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "p", []sdksg.Guard{nil})
+			}, false, ""},
 
 			// Strictly rejecting planes:
-			{"AttemptTransforms_rejects_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, AttemptTransforms: []request.AttemptTransform{nil}}, true, "AttemptTransforms[0] must not be nil"},
-			{"StreamObserverFactories_rejects_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, StreamObserverFactories: []response.StreamObserverFactory{nil}}, true, "StreamObserverFactories[0] must not be nil"},
-			{"CompactionPreservers_rejects_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, CompactionPreservers: []compaction.Preserver{nil}}, true, "CompactionPreservers[0] must not be nil"},
-			{"LocalTurnHandlers_rejects_nil", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, LocalTurnHandlers: []localturn.Handler{nil}}, true, "LocalTurnHandlers[0] must not be nil"},
+			{"AttemptTransforms_rejects_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "p", []request.AttemptTransform{nil})
+			}, true, "AttemptTransforms[0] must not be nil"},
+			{"StreamObserverFactories_rejects_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "p", []response.StreamObserverFactory{nil})
+			}, true, "StreamObserverFactories[0] must not be nil"},
+			{"CompactionPreservers_rejects_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "p", []compaction.Preserver{nil})
+			}, true, "CompactionPreservers[0] must not be nil"},
+			{"LocalTurnHandlers_rejects_nil", func(cs *lipfeature.ContributionSet) error {
+				return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "p", []localturn.Handler{nil})
+			}, true, "LocalTurnHandlers[0] must not be nil"},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				err := tt.bundle.Validate()
+				cs := lipfeature.NewContributionSet()
+				err := tt.contribute(cs)
 				if tt.wantError {
 					require.Error(t, err)
 					assert.Contains(t, err.Error(), tt.errSubstr)
 				} else {
 					require.NoError(t, err)
+					bundle := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+					require.NoError(t, bundle.Validate())
 				}
 			})
 		}
@@ -525,32 +523,59 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		t.Parallel()
 		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
-			ToolCatalogFilters: []toolcatalog.Filter{charStubCatalogFilter{tag: "f1"}, nil, charStubCatalogFilter{tag: "f2"}},
-			SecretGuards:       []sdksg.Guard{nil, &charStubSGGuard{id: "sg1", ord: 1}, nil},
-			RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh1"}, nil},
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			Lifecycles:    []lipplugin.Lifecycle{nil, charStubLifecycle{tag: "l1"}, nil},
 		}
 
 		require.NoError(t, m.Append(b))
-		require.Len(t, m.ToolCatalogFilters, 3)
-		assert.NotNil(t, m.ToolCatalogFilters[0])
-		assert.Nil(t, m.ToolCatalogFilters[1])
-		assert.NotNil(t, m.ToolCatalogFilters[2])
+		require.Len(t, m.Lifecycles, 3)
+		assert.Nil(t, m.Lifecycles[0])
+		assert.NotNil(t, m.Lifecycles[1])
+		assert.Nil(t, m.Lifecycles[2])
+	})
 
-		require.Len(t, m.SecretGuards, 3)
-		assert.Nil(t, m.SecretGuards[0])
-		assert.NotNil(t, m.SecretGuards[1])
-		assert.Nil(t, m.SecretGuards[2])
+	t.Run("secret_guards_plane_and_generated_storage_preserves_literal_and_typed_nil_verbatim", func(t *testing.T) {
+		t.Parallel()
+		var typedNilSGGuard *charStubSGGuard
+		cs := lipfeature.NewContributionSet()
+		err := lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test-plugin", []sdksg.Guard{
+			nil,
+			typedNilSGGuard,
+			&charStubSGGuard{id: "sg1", ord: 1},
+			nil,
+		})
+		require.NoError(t, err)
 
-		// Extensions extraction and overlay also preserve verbatim on projected slice planes
-		ext := extensionsFromMerged(m, featurebundle.GeneratedMergeSurface{}, nil)
-		require.Len(t, ext.SecretGuards, 3)
-		assert.Nil(t, ext.SecretGuards[0])
+		frozen := cs.Freeze()
+		guards := lipfeature.Get(frozen, lipfeature.PlaneSecretGuards)
+		require.Len(t, guards, 4)
+		assert.Nil(t, guards[0])
+		assert.True(t, guards[1] != nil, "boxed typed-nil must not equal untyped nil interface")
+		assert.True(t, sdksg.IsNilGuard(guards[1]), "IsNilGuard must report true for typed nil")
+		assert.NotNil(t, guards[2])
+		assert.Equal(t, "sg1", guards[2].ID())
+		assert.Nil(t, guards[3])
 
-		dst := ExtensionsOptions{}
-		overlayExtensions(&dst, ext)
-		require.Len(t, dst.SecretGuards, 3)
-		assert.Nil(t, dst.SecretGuards[0])
+		// Build runtime options with FeaturePlanes
+		opts := &BuildOptions{
+			FeaturePlanes: frozen,
+		}
+		res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		// Composition preserves defensive copy with nil elements without invoking methods
+		require.Len(t, res.Plane.Guards, 4)
+
+		// Runtime snapshot materialization filters both untyped nil and typed nil
+		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{FeaturePlanes: frozen, SecretGuardPlane: res.Plane})
+		execGuards := snap.SecretGuardExecutionPlane().Guards
+		require.Len(t, execGuards, 1)
+		assert.Equal(t, "sg1", execGuards[0].ID())
+
+		// Diagnostics materialization also filters both untyped nil and typed nil
+		occupants := lipfeature.PlaneSecretGuards.Diagnostics.Materialize(guards)
+		require.Len(t, occupants, 1)
+		assert.Equal(t, "secret_guard:sg1", occupants[0].Label)
 	})
 }
 
@@ -571,54 +596,73 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 	var typedNilFinalizer *charStubFinalizer
 	var typedNilRedactor *charStubRedactor
 
+	// 1. Reflection-based filtering planes: RequestMaterializer filters BOTH untyped nil and typed nil
+	sgMaterialized := lipfeature.PlaneSecretGuards.RequestMaterializer([]sdksg.Guard{
+		nil,
+		typedNilSGGuard,
+		&charStubSGGuard{id: "sg-valid-2", ord: 20},
+		&charStubSGGuard{id: "sg-valid-1", ord: 10},
+		nil,
+	})
+	require.Len(t, sgMaterialized, 2)
+	assert.Equal(t, "sg-valid-1", sgMaterialized[0].ID())
+	assert.Equal(t, "sg-valid-2", sgMaterialized[1].ID())
+
+	ltMaterialized := lipfeature.PlaneLocalTurnHandlers.RequestMaterializer([]localturn.Handler{
+		nil,
+		typedNilLTHandler,
+		&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
+		&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
+	})
+	require.Len(t, ltMaterialized, 2)
+	assert.Equal(t, "lt-valid-1", ltMaterialized[0].ID())
+	assert.Equal(t, "lt-valid-2", ltMaterialized[1].ID())
+
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSecretGuards, "test", []sdksg.Guard{
+		&charStubSGGuard{id: "sg-valid-2", ord: 20},
+		&charStubSGGuard{id: "sg-valid-1", ord: 10},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneLocalTurnHandlers, "test", []localturn.Handler{
+		&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
+		&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{
+		nil,
+		typedNilFinalizer,
+		&charStubFinalizer{tag: "tf-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "test", []traffic.Redactor{
+		nil,
+		typedNilRedactor,
+		&charStubRedactor{tag: "tr-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		&charStubPolicy{tag: "tp-valid"},
+		nil,
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlanePreRequestHandlers, "test", []prerequest.Handler{
+		&charStubPreReq{tag: "pr-valid-2"},
+		&charStubPreReq{tag: "pr-valid-1"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRequestTransforms, "test", []request.Transform{
+		nil,
+		&charStubTransform{tag: "rt-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "test", []completion.Gate{
+		nil,
+		&charStubCompGate{tag: "cg-valid"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "test", []session.Opener{charStubOpener{tag: "so-1"}, nil})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneToolCatalogFilters, "test", []toolcatalog.Filter{nil, charStubCatalogFilter{tag: "cf-1"}})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneRouteHintProviders, "test", []routehint.Provider{charStubRouteHint{tag: "rh-1"}, nil})
+
+	frozen := cset.Freeze()
+
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []sdksg.Guard{
-				nil,
-				typedNilSGGuard,
-				&charStubSGGuard{id: "sg-valid-2", ord: 20},
-				&charStubSGGuard{id: "sg-valid-1", ord: 10},
-				nil,
-			},
-		},
-		LocalTurnHandlers: []localturn.Handler{
-			nil,
-			typedNilLTHandler,
-			&charStubLocalTurnHandler{id: "lt-valid-2", ord: 20},
-			&charStubLocalTurnHandler{id: "lt-valid-1", ord: 10},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			nil,
-			typedNilFinalizer,
-			&charStubFinalizer{tag: "tf-valid"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			nil,
-			typedNilRedactor,
-			&charStubRedactor{tag: "tr-valid"},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			&charStubPolicy{tag: "tp-valid"},
-			nil,
-		},
-		PreRequestHandlers: []prerequest.Handler{
-			&charStubPreReq{tag: "pr-valid-2"},
-			&charStubPreReq{tag: "pr-valid-1"},
-		},
-		RequestTransforms: []request.Transform{
-			nil,
-			&charStubTransform{tag: "rt-valid"},
-		},
-		CompletionGates: []completion.Gate{
-			nil,
-			&charStubCompGate{tag: "cg-valid"},
-		},
-		SessionOpeners:     []session.Opener{charStubOpener{tag: "so-1"}, nil},
-		ToolCatalogFilters: []toolcatalog.Filter{nil, charStubCatalogFilter{tag: "cf-1"}},
-		RouteHintProviders: []routehint.Provider{charStubRouteHint{tag: "rh-1"}, nil},
+		FeaturePlanes: frozen,
 	})
 
-	// 1. Reflection-based filtering planes: filters BOTH untyped nil and typed nil
 	sgExec := snap.SecretGuardExecutionPlane().Guards
 	require.Len(t, sgExec, 2)
 	assert.Equal(t, "sg-valid-1", sgExec[0].ID())
@@ -674,14 +718,10 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 
 	// 4. Strict planes panic on nil
 	assert.Panics(t, func() {
-		extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			AttemptTransforms: []request.AttemptTransform{nil},
-		})
+		lipfeature.PlaneAttemptTransforms.RequestMaterializer([]request.AttemptTransform{nil})
 	})
 	assert.Panics(t, func() {
-		extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			StreamObserverFactories: []response.StreamObserverFactory{nil},
-		})
+		lipfeature.PlaneStreamObserverFactories.RequestMaterializer([]response.StreamObserverFactory{nil})
 	})
 }
 
@@ -731,21 +771,14 @@ func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var m featurebundle.MergedFeatureSurface
-			m.ToolCatalogFilters = []toolcatalog.Filter{charStubCatalogFilter{tag: "filter-1"}}
-
-			snapBefore := m // value copy
-
-			b := lipfeature.FeatureBundle{
-				SchemaVersion:            lipfeature.SchemaVersionV1,
-				ToolCatalogFilters:       []toolcatalog.Filter{charStubCatalogFilter{tag: "filter-2"}},
-				TerminalDecisionProvider: tc.provider,
+			cs := lipfeature.NewContributionSet()
+			err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "test", tc.provider)
+			if err == nil {
+				b := lipfeature.BundleFromPlanes(cs.Freeze(), []lipplugin.Lifecycle{charStubLifecycle{tag: "incoming-lifecycle"}})
+				_, err = featurebundle.MergeBundlesGenerated(b)
 			}
-
-			err := m.Append(b)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
-			assert.True(t, reflect.DeepEqual(snapBefore, m), "MergedFeatureSurface receiver must not be mutated on failure")
 		})
 	}
 }

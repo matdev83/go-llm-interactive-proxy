@@ -87,12 +87,17 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 
 	// GenerationBinder replace-by-identity planes: CompactionPreservers, AttemptTransforms, StreamObserverFactories
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneCompactionPreservers.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneCompactionPreservers.ValidateIdentity)
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneAttemptTransforms.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneAttemptTransforms.ValidateIdentity)
 	assert.Equal(t, feature.CombReplaceByIdentity, feature.PlaneStreamObserverFactories.Rules.GenerationBinder)
+	assert.NotNil(t, feature.PlaneStreamObserverFactories.ValidateIdentity)
 
 	// Exclusive plane: TerminalDecisionProvider
 	assert.Equal(t, feature.CombExclusive, feature.PlaneTerminalDecisionProvider.Rules.Feature)
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
+	assert.Equal(t, feature.ErrTerminalDecisionProviderConflict, feature.PlaneTerminalDecisionProvider.ExclusiveConflictError)
+	assert.NotNil(t, feature.PlaneTerminalDecisionProvider.ValidateIdentity)
 }
 
 // TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.
@@ -102,11 +107,20 @@ func TestStandardCandidatePlanes_CanonicalDeclaration(t *testing.T) {
 	expected := []string{
 		"session_openers",
 		"workspace_resolvers",
+		"tool_catalog_filters",
+		"tool_call_policies",
+		"tool_call_finalizers",
+		"tool_call_finalization_max_args_bytes",
 		"request_transforms",
 		"pre_request_handlers",
 		"route_hint_providers",
 		"completion_gates",
 		"attempt_transforms",
+		"secret_guards",
+		"compaction_observers",
+		"compaction_preservers",
+		"local_turn_handlers",
+		"terminal_decision_provider",
 	}
 	assert.Equal(t, expected, feature.StandardCandidatePlanes)
 }

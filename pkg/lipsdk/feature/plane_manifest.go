@@ -64,6 +64,31 @@ func sortHooks[T hookParticipant](h []T) []T {
 	return out
 }
 
+func requireNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
+	for _, t := range in {
+		if t == nil {
+			panic("extensions: SnapshotOptions.AttemptTransforms contains nil entry")
+		}
+	}
+	return in
+}
+
+func requireNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
+	for _, f := range in {
+		if f == nil {
+			panic("extensions: SnapshotOptions.StreamObserverFactories contains nil entry")
+		}
+	}
+	return in
+}
+
+func validateNonEmptyCachedIdentity(id string) error {
+	if id == "" {
+		return fmt.Errorf("identity must not be empty")
+	}
+	return nil
+}
+
 // PlaneSubmitHooks declares the SubmitHooks extension plane.
 var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 	ID:           "submit_hooks",
@@ -77,6 +102,7 @@ var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]hooks.SubmitHook]{
 		StageID: StageIDSubmit,
+		Order:   10,
 		Materialize: func(v []hooks.SubmitHook) []DiagnosticOccupant {
 			sorted := sortHooks(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -101,6 +127,7 @@ var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]hooks.RequestPartHook]{
 		StageID: StageIDRequestWide,
+		Order:   60,
 		Materialize: func(v []hooks.RequestPartHook) []DiagnosticOccupant {
 			sorted := sortHooks(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -125,6 +152,7 @@ var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]hooks.ResponsePartHook]{
 		StageID: StageIDStreamEventMutation,
+		Order:   70,
 		Materialize: func(v []hooks.ResponsePartHook) []DiagnosticOccupant {
 			sorted := sortHooks(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -150,6 +178,7 @@ var PlaneToolReactors = Plane[[]hooks.ToolReactor]{
 	Diagnostics: DiagnosticDescriptor[[]hooks.ToolReactor]{
 		StageID:       StageIDToolEventReaction,
 		CoalesceGroup: "tool_reaction",
+		Order:         82,
 		Materialize: func(v []hooks.ToolReactor) []DiagnosticOccupant {
 			sorted := sortHooks(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -172,9 +201,16 @@ var PlaneSessionOpeners = Plane[[]session.Opener]{
 	Combine: func(source SourceKind, current, incoming []session.Opener) ([]session.Opener, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: func(v []session.Opener) []session.Opener {
+		if len(v) == 0 {
+			return nil
+		}
+		return cloneSlice(v)
+	},
 	Diagnostics: DiagnosticDescriptor[[]session.Opener]{
 		StageID:       StageIDSessionOpen,
 		CoalesceGroup: "session_open",
+		Order:         90,
 		Materialize: func(v []session.Opener) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for _, o := range v {
@@ -202,6 +238,7 @@ var PlaneWorkspaceResolvers = Plane[[]workspace.Resolver]{
 	Diagnostics: DiagnosticDescriptor[[]workspace.Resolver]{
 		StageID:       StageIDSessionOpen,
 		CoalesceGroup: "session_open",
+		Order:         91,
 		Materialize: func(v []workspace.Resolver) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for i, r := range v {
@@ -228,6 +265,7 @@ var PlaneToolCatalogFilters = Plane[[]toolcatalog.Filter]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]toolcatalog.Filter]{
 		StageID: StageIDToolCatalog,
+		Order:   20,
 		Materialize: func(v []toolcatalog.Filter) []DiagnosticOccupant {
 			sorted := toolcatalog.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -241,7 +279,7 @@ var PlaneToolCatalogFilters = Plane[[]toolcatalog.Filter]{
 		},
 		Privileges: func(v []toolcatalog.Filter) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"auxiliary_requests"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeAuxiliaryRequests}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -259,9 +297,12 @@ var PlaneToolCallPolicies = Plane[[]toolpolicy.Policy]{
 	Combine: func(source SourceKind, current, incoming []toolpolicy.Policy) ([]toolpolicy.Policy, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: toolpolicy.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]toolpolicy.Policy]{
 		StageID:       StageIDToolEventReaction,
 		CoalesceGroup: "tool_reaction",
+		Order:         80,
 		Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant {
 			sorted := toolpolicy.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -287,9 +328,12 @@ var PlaneToolCallFinalizers = Plane[[]toolcall.Finalizer]{
 	Combine: func(source SourceKind, current, incoming []toolcall.Finalizer) ([]toolcall.Finalizer, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: toolcall.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]toolcall.Finalizer]{
 		StageID:       StageIDToolEventReaction,
 		CoalesceGroup: "tool_reaction",
+		Order:         81,
 		Materialize: func(v []toolcall.Finalizer) []DiagnosticOccupant {
 			sorted := toolcall.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -341,6 +385,7 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]request.Transform]{
 		StageID: StageIDRequestWide,
+		Order:   30,
 		Materialize: func(v []request.Transform) []DiagnosticOccupant {
 			nonNil := make([]request.Transform, 0, len(v))
 			for _, tr := range v {
@@ -360,7 +405,7 @@ var PlaneRequestTransforms = Plane[[]request.Transform]{
 		},
 		Privileges: func(v []request.Transform) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"auxiliary_requests"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeAuxiliaryRequests}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -377,8 +422,10 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 	Combine: func(source SourceKind, current, incoming []prerequest.Handler) ([]prerequest.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: prerequest.MaterializeSorted,
 	Diagnostics: DiagnosticDescriptor[[]prerequest.Handler]{
 		StageID: StageIDPreRequest,
+		Order:   40,
 		Materialize: func(v []prerequest.Handler) []DiagnosticOccupant {
 			nonNil := make([]prerequest.Handler, 0, len(v))
 			for _, h := range v {
@@ -398,7 +445,7 @@ var PlanePreRequestHandlers = Plane[[]prerequest.Handler]{
 		},
 		Privileges: func(v []prerequest.Handler) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"auxiliary_requests"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeAuxiliaryRequests}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -418,6 +465,7 @@ var PlaneRouteHintProviders = Plane[[]routehint.Provider]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]routehint.Provider]{
 		StageID: StageIDRouteHinting,
+		Order:   50,
 		Materialize: func(v []routehint.Provider) []DiagnosticOccupant {
 			sorted := routehint.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -445,6 +493,7 @@ var PlaneCompletionGates = Plane[[]completion.Gate]{
 	},
 	Diagnostics: DiagnosticDescriptor[[]completion.Gate]{
 		StageID: StageIDCompletionGating,
+		Order:   110,
 		Materialize: func(v []completion.Gate) []DiagnosticOccupant {
 			sorted := completion.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -458,7 +507,7 @@ var PlaneCompletionGates = Plane[[]completion.Gate]{
 		},
 		Privileges: func(v []completion.Gate) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"auxiliary_requests", "completion_gate"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeAuxiliaryRequests, PrivilegeCompletionGate}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -488,6 +537,7 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []request.AttemptTransform) ([]request.AttemptTransform, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || isNilValue(incoming[0]) {
@@ -506,8 +556,12 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		}
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: func(v []request.AttemptTransform) []request.AttemptTransform {
+		return request.MaterializeAttemptsSorted(requireNonNilAttemptTransforms(v))
+	},
 	Diagnostics: DiagnosticDescriptor[[]request.AttemptTransform]{
 		StageID: StageIDCandidateAttemptTransform,
+		Order:   120,
 		Materialize: func(v []request.AttemptTransform) []DiagnosticOccupant {
 			nonNil := make([]request.AttemptTransform, 0, len(v))
 			for _, tr := range v {
@@ -527,7 +581,7 @@ var PlaneAttemptTransforms = Plane[[]request.AttemptTransform]{
 		},
 		Privileges: func(v []request.AttemptTransform) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"auxiliary_requests"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeAuxiliaryRequests}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -557,6 +611,7 @@ var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []response.StreamObserverFactory) ([]response.StreamObserverFactory, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || incoming[0] == nil {
@@ -575,8 +630,12 @@ var PlaneStreamObserverFactories = Plane[[]response.StreamObserverFactory]{
 		}
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: func(v []response.StreamObserverFactory) []response.StreamObserverFactory {
+		return response.MaterializeSorted(requireNonNilStreamObserverFactories(v))
+	},
 	Diagnostics: DiagnosticDescriptor[[]response.StreamObserverFactory]{
 		StageID: StageIDFinalStreamObservation,
+		Order:   130,
 		Materialize: func(v []response.StreamObserverFactory) []DiagnosticOccupant {
 			nonNil := make([]response.StreamObserverFactory, 0, len(v))
 			for _, f := range v {
@@ -612,6 +671,7 @@ var PlaneTrafficObservers = Plane[[]traffic.Observer]{
 	Diagnostics: DiagnosticDescriptor[[]traffic.Observer]{
 		StageID:       StageIDTrafficObservation,
 		CoalesceGroup: "traffic_observation",
+		Order:         140,
 		Materialize: func(v []traffic.Observer) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for i, o := range v {
@@ -640,6 +700,7 @@ var PlaneUsageObservers = Plane[[]usage.Observer]{
 	Diagnostics: DiagnosticDescriptor[[]usage.Observer]{
 		StageID:       StageIDTrafficObservation,
 		CoalesceGroup: "traffic_observation",
+		Order:         141,
 		Materialize: func(v []usage.Observer) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for i, o := range v {
@@ -667,6 +728,7 @@ var PlaneRawCaptureSinks = Plane[[]traffic.RawCaptureSink]{
 	Diagnostics: DiagnosticDescriptor[[]traffic.RawCaptureSink]{
 		StageID:       StageIDTrafficObservation,
 		CoalesceGroup: "traffic_observation",
+		Order:         142,
 		Materialize: func(v []traffic.RawCaptureSink) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for i, s := range v {
@@ -679,7 +741,7 @@ var PlaneRawCaptureSinks = Plane[[]traffic.RawCaptureSink]{
 		},
 		Privileges: func(v []traffic.RawCaptureSink) PrivilegeProjection {
 			if len(v) > 0 {
-				return PrivilegeProjection{Flags: []string{"raw_capture"}}
+				return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}}
 			}
 			return PrivilegeProjection{}
 		},
@@ -697,9 +759,11 @@ var PlaneTrafficRedactors = Plane[[]traffic.Redactor]{
 	Combine: func(source SourceKind, current, incoming []traffic.Redactor) ([]traffic.Redactor, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: traffic.MaterializeSortedRedactors,
 	Diagnostics: DiagnosticDescriptor[[]traffic.Redactor]{
 		StageID:       StageIDTrafficObservation,
 		CoalesceGroup: "traffic_observation",
+		Order:         143,
 		Materialize: func(v []traffic.Redactor) []DiagnosticOccupant {
 			occupants := make([]DiagnosticOccupant, 0, len(v))
 			for _, r := range v {
@@ -726,6 +790,18 @@ var PlaneCompactionObservers = Plane[[]compaction.Observer]{
 	},
 }
 
+func safePreserverID(p compaction.Preserver) (id string) {
+	defer func() {
+		if recover() != nil {
+			id = ""
+		}
+	}()
+	if p != nil {
+		return p.ID()
+	}
+	return ""
+}
+
 // PlaneCompactionPreservers declares the CompactionPreservers extension plane.
 var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 	ID:           "compaction_preservers",
@@ -734,10 +810,13 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 		Feature:          CombConcatenate,
 		GenerationBinder: CombReplaceByIdentity,
 	},
-	NilPolicy: NilReject,
+	NilPolicy: NilNotApplicable,
 	Identity: func(v []compaction.Preserver) (string, bool) {
 		if len(v) > 0 && v[0] != nil {
-			return v[0].ID(), true
+			id := safePreserverID(v[0])
+			if id != "" {
+				return id, true
+			}
 		}
 		return "", false
 	},
@@ -749,15 +828,19 @@ var PlaneCompactionPreservers = Plane[[]compaction.Preserver]{
 		}
 		return nil
 	},
+	ValidateIdentity: validateNonEmptyCachedIdentity,
 	Combine: func(source SourceKind, current, incoming []compaction.Preserver) ([]compaction.Preserver, error) {
 		if source == SourceGenerationBinder {
 			if len(incoming) == 0 || incoming[0] == nil {
 				return current, nil
 			}
-			incID := incoming[0].ID()
+			incID := safePreserverID(incoming[0])
+			if incID == "" {
+				return append(current, incoming...), nil
+			}
 			out := make([]compaction.Preserver, 0, len(current)+len(incoming))
 			for _, p := range current {
-				if p != nil && p.ID() == incID {
+				if p != nil && safePreserverID(p) == incID {
 					continue
 				}
 				out = append(out, p)
@@ -780,8 +863,11 @@ var PlaneSecretGuards = Plane[[]secretguard.Guard]{
 	Combine: func(source SourceKind, current, incoming []secretguard.Guard) ([]secretguard.Guard, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: secretguard.MaterializeSorted,
+	RequestBorrow:       true,
 	Diagnostics: DiagnosticDescriptor[[]secretguard.Guard]{
 		StageID: StageIDSecretGuard,
+		Order:   100,
 		Materialize: func(v []secretguard.Guard) []DiagnosticOccupant {
 			sorted := secretguard.MaterializeSorted(v)
 			occupants := make([]DiagnosticOccupant, 0, len(sorted))
@@ -818,6 +904,26 @@ var PlaneLocalTurnHandlers = Plane[[]localturn.Handler]{
 	Combine: func(source SourceKind, current, incoming []localturn.Handler) ([]localturn.Handler, error) {
 		return append(current, incoming...), nil
 	},
+	RequestMaterializer: localturn.MaterializeSorted,
+	RequestBorrow:       true,
+	Diagnostics: DiagnosticDescriptor[[]localturn.Handler]{
+		StageID: StageIDPreRequest,
+		Order:   45,
+		Materialize: func(v []localturn.Handler) []DiagnosticOccupant {
+			sorted := localturn.MaterializeSorted(v)
+			if len(sorted) == 0 {
+				return nil
+			}
+			occupants := make([]DiagnosticOccupant, 0, len(sorted))
+			for _, h := range sorted {
+				if h == nil || localturn.IsNilHandler(h) {
+					continue
+				}
+				occupants = append(occupants, DiagnosticOccupant{Label: "local_turn:" + h.ID()})
+			}
+			return occupants
+		},
+	},
 }
 
 // PlaneTerminalDecisionProvider declares the TerminalDecisionProvider extension plane.
@@ -828,13 +934,6 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 		Feature: CombExclusive,
 	},
 	NilPolicy: NilReject,
-	IsNil: func(v terminaldecision.Provider) bool {
-		if v == nil {
-			return true
-		}
-		_, err := terminaldecision.ProviderIdentity(v)
-		return err != nil
-	},
 	Identity: func(v terminaldecision.Provider) (string, bool) {
 		id, err := terminaldecision.ProviderIdentity(v)
 		if err != nil {
@@ -846,9 +945,11 @@ var PlaneTerminalDecisionProvider = Plane[terminaldecision.Provider]{
 		_, err := terminaldecision.ProviderIdentity(v)
 		return err
 	},
+	ValidateIdentity: terminaldecision.ValidateProviderID,
 	Combine: func(source SourceKind, current, incoming terminaldecision.Provider) (terminaldecision.Provider, error) {
 		return incoming, nil
 	},
+	ExclusiveConflictError: ErrTerminalDecisionProviderConflict,
 }
 
 // StandardPlanes is the ordered slice of all standard feature planes.
@@ -884,9 +985,18 @@ var StandardPlanes = []PlaneDeclaration{
 var StandardCandidatePlanes = []string{
 	"session_openers",
 	"workspace_resolvers",
+	"tool_catalog_filters",
+	"tool_call_policies",
+	"tool_call_finalizers",
+	"tool_call_finalization_max_args_bytes",
 	"request_transforms",
 	"pre_request_handlers",
 	"route_hint_providers",
 	"completion_gates",
 	"attempt_transforms",
+	"secret_guards",
+	"compaction_observers",
+	"compaction_preservers",
+	"local_turn_handlers",
+	"terminal_decision_provider",
 }

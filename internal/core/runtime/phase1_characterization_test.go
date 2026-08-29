@@ -271,7 +271,9 @@ func TestPhase1_1_ObserverStartupFailure_Initial(t *testing.T) {
 
 	// Configure a fail-closed stream observer factory
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		}),
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"ok": {
@@ -320,7 +322,9 @@ func TestPhase1_1_ObserverStartupFailure_Replacement(t *testing.T) {
 	}
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		}),
 	})
 
 	budget := &attemptBudget{max: 3}

@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,56 +16,6 @@ import (
 // Lifecycles side channel.
 func AssertMergedSurfacesEqual(tb testing.TB, legacy featurebundle.MergedFeatureSurface, gen featurebundle.GeneratedMergeSurface) {
 	tb.Helper()
-
-	// 7. ToolCatalogFilters
-	genToolCatalogFilters := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)
-	assert.Equal(tb, legacy.ToolCatalogFilters, genToolCatalogFilters, "ToolCatalogFilters mismatch")
-	assert.Equal(tb, legacy.ToolCatalogFilters == nil, genToolCatalogFilters == nil, "ToolCatalogFilters nilness mismatch")
-
-	// 8. ToolCallPolicies
-	genToolCallPolicies := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallPolicies)
-	assert.Equal(tb, legacy.ToolCallPolicies, genToolCallPolicies, "ToolCallPolicies mismatch")
-	assert.Equal(tb, legacy.ToolCallPolicies == nil, genToolCallPolicies == nil, "ToolCallPolicies nilness mismatch")
-
-	// 9. ToolCallFinalizers
-	genToolCallFinalizers := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
-	assert.Equal(tb, legacy.ToolCallFinalizers, genToolCallFinalizers, "ToolCallFinalizers mismatch")
-	assert.Equal(tb, legacy.ToolCallFinalizers == nil, genToolCallFinalizers == nil, "ToolCallFinalizers nilness mismatch")
-
-	// 10. ToolCallFinalizationMaxArgsBytes
-	genFinalizationCap := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
-	assert.Equal(tb, legacy.ToolCallFinalizationMaxArgsBytes, genFinalizationCap, "ToolCallFinalizationMaxArgsBytes mismatch")
-
-	// 21. CompactionObservers
-	genCompactionObservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
-	assert.Equal(tb, legacy.CompactionObservers, genCompactionObservers, "CompactionObservers mismatch")
-	assert.Equal(tb, legacy.CompactionObservers == nil, genCompactionObservers == nil, "CompactionObservers nilness mismatch")
-
-	// 22. CompactionPreservers
-	genCompactionPreservers := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionPreservers)
-	assert.Equal(tb, legacy.CompactionPreservers, genCompactionPreservers, "CompactionPreservers mismatch")
-	assert.Equal(tb, legacy.CompactionPreservers == nil, genCompactionPreservers == nil, "CompactionPreservers nilness mismatch")
-
-	// 23. SecretGuards
-	genSecretGuards := lipfeature.Get(gen.Frozen, lipfeature.PlaneSecretGuards)
-	assert.Equal(tb, legacy.SecretGuards, genSecretGuards, "SecretGuards mismatch")
-	assert.Equal(tb, legacy.SecretGuards == nil, genSecretGuards == nil, "SecretGuards nilness mismatch")
-
-	// 24. LocalTurnHandlers
-	genLocalTurnHandlers := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
-	assert.Equal(tb, legacy.LocalTurnHandlers, genLocalTurnHandlers, "LocalTurnHandlers mismatch")
-	assert.Equal(tb, legacy.LocalTurnHandlers == nil, genLocalTurnHandlers == nil, "LocalTurnHandlers nilness mismatch")
-
-	// 25. TerminalDecisionProvider
-	genTerminalProvider := lipfeature.Get(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider)
-	assert.Equal(tb, legacy.TerminalDecisionProvider, genTerminalProvider, "TerminalDecisionProvider mismatch")
-	genID, hasID := lipfeature.FrozenIdentity(gen.Frozen, lipfeature.PlaneTerminalDecisionProvider)
-	if legacy.TerminalDecisionProvider != nil {
-		assert.True(tb, hasID, "expected frozen identity to be present for TerminalDecisionProvider")
-		assert.NotEmpty(tb, genID, "expected non-empty frozen identity for TerminalDecisionProvider")
-	} else {
-		assert.False(tb, hasID, "expected no frozen identity when TerminalDecisionProvider is nil")
-	}
 
 	// 26. Lifecycles (Side-channel)
 	assert.Equal(tb, legacy.Lifecycles, gen.Lifecycles, "Lifecycles side-channel mismatch")
@@ -106,10 +55,8 @@ func AssertDualPathParity(tb testing.TB, bundles ...lipfeature.FeatureBundle) {
 
 			var providerIDs []string
 			for _, b := range bundles {
-				if b.TerminalDecisionProvider != nil {
-					if id, err := terminaldecision.ProviderIdentity(b.TerminalDecisionProvider); err == nil && id != "" {
-						providerIDs = append(providerIDs, id)
-					}
+				if id, ok := lipfeature.FrozenIdentity(b.PlaneSet, lipfeature.PlaneTerminalDecisionProvider); ok && id != "" {
+					providerIDs = append(providerIDs, id)
 				}
 			}
 			if len(providerIDs) >= 2 {

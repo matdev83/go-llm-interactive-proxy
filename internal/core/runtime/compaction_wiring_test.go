@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -71,7 +73,9 @@ func compactionTestExecutorWithStore(t *testing.T, d *compactiondetect.Detector,
 		observers = []compaction.Observer{rec}
 	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompactionObservers: observers,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompactionObservers: observers,
+		}),
 	})
 	if d != nil {
 		ex.CompactionRuntime = runtime.CompactionRuntime{Detector: d}
@@ -241,7 +245,9 @@ func TestCompactionWiring_detectorRunsWithoutObservers(t *testing.T) {
 
 	rec := &recordingCompactionObserver{}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		CompactionObservers: []compaction.Observer{rec},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompactionObservers: []compaction.Observer{rec},
+		}),
 	})
 	secondCall := compactCall("ck-no-observers", bigItems(bigText(6000), "tail-one", "tail-two"))
 	secondCall.Session.AuthoritativeSessionID = firstCall.Session.AuthoritativeSessionID

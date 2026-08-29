@@ -154,8 +154,11 @@ func TestExecutor_secretGuardBlock_zeroDispatch(t *testing.T) {
 		Workspace:       workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		TrafficObserver: &countingTrafficObs{n: &trafficCalls},
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&blockingSecretGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&blockingSecretGuard{evals: &guardEvals}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()
@@ -247,8 +250,11 @@ func TestExecutor_secretGuardUnsupportedJSONTokenBlock_zeroDispatch(t *testing.T
 		Workspace:       workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		TrafficObserver: &countingTrafficObs{n: &trafficCalls},
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&unsupportedJSONTokenBlockGuard{evals: &guardEvals}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&unsupportedJSONTokenBlockGuard{evals: &guardEvals}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()

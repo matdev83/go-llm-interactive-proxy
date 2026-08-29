@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,6 +123,64 @@ type freezeTestWorkspaceResolver struct {
 
 func (r freezeTestWorkspaceResolver) Resolve(context.Context) (workspace.WorkspaceView, error) {
 	return workspace.WorkspaceView{ID: r.id, ProjectRoot: "/tmp/" + r.id}, nil
+}
+
+type freezeTestFinalizer struct {
+	id string
+}
+
+func (f freezeTestFinalizer) ID() string { return f.id }
+func (freezeTestFinalizer) Order() int   { return 0 }
+func (freezeTestFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass}, nil
+}
+
+type freezeTestCompactionObserver struct {
+	tag string
+}
+
+func (o freezeTestCompactionObserver) OnCompaction(context.Context, compaction.Event) error {
+	return nil
+}
+
+type freezeTestCompactionPreserver struct {
+	id string
+}
+
+func (p freezeTestCompactionPreserver) ID() string { return p.id }
+func (freezeTestCompactionPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestCompactionPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestCompactionPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+type freezeTestPanicPreserver struct {
+	panicVal any
+}
+
+func (p freezeTestPanicPreserver) ID() string {
+	if p.panicVal != nil {
+		panic(p.panicVal)
+	}
+	panic("panicking preserver")
+}
+
+func (freezeTestPanicPreserver) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestPanicPreserver) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
+	return nil
+}
+
+func (freezeTestPanicPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
+	return nil
 }
 
 // TestContribute_FailBeforeMutate_TableDriven proves that any failed contribution
@@ -795,6 +854,9 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		src := feature.NewContributionSet()
 		require.NoError(t, feature.Contribute(src, feature.PlaneSessionOpeners, "cand", []session.Opener{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneWorkspaceResolvers, "cand", []workspace.Resolver{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCatalogFilters, "cand", []toolcatalog.Filter{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallPolicies, "cand", []toolpolicy.Policy{}))
+		require.NoError(t, feature.Contribute(src, feature.PlaneToolCallFinalizers, "cand", []toolcall.Finalizer{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRequestTransforms, "cand", []request.Transform{}))
 		require.NoError(t, feature.Contribute(src, feature.PlanePreRequestHandlers, "cand", []prerequest.Handler{}))
 		require.NoError(t, feature.Contribute(src, feature.PlaneRouteHintProviders, "cand", []routehint.Provider{}))
@@ -815,6 +877,18 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		wr := feature.Get(dstFrozen, feature.PlaneWorkspaceResolvers)
 		assert.NotNil(t, wr)
 		assert.Empty(t, wr)
+
+		cat := feature.Get(dstFrozen, feature.PlaneToolCatalogFilters)
+		assert.NotNil(t, cat)
+		assert.Empty(t, cat)
+
+		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
+		assert.NotNil(t, pol)
+		assert.Empty(t, pol)
+
+		fin := feature.Get(dstFrozen, feature.PlaneToolCallFinalizers)
+		assert.NotNil(t, fin)
+		assert.Empty(t, fin)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)
@@ -844,6 +918,9 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 			map[string]any{
 				feature.PlaneSessionOpeners.ID:     []session.Opener{},
 				feature.PlaneWorkspaceResolvers.ID: []workspace.Resolver{},
+				feature.PlaneToolCatalogFilters.ID: []toolcatalog.Filter{},
+				feature.PlaneToolCallPolicies.ID:   []toolpolicy.Policy{},
+				feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{},
 				feature.PlaneRequestTransforms.ID:  []request.Transform{},
 				feature.PlanePreRequestHandlers.ID: []prerequest.Handler{},
 				feature.PlaneRouteHintProviders.ID: []routehint.Provider{},
@@ -865,6 +942,18 @@ func TestContributeCandidateTo_ExplicitEmptySlice_GeneratedAndMapParity(t *testi
 		wr := feature.Get(dstFrozen, feature.PlaneWorkspaceResolvers)
 		assert.NotNil(t, wr)
 		assert.Empty(t, wr)
+
+		cat := feature.Get(dstFrozen, feature.PlaneToolCatalogFilters)
+		assert.NotNil(t, cat)
+		assert.Empty(t, cat)
+
+		pol := feature.Get(dstFrozen, feature.PlaneToolCallPolicies)
+		assert.NotNil(t, pol)
+		assert.Empty(t, pol)
+
+		fin := feature.Get(dstFrozen, feature.PlaneToolCallFinalizers)
+		assert.NotNil(t, fin)
+		assert.Empty(t, fin)
 
 		reqTr := feature.Get(dstFrozen, feature.PlaneRequestTransforms)
 		assert.NotNil(t, reqTr)
@@ -1264,4 +1353,1136 @@ func TestContributeCandidateTo_SessionAndWorkspace_SuccessOrderAndIsolation(t *t
 		assert.Equal(t, "base-wr", mapWr0.id)
 		assert.Equal(t, "cand-map-wr", mapWr1.id)
 	})
+}
+
+// TestContributeCandidateTo_ToolFinalizersAndBufferReduction_SuccessOrderAndMinReduction verifies that
+// candidate contributions of ToolCallFinalizers and ToolCallFinalizationMaxArgsBytes in generated and map storage
+// append in source order for finalizers and min-reduce positive buffer caps.
+func TestContributeCandidateTo_ToolFinalizersAndBufferReduction_SuccessOrderAndMinReduction(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage_min_reduction_and_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "base-fin"},
+		}))
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizers, "cand-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "cand-fin"},
+		}))
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizationMaxArgsBytes, "cand-plugin", 1024))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+		require.Len(t, fins, 2)
+		assert.Equal(t, "base-fin", fins[0].ID())
+		assert.Equal(t, "cand-fin", fins[1].ID())
+
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 1024, maxArgs, "candidate overlay must min-reduce buffer cap (1024 vs 4096)")
+	})
+
+	t.Run("generated_storage_candidate_larger_does_not_overwrite", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 1024))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneToolCallFinalizationMaxArgsBytes, "cand-plugin", 8192))
+		candFrozen := candSrc.Freeze()
+
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 1024, maxArgs, "candidate larger cap must NOT overwrite smaller base cap (min-reduction)")
+	})
+
+	t.Run("map_fallback_storage_min_reduction_and_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+			freezeTestFinalizer{id: "base-fin"},
+		}))
+		require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{
+					freezeTestFinalizer{id: "cand-map-fin"},
+				},
+				feature.PlaneToolCallFinalizationMaxArgsBytes.ID: 2048,
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+		require.Len(t, fins, 2)
+		assert.Equal(t, "base-fin", fins[0].ID())
+		assert.Equal(t, "cand-map-fin", fins[1].ID())
+
+		maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+		assert.Equal(t, 2048, maxArgs)
+	})
+}
+
+// TestContributeCandidateTo_ToolCallFinalizationMaxArgsBytes_InvalidNegativeRollback verifies that
+// invalid candidate buffer reduction values fail and roll back destination atomically.
+func TestContributeCandidateTo_ToolCallFinalizationMaxArgsBytes_InvalidNegativeRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizers, "base-plugin", []toolcall.Finalizer{
+		freezeTestFinalizer{id: "base-fin"},
+	}))
+	require.NoError(t, feature.Contribute(dst, feature.PlaneToolCallFinalizationMaxArgsBytes, "base-plugin", 4096))
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneToolCallFinalizers.ID: []toolcall.Finalizer{
+				freezeTestFinalizer{id: "cand-fin"},
+			},
+			feature.PlaneToolCallFinalizationMaxArgsBytes.ID: -100, // Invalid negative
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	// Validate atomic rollback: dst is untouched
+	frozen := dst.Freeze()
+	fins := feature.Get(frozen, feature.PlaneToolCallFinalizers)
+	require.Len(t, fins, 1)
+	assert.Equal(t, "base-fin", fins[0].ID())
+
+	maxArgs := feature.Get(frozen, feature.PlaneToolCallFinalizationMaxArgsBytes)
+	assert.Equal(t, 4096, maxArgs)
+}
+
+type freezeTestSecretGuard struct {
+	id  string
+	ord int
+}
+
+func (g freezeTestSecretGuard) ID() string                         { return g.id }
+func (g freezeTestSecretGuard) Order() int                         { return g.ord }
+func (freezeTestSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+func (freezeTestSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+// TestContributeCandidateTo_SecretGuards_SuccessOrderAndIsolation verifies that
+// candidate contributions of SecretGuards in generated and map storage append
+// in source order (base then candidate) and preserve backing-array isolation.
+func TestContributeCandidateTo_SecretGuards_SuccessOrderAndIsolation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage_ordering_and_isolation", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg-1", ord: 1},
+			freezeTestSecretGuard{id: "base-sg-2", ord: 2},
+		}))
+
+		candSrc := feature.NewContributionSet()
+		candGuards := []secretguard.Guard{
+			freezeTestSecretGuard{id: "cand-sg-1", ord: 10},
+		}
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneSecretGuards, "cand-plugin", candGuards))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 3)
+		assert.Equal(t, "base-sg-1", guards[0].ID())
+		assert.Equal(t, "base-sg-2", guards[1].ID())
+		assert.Equal(t, "cand-sg-1", guards[2].ID())
+
+		// Backing array isolation
+		candGuards[0] = freezeTestSecretGuard{id: "mutated", ord: 99}
+		guardsAgain := feature.Get(frozen, feature.PlaneSecretGuards)
+		assert.Equal(t, "cand-sg-1", guardsAgain[2].ID())
+	})
+
+	t.Run("map_fallback_storage_ordering", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg"},
+		}))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneSecretGuards.ID: []secretguard.Guard{
+					freezeTestSecretGuard{id: "cand-map-sg"},
+				},
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 2)
+		assert.Equal(t, "base-sg", guards[0].ID())
+		assert.Equal(t, "cand-map-sg", guards[1].ID())
+	})
+
+	t.Run("literal_and_typed_nil_elements_preserved", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+			freezeTestSecretGuard{id: "base-sg-1", ord: 1},
+		}))
+
+		var typedNil *freezeTestSecretGuard
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneSecretGuards, "cand-plugin", []secretguard.Guard{
+			nil,
+			typedNil,
+			freezeTestSecretGuard{id: "cand-sg-1", ord: 10},
+		}))
+		candFrozen := candSrc.Freeze()
+
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		guards := feature.Get(frozen, feature.PlaneSecretGuards)
+		require.Len(t, guards, 4)
+		assert.Equal(t, "base-sg-1", guards[0].ID())
+		assert.Nil(t, guards[1])
+		assert.True(t, guards[2] != nil, "boxed typed-nil must not equal untyped nil interface")
+		assert.True(t, secretguard.IsNilGuard(guards[2]))
+		assert.Equal(t, "cand-sg-1", guards[3].ID())
+	})
+}
+
+// TestContributeCandidateTo_MapFallback_SecretGuards_WrongDynamicType verifies that wrong dynamic type
+// on secret_guards in map fallback returns ErrInvalidContribution attributed to secret_guards and candidate,
+// and leaves the destination unchanged.
+func TestContributeCandidateTo_MapFallback_SecretGuards_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneSecretGuards.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneSecretGuards.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []secretguard.Guard")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_MapFallback_SecretGuards_AtomicRollback verifies that if candidate projection
+// fails on secret_guards (wrong dynamic type) after earlier valid contributions (e.g. session openers),
+// earlier contributions are rolled back atomically and destination remains completely unchanged.
+func TestContributeCandidateTo_MapFallback_SecretGuards_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSessionOpeners, "base-plugin", []session.Opener{
+		freezeTestSessionOpener{id: "base-so"},
+	}))
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Candidate with earlier valid SessionOpeners and later invalid SecretGuards (wrong dynamic type)
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneSessionOpeners.ID: []session.Opener{
+				freezeTestSessionOpener{id: "cand-so"},
+			},
+			feature.PlaneSecretGuards.ID: 12345, // invalid type
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneSecretGuards.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []secretguard.Guard")
+
+	// Destination must remain completely unchanged across all planes and identities
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_GeneratedStorage_SecretGuards_AtomicRollback verifies that if candidate projection
+// in generated storage encounters a validation failure on a later candidate plane (e.g. invalid attempt transforms),
+// earlier valid candidate secret guards are rolled back atomically and the destination remains unchanged.
+func TestContributeCandidateTo_GeneratedStorage_SecretGuards_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneSecretGuards, "base-plugin", []secretguard.Guard{
+		freezeTestSecretGuard{id: "base-sg", ord: 1},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid SecretGuards and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenSecretGuardsCandidateForTest(
+		[]secretguard.Guard{
+			freezeTestSecretGuard{id: "cand-sg", ord: 10},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_CompactionObservers_GeneratedAndMapParity verifies that
+// candidate contributions of CompactionObservers in generated and map storage append in source order.
+func TestContributeCandidateTo_CompactionObservers_GeneratedAndMapParity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generated_storage", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "base-obs-1"},
+		}))
+
+		candSrc := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(candSrc, feature.PlaneCompactionObservers, "cand-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "cand-obs-1"},
+		}))
+		candFrozen := candSrc.Freeze()
+
+		dstPtrBefore := dst
+		err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+		assert.Same(t, dstPtrBefore, dst)
+
+		frozen := dst.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+		o0, ok0 := obs[0].(freezeTestCompactionObserver)
+		o1, ok1 := obs[1].(freezeTestCompactionObserver)
+		require.True(t, ok0)
+		require.True(t, ok1)
+		assert.Equal(t, "base-obs-1", o0.tag)
+		assert.Equal(t, "cand-obs-1", o1.tag)
+	})
+
+	t.Run("map_fallback_storage", func(t *testing.T) {
+		t.Parallel()
+
+		dst := feature.NewContributionSet()
+		require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+			freezeTestCompactionObserver{tag: "base-obs-1"},
+		}))
+
+		candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+			map[string]any{
+				feature.PlaneCompactionObservers.ID: []compaction.Observer{
+					freezeTestCompactionObserver{tag: "cand-map-obs-1"},
+				},
+			},
+			nil,
+		)
+
+		err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+		require.NoError(t, err)
+
+		frozen := dst.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+		o0, ok0 := obs[0].(freezeTestCompactionObserver)
+		o1, ok1 := obs[1].(freezeTestCompactionObserver)
+		require.True(t, ok0)
+		require.True(t, ok1)
+		assert.Equal(t, "base-obs-1", o0.tag)
+		assert.Equal(t, "cand-map-obs-1", o1.tag)
+	})
+}
+
+// TestContributeCandidateTo_GeneratedStorage_CompactionObservers_AtomicRollback verifies that if candidate projection
+// in generated storage encounters a validation failure on a later candidate plane, earlier valid compaction observers are rolled back.
+func TestContributeCandidateTo_GeneratedStorage_CompactionObservers_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+		freezeTestCompactionObserver{tag: "base-obs"},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid CompactionObservers and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenCompactionCandidateForTest(
+		[]compaction.Observer{
+			freezeTestCompactionObserver{tag: "cand-obs"},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributeCandidateTo_MapFallback_CompactionObservers_WrongDynamicType verifies that wrong dynamic type
+// on compaction_observers in map fallback returns ErrInvalidContribution and leaves destination unchanged.
+func TestContributeCandidateTo_MapFallback_CompactionObservers_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneCompactionObservers, "base-plugin", []compaction.Observer{
+		freezeTestCompactionObserver{tag: "base-obs"},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneCompactionObservers.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneCompactionObservers.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []compaction.Observer")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+// TestContributionSet_BindCompactionPreservers_GenerationBinderSemantics verifies the complete
+// generation-binder semantics for PlaneCompactionPreservers.
+func TestContributionSet_BindCompactionPreservers_GenerationBinderSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("replace_by_identity_replaces_matching_official_and_moves_to_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Initial contributions from features
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		// Generation binder replaces official-continuity
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("no_prior_matching_appends_to_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("multiple_duplicates_all_stripped_and_replaced_at_end", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 3)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "custom-b", preservers[1].ID())
+		assert.Equal(t, "official-continuity", preservers[2].ID())
+	})
+
+	t.Run("repeated_bindings_are_idempotent", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+		require.NoError(t, s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial}))
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 2)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.Equal(t, "official-continuity", preservers[1].ID())
+	})
+
+	t.Run("panic_safety_during_identity_extraction", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{
+			freezeTestCompactionPreserver{id: "custom-a"},
+			freezeTestPanicPreserver{panicVal: "deliberate panic"},
+			freezeTestCompactionPreserver{id: "official-continuity"},
+			freezeTestCompactionPreserver{id: "custom-b"},
+		})
+		require.NoError(t, err)
+
+		boundOfficial := freezeTestCompactionPreserver{id: "official-continuity"}
+		err = s.BindCompactionPreservers("official-continuity", []compaction.Preserver{boundOfficial})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		preservers := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, preservers, 4)
+		assert.Equal(t, "custom-a", preservers[0].ID())
+		assert.IsType(t, freezeTestPanicPreserver{}, preservers[1])
+		assert.Equal(t, "custom-b", preservers[2].ID())
+		assert.Equal(t, "official-continuity", preservers[3].ID())
+	})
+
+	t.Run("compaction_observers_exact_historical_nil_semantics", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Nil slice is accepted
+		err := feature.Contribute(s, feature.PlaneCompactionObservers, "p1", nil)
+		require.NoError(t, err)
+
+		// Slice with literal nil is accepted
+		err = feature.Contribute(s, feature.PlaneCompactionObservers, "p2", []compaction.Observer{nil})
+		require.NoError(t, err)
+
+		// Slice with boxed typed nil is accepted
+		var typedNil *freezeTestCompactionObserver
+		err = feature.Contribute(s, feature.PlaneCompactionObservers, "p3", []compaction.Observer{typedNil})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		obs := feature.Get(frozen, feature.PlaneCompactionObservers)
+		require.Len(t, obs, 2)
+	})
+
+	t.Run("compaction_preservers_exact_historical_nil_semantics", func(t *testing.T) {
+		t.Parallel()
+		s := feature.NewContributionSet()
+
+		// Nil slice is accepted on feature contribution
+		err := feature.Contribute(s, feature.PlaneCompactionPreservers, "p1", nil)
+		require.NoError(t, err)
+
+		// Slice with literal nil is rejected by Validate
+		err = feature.Contribute(s, feature.PlaneCompactionPreservers, "p2", []compaction.Preserver{nil})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, feature.ErrInvalidContribution)
+		assert.Contains(t, err.Error(), "CompactionPreservers[0] must not be nil")
+
+		// Slice with boxed typed nil is accepted (historical FeatureBundle.Validate checked p == nil only)
+		var typedNil *freezeTestCompactionPreserver
+		err = feature.Contribute(s, feature.PlaneCompactionPreservers, "p3", []compaction.Preserver{typedNil})
+		require.NoError(t, err)
+
+		frozen := s.Freeze()
+		pres := feature.Get(frozen, feature.PlaneCompactionPreservers)
+		require.Len(t, pres, 1)
+	})
+}
+
+func TestContributeCandidateTo_GeneratedStorage_LocalTurnHandlers(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt-1", ord: 10},
+	}))
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneLocalTurnHandlers, "cand-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "cand-lt-1", ord: 20},
+	}))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	handlers := feature.Get(frozen, feature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	assert.Equal(t, "base-lt-1", handlers[0].ID())
+	assert.Equal(t, "cand-lt-1", handlers[1].ID())
+}
+
+func TestContributeCandidateTo_MapFallback_LocalTurnHandlers(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt-1", ord: 10},
+	}))
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneLocalTurnHandlers.ID: []localturn.Handler{
+				freezeTestLocalTurnHandler{id: "cand-map-lt-1", ord: 20},
+			},
+		},
+		nil,
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	handlers := feature.Get(frozen, feature.PlaneLocalTurnHandlers)
+	require.Len(t, handlers, 2)
+	assert.Equal(t, "base-lt-1", handlers[0].ID())
+	assert.Equal(t, "cand-map-lt-1", handlers[1].ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_LocalTurnHandlers_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid LocalTurnHandlers and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenLocalTurnCandidateForTest(
+		[]localturn.Handler{
+			freezeTestLocalTurnHandler{id: "cand-lt", ord: 20},
+		},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_LocalTurnHandlers_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneLocalTurnHandlers.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneLocalTurnHandlers.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected []localturn.Handler")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-term-1"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	provider := feature.Get(frozen, feature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, provider)
+	assert.Equal(t, "cand-term-1", provider.ID())
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-term-1", id)
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_ExclusiveConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "base-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-term"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"base-term" and "cand-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+	assert.Equal(t, "base-term", feature.Get(afterFreeze, feature.PlaneTerminalDecisionProvider).ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_SameIDConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "same-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "same-term"})))
+	candFrozen := candSrc.Freeze()
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"same-term" and "same-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-map-term-1"}),
+		},
+		map[string]string{
+			feature.PlaneTerminalDecisionProvider.ID: "cand-map-term-1",
+		},
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.NoError(t, err)
+
+	frozen := dst.Freeze()
+	provider := feature.Get(frozen, feature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, provider)
+	assert.Equal(t, "cand-map-term-1", provider.ID())
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-map-term-1", id)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider_ExclusiveConflict(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(freezeTestTerminalProvider{id: "base-map-term"})))
+
+	beforeFreeze := dst.Freeze()
+
+	candFrozenMap := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: terminaldecision.Provider(freezeTestTerminalProvider{id: "cand-map-term"}),
+		},
+		map[string]string{
+			feature.PlaneTerminalDecisionProvider.ID: "cand-map-term",
+		},
+	)
+
+	err := candFrozenMap.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	assert.Contains(t, err.Error(), `"base-map-term" and "cand-map-term"`)
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+	assert.Equal(t, "base-map-term", feature.Get(afterFreeze, feature.PlaneTerminalDecisionProvider).ID())
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_AtomicRollback(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	// Malformed candidate with valid TerminalDecisionProvider and invalid AttemptTransforms (nil entry fails Validate)
+	malformedCand := feature.NewMalformedGeneratedFrozenTerminalDecisionCandidateForTest(
+		freezeTestTerminalProvider{id: "cand-term"},
+		[]request.AttemptTransform{
+			nil, // Invalid nil AttemptTransform
+		},
+	)
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneAttemptTransforms.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "must not be nil")
+
+	// Destination must remain completely unchanged across all planes and identities (rollback)
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestContributeCandidateTo_MapFallback_TerminalDecisionProvider_WrongDynamicType(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+
+	beforeFreeze := dst.Freeze()
+
+	malformedMapCand := feature.NewFrozenPlaneSetFromMapForTest(
+		map[string]any{
+			feature.PlaneTerminalDecisionProvider.ID: "WRONG_DYNAMIC_TYPE_STRING",
+		},
+		nil,
+	)
+
+	err := malformedMapCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "expected terminaldecision.Provider")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+type freezeTestSealingTerminalDecisionProvider struct {
+	id     string
+	calls  atomic.Int32
+	sealed atomic.Bool
+}
+
+func (p *freezeTestSealingTerminalDecisionProvider) ID() string {
+	if p.sealed.Load() {
+		panic("ID() called after sealing")
+	}
+	p.calls.Add(1)
+	return p.id
+}
+
+func (p *freezeTestSealingTerminalDecisionProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop}, nil
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_NoIDCallAfterFreeze_Success(t *testing.T) {
+	t.Parallel()
+
+	prov := &freezeTestSealingTerminalDecisionProvider{id: "cand-sealed"}
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(prov)))
+	candFrozen := candSrc.Freeze()
+
+	idCallsBefore := prov.calls.Load()
+	require.Greater(t, idCallsBefore, int32(0))
+
+	// Provider is sealed: any subsequent ID() call will panic.
+	prov.sealed.Store(true)
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate"))
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "candidate merge must not invoke ID()")
+
+	frozenDst := dst.Freeze()
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "freeze must not invoke ID() on merged plane")
+	assert.Equal(t, prov, feature.Get(frozenDst, feature.PlaneTerminalDecisionProvider))
+	id, hasID := feature.FrozenIdentity(frozenDst, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "cand-sealed", id)
+	assert.Equal(t, idCallsBefore, prov.calls.Load(), "FrozenIdentity must read stored identity without calling ID()")
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_NoIDCallAfterFreeze_Conflict(t *testing.T) {
+	t.Parallel()
+
+	provCand := &freezeTestSealingTerminalDecisionProvider{id: "cand-sealed"}
+	candSrc := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(candSrc, feature.PlaneTerminalDecisionProvider, "cand-plugin", terminaldecision.Provider(provCand)))
+	candFrozen := candSrc.Freeze()
+
+	idCallsBeforeCand := provCand.calls.Load()
+	provCand.sealed.Store(true)
+
+	provBase := &freezeTestSealingTerminalDecisionProvider{id: "base-provider"}
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "base-plugin", terminaldecision.Provider(provBase)))
+	idCallsBeforeBase := provBase.calls.Load()
+	provBase.sealed.Store(true)
+
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrExclusiveConflict)
+	require.ErrorIs(t, err, feature.ErrTerminalDecisionProviderConflict)
+	assert.Contains(t, err.Error(), `"base-provider" and "cand-sealed"`)
+
+	assert.Equal(t, idCallsBeforeCand, provCand.calls.Load(), "conflict check must use candidate frozen ID without calling ID()")
+	assert.Equal(t, idCallsBeforeBase, provBase.calls.Load(), "conflict check must use destination frozen ID without calling ID()")
+}
+
+func TestContributeCandidateTo_GeneratedStorage_TerminalDecisionProvider_MissingFrozenIdentity(t *testing.T) {
+	t.Parallel()
+
+	prov := &freezeTestSealingTerminalDecisionProvider{id: "malformed-provider"}
+	malformedCand := feature.NewMalformedGeneratedFrozenTerminalDecisionMissingIdentityForTest(prov)
+
+	dst := feature.NewContributionSet()
+	require.NoError(t, feature.Contribute(dst, feature.PlaneLocalTurnHandlers, "base-plugin", []localturn.Handler{
+		freezeTestLocalTurnHandler{id: "base-lt", ord: 10},
+	}))
+	beforeFreeze := dst.Freeze()
+
+	err := malformedCand.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	require.Error(t, err)
+
+	var attrErr *feature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	assert.Equal(t, "candidate", attrErr.PluginID)
+	assert.Equal(t, feature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.ErrorIs(t, err, feature.ErrInvalidContribution)
+	assert.Contains(t, err.Error(), "frozen exclusive identity is missing")
+
+	afterFreeze := dst.Freeze()
+	assertFrozenPlaneSetsEqual(t, beforeFreeze, afterFreeze)
+}
+
+func TestTerminalDecisionProvider_ExactAttributedErrorStringAndErrorsIs(t *testing.T) {
+	t.Parallel()
+
+	dst := feature.NewContributionSet()
+	provA := &freezeTestSealingTerminalDecisionProvider{id: "provider-a"}
+	provB := &freezeTestSealingTerminalDecisionProvider{id: "provider-b"}
+	require.NoError(t, feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-a-plugin", terminaldecision.Provider(provA)))
+
+	err := feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-b-plugin", terminaldecision.Provider(provB))
+	require.Error(t, err)
+
+	expectedErrStr := "feature: plugin \"provider-b-plugin\" plane \"terminal_decision_provider\": feature: exclusive slot conflict\nfeaturebundle: terminal-decision provider conflict: \"provider-a\" and \"provider-b\""
+	assert.Equal(t, expectedErrStr, err.Error())
+	require.True(t, errors.Is(err, feature.ErrExclusiveConflict))
+	require.True(t, errors.Is(err, feature.ErrTerminalDecisionProviderConflict))
+
+	var attributed *feature.AttributedError
+	require.True(t, errors.As(err, &attributed))
+	assert.Equal(t, "provider-b-plugin", attributed.PluginID)
+	assert.Equal(t, "terminal_decision_provider", attributed.PlaneID)
+
+	// Second same-ID contribution is also rejected
+	errSame := feature.Contribute(dst, feature.PlaneTerminalDecisionProvider, "provider-b-plugin", terminaldecision.Provider(provA))
+	require.Error(t, errSame)
+	require.True(t, errors.Is(errSame, feature.ErrExclusiveConflict))
+	require.True(t, errors.Is(errSame, feature.ErrTerminalDecisionProviderConflict))
+
+	// Destination remains provider A
+	frozen := dst.Freeze()
+	assert.Equal(t, provA, feature.Get(frozen, feature.PlaneTerminalDecisionProvider))
+	id, hasID := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
+	assert.True(t, hasID)
+	assert.Equal(t, "provider-a", id)
+}
+
+func TestFreezeRequestPlanes_panicsOnNilAttemptTransform(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil AttemptTransform")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "AttemptTransforms contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenCandidateForTest(nil, []request.AttemptTransform{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
+}
+
+func TestFreezeRequestPlanes_panicsOnNilStreamObserverFactory(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil StreamObserverFactory")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "StreamObserverFactories contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenStreamObserversCandidateForTest([]response.StreamObserverFactory{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -13,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -57,6 +59,14 @@ type projTerminalProvider struct{ tag string }
 
 func (p projTerminalProvider) ID() string { return p.tag }
 
+type projFinalizer struct{ id string }
+
+func (f projFinalizer) ID() string { return f.id }
+func (projFinalizer) Order() int   { return 0 }
+func (projFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{}, nil
+}
+
 func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
@@ -65,14 +75,21 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 // projection tests observe.
 func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
 	t.Helper()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		ToolCatalogFilters: []toolcatalog.Filter{projCatalogFilter{id: "filter"}},
-		RequestTransforms:  []request.Transform{projTransform{tag: "transform"}},
-		TrafficObservers:   []traffic.Observer{projTrafficObs{tag: "feat-traffic"}},
-		UsageObservers:     []usage.Observer{projUsageObs{tag: "feat-usage"}},
-		LocalTurnHandlers:  []localturn.Handler{wiringHandler{id: "handler", ord: 1}},
-	}
+	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "feat", []toolcall.Finalizer{projFinalizer{id: "finalizer"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "feat", []request.Transform{projTransform{tag: "transform"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "feat", []traffic.Observer{projTrafficObs{tag: "feat-traffic"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "feat", []usage.Observer{projUsageObs{tag: "feat-usage"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feat", []localturn.Handler{wiringHandler{id: "handler", ord: 1}})
+	}, nil)
 	m := featurebundle.MergeBundles(b)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
@@ -110,28 +127,19 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 		t.Parallel()
 		merged, gen := projMerged(t)
 		ext := extensionsFromMerged(merged, gen, nil)
-		require.Len(t, ext.ToolCatalogFilters, len(merged.ToolCatalogFilters))
-		require.Len(t, ext.LocalTurnHandlers, len(merged.LocalTurnHandlers))
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers), 1)
+		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers), 1)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
-		assert.Equal(t, "filter", ext.ToolCatalogFilters[0].ID())
-		assert.Equal(t, "handler", ext.LocalTurnHandlers[0].ID())
+		assert.Equal(t, "finalizer", lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)[0].ID())
+		assert.Equal(t, "handler", lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)[0].ID())
+		_ = ext
 	})
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
-		merged := featurebundle.MergedFeatureSurface{
-			ToolCatalogFilters: []toolcatalog.Filter{},
-			LocalTurnHandlers:  []localturn.Handler{},
-		}
+		merged := featurebundle.MergedFeatureSurface{}
 		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
-		for name, got := range map[string]any{
-			"ToolCatalogFilters": ext.ToolCatalogFilters,
-			"LocalTurnHandlers":  ext.LocalTurnHandlers,
-		} {
-			rv := reflect.ValueOf(got)
-			require.False(t, rv.IsNil(), "%s must stay non-nil empty", name)
-			require.Zero(t, rv.Len(), "%s must stay empty", name)
-		}
+		assertAllSliceFieldsNil(t, ext)
 	})
 }
 
@@ -141,16 +149,16 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) {
 	t.Parallel()
 
-	merged, gen := projMerged(t)
-	ext := extensionsFromMerged(merged, gen, nil)
+	_, gen := projMerged(t)
+	ltFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	require.Len(t, ltFrozen, 1)
+	require.Equal(t, "handler", ltFrozen[0].ID())
 
-	ext.LocalTurnHandlers[0] = wiringHandler{id: "mutated", ord: 1}
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, toFrozen, 1)
 	trafficObs, trafficObsOK := toFrozen[0].(projTrafficObs)
 	require.True(t, trafficObsOK)
 	require.Equal(t, "feat-traffic", trafficObs.tag)
-	require.Equal(t, "handler", merged.LocalTurnHandlers[0].ID())
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uoFrozen, 1)
@@ -164,19 +172,21 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}},
-		UsageObservers:   []usage.Observer{projUsageObs{tag: "feat-u"}},
-	}
+	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "feat", []traffic.Observer{projTrafficObs{tag: "feat-1"}, projTrafficObs{tag: "feat-2"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "feat", []usage.Observer{projUsageObs{tag: "feat-u"}})
+	}, nil)
 
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, featurebundle.ContributeBundle(cs, "feat", b))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "host", lipfeature.FeatureBundle{
-		SchemaVersion:    lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{projTrafficObs{tag: "host-1"}},
-		UsageObservers:   []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}},
-	}))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "host", testkit.FeatureBundle(t, "host", func(csHost *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(csHost, lipfeature.PlaneTrafficObservers, "host", []traffic.Observer{projTrafficObs{tag: "host-1"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(csHost, lipfeature.PlaneUsageObservers, "host", []usage.Observer{projUsageObs{tag: "host-u"}, projUsageObs{tag: "host-u2"}})
+	}, nil)))
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
 	trafficFromFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
@@ -201,58 +211,4 @@ func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneTrafficObservers), 2)
 	require.Len(t, lipfeature.Get(genFeatOnly.Frozen, lipfeature.PlaneUsageObservers), 1)
-}
-
-// Pins overlayExtensions legacy semantics: source contributions append after
-// destination contributions per plane, the finalizer-cap scalar uses
-// overwrite-if-positive (NOT min-reduce), and exclusive slots are first-wins.
-func TestOverlayExtensions_appendOrderAndScalarOverrideRules(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "d-open"}},
-		ToolCallFinalizationMaxArgsBytes: 4096,
-	}
-	src := ExtensionsOptions{
-		ToolCatalogFilters:               []toolcatalog.Filter{projCatalogFilter{id: "s-open"}},
-		ToolCallFinalizationMaxArgsBytes: 1024,
-	}
-
-	overlayExtensions(dst, src)
-	require.Equal(t, []string{"d-open", "s-open"},
-		[]string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
-
-	tests := []struct {
-		name string
-		dstV int
-		srcV int
-		want int
-	}{
-		{"src_zero_keeps_dst", 4096, 0, 4096},
-		{"src_positive_overwrites_larger_dst", 8192, 1024, 1024},
-		{"src_positive_overwrites_smaller_dst", 1024, 8192, 8192},
-		{"both_zero", 0, 0, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := &ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.dstV}
-			overlayExtensions(d, ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.srcV})
-			require.Equal(t, tt.want, d.ToolCallFinalizationMaxArgsBytes)
-		})
-	}
-
-	t.Run("terminal_decision_slot_is_first_wins", func(t *testing.T) {
-		t.Parallel()
-		firstProv := projTerminalProvider{tag: "first-provider"}
-		secondProv := projTerminalProvider{tag: "second-provider"}
-		dstWithFirst := &ExtensionsOptions{TerminalDecisionProvider: firstProv}
-		srcWithSecond := ExtensionsOptions{TerminalDecisionProvider: secondProv}
-		overlayExtensions(dstWithFirst, srcWithSecond)
-		require.Equal(t, firstProv, dstWithFirst.TerminalDecisionProvider)
-
-		emptyDst := &ExtensionsOptions{}
-		overlayExtensions(emptyDst, srcWithSecond)
-		require.Equal(t, secondProv, emptyDst.TerminalDecisionProvider)
-	})
 }

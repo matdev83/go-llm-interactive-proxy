@@ -101,7 +101,9 @@ type turnTerminal struct {
 	// terminalDecisionProvider is generation-owned when wired by the
 	// composition root. It remains nil until provider projection is implemented;
 	// the evaluator's nil fast path preserves existing behavior.
-	terminalDecisionProvider terminaldecision.Provider
+	terminalDecisionProvider      terminaldecision.Provider
+	terminalDecisionProviderID    string
+	terminalDecisionProviderHasID bool
 	// terminalDecisionAuxiliary is captured once from the immutable request
 	// snapshot and copied into every terminal-decision input for this turn.
 	terminalDecisionAuxiliary      auxiliary.Client
@@ -184,6 +186,8 @@ func newTurnTerminalWithSharedALeg(parent *turnTerminal) *turnTerminal {
 		terminal.conversationReader = parent.conversationReader
 		terminal.conversationObserver = parent.conversationObserver
 		terminal.terminalDecisionProvider = parent.terminalDecisionProvider
+		terminal.terminalDecisionProviderID = parent.terminalDecisionProviderID
+		terminal.terminalDecisionProviderHasID = parent.terminalDecisionProviderHasID
 		terminal.terminalDecisionAuxiliary = parent.terminalDecisionAuxiliary
 		terminal.terminalDecisionAuxiliaryBound = parent.terminalDecisionAuxiliaryBound
 		terminal.continuationTransaction = parent.continuationTransaction
@@ -352,6 +356,10 @@ func (t *turnTerminal) terminalizeTurn(ctx context.Context, cmd sdkterminal.Comm
 func (t *turnTerminal) terminalizeTurnWithDecision(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, cmd sdkterminal.Command, attempt *attemptSession) coreterm.Result {
 	if t == nil || t.request == nil {
 		return coreterm.Result{Err: sdkterminal.ErrInvalid}
+	}
+	if provider != nil && !t.terminalDecisionProviderHasID {
+		t.terminalDecisionProviderID = provider.ID()
+		t.terminalDecisionProviderHasID = true
 	}
 	snapshot := coreterm.NewAccumulatorSnapshot(nil, input.Candidate.OutputCommitted)
 	evidence := attemptEvidence{

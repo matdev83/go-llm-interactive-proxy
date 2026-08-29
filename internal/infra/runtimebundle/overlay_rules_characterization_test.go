@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -157,19 +156,6 @@ func (overSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 	return sdk.Decision{Outcome: sdk.OutcomePass}, nil
 }
 
-type overLocalTurnHandler struct{ tag string }
-
-func (h overLocalTurnHandler) ID() string                      { return h.tag }
-func (overLocalTurnHandler) Order() int                        { return 0 }
-func (overLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
-func (overLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
-	return localturn.MatchResult{}, nil
-}
-
-func (overLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
-	return localturn.Reply{}, nil
-}
-
 type overTerminalProvider struct{ tag string }
 
 func (p overTerminalProvider) ID() string { return p.tag }
@@ -197,118 +183,6 @@ func (e overEnv) Lookup(name string) (string, bool) { return e.tag, true }
 func (e overEnv) Snapshot() []string                { return []string{"TAG=" + e.tag} }
 
 // --- Acceptance Criteria 1 & 3: Overlay Finalizer Cap Overwrite Rule ---
-
-// TestOverlayExtensions_FinalizerCapOverwriteIfPositiveDivergence pins requirement 4.4, 5.1:
-// - Overlay uses overwrite-if-positive (NOT min-reduction).
-// - If src has a positive value, it overwrites dst regardless of whether src is smaller OR LARGER than dst.
-// - If src is zero or negative, dst remains unchanged.
-func TestOverlayExtensions_FinalizerCapOverwriteIfPositiveDivergence(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		dstV int
-		srcV int
-		want int
-	}{
-		{"both_zero", 0, 0, 0},
-		{"dst_zero_src_positive", 0, 2048, 2048},
-		{"src_zero_keeps_dst", 4096, 0, 4096},
-		{"src_positive_overwrites_larger_dst", 8192, 1024, 1024},
-		{"src_positive_overwrites_smaller_dst_divergence", 1024, 8192, 8192}, // Divergence from merge min-reduction!
-		{"equal_values", 2048, 2048, 2048},
-		{"src_negative_ignored", 2048, -1, 2048},
-		{"both_zero_or_negative", 0, -1, 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			dst := &ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.dstV}
-			src := ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: tt.srcV}
-			overlayExtensions(dst, src)
-			require.Equal(t, tt.want, dst.ToolCallFinalizationMaxArgsBytes)
-		})
-	}
-}
-
-// --- Acceptance Criteria 2 & 3: Overlay Terminal Decision Provider First-Wins ---
-
-// TestOverlayExtensions_TerminalDecisionFirstWins pins requirement 1.2, 4.2, 5.1:
-// - In overlayExtensions, the terminal-decision provider slot is FIRST-WINS (unlike merge path which errors on conflict).
-// - If dst already has a provider, src is ignored and no error is raised.
-// - If dst is nil, src provider occupies the slot.
-func TestOverlayExtensions_TerminalDecisionFirstWins(t *testing.T) {
-	t.Parallel()
-
-	provA := overTerminalProvider{tag: "prov-a"}
-	provB := overTerminalProvider{tag: "prov-b"}
-
-	t.Run("dst_has_provider_src_has_different_provider_first_wins", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider, "first provider must win; second is silently dropped")
-	})
-
-	t.Run("dst_nil_src_has_provider", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{TerminalDecisionProvider: provB}
-		overlayExtensions(dst, src)
-		require.Equal(t, provB, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("dst_has_provider_src_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{TerminalDecisionProvider: provA}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Equal(t, provA, dst.TerminalDecisionProvider)
-	})
-
-	t.Run("both_nil", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{}
-		src := ExtensionsOptions{}
-		overlayExtensions(dst, src)
-		require.Nil(t, dst.TerminalDecisionProvider)
-	})
-}
-
-// --- Acceptance Criteria 3: Remaining 12 Handled Slice Planes Append Order ---
-
-// TestOverlayExtensions_AllSlicePlanesAppendOrder pins requirement 1.1, 5.1:
-// - For remaining 12 slice planes handled by overlayExtensions (W3-W5), source elements append after destination elements in registration order.
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors) are omitted and handled via generated plane adapters.
-func TestOverlayExtensions_AllSlicePlanesAppendOrder(t *testing.T) {
-	t.Parallel()
-
-	dst := &ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "d-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "d-pol"}},
-		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "d-fin"}},
-		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "d-guard"}},
-		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "d-local"}},
-	}
-
-	src := ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{overCatalogFilter{tag: "s-filter"}},
-		ToolCallPolicies:   []toolpolicy.Policy{overPolicy{tag: "s-pol"}},
-		ToolCallFinalizers: []toolcall.Finalizer{overFinalizer{tag: "s-fin"}},
-		SecretGuards:       []sdk.Guard{overSecretGuard{tag: "s-guard"}},
-		LocalTurnHandlers:  []localturn.Handler{overLocalTurnHandler{tag: "s-local"}},
-	}
-
-	overlayExtensions(dst, src)
-
-	require.Equal(t, []string{"d-filter", "s-filter"}, []string{dst.ToolCatalogFilters[0].ID(), dst.ToolCatalogFilters[1].ID()})
-	require.Equal(t, []string{"d-pol", "s-pol"}, []string{dst.ToolCallPolicies[0].ID(), dst.ToolCallPolicies[1].ID()})
-	require.Equal(t, []string{"d-fin", "s-fin"}, []string{dst.ToolCallFinalizers[0].ID(), dst.ToolCallFinalizers[1].ID()})
-	require.Equal(t, []string{"d-guard", "s-guard"}, []string{dst.SecretGuards[0].ID(), dst.SecretGuards[1].ID()})
-	require.Equal(t, []string{"d-local", "s-local"}, []string{dst.LocalTurnHandlers[0].ID(), dst.LocalTurnHandlers[1].ID()})
-}
 
 // --- Acceptance Criteria 3: Host Capability Overwrite-If-Non-Nil ---
 
@@ -359,24 +233,11 @@ func TestOverlayExtensions_SecretGuardHostCapabilitiesOverwriteIfNonNil(t *testi
 // --- Acceptance Criteria 3: Omitted Fields Characterization ---
 
 // TestOverlayExtensions_OmittedFieldsBehavior pins omitted fields:
-// - CompactionObservers: present on ExtensionsOptions, but overlayExtensions does not append it (dst keeps dst only, src ignored).
 // - SecretGuardInputs: present on ExtensionsOptions, but overlayExtensions does not touch it (no copy/overlay logic).
-// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors): omitted from overlayExtensions.
-// - CompactionPreservers: present on MergedFeatureSurface, NOT on ExtensionsOptions.
+// - Migrated observer families (TrafficObservers, UsageObservers, RawCaptureSinks, TrafficRedactors, CompactionObservers): omitted from overlayExtensions.
+// - CompactionPreservers: handled via generated plane adapters, NOT on ExtensionsOptions.
 func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 	t.Parallel()
-
-	t.Run("compaction_observers_is_omitted_from_overlay", func(t *testing.T) {
-		t.Parallel()
-		dst := &ExtensionsOptions{
-			CompactionObservers: []compaction.Observer{overCompactionObs{tag: "d-comp"}},
-		}
-		src := ExtensionsOptions{
-			CompactionObservers: []compaction.Observer{overCompactionObs{tag: "s-comp"}},
-		}
-		overlayExtensions(dst, src)
-		require.Len(t, dst.CompactionObservers, 1, "CompactionObservers is omitted from overlay and not appended")
-	})
 
 	t.Run("secret_guard_inputs_is_omitted_from_overlay", func(t *testing.T) {
 		t.Parallel()
@@ -400,7 +261,7 @@ func TestOverlayExtensions_OmittedFieldsBehavior(t *testing.T) {
 func TestOverlayExtensions_NilSafety(t *testing.T) {
 	t.Parallel()
 	require.NotPanics(t, func() {
-		overlayExtensions(nil, ExtensionsOptions{ToolCallFinalizationMaxArgsBytes: 1024})
+		overlayExtensions(nil, ExtensionsOptions{})
 	})
 }
 

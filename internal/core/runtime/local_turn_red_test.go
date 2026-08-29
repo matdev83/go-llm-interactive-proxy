@@ -145,7 +145,11 @@ func newLocalExecutor(t *testing.T, tagger *fakeTagger, handlers []localturn.Han
 	ex.Rand = nil
 	ex.Now = func() time.Time { return time.Unix(3000, 0) }
 	// inject handlers via snapshot
-	snapOpts := extensions.SnapshotOptions{LocalTurnHandlers: handlers}
+	snapOpts := extensions.SnapshotOptions{
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			LocalTurnHandlers: handlers,
+		}),
+	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, snapOpts)
 	return ex, st, ""
 }
@@ -618,7 +622,11 @@ func TestLocalTurn_TaggerUnavailableFailsDeterministically(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.ConversationViewTagger = nil
 	ex.ConversationViewReader = nil
-	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{LocalTurnHandlers: []localturn.Handler{h}})
+	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			LocalTurnHandlers: []localturn.Handler{h},
+		}),
+	})
 	ex.Now = func() time.Time { return time.Unix(3000, 0) }
 	call := &lipapi.Call{Route: lipapi.RouteIntent{Selector: "openai:gpt-4"}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
 	_, _, _, err := ex.prepareRequest(execDetachedCtx(context.Background()), call)
@@ -670,7 +678,11 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			ex.ConversationViewTagger = capturing
 			// Reader left nil => executor resolves via AsReader(Store) to same MemoryStore, proving real store path.
 			ex.ConversationViewReader = nil
-			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{LocalTurnHandlers: []localturn.Handler{h}})
+			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
+				FeaturePlanes: freezeBundle(testFeatureBundle{
+					LocalTurnHandlers: []localturn.Handler{h},
+				}),
+			})
 			ex.Now = func() time.Time { return time.Unix(3000, 0) }
 			ex.Backends = map[string]execbackend.Backend{
 				"openai": {

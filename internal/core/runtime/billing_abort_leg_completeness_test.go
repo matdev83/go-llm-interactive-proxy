@@ -123,7 +123,9 @@ func TestAssembleAbortAfterOpenAppendsTerminalLegForJoin(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(1)
 	wireAbortBilling(ex, capture)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+		}),
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"ok": {

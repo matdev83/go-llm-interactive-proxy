@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -117,38 +118,41 @@ func (benchTerminalProvider) Decide(context.Context, terminaldecision.Input) (te
 // all seam-view families.
 func newBenchPopulatedSnapshot() *extensions.RequestRuntimeSnapshot {
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "bench", []completion.Gate{
+		benchGate{id: "gate-1"},
+		benchGate{id: "gate-2"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTrafficRedactors, "bench", []sdktraffic.Redactor{
+		benchTrafficRed{id: "red-1"},
+		benchTrafficRed{id: "red-2"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneStreamObserverFactories, "bench", []response.StreamObserverFactory{
+		benchStreamObsFactory{id: "stream-1"},
+		benchStreamObsFactory{id: "stream-2"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompactionObservers, "bench", []compaction.Observer{
+		benchCompactionObs{},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompactionPreservers, "bench", []compaction.Preserver{
+		benchCompactionPreserver{id: "cp-1"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSecretGuards, "bench", []secretguard.Guard{
+		benchSecretGuard{id: "sg-1"},
+		benchSecretGuard{id: "sg-2"},
+	})
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneTerminalDecisionProvider, "bench", terminaldecision.Provider(benchTerminalProvider{id: "term-1"}))
+
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{
-			benchGate{id: "gate-1"},
-			benchGate{id: "gate-2"},
-		},
 		TrafficObserver: benchTrafficObs{},
 		RawCapture:      benchRawCapture{},
-		TrafficRedactors: []sdktraffic.Redactor{
-			benchTrafficRed{id: "red-1"},
-			benchTrafficRed{id: "red-2"},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			benchStreamObsFactory{id: "stream-1"},
-			benchStreamObsFactory{id: "stream-2"},
-		},
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{
-				benchSecretGuard{id: "sg-1"},
-				benchSecretGuard{id: "sg-2"},
-			},
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 			AccessMode:         "enforcing",
 			ConfigVersion:      "v1",
 		},
-		CompactionObservers: []compaction.Observer{
-			benchCompactionObs{},
-		},
-		CompactionPreservers: []compaction.Preserver{
-			benchCompactionPreserver{id: "cp-1"},
-		},
-		TerminalDecisionProvider: benchTerminalProvider{id: "term-1"},
-		Generation:               1,
+		FeaturePlanes: cset.Freeze(),
+		Generation:    1,
 	})
 }
 
@@ -253,8 +257,10 @@ func BenchmarkCompletionGatesFromContext_fallbackNilGates_empty(b *testing.B) {
 // BenchmarkCompletionGatesFromContext_withGates measures fallback with gates configured.
 func BenchmarkCompletionGatesFromContext_withGates(b *testing.B) {
 	ctx := b.Context()
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneCompletionGates, "bench", []completion.Gate{benchGate{id: "g"}})
 	fallback := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{benchGate{id: "g"}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	b.ReportAllocs()
 	for b.Loop() {

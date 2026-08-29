@@ -184,26 +184,9 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "char-done"}, nil
 }
 
-// buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
+// buildBundleExtensions creates an ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
-	return runtimebundle.ExtensionsOptions{
-		ToolCatalogFilters: []toolcatalog.Filter{
-			charBundleToolCatalogFilter{id: label + "-catalog"},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			charBundleToolCallPolicy{id: label + "-policy", ord: int(gen)},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			charBundleToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
-		},
-		SecretGuards: []secretguard.Guard{
-			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
-		},
-		LocalTurnHandlers: []localturn.Handler{
-			charBundleLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
-		},
-		TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
-	}
+	return runtimebundle.ExtensionsOptions{}
 }
 
 func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices {
@@ -215,27 +198,64 @@ func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices 
 		}
 		_ = n.Decode(&cfg)
 		label := cfg.Label
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SessionOpeners: []session.Opener{
+		return testkit.FeatureBundle(t, "char-bundle-feature", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, label+"-terminal", terminaldecision.Provider(&charBundleTerminalProvider{id: label + "-terminal"})); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "char-bundle-feature", []localturn.Handler{
+				charBundleLocalTurnHandler{id: label + "-localturn", ord: 0},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "char-bundle-feature", []session.Opener{
 				charBundleSessionOpener{id: label + "-session"},
-			},
-			RequestTransforms: []request.Transform{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "char-bundle-feature", []toolcatalog.Filter{
+				charBundleToolCatalogFilter{id: label + "-catalog"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "char-bundle-feature", []toolpolicy.Policy{
+				charBundleToolCallPolicy{id: label + "-policy"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "char-bundle-feature", []toolcall.Finalizer{
+				charBundleToolCallFinalizer{id: label + "-finalizer"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "char-bundle-feature", []request.Transform{
 				charBundleRequestTransform{id: label + "-reqxform"},
-			},
-			PreRequestHandlers: []prerequest.Handler{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "char-bundle-feature", []prerequest.Handler{
 				charBundlePreRequestHandler{id: label + "-prereq"},
-			},
-			RouteHintProviders: []routehint.Provider{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "char-bundle-feature", []routehint.Provider{
 				charBundleRouteHintProvider{id: label + "-routehint"},
-			},
-			CompletionGates: []completion.Gate{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "char-bundle-feature", []completion.Gate{
 				charBundleCompletionGate{id: label + "-gate"},
-			},
-			AttemptTransforms: []request.AttemptTransform{
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-bundle-feature", []request.AttemptTransform{
 				charBundleAttemptTransform{id: label + "-attxform"},
-			},
-		}, nil
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "char-bundle-feature", []secretguard.Guard{
+				charBundleSecretGuard{id: label + "-sg", ord: 0},
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 	cfg := processBaseConfig()

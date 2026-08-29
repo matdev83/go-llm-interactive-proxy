@@ -6,7 +6,8 @@ import (
 	"reflect"
 )
 
-// ContributionSet accumulates typed, validated contributions from plugins.
+// ContributionSet accumulates typed, validated plane contributions during feature plugin construction.
+// It is mutable during assembly and converted to an immutable [FrozenPlaneSet] via [ContributionSet.Freeze].
 type ContributionSet struct {
 	// TEST-ONLY: map-backed storage is test-only interim for planes without production generated bindings.
 	// Task 2.3 replaces with typed struct + ordinal dispatch (zero maps, zero reflection).
@@ -16,7 +17,7 @@ type ContributionSet struct {
 	generated  *generatedContributions
 }
 
-// NewContributionSet creates a new empty ContributionSet.
+// NewContributionSet creates a new empty, mutable [ContributionSet].
 func NewContributionSet() *ContributionSet {
 	return &ContributionSet{
 		values:     make(map[string]any),
@@ -68,10 +69,9 @@ func (s *ContributionSet) Clone() *ContributionSet {
 	}
 }
 
-// Freeze produces an immutable FrozenPlaneSet from the accumulated contributions.
-// Freeze transfers ownership of stored values to the returned FrozenPlaneSet.
+// Freeze produces an immutable [FrozenPlaneSet] from the accumulated contributions.
 // Stored mutable values (such as slices and maps) are defensively cloned so that subsequent
-// mutations to the ContributionSet or source slices do not affect the frozen snapshot.
+// mutations to the [ContributionSet] or source slices do not affect the frozen snapshot.
 func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	if s == nil {
 		return FrozenPlaneSet{}
@@ -93,9 +93,9 @@ func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	}
 }
 
-// ContributeSource adds a typed contribution from a specific source (e.g. SourceFeature, SourceHost, SourceGenerationBinder) to the ContributionSet.
-// If any validation or combination fails, the ContributionSet is left unmodified (fail-before-mutate)
-// and an AttributedError attributing the contributor ID and plane ID is returned.
+// ContributeSource adds a typed contribution from an explicit source (e.g. [SourceFeature], [SourceHost],
+// [SourceGenerationBinder]) to the [ContributionSet]. If any validation or combination fails, the set is
+// left unmodified (fail-before-mutate) and an [AttributedError] attributing the contributor ID and plane ID is returned.
 func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, contributorID string, v P) error {
 	if s == nil {
 		return fmt.Errorf("feature: nil ContributionSet")
@@ -163,19 +163,21 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	var incomingID string
 	var hasID bool
 	if p.Identity != nil {
-		incomingID, hasID = p.Identity(v)
-		if (rule == CombExclusive || rule == CombReplaceByIdentity) && (!hasID || incomingID == "") {
-			if rule == CombExclusive {
+		if rule == CombExclusive || rule == CombReplaceByIdentity || p.generated.contribute == nil || s.generated == nil {
+			incomingID, hasID = p.Identity(v)
+			if (rule == CombExclusive || rule == CombReplaceByIdentity) && (!hasID || incomingID == "") {
+				if rule == CombExclusive {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  p.ID,
+						Err:      fmt.Errorf("%w: failed to extract identity from exclusive contribution", ErrInvalidContribution),
+					}
+				}
 				return &AttributedError{
 					PluginID: contributorID,
 					PlaneID:  p.ID,
-					Err:      fmt.Errorf("%w: failed to extract identity from exclusive contribution", ErrInvalidContribution),
+					Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 				}
-			}
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  p.ID,
-				Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 			}
 		}
 	}
@@ -183,12 +185,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	// 4. Exclusive conflict check.
 	if rule == CombExclusive {
 		if existingID, occupied := s.identities[p.ID]; occupied {
-			conflictErr := fmt.Errorf("%w: %q and %q", ErrExclusiveConflict, existingID, incomingID)
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  p.ID,
-				Err:      conflictErr,
-			}
+			return makeExclusiveConflictError(contributorID, p.ID, p.ExclusiveConflictError, existingID, incomingID)
 		}
 	}
 
@@ -268,9 +265,10 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	return nil
 }
 
-// Contribute adds a typed contribution from a feature plugin to the ContributionSet.
-// If any validation or combination fails, the ContributionSet is left unmodified (fail-before-mutate)
-// and an AttributedError attributing the plugin ID and plane ID is returned.
+// Contribute adds a typed contribution from a feature plugin under [SourceFeature] to the [ContributionSet].
+// If any validation or combination fails, the set is left unmodified (fail-before-mutate)
+// and an [AttributedError] attributing the plugin ID and plane ID is returned.
+// Host and generation-binder contributions must use [ContributeSource] or dedicated internal binders instead.
 func Contribute[P any](s *ContributionSet, p Plane[P], pluginID string, v P) error {
 	return ContributeSource(s, p, SourceFeature, pluginID, v)
 }

@@ -33,11 +33,10 @@ func TestPhase5_realBundleStateErrorExcludesCandidate(t *testing.T) {
 	toggle := &toggleSnapshotStore{inner: inner}
 	xform := reasoningpreservation.NewAttemptTransform(cfg, toggle, tel)
 	obs := reasoningpreservation.NewStreamObserverFactory(cfg, toggle, tel)
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		AttemptTransforms:       []request.AttemptTransform{xform},
-		StreamObserverFactories: []response.StreamObserverFactory{obs},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "xform", []request.AttemptTransform{xform})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "obs", []response.StreamObserverFactory{obs})
+	bundle := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}

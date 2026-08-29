@@ -145,10 +145,38 @@ type PrivilegeProjection struct {
 	Flags []string
 }
 
+// Canonical privilege flag constants.
+const (
+	PrivilegeRawCapture        = "raw_capture"
+	PrivilegeAuxiliaryRequests = "auxiliary_requests"
+	PrivilegeAuthProvider      = "auth_provider"
+	PrivilegeCompletionGate    = "completion_gate"
+)
+
+func validatePrivilegeFlag(flag string) error {
+	switch flag {
+	case PrivilegeRawCapture, PrivilegeAuxiliaryRequests, PrivilegeAuthProvider, PrivilegeCompletionGate:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown privilege flag %q", ErrInvalidPlane, flag)
+	}
+}
+
+// DiagnosticPlaneProjection represents the type-erased diagnostic projection of a single plane.
+type DiagnosticPlaneProjection struct {
+	PlaneID       string
+	StageID       string
+	CoalesceGroup string
+	Order         int
+	Occupants     []DiagnosticOccupant
+	Privileges    PrivilegeProjection
+}
+
 // DiagnosticDescriptor describes how a plane's frozen values are materialized for diagnostics.
 type DiagnosticDescriptor[T any] struct {
 	StageID       string
 	CoalesceGroup string
+	Order         int
 	Materialize   func(T) []DiagnosticOccupant
 	Privileges    func(T) PrivilegeProjection
 }
@@ -160,7 +188,7 @@ type generatedAccess[T any] struct {
 }
 
 // Plane declares an extension plane contract with multiplicity, per-source combination rules,
-// validation, and diagnostics metadata.
+// validation, nil policy, and diagnostics metadata.
 type Plane[T any] struct {
 	ID           string
 	Multiplicity Multiplicity
@@ -178,11 +206,22 @@ type Plane[T any] struct {
 	IsNil func(v T) bool
 	// Validate validates incoming contribution values.
 	Validate func(v T) error
-	// Combine combines an incoming contribution with current accumulated state for a source.
-	// Combiners MUST NOT mutate inputs directly on failure (fail-before-mutate).
+	// ValidateIdentity validates a cached identity string (e.g. for exclusive planes).
+	ValidateIdentity func(string) error
+	// Combine combines an incoming contribution with current accumulated state for a source,
+	// returning the retained value for the specified source rule. Combiners must not mutate
+	// caller-owned or current stored state on failure (fail-before-mutate).
 	Combine func(source SourceKind, current, incoming T) (T, error)
 	// Identity extracts the stable identity string for an exclusive or replace-by-identity plane value.
 	Identity func(v T) (string, bool)
+	// ExclusiveConflictError is an optional legacy compatibility error joined with ErrExclusiveConflict on conflict.
+	ExclusiveConflictError error
+	// RequestMaterializer is an optional function that materializes/sorts the plane value
+	// for request-scoped snapshot execution. When nil, the value is preserved as-is.
+	RequestMaterializer func(v T) T
+	// RequestBorrow indicates whether this plane exposes a narrow, immutable borrowed execution accessor
+	// on RequestExecutionView for the runtime executor hot path.
+	RequestBorrow bool
 	// Diagnostics configures operator inventory and privilege projection metadata for this plane.
 	Diagnostics DiagnosticDescriptor[T]
 	generated   generatedAccess[T]
@@ -210,11 +249,29 @@ func (p Plane[T]) ProjectPrivileges(v T) PrivilegeProjection {
 type PlaneDeclaration interface {
 	PlaneID() string
 	ValidateDeclaration() error
+	DiagnosticOrder() int
+	DiagnosticStageID() string
+	DiagnosticCoalesceGroup() string
 }
 
 // PlaneID returns the stable ID of the plane.
 func (p Plane[T]) PlaneID() string {
 	return p.ID
+}
+
+// DiagnosticOrder returns the explicit diagnostic order of the plane.
+func (p Plane[T]) DiagnosticOrder() int {
+	return p.Diagnostics.Order
+}
+
+// DiagnosticStageID returns the diagnostics stage ID of the plane.
+func (p Plane[T]) DiagnosticStageID() string {
+	return p.Diagnostics.StageID
+}
+
+// DiagnosticCoalesceGroup returns the diagnostics coalesce group of the plane.
+func (p Plane[T]) DiagnosticCoalesceGroup() string {
+	return p.Diagnostics.CoalesceGroup
 }
 
 // ValidateDeclaration verifies that the plane declaration is well-formed, complete,
@@ -236,6 +293,7 @@ func (p Plane[T]) ValidateDeclaration() error {
 
 	sources := []SourceKind{SourceFeature, SourceHost, SourceGenerationBinder}
 	hasSupportedSource := false
+	hasExclusiveRule := false
 	requiresIdentity := (p.Multiplicity == MultExclusive)
 
 	for _, src := range sources {
@@ -249,6 +307,10 @@ func (p Plane[T]) ValidateDeclaration() error {
 			return fmt.Errorf("%w: plane %q: invalid combination rule %v on source %v", ErrInvalidPlane, p.ID, rule, src)
 		}
 		hasSupportedSource = true
+
+		if rule == CombExclusive {
+			hasExclusiveRule = true
+		}
 
 		if p.Multiplicity == MultExclusive {
 			if rule == CombConcatenate {
@@ -275,9 +337,20 @@ func (p Plane[T]) ValidateDeclaration() error {
 		return fmt.Errorf("%w: plane %q: at least one source rule must be supported", ErrInvalidPlane, p.ID)
 	}
 
+	if p.ExclusiveConflictError != nil && !hasExclusiveRule {
+		return fmt.Errorf(
+			"%w: plane %q: ExclusiveConflictError requires at least one exclusive source rule",
+			ErrInvalidPlane,
+			p.ID,
+		)
+	}
+
 	if requiresIdentity {
 		if p.Identity == nil {
 			return fmt.Errorf("%w: plane %q: identity extractor required for exclusive plane", ErrInvalidPlane, p.ID)
+		}
+		if p.ValidateIdentity == nil {
+			return fmt.Errorf("%w: plane %q: cached identity validator required", ErrInvalidPlane, p.ID)
 		}
 		if (p.generated.contribute != nil || p.generated.get != nil) && p.generated.identity == nil {
 			return fmt.Errorf("%w: plane %q: generated identity accessor required when generated access is bound", ErrInvalidPlane, p.ID)
@@ -288,12 +361,24 @@ func (p Plane[T]) ValidateDeclaration() error {
 		return fmt.Errorf("%w: plane %q: Combine function must not be nil", ErrInvalidPlane, p.ID)
 	}
 
+	if p.RequestBorrow {
+		if p.RequestMaterializer == nil {
+			return fmt.Errorf("%w: plane %q: RequestBorrow requires non-nil RequestMaterializer", ErrInvalidPlane, p.ID)
+		}
+	}
+
 	if p.Diagnostics.StageID != "" {
 		if p.Diagnostics.Materialize == nil {
 			return fmt.Errorf("%w: plane %q: diagnostics StageID is set but Materialize function is nil", ErrInvalidPlane, p.ID)
 		}
+		if p.Diagnostics.Order <= 0 {
+			return fmt.Errorf("%w: plane %q: diagnostics StageID is set but Order must be > 0 (got %d)", ErrInvalidPlane, p.ID, p.Diagnostics.Order)
+		}
+		if !ValidateStageID(p.Diagnostics.StageID) {
+			return fmt.Errorf("%w: plane %q: invalid diagnostics stage ID %q", ErrInvalidPlane, p.ID, p.Diagnostics.StageID)
+		}
 	} else {
-		if p.Diagnostics.Materialize != nil || p.Diagnostics.Privileges != nil || p.Diagnostics.CoalesceGroup != "" {
+		if p.Diagnostics.Materialize != nil || p.Diagnostics.Privileges != nil || p.Diagnostics.CoalesceGroup != "" || p.Diagnostics.Order != 0 {
 			return fmt.Errorf("%w: plane %q: diagnostics StageID must not be empty when diagnostics metadata is provided", ErrInvalidPlane, p.ID)
 		}
 	}
@@ -301,10 +386,13 @@ func (p Plane[T]) ValidateDeclaration() error {
 	return nil
 }
 
-// ValidateManifest checks that a collection of plane declarations contains no duplicate IDs
-// and that every plane declaration is valid.
+// ValidateManifest checks that a collection of plane declarations contains no duplicate IDs,
+// consistent diagnostic orders and coalesce groups, and that every plane declaration is valid.
 func ValidateManifest(declarations ...PlaneDeclaration) error {
 	seen := make(map[string]struct{}, len(declarations))
+	seenOrders := make(map[int]PlaneDeclaration)
+	coalesceStages := make(map[string]string)
+
 	for _, decl := range declarations {
 		if decl == nil {
 			return fmt.Errorf("%w: nil plane declaration in manifest", ErrInvalidPlane)
@@ -317,6 +405,32 @@ func ValidateManifest(declarations ...PlaneDeclaration) error {
 			return fmt.Errorf("%w: duplicate plane ID %q in manifest", ErrInvalidPlane, id)
 		}
 		seen[id] = struct{}{}
+
+		order := decl.DiagnosticOrder()
+		if order > 0 {
+			if prev, exists := seenOrders[order]; exists {
+				// duplicate order values are allowed only for declarations sharing the same non-empty CoalesceGroup and StageID
+				if decl.DiagnosticCoalesceGroup() == "" || prev.DiagnosticCoalesceGroup() == "" ||
+					decl.DiagnosticCoalesceGroup() != prev.DiagnosticCoalesceGroup() ||
+					decl.DiagnosticStageID() != prev.DiagnosticStageID() {
+					return fmt.Errorf("%w: duplicate diagnostic order %d between plane %q and %q with different coalesce groups", ErrInvalidPlane, order, decl.PlaneID(), prev.PlaneID())
+				}
+			} else {
+				seenOrders[order] = decl
+			}
+		}
+
+		cg := decl.DiagnosticCoalesceGroup()
+		if cg != "" {
+			stage := decl.DiagnosticStageID()
+			if prevStage, exists := coalesceStages[cg]; exists {
+				if prevStage != stage {
+					return fmt.Errorf("%w: mismatching stage IDs %q and %q for coalesce group %q", ErrInvalidPlane, prevStage, stage, cg)
+				}
+			} else {
+				coalesceStages[cg] = stage
+			}
+		}
 	}
 	return nil
 }

@@ -99,6 +99,10 @@ func TestTerminalDecisionLifecycle_WithdrawalQuiescesDrainsAndClosesBeforeProces
 		t.Fatal("generation closed before retained request/continuation leases drained")
 	default:
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for g.Lifecycle() != runtimehost.GenQuiesced && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if got := g.Lifecycle(); got != runtimehost.GenQuiesced {
 		t.Fatalf("lifecycle=%v want GenQuiesced while leases remain", got)
 	}

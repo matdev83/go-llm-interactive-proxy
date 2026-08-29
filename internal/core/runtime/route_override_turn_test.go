@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -267,10 +269,12 @@ func TestExecutor_preRequestRewriteThenOverrideWinsForHintAndBaseline(t *testing
 		"adminbe":  overrideStreamingBackend(cap, "adminbe"),
 	})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:          voidWorkspaceResolver{},
-		TrafficObserver:    ctp,
-		RequestTransforms:  []request.Transform{selectorRewriteTransform{from: overrideClientSelector, to: overrideHookSelector}},
-		RouteHintProviders: []routehint.Provider{hint},
+		Workspace:       voidWorkspaceResolver{},
+		TrafficObserver: ctp,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms:  []request.Transform{selectorRewriteTransform{from: overrideClientSelector, to: overrideHookSelector}},
+			RouteHintProviders: []routehint.Provider{hint},
+		}),
 	})
 	seed := seedOverrideALeg(t, ex, st, "ov-rewrite-hint", overrideAdminSelector)
 	resetRouteOpenCapture(cap)

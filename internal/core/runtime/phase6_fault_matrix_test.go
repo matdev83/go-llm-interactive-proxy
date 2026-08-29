@@ -280,7 +280,9 @@ func TestPhase6_FaultMatrix_AcquisitionAndReadiness(t *testing.T) {
 		wireDummyBilling(ex)
 
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+			FeaturePlanes: freezeBundle(testFeatureBundle{
+				StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
+			}),
 		})
 		ex.Backends = map[string]execbackend.Backend{
 			"ok": {

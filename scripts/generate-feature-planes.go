@@ -23,9 +23,9 @@ func main() {
 	if manifestPath == "" {
 		manifestPath = filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_manifest.go")
 	}
-	outPath := *outPathFlag
-	if outPath == "" {
-		outPath = filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_generated.go")
+	planeOutPath := *outPathFlag
+	if planeOutPath == "" {
+		planeOutPath = filepath.Join(repoRoot, "pkg", "lipsdk", "feature", "plane_generated.go")
 	}
 
 	manifestBytes, err := os.ReadFile(manifestPath)
@@ -34,34 +34,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	formatted, err := archtest.GenerateFeaturePlanesCode(manifestBytes)
+	formattedPlanes, err := archtest.GenerateFeaturePlanesCode(manifestBytes)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error generating code: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error generating feature planes code: %v\n", err)
 		os.Exit(1)
 	}
 
 	if *checkFlag {
-		existing, err := os.ReadFile(outPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading existing generated file %s: %v\n", outPath, err)
-			os.Exit(1)
-		}
-		// Normalize CRLF → LF for Windows checkouts where git may have converted line endings.
-		normExisting := bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n"))
-		normFormatted := bytes.ReplaceAll(formatted, []byte("\r\n"), []byte("\n"))
-		if !bytes.Equal(normExisting, normFormatted) {
-			fmt.Fprintf(os.Stderr, "ERROR: generated file %s is stale or differs from manifest\nRun 'go run ./scripts/generate-feature-planes.go' to regenerate.\n", outPath)
-			os.Exit(1)
-		}
-		fmt.Println("plane_generated.go is up to date.")
+		checkFileMatches(planeOutPath, formattedPlanes)
+		fmt.Println("generated feature planes file is up to date.")
 		return
 	}
 
-	if err := os.WriteFile(outPath, formatted, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "error writing generated file %s: %v\n", outPath, err)
+	if err := archtest.WriteGeneratedFileAtomic(planeOutPath, formattedPlanes); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing generated file atomically: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Generated %s successfully.\n", outPath)
+	fmt.Printf("Generated %s successfully.\n", planeOutPath)
+}
+
+func checkFileMatches(path string, formatted []byte) {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading existing generated file %s: %v\n", path, err)
+		os.Exit(1)
+	}
+	normExisting := bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n"))
+	normFormatted := bytes.ReplaceAll(formatted, []byte("\r\n"), []byte("\n"))
+	if !bytes.Equal(normExisting, normFormatted) {
+		fmt.Fprintf(os.Stderr, "ERROR: generated file %s is stale or differs from manifest\nRun 'go run ./scripts/generate-feature-planes.go' to regenerate.\n", path)
+		os.Exit(1)
+	}
 }
 
 func findRepoRoot() string {

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -93,7 +95,9 @@ func TestStreamToolPolicyMetaCarriesAuthoritativeScope(t *testing.T) {
 	}
 	pol := &scopeCaptureToolPolicy{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		ToolCallPolicies: []toolpolicy.Policy{pol},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			ToolCallPolicies: []toolpolicy.Policy{pol},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	call.Tools = []lipapi.ToolDef{{Name: "search", Parameters: []byte(`{}`)}}
@@ -143,7 +147,9 @@ func TestStreamCompletionMetaCarriesAuthoritativeScope(t *testing.T) {
 	}
 	gate := &scopeCaptureGate{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{gate},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{gate},
+		}),
 	})
 	call := pdBaseCall("openai:gpt-4")
 	stream, err := ex.Execute(principalCtx("user-scope-completion"), call)
