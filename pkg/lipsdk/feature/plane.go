@@ -188,7 +188,7 @@ type generatedAccess[T any] struct {
 }
 
 // Plane declares an extension plane contract with multiplicity, per-source combination rules,
-// validation, and diagnostics metadata.
+// validation, nil policy, and diagnostics metadata.
 type Plane[T any] struct {
 	ID           string
 	Multiplicity Multiplicity
@@ -208,8 +208,9 @@ type Plane[T any] struct {
 	Validate func(v T) error
 	// ValidateIdentity validates a cached identity string (e.g. for exclusive planes).
 	ValidateIdentity func(string) error
-	// Combine combines an incoming contribution with current accumulated state for a source.
-	// Combiners MUST NOT mutate inputs directly on failure (fail-before-mutate).
+	// Combine combines an incoming contribution with current accumulated state for a source,
+	// returning the retained value for the specified source rule. Combiners must not mutate
+	// caller-owned or current stored state on failure (fail-before-mutate).
 	Combine func(source SourceKind, current, incoming T) (T, error)
 	// Identity extracts the stable identity string for an exclusive or replace-by-identity plane value.
 	Identity func(v T) (string, bool)
