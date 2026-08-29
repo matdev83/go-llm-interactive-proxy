@@ -76,8 +76,8 @@ func TestTask81TerminalDecisionRuntimeIsProviderNeutral(t *testing.T) {
 }
 
 // TestTask81FeatureBundleHasOneTerminalDecisionProvider ratchets the
-// provider contribution shape: one optional generic provider slot, with
-// exclusivity handled by bundle composition rather than an ALG branch in core.
+// provider contribution shape: no hand-authored provider field on FeatureBundle,
+// with exclusivity handled by PlaneTerminalDecisionProvider on PlaneSet.
 func TestTask81FeatureBundleHasOneTerminalDecisionProvider(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -101,24 +101,12 @@ func TestTask81FeatureBundleHasOneTerminalDecisionProvider(t *testing.T) {
 		t.Fatal("FeatureBundle struct not found")
 	}
 
-	providerFields := 0
 	for _, field := range bundle.Fields.List {
 		for _, name := range field.Names {
-			if name.Name == "TerminalDecisionProviders" {
-				t.Fatal("FeatureBundle must not expose a provider slice")
-			}
-			if name.Name != "TerminalDecisionProvider" {
-				continue
-			}
-			providerFields++
-			selector, ok := field.Type.(*ast.SelectorExpr)
-			if !ok || selector.Sel.Name != "Provider" {
-				t.Fatalf("TerminalDecisionProvider type = %T, want a generic Provider interface", field.Type)
+			if name.Name == "TerminalDecisionProviders" || name.Name == "TerminalDecisionProvider" {
+				t.Fatalf("FeatureBundle must not expose named provider field %q", name.Name)
 			}
 		}
-	}
-	if providerFields != 1 {
-		t.Fatalf("FeatureBundle has %d TerminalDecisionProvider fields, want exactly one", providerFields)
 	}
 }
 

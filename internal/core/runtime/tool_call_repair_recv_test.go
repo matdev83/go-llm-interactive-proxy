@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -240,8 +240,7 @@ func TestRetryRecvStream_ToolCallFinalizationResponseFinishedClearsAssembler(t *
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -271,8 +270,7 @@ func TestRetryRecvStream_ToolCallFinalizationHoldsUntilFinished(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -354,8 +352,7 @@ func TestRetryRecvStream_ToolCallFinalizationParallelInterleave(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -438,8 +435,7 @@ func TestRetryRecvStream_ToolCallFinalizationOverflowPassThrough(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -478,8 +474,7 @@ func TestRetryRecvStream_ToolCallFinalizationRewriteLifecycle(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -514,8 +509,7 @@ func TestRetryRecvStream_ToolCallFinalizationCancelCleanup(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -561,8 +555,7 @@ func TestRetryRecvStream_ToolCallFinalizationEOFCleanup(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backend),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -619,8 +612,7 @@ func TestRetryRecvStream_ToolCallFinalizationBLegReplaceClearsState(t *testing.T
 			},
 		},
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -659,8 +651,7 @@ func TestRetryRecvStream_ToolCallFinalizationNoToolsBypass(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -698,8 +689,7 @@ func TestRetryRecvStream_ToolCallFinalizationOrderingWithPolicy(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 			ToolCallPolicies:  []toolpolicy.Policy{pdDenyToolPolicy{name: "blocked"}},
 		}),
@@ -750,8 +740,7 @@ func TestRetryRecvStream_ToolCallFinalizationRejectTyped(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -808,8 +797,7 @@ func TestRetryRecvStream_ToolCallFinalizationFailOpenPanicAndError(t *testing.T)
 			ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 				"openai": recordingBackend("openai", &opens, backendStream),
 			}, extensions.SnapshotOptions{
-				FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-					SchemaVersion:     lipfeature.SchemaVersionV1,
+				FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 					RequestTransforms: []request.Transform{pdNoopRtx{}},
 				}),
 			})
@@ -849,8 +837,7 @@ func TestRetryRecvStream_ToolCallFinalizationMultiFinalizerOrder(t *testing.T) {
 	ex, _ := policySecureExecutor(t, map[string]execbackend.Backend{
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -900,8 +887,7 @@ func TestRetryRecvStream_ToolCallFinalizationBTPvsPTC(t *testing.T) {
 		"openai": recordingBackend("openai", &opens, backendStream),
 	}, extensions.SnapshotOptions{
 		TrafficObserver: capObs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})

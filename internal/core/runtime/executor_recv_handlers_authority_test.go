@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -89,8 +88,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		bus := hooks.New(hooks.Config{})
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-				SchemaVersion:    lipfeature.SchemaVersionV1,
+			FeaturePlanes: freezeBundle(testFeatureBundle{
 				ToolCallPolicies: []toolpolicy.Policy{denyingToolPolicyStub{}},
 			}),
 		})
@@ -135,8 +133,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		gateErr := errors.New("gate boom")
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-				SchemaVersion:   lipfeature.SchemaVersionV1,
+			FeaturePlanes: freezeBundle(testFeatureBundle{
 				CompletionGates: []completion.Gate{failingCompletionGateStub{err: gateErr}},
 			}),
 		})
@@ -153,8 +150,7 @@ func TestHandleRecvSuccessErrorExitsReleaseAuthority(t *testing.T) {
 		recErr := errors.New("recorder boom")
 		ex, rs := setupRecvSuccessStream(t, auth, bus)
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-				SchemaVersion:   lipfeature.SchemaVersionV1,
+			FeaturePlanes: freezeBundle(testFeatureBundle{
 				CompletionGates: []completion.Gate{replaceCompletionGateStub{}},
 			}),
 		})

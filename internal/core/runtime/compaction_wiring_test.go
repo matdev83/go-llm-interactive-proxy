@@ -3,13 +3,13 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
@@ -73,8 +73,7 @@ func compactionTestExecutorWithStore(t *testing.T, d *compactiondetect.Detector,
 		observers = []compaction.Observer{rec}
 	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:       lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompactionObservers: observers,
 		}),
 	})
@@ -246,8 +245,7 @@ func TestCompactionWiring_detectorRunsWithoutObservers(t *testing.T) {
 
 	rec := &recordingCompactionObserver{}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:       lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			CompactionObservers: []compaction.Observer{rec},
 		}),
 	})

@@ -245,7 +245,7 @@
   - _Boundary: core/runtime diagnostics_
   - _Depends: 9.1_
   - **Validation:** `go test ./internal/core/diag ./internal/testkit/...`
-- [ ] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
+- [x] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
   - Delete deprecated adapters only after every consumer/binder has migrated; keep YAML/config and lifecycle compatibility intact.
   - Observable completion: the whole-tree mirror ratchet reports zero forbidden remnants and all generated output is current.
   - _Requirements: 2.2, 5.2, 5.4, 5.5, 8.1_

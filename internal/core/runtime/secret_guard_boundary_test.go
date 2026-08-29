@@ -195,9 +195,8 @@ func TestExecutor_secretGuardRedact_checkpointAndBackendSanitized(t *testing.T) 
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
-		FeaturePlanes: testkit.FreezeBundle(feature.FeatureBundle{
-			SchemaVersion: feature.SchemaVersionV1,
-			SecretGuards:  []secretguard.Guard{&redactingSecretGuard{evals: &guardEvals}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&redactingSecretGuard{evals: &guardEvals}},
 		}),
 	})
 	ex := runtime.TestExecutor()
@@ -278,9 +277,8 @@ func TestExecutor_secretGuardLog_scanLimitContinuesToBackend(t *testing.T) {
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
-		FeaturePlanes: testkit.FreezeBundle(feature.FeatureBundle{
-			SchemaVersion: feature.SchemaVersionV1,
-			SecretGuards:  []secretguard.Guard{&scanLimitLoggingSecretGuard{evals: &guardEvals}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&scanLimitLoggingSecretGuard{evals: &guardEvals}},
 		}),
 	})
 	ex := runtime.TestExecutor()

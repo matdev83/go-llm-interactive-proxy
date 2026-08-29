@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -272,8 +271,7 @@ func TestPhase1_1_ObserverStartupFailure_Initial(t *testing.T) {
 
 	// Configure a fail-closed stream observer factory
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
 		}),
 	})
@@ -324,8 +322,7 @@ func TestPhase1_1_ObserverStartupFailure_Replacement(t *testing.T) {
 	}
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{failClosedStreamObserverFactory{}},
 		}),
 	})

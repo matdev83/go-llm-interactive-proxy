@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"strings"
 	"sync"
@@ -147,8 +146,7 @@ func newLocalExecutor(t *testing.T, tagger *fakeTagger, handlers []localturn.Han
 	ex.Now = func() time.Time { return time.Unix(3000, 0) }
 	// inject handlers via snapshot
 	snapOpts := extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			LocalTurnHandlers: handlers,
 		}),
 	}
@@ -625,8 +623,7 @@ func TestLocalTurn_TaggerUnavailableFailsDeterministically(t *testing.T) {
 	ex.ConversationViewTagger = nil
 	ex.ConversationViewReader = nil
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			LocalTurnHandlers: []localturn.Handler{h},
 		}),
 	})
@@ -682,8 +679,7 @@ func TestLocalTurn_SourceTagsRemainAuthoritativeAfterHandlerFailure_RealStore(t 
 			// Reader left nil => executor resolves via AsReader(Store) to same MemoryStore, proving real store path.
 			ex.ConversationViewReader = nil
 			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-				FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-					SchemaVersion:     lipfeature.SchemaVersionV1,
+				FeaturePlanes: freezeBundle(testFeatureBundle{
 					LocalTurnHandlers: []localturn.Handler{h},
 				}),
 			})

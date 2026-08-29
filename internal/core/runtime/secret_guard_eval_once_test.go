@@ -21,7 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -66,9 +65,8 @@ func TestExecutor_secretGuardEvaluateOnce_underFailover(t *testing.T) {
 		SecretGuardPlane: extensions.SecretGuardPlane{
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  []secretguard.Guard{&countingPassGuard{evals: &guardEvals}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&countingPassGuard{evals: &guardEvals}},
 		}),
 	})
 	ex := runtime.TestExecutor()

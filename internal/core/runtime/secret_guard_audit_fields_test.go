@@ -21,7 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -60,9 +59,8 @@ func TestExecutor_secretGuardBlock_decisionEventRequiredFields(t *testing.T) {
 			ConfigVersion:      "cfg-audit-fields-v1",
 			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards:  []secretguard.Guard{&blockingSecretGuard{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&blockingSecretGuard{}},
 		}),
 	})
 	ex := runtime.TestExecutor()

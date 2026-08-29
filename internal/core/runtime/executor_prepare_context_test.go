@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -104,8 +103,7 @@ func TestExecutor_prepareSubmitAndALeg_sessionOpenHintsNotTrustedAsAuthority(t *
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:  lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			SessionOpeners: []session.Opener{opener},
 		}),
 	})

@@ -6,6 +6,8 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
@@ -35,6 +37,41 @@ type planeInfo struct {
 	hasDiagPrivileges      bool
 }
 
+// WriteGeneratedFileAtomic atomically installs one generated file via temp write + sync + rename.
+func WriteGeneratedFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("directory %s does not exist: %w", dir, err)
+	}
+	base := filepath.Base(path)
+	f, err := os.CreateTemp(dir, fmt.Sprintf(".%s.tmp-*", base))
+	if err != nil {
+		return fmt.Errorf("failed to create temp file in %s: %w", dir, err)
+	}
+	tmpPath := f.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to write temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to sync temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to chmod temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("failed to install %s: %w", path, err)
+	}
+	return nil
+}
+
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
 func GenerateFeaturePlanesCode(manifestBytes []byte) ([]byte, error) {
 	fset := token.NewFileSet()
@@ -61,32 +98,6 @@ func GenerateFeaturePlanesCode(manifestBytes []byte) ([]byte, error) {
 	formatted, err := format.Source(generatedCode)
 	if err != nil {
 		return nil, fmt.Errorf("format generated code: %w\n---\n%s\n---", err, string(generatedCode))
-	}
-
-	return formatted, nil
-}
-
-// GenerateFeatureBundleProjectionCode parses plane_manifest.go source bytes and returns the formatted Go code for internal/featurebundle/bundle_projection_generated.go.
-func GenerateFeatureBundleProjectionCode(manifestBytes []byte) ([]byte, error) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "plane_manifest.go", manifestBytes, parser.ParseComments)
-	if err != nil {
-		return nil, fmt.Errorf("parse manifest: %w", err)
-	}
-
-	planes, err := extractPlanes(file, manifestBytes)
-	if err != nil {
-		return nil, fmt.Errorf("extract planes: %w", err)
-	}
-
-	generatedCode, err := generateBundleProjectionCode(planes)
-	if err != nil {
-		return nil, fmt.Errorf("generate bundle projection code: %w", err)
-	}
-
-	formatted, err := format.Source(generatedCode)
-	if err != nil {
-		return nil, fmt.Errorf("format generated bundle projection code: %w\n---\n%s\n---", err, string(generatedCode))
 	}
 
 	return formatted, nil

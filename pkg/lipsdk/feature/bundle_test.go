@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -13,24 +12,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 type stubLife struct{}
@@ -61,47 +49,6 @@ func (s stubTool) HandleToolEvent(context.Context, lipapi.ToolEvent, sdkhooks.To
 	return sdkhooks.ToolPass, lipapi.ToolEvent{}, nil
 }
 
-// mergeFeatureBundles mirrors composition-root merge semantics used by the registry
-// (concatenate slices in registration order) for contract tests only.
-func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
-	out := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-	}
-	if a.SchemaVersion != 0 {
-		out.SchemaVersion = a.SchemaVersion
-	} else if b.SchemaVersion != 0 {
-		out.SchemaVersion = b.SchemaVersion
-	} else {
-		out.SchemaVersion = feature.SchemaVersionV1
-	}
-	out.SubmitHooks = append(append([]sdkhooks.SubmitHook(nil), a.SubmitHooks...), b.SubmitHooks...)
-	out.RequestPartHooks = append(append([]sdkhooks.RequestPartHook(nil), a.RequestPartHooks...), b.RequestPartHooks...)
-	out.ResponsePartHooks = append(append([]sdkhooks.ResponsePartHook(nil), a.ResponsePartHooks...), b.ResponsePartHooks...)
-	out.ToolReactors = append(append([]sdkhooks.ToolReactor(nil), a.ToolReactors...), b.ToolReactors...)
-	out.Lifecycles = append(append([]lipplugin.Lifecycle(nil), a.Lifecycles...), b.Lifecycles...)
-	out.SessionOpeners = append(append([]session.Opener(nil), a.SessionOpeners...), b.SessionOpeners...)
-	out.WorkspaceResolvers = append(append([]workspace.Resolver(nil), a.WorkspaceResolvers...), b.WorkspaceResolvers...)
-	out.ToolCatalogFilters = append(append([]toolcatalog.Filter(nil), a.ToolCatalogFilters...), b.ToolCatalogFilters...)
-	out.ToolCallPolicies = append(append([]toolpolicy.Policy(nil), a.ToolCallPolicies...), b.ToolCallPolicies...)
-	out.ToolCallFinalizers = append(append([]toolcall.Finalizer(nil), a.ToolCallFinalizers...), b.ToolCallFinalizers...)
-	out.RequestTransforms = append(append([]request.Transform(nil), a.RequestTransforms...), b.RequestTransforms...)
-	out.PreRequestHandlers = append(append([]prerequest.Handler(nil), a.PreRequestHandlers...), b.PreRequestHandlers...)
-	out.RouteHintProviders = slices.Concat(a.RouteHintProviders, b.RouteHintProviders)
-	out.CompletionGates = append(append([]completion.Gate(nil), a.CompletionGates...), b.CompletionGates...)
-	out.TrafficObservers = append(append([]traffic.Observer(nil), a.TrafficObservers...), b.TrafficObservers...)
-	out.UsageObservers = append(append([]usage.Observer(nil), a.UsageObservers...), b.UsageObservers...)
-	out.RawCaptureSinks = append(append([]traffic.RawCaptureSink(nil), a.RawCaptureSinks...), b.RawCaptureSinks...)
-	out.TrafficRedactors = append(append([]traffic.Redactor(nil), a.TrafficRedactors...), b.TrafficRedactors...)
-	out.CompactionPreservers = append(append([]compaction.Preserver(nil), a.CompactionPreservers...), b.CompactionPreservers...)
-	out.SecretGuards = append(append([]secretguard.Guard(nil), a.SecretGuards...), b.SecretGuards...)
-	return out
-}
-
-type stubSecretGuard struct {
-	id  string
-	ord int
-}
-
 type stubPreserver struct{ id string }
 
 func (p stubPreserver) ID() string { return p.id }
@@ -118,179 +65,6 @@ func (stubPreserver) BeforeResponseRelease(context.Context, *lipapi.Event, compa
 	return nil
 }
 
-func (s stubSecretGuard) ID() string                           { return s.id }
-func (s stubSecretGuard) Order() int                           { return s.ord }
-func (s stubSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
-func (s stubSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
-	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
-}
-
-type stubRequestPartHook struct {
-	id  string
-	ord int
-}
-
-func (s stubRequestPartHook) ID() string                        { return s.id }
-func (s stubRequestPartHook) Order() int                        { return s.ord }
-func (s stubRequestPartHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (s stubRequestPartHook) HandleRequestParts(ctx context.Context, call *lipapi.Call, meta sdkhooks.PartMeta) error {
-	return nil
-}
-
-type stubResponsePartHook struct {
-	id  string
-	ord int
-}
-
-func (s stubResponsePartHook) ID() string                        { return s.id }
-func (s stubResponsePartHook) Order() int                        { return s.ord }
-func (s stubResponsePartHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (s stubResponsePartHook) HandleEvent(ctx context.Context, ev *lipapi.Event, meta sdkhooks.PartMeta) error {
-	return nil
-}
-
-type stubToolFilter struct{ id string }
-
-func (f stubToolFilter) ID() string                        { return f.id }
-func (f stubToolFilter) Order() int                        { return 0 }
-func (f stubToolFilter) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubToolFilter) Handle(ctx context.Context, call *lipapi.Call, meta toolcatalog.CatalogMeta, svc toolcatalog.Services) error {
-	return nil
-}
-
-type stubToolPolicy struct{ id string }
-
-func (p stubToolPolicy) ID() string                      { return p.id }
-func (stubToolPolicy) Order() int                        { return 0 }
-func (stubToolPolicy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubToolPolicy) Handle(ctx context.Context, event lipapi.ToolEvent, meta toolpolicy.Meta, svc toolpolicy.Services) (toolpolicy.Decision, error) {
-	return toolpolicy.DecisionAllow, nil
-}
-
-type stubToolFinalizer struct{ id string }
-
-func (f stubToolFinalizer) ID() string { return f.id }
-func (stubToolFinalizer) Order() int   { return 0 }
-func (stubToolFinalizer) Finalize(ctx context.Context, call toolcall.CompletedCall, tool lipapi.ToolDef, catalog []lipapi.ToolDef, meta toolcall.Meta) (toolcall.Result, error) {
-	return toolcall.Result{Action: toolcall.ActionPass}, nil
-}
-
-type stubTransform struct{ id string }
-
-func (t stubTransform) ID() string                      { return t.id }
-func (stubTransform) Order() int                        { return 0 }
-func (stubTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubTransform) Handle(ctx context.Context, call *lipapi.Call, meta request.RequestMeta, svc request.Services) error {
-	return nil
-}
-
-type stubPreRequestHandler struct{ id string }
-
-func (h stubPreRequestHandler) ID() string                      { return h.id }
-func (stubPreRequestHandler) Order() int                        { return 0 }
-func (stubPreRequestHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubPreRequestHandler) Handle(ctx context.Context, call *lipapi.Call, meta prerequest.Meta, svc prerequest.Services) (prerequest.Decision, error) {
-	return prerequest.Allow(), nil
-}
-
-type stubRouteHint struct{ id string }
-
-func (r stubRouteHint) ID() string                      { return r.id }
-func (stubRouteHint) Order() int                        { return 0 }
-func (stubRouteHint) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubRouteHint) Hint(ctx context.Context, in routehint.Input) (routehint.Result, error) {
-	return routehint.Result{}, nil
-}
-
-type stubCompletionGate struct{ id string }
-
-func (g stubCompletionGate) ID() string                      { return g.id }
-func (stubCompletionGate) Order() int                        { return 0 }
-func (stubCompletionGate) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
-func (stubCompletionGate) Handle(ctx context.Context, meta completion.Meta, buf completion.Buffered, svc completion.Services) (completion.Outcome, error) {
-	return completion.Outcome{}, nil
-}
-
-type stubTrafficObserver struct{}
-
-func (stubTrafficObserver) OnObservation(ctx context.Context, ev traffic.Observation) error {
-	return nil
-}
-
-type stubUsageObserver struct{}
-
-func (stubUsageObserver) OnUsage(ctx context.Context, ev usage.Event) error { return nil }
-
-type stubRawCaptureSink struct{}
-
-func (stubRawCaptureSink) WriteRaw(ctx context.Context, leg traffic.Leg, meta traffic.CaptureMeta, payload []byte) error {
-	return nil
-}
-
-type stubTrafficRedactor struct{ id string }
-
-func (r stubTrafficRedactor) ID() string { return r.id }
-func (stubTrafficRedactor) Redact(ctx context.Context, leg traffic.Leg, meta traffic.CaptureMeta, body []byte) ([]byte, error) {
-	return body, nil
-}
-
-type stubCompactionObserver struct{}
-
-func (stubCompactionObserver) OnCompaction(context.Context, compaction.Event) error { return nil }
-
-type stubLocalTurnHandler struct{ id string }
-
-func (h stubLocalTurnHandler) ID() string                       { return h.id }
-func (stubLocalTurnHandler) Order() int                         { return 0 }
-func (stubLocalTurnHandler) FailureMode() localturn.FailureMode { return localturn.FailOpen }
-func (stubLocalTurnHandler) Match(ctx context.Context, call lipapi.Call, meta localturn.Meta) (localturn.MatchResult, error) {
-	return localturn.MatchResult{}, nil
-}
-func (stubLocalTurnHandler) Handle(ctx context.Context, input localturn.HandleInput) (localturn.Reply, error) {
-	return localturn.Reply{Text: "ok"}, nil
-}
-
-func TestEmptyFeatureBundle(t *testing.T) {
-	t.Parallel()
-	var b feature.FeatureBundle
-	if b.SchemaVersion != 0 {
-		t.Fatalf("zero SchemaVersion: %d", b.SchemaVersion)
-	}
-	if b.SubmitHooks != nil || b.RequestPartHooks != nil || b.ResponsePartHooks != nil || b.ToolReactors != nil {
-		t.Fatal("expected all hook slices nil on zero value")
-	}
-	if b.Lifecycles != nil {
-		t.Fatal("expected Lifecycles nil")
-	}
-	if b.SessionOpeners != nil || b.WorkspaceResolvers != nil {
-		t.Fatal("expected session/workspace slices nil on zero value")
-	}
-	if b.ToolCatalogFilters != nil || b.RequestTransforms != nil || b.PreRequestHandlers != nil || b.RouteHintProviders != nil {
-		t.Fatal("expected catalog/transform/pre-request/route-hint slices nil on zero value")
-	}
-	if b.AttemptTransforms != nil {
-		t.Fatal("expected AttemptTransforms nil on zero value")
-	}
-	if b.StreamObserverFactories != nil {
-		t.Fatal("expected StreamObserverFactories nil on zero value")
-	}
-	if b.CompletionGates != nil {
-		t.Fatal("expected CompletionGates nil on zero value")
-	}
-	if b.TrafficObservers != nil || b.RawCaptureSinks != nil || b.TrafficRedactors != nil {
-		t.Fatal("expected traffic slices nil on zero value")
-	}
-	if b.ToolCallPolicies != nil || b.ToolCallFinalizers != nil || b.UsageObservers != nil {
-		t.Fatal("expected tool policy/finalizer and usage observer slices nil on zero value")
-	}
-	if b.SecretGuards != nil {
-		t.Fatal("expected SecretGuards nil on zero value")
-	}
-	if b.CompactionPreservers != nil {
-		t.Fatal("expected CompactionPreservers nil on zero value")
-	}
-}
-
 type terminalDecisionProvider struct{ id string }
 
 func (p terminalDecisionProvider) ID() string { return p.id }
@@ -299,249 +73,44 @@ func (terminalDecisionProvider) Decide(context.Context, terminaldecision.Input) 
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-type terminalDecisionPtrProvider struct{}
-
-func (*terminalDecisionPtrProvider) ID() string { return "provider.example" }
-
-func (*terminalDecisionPtrProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
-	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
+type stubAttemptTransform struct {
+	id  string
+	ord int
 }
 
-type terminalDecisionPanicProvider struct{}
-
-func (*terminalDecisionPanicProvider) ID() string { panic("unbounded provider detail") }
-
-func (*terminalDecisionPanicProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
-	return terminaldecision.Decision{}, nil
+func (s stubAttemptTransform) ID() string                        { return s.id }
+func (s stubAttemptTransform) Order() int                        { return s.ord }
+func (s stubAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (s stubAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }
 
-func TestFeatureBundle_ValidateTerminalDecisionProvider(t *testing.T) {
+type stubStreamObserverFactory struct {
+	id  string
+	ord int
+}
+
+func (s stubStreamObserverFactory) ID() string                        { return s.id }
+func (s stubStreamObserverFactory) Order() int                        { return s.ord }
+func (s stubStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (s stubStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return stubStreamObserver{}, nil
+}
+
+type stubStreamObserver struct{}
+
+func (stubStreamObserver) Observe(context.Context, lipapi.Event) error          { return nil }
+func (stubStreamObserver) Finish(context.Context, response.StreamOutcome) error { return nil }
+
+func TestFeatureBundle_FinalFields(t *testing.T) {
 	t.Parallel()
-	valid := feature.FeatureBundle{
-		SchemaVersion:            feature.SchemaVersionV1,
-		TerminalDecisionProvider: terminalDecisionProvider{id: "provider.example"},
+	bundleType := reflect.TypeFor[feature.FeatureBundle]()
+	var actualFields []string
+	for i := 0; i < bundleType.NumField(); i++ {
+		actualFields = append(actualFields, bundleType.Field(i).Name)
 	}
-	if err := valid.Validate(); err != nil {
-		t.Fatalf("valid provider rejected: %v", err)
-	}
-
-	cases := map[string]terminaldecision.Provider{
-		"nil": nil,
-		"typed nil": func() terminaldecision.Provider {
-			var p *terminalDecisionPtrProvider
-			return p
-		}(),
-		"blank id":     terminalDecisionProvider{id: "   "},
-		"invalid utf8": terminalDecisionProvider{id: string([]byte{0xff})},
-		"oversized id": terminalDecisionProvider{id: strings.Repeat("p", terminaldecision.MaxProviderIDBytes+1)},
-		"panicking id": &terminalDecisionPanicProvider{},
-	}
-	for name, provider := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			b := feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1, TerminalDecisionProvider: provider}
-			err := b.Validate()
-			if name == "nil" {
-				if err != nil {
-					t.Fatalf("nil provider changed zero-provider validation: %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("Validate() accepted invalid provider")
-			}
-			if !errors.Is(err, terminaldecision.ErrInvalidProvider) {
-				t.Fatalf("Validate() error = %v, want ErrInvalidProvider", err)
-			}
-			if strings.Contains(err.Error(), "unbounded provider detail") {
-				t.Fatal("provider panic detail leaked into validation error")
-			}
-		})
-	}
-}
-
-func TestFeatureBundleTerminalDecisionContributionIsSingular(t *testing.T) {
-	t.Parallel()
-	field, ok := reflect.TypeFor[feature.FeatureBundle]().FieldByName("TerminalDecisionProvider")
-	if !ok {
-		t.Fatal("FeatureBundle is missing TerminalDecisionProvider")
-	}
-	want := reflect.TypeFor[terminaldecision.Provider]()
-	if field.Type != want {
-		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
-	}
-}
-
-func TestFeatureBundle_ValidateRejectsNilCompactionPreserver(t *testing.T) {
-	t.Parallel()
-	b := feature.FeatureBundle{
-		SchemaVersion:        feature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{nil},
-	}
-	if err := b.Validate(); err == nil {
-		t.Fatal("expected nil CompactionPreserver validation error")
-	}
-}
-
-func TestFeatureBundlePreservesHooksAndLifecycles(t *testing.T) {
-	t.Parallel()
-	h1 := stubSubmit{id: "a", ord: 1}
-	h2 := stubSubmit{id: "b", ord: 2}
-	b := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		SubmitHooks:   []sdkhooks.SubmitHook{h1, h2},
-		Lifecycles:    []lipplugin.Lifecycle{stubLife{}, stubLife{}},
-	}
-	if len(b.SubmitHooks) != 2 {
-		t.Fatalf("submit hooks: %d", len(b.SubmitHooks))
-	}
-	if len(b.Lifecycles) != 2 {
-		t.Fatalf("lifecycles: %d", len(b.Lifecycles))
-	}
-}
-
-func TestFeatureBundle_Validate_emptyAndV1(t *testing.T) {
-	t.Parallel()
-	if err := (feature.FeatureBundle{}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if err := (feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	bad := feature.FeatureBundle{
-		SubmitHooks: []sdkhooks.SubmitHook{stubSubmit{id: "x", ord: 0}},
-	}
-	if err := bad.Validate(); err == nil {
-		t.Fatal("expected error for hooks with schema version 0")
-	}
-	fixed := bad
-	fixed.SchemaVersion = feature.SchemaVersionV1
-	if err := fixed.Validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFeatureBundle_Validate_maxArgsBytesOnlyRequiresSchemaV1(t *testing.T) {
-	t.Parallel()
-	maxOnly := feature.FeatureBundle{ToolCallFinalizationMaxArgsBytes: 1024}
-	if err := maxOnly.Validate(); err == nil {
-		t.Fatal("expected error for max-args-only bundle with schema version 0")
-	}
-	ok := feature.FeatureBundle{
-		SchemaVersion:                    feature.SchemaVersionV1,
-		ToolCallFinalizationMaxArgsBytes: 1024,
-	}
-	if err := ok.Validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFeatureBundle_Validate_negativeMaxArgsBytes(t *testing.T) {
-	t.Parallel()
-	bad := feature.FeatureBundle{
-		SchemaVersion:                    feature.SchemaVersionV1,
-		ToolCallFinalizationMaxArgsBytes: -1,
-	}
-	if err := bad.Validate(); err == nil {
-		t.Fatal("expected error for negative ToolCallFinalizationMaxArgsBytes")
-	}
-	unset := feature.FeatureBundle{
-		ToolCallFinalizationMaxArgsBytes: -8,
-	}
-	if err := unset.Validate(); err == nil {
-		t.Fatal("expected error for negative ToolCallFinalizationMaxArgsBytes even with schema version 0")
-	}
-}
-
-func TestMergeFeatureBundlesAbsentChainsStayAbsent(t *testing.T) {
-	t.Parallel()
-	submitOnly := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		SubmitHooks:   []sdkhooks.SubmitHook{stubSubmit{id: "s", ord: 0}},
-	}
-	toolOnly := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		ToolReactors:  []sdkhooks.ToolReactor{stubTool{id: "t", ord: 0}},
-	}
-	merged := mergeFeatureBundles(submitOnly, toolOnly)
-	if len(merged.SubmitHooks) != 1 {
-		t.Fatalf("submit: %d", len(merged.SubmitHooks))
-	}
-	if merged.RequestPartHooks != nil {
-		t.Fatalf("expected nil RequestPartHooks, got len=%d", len(merged.RequestPartHooks))
-	}
-	if merged.ResponsePartHooks != nil {
-		t.Fatalf("expected nil ResponsePartHooks")
-	}
-	if len(merged.ToolReactors) != 1 {
-		t.Fatalf("tool reactors: %d", len(merged.ToolReactors))
-	}
-}
-
-type stubOpen struct{ id string }
-
-func (s stubOpen) ID() string { return s.id }
-func (stubOpen) Open(context.Context, session.OpenInput) (session.OpenResult, error) {
-	return session.OpenResult{}, nil
-}
-
-type stubWS struct{}
-
-func (stubWS) Resolve(context.Context) (workspace.WorkspaceView, error) {
-	return workspace.WorkspaceView{}, nil
-}
-
-func TestFeatureBundle_SecretGuards_orderCloneAndValidate(t *testing.T) {
-	t.Parallel()
-	bad := feature.FeatureBundle{SecretGuards: []secretguard.Guard{stubSecretGuard{id: "sg-a", ord: 2}}}
-	if err := bad.Validate(); err == nil {
-		t.Fatal("expected schema error for SecretGuards without SchemaVersionV1")
-	}
-	a := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		SecretGuards:  []secretguard.Guard{stubSecretGuard{id: "sg-a", ord: 2}},
-	}
-	b := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		SecretGuards:  []secretguard.Guard{stubSecretGuard{id: "sg-b", ord: 1}},
-	}
-	if err := a.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	merged := mergeFeatureBundles(a, b)
-	if len(merged.SecretGuards) != 2 {
-		t.Fatalf("merged SecretGuards: %d", len(merged.SecretGuards))
-	}
-	if merged.SecretGuards[0].ID() != "sg-a" || merged.SecretGuards[1].ID() != "sg-b" {
-		t.Fatalf("merge order not preserved: %q then %q", merged.SecretGuards[0].ID(), merged.SecretGuards[1].ID())
-	}
-	// Clone semantics: mutating the source slice after merge must not affect the merged copy.
-	a.SecretGuards[0] = stubSecretGuard{id: "mutated", ord: 99}
-	if merged.SecretGuards[0].ID() != "sg-a" {
-		t.Fatal("merged SecretGuards must be a cloned slice")
-	}
-}
-
-func TestFeatureBundle_Validate_sessionWorkspaceRequiresSchemaV1(t *testing.T) {
-	t.Parallel()
-	bad := feature.FeatureBundle{SessionOpeners: []session.Opener{stubOpen{id: "x"}}}
-	if err := bad.Validate(); err == nil {
-		t.Fatal("expected schema error")
-	}
-	ok := feature.FeatureBundle{
-		SchemaVersion:  feature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{stubOpen{id: "x"}},
-	}
-	if err := ok.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	wsOnly := feature.FeatureBundle{
-		SchemaVersion:      feature.SchemaVersionV1,
-		WorkspaceResolvers: []workspace.Resolver{stubWS{}},
-	}
-	if err := wsOnly.Validate(); err != nil {
-		t.Fatal(err)
-	}
+	expectedFields := []string{"SchemaVersion", "PlaneSet", "Lifecycles"}
+	assert.Equal(t, expectedFields, actualFields)
 }
 
 func TestBundleFromPlanes_isolation(t *testing.T) {
@@ -592,7 +161,7 @@ func TestBundleFromPlanes_isolation(t *testing.T) {
 	}
 }
 
-func TestFeatureBundle_Validate_OldNewLifecycleEmpty(t *testing.T) {
+func TestFeatureBundle_Validate_EmptyAndPlanes(t *testing.T) {
 	t.Parallel()
 
 	// Empty bundle: SchemaVersion 0 and 1 are valid, other is rejected
@@ -602,15 +171,12 @@ func TestFeatureBundle_Validate_OldNewLifecycleEmpty(t *testing.T) {
 	if err := (feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1}).Validate(); err != nil {
 		t.Fatalf("empty bundle with SchemaVersionV1 rejected: %v", err)
 	}
-	if err := (feature.FeatureBundle{SchemaVersion: 2}).Validate(); err == nil {
-		t.Fatal("empty bundle with SchemaVersion 2 accepted")
-	}
+	err := (feature.FeatureBundle{SchemaVersion: 2}).Validate()
+	require.EqualError(t, err, "feature: FeatureBundle: invalid schema version 2 for empty bundle")
 
 	// Lifecycle-only bundle: requires SchemaVersionV1
 	lifeBad := feature.FeatureBundle{Lifecycles: []lipplugin.Lifecycle{stubLife{}}}
-	if err := lifeBad.Validate(); err == nil {
-		t.Fatal("lifecycle-only bundle with SchemaVersion 0 accepted")
-	}
+	require.EqualError(t, lifeBad.Validate(), "feature: FeatureBundle: schema version want 1 got 0")
 	lifeOk := feature.FeatureBundle{
 		SchemaVersion: feature.SchemaVersionV1,
 		Lifecycles:    []lipplugin.Lifecycle{stubLife{}},
@@ -619,22 +185,7 @@ func TestFeatureBundle_Validate_OldNewLifecycleEmpty(t *testing.T) {
 		t.Fatalf("lifecycle-only bundle with SchemaVersionV1 rejected: %v", err)
 	}
 
-	// Old-only bundle: requires SchemaVersionV1
-	oldBad := feature.FeatureBundle{
-		SubmitHooks: []sdkhooks.SubmitHook{stubSubmit{id: "h", ord: 1}},
-	}
-	if err := oldBad.Validate(); err == nil {
-		t.Fatal("old-only bundle with SchemaVersion 0 accepted")
-	}
-	oldOk := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		SubmitHooks:   []sdkhooks.SubmitHook{stubSubmit{id: "h", ord: 1}},
-	}
-	if err := oldOk.Validate(); err != nil {
-		t.Fatalf("old-only bundle with SchemaVersionV1 rejected: %v", err)
-	}
-
-	// New-only bundle (PlaneSet): requires SchemaVersionV1
+	// PlaneSet bundle: requires SchemaVersionV1
 	cs := feature.NewContributionSet()
 	if err := feature.Contribute(cs, feature.PlaneSubmitHooks, "feat", []sdkhooks.SubmitHook{stubSubmit{id: "h", ord: 1}}); err != nil {
 		t.Fatalf("Contribute: %v", err)
@@ -644,329 +195,13 @@ func TestFeatureBundle_Validate_OldNewLifecycleEmpty(t *testing.T) {
 	newBad := feature.FeatureBundle{
 		PlaneSet: frozen,
 	}
-	if err := newBad.Validate(); err == nil {
-		t.Fatal("new-only bundle with SchemaVersion 0 accepted")
-	}
+	require.EqualError(t, newBad.Validate(), "feature: FeatureBundle: schema version want 1 got 0")
 	newOk := feature.FeatureBundle{
 		SchemaVersion: feature.SchemaVersionV1,
 		PlaneSet:      frozen,
 	}
 	if err := newOk.Validate(); err != nil {
 		t.Fatalf("new-only bundle with SchemaVersionV1 rejected: %v", err)
-	}
-}
-
-type legacyFieldEntry struct {
-	name      string
-	withEmpty func(b *feature.FeatureBundle)
-	withVal   func(b *feature.FeatureBundle)
-}
-
-var expectedLegacyFields = []string{
-	"SubmitHooks",
-	"RequestPartHooks",
-	"ResponsePartHooks",
-	"ToolReactors",
-	"SessionOpeners",
-	"WorkspaceResolvers",
-	"ToolCatalogFilters",
-	"ToolCallPolicies",
-	"ToolCallFinalizers",
-	"ToolCallFinalizationMaxArgsBytes",
-	"RequestTransforms",
-	"PreRequestHandlers",
-	"RouteHintProviders",
-	"CompletionGates",
-	"AttemptTransforms",
-	"StreamObserverFactories",
-	"TrafficObservers",
-	"UsageObservers",
-	"RawCaptureSinks",
-	"TrafficRedactors",
-	"CompactionObservers",
-	"CompactionPreservers",
-	"SecretGuards",
-	"LocalTurnHandlers",
-	"TerminalDecisionProvider",
-}
-
-func legacyFieldTable() []legacyFieldEntry {
-	return []legacyFieldEntry{
-		{
-			name:      "SubmitHooks",
-			withEmpty: func(b *feature.FeatureBundle) { b.SubmitHooks = []sdkhooks.SubmitHook{} },
-			withVal:   func(b *feature.FeatureBundle) { b.SubmitHooks = []sdkhooks.SubmitHook{stubSubmit{id: "s1", ord: 1}} },
-		},
-		{
-			name:      "RequestPartHooks",
-			withEmpty: func(b *feature.FeatureBundle) { b.RequestPartHooks = []sdkhooks.RequestPartHook{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.RequestPartHooks = []sdkhooks.RequestPartHook{stubRequestPartHook{id: "rp1"}}
-			},
-		},
-		{
-			name:      "ResponsePartHooks",
-			withEmpty: func(b *feature.FeatureBundle) { b.ResponsePartHooks = []sdkhooks.ResponsePartHook{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.ResponsePartHooks = []sdkhooks.ResponsePartHook{stubResponsePartHook{id: "resp1"}}
-			},
-		},
-		{
-			name:      "ToolReactors",
-			withEmpty: func(b *feature.FeatureBundle) { b.ToolReactors = []sdkhooks.ToolReactor{} },
-			withVal:   func(b *feature.FeatureBundle) { b.ToolReactors = []sdkhooks.ToolReactor{stubTool{id: "t1"}} },
-		},
-		{
-			name:      "SessionOpeners",
-			withEmpty: func(b *feature.FeatureBundle) { b.SessionOpeners = []session.Opener{} },
-			withVal:   func(b *feature.FeatureBundle) { b.SessionOpeners = []session.Opener{stubOpen{id: "so1"}} },
-		},
-		{
-			name:      "WorkspaceResolvers",
-			withEmpty: func(b *feature.FeatureBundle) { b.WorkspaceResolvers = []workspace.Resolver{} },
-			withVal:   func(b *feature.FeatureBundle) { b.WorkspaceResolvers = []workspace.Resolver{stubWS{}} },
-		},
-		{
-			name:      "ToolCatalogFilters",
-			withEmpty: func(b *feature.FeatureBundle) { b.ToolCatalogFilters = []toolcatalog.Filter{} },
-			withVal:   func(b *feature.FeatureBundle) { b.ToolCatalogFilters = []toolcatalog.Filter{stubToolFilter{id: "tf1"}} },
-		},
-		{
-			name:      "ToolCallPolicies",
-			withEmpty: func(b *feature.FeatureBundle) { b.ToolCallPolicies = []toolpolicy.Policy{} },
-			withVal:   func(b *feature.FeatureBundle) { b.ToolCallPolicies = []toolpolicy.Policy{stubToolPolicy{id: "tp1"}} },
-		},
-		{
-			name:      "ToolCallFinalizers",
-			withEmpty: func(b *feature.FeatureBundle) { b.ToolCallFinalizers = []toolcall.Finalizer{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.ToolCallFinalizers = []toolcall.Finalizer{stubToolFinalizer{id: "tfin1"}}
-			},
-		},
-		{
-			name:      "ToolCallFinalizationMaxArgsBytes",
-			withEmpty: nil,
-			withVal:   func(b *feature.FeatureBundle) { b.ToolCallFinalizationMaxArgsBytes = 1024 },
-		},
-		{
-			name:      "RequestTransforms",
-			withEmpty: func(b *feature.FeatureBundle) { b.RequestTransforms = []request.Transform{} },
-			withVal:   func(b *feature.FeatureBundle) { b.RequestTransforms = []request.Transform{stubTransform{id: "rt1"}} },
-		},
-		{
-			name:      "PreRequestHandlers",
-			withEmpty: func(b *feature.FeatureBundle) { b.PreRequestHandlers = []prerequest.Handler{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.PreRequestHandlers = []prerequest.Handler{stubPreRequestHandler{id: "prh1"}}
-			},
-		},
-		{
-			name:      "RouteHintProviders",
-			withEmpty: func(b *feature.FeatureBundle) { b.RouteHintProviders = []routehint.Provider{} },
-			withVal:   func(b *feature.FeatureBundle) { b.RouteHintProviders = []routehint.Provider{stubRouteHint{id: "rh1"}} },
-		},
-		{
-			name:      "CompletionGates",
-			withEmpty: func(b *feature.FeatureBundle) { b.CompletionGates = []completion.Gate{} },
-			withVal:   func(b *feature.FeatureBundle) { b.CompletionGates = []completion.Gate{stubCompletionGate{id: "cg1"}} },
-		},
-		{
-			name:      "AttemptTransforms",
-			withEmpty: func(b *feature.FeatureBundle) { b.AttemptTransforms = []request.AttemptTransform{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.AttemptTransforms = []request.AttemptTransform{stubAttemptTransform{id: "at1"}}
-			},
-		},
-		{
-			name:      "StreamObserverFactories",
-			withEmpty: func(b *feature.FeatureBundle) { b.StreamObserverFactories = []response.StreamObserverFactory{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.StreamObserverFactories = []response.StreamObserverFactory{stubStreamObserverFactory{id: "sof1"}}
-			},
-		},
-		{
-			name:      "TrafficObservers",
-			withEmpty: func(b *feature.FeatureBundle) { b.TrafficObservers = []traffic.Observer{} },
-			withVal:   func(b *feature.FeatureBundle) { b.TrafficObservers = []traffic.Observer{stubTrafficObserver{}} },
-		},
-		{
-			name:      "UsageObservers",
-			withEmpty: func(b *feature.FeatureBundle) { b.UsageObservers = []usage.Observer{} },
-			withVal:   func(b *feature.FeatureBundle) { b.UsageObservers = []usage.Observer{stubUsageObserver{}} },
-		},
-		{
-			name:      "RawCaptureSinks",
-			withEmpty: func(b *feature.FeatureBundle) { b.RawCaptureSinks = []traffic.RawCaptureSink{} },
-			withVal:   func(b *feature.FeatureBundle) { b.RawCaptureSinks = []traffic.RawCaptureSink{stubRawCaptureSink{}} },
-		},
-		{
-			name:      "TrafficRedactors",
-			withEmpty: func(b *feature.FeatureBundle) { b.TrafficRedactors = []traffic.Redactor{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.TrafficRedactors = []traffic.Redactor{stubTrafficRedactor{id: "tr1"}}
-			},
-		},
-		{
-			name:      "CompactionObservers",
-			withEmpty: func(b *feature.FeatureBundle) { b.CompactionObservers = []compaction.Observer{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.CompactionObservers = []compaction.Observer{stubCompactionObserver{}}
-			},
-		},
-		{
-			name:      "CompactionPreservers",
-			withEmpty: func(b *feature.FeatureBundle) { b.CompactionPreservers = []compaction.Preserver{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.CompactionPreservers = []compaction.Preserver{stubPreserver{id: "cp1"}}
-			},
-		},
-		{
-			name:      "SecretGuards",
-			withEmpty: func(b *feature.FeatureBundle) { b.SecretGuards = []secretguard.Guard{} },
-			withVal:   func(b *feature.FeatureBundle) { b.SecretGuards = []secretguard.Guard{stubSecretGuard{id: "sg1"}} },
-		},
-		{
-			name:      "LocalTurnHandlers",
-			withEmpty: func(b *feature.FeatureBundle) { b.LocalTurnHandlers = []localturn.Handler{} },
-			withVal: func(b *feature.FeatureBundle) {
-				b.LocalTurnHandlers = []localturn.Handler{stubLocalTurnHandler{id: "lt.1"}}
-			},
-		},
-		{
-			name:      "TerminalDecisionProvider",
-			withEmpty: nil,
-			withVal:   func(b *feature.FeatureBundle) { b.TerminalDecisionProvider = terminalDecisionProvider{id: "term.1"} },
-		},
-	}
-}
-
-func TestFeatureBundle_PinnedExpectedLegacyFields(t *testing.T) {
-	t.Parallel()
-	bundleType := reflect.TypeFor[feature.FeatureBundle]()
-	var actualFields []string
-	for i := 0; i < bundleType.NumField(); i++ {
-		name := bundleType.Field(i).Name
-		if name == "SchemaVersion" || name == "PlaneSet" || name == "Lifecycles" {
-			continue
-		}
-		actualFields = append(actualFields, name)
-	}
-	slices.Sort(actualFields)
-	sortedExpected := slices.Clone(expectedLegacyFields)
-	slices.Sort(sortedExpected)
-	if !slices.Equal(actualFields, sortedExpected) {
-		t.Fatalf("FeatureBundle legacy fields mismatch:\n got: %v\nwant: %v", actualFields, sortedExpected)
-	}
-
-	table := legacyFieldTable()
-	if len(table) != len(expectedLegacyFields) {
-		t.Fatalf("legacyFieldTable len = %d, want %d", len(table), len(expectedLegacyFields))
-	}
-	for _, entry := range table {
-		if !slices.Contains(expectedLegacyFields, entry.name) {
-			t.Fatalf("legacyFieldTable has unknown field %q", entry.name)
-		}
-	}
-}
-
-func TestFeatureBundle_Validate_DualTransportRejection(t *testing.T) {
-	t.Parallel()
-
-	cs := feature.NewContributionSet()
-	if err := feature.Contribute(cs, feature.PlaneSubmitHooks, "feat", []sdkhooks.SubmitHook{stubSubmit{id: "h", ord: 1}}); err != nil {
-		t.Fatalf("Contribute: %v", err)
-	}
-	frozen := cs.Freeze()
-
-	const wantErr = "feature: FeatureBundle: PlaneSet cannot be combined with deprecated named plane fields"
-
-	table := legacyFieldTable()
-	for _, entry := range table {
-		entry := entry
-		t.Run("Populated_"+entry.name, func(t *testing.T) {
-			t.Parallel()
-			b := feature.FeatureBundle{
-				SchemaVersion: feature.SchemaVersionV1,
-				PlaneSet:      frozen,
-			}
-			entry.withVal(&b)
-			err := b.Validate()
-			if err == nil {
-				t.Fatalf("Validate() accepted dual transport with populated %s", entry.name)
-			}
-			if err.Error() != wantErr {
-				t.Fatalf("Validate() error = %q, want %q", err.Error(), wantErr)
-			}
-		})
-
-		if entry.withEmpty != nil {
-			t.Run("ExplicitEmpty_"+entry.name, func(t *testing.T) {
-				t.Parallel()
-				b := feature.FeatureBundle{
-					SchemaVersion: feature.SchemaVersionV1,
-					PlaneSet:      frozen,
-				}
-				entry.withEmpty(&b)
-				err := b.Validate()
-				if err == nil {
-					t.Fatalf("Validate() accepted dual transport with explicit-empty %s", entry.name)
-				}
-				if err.Error() != wantErr {
-					t.Fatalf("Validate() error = %q, want %q", err.Error(), wantErr)
-				}
-			})
-		}
-	}
-
-	// PlaneSet with Lifecycles is valid (lifecycles are not a plane and may coexist with PlaneSet)
-	withLife := feature.FeatureBundle{
-		SchemaVersion: feature.SchemaVersionV1,
-		PlaneSet:      frozen,
-		Lifecycles:    []lipplugin.Lifecycle{stubLife{}},
-	}
-	if err := withLife.Validate(); err != nil {
-		t.Fatalf("PlaneSet with Lifecycles rejected: %v", err)
-	}
-}
-
-func TestFeatureBundle_Validate_OldOnly_ExplicitEmpty_AllSliceFields(t *testing.T) {
-	t.Parallel()
-
-	table := legacyFieldTable()
-	for _, entry := range table {
-		if entry.withEmpty == nil {
-			continue
-		}
-		entry := entry
-		t.Run(entry.name, func(t *testing.T) {
-			t.Parallel()
-
-			// SchemaVersion 0 (unset) is valid for empty bundle with explicit empty slice
-			b0 := feature.FeatureBundle{SchemaVersion: 0}
-			entry.withEmpty(&b0)
-			if err := b0.Validate(); err != nil {
-				t.Fatalf("SchemaVersion 0 rejected for explicit-empty %s: %v", entry.name, err)
-			}
-
-			// SchemaVersionV1 is valid for empty bundle with explicit empty slice
-			b1 := feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1}
-			entry.withEmpty(&b1)
-			if err := b1.Validate(); err != nil {
-				t.Fatalf("SchemaVersionV1 rejected for explicit-empty %s: %v", entry.name, err)
-			}
-
-			// Invalid SchemaVersion (e.g. 2) must be rejected with exact empty error
-			b2 := feature.FeatureBundle{SchemaVersion: 2}
-			entry.withEmpty(&b2)
-			err2 := b2.Validate()
-			if err2 == nil {
-				t.Fatalf("invalid schema version 2 accepted for explicit-empty %s", entry.name)
-			}
-			const wantErrSubstr = "invalid schema version 2 for empty bundle"
-			if !strings.Contains(err2.Error(), wantErrSubstr) {
-				t.Fatalf("error = %q, want substring %q", err2.Error(), wantErrSubstr)
-			}
-		})
 	}
 }
 

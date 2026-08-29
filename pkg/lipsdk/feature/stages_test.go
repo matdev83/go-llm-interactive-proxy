@@ -65,3 +65,47 @@ func TestStageMutationRole_zeroIsUnknown(t *testing.T) {
 		t.Fatalf("zero descriptor mutation role: %v", z.MutationRole)
 	}
 }
+
+func TestLegalPipeline_candidateAttemptTransformBetweenRouteHintAndAttemptLifecycle(t *testing.T) {
+	t.Parallel()
+	routeIdx := feature.LegalStageDescriptorIndex(feature.StageIDRouteHinting)
+	xformIdx := feature.LegalStageDescriptorIndex(feature.StageIDCandidateAttemptTransform)
+	lifeIdx := feature.LegalStageDescriptorIndex(feature.StageIDAttemptLifecycle)
+	if routeIdx < 0 || xformIdx < 0 || lifeIdx < 0 {
+		t.Fatalf("missing stages route=%d transform=%d lifecycle=%d", routeIdx, xformIdx, lifeIdx)
+	}
+	if routeIdx >= xformIdx || xformIdx >= lifeIdx {
+		t.Fatalf("want route_hinting(%d) < candidate_attempt_transform(%d) < attempt_lifecycle(%d)", routeIdx, xformIdx, lifeIdx)
+	}
+	desc, ok := feature.StageDescriptorByID(feature.StageIDCandidateAttemptTransform)
+	if !ok || desc.MutationRole != feature.StageRoleMutateReject {
+		t.Fatalf("candidate_attempt_transform descriptor: ok=%v role=%v", ok, desc.MutationRole)
+	}
+	life, ok := feature.StageDescriptorByID(feature.StageIDAttemptLifecycle)
+	if !ok || life.MutationRole != feature.StageRoleObserve {
+		t.Fatalf("attempt_lifecycle must remain observe-only: ok=%v role=%v", ok, life.MutationRole)
+	}
+}
+
+func TestLegalPipeline_finalStreamObservationBetweenCompletionGatingAndTraffic(t *testing.T) {
+	t.Parallel()
+	gateIdx := feature.LegalStageDescriptorIndex(feature.StageIDCompletionGating)
+	obsIdx := feature.LegalStageDescriptorIndex(feature.StageIDFinalStreamObservation)
+	trafficIdx := feature.LegalStageDescriptorIndex(feature.StageIDTrafficObservation)
+	egressIdx := feature.LegalStageDescriptorIndex(feature.StageIDEgressEncoding)
+	if gateIdx < 0 || obsIdx < 0 || trafficIdx < 0 || egressIdx < 0 {
+		t.Fatalf("missing stages gate=%d obs=%d traffic=%d egress=%d", gateIdx, obsIdx, trafficIdx, egressIdx)
+	}
+	if gateIdx >= obsIdx || obsIdx >= trafficIdx || trafficIdx >= egressIdx {
+		t.Fatalf("want completion_gating(%d) < final_stream_observation(%d) < traffic_observation(%d) < egress(%d)",
+			gateIdx, obsIdx, trafficIdx, egressIdx)
+	}
+	desc, ok := feature.StageDescriptorByID(feature.StageIDFinalStreamObservation)
+	if !ok || desc.MutationRole != feature.StageRoleObserve {
+		t.Fatalf("final_stream_observation descriptor: ok=%v role=%v", ok, desc.MutationRole)
+	}
+	life, ok := feature.StageDescriptorByID(feature.StageIDAttemptLifecycle)
+	if !ok || life.MutationRole != feature.StageRoleObserve {
+		t.Fatalf("attempt_lifecycle must remain observe-only: ok=%v role=%v", ok, life.MutationRole)
+	}
+}

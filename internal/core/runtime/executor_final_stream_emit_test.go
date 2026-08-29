@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -104,8 +103,7 @@ func setupEmitObserverStream(t *testing.T, auth *recordingAuthorityService, fact
 	}, accountingstream.Config{})
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			CompletionGates:         gates,
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
@@ -551,8 +549,7 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
 	})
@@ -652,8 +649,7 @@ func TestCycleFinalStreamObservation_precommitOpenFailClosedSurfaces(t *testing.
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			CompletionGates:         []completion.Gate{equalReplaceGate{}},
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
@@ -703,8 +699,7 @@ func TestCycleFinalStreamObservation_postcommitOpenFailClosedBestEffort(t *testi
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			CompletionGates:         []completion.Gate{equalReplaceGate{}},
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
@@ -748,8 +743,7 @@ func TestEmitClientFacingObserved_failClosedObserveAbortsFinishFailed(t *testing
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
 	})
@@ -800,8 +794,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	bus := hooks.New(hooks.Config{})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{factory},
 		}),
 	})
@@ -860,8 +853,7 @@ func TestIdleEOFRecoveryWarning_observedViaEmitClientFacing(t *testing.T) {
 	ex2, _, aLegID2 := newAuthorityRuntimeTestExecutor(t, auth)
 	bus2 := hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus2, extensions.SnapshotOptions{
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			StreamObserverFactories: []response.StreamObserverFactory{factory2},
 		}),
 	})

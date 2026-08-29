@@ -2454,3 +2454,35 @@ func TestTerminalDecisionProvider_ExactAttributedErrorStringAndErrorsIs(t *testi
 	assert.True(t, hasID)
 	assert.Equal(t, "provider-a", id)
 }
+
+func TestFreezeRequestPlanes_panicsOnNilAttemptTransform(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil AttemptTransform")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "AttemptTransforms contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenCandidateForTest(nil, []request.AttemptTransform{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
+}
+
+func TestFreezeRequestPlanes_panicsOnNilStreamObserverFactory(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil StreamObserverFactory")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "StreamObserverFactories contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	frozen := feature.NewMalformedGeneratedFrozenStreamObserversCandidateForTest([]response.StreamObserverFactory{nil})
+	_ = feature.FreezeRequestPlanes(frozen)
+}

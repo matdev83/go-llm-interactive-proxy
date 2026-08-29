@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 	"time"
 
@@ -106,8 +105,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			bus = hooks.New(hooks.Config{})
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-				SchemaVersion:   lipfeature.SchemaVersionV1,
+			FeaturePlanes: freezeBundle(testFeatureBundle{
 				CompletionGates: []completion.Gate{gatedLeakPassGate{}},
 			}),
 		})

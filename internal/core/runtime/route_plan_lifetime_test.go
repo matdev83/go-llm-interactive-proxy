@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -382,8 +382,7 @@ func TestExecutor_ctpRecordsClientSelectorSeparateFromEffectiveBaseline(t *testi
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace:       voidWorkspaceResolver{},
 		TrafficObserver: ctp,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{selectorRewriteTransform{from: clientSelector, to: hookSelector}},
 		}),
 	})

@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 type openParentFake struct {
@@ -584,7 +585,7 @@ func TestFeatureBundleWithPort_requiresExplicitPort(t *testing.T) {
 	}
 	plugin, parent, _ := openFixture(t)
 	bundle, err := FeatureBundleWithPort(plugin.cfg, parent)
-	if err != nil || len(bundle.CompactionPreservers) != 1 {
+	if err != nil || len(lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneCompactionPreservers)) != 1 {
 		t.Fatalf("bundle=%+v err=%v", bundle, err)
 	}
 	if err := bundle.Validate(); err != nil {

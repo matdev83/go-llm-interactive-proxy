@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -295,7 +296,7 @@ func TestPhase5_disabledConfigHasNoParticipantsUntilConstructed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parts.Store == nil || parts.Telemetry == nil || len(bundle.AttemptTransforms) == 0 || len(bundle.StreamObserverFactories) == 0 {
+	if parts.Store == nil || parts.Telemetry == nil || len(feature.Get(bundle.PlaneSet, feature.PlaneAttemptTransforms)) == 0 || len(feature.Get(bundle.PlaneSet, feature.PlaneStreamObserverFactories)) == 0 {
 		t.Fatal("enabled construction must expose store/telemetry/participants")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -294,135 +295,142 @@ func buildPopulatedMultiFeatureFixture() (*config.Config, *InventoryExtras) {
 
 	bundles := map[string]lipfeature.FeatureBundle{
 		// Feature 1: Security Gateway (exercises SecretGuards, CompletionGates, RawCaptureSinks, RequestTransforms, all 3 true privileges)
-		"sec-gate": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards: []secretguard.Guard{
+		"sec-gate": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "sec-gate", []secretguard.Guard{
 				charStubSecretGuard{id: "sg-z", ord: 20},
 				charStubSecretGuard{id: "sg-a", ord: 10},
 				nil, // nil filtering in secretguard.MaterializeSorted
 				charStubSecretGuard{id: "sg-b", ord: 10},
-			},
-			CompletionGates: []completion.Gate{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "sec-gate", []completion.Gate{
 				charStubCompletionGate{id: "cg-2", ord: 20},
 				charStubCompletionGate{id: "cg-1", ord: 10},
-			},
-			RawCaptureSinks: []traffic.RawCaptureSink{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "sec-gate", []traffic.RawCaptureSink{
 				charStubRawCaptureSink{},
 				nil, // nil filtering in stageOccupancyFromBundle RawCaptureSinks
 				charStubRawCaptureSink{},
-			},
-			RequestTransforms: []request.Transform{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "sec-gate", []request.Transform{
 				charStubRequestTransform{id: "rt-auth-inject", ord: 2},
 				charStubRequestTransform{id: "rt-header-clean", ord: 1},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 2: Tool Governance (exercises StageToolEventReaction coalescing, StageToolCatalog, sorting, nil filtering)
-		"tool-governance": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			ToolCallPolicies: []toolpolicy.Policy{
+		"tool-governance": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "tool-governance", []toolpolicy.Policy{
 				charStubToolPolicy{id: "policy-deny-shell", ord: 20},
 				nil, // nil filtering in toolpolicy.MaterializeSorted
 				charStubToolPolicy{id: "policy-allow-read", ord: 10},
-			},
-			ToolCallFinalizers: []toolcall.Finalizer{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "tool-governance", []toolcall.Finalizer{
 				charStubToolFinalizer{id: "finalizer-clamp-args", ord: 10},
 				nil, // nil filtering in toolcall.MaterializeSorted
 				charStubToolFinalizer{id: "finalizer-validate-json", ord: 20},
-			},
-			ToolReactors: []sdkhooks.ToolReactor{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "tool-governance", []sdkhooks.ToolReactor{
 				charStubToolReactor{id: "reactor-audit-log", ord: 30},
 				charStubToolReactor{id: "reactor-early-abort", ord: 10},
-			},
-			ToolCatalogFilters: []toolcatalog.Filter{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "tool-governance", []toolcatalog.Filter{
 				charStubToolCatalogFilter{id: "filter-private-tools", ord: 20},
 				charStubToolCatalogFilter{id: "filter-admin-tools", ord: 10},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 3: Traffic Metrics (exercises StageTrafficObservation coalescing, index-based labels, slice order, all-false privileges)
-		"traffic-metrics": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
+		"traffic-metrics": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "traffic-metrics", []traffic.Observer{
 				charStubTrafficObserver{},
 				nil, // nil filtering
 				charStubTrafficObserver{},
-			},
-			UsageObservers: []usage.Observer{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "traffic-metrics", []usage.Observer{
 				charStubUsageObserver{},
 				nil, // nil filtering
 				charStubUsageObserver{},
-			},
-			TrafficRedactors: []traffic.Redactor{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "traffic-metrics", []traffic.Redactor{
 				charStubTrafficRedactor{id: "redact-auth-token"},
 				nil, // nil filtering
 				charStubTrafficRedactor{id: "redact-ssn"},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 4: Session & Routing (exercises StageSessionOpen coalescing, PreRequest, RouteHinting)
-		"session-routing": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SessionOpeners: []session.Opener{
+		"session-routing": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "session-routing", []session.Opener{
 				charStubSessionOpener{id: "opener-user-session"},
 				nil, // nil filtering
 				charStubSessionOpener{id: "opener-tenant-session"},
-			},
-			WorkspaceResolvers: []workspace.Resolver{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "session-routing", []workspace.Resolver{
 				charStubWorkspaceResolver{},
 				nil, // nil filtering
 				charStubWorkspaceResolver{},
-			},
-			PreRequestHandlers: []prerequest.Handler{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "session-routing", []prerequest.Handler{
 				charStubPreRequestHandler{id: "prereq-rate-limit", ord: 20},
 				charStubPreRequestHandler{id: "prereq-auth-check", ord: 10},
-			},
-			RouteHintProviders: []routehint.Provider{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "session-routing", []routehint.Provider{
 				charStubRouteHintProvider{id: "hint-low-latency", ord: 20},
 				nil, // nil filtering
 				charStubRouteHintProvider{id: "hint-cost-tier", ord: 10},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 5: Stream Pipeline (exercises SubmitHooks, RequestPartHooks, ResponsePartHooks, AttemptTransforms, StreamObserverFactories, GenericPorts)
-		"stream-pipeline": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		"stream-pipeline": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "stream-pipeline", []sdkhooks.SubmitHook{
 				charStubSubmitHook{id: "submit-telemetry", ord: 20},
 				charStubSubmitHook{id: "submit-preflight", ord: 10},
-			},
-			RequestPartHooks: []sdkhooks.RequestPartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "stream-pipeline", []sdkhooks.RequestPartHook{
 				charStubRequestPartHook{id: "req-part-metadata", ord: 10},
-			},
-			ResponsePartHooks: []sdkhooks.ResponsePartHook{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "stream-pipeline", []sdkhooks.ResponsePartHook{
 				charStubResponsePartHook{id: "resp-part-mask", ord: 20},
 				charStubResponsePartHook{id: "resp-part-tag", ord: 10},
-			},
-			AttemptTransforms: []request.AttemptTransform{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "stream-pipeline", []request.AttemptTransform{
 				charStubAttemptTransform{id: "attempt-retry-backoff", ord: 20},
 				charStubAttemptTransform{id: "attempt-circuit-breaker", ord: 10},
-			},
-			StreamObserverFactories: []response.StreamObserverFactory{
+			})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "stream-pipeline", []response.StreamObserverFactory{
 				charStubStreamObserverFactory{id: "stream-latency-tracker", ord: 20},
 				charStubStreamObserverFactory{id: "stream-token-counter", ord: 10},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 6: Dedicated secrets-guard feature
-		"secrets-guard": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SecretGuards: []secretguard.Guard{
+		"secrets-guard": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "secrets-guard", []secretguard.Guard{
 				charStubSecretGuard{id: "sg-core-pattern", ord: 10},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 
 		// Feature 7: Disabled feature
-		"disabled-plugin": {
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			SubmitHooks: []sdkhooks.SubmitHook{
+		"disabled-plugin": func() lipfeature.FeatureBundle {
+			cs := lipfeature.NewContributionSet()
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "disabled-plugin", []sdkhooks.SubmitHook{
 				charStubSubmitHook{id: "disabled-submit", ord: 1},
-			},
-		},
+			})
+			return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+		}(),
 	}
 
 	extras := &InventoryExtras{
@@ -629,69 +637,68 @@ func TestInventoryExtensions_GenericPortsAggregationCharacterization(t *testing.
 func TestInventoryExtensions_OccupantLabelFormatCharacterization(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
-			charStubSubmitHook{id: "hook-sub", ord: 1},
-		},
-		ToolCatalogFilters: []toolcatalog.Filter{
-			charStubToolCatalogFilter{id: "filter-cat", ord: 1},
-		},
-		RequestTransforms: []request.Transform{
-			charStubRequestTransform{id: "req-tf", ord: 1},
-		},
-		PreRequestHandlers: []prerequest.Handler{
-			charStubPreRequestHandler{id: "pre-req", ord: 1},
-		},
-		RouteHintProviders: []routehint.Provider{
-			charStubRouteHintProvider{id: "hint-rt", ord: 1},
-		},
-		RequestPartHooks: []sdkhooks.RequestPartHook{
-			charStubRequestPartHook{id: "req-part", ord: 1},
-		},
-		ResponsePartHooks: []sdkhooks.ResponsePartHook{
-			charStubResponsePartHook{id: "resp-part", ord: 1},
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			charStubToolPolicy{id: "tool-pol", ord: 1},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			charStubToolFinalizer{id: "tool-fin", ord: 1},
-		},
-		ToolReactors: []sdkhooks.ToolReactor{
-			charStubToolReactor{id: "tool-reac", ord: 1},
-		},
-		SessionOpeners: []session.Opener{
-			charStubSessionOpener{id: "sess-op"},
-		},
-		WorkspaceResolvers: []workspace.Resolver{
-			charStubWorkspaceResolver{},
-		},
-		SecretGuards: []secretguard.Guard{
-			charStubSecretGuard{id: "sec-gd", ord: 1},
-		},
-		CompletionGates: []completion.Gate{
-			charStubCompletionGate{id: "comp-gt", ord: 1},
-		},
-		AttemptTransforms: []request.AttemptTransform{
-			charStubAttemptTransform{id: "att-tf", ord: 1},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			charStubStreamObserverFactory{id: "stm-obs", ord: 1},
-		},
-		TrafficObservers: []traffic.Observer{
-			charStubTrafficObserver{},
-		},
-		UsageObservers: []usage.Observer{
-			charStubUsageObserver{},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			charStubRawCaptureSink{},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			charStubTrafficRedactor{id: "traf-red"},
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "test", []sdkhooks.SubmitHook{
+		charStubSubmitHook{id: "hook-sub", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "test", []toolcatalog.Filter{
+		charStubToolCatalogFilter{id: "filter-cat", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test", []request.Transform{
+		charStubRequestTransform{id: "req-tf", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "test", []prerequest.Handler{
+		charStubPreRequestHandler{id: "pre-req", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test", []routehint.Provider{
+		charStubRouteHintProvider{id: "hint-rt", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, "test", []sdkhooks.RequestPartHook{
+		charStubRequestPartHook{id: "req-part", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "test", []sdkhooks.ResponsePartHook{
+		charStubResponsePartHook{id: "resp-part", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		charStubToolPolicy{id: "tool-pol", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{
+		charStubToolFinalizer{id: "tool-fin", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "test", []sdkhooks.ToolReactor{
+		charStubToolReactor{id: "tool-reac", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "test", []session.Opener{
+		charStubSessionOpener{id: "sess-op"},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "test", []workspace.Resolver{
+		charStubWorkspaceResolver{},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test", []secretguard.Guard{
+		charStubSecretGuard{id: "sec-gd", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "test", []completion.Gate{
+		charStubCompletionGate{id: "comp-gt", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test", []request.AttemptTransform{
+		charStubAttemptTransform{id: "att-tf", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{
+		charStubStreamObserverFactory{id: "stm-obs", ord: 1},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "test", []traffic.Observer{
+		charStubTrafficObserver{},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "test", []usage.Observer{
+		charStubUsageObserver{},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "test", []traffic.RawCaptureSink{
+		charStubRawCaptureSink{},
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "test", []traffic.Redactor{
+		charStubTrafficRedactor{id: "traf-red"},
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 
 	occ := stageOccupancyFromBundle(b)
 	occMap := make(map[string]InventoryStageOccupancy)
@@ -723,59 +730,58 @@ func TestInventoryExtensions_OccupantLabelFormatCharacterization(t *testing.T) {
 func TestInventoryExtensions_NilFilteringAllPlanesCharacterization(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []secretguard.Guard{
-			nil,
-			charStubSecretGuard{id: "sg-valid", ord: 1},
-			nil,
-		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			nil,
-			charStubToolPolicy{id: "pol-valid", ord: 1},
-			nil,
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			nil,
-			charStubToolFinalizer{id: "fin-valid", ord: 1},
-			nil,
-		},
-		RouteHintProviders: []routehint.Provider{
-			nil,
-			charStubRouteHintProvider{id: "hint-valid", ord: 1},
-			nil,
-		},
-		SessionOpeners: []session.Opener{
-			nil,
-			charStubSessionOpener{id: "opener-valid"},
-			nil,
-		},
-		WorkspaceResolvers: []workspace.Resolver{
-			nil,
-			charStubWorkspaceResolver{},
-			nil,
-		},
-		TrafficObservers: []traffic.Observer{
-			nil,
-			charStubTrafficObserver{},
-			nil,
-		},
-		UsageObservers: []usage.Observer{
-			nil,
-			charStubUsageObserver{},
-			nil,
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			nil,
-			charStubRawCaptureSink{},
-			nil,
-		},
-		TrafficRedactors: []traffic.Redactor{
-			nil,
-			charStubTrafficRedactor{id: "redact-valid"},
-			nil,
-		},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test", []secretguard.Guard{
+		nil,
+		charStubSecretGuard{id: "sg-valid", ord: 1},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "test", []toolpolicy.Policy{
+		nil,
+		charStubToolPolicy{id: "pol-valid", ord: 1},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "test", []toolcall.Finalizer{
+		nil,
+		charStubToolFinalizer{id: "fin-valid", ord: 1},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "test", []routehint.Provider{
+		nil,
+		charStubRouteHintProvider{id: "hint-valid", ord: 1},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "test", []session.Opener{
+		nil,
+		charStubSessionOpener{id: "opener-valid"},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, "test", []workspace.Resolver{
+		nil,
+		charStubWorkspaceResolver{},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "test", []traffic.Observer{
+		nil,
+		charStubTrafficObserver{},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "test", []usage.Observer{
+		nil,
+		charStubUsageObserver{},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "test", []traffic.RawCaptureSink{
+		nil,
+		charStubRawCaptureSink{},
+		nil,
+	})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "test", []traffic.Redactor{
+		nil,
+		charStubTrafficRedactor{id: "redact-valid"},
+		nil,
+	})
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 
 	occ := stageOccupancyFromBundle(b)
 	require.Len(t, occ, 5, "must contain exactly 5 stage occupancy rows")
@@ -823,19 +829,18 @@ func TestInventoryExtensions_FamilySpecificOrderingCharacterization(t *testing.T
 	t.Parallel()
 
 	// 1. Order + ID tie-breaking
-	bSort := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SecretGuards: []secretguard.Guard{
-			charStubSecretGuard{id: "sg-z", ord: 20},
-			charStubSecretGuard{id: "sg-b", ord: 10},
-			charStubSecretGuard{id: "sg-a", ord: 10},
-		},
-		SubmitHooks: []sdkhooks.SubmitHook{
-			charStubSubmitHook{id: "sub-z", ord: 20},
-			charStubSubmitHook{id: "sub-b", ord: 10},
-			charStubSubmitHook{id: "sub-a", ord: 10},
-		},
-	}
+	csSort := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(csSort, lipfeature.PlaneSecretGuards, "test", []secretguard.Guard{
+		charStubSecretGuard{id: "sg-z", ord: 20},
+		charStubSecretGuard{id: "sg-b", ord: 10},
+		charStubSecretGuard{id: "sg-a", ord: 10},
+	})
+	_ = lipfeature.Contribute(csSort, lipfeature.PlaneSubmitHooks, "test", []sdkhooks.SubmitHook{
+		charStubSubmitHook{id: "sub-z", ord: 20},
+		charStubSubmitHook{id: "sub-b", ord: 10},
+		charStubSubmitHook{id: "sub-a", ord: 10},
+	})
+	bSort := lipfeature.BundleFromPlanes(csSort.Freeze(), nil)
 	occSort := stageOccupancyFromBundle(bSort)
 	for _, o := range occSort {
 		switch o.StageID {
@@ -847,17 +852,16 @@ func TestInventoryExtensions_FamilySpecificOrderingCharacterization(t *testing.T
 	}
 
 	// 2. Slice order preservation
-	bSlice := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{
-			charStubSessionOpener{id: "z-opener"},
-			charStubSessionOpener{id: "a-opener"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			charStubTrafficRedactor{id: "z-redactor"},
-			charStubTrafficRedactor{id: "a-redactor"},
-		},
-	}
+	csSlice := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(csSlice, lipfeature.PlaneSessionOpeners, "test", []session.Opener{
+		charStubSessionOpener{id: "z-opener"},
+		charStubSessionOpener{id: "a-opener"},
+	})
+	_ = lipfeature.Contribute(csSlice, lipfeature.PlaneTrafficRedactors, "test", []traffic.Redactor{
+		charStubTrafficRedactor{id: "z-redactor"},
+		charStubTrafficRedactor{id: "a-redactor"},
+	})
+	bSlice := lipfeature.BundleFromPlanes(csSlice.Freeze(), nil)
 	occSlice := stageOccupancyFromBundle(bSlice)
 	for _, o := range occSlice {
 		switch o.StageID {
@@ -869,19 +873,23 @@ func TestInventoryExtensions_FamilySpecificOrderingCharacterization(t *testing.T
 	}
 
 	// 3. Index-based label generation with non-consecutive indices
-	bIndex := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		WorkspaceResolvers: []workspace.Resolver{
-			charStubWorkspaceResolver{},
-			nil,
-			charStubWorkspaceResolver{},
-			charStubWorkspaceResolver{},
-		},
-	}
+	csIndex := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(csIndex, lipfeature.PlaneWorkspaceResolvers, "test", []workspace.Resolver{
+		charStubWorkspaceResolver{},
+		nil,
+		charStubWorkspaceResolver{},
+		charStubWorkspaceResolver{},
+	})
+	bIndex := lipfeature.BundleFromPlanes(csIndex.Freeze(), nil)
 	occIndex := stageOccupancyFromBundle(bIndex)
 	require.Len(t, occIndex, 1)
 	require.Equal(t, []string{"workspace_resolver:0", "workspace_resolver:2", "workspace_resolver:3"}, occIndex[0].HandlerIDs)
 }
+
+type charStubLifecycle struct{}
+
+func (charStubLifecycle) Start(context.Context) error { return nil }
+func (charStubLifecycle) Stop(context.Context) error  { return nil }
 
 // TestInventoryExtensions_BundleErrorRetentionCharacterization pins error handling during inventory construction:
 // - BuildFeatureBundle error sets BundleError, leaves StageOccupancy empty and Privileges all false
@@ -900,8 +908,9 @@ func TestInventoryExtensions_BundleErrorRetentionCharacterization(t *testing.T) 
 
 	bundles := map[string]lipfeature.FeatureBundle{
 		"validate-err": {
-			// Negative ToolCallFinalizationMaxArgsBytes causes Validate to fail
-			ToolCallFinalizationMaxArgsBytes: -1,
+			// Invalid SchemaVersion causes Validate to fail
+			SchemaVersion: 99,
+			Lifecycles:    []lipplugin.Lifecycle{charStubLifecycle{}},
 		},
 	}
 
@@ -930,7 +939,7 @@ func TestInventoryExtensions_BundleErrorRetentionCharacterization(t *testing.T) 
 	// Validation error feature
 	f1 := ext.Features[1]
 	require.Equal(t, "feat-validate-err", f1.InstanceID)
-	require.Contains(t, f1.BundleError, "ToolCallFinalizationMaxArgsBytes must be >= 0")
+	require.Contains(t, f1.BundleError, "schema version")
 	require.Empty(t, f1.StageOccupancy)
 	require.False(t, f1.Privileges.AuxiliaryRequests)
 	require.False(t, f1.Privileges.CompletionGate)
@@ -992,14 +1001,18 @@ func TestInventoryExtensions_CompactionPlaneExactEquivalenceWithBase(t *testing.
 	reg, ok := extrasBase.Reg.(*populatedMultiFeatureRegistry)
 	require.True(t, ok)
 	bAlpha := reg.bundles["sec-gate"]
-	bAlpha.CompactionObservers = []compaction.Observer{charStubCompactionObs{}}
-	bAlpha.CompactionPreservers = []compaction.Preserver{charStubCompactionPreserver{id: "preserver-sec"}}
-	reg.bundles["sec-gate"] = bAlpha
+	csAlpha := lipfeature.NewContributionSet()
+	require.NoError(t, bAlpha.PlaneSet.ReplayTo(csAlpha, "sec-gate"))
+	require.NoError(t, lipfeature.Contribute(csAlpha, lipfeature.PlaneCompactionObservers, "sec-gate", []compaction.Observer{charStubCompactionObs{}}))
+	require.NoError(t, lipfeature.Contribute(csAlpha, lipfeature.PlaneCompactionPreservers, "sec-gate", []compaction.Preserver{charStubCompactionPreserver{id: "preserver-sec"}}))
+	reg.bundles["sec-gate"] = lipfeature.BundleFromPlanes(csAlpha.Freeze(), bAlpha.Lifecycles)
 
 	bBravo := reg.bundles["tool-governance"]
-	bBravo.CompactionObservers = []compaction.Observer{charStubCompactionObs{}, nil, charStubCompactionObs{}}
-	bBravo.CompactionPreservers = []compaction.Preserver{charStubCompactionPreserver{id: "preserver-tool"}}
-	reg.bundles["tool-governance"] = bBravo
+	csBravo := lipfeature.NewContributionSet()
+	require.NoError(t, bBravo.PlaneSet.ReplayTo(csBravo, "tool-governance"))
+	require.NoError(t, lipfeature.Contribute(csBravo, lipfeature.PlaneCompactionObservers, "tool-governance", []compaction.Observer{charStubCompactionObs{}, nil, charStubCompactionObs{}}))
+	require.NoError(t, lipfeature.Contribute(csBravo, lipfeature.PlaneCompactionPreservers, "tool-governance", []compaction.Preserver{charStubCompactionPreserver{id: "preserver-tool"}}))
+	reg.bundles["tool-governance"] = lipfeature.BundleFromPlanes(csBravo.Freeze(), bBravo.Lifecycles)
 
 	snapWithCompaction, err := InventorySnapshotForConfig(t.Context(), cfgBase, extrasBase)
 	require.NoError(t, err)

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -53,8 +52,7 @@ func TestPrepareRequest_SeamOrdering_CharacterizesCurrentFlow(t *testing.T) {
 
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		FeaturePlanes: freezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: freezeBundle(testFeatureBundle{
 			PreRequestHandlers: []prerequest.Handler{injector},
 		}),
 	})

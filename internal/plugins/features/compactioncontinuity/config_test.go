@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -195,7 +196,7 @@ func TestFeatureBundle_IsSchemaValidNoopUntilSemanticsLand(t *testing.T) {
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
-	if len(b.CompactionPreservers) != 0 {
-		t.Fatalf("no semantic preserver should be composed yet: %d", len(b.CompactionPreservers))
+	if preservers := lipfeature.Get(b.PlaneSet, lipfeature.PlaneCompactionPreservers); len(preservers) != 0 {
+		t.Fatalf("no semantic preserver should be composed yet: %d", len(preservers))
 	}
 }

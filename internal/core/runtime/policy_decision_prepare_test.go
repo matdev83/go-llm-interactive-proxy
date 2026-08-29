@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
-	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -35,8 +35,7 @@ func TestPreparePreRequestDenialNoBackendAttempt(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			PreRequestHandlers: []prerequest.Handler{pdDenyPreReq{message: "blocked"}},
 		}),
 	})
@@ -96,8 +95,7 @@ func TestPrepareRequestTransformMutationEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdMutateRtx{}},
 		}),
 	})
@@ -146,8 +144,7 @@ func TestPrepareRequestTransformPassthroughEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	})
@@ -187,8 +184,7 @@ func TestPrepareRequestTransformFailureEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdFailRtx{}},
 		}),
 	})
@@ -236,8 +232,7 @@ func TestPrepareEffectiveCapabilityAfterPolicyShaping(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdAppendToolRtx{}},
 		}),
 	})
@@ -268,8 +263,7 @@ func TestPreparePolicyNoninterferenceNoObserver(t *testing.T) {
 	}
 	// No PolicyObserver configured; default snapshot (no-op observer).
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms:  []request.Transform{pdMutateRtx{}},
 			PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
 		}),
@@ -299,8 +293,7 @@ func TestPreparePolicyNoninterferenceNoObserverEmitsNoPolicyLog(t *testing.T) {
 	}
 	// No PolicyObserver configured; default snapshot (no-op observer).
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms:  []request.Transform{pdMutateRtx{}},
 			PreRequestHandlers: []prerequest.Handler{pdNoopPreReq{}},
 		}),
@@ -335,8 +328,7 @@ func TestPrepareNoObserverTimeoutStillEnforces(t *testing.T) {
 	// No PolicyObserver configured: default no-op observer, nil emitter.
 	ex, _ := policySecureExecutor(t, backends, extensions.SnapshotOptions{
 		TimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 40 * time.Millisecond},
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:      lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			PreRequestHandlers: []prerequest.Handler{pdHungPreReq{id: "pd-hung-prereq", mode: sdkhooks.FailClosed}},
 			RequestTransforms:  []request.Transform{pdNoopRtx{}},
 		}),
@@ -373,8 +365,7 @@ func TestPrepareSubmitRejectEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	}, []sdkhooks.SubmitHook{pdRejectSubmitHook{reason: "blocked"}})
@@ -422,8 +413,7 @@ func TestPrepareSubmitAnnotateEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	}, []sdkhooks.SubmitHook{pdAnnotateSubmitHook{}})
@@ -471,8 +461,7 @@ func TestPrepareSubmitFailClosedEvidence(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
 		PolicyObserver: obs,
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	}, []sdkhooks.SubmitHook{pdFailSubmitHook{mode: sdkhooks.FailClosed}})
@@ -512,8 +501,7 @@ func TestPrepareSubmitNoninterferenceNoObserver(t *testing.T) {
 	obs := &pdCaptureObserver{}
 	// No PolicyObserver configured; obs is only used to assert no records.
 	ex := pdSubmitExecutor(t, backends, extensions.SnapshotOptions{
-		FeaturePlanes: testkit.FreezeBundle(lipfeature.FeatureBundle{
-			SchemaVersion:     lipfeature.SchemaVersionV1,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
 			RequestTransforms: []request.Transform{pdNoopRtx{}},
 		}),
 	}, []sdkhooks.SubmitHook{pdAnnotateSubmitHook{}})
