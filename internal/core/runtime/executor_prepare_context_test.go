@@ -102,8 +102,10 @@ func TestExecutor_prepareSubmitAndALeg_sessionOpenHintsNotTrustedAsAuthority(t *
 		labels: map[string]string{"opened": "yes"},
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		SessionOpeners: []session.Opener{opener},
-		Workspace:      workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			SessionOpeners: []session.Opener{opener},
+		}),
 	})
 	ex := setSecureSessionDenialMapper(TestExecutor())
 	ex.Store = b2

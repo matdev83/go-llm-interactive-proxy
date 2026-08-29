@@ -96,14 +96,15 @@ func attemptTransformBaseCall(selector string) *lipapi.Call {
 
 func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransform) lipfeature.FeatureBundle {
 	t.Helper()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{xform},
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "xform", []request.AttemptTransform{xform}); err != nil {
+		t.Fatalf("Contribute: %v", err)
 	}
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
-	if len(b.AttemptTransforms) != 1 {
+	if len(lipfeature.Get(b.PlaneSet, lipfeature.PlaneAttemptTransforms)) != 1 {
 		t.Fatal("bundle must carry AttemptTransforms contribution")
 	}
 	return b
@@ -112,13 +113,15 @@ func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransfo
 // wireMergedAttemptSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	merged := featurebundle.MergeBundles(bundle)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		RequestTransforms: merged.RequestTransforms,
-		AttemptTransforms: merged.AttemptTransforms,
+		FeaturePlanes: gen.Frozen,
 	})
-	if want, got := len(merged.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
+	if want, got := len(lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)), len(snap.AttemptTransforms()); want != got {
 		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
 	}
 	return bus, snap

@@ -105,7 +105,9 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 			bus = hooks.New(hooks.Config{})
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			FeaturePlanes: freezeBundle(testFeatureBundle{
+				CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			}),
 		})
 	}
 

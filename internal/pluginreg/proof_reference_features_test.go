@@ -63,23 +63,23 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: empty},
 		})
 	}
-	m, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
+	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const need = 1
 	// Coarse shape: each proof contributes at least one non-hook surface.
-	if len(m.SessionOpeners) < need {
-		t.Fatalf("openers: %d", len(m.SessionOpeners))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)) < need {
+		t.Fatalf("openers: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneSessionOpeners)))
 	}
-	if len(m.RequestTransforms) < need {
-		t.Fatalf("request transforms: %d", len(m.RequestTransforms))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)) < need {
+		t.Fatalf("request transforms: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms)))
 	}
-	if len(m.ToolCatalogFilters) < need {
-		t.Fatalf("catalog: %d", len(m.ToolCatalogFilters))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)) < need {
+		t.Fatalf("catalog: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCatalogFilters)))
 	}
-	if len(m.WorkspaceResolvers) < need {
-		t.Fatalf("workspace: %d", len(m.WorkspaceResolvers))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)) < need {
+		t.Fatalf("workspace: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneWorkspaceResolvers)))
 	}
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)) < need {
 		t.Fatalf("obs: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)))
@@ -93,7 +93,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)) < need {
 		t.Fatalf("red: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)))
 	}
-	if len(m.CompletionGates) < need {
-		t.Fatalf("gates: %d", len(m.CompletionGates))
+	if len(lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)) < need {
+		t.Fatalf("gates: %d", len(lipfeature.Get(gen.Frozen, lipfeature.PlaneCompletionGates)))
 	}
 }

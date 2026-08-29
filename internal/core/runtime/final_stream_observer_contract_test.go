@@ -15,7 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -142,36 +141,34 @@ func (*observerFailAfterStream) Cancel(context.Context, lipapi.CancelCause) lipa
 	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
 }
 
-func contributeStreamObserverBundle(t *testing.T, factory response.StreamObserverFactory, extras ...func(*lipfeature.FeatureBundle)) lipfeature.FeatureBundle {
+func contributeStreamObserverBundle(t *testing.T, factory response.StreamObserverFactory, extras ...func(*lipfeature.ContributionSet)) lipfeature.FeatureBundle {
 	t.Helper()
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{factory},
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "obs-factory", []response.StreamObserverFactory{factory}); err != nil {
+		t.Fatalf("Contribute: %v", err)
 	}
 	for _, extra := range extras {
-		extra(&b)
+		extra(cs)
 	}
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		t.Fatalf("FeatureBundle.Validate: %v", err)
 	}
-	if len(b.StreamObserverFactories) != 1 {
+	if len(lipfeature.Get(b.PlaneSet, lipfeature.PlaneStreamObserverFactories)) != 1 {
 		t.Fatal("bundle must carry StreamObserverFactories contribution")
 	}
 	return b
 }
 
-// wireMergedObserverSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
-	merged := featurebundle.MergeBundles(bundle)
 	bus := hooks.New(hooks.Config{
-		ResponsePartHooks: bundle.ResponsePartHooks,
+		ResponsePartHooks: lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneResponsePartHooks),
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates:         merged.CompletionGates,
-		StreamObserverFactories: bundle.StreamObserverFactories,
+		FeaturePlanes: bundle.PlaneSet,
 	})
-	if want, got := len(bundle.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+	if want, got := len(lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneStreamObserverFactories)), len(snap.StreamObserverFactories()); want != got {
 		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
 	}
 	return bus, snap
@@ -217,8 +214,8 @@ func TestFinalStreamObserver_postHookMutatedEventObserved(t *testing.T) {
 		t.Fatal(err)
 	}
 	factory := &recordingStreamObserverFactory{opens: &atomic.Int64{}}
-	bundle := contributeStreamObserverBundle(t, factory, func(b *lipfeature.FeatureBundle) {
-		b.ResponsePartHooks = []sdkhooks.ResponsePartHook{mutateTextResponseHook{}}
+	bundle := contributeStreamObserverBundle(t, factory, func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "hook", []sdkhooks.ResponsePartHook{mutateTextResponseHook{}})
 	})
 	bus, snap := wireMergedObserverSurface(t, bundle)
 
@@ -270,8 +267,8 @@ func TestFinalStreamObserver_gateReplacementObservesReplacementOnly(t *testing.T
 		t.Fatal(err)
 	}
 	factory := &recordingStreamObserverFactory{opens: &atomic.Int64{}}
-	bundle := contributeStreamObserverBundle(t, factory, func(b *lipfeature.FeatureBundle) {
-		b.CompletionGates = []completion.Gate{replaceAllGate{}}
+	bundle := contributeStreamObserverBundle(t, factory, func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "gate", []completion.Gate{replaceAllGate{}})
 	})
 	bus, snap := wireMergedObserverSurface(t, bundle)
 

@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -749,17 +751,19 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: voidWorkspaceResolver{},
-		RequestTransforms: []request.Transform{oaRtx{
-			runs:    &rtxRuns,
-			order:   &stageOrder,
-			orderMu: &orderMu,
-			marker:  "rtx:",
-		}},
-		CompletionGates: []completion.Gate{oaGate{
-			runs:    &gateRuns,
-			order:   &stageOrder,
-			orderMu: &orderMu,
-		}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{oaRtx{
+				runs:    &rtxRuns,
+				order:   &stageOrder,
+				orderMu: &orderMu,
+				marker:  "rtx:",
+			}},
+			CompletionGates: []completion.Gate{oaGate{
+				runs:    &gateRuns,
+				order:   &stageOrder,
+				orderMu: &orderMu,
+			}},
+		}),
 	})
 
 	ex := runtime.TestExecutor()

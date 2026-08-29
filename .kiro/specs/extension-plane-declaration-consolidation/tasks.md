@@ -161,22 +161,22 @@
   - _Depends: 5.2_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/testkit/... -run 'Reasoning.*Compression|PlaneParity'`
 
-- [ ] 6. Migrate request-shaping planes as W3
-- [ ] 6.1 Migrate request, pre-request, and attempt transforms
+- [x] 6. Migrate request-shaping planes as W3
+- [x] 6.1 Migrate request, pre-request, and attempt transforms
   - Preserve registration order, validation, decision evidence, and request/attempt binding semantics.
   - Observable completion: transform mirrors are deleted and focused parity tests pass.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5_
   - _Boundary: composition root, core/runtime_
   - _Depends: 5.3_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 6.2 Migrate completion gates and route hints
+- [x] 6.2 Migrate completion gates and route hints
   - Preserve non-nil empty completion-gate semantics and route-hint ordering/error evidence.
   - Observable completion: seam views remain source-compatible and mirror branches reach zero.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 7.1_
   - _Boundary: composition root, core/runtime_
   - _Depends: 6.1_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 6.3 Migrate session openers and workspace resolvers
+- [x] 6.3 Migrate session openers and workspace resolvers
   - Preserve materialized ordering and diagnostics labels for the coalesced session-open stage.
   - Observable completion: session/workspace mirrors are deleted and inventory parity stays byte-equivalent.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_
@@ -184,15 +184,15 @@
   - _Depends: 6.2_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/core/diag ./internal/infra/runtimebundle ./internal/testkit/... ./internal/qa`
 
-- [ ] 7. Migrate tool planes as W4
-- [ ] 7.1 Migrate tool-catalog filters and admission/execution policy planes
+- [x] 7. Migrate tool planes as W4
+- [x] 7.1 Migrate tool-catalog filters and admission/execution policy planes
   - Preserve sorting, nil policy, decision evidence, and diagnostics coalescing with tool reactors/finalizers.
   - Observable completion: focused runtime and inventory parity tests pass with the named mirrors removed.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_
   - _Boundary: composition root, core/runtime, core/runtime diagnostics_
   - _Depends: 6.3_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/core/diag ./internal/infra/runtimebundle ./internal/testkit/...`
-- [ ] 7.2 Migrate tool finalizers and finalizer-buffer reduction
+- [x] 7.2 Migrate tool finalizers and finalizer-buffer reduction
   - Preserve bundle min-reduction, executor clamp behavior, and apply the explicit overlay decision recorded by task 1.2 rather than re-litigating it during W4.
   - Observable completion: scalar special-case field branches are deleted and reduce/clamp tests remain green.
   - _Requirements: 4.4, 5.1, 5.3, 5.5_
@@ -200,29 +200,29 @@
   - _Depends: 7.1_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... ./internal/qa`
 
-- [ ] 8. Migrate guarded, compaction, local-turn, and terminal planes as W5
-- [ ] 8.1 Migrate secret-guard contributions and host capabilities
+- [x] 8. Migrate guarded, compaction, local-turn, and terminal planes as W5
+- [x] 8.1 Migrate secret-guard contributions and host capabilities
   - Preserve root uniqueness, access-mode/env consultation rules, input/observer fallback, typed-nil behavior, redaction, and operator inventory.
   - Observable completion: secret-guard plane mirrors are deleted and every fail-closed fixture from 1.4 remains green.
   - _Requirements: 1.4, 4.5, 5.1, 5.3, 5.5, 6.1_
   - _Boundary: composition root, secret-guard runtime_
   - _Depends: 7.2_
   - **Validation:** `go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/testkit/... -run 'SecretGuard|PlaneParity'`
-- [ ] 8.2 Migrate compaction observer/preserver planes and continuity replacement binder
+- [x] 8.2 Migrate compaction observer/preserver planes and continuity replacement binder
   - Preserve official-preserver replacement order, panic-safe identity extraction, and observer/preserver diagnostics.
   - Observable completion: compaction binder uses generated typed operations, direct field surgery is gone, and parity tests pass.
   - _Requirements: 1.1, 4.5, 5.1, 5.3, 5.5, 6.1_
   - _Boundary: composition root, internal/infra/compactioncompose_
   - _Depends: 8.1_
   - **Validation:** `go test ./internal/infra/compactioncompose ./internal/infra/runtimebundle ./internal/testkit/... -run 'Compaction|PlaneParity'`
-- [ ] 8.3 Migrate admission/execution local-turn planes
+- [x] 8.3 Migrate admission/execution local-turn planes
   - Keep the two binding times distinct and preserve materialized ordering plus inventory labels.
   - Observable completion: both plane mirrors are deleted and focused wiring tests pass.
   - _Requirements: 1.1, 2.2, 5.1, 5.3, 5.5, 6.1_
   - _Boundary: composition root, core/runtime_
   - _Depends: 8.2_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/... -run 'LocalTurn|PlaneParity'`
-- [ ] 8.4 Migrate terminal-decision exclusive slot and validated identity metadata
+- [x] 8.4 Migrate terminal-decision exclusive slot and validated identity metadata
   - Preserve fail-before-mutate identity validation, exact conflict classification/text shape, generation freeze, policy/control projection, and no-provider fallback.
   - Observable completion: terminal-decision field/sidecar mirrors are deleted and toggle/reload tests are green.
   - _Requirements: 1.2, 1.4, 4.2, 4.3, 5.1, 5.3, 5.5_
@@ -230,29 +230,29 @@
   - _Depends: 8.3_
   - **Validation:** `make quality-checks && go test ./internal/infra/runtimebundle ./internal/core/runtime ./internal/stdhttp/... ./internal/testkit/... ./internal/qa`
 
-- [ ] 9. Complete derived projections and remove compatibility transport fields
-- [ ] 9.1 Complete generation and request-snapshot freeze delegation
+- [x] 9. Complete derived projections and remove compatibility transport fields
+- [x] 9.1 Complete generation and request-snapshot freeze delegation
   - Make generation operations and request snapshots delegate to generated frozen storage while preserving the lifecycle side channel and host/config capabilities that are not feature contributions.
   - Observable completion: all stage consumers use generated frozen reads and deterministic publish-versus-pinned-request evidence remains green under Linux CI race execution.
   - _Requirements: 1.4, 1.5, 7.1_
   - _Boundary: composition root, core/runtime_
   - _Depends: 8.4_
   - **Validation:** `go test ./internal/core/extensions ./internal/core/runtime ./internal/infra/runtimebundle ./internal/testkit/...; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
-- [ ] 9.2 Complete diagnostics occupancy and privilege derivation
+- [x] 9.2 Complete diagnostics occupancy and privilege derivation
   - Derive occupancy, coalescing, labels, ordering, nil filtering, and privilege flags solely from declaration diagnostics descriptors.
   - Observable completion: inventory goldens are byte-equivalent and a disposable manifest plane automatically appears without a projector branch.
   - _Requirements: 6.1, 6.2_
   - _Boundary: core/runtime diagnostics_
   - _Depends: 9.1_
   - **Validation:** `go test ./internal/core/diag ./internal/testkit/...`
-- [ ] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
+- [x] 9.3 Remove residual named FeatureBundle and ExtensionsOptions plane fields
   - Delete deprecated adapters only after every consumer/binder has migrated; keep YAML/config and lifecycle compatibility intact.
   - Observable completion: the whole-tree mirror ratchet reports zero forbidden remnants and all generated output is current.
   - _Requirements: 2.2, 5.2, 5.4, 5.5, 8.1_
   - _Boundary: SDK/public contract, composition root, core/runtime_
   - _Depends: 9.1, 9.2_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/infra/runtimebundle ./internal/core/extensions ./internal/testkit/... ./internal/archtest/...`
-- [ ] 9.4 Publish the deterministic SDK migration contract
+- [x] 9.4 Publish the deterministic SDK migration contract
   - Add godoc/examples for package-level `Contribute`/`Get`, declaration requirements, generated-file policy, and the one allowed standard-distribution registration edit.
   - Observable completion: in-repo plugins/examples compile exclusively through the final public contract.
   - _Requirements: 3.1, 3.3, 5.2_

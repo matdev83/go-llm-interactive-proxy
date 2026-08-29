@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -18,6 +20,7 @@ import (
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -330,12 +333,17 @@ func TestAttemptMeta_completenessAndDefensiveCopies(t *testing.T) {
 	}
 	xform := &metaCaptureTransform{}
 	bundle := contributeAttemptTransformBundle(t, xform)
-	merged := featurebundle.MergeBundles(bundle)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := hooks.New(hooks.Config{})
 	wsView := lipworkspace.WorkspaceView{ID: "ws-1", ProjectRoot: "/proj", Markers: []string{"m1"}}
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		AttemptTransforms: merged.AttemptTransforms,
-		Workspace:         fixedWorkspaceResolver{view: wsView},
+		Workspace: fixedWorkspaceResolver{view: wsView},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			AttemptTransforms: lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms),
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st

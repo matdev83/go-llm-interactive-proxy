@@ -78,9 +78,11 @@ func TestExecutor_prepareSubmitAndALeg_preRequestRunsBeforeRouteHint(t *testing.
 	hint := &routeHintOrderSpy{order: &order}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		Workspace:          workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		PreRequestHandlers: []prerequest.Handler{prereqOrderSpy{order: &order}},
-		RouteHintProviders: []routehint.Provider{hint},
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			PreRequestHandlers: []prerequest.Handler{prereqOrderSpy{order: &order}},
+			RouteHintProviders: []routehint.Provider{hint},
+		}),
 	})
 	ex := setSecureSessionDenialMapper(TestExecutor())
 	ex.Store = b2
@@ -123,8 +125,10 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_propagatesIsNewForNewT
 	spy := &sessionMetaSpy{}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		Workspace:         workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		RequestTransforms: []request.Transform{spy},
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			RequestTransforms: []request.Transform{spy},
+		}),
 	})
 	ex := setSecureSessionDenialMapper(TestExecutor())
 	ex.Store = b2
@@ -174,8 +178,10 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_resumeTurnIsNotNew(t *
 	spy := &sessionMetaSpy{}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		Workspace:         workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
-		RequestTransforms: []request.Transform{spy},
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			RequestTransforms: []request.Transform{spy},
+		}),
 	})
 	ex := setSecureSessionDenialMapper(TestExecutor())
 	ex.Store = b2

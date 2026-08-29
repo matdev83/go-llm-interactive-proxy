@@ -70,9 +70,9 @@ func TestGenerator_DeterministicTwoRunsByteIdentical(t *testing.T) {
 	assert.Error(t, err, "generator -check must fail on corrupted file: %s", string(outCorrupt))
 }
 
-// TestGeneratedCode_NoForbiddenPatterns verifies that plane_generated.go contains
-// no `any`, no type assertions `.(`, no `reflect`, no `unsafe`, no `map[`, and no
-// key-search loops for dispatch.
+// TestGeneratedCode_NoForbiddenPatterns verifies that request-path generated structures
+// (generatedContributions, generatedFrozen, init closures) contain no untyped `any`,
+// no type assertions `.(`, no `reflect`, no `unsafe`, no `map[`, and no key-search loops.
 func TestGeneratedCode_NoForbiddenPatterns(t *testing.T) {
 	t.Parallel()
 	repoRoot := findRepoRoot(t)
@@ -82,26 +82,32 @@ func TestGeneratedCode_NoForbiddenPatterns(t *testing.T) {
 	require.NoError(t, err)
 	content := string(contentBytes)
 
-	// Dissect lines to verify each forbidden pattern
-	forbiddenSubstrings := []struct {
+	// Across the entire file, reflect, unsafe, and range loops are strictly forbidden
+	assert.False(t, strings.Contains(content, "reflect"), "plane_generated.go must not contain reflect")
+	assert.False(t, strings.Contains(content, "unsafe"), "plane_generated.go must not contain unsafe")
+	assert.False(t, strings.Contains(content, "range "), "plane_generated.go must not contain range loops for dispatch")
+
+	// Struct storage and init() closures (request path) must not contain any, type assertions, or maps
+	// Exclude contributeCandidateMapTo which is specifically for test/map-backed candidate fallback
+	sections := strings.Split(content, "func contributeCandidateMapTo(")
+	require.Len(t, sections, 2)
+	initParts := strings.Split(sections[1], "\nfunc init() {\n")
+	require.Len(t, initParts, 2)
+	requestPathCode := sections[0] + "\nfunc init() {\n" + initParts[1]
+
+	forbiddenOnRequestPath := []struct {
 		pattern string
 		reason  string
 	}{
-		{"any", "forbidden runtime discovery/untyped any in generated dispatch"},
-		{".(", "forbidden type assertion in generated dispatch"},
-		{"reflect", "forbidden reflection in generated dispatch"},
-		{"unsafe", "forbidden unsafe in generated dispatch"},
-		{"map[", "forbidden map lookup in generated dispatch"},
+		{"any", "forbidden runtime discovery/untyped any in generated request dispatch"},
+		{".(", "forbidden type assertion in generated request dispatch"},
+		{"map[", "forbidden map lookup in generated request dispatch"},
 	}
 
-	for _, tc := range forbiddenSubstrings {
-		assert.False(t, strings.Contains(content, tc.pattern),
-			"plane_generated.go must not contain %q: %s", tc.pattern, tc.reason)
+	for _, tc := range forbiddenOnRequestPath {
+		assert.False(t, strings.Contains(requestPathCode, tc.pattern),
+			"request path generated code must not contain %q: %s", tc.pattern, tc.reason)
 	}
-
-	// Verify no range loops over maps/slices for key searching in dispatch
-	assert.False(t, strings.Contains(content, "range "),
-		"plane_generated.go must not contain range loops for dispatch")
 }
 
 // TestGeneratedDispatch_TypedAdaptersEndToEnd tests generated typed dispatch across
@@ -587,6 +593,94 @@ var StandardPlanes = []PlaneDeclaration{
 			expectedErr: "identity function is required for exclusive or replace-by-identity plane",
 		},
 		{
+			name: "exclusive_plane_without_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNoValidateIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_no_validate_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNoValidateIdentityExclusive,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "exclusive_plane_with_nil_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+
+var PlaneNilValidateIdentityExclusive = Plane[terminaldecision.Provider]{
+	ID: "exclusive_nil_validate_identity",
+	Multiplicity: MultExclusive,
+	Rules: SourceRules{Feature: CombExclusive},
+	Identity: func(v terminaldecision.Provider) (string, bool) { return "id", true },
+	ValidateIdentity: nil,
+	Combine: func(source SourceKind, cur, inc terminaldecision.Provider) (terminaldecision.Provider, error) { return inc, nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneNilValidateIdentityExclusive,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "replace_by_identity_without_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneReplaceNoValidateIdentity = Plane[[]hooks.SubmitHook]{
+	ID: "replace_no_validate_identity",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{
+		Feature: CombConcatenate,
+		GenerationBinder: CombReplaceByIdentity,
+	},
+	Identity: func(v []hooks.SubmitHook) (string, bool) { return "id", true },
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneReplaceNoValidateIdentity,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "replace_by_identity_with_nil_validate_identity",
+			manifestSrc: `package feature
+
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+
+var PlaneReplaceNilValidateIdentity = Plane[[]hooks.SubmitHook]{
+	ID: "replace_nil_validate_identity",
+	Multiplicity: MultOrdered,
+	Rules: SourceRules{
+		Feature: CombConcatenate,
+		GenerationBinder: CombReplaceByIdentity,
+	},
+	Identity: func(v []hooks.SubmitHook) (string, bool) { return "id", true },
+	ValidateIdentity: nil,
+	Combine: func(source SourceKind, cur, inc []hooks.SubmitHook) ([]hooks.SubmitHook, error) { return append(cur, inc...), nil },
+}
+
+var StandardPlanes = []PlaneDeclaration{
+	PlaneReplaceNilValidateIdentity,
+}
+`,
+			expectedErr: "cached identity validator is required for exclusive or replace-by-identity plane",
+		},
+		{
 			name: "diagnostics_missing_stage_id",
 			manifestSrc: `package feature
 
@@ -628,4 +722,43 @@ var StandardPlanes = []PlaneDeclaration{
 			assert.Contains(t, string(out), tc.expectedErr, "generator output must contain expected error for %s", tc.name)
 		})
 	}
+}
+
+// TestGeneratedFrozen_InvalidCachedIdentityTriggersValidator verifies that frozen validation
+// calls ValidateIdentity unconditionally on cached IDs, failing when the cached ID is invalid.
+func TestGeneratedFrozen_InvalidCachedIdentityTriggersValidator(t *testing.T) {
+	t.Parallel()
+
+	provider := dummyTerminalProvider{id: "term-provider-valid"}
+
+	// 1. Valid cached identity passes Validate()
+	frozenValid := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		"term-provider-valid",
+		true,
+	)
+	require.NoError(t, frozenValid.Validate())
+
+	// 2. Invalid cached identity (empty string) fails with missing cached identity error
+	frozenMissingID := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		"",
+		true,
+	)
+	err := frozenMissingID.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing cached identity")
+
+	// 3. Invalid cached identity (violating ValidateIdentity bounds / format) fails validator
+	// terminaldecision.MaxProviderIDBytes is 128
+	oversizedID := strings.Repeat("x", 200)
+	frozenInvalidID := feature.NewMalformedGeneratedFrozenTerminalDecisionForTest(
+		terminaldecision.Provider(provider),
+		oversizedID,
+		true,
+	)
+	err = frozenInvalidID.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), feature.PlaneTerminalDecisionProvider.ID)
+	assert.Contains(t, err.Error(), "exceeds 128 bytes")
 }

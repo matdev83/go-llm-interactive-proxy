@@ -201,14 +201,14 @@ func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want
 	// Recompute the same merge locally from the public Registry/Registrations
 	// to characterize the participant pipeline.
 	regs := config.RegistrationsFromConfig(host.Config())
-	merged, genMerged, err := featurebundle.MergeFeatureSurfaces(runtimebundle.HostProcess(host).FactoryCatalog, regs)
+	_, genMerged, err := featurebundle.MergeFeatureSurfaces(runtimebundle.HostProcess(host).FactoryCatalog, regs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantTransform := reasoningpreservation.ID + "-transform"
 	wantObserver := reasoningpreservation.ID + "-observer"
 	var hasTransform, hasObserver bool
-	for _, x := range merged.AttemptTransforms {
+	for _, x := range lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms) {
 		if x != nil && x.ID() == wantTransform {
 			hasTransform = true
 		}

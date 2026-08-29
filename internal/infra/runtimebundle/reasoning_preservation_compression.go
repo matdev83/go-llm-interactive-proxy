@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -77,14 +78,16 @@ func bindReasoningPreservationCompression(genMerged featurebundle.GeneratedMerge
 		if err != nil {
 			return featurebundle.GeneratedMergeSurface{}, fmt.Errorf("reasoningpreservation: compression composition: %w", err)
 		}
-		if len(bundle.AttemptTransforms) > 0 {
-			genMerged, err = genMerged.BindAttemptTransforms(reasoningpreservation.ID, bundle.AttemptTransforms)
+		attemptTransforms := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneAttemptTransforms)
+		if len(attemptTransforms) > 0 {
+			genMerged, err = genMerged.BindAttemptTransforms(reasoningpreservation.ID, attemptTransforms)
 			if err != nil {
 				return featurebundle.GeneratedMergeSurface{}, err
 			}
 		}
-		if len(bundle.StreamObserverFactories) > 0 {
-			genMerged, err = genMerged.BindStreamObserverFactories(reasoningpreservation.ID, bundle.StreamObserverFactories)
+		streamObservers := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneStreamObserverFactories)
+		if len(streamObservers) > 0 {
+			genMerged, err = genMerged.BindStreamObserverFactories(reasoningpreservation.ID, streamObservers)
 			if err != nil {
 				return featurebundle.GeneratedMergeSurface{}, err
 			}

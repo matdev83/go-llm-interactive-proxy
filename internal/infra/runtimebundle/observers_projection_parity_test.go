@@ -137,37 +137,31 @@ func (s stubStreamObserver) Finish(ctx context.Context, outcome response.StreamO
 func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{id: "to-1"},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{id: "uo-1"},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			stubRawSink{id: "raw-1"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			stubRedactor{id: "red-1", prefix: "r1"},
-		},
-	}
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b1", []traffic.Observer{stubTrafficObs{id: "to-1"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b1", []usage.Observer{stubUsageObs{id: "uo-1"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b1", []traffic.RawCaptureSink{stubRawSink{id: "raw-1"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b1", []traffic.Redactor{stubRedactor{id: "red-1", prefix: "r1"}})
+	}, nil)
 
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{id: "to-2"},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{id: "uo-2"},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			stubRawSink{id: "raw-2"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			stubRedactor{id: "red-2", prefix: "r2"},
-		},
-	}
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b2", []traffic.Observer{stubTrafficObs{id: "to-2"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b2", []usage.Observer{stubUsageObs{id: "uo-2"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b2", []traffic.RawCaptureSink{stubRawSink{id: "raw-2"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b2", []traffic.Redactor{stubRedactor{id: "red-2", prefix: "r2"}})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -179,16 +173,28 @@ func TestObserversProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 
 	// Verify counts and identities
 	require.Len(t, to, 2)
-	assert.Equal(t, "to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "to-2", to[1].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "to-1", to0.id)
+	assert.Equal(t, "to-2", to1.id)
 
 	require.Len(t, uo, 2)
-	assert.Equal(t, "uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "uo-2", uo[1].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "uo-1", uo0.id)
+	assert.Equal(t, "uo-2", uo1.id)
 
 	require.Len(t, raw, 2)
-	assert.Equal(t, "raw-1", raw[0].(stubRawSink).id)
-	assert.Equal(t, "raw-2", raw[1].(stubRawSink).id)
+	raw0, ok0 := raw[0].(stubRawSink)
+	raw1, ok1 := raw[1].(stubRawSink)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "raw-1", raw0.id)
+	assert.Equal(t, "raw-2", raw1.id)
 
 	require.Len(t, red, 2)
 	assert.Equal(t, "red-1", red[0].ID())
@@ -199,16 +205,17 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 	t.Parallel()
 
 	cs := lipfeature.NewContributionSet()
-	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", testkit.FeatureBundle(t, "feat-plugin", func(csFeat *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(csFeat, lipfeature.PlaneTrafficObservers, "feat-plugin", []traffic.Observer{
 			stubTrafficObs{id: "feat-to-1"},
 			stubTrafficObs{id: "feat-to-2"},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(csFeat, lipfeature.PlaneUsageObservers, "feat-plugin", []usage.Observer{
 			stubUsageObs{id: "feat-uo-1"},
-		},
-	}))
+		})
+	}, nil)))
 	require.NoError(t, featurebundle.ContributeHost(cs, featurebundle.HostContributions{
 		TrafficObservers: []traffic.Observer{
 			stubTrafficObs{id: "host-to-1"},
@@ -223,30 +230,39 @@ func TestObserversProjection_HostInjectionOrdering(t *testing.T) {
 
 	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, to, 4)
-	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "feat-to-2", to[1].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", to[2].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-2", to[3].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	to2, ok2 := to[2].(stubTrafficObs)
+	to3, ok3 := to[3].(stubTrafficObs)
+	require.True(t, ok0 && ok1 && ok2 && ok3)
+	assert.Equal(t, "feat-to-1", to0.id)
+	assert.Equal(t, "feat-to-2", to1.id)
+	assert.Equal(t, "host-to-1", to2.id)
+	assert.Equal(t, "host-to-2", to3.id)
 
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uo, 2)
-	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	require.True(t, ok0 && ok1)
+	assert.Equal(t, "feat-uo-1", uo0.id)
+	assert.Equal(t, "host-uo-1", uo1.id)
 }
 
 func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
 	t.Parallel()
 
 	cs := lipfeature.NewContributionSet()
-	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", testkit.FeatureBundle(t, "feat-plugin", func(csFeat *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(csFeat, lipfeature.PlaneTrafficObservers, "feat-plugin", []traffic.Observer{
 			stubTrafficObs{id: "feat-to-1"},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(csFeat, lipfeature.PlaneUsageObservers, "feat-plugin", []usage.Observer{
 			stubUsageObs{id: "feat-uo-1"},
-		},
-	}))
+		})
+	}, nil)))
 	require.NoError(t, featurebundle.ContributeHost(cs, featurebundle.HostContributions{
 		TrafficObservers: []traffic.Observer{
 			stubTrafficObs{id: "host-to-1"},
@@ -255,29 +271,38 @@ func TestObserversProjection_ThreeSourceOrdering(t *testing.T) {
 			stubUsageObs{id: "host-uo-1"},
 		},
 	}))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
+	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", testkit.FeatureBundle(t, "candidate-extra", func(csCand *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(csCand, lipfeature.PlaneTrafficObservers, "candidate-extra", []traffic.Observer{
 			stubTrafficObs{id: "cand-to-1"},
-		},
-		UsageObservers: []usage.Observer{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(csCand, lipfeature.PlaneUsageObservers, "candidate-extra", []usage.Observer{
 			stubUsageObs{id: "cand-uo-1"},
-		},
-	}))
+		})
+	}, nil)))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
 	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
 	require.Len(t, to, 3)
-	assert.Equal(t, "feat-to-1", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "host-to-1", to[1].(stubTrafficObs).id)
-	assert.Equal(t, "cand-to-1", to[2].(stubTrafficObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	to1, ok1 := to[1].(stubTrafficObs)
+	to2, ok2 := to[2].(stubTrafficObs)
+	require.True(t, ok0 && ok1 && ok2)
+	assert.Equal(t, "feat-to-1", to0.id)
+	assert.Equal(t, "host-to-1", to1.id)
+	assert.Equal(t, "cand-to-1", to2.id)
 
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, uo, 3)
-	assert.Equal(t, "feat-uo-1", uo[0].(stubUsageObs).id)
-	assert.Equal(t, "host-uo-1", uo[1].(stubUsageObs).id)
-	assert.Equal(t, "cand-uo-1", uo[2].(stubUsageObs).id)
+	uo0, ok0 := uo[0].(stubUsageObs)
+	uo1, ok1 := uo[1].(stubUsageObs)
+	uo2, ok2 := uo[2].(stubUsageObs)
+	require.True(t, ok0 && ok1 && ok2)
+	assert.Equal(t, "feat-uo-1", uo0.id)
+	assert.Equal(t, "host-uo-1", uo1.id)
+	assert.Equal(t, "cand-uo-1", uo2.id)
 }
 
 func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
@@ -292,42 +317,55 @@ func TestObserversProjection_ExactNilAndEmptySemantics(t *testing.T) {
 		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors))
 	})
 
-	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
+	t.Run("empty_explicit_slices_project_empty_slices", func(t *testing.T) {
 		t.Parallel()
-		gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{},
-			UsageObservers:   []usage.Observer{},
-			RawCaptureSinks:  []traffic.RawCaptureSink{},
-			TrafficRedactors: []traffic.Redactor{},
-		})
+		gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "empty", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "empty", []traffic.Observer{}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "empty", []usage.Observer{}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "empty", []traffic.RawCaptureSink{}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "empty", []traffic.Redactor{})
+		}, nil))
 		require.NoError(t, err)
 
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers), "TrafficObservers must normalize explicit empty to nil")
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers), "UsageObservers must normalize explicit empty to nil")
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks), "RawCaptureSinks must normalize explicit empty to nil")
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors), "TrafficRedactors must normalize explicit empty to nil")
+		to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
+		assert.NotNil(t, to)
+		assert.Empty(t, to)
+
+		uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
+		assert.NotNil(t, uo)
+		assert.Empty(t, uo)
+
+		rcs := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
+		assert.NotNil(t, rcs)
+		assert.Empty(t, rcs)
+
+		tr := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+		assert.NotNil(t, tr)
+		assert.Empty(t, tr)
 	})
 }
 
 func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
 	t.Parallel()
 
-	gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{id: "orig-to"},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{id: "orig-uo"},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			stubRawSink{id: "orig-raw"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			stubRedactor{id: "orig-red"},
-		},
-	})
+	gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "orig", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "orig", []traffic.Observer{stubTrafficObs{id: "orig-to"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "orig", []usage.Observer{stubUsageObs{id: "orig-uo"}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "orig", []traffic.RawCaptureSink{stubRawSink{id: "orig-raw"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "orig", []traffic.Redactor{stubRedactor{id: "orig-red"}})
+	}, nil))
 	require.NoError(t, err)
 
 	to := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
@@ -343,15 +381,25 @@ func TestObserversProjection_BackingArrayIsolation(t *testing.T) {
 
 	// Re-reading from Frozen must return untouched original values
 	toFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficObservers)
-	assert.Equal(t, "orig-to", toFrozen[0].(stubTrafficObs).id)
+	require.Len(t, toFrozen, 1)
+	to0, ok0 := toFrozen[0].(stubTrafficObs)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-to", to0.id)
 
 	uoFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
-	assert.Equal(t, "orig-uo", uoFrozen[0].(stubUsageObs).id)
+	require.Len(t, uoFrozen, 1)
+	uo0, ok0 := uoFrozen[0].(stubUsageObs)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-uo", uo0.id)
 
 	rawFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneRawCaptureSinks)
-	assert.Equal(t, "orig-raw", rawFrozen[0].(stubRawSink).id)
+	require.Len(t, rawFrozen, 1)
+	raw0, ok0 := rawFrozen[0].(stubRawSink)
+	require.True(t, ok0)
+	assert.Equal(t, "orig-raw", raw0.id)
 
 	redFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneTrafficRedactors)
+	require.Len(t, redFrozen, 1)
 	assert.Equal(t, "orig-red", redFrozen[0].ID())
 }
 
@@ -361,37 +409,31 @@ func TestObserversProjection_EndToEndSnapshotDispatch(t *testing.T) {
 	var mu sync.Mutex
 	var trafficEvents, usageEvents, rawEvents, redactorEvents []string
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{id: "to-1", events: &trafficEvents, mu: &mu},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{id: "uo-1", events: &usageEvents, mu: &mu},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			stubRawSink{id: "raw-1", events: &rawEvents, mu: &mu},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			stubRedactor{id: "red-1", prefix: "r1", events: &redactorEvents, mu: &mu},
-		},
-	}
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b1", []traffic.Observer{stubTrafficObs{id: "to-1", events: &trafficEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b1", []usage.Observer{stubUsageObs{id: "uo-1", events: &usageEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b1", []traffic.RawCaptureSink{stubRawSink{id: "raw-1", events: &rawEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b1", []traffic.Redactor{stubRedactor{id: "red-1", prefix: "r1", events: &redactorEvents, mu: &mu}})
+	}, nil)
 
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			stubTrafficObs{id: "to-2", events: &trafficEvents, mu: &mu},
-		},
-		UsageObservers: []usage.Observer{
-			stubUsageObs{id: "uo-2", events: &usageEvents, mu: &mu},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			stubRawSink{id: "raw-2", events: &rawEvents, mu: &mu},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			stubRedactor{id: "red-2", prefix: "r2", events: &redactorEvents, mu: &mu},
-		},
-	}
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "b2", []traffic.Observer{stubTrafficObs{id: "to-2", events: &trafficEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "b2", []usage.Observer{stubUsageObs{id: "uo-2", events: &usageEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "b2", []traffic.RawCaptureSink{stubRawSink{id: "raw-2", events: &rawEvents, mu: &mu}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "b2", []traffic.Redactor{stubRedactor{id: "red-2", prefix: "r2", events: &redactorEvents, mu: &mu}})
+	}, nil)
 
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, featurebundle.ContributeBundle(cs, "b1", b1))
@@ -455,22 +497,20 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	uoFacID := "test.uo"
 
 	err := reg.RegisterFeature(toFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
+		return testkit.FeatureBundle(t, toFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, toFacID, []traffic.Observer{
 				stubTrafficObs{id: "reg-to"},
-			},
-		}, nil
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
 	err = reg.RegisterFeature(uoFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			UsageObservers: []usage.Observer{
+		return testkit.FeatureBundle(t, uoFacID, func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, uoFacID, []usage.Observer{
 				stubUsageObs{id: "reg-uo"},
-			},
-		}, nil
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
@@ -488,8 +528,12 @@ func TestObserversProjection_PluginRegistryLifecyclePreserved(t *testing.T) {
 	uo := lipfeature.Get(gen.Frozen, lipfeature.PlaneUsageObservers)
 	require.Len(t, to, 1)
 	require.Len(t, uo, 1)
-	assert.Equal(t, "reg-to", to[0].(stubTrafficObs).id)
-	assert.Equal(t, "reg-uo", uo[0].(stubUsageObs).id)
+	to0, ok0 := to[0].(stubTrafficObs)
+	uo0, ok1 := uo[0].(stubUsageObs)
+	require.True(t, ok0)
+	require.True(t, ok1)
+	assert.Equal(t, "reg-to", to0.id)
+	assert.Equal(t, "reg-uo", uo0.id)
 
 	// Disabled plugin contributes nothing
 	genDisabled, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
@@ -586,15 +630,16 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 
 		reg := obsTestFactoryCatalog(t)
 		err := reg.RegisterFeature("obs-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				TrafficObservers: []traffic.Observer{
+			return testkit.FeatureBundle(t, "obs-feature", func(cs *lipfeature.ContributionSet) error {
+				if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "obs-feature", []traffic.Observer{
 					stubTrafficObs{id: "feat-to", events: &events, mu: &mu},
-				},
-				UsageObservers: []usage.Observer{
+				}); err != nil {
+					return err
+				}
+				return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "obs-feature", []usage.Observer{
 					stubUsageObs{id: "feat-uo", events: &events, mu: &mu},
-				},
-			}, nil
+				})
+			}, nil), nil
 		})
 		require.NoError(t, err)
 
@@ -645,29 +690,30 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		var mu sync.Mutex
 
 		reg := obsTestFactoryCatalog(t)
-		err := reg.RegisterFeature("three-source-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				TrafficObservers: []traffic.Observer{
+		require.NoError(t, reg.RegisterFeature("three-source-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return testkit.FeatureBundle(t, "three-source-feature", func(cs *lipfeature.ContributionSet) error {
+				if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "three-source-feature", []traffic.Observer{
 					stubTrafficObs{id: "feat-to", events: &trafficEvents, mu: &mu},
-				},
-				UsageObservers: []usage.Observer{
+				}); err != nil {
+					return err
+				}
+				return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "three-source-feature", []usage.Observer{
 					stubUsageObs{id: "feat-uo", events: &usageEvents, mu: &mu},
-				},
-			}, nil
-		})
-		err = reg.RegisterFeature("three-source-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				TrafficObservers: []traffic.Observer{
+				})
+			}, nil), nil
+		}))
+		require.NoError(t, reg.RegisterFeature("three-source-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return testkit.FeatureBundle(t, "three-source-cand", func(cs *lipfeature.ContributionSet) error {
+				if err := lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "three-source-cand", []traffic.Observer{
 					stubTrafficObs{id: "cand-to", events: &trafficEvents, mu: &mu},
-				},
-				UsageObservers: []usage.Observer{
+				}); err != nil {
+					return err
+				}
+				return lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "three-source-cand", []usage.Observer{
 					stubUsageObs{id: "cand-uo", events: &usageEvents, mu: &mu},
-				},
-			}, nil
-		})
-		require.NoError(t, err)
+				})
+			}, nil), nil
+		}))
 
 		cfg := obsTestProcessConfig()
 		require.NoError(t, config.Validate(cfg))
@@ -773,29 +819,30 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		var mu sync.Mutex
 
 		reg := obsTestFactoryCatalog(t)
-		err := reg.RegisterFeature("feature-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				RawCaptureSinks: []traffic.RawCaptureSink{
+		require.NoError(t, reg.RegisterFeature("feature-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return testkit.FeatureBundle(t, "feature-raw-red", func(cs *lipfeature.ContributionSet) error {
+				if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "feature-raw-red", []traffic.RawCaptureSink{
 					stubRawSink{id: "feat-raw", events: &rawEvents, mu: &mu},
-				},
-				TrafficRedactors: []traffic.Redactor{
+				}); err != nil {
+					return err
+				}
+				return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "feature-raw-red", []traffic.Redactor{
 					stubRedactor{id: "1-feat-red", prefix: "feat", events: &redEvents, mu: &mu},
-				},
-			}, nil
-		})
-		err = reg.RegisterFeature("cand-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-			return lipfeature.FeatureBundle{
-				SchemaVersion: lipfeature.SchemaVersionV1,
-				RawCaptureSinks: []traffic.RawCaptureSink{
+				})
+			}, nil), nil
+		}))
+		require.NoError(t, reg.RegisterFeature("cand-raw-red", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+			return testkit.FeatureBundle(t, "cand-raw-red", func(cs *lipfeature.ContributionSet) error {
+				if err := lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "cand-raw-red", []traffic.RawCaptureSink{
 					stubRawSink{id: "cand-raw", events: &rawEvents, mu: &mu},
-				},
-				TrafficRedactors: []traffic.Redactor{
+				}); err != nil {
+					return err
+				}
+				return lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "cand-raw-red", []traffic.Redactor{
 					stubRedactor{id: "2-cand-red", prefix: "cand", events: &redEvents, mu: &mu},
-				},
-			}, nil
-		})
-		require.NoError(t, err)
+				})
+			}, nil), nil
+		}))
 
 		cfg := obsTestProcessConfig()
 		require.NoError(t, config.Validate(cfg))
@@ -872,7 +919,9 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 		t.Cleanup(func() { _ = bundle.Close() })
 
 		require.Len(t, rawSlice, 1)
-		assert.Equal(t, "orig-to", rawSlice[0].(stubTrafficObs).id)
+		to0, ok := rawSlice[0].(stubTrafficObs)
+		require.True(t, ok)
+		assert.Equal(t, "orig-to", to0.id)
 	})
 
 	t.Run("nil_and_empty_exact", func(t *testing.T) {
@@ -911,18 +960,16 @@ func TestCompileGeneration_ObserversRealIntegration(t *testing.T) {
 func TestStreamObserverFactoriesProjection_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 	t.Parallel()
 
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
+	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "b1", []response.StreamObserverFactory{
 			stubStreamObsFactory{id: "so-1"},
-		},
-	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
+		})
+	}, nil)
+	b2 := testkit.FeatureBundle(t, "b2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "b2", []response.StreamObserverFactory{
 			stubStreamObsFactory{id: "so-2"},
-		},
-	}
+		})
+	}, nil)
 
 	gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 	require.NoError(t, err)
@@ -938,23 +985,21 @@ func TestStreamObserverFactoriesProjection_CandidateOverlayOrdering(t *testing.T
 
 	reg := obsTestFactoryCatalog(t)
 	err := reg.RegisterFeature("feature-so", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			StreamObserverFactories: []response.StreamObserverFactory{
+		return testkit.FeatureBundle(t, "feature-so", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feature-so", []response.StreamObserverFactory{
 				stubStreamObsFactory{id: "1-feat-so-1", ord: 1},
 				stubStreamObsFactory{id: "2-feat-so-2", ord: 2},
-			},
-		}, nil
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
 	err = reg.RegisterFeature("feature-so-cand", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			StreamObserverFactories: []response.StreamObserverFactory{
+		return testkit.FeatureBundle(t, "feature-so-cand", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feature-so-cand", []response.StreamObserverFactory{
 				stubStreamObsFactory{id: "3-cand-so-1", ord: 3},
-			},
-		}, nil
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
@@ -1002,18 +1047,16 @@ func TestStreamObserverFactoriesProjection_ThreeSourceOrdering(t *testing.T) {
 	t.Parallel()
 
 	cs := lipfeature.NewContributionSet()
-	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
+	require.NoError(t, featurebundle.ContributeBundle(cs, "feat-plugin", testkit.FeatureBundle(t, "feat-plugin", func(csFeat *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(csFeat, lipfeature.PlaneStreamObserverFactories, "feat-plugin", []response.StreamObserverFactory{
 			stubStreamObsFactory{id: "feat-so-1"},
-		},
-	}))
-	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
+		})
+	}, nil)))
+	require.NoError(t, featurebundle.ContributeBundle(cs, "candidate-extra", testkit.FeatureBundle(t, "candidate-extra", func(csCand *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(csCand, lipfeature.PlaneStreamObserverFactories, "candidate-extra", []response.StreamObserverFactory{
 			stubStreamObsFactory{id: "cand-so-1"},
-		},
-	}))
+		})
+	}, nil)))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
 
@@ -1039,12 +1082,11 @@ func TestStreamObserverFactoriesProjection_LazyLifecycleAndInvocation(t *testing
 
 	reg := obsTestFactoryCatalog(t)
 	err := reg.RegisterFeature("feature-lazy-so", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			StreamObserverFactories: []response.StreamObserverFactory{
+		return testkit.FeatureBundle(t, "feature-lazy-so", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feature-lazy-so", []response.StreamObserverFactory{
 				factory,
-			},
-		}, nil
+			})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
@@ -1111,12 +1153,11 @@ func TestStreamObserverFactoriesProjection_LazyLifecycleAndInvocation(t *testing
 func TestStreamObserverFactoriesProjection_BackingArrayIsolation(t *testing.T) {
 	t.Parallel()
 
-	gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
+	gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "orig", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "orig", []response.StreamObserverFactory{
 			stubStreamObsFactory{id: "orig-so"},
-		},
-	})
+		})
+	}, nil))
 	require.NoError(t, err)
 
 	so := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
@@ -1140,28 +1181,23 @@ func TestStreamObserverFactoriesProjection_ExactNilAndEmptySemantics(t *testing.
 		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories))
 	})
 
-	t.Run("empty_explicit_slices_project_nil_slices", func(t *testing.T) {
+	t.Run("empty_explicit_slices_project_empty_slices", func(t *testing.T) {
 		t.Parallel()
-		gen, err := featurebundle.MergeBundlesGenerated(lipfeature.FeatureBundle{
-			SchemaVersion:           lipfeature.SchemaVersionV1,
-			StreamObserverFactories: []response.StreamObserverFactory{},
-		})
+		gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "empty", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "empty", []response.StreamObserverFactory{})
+		}, nil))
 		require.NoError(t, err)
 
-		assert.Nil(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories), "StreamObserverFactories must normalize explicit empty to nil")
+		sof := lipfeature.Get(gen.Frozen, lipfeature.PlaneStreamObserverFactories)
+		assert.NotNil(t, sof)
+		assert.Empty(t, sof)
 	})
 }
 
 func TestStreamObserverFactoriesProjection_TypedNilRejection(t *testing.T) {
 	t.Parallel()
 
-	b := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{
-			nil,
-		},
-	}
-
-	_, err := featurebundle.MergeBundlesGenerated(b)
-	require.Error(t, err, "MergeBundlesGenerated must reject nil StreamObserverFactory")
+	cs := lipfeature.NewContributionSet()
+	err := lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test", []response.StreamObserverFactory{nil})
+	require.Error(t, err, "Contribute must reject nil StreamObserverFactory")
 }

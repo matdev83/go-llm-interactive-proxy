@@ -59,11 +59,14 @@ func FeatureBundleWithPartsAndCompression(cfg Config, svc CompressionServices, p
 	xform := NewAttemptTransformWithCompanionPolicyServicesAndStage(cfg, store, svc, policy, stage, tel)
 	hook := BuildPostAppendHookWithTelemetry(cfg, store, svc, tel)
 	obs := NewStreamObserverFactoryWithPostAppendHook(cfg, store, hook, tel)
-	b := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		AttemptTransforms:       []request.AttemptTransform{xform},
-		StreamObserverFactories: []response.StreamObserverFactory{obs},
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, ID, []request.AttemptTransform{xform}); err != nil {
+		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", ID, err)
 	}
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, ID, []response.StreamObserverFactory{obs}); err != nil {
+		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", ID, err)
+	}
+	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
 		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", ID, err)
 	}

@@ -15,12 +15,16 @@ import (
 
 func TestTerminalDecisionObservationIsBoundedAndPrivate(t *testing.T) {
 	probe := &terminalDecisionObservationProbe{}
-	turn := &turnTerminal{log: slog.New(probe)}
 	provider := terminalDecisionObservationProvider{
 		id: "provider.alpha",
 		decide: func(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
 			return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 		},
+	}
+	turn := &turnTerminal{
+		log:                           slog.New(probe),
+		terminalDecisionProviderID:    provider.ID(),
+		terminalDecisionProviderHasID: true,
 	}
 	input := observedTerminalDecisionInput(true)
 	input.Candidate.Reference = "candidate-secret"
@@ -188,7 +192,19 @@ func TestTerminalDecisionObservationCoversNormalizedOutcomes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			probe := &terminalDecisionObservationProbe{}
-			turn := &turnTerminal{log: slog.New(probe)}
+			var provID string
+			var hasID bool
+			if tc.provider != nil {
+				if id, err := terminaldecision.ProviderIdentity(tc.provider); err == nil {
+					provID = id
+					hasID = true
+				}
+			}
+			turn := &turnTerminal{
+				log:                           slog.New(probe),
+				terminalDecisionProviderID:    provID,
+				terminalDecisionProviderHasID: hasID,
+			}
 			turn.sharedTerminalDecision(context.Background(), tc.provider, observedTerminalDecisionInput(false))
 			records := probe.snapshot()
 			if len(records) != 1 {
@@ -227,7 +243,6 @@ func TestTerminalDecisionObservationCoversNormalizedOutcomes(t *testing.T) {
 
 func TestTerminalDecisionObservationExcludesWaiters(t *testing.T) {
 	probe := &terminalDecisionObservationProbe{}
-	turn := &turnTerminal{log: slog.New(probe)}
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
@@ -243,6 +258,11 @@ func TestTerminalDecisionObservationExcludesWaiters(t *testing.T) {
 				return terminaldecision.Decision{}, ctx.Err()
 			}
 		},
+	}
+	turn := &turnTerminal{
+		log:                           slog.New(probe),
+		terminalDecisionProviderID:    provider.ID(),
+		terminalDecisionProviderHasID: true,
 	}
 	input := observedTerminalDecisionInput(false)
 	firstDone := make(chan struct{})

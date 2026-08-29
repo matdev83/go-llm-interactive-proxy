@@ -14,9 +14,18 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
+
+func frozenSecretGuards(guards ...sdk.Guard) lipfeature.FrozenPlaneSet {
+	cs := lipfeature.NewContributionSet()
+	if len(guards) > 0 {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test-plugin", guards)
+	}
+	return cs.Freeze()
+}
 
 type panicSGEnv struct{ calls int }
 
@@ -65,10 +74,12 @@ func (stubSecretGuard) Evaluate(context.Context, *lipapi.Call, sdk.Meta, sdk.Ser
 func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}},
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "b", ord: 1}, stubSecretGuard{id: "a", ord: 1}),
+		Extensions: ExtensionsOptions{
+			SecretGuardEnvironment: env,
+		},
+	}
 	before := opts.Extensions
 
 	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
@@ -89,10 +100,12 @@ func TestBuildSecretGuardRuntime_doesNotMutateBuildOptions(t *testing.T) {
 func TestBuildSecretGuardRuntime_injectedGuardsSkipEnvironmentButWireAudit(t *testing.T) {
 	t.Parallel()
 	env := &panicSGEnv{}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "injected-without-feature"}},
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "injected-without-feature"}),
+		Extensions: ExtensionsOptions{
+			SecretGuardEnvironment: env,
+		},
+	}
 
 	res, err := buildSecretGuardRuntime(&config.Config{}, slog.Default(), opts, nil)
 	if err != nil {
@@ -119,10 +132,12 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 		stubSecretGuard{id: "a", ord: 1},
 		stubSecretGuard{id: "b", ord: 1},
 	}
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           guards,
-		SecretGuardEnvironment: env,
-	}}
+	opts := &BuildOptions{
+		FeaturePlanes: frozenSecretGuards(guards...),
+		Extensions: ExtensionsOptions{
+			SecretGuardEnvironment: env,
+		},
+	}
 	regs := []lipsdk.Registration{{
 		Kind:        lipsdk.PluginKindFeature,
 		ID:          "sg-main",
@@ -159,7 +174,10 @@ func TestBuildSecretGuardRuntime_configuredGuardLoadsCatalogAndFreezesPlane(t *t
 	if got := res.Plane.Guards[0].ID(); got != "z" {
 		t.Fatalf("plane guards mutated via caller slice; got %q want z (unsorted clone)", got)
 	}
-	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{SecretGuardPlane: res.Plane})
+	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+		SecretGuardPlane: res.Plane,
+		FeaturePlanes:    opts.FeaturePlanes,
+	})
 	if got := snap.SecretGuardExecutionPlane().Guards[0].ID(); got != "a" {
 		t.Fatalf("snapshot must sort guards; got %q want a", got)
 	}
@@ -262,10 +280,12 @@ func TestBuildSecretGuardRuntime_typedNilObserverFallsBackToSlog(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var typedNil *typedNilDecisionObserver
-	opts := &BuildOptions{Extensions: ExtensionsOptions{
-		SecretGuards:           []sdk.Guard{stubSecretGuard{id: "guard", ord: 1}},
-		SecretDecisionObserver: typedNil,
-	}}
+	opts := &BuildOptions{
+		FeaturePlanes: frozenSecretGuards(stubSecretGuard{id: "guard", ord: 1}),
+		Extensions: ExtensionsOptions{
+			SecretDecisionObserver: typedNil,
+		},
+	}
 
 	res, err := buildSecretGuardRuntime(&config.Config{}, log, opts, nil)
 	if err != nil {

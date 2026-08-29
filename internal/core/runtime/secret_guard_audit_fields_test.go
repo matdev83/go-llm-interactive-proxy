@@ -54,11 +54,14 @@ func TestExecutor_secretGuardBlock_decisionEventRequiredFields(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS2{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards:           []secretguard.Guard{&blockingSecretGuard{}},
-			DecisionObserver: obs,
-			AccessMode:       "single_user",
-			ConfigVersion:    "cfg-audit-fields-v1",
+			DecisionObserver:   obs,
+			AccessMode:         "single_user",
+			ConfigVersion:      "cfg-audit-fields-v1",
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&blockingSecretGuard{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial

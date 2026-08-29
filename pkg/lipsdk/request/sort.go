@@ -2,6 +2,7 @@ package request
 
 import (
 	"cmp"
+	"reflect"
 	"slices"
 )
 
@@ -14,6 +15,19 @@ func participantLess(orderA, orderB int, idA, idB string, regIdxA, regIdxB int) 
 		return c
 	}
 	return cmp.Compare(regIdxA, regIdxB)
+}
+
+func isNilTransform(t Transform) bool {
+	if t == nil {
+		return true
+	}
+	rv := reflect.ValueOf(t)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 // MaterializeSorted returns a copy of transforms sorted for stable execution
@@ -29,6 +43,15 @@ func MaterializeSorted(transforms []Transform) []Transform {
 	}
 	slices.SortFunc(idx, func(hi, hj int) int {
 		a, b := h[hi], h[hj]
+		if isNilTransform(a) && isNilTransform(b) {
+			return cmp.Compare(hi, hj)
+		}
+		if isNilTransform(a) {
+			return -1
+		}
+		if isNilTransform(b) {
+			return 1
+		}
 		return participantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
 	})
 	out := make([]Transform, len(h))

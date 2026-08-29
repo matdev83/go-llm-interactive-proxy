@@ -2,6 +2,7 @@ package feature_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
@@ -150,8 +152,9 @@ func TestPlaneDeclarationValidation_DiagnosticsCompleteness(t *testing.T) {
 					Feature: feature.CombConcatenate,
 				},
 				Diagnostics: feature.DiagnosticDescriptor[[]string]{
-					StageID:       "stage.submit",
+					StageID:       feature.StageIDSubmit,
 					CoalesceGroup: "submit_group",
+					Order:         10,
 					Materialize: func(v []string) []feature.DiagnosticOccupant {
 						occupants := make([]feature.DiagnosticOccupant, 0, len(v))
 						for _, item := range v {
@@ -173,6 +176,71 @@ func TestPlaneDeclarationValidation_DiagnosticsCompleteness(t *testing.T) {
 				},
 			},
 			wantError: false,
+		},
+		{
+			name: "zero order with stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_zero_order",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					StageID: feature.StageIDSubmit,
+					Order:   0,
+					Materialize: func(v []string) []feature.DiagnosticOccupant {
+						return nil
+					},
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "Order must be > 0",
+		},
+		{
+			name: "negative order with stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_neg_order",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					StageID: feature.StageIDSubmit,
+					Order:   -5,
+					Materialize: func(v []string) []feature.DiagnosticOccupant {
+						return nil
+					},
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "Order must be > 0",
+		},
+		{
+			name: "positive order without stage ID fails validation",
+			plane: feature.Plane[[]string]{
+				ID:           "test.diag_order_no_stage",
+				Multiplicity: feature.MultOrdered,
+				Rules: feature.SourceRules{
+					Feature: feature.CombConcatenate,
+				},
+				Diagnostics: feature.DiagnosticDescriptor[[]string]{
+					Order: 10,
+				},
+				Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+					return append(cur, inc...), nil
+				},
+			},
+			wantError: true,
+			errTarget: feature.ErrInvalidPlane,
+			errSubstr: "diagnostics StageID must not be empty when diagnostics metadata is provided",
 		},
 		{
 			name: "omitted diagnostics descriptor passes validation",
@@ -390,8 +458,9 @@ func TestDiagnosticsDescriptor_MaterializeAndPrivileges(t *testing.T) {
 			Feature: feature.CombConcatenate,
 		},
 		Diagnostics: feature.DiagnosticDescriptor[[]string]{
-			StageID:       "stage.submit",
+			StageID:       feature.StageIDSubmit,
 			CoalesceGroup: "group.hooks",
+			Order:         10,
 			Materialize: func(v []string) []feature.DiagnosticOccupant {
 				occupants := make([]feature.DiagnosticOccupant, 0, len(v))
 				for _, s := range v {
@@ -547,6 +616,9 @@ func TestPlaneDeclarationValidation_GeneratedIdentityRequiredWhenBound(t *testin
 		Identity: func(v testDummyHandler) (string, bool) {
 			return v.id, true
 		},
+		ValidateIdentity: func(id string) error {
+			return nil
+		},
 		Combine: func(source feature.SourceKind, cur, inc testDummyHandler) (testDummyHandler, error) {
 			return inc, nil
 		},
@@ -677,4 +749,61 @@ func TestGenericAccess_FreezingImmutability(t *testing.T) {
 	assert.Equal(t, "h2", feature.Get(frozen2, feature.PlaneSubmitHooks)[1].ID())
 	assert.Equal(t, "h3", feature.Get(frozen2, feature.PlaneSubmitHooks)[2].ID())
 	assert.Equal(t, "provider-alpha", feature.Get(frozen2, feature.PlaneTerminalDecisionProvider).ID())
+}
+
+type dummyLTHandler struct {
+	id  string
+	ord int
+}
+
+func (h dummyLTHandler) ID() string                   { return h.id }
+func (h dummyLTHandler) Order() int                   { return h.ord }
+func (dummyLTHandler) FailureMode() hooks.FailureMode { return hooks.FailClosed }
+func (dummyLTHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
+	return localturn.MatchResult{Claimed: false}, nil
+}
+func (dummyLTHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
+	return localturn.Reply{}, nil
+}
+
+func TestPlaneLocalTurnHandlers_DiagnosticsDescriptor(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, feature.StageIDPreRequest, feature.PlaneLocalTurnHandlers.Diagnostics.StageID)
+	assert.Equal(t, "", feature.PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup)
+
+	var typedNil *dummyLTHandler
+	handlers := []localturn.Handler{
+		dummyLTHandler{id: "lt-z", ord: 20},
+		nil,
+		dummyLTHandler{id: "lt-a", ord: 10},
+		typedNil,
+		dummyLTHandler{id: "lt-m", ord: 10},
+	}
+
+	require.NotNil(t, feature.PlaneLocalTurnHandlers.Diagnostics.Materialize, "Materialize function must not be nil")
+	occupants := feature.PlaneLocalTurnHandlers.Diagnostics.Materialize(handlers)
+	require.Len(t, occupants, 3, "Materialize must filter untyped nil and boxed typed-nil")
+	assert.Equal(t, "local_turn:lt-a", occupants[0].Label)
+	assert.Equal(t, "local_turn:lt-m", occupants[1].Label)
+	assert.Equal(t, "local_turn:lt-z", occupants[2].Label)
+
+	// Deterministic JSON byte comparison
+	jsonBytes, err := json.Marshal(occupants)
+	require.NoError(t, err)
+	expectedJSON := `[{"Label":"local_turn:lt-a","PluginID":"","Privileges":null},{"Label":"local_turn:lt-m","PluginID":"","Privileges":null},{"Label":"local_turn:lt-z","PluginID":"","Privileges":null}]`
+	assert.Equal(t, expectedJSON, string(jsonBytes))
+
+	// Empty / all nil input returns nil or empty occupants
+	assert.Empty(t, feature.PlaneLocalTurnHandlers.Diagnostics.Materialize(nil))
+	assert.Empty(t, feature.PlaneLocalTurnHandlers.Diagnostics.Materialize([]localturn.Handler{nil, typedNil}))
+}
+
+func TestPrivilegeConstants(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "raw_capture", feature.PrivilegeRawCapture)
+	assert.Equal(t, "auxiliary_requests", feature.PrivilegeAuxiliaryRequests)
+	assert.Equal(t, "auth_provider", feature.PrivilegeAuthProvider)
+	assert.Equal(t, "completion_gate", feature.PrivilegeCompletionGate)
 }

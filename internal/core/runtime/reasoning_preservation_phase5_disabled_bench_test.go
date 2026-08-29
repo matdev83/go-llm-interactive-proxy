@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 func BenchmarkPhase5_disabledRuntimeNoFeatureParticipants(b *testing.B) {
@@ -22,8 +23,11 @@ func BenchmarkPhase5_disabledRuntimeNoFeatureParticipants(b *testing.B) {
 	if len(snap.AttemptTransforms()) != 0 || len(snap.StreamObserverFactories()) != 0 {
 		b.Fatal("disabled snapshot must have empty reasoning stages")
 	}
-	empty := featurebundle.MergeBundles()
-	if len(empty.AttemptTransforms) != 0 {
+	emptyGen, err := featurebundle.MergeBundlesGenerated()
+	if err != nil {
+		b.Fatal(err)
+	}
+	if len(lipfeature.Get(emptyGen.Frozen, lipfeature.PlaneAttemptTransforms)) != 0 {
 		b.Fatal("absent FeatureBundle merge must stay empty")
 	}
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

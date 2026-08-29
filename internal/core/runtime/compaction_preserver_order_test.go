@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -155,9 +157,11 @@ func configureRuntimeCompactionPreserver(t *testing.T, d *compactiondetect.Detec
 	t.Helper()
 	ex := compactionTestExecutor(t, d, observer)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		State:                st,
-		CompactionObservers:  []compaction.Observer{observer},
-		CompactionPreservers: []compaction.Preserver{p},
+		State: st,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompactionObservers:  []compaction.Observer{observer},
+			CompactionPreservers: []compaction.Preserver{p},
+		}),
 	})
 	ex.CompactionRuntime = runtime.CompactionRuntime{Detector: d, BackgroundAux: aux}
 	return ex
@@ -173,9 +177,11 @@ func TestCompactionPreserverRuntime_orderMutationVisibleToDetectorAndClient(t *t
 	ex := configureRuntimeCompactionPreserver(t, d, observer, p, st, aux)
 	orderedObserver := &orderedRuntimeObserver{order: &order}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		State:                st,
-		CompactionObservers:  []compaction.Observer{observer, orderedObserver},
-		CompactionPreservers: []compaction.Preserver{p},
+		State: st,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompactionObservers:  []compaction.Observer{observer, orderedObserver},
+			CompactionPreservers: []compaction.Preserver{p},
+		}),
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"openai": openStubBackend(func() lipapi.ManagedEventStream {

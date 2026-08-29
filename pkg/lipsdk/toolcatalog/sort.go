@@ -27,6 +27,15 @@ func MaterializeSorted(filters []Filter) []Filter {
 	}
 	slices.SortFunc(idx, func(hi, hj int) int {
 		a, b := h[hi], h[hj]
+		if a == nil && b == nil {
+			return cmp.Compare(hi, hj)
+		}
+		if a == nil {
+			return 1
+		}
+		if b == nil {
+			return -1
+		}
 		return participantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
 	})
 	out := make([]Filter, len(h))

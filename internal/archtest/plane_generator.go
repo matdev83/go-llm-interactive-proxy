@@ -6,20 +6,70 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"slices"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
 
 type planeInfo struct {
-	varName          string // e.g. PlaneSubmitHooks
-	planeID          string // e.g. "submit_hooks"
-	fieldName        string // e.g. submitHooks
-	typeExpr         string // e.g. []hooks.SubmitHook
-	isExclusive      bool   // e.g. terminaldecision.Provider
-	hasIdentity      bool   // whether plane has an identity accessor
-	hasGenBinderRule bool   // whether GenerationBinder rule is declared
-	genBinderRule    string // e.g. CombReplaceByIdentity
+	varName                string // e.g. PlaneSubmitHooks
+	planeID                string // e.g. "submit_hooks"
+	fieldName              string // e.g. submitHooks
+	typeExpr               string // e.g. []hooks.SubmitHook
+	isExclusive            bool   // e.g. terminaldecision.Provider
+	hasIdentity            bool   // whether plane has an identity accessor
+	hasValidateIdentity    bool   // whether plane has a ValidateIdentity validator
+	hasFeatureRule         bool   // whether Feature rule is declared
+	featureRule            string // e.g. CombConcatenate, CombExclusive
+	hasHostRule            bool   // whether Host rule is declared
+	hostRule               string // e.g. CombConcatenate, CombExclusive
+	hasGenBinderRule       bool   // whether GenerationBinder rule is declared
+	genBinderRule          string // e.g. CombReplaceByIdentity
+	candidate              bool   // whether plane allows candidate overlay contribution
+	hasRequestMaterializer bool   // whether plane has a RequestMaterializer
+	requestBorrow          bool   // whether plane exposes RequestExecutionView method
+	hasDiagStageID         bool
+	diagStageID            string
+	diagOrder              int
+	diagCoalesceGroup      string
+	hasDiagMaterialize     bool
+	hasDiagPrivileges      bool
+}
+
+// WriteGeneratedFileAtomic atomically installs one generated file via temp write + sync + rename.
+func WriteGeneratedFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("directory %s does not exist: %w", dir, err)
+	}
+	base := filepath.Base(path)
+	f, err := os.CreateTemp(dir, fmt.Sprintf(".%s.tmp-*", base))
+	if err != nil {
+		return fmt.Errorf("failed to create temp file in %s: %w", dir, err)
+	}
+	tmpPath := f.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to write temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to sync temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to chmod temp file %s: %w", tmpPath, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("failed to install %s: %w", path, err)
+	}
+	return nil
 }
 
 // GenerateFeaturePlanesCode parses plane_manifest.go source bytes and returns the formatted Go code for plane_generated.go.
@@ -53,42 +103,12 @@ func GenerateFeaturePlanesCode(manifestBytes []byte) ([]byte, error) {
 	return formatted, nil
 }
 
-func deriveImports(f *ast.File) ([]string, error) {
-	var sdkImports []string
-	seen := make(map[string]bool)
-
-	for _, imp := range f.Imports {
-		if imp.Path == nil {
-			continue
-		}
-		path := strings.Trim(imp.Path.Value, `"`)
-		if !strings.Contains(path, "/") {
-			continue
-		}
-		var importClause string
-		if imp.Name != nil && imp.Name.Name != "" && imp.Name.Name != "_" {
-			importClause = fmt.Sprintf("%s %q", imp.Name.Name, path)
-		} else {
-			importClause = fmt.Sprintf("%q", path)
-		}
-		if !seen[importClause] {
-			seen[importClause] = true
-			sdkImports = append(sdkImports, importClause)
-		}
-	}
-
-	if len(sdkImports) == 0 {
-		return nil, fmt.Errorf("no SDK imports found in manifest")
-	}
-
-	slices.Sort(sdkImports)
-	return sdkImports, nil
-}
-
 func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 	declaredPlanes := make(map[string]planeInfo)
 	var standardPlanesElts []ast.Expr
 	foundStandardPlanes := false
+	var standardCandidatePlanesElts []ast.Expr
+	foundStandardCandidatePlanes := false
 
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
@@ -112,6 +132,15 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 					}
 					standardPlanesElts = compLit.Elts
 					foundStandardPlanes = true
+					continue
+				}
+				if name.Name == "StandardCandidatePlanes" {
+					compLit, ok := val.(*ast.CompositeLit)
+					if !ok {
+						return nil, fmt.Errorf("StandardCandidatePlanes: expected CompositeLit, got %T", val)
+					}
+					standardCandidatePlanesElts = compLit.Elts
+					foundStandardCandidatePlanes = true
 					continue
 				}
 				if !strings.HasPrefix(name.Name, "Plane") || name.Name == "PlaneDeclaration" {
@@ -165,7 +194,46 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 		seenIDs[info.planeID] = info.varName
 	}
 
+	if foundStandardCandidatePlanes {
+		candidatePlaneIDs := make(map[string]bool)
+		for _, elt := range standardCandidatePlanesElts {
+			basicLit, ok := elt.(*ast.BasicLit)
+			if !ok || basicLit.Kind != token.STRING {
+				return nil, fmt.Errorf("expected string literal in StandardCandidatePlanes, got %T", elt)
+			}
+			candID := strings.Trim(basicLit.Value, `"`)
+			if candID == "" {
+				return nil, fmt.Errorf("StandardCandidatePlanes contains empty string")
+			}
+			if candidatePlaneIDs[candID] {
+				return nil, fmt.Errorf("duplicate candidate plane ID %q in StandardCandidatePlanes", candID)
+			}
+			candidatePlaneIDs[candID] = true
+		}
+
+		for candID := range candidatePlaneIDs {
+			if _, exists := seenIDs[candID]; !exists {
+				return nil, fmt.Errorf("candidate plane ID %q in StandardCandidatePlanes was not declared in manifest", candID)
+			}
+		}
+
+		for i := range orderedPlanes {
+			if candidatePlaneIDs[orderedPlanes[i].planeID] {
+				orderedPlanes[i].candidate = true
+			}
+		}
+	}
+
+	if err := validateDiagnosticsCrossPlane(orderedPlanes); err != nil {
+		return nil, err
+	}
+
 	return orderedPlanes, nil
+}
+
+func isNilIdent(e ast.Expr) bool {
+	ident, ok := e.(*ast.Ident)
+	return ok && ident.Name == "nil"
 }
 
 func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, error) {
@@ -207,6 +275,12 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	var genBinderRule string
 	var hasCombine bool
 	var hasIdentity bool
+	var hasValidateIdentity bool
+	var hasRequestMaterializer bool
+	var requestBorrow bool
+	var diagStageID string
+	var diagOrder int
+	var diagCoalesceGroup string
 	var hasDiagStageID bool
 	var hasDiagMaterialize bool
 	var hasDiagPrivileges bool
@@ -231,16 +305,23 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 		case "Multiplicity":
 			multiplicity = string(src[kv.Value.Pos()-1 : kv.Value.End()-1])
 		case "Identity":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
-				hasIdentity = false
-			} else {
-				hasIdentity = true
-			}
+			hasIdentity = !isNilIdent(kv.Value)
+		case "ValidateIdentity":
+			hasValidateIdentity = !isNilIdent(kv.Value)
 		case "Combine":
-			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "nil" {
-				hasCombine = false
+			hasCombine = !isNilIdent(kv.Value)
+		case "RequestMaterializer":
+			if isNilIdent(kv.Value) {
+				hasRequestMaterializer = false
 			} else {
-				hasCombine = true
+				if err := validateRequestMaterializerExpr(kv.Value, varName); err != nil {
+					return planeInfo{}, err
+				}
+				hasRequestMaterializer = true
+			}
+		case "RequestBorrow":
+			if ident, ok := kv.Value.(*ast.Ident); ok && ident.Name == "true" {
+				requestBorrow = true
 			}
 		case "Rules":
 			hasRules = true
@@ -251,14 +332,11 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 							valStr := string(src[rKV.Value.Pos()-1 : rKV.Value.End()-1])
 							switch rKIdent.Name {
 							case "Feature":
-								hasFeatureRule = true
-								featureRule = valStr
+								hasFeatureRule, featureRule = true, valStr
 							case "Host":
-								hasHostRule = true
-								hostRule = valStr
+								hasHostRule, hostRule = true, valStr
 							case "GenerationBinder":
-								hasGenBinderRule = true
-								genBinderRule = valStr
+								hasGenBinderRule, genBinderRule = true, valStr
 							}
 						}
 					}
@@ -274,40 +352,39 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
-										hasDiagStageID = true
+										hasDiagStageID, diagStageID = true, val
 									}
-								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagStageID = false
-								} else {
+								} else if !isNilIdent(dKV.Value) {
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
-										hasDiagStageID = true
+										hasDiagStageID, diagStageID = true, valStr
 									}
 								}
-							case "Materialize":
-								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagMaterialize = false
-								} else {
-									hasDiagMaterialize = true
+							case "Order":
+								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.INT {
+									fmt.Sscanf(basicLit.Value, "%d", &diagOrder)
 								}
+							case "Materialize":
+								hasDiagMaterialize = !isNilIdent(dKV.Value)
 							case "Privileges":
-								if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
+								if isNilIdent(dKV.Value) {
 									hasDiagPrivileges = false
 								} else {
+									if err := validatePrivilegesFunc(varName, dKV.Value); err != nil {
+										return planeInfo{}, err
+									}
 									hasDiagPrivileges = true
 								}
 							case "CoalesceGroup":
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
 									val := strings.Trim(basicLit.Value, `"`)
 									if val != "" {
-										hasDiagCoalesce = true
+										hasDiagCoalesce, diagCoalesceGroup = true, val
 									}
-								} else if ident, ok := dKV.Value.(*ast.Ident); ok && ident.Name == "nil" {
-									hasDiagCoalesce = false
-								} else {
+								} else if !isNilIdent(dKV.Value) {
 									valStr := strings.Trim(strings.TrimSpace(string(src[dKV.Value.Pos()-1:dKV.Value.End()-1])), `"`)
 									if valStr != "" && valStr != `""` {
-										hasDiagCoalesce = true
+										hasDiagCoalesce, diagCoalesceGroup = true, valStr
 									}
 								}
 							}
@@ -349,33 +426,66 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 	}
 
 	requiresIdentity := isExclusive ||
+		strings.Contains(featureRule, "CombExclusive") ||
 		strings.Contains(featureRule, "CombReplaceByIdentity") ||
+		strings.Contains(hostRule, "CombExclusive") ||
 		strings.Contains(hostRule, "CombReplaceByIdentity") ||
+		strings.Contains(genBinderRule, "CombExclusive") ||
 		strings.Contains(genBinderRule, "CombReplaceByIdentity")
 
 	if requiresIdentity && !hasIdentity {
 		return planeInfo{}, fmt.Errorf("identity function is required for exclusive or replace-by-identity plane")
+	}
+	if requiresIdentity && !hasValidateIdentity {
+		return planeInfo{}, fmt.Errorf("cached identity validator is required for exclusive or replace-by-identity plane")
 	}
 
 	if !hasCombine {
 		return planeInfo{}, fmt.Errorf("combine function is required")
 	}
 
-	if hasDiagStageID && !hasDiagMaterialize {
-		return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
+	if requestBorrow {
+		if !hasRequestMaterializer {
+			return planeInfo{}, fmt.Errorf("plane %s: RequestBorrow requires non-nil RequestMaterializer", varName)
+		}
+		if !strings.HasPrefix(typeArgStr, "[]") {
+			return planeInfo{}, fmt.Errorf("plane %s: RequestBorrow cannot be used on non-slice plane type %s", varName, typeArgStr)
+		}
 	}
-	if !hasDiagStageID && (hasDiagMaterialize || hasDiagPrivileges || hasDiagCoalesce) {
+
+	if hasDiagStageID {
+		if !hasDiagMaterialize {
+			return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Materialize function is missing")
+		}
+		if diagOrder <= 0 {
+			return planeInfo{}, fmt.Errorf("diagnostics StageID is set but Order must be > 0 (got %d)", diagOrder)
+		}
+	}
+	if !hasDiagStageID && (hasDiagMaterialize || hasDiagPrivileges || hasDiagCoalesce || diagOrder != 0) {
 		return planeInfo{}, fmt.Errorf("diagnostics StageID must not be empty when diagnostics metadata is provided")
 	}
 
 	return planeInfo{
-		varName:          varName,
-		planeID:          planeID,
-		fieldName:        fieldName,
-		typeExpr:         typeArgStr,
-		isExclusive:      isExclusive,
-		hasIdentity:      hasIdentity,
-		hasGenBinderRule: hasGenBinderRule,
-		genBinderRule:    genBinderRule,
+		varName:                varName,
+		planeID:                planeID,
+		fieldName:              fieldName,
+		typeExpr:               typeArgStr,
+		isExclusive:            isExclusive,
+		hasIdentity:            hasIdentity,
+		hasValidateIdentity:    hasValidateIdentity,
+		hasFeatureRule:         hasFeatureRule,
+		featureRule:            featureRule,
+		hasHostRule:            hasHostRule,
+		hostRule:               hostRule,
+		hasGenBinderRule:       hasGenBinderRule,
+		genBinderRule:          genBinderRule,
+		hasRequestMaterializer: hasRequestMaterializer,
+		requestBorrow:          requestBorrow,
+		hasDiagStageID:         hasDiagStageID,
+		diagStageID:            diagStageID,
+		diagOrder:              diagOrder,
+		diagCoalesceGroup:      diagCoalesceGroup,
+		hasDiagMaterialize:     hasDiagMaterialize,
+		hasDiagPrivileges:      hasDiagPrivileges,
 	}, nil
 }

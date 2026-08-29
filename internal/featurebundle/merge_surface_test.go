@@ -3,7 +3,6 @@ package featurebundle
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +13,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -214,6 +215,19 @@ func (testTerminalDecisionProvider) Decide(context.Context, terminaldecision.Inp
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
+type testLocalTurnHandler struct{ tag string }
+
+func (h testLocalTurnHandler) ID() string                      { return h.tag }
+func (testLocalTurnHandler) Order() int                        { return 0 }
+func (testLocalTurnHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (testLocalTurnHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
+	return localturn.MatchResult{}, nil
+}
+
+func (testLocalTurnHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
+	return localturn.Reply{}, nil
+}
+
 func (g testSecretGuard) ID() string                         { return g.tag }
 func (testSecretGuard) Order() int                           { return 0 }
 func (testSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
@@ -221,54 +235,69 @@ func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta,
 	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
 }
 
+type testLifecycle struct{ tag string }
+
+func (testLifecycle) Start(context.Context) error     { return nil }
+func (testLifecycle) Stop(context.Context) error      { return nil }
+func (testLifecycle) SafeUnderCandidateOverlap() bool { return true }
+
+func makeTestBundle(fn func(cs *lipfeature.ContributionSet)) lipfeature.FeatureBundle {
+	cs := lipfeature.NewContributionSet()
+	if fn != nil {
+		fn(cs)
+	}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), nil)
+}
+
 // --- Tests ---
 
 func TestMergeBundles_empty(t *testing.T) {
 	t.Parallel()
 	m := MergeBundles()
-	if len(m.SessionOpeners) != 0 {
+	if len(m.Lifecycles) != 0 {
 		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderZeroAndOne(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderZeroAndOne(t *testing.T) {
 	t.Parallel()
-	empty, err := MergeBundlesChecked()
+	empty, err := MergeBundlesGenerated()
 	if err != nil {
 		t.Fatalf("empty merge error: %v", err)
 	}
-	if empty.TerminalDecisionProvider != nil {
+	if lipfeature.Get(empty.Frozen, lipfeature.PlaneTerminalDecisionProvider) != nil {
 		t.Fatal("empty merge unexpectedly contributed provider")
 	}
 
 	provider := testTerminalDecisionProvider{tag: "provider.example"}
-	merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{
-		SchemaVersion:            lipfeature.SchemaVersionV1,
-		SessionOpeners:           []session.Opener{testOpener{tag: "existing"}},
-		TerminalDecisionProvider: provider,
-	})
+	merged, err := MergeBundlesGenerated(makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provider.example", terminaldecision.Provider(provider))
+	}))
 	if err != nil {
 		t.Fatalf("one-provider merge error: %v", err)
 	}
-	if merged.TerminalDecisionProvider != provider {
-		t.Fatalf("merged provider = %#v, want %#v", merged.TerminalDecisionProvider, provider)
-	}
-	opener, ok := merged.SessionOpeners[0].(testOpener)
-	if len(merged.SessionOpeners) != 1 || !ok || opener.tag != "existing" {
-		t.Fatalf("existing fields changed during provider merge: %#v", merged.SessionOpeners)
+	if lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider) != provider {
+		t.Fatalf("merged provider = %#v, want %#v", lipfeature.Get(merged.Frozen, lipfeature.PlaneTerminalDecisionProvider), provider)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderConflictFailsBeforePublication(t *testing.T) {
 	t.Parallel()
 	first := testTerminalDecisionProvider{tag: "provider.first"}
 	second := testTerminalDecisionProvider{tag: "provider.second"}
-	merged, err := MergeBundlesChecked(
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: first},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: second},
+	merged, err := MergeBundlesGenerated(
+		makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "first", terminaldecision.Provider(first))
+		}),
+		makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "second", terminaldecision.Provider(second))
+		}),
 	)
 	if err == nil {
 		t.Fatal("duplicate providers were accepted")
+	}
+	if !errors.Is(err, lipfeature.ErrExclusiveConflict) {
+		t.Fatalf("conflict error = %v, want ErrExclusiveConflict", err)
 	}
 	if !errors.Is(err, ErrTerminalDecisionProviderConflict) {
 		t.Fatalf("conflict error = %v, want ErrTerminalDecisionProviderConflict", err)
@@ -276,171 +305,111 @@ func TestMergeBundlesChecked_TerminalDecisionProviderConflictFailsBeforePublicat
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
 		t.Fatalf("conflict error = %q, want both bounded provider identities", err)
 	}
-	if merged.TerminalDecisionProvider != nil || len(merged.SessionOpeners) != 0 {
+	if !merged.Frozen.IsZero() || len(merged.Lifecycles) != 0 {
 		t.Fatalf("candidate was published after conflict: %#v", merged)
 	}
 }
 
-func TestMergeBundlesChecked_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
+func TestMergeBundlesGenerated_TerminalDecisionProviderRejectsInvalidProvider(t *testing.T) {
 	t.Parallel()
 	var typedNil *testTerminalDecisionProvider
-	_, err := MergeBundlesChecked(lipfeature.FeatureBundle{
-		SchemaVersion:            lipfeature.SchemaVersionV1,
-		TerminalDecisionProvider: typedNil,
-	})
+	cs := lipfeature.NewContributionSet()
+	err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "p", terminaldecision.Provider(typedNil))
 	if !errors.Is(err, terminaldecision.ErrInvalidProvider) {
 		t.Fatalf("typed-nil provider error = %v, want ErrInvalidProvider", err)
 	}
 }
 
-func TestMergedFeatureSurfaceTerminalDecisionContributionIsSingular(t *testing.T) {
-	t.Parallel()
-	field, ok := reflect.TypeFor[MergedFeatureSurface]().FieldByName("TerminalDecisionProvider")
-	if !ok {
-		t.Fatal("MergedFeatureSurface is missing TerminalDecisionProvider")
-	}
-	want := reflect.TypeFor[terminaldecision.Provider]()
-	if field.Type != want {
-		t.Fatalf("TerminalDecisionProvider type = %v, want %v", field.Type, want)
-	}
-}
-
-func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
+func TestMergedFeatureSurfaceAppend_concatenatesLifecycles(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		SubmitHooks:          []sdkhooks.SubmitHook{testSubmitHook{tag: "s1"}},
-		RequestPartHooks:     []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r1"}},
-		ResponsePartHooks:    []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp1"}},
-		ToolReactors:         []sdkhooks.ToolReactor{testToolReactor{tag: "tr1"}},
-		SessionOpeners:       []session.Opener{testOpener{tag: "o1"}},
-		WorkspaceResolvers:   []lipworkspace.Resolver{testResolver{tag: "w1"}},
-		ToolCatalogFilters:   []toolcatalog.Filter{testCatalogFilter{tag: "c1"}},
-		ToolCallPolicies:     []toolpolicy.Policy{testPolicy{tag: "p1"}},
-		ToolCallFinalizers:   []toolcall.Finalizer{testFinalizer{tag: "f1"}},
-		RequestTransforms:    []request.Transform{testTransform{tag: "rt1"}},
-		PreRequestHandlers:   []prerequest.Handler{testPreReq{tag: "pr1"}},
-		RouteHintProviders:   []routehint.Provider{testRouteHint{tag: "rh1"}},
-		CompletionGates:      []completion.Gate{testCompGate{tag: "cg1"}},
-		AttemptTransforms:    []request.AttemptTransform{testAttemptTransform{tag: "at1"}},
-		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co1"}},
-		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp1"}},
-		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg1"}},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		Lifecycles:    []lipplugin.Lifecycle{testLifecycle{tag: "l1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		SubmitHooks:          []sdkhooks.SubmitHook{testSubmitHook{tag: "s2"}},
-		RequestPartHooks:     []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r2"}},
-		ResponsePartHooks:    []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp2"}},
-		ToolReactors:         []sdkhooks.ToolReactor{testToolReactor{tag: "tr2"}},
-		SessionOpeners:       []session.Opener{testOpener{tag: "o2"}},
-		WorkspaceResolvers:   []lipworkspace.Resolver{testResolver{tag: "w2"}},
-		ToolCatalogFilters:   []toolcatalog.Filter{testCatalogFilter{tag: "c2"}},
-		ToolCallPolicies:     []toolpolicy.Policy{testPolicy{tag: "p2"}},
-		ToolCallFinalizers:   []toolcall.Finalizer{testFinalizer{tag: "f2"}},
-		RequestTransforms:    []request.Transform{testTransform{tag: "rt2"}},
-		PreRequestHandlers:   []prerequest.Handler{testPreReq{tag: "pr2"}},
-		RouteHintProviders:   []routehint.Provider{testRouteHint{tag: "rh2"}},
-		CompletionGates:      []completion.Gate{testCompGate{tag: "cg2"}},
-		AttemptTransforms:    []request.AttemptTransform{testAttemptTransform{tag: "at2"}},
-		CompactionObservers:  []compaction.Observer{testCompactionObs{tag: "co2"}},
-		CompactionPreservers: []compaction.Preserver{testCompactionPreserver{tag: "cp2"}},
-		SecretGuards:         []secretguard.Guard{testSecretGuard{tag: "sg2"}},
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		Lifecycles:    []lipplugin.Lifecycle{testLifecycle{tag: "l2"}},
 	}
 	m := MergeBundles(b1, b2)
-
-	checks := []struct {
-		name string
-		got  int
-	}{
-		{"SessionOpeners", len(m.SessionOpeners)},
-		{"WorkspaceResolvers", len(m.WorkspaceResolvers)},
-		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},
-		{"ToolCallPolicies", len(m.ToolCallPolicies)},
-		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
-		{"RequestTransforms", len(m.RequestTransforms)},
-		{"PreRequestHandlers", len(m.PreRequestHandlers)},
-		{"RouteHintProviders", len(m.RouteHintProviders)},
-		{"CompletionGates", len(m.CompletionGates)},
-		{"AttemptTransforms", len(m.AttemptTransforms)},
-		{"CompactionObservers", len(m.CompactionObservers)},
-		{"CompactionPreservers", len(m.CompactionPreservers)},
-		{"SecretGuards", len(m.SecretGuards)},
-	}
-	for _, c := range checks {
-		if c.got != 2 {
-			t.Fatalf("%s: got %d want 2", c.name, c.got)
-		}
-	}
-	for i, want := range []string{"co1", "co2"} {
-		observer, ok := m.CompactionObservers[i].(testCompactionObs)
-		if !ok || observer.tag != want {
-			t.Fatalf("CompactionObservers[%d]=%T/%q want %q", i, m.CompactionObservers[i], observer.tag, want)
-		}
-	}
-	for i, want := range []string{"cp1", "cp2"} {
-		preserver, ok := m.CompactionPreservers[i].(testCompactionPreserver)
-		if !ok || preserver.tag != want {
-			t.Fatalf("CompactionPreservers[%d]=%T/%q want %q", i, m.CompactionPreservers[i], preserver.tag, want)
-		}
-	}
+	require.Len(t, m.Lifecycles, 2)
 }
 
-func TestMergeBundles_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
+func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
 	t.Parallel()
-	m := MergeBundles(
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+	gen, err := MergeBundlesGenerated(
+		makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "p1", 4096)
+		}),
+		makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "p2", 1024)
+		}),
+		makeTestBundle(nil),
 	)
-	if m.ToolCallFinalizationMaxArgsBytes != 1024 {
-		t.Fatalf("got %d want 1024 (min of positives)", m.ToolCallFinalizationMaxArgsBytes)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	got := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if got != 1024 {
+		t.Fatalf("got %d want 1024 (min of positives)", got)
 	}
 }
 
-func TestMergeBundles_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *testing.T) {
+func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *testing.T) {
 	t.Parallel()
 	// Merge keeps min of positives only; Validate rejects negatives on FeatureBundle.
 	// Non-positive values are not contributions at the merge surface.
-	m := MergeBundles(
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -1},
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+	gen, err := MergeBundlesGenerated(
+		makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "p1", 2048)
+		}),
+		makeTestBundle(nil),
 	)
-	if m.ToolCallFinalizationMaxArgsBytes != 2048 {
-		t.Fatalf("got %d want 2048 (negatives/zero ignored at merge)", m.ToolCallFinalizationMaxArgsBytes)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
+	}
+	got := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	if got != 2048 {
+		t.Fatalf("got %d want 2048 (zero ignored at merge)", got)
 	}
 }
 
 func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
-	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "first"}},
+	b1 := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "b1", []localturn.Handler{testLocalTurnHandler{tag: "first"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b1", []toolcall.Finalizer{testFinalizer{tag: "first"}})
+	})
+	b2 := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "b2", []localturn.Handler{testLocalTurnHandler{tag: "second"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b2", []toolcall.Finalizer{testFinalizer{tag: "second"}})
+	})
+	b3 := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "b3", []localturn.Handler{testLocalTurnHandler{tag: "third"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "b3", []toolcall.Finalizer{testFinalizer{tag: "third"}})
+	})
+	gen, err := MergeBundlesGenerated(b1, b2, b3)
+	if err != nil {
+		t.Fatalf("MergeBundlesGenerated error: %v", err)
 	}
-	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "second"}},
+	lts := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
+	if len(lts) != 3 {
+		t.Fatalf("LocalTurnHandlers: got %d want 3", len(lts))
 	}
-	b3 := lipfeature.FeatureBundle{
-		SchemaVersion:  lipfeature.SchemaVersionV1,
-		SessionOpeners: []session.Opener{testOpener{tag: "third"}},
+	fins := lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)
+	if len(fins) != 3 {
+		t.Fatalf("ToolCallFinalizers: got %d want 3", len(fins))
 	}
-	m := MergeBundles(b1, b2, b3)
-	if len(m.SessionOpeners) != 3 {
-		t.Fatalf("SessionOpeners: got %d want 3", len(m.SessionOpeners))
+	f0, ok := fins[0].(testFinalizer)
+	if !ok || f0.tag != "first" {
+		t.Fatalf("first finalizer: %#v", fins[0])
 	}
-	o0, ok := m.SessionOpeners[0].(testOpener)
-	if !ok || o0.tag != "first" {
-		t.Fatalf("first opener: %#v", m.SessionOpeners[0])
+	f1, ok := fins[1].(testFinalizer)
+	if !ok || f1.tag != "second" {
+		t.Fatalf("second finalizer: %#v", fins[1])
 	}
-	o1, ok := m.SessionOpeners[1].(testOpener)
-	if !ok || o1.tag != "second" {
-		t.Fatalf("second opener: %#v", m.SessionOpeners[1])
-	}
-	o2, ok := m.SessionOpeners[2].(testOpener)
-	if !ok || o2.tag != "third" {
-		t.Fatalf("third opener: %#v", m.SessionOpeners[2])
+	f2, ok := fins[2].(testFinalizer)
+	if !ok || f2.tag != "third" {
+		t.Fatalf("third finalizer: %#v", fins[2])
 	}
 }
 
@@ -449,21 +418,12 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 
 	reg := pluginreg.NewRegistry()
 	err := reg.RegisterFeature("test-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion: lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{
-				testTrafficObs{tag: "feat-to"},
-			},
-			UsageObservers: []usage.Observer{
-				testUsageObs{tag: "feat-uo"},
-			},
-			RawCaptureSinks: []traffic.RawCaptureSink{
-				testRawSink{tag: "feat-raw"},
-			},
-			TrafficRedactors: []traffic.Redactor{
-				testRedactor{tag: "feat-red"},
-			},
-		}, nil
+		return makeTestBundle(func(cs *lipfeature.ContributionSet) {
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "feat", []traffic.Observer{testTrafficObs{tag: "feat-to"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "feat", []usage.Observer{testUsageObs{tag: "feat-uo"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "feat", []traffic.RawCaptureSink{testRawSink{tag: "feat-raw"}})
+			_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "feat", []traffic.Redactor{testRedactor{tag: "feat-red"}})
+		}), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -487,21 +447,12 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 		},
 	}
 
-	candExtra := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		TrafficObservers: []traffic.Observer{
-			testTrafficObs{tag: "cand-to"},
-		},
-		UsageObservers: []usage.Observer{
-			testUsageObs{tag: "cand-uo"},
-		},
-		RawCaptureSinks: []traffic.RawCaptureSink{
-			testRawSink{tag: "cand-raw"},
-		},
-		TrafficRedactors: []traffic.Redactor{
-			testRedactor{tag: "cand-red"},
-		},
-	}
+	candExtra := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand", []traffic.Observer{testTrafficObs{tag: "cand-to"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, "cand", []usage.Observer{testUsageObs{tag: "cand-uo"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, "cand", []traffic.RawCaptureSink{testRawSink{tag: "cand-raw"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "cand", []traffic.Redactor{testRedactor{tag: "cand-red"}})
+	})
 
 	_, gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, candExtra)
 	if err != nil {
@@ -512,7 +463,10 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(to) != 3 {
 		t.Fatalf("TrafficObservers len = %d, want 3", len(to))
 	}
-	if to[0].(testTrafficObs).tag != "feat-to" || to[1].(testTrafficObs).tag != "host-to" || to[2].(testTrafficObs).tag != "cand-to" {
+	to0, ok0 := to[0].(testTrafficObs)
+	to1, ok1 := to[1].(testTrafficObs)
+	to2, ok2 := to[2].(testTrafficObs)
+	if !ok0 || !ok1 || !ok2 || to0.tag != "feat-to" || to1.tag != "host-to" || to2.tag != "cand-to" {
 		t.Fatalf("TrafficObservers order = %#v, want [feat-to, host-to, cand-to]", to)
 	}
 
@@ -520,7 +474,10 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(uo) != 3 {
 		t.Fatalf("UsageObservers len = %d, want 3", len(uo))
 	}
-	if uo[0].(testUsageObs).tag != "feat-uo" || uo[1].(testUsageObs).tag != "host-uo" || uo[2].(testUsageObs).tag != "cand-uo" {
+	uo0, ok0 := uo[0].(testUsageObs)
+	uo1, ok1 := uo[1].(testUsageObs)
+	uo2, ok2 := uo[2].(testUsageObs)
+	if !ok0 || !ok1 || !ok2 || uo0.tag != "feat-uo" || uo1.tag != "host-uo" || uo2.tag != "cand-uo" {
 		t.Fatalf("UsageObservers order = %#v, want [feat-uo, host-uo, cand-uo]", uo)
 	}
 
@@ -528,7 +485,9 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 	if len(raw) != 2 {
 		t.Fatalf("RawCaptureSinks len = %d, want 2", len(raw))
 	}
-	if raw[0].(testRawSink).tag != "feat-raw" || raw[1].(testRawSink).tag != "cand-raw" {
+	raw0, ok0 := raw[0].(testRawSink)
+	raw1, ok1 := raw[1].(testRawSink)
+	if !ok0 || !ok1 || raw0.tag != "feat-raw" || raw1.tag != "cand-raw" {
 		t.Fatalf("RawCaptureSinks order = %#v, want [feat-raw, cand-raw]", raw)
 	}
 
@@ -544,14 +503,13 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 func TestGeneratedMergeSurface_BindAttemptTransforms_ReplaceByIdentity(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
+	initBundle := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "init", []request.AttemptTransform{
 			testAttemptTransform{tag: "xform-1"},
 			testAttemptTransform{tag: "reasoning-preservation-transform"},
 			testAttemptTransform{tag: "xform-2"},
-		},
-	}
+		})
+	})
 
 	gen, err := MergeBundlesGenerated(initBundle)
 	if err != nil {
@@ -594,12 +552,11 @@ func TestGeneratedMergeSurface_BindAttemptTransforms_ReplaceByIdentity(t *testin
 func TestGeneratedMergeSurface_BindAttemptTransforms_NilReject(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
+	initBundle := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "init", []request.AttemptTransform{
 			testAttemptTransform{tag: "xform-1"},
-		},
-	}
+		})
+	})
 
 	gen, err := MergeBundlesGenerated(initBundle)
 	if err != nil {
@@ -619,38 +576,19 @@ func TestGeneratedMergeSurface_BindAttemptTransforms_NilReject(t *testing.T) {
 func TestGeneratedMergeSurface_AllPlanesPreserved_AcrossBindOperations(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		SubmitHooks: []sdkhooks.SubmitHook{
-			testSubmitHook{tag: "hook-1"},
-		},
-		SessionOpeners: []session.Opener{
-			testOpener{tag: "opener-1"},
-		},
-		ToolCatalogFilters: []toolcatalog.Filter{
-			testCatalogFilter{tag: "cat-1"},
-		},
-		ToolCallFinalizationMaxArgsBytes: 1024,
-		RequestTransforms: []request.Transform{
-			testTransform{tag: "req-1"},
-		},
-		AttemptTransforms: []request.AttemptTransform{
-			testAttemptTransform{tag: "xform-1"},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
-			testStreamObserverFactory{tag: "obs-1"},
-		},
-		TrafficObservers: []traffic.Observer{
-			testTrafficObs{tag: "to-1"},
-		},
-		CompactionPreservers: []compaction.Preserver{
-			testCompactionPreserver{tag: "cp-1"},
-		},
-		SecretGuards: []secretguard.Guard{
-			testSecretGuard{tag: "guard-1"},
-		},
-		TerminalDecisionProvider: testTerminalDecisionProvider{tag: "term-1"},
-	}
+	initBundle := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "init", []sdkhooks.SubmitHook{testSubmitHook{tag: "hook-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "init", []session.Opener{testOpener{tag: "opener-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "init", []toolcatalog.Filter{testCatalogFilter{tag: "cat-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "init", 1024)
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "init", []request.Transform{testTransform{tag: "req-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "init", []request.AttemptTransform{testAttemptTransform{tag: "xform-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "init", []response.StreamObserverFactory{testStreamObserverFactory{tag: "obs-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "init", []traffic.Observer{testTrafficObs{tag: "to-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "init", []compaction.Preserver{testCompactionPreserver{tag: "cp-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "init", []secretguard.Guard{testSecretGuard{tag: "guard-1"}})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "term-1", terminaldecision.Provider(testTerminalDecisionProvider{tag: "term-1"}))
+	})
 
 	gen, err := MergeBundlesGenerated(initBundle)
 	if err != nil {
@@ -689,15 +627,14 @@ func TestGeneratedMergeSurface_AllPlanesPreserved_AcrossBindOperations(t *testin
 func TestGeneratedMergeSurface_SecondOperationFailureTransaction(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
+	initBundle := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "init", []request.AttemptTransform{
 			testAttemptTransform{tag: "xform-1"},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
+		})
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "init", []response.StreamObserverFactory{
 			testStreamObserverFactory{tag: "obs-1"},
-		},
-	}
+		})
+	})
 
 	g0, err := MergeBundlesGenerated(initBundle)
 	if err != nil {
@@ -737,13 +674,12 @@ func TestGeneratedMergeSurface_SecondOperationFailureTransaction(t *testing.T) {
 func TestGeneratedMergeSurface_BindCompactionPreservers(t *testing.T) {
 	t.Parallel()
 
-	initBundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{
+	initBundle := makeTestBundle(func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "init", []compaction.Preserver{
 			testCompactionPreserver{tag: "pres-1"},
 			testCompactionPreserver{tag: "pres-replace"},
-		},
-	}
+		})
+	})
 
 	gen, err := MergeBundlesGenerated(initBundle)
 	if err != nil {
@@ -761,4 +697,78 @@ func TestGeneratedMergeSurface_BindCompactionPreservers(t *testing.T) {
 	require.Len(t, pres, 2)
 	assert.Equal(t, "pres-1", pres[0].ID())
 	assert.Equal(t, "pres-replace", pres[1].ID())
+}
+
+func TestContributeBundle_PlaneSetReplay(t *testing.T) {
+	t.Parallel()
+
+	// 1. Nil destination exact error
+	err := ContributeBundle(nil, "p", lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1})
+	require.Error(t, err)
+	assert.Equal(t, "featurebundle: nil ContributionSet", err.Error())
+
+	// 2. Populated PlaneSet replay
+	csSrc := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneSubmitHooks, "feat", []sdkhooks.SubmitHook{testSubmitHook{tag: "hook-1"}}))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneToolReactors, "feat", []sdkhooks.ToolReactor{testToolReactor{tag: "tool-1"}}))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "feat", 2048))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneTerminalDecisionProvider, "term-prov", terminaldecision.Provider(testTerminalDecisionProvider{tag: "term-prov"})))
+	require.NoError(t, lipfeature.Contribute(csSrc, lipfeature.PlaneSessionOpeners, "feat", []session.Opener{}))
+
+	bundle := lipfeature.BundleFromPlanes(csSrc.Freeze(), []lipplugin.Lifecycle{testLifecycle{tag: "life-1"}})
+
+	csDst := lipfeature.NewContributionSet()
+	require.NoError(t, ContributeBundle(csDst, "test-plugin", bundle))
+
+	frozen := csDst.Freeze()
+	sh := lipfeature.Get(frozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, sh, 1)
+	assert.Equal(t, "hook-1", sh[0].ID())
+
+	tr := lipfeature.Get(frozen, lipfeature.PlaneToolReactors)
+	require.Len(t, tr, 1)
+	assert.Equal(t, "tool-1", tr[0].ID())
+
+	capBytes := lipfeature.Get(frozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
+	assert.Equal(t, 2048, capBytes)
+
+	tp := lipfeature.Get(frozen, lipfeature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, tp)
+	assert.Equal(t, "term-prov", tp.ID())
+
+	so := lipfeature.Get(frozen, lipfeature.PlaneSessionOpeners)
+	assert.NotNil(t, so)
+	assert.Len(t, so, 0)
+
+	// 3. MergeBundlesGenerated with new-style bundle
+	gen, err := MergeBundlesGenerated(bundle)
+	require.NoError(t, err)
+	require.Len(t, gen.Lifecycles, 1)
+	assert.Equal(t, "life-1", gen.Lifecycles[0].(testLifecycle).tag)
+
+	genSH := lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, genSH, 1)
+	assert.Equal(t, "hook-1", genSH[0].ID())
+
+	// 4. FreezeBundle with new-style bundle
+	frozenDirect, err := FreezeBundle(bundle, "")
+	require.NoError(t, err)
+	fbSH := lipfeature.Get(frozenDirect, lipfeature.PlaneSubmitHooks)
+	require.Len(t, fbSH, 1)
+	assert.Equal(t, "hook-1", fbSH[0].ID())
+
+	// 5. Atomic failure on exclusive conflict
+	conflictDst := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(conflictDst, lipfeature.PlaneTerminalDecisionProvider, "other-term", terminaldecision.Provider(testTerminalDecisionProvider{tag: "other-term"})))
+	require.NoError(t, lipfeature.Contribute(conflictDst, lipfeature.PlaneSubmitHooks, "init", []sdkhooks.SubmitHook{testSubmitHook{tag: "init-hook"}}))
+
+	err = ContributeBundle(conflictDst, "test-plugin", bundle)
+	require.Error(t, err)
+
+	conflictFrozen := conflictDst.Freeze()
+	cSH := lipfeature.Get(conflictFrozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, cSH, 1)
+	assert.Equal(t, "init-hook", cSH[0].ID())
+	cTR := lipfeature.Get(conflictFrozen, lipfeature.PlaneToolReactors)
+	assert.Len(t, cTR, 0)
 }

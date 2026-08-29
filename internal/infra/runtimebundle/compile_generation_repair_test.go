@@ -325,10 +325,9 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 	}
 	cat := stdFactoryCatalog(t)
 	err := cat.RegisterFeature("cand-obs-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{countTrafficObs{n: &candObs}},
-		}, nil
+		return testkit.FeatureBundle(t, "cand-obs-feature", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "cand-obs-feature", []traffic.Observer{countTrafficObs{n: &candObs}})
+		}, nil), nil
 	})
 	require.NoError(t, err)
 
@@ -338,12 +337,10 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry:    cat,
 			FeatureLifecycles: []lipplugin.Lifecycle{startupLife},
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{
-					id: "startup-hook",
-					n:  &startupHook,
-				}},
-			},
+			FeaturePlanes: frozenRequestTransform(countTransform{
+				id: "startup-hook",
+				n:  &startupHook,
+			}),
 			Production: runtimebundle.ProductionOptions{
 				TrafficObservers: []traffic.Observer{countTrafficObs{n: &prodObs}},
 			},
@@ -393,9 +390,7 @@ func TestCompileGeneration_FeatureSurfaceNoStartupLeakOrDuplicate(t *testing.T) 
 		Candidate: candCfgA,
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{candLife},
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
-			},
+			FeaturePlanes:     frozenRequestTransform(countTransform{id: "cand-hook", n: &candHook}),
 		},
 		Compose: func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
 			probeTraffic(in)
@@ -477,14 +472,13 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
+
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
 		Cfg: cfg,
 		Log: testkit.DiscardLogger(),
 		Opts: &runtimebundle.BuildOptions{
 			PluginRegistry: stdFactoryCatalog(t),
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "startup-hook", n: &startupHook}},
-			},
+			FeaturePlanes:  frozenRequestTransform(countTransform{id: "startup-hook", n: &startupHook}),
 		},
 		Tracing: runtimebundle.ProcessTracing{Shutdown: func(context.Context) error { return nil }},
 	})
@@ -499,9 +493,7 @@ func TestCompileGeneration_RequestTransformNoStartupLeakOrDuplicate(t *testing.T
 			{ID: "openai-responses", Enabled: true},
 		}),
 		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				RequestTransforms: []request.Transform{countTransform{id: "cand-hook", n: &candHook}},
-			},
+			FeaturePlanes: frozenRequestTransform(countTransform{id: "cand-hook", n: &candHook}),
 		},
 		Compose: stdhttp.ComposeStandardHTTP,
 	})
@@ -802,4 +794,10 @@ func (c countTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.Fai
 func (c countTransform) Handle(context.Context, *lipapi.Call, request.RequestMeta, request.Services) error {
 	c.n.Add(1)
 	return nil
+}
+
+func frozenRequestTransform(t request.Transform) lipfeature.FrozenPlaneSet {
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "test-plugin", []request.Transform{t})
+	return cs.Freeze()
 }

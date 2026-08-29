@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -38,8 +40,10 @@ func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) 
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		SessionOpeners: []session.Opener{labelOpener{}},
-		Workspace:      coreworkspace.NewResolverChain([]lipworkspace.Resolver{memWS{}}),
+		Workspace: coreworkspace.NewResolverChain([]lipworkspace.Resolver{memWS{}}),
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SessionOpeners: []session.Opener{labelOpener{}},
+		}),
 	})
 	var openCtx context.Context
 	ex := runtime.TestExecutor()

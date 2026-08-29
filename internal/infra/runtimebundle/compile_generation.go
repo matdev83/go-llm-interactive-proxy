@@ -78,22 +78,24 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
-	if merged, err = bindCompactionContinuity(merged, ps, regs); err != nil {
+	if in.CandidateOpts != nil && !in.CandidateOpts.FeaturePlanes.IsZero() {
+		genMerged, err = genMerged.MergeCandidatePlanes(in.CandidateOpts.FeaturePlanes)
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: candidate feature planes: %w", err)
+		}
+	}
+	if genMerged, err = bindCompactionContinuity(genMerged, ps, regs); err != nil {
 		return nil, err
 	}
 	if genMerged, err = bindReasoningPreservationCompression(genMerged, ps, regs, boundClient, boundPoller); err != nil {
 		return nil, err
 	}
-	merged.AttemptTransforms = lipfeature.Get(genMerged.Frozen, lipfeature.PlaneAttemptTransforms)
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
-	lifecycles := append([]lipplugin.Lifecycle(nil), merged.Lifecycles...)
+	lifecycles := append([]lipplugin.Lifecycle(nil), genMerged.Lifecycles...)
 	ext := extensionsFromMerged(merged, genMerged, ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
-	}
-	if err := validateTerminalDecisionProvider(ext.TerminalDecisionProvider); err != nil {
-		return nil, fmt.Errorf("runtimebundle: terminal decision provider: %w", err)
 	}
 	bus := in.Bus
 	if bus == nil {
@@ -180,22 +182,22 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		retired.SetALegRetirementObserver(cand.execution.executor.Keepwarm.EndSession)
 	}
 	bundle := newGenerationBundle(generationBundleInput{
-		handler:                  handler,
-		executor:                 cand.execution.executor,
-		routing:                  FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
-		frontends:                frozen.Plugins.Frontends,
-		registrations:            regs,
-		httpAuth:                 authProviders,
-		models:                   cand.models.registryRuntime,
-		catalog:                  cand.models.catalog,
-		backendIDs:               backendIDsOf(cand.execution.executor),
-		ledger:                   ledger,
-		terminalProviders:        terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
-		terminalDecisionProvider: ext.TerminalDecisionProvider,
-		readiness:                cand.operations.readinessReport,
-		keepwarm:                 keepwarmManager,
-		keepwarmRegistry:         cand.process.keepwarmRegistry,
-		keepwarmID:               keepwarmID,
+		handler:           handler,
+		executor:          cand.execution.executor,
+		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.execution.routePrefixes...)},
+		frontends:         frozen.Plugins.Frontends,
+		registrations:     regs,
+		httpAuth:          authProviders,
+		models:            cand.models.registryRuntime,
+		catalog:           cand.models.catalog,
+		backendIDs:        backendIDsOf(cand.execution.executor),
+		ledger:            ledger,
+		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.operations.terminalRegistry),
+		frozen:            genMerged.Frozen,
+		readiness:         cand.operations.readinessReport,
+		keepwarm:          keepwarmManager,
+		keepwarmRegistry:  cand.process.keepwarmRegistry,
+		keepwarmID:        keepwarmID,
 	})
 	return bundle, nil
 }
@@ -309,23 +311,7 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 }
 
 func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
-	ext := ExtensionsOptions{
-		SessionOpeners:                   append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
-		WorkspaceResolvers:               append(merged.WorkspaceResolvers[:0:0], merged.WorkspaceResolvers...),
-		ToolCatalogFilters:               append(merged.ToolCatalogFilters[:0:0], merged.ToolCatalogFilters...),
-		ToolCallPolicies:                 append(merged.ToolCallPolicies[:0:0], merged.ToolCallPolicies...),
-		ToolCallFinalizers:               append(merged.ToolCallFinalizers[:0:0], merged.ToolCallFinalizers...),
-		ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
-		RequestTransforms:                append(merged.RequestTransforms[:0:0], merged.RequestTransforms...),
-		PreRequestHandlers:               append(merged.PreRequestHandlers[:0:0], merged.PreRequestHandlers...),
-		RouteHintProviders:               append(merged.RouteHintProviders[:0:0], merged.RouteHintProviders...),
-		CompletionGates:                  append(merged.CompletionGates[:0:0], merged.CompletionGates...),
-		AttemptTransforms:                append(merged.AttemptTransforms[:0:0], merged.AttemptTransforms...),
-		CompactionObservers:              append(merged.CompactionObservers[:0:0], merged.CompactionObservers...),
-		SecretGuards:                     append(merged.SecretGuards[:0:0], merged.SecretGuards...),
-		LocalTurnHandlers:                append(merged.LocalTurnHandlers[:0:0], merged.LocalTurnHandlers...),
-		TerminalDecisionProvider:         merged.TerminalDecisionProvider,
-	}
+	ext := ExtensionsOptions{}
 	if processOpts != nil {
 		ext.SecretGuardEnvironment, ext.SecretGuardInputs, ext.SecretDecisionObserver = processOpts.Extensions.SecretGuardEnvironment, processOpts.Extensions.SecretGuardInputs, processOpts.Extensions.SecretDecisionObserver
 	}
@@ -335,26 +321,6 @@ func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged f
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 	if dst == nil {
 		return
-	}
-	dst.SessionOpeners = append(dst.SessionOpeners, src.SessionOpeners...)
-	dst.WorkspaceResolvers = append(dst.WorkspaceResolvers, src.WorkspaceResolvers...)
-	dst.ToolCatalogFilters = append(dst.ToolCatalogFilters, src.ToolCatalogFilters...)
-	dst.ToolCallPolicies = append(dst.ToolCallPolicies, src.ToolCallPolicies...)
-	curTCF := dst.ToolCallFinalizers
-	addTCF := src.ToolCallFinalizers
-	dst.ToolCallFinalizers = append(curTCF, addTCF...)
-	if src.ToolCallFinalizationMaxArgsBytes > 0 {
-		dst.ToolCallFinalizationMaxArgsBytes = src.ToolCallFinalizationMaxArgsBytes
-	}
-	dst.RequestTransforms = append(dst.RequestTransforms, src.RequestTransforms...)
-	dst.PreRequestHandlers = append(dst.PreRequestHandlers, src.PreRequestHandlers...)
-	dst.RouteHintProviders = append(dst.RouteHintProviders, src.RouteHintProviders...)
-	dst.CompletionGates = append(dst.CompletionGates, src.CompletionGates...)
-	dst.AttemptTransforms = append(dst.AttemptTransforms, src.AttemptTransforms...)
-	dst.SecretGuards = append(dst.SecretGuards, src.SecretGuards...)
-	dst.LocalTurnHandlers = append(dst.LocalTurnHandlers, src.LocalTurnHandlers...)
-	if dst.TerminalDecisionProvider == nil {
-		dst.TerminalDecisionProvider = src.TerminalDecisionProvider
 	}
 	if src.SecretGuardEnvironment != nil {
 		dst.SecretGuardEnvironment = src.SecretGuardEnvironment

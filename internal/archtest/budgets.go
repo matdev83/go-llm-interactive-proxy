@@ -123,7 +123,8 @@ var LineBudgets = []LineBudget{
 	// Post-review lifecycle simplification and shared Collected cloning reduce the final current-main integration to 92153; ratchet to 92178 with 25 headroom.
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
 	// database-dialect-parity-enforcement: stable parity normalization across core components; measured 95020, bump to 95045 with 25 headroom.
-	{Dir: "internal/core", Max: 95045},
+	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
+	{Dir: "internal/core", Max: 95095},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
 	{Dir: "internal/infra/runtimebundle", Max: 12933},

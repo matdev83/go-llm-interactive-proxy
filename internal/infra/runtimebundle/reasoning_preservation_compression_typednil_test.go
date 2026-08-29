@@ -263,14 +263,16 @@ compression:
 	if err != nil {
 		t.Fatalf("disabled bundle: %v", err)
 	}
-	if len(bDisabled.AttemptTransforms) == 0 || len(bDisabled.StreamObserverFactories) == 0 {
+	disabledTransforms := lipfeature.Get(bDisabled.PlaneSet, lipfeature.PlaneAttemptTransforms)
+	disabledObservers := lipfeature.Get(bDisabled.PlaneSet, lipfeature.PlaneStreamObserverFactories)
+	if len(disabledTransforms) == 0 || len(disabledObservers) == 0 {
 		t.Fatalf("disabled should have participants")
 	}
 	genSurface, err := featurebundle.MergeBundlesGenerated(bDisabled)
 	if err != nil {
 		t.Fatalf("MergeBundlesGenerated: %v", err)
 	}
-	genSurface2, err := genSurface.BindAttemptTransforms(reasoningpreservation.ID, bDisabled.AttemptTransforms)
+	genSurface2, err := genSurface.BindAttemptTransforms(reasoningpreservation.ID, disabledTransforms)
 	if err != nil {
 		t.Fatalf("BindAttemptTransforms: %v", err)
 	}
@@ -298,7 +300,7 @@ compression:
 		t.Fatalf("NewProcessServices: %v", err)
 	}
 	t.Cleanup(func() { _ = ps.Close() })
-	genSurface3, err := genSurface2.BindAttemptTransforms(reasoningpreservation.ID, bDisabled.AttemptTransforms)
+	genSurface3, err := genSurface2.BindAttemptTransforms(reasoningpreservation.ID, disabledTransforms)
 	if err != nil {
 		t.Fatalf("BindAttemptTransforms 3: %v", err)
 	}

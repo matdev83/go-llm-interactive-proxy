@@ -390,8 +390,11 @@ func TestExecutor_applySecretGuardBlock_cancelDuringQuarantineStillCancelsALeg(t
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{&blockingSecretGuard{}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			SecretGuards: []secretguard.Guard{&blockingSecretGuard{}},
+		}),
 	})
 	ex.SecureSession = mgr
 	ex.ALegLifecycle = leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})

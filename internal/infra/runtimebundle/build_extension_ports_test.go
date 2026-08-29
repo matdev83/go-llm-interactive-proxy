@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -47,30 +48,27 @@ func (portsStubStreamObserverFactory) Open(context.Context, response.StreamMeta,
 // Inventory occupancy IDs/stages for these ports are covered in package diag.
 func TestBuildRuntimeSnapshot_featureBundlePortsReachSnap(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion: lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{
+	bundle := testkit.FeatureBundle(t, "test-feature", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "test-feature", []request.AttemptTransform{
 			portsStubAttemptTransform{id: "z", ord: 2},
 			portsStubAttemptTransform{id: "a", ord: 1},
-		},
-		StreamObserverFactories: []response.StreamObserverFactory{
+		}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "test-feature", []response.StreamObserverFactory{
 			portsStubStreamObserverFactory{id: "z", ord: 2},
 			portsStubStreamObserverFactory{id: "a", ord: 1},
-		},
-	}
+		})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle)
 	genMerged, err := featurebundle.MergeBundlesGenerated(bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bus := hooks.New(hooks.Config{})
 	opts := &BuildOptions{
-		Extensions: ExtensionsOptions{
-			AttemptTransforms: merged.AttemptTransforms,
-		},
 		FeaturePlanes: genMerged.Frozen,
 	}
 	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)

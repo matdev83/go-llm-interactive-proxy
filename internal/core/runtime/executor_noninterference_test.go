@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -74,9 +76,11 @@ func nonInterferenceSecureExecutor(t *testing.T, backends map[string]execbackend
 		ex.MemoStore = nil
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:          voidWorkspaceResolver{},
-		RequestTransforms:  []request.Transform{niRtx{prefix: "rtx:"}},
-		PreRequestHandlers: []prerequest.Handler{niPreReq{prefix: "pre:"}},
+		Workspace: voidWorkspaceResolver{},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms:  []request.Transform{niRtx{prefix: "rtx:"}},
+			PreRequestHandlers: []prerequest.Handler{niPreReq{prefix: "pre:"}},
+		}),
 	})
 	ex.RuntimeSnapshot = snap
 	return ex, st

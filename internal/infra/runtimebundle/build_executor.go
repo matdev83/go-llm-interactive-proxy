@@ -34,6 +34,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 // executorRuntime holds the assembled executor and the values [Build] needs from
@@ -183,7 +184,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	maxArgsBytes := 0
 	if opts != nil {
 		policyDiagEnabled = opts.Policy.PolicyDiagnosticsEnabled
-		maxArgsBytes = opts.Extensions.ToolCallFinalizationMaxArgsBytes
+		maxArgsBytes = lipfeature.Get(opts.FeaturePlanes, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
 	}
 	// Compute observability runtime with metrics sinks.
 	obsRT := runtime.ObservabilityRuntime{

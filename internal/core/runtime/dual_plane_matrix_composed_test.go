@@ -499,7 +499,9 @@ func TestDualPlaneMatrix_FilteringProviderVsDeliveredViaExecute(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{ResponsePartHooks: []sdk.ResponsePartHook{matrixFilterRespHook{}}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{matrixFilterGate{}},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			CompletionGates: []completion.Gate{matrixFilterGate{}},
+		}),
 	})
 	ex := TestExecutor()
 	ex.Store = st

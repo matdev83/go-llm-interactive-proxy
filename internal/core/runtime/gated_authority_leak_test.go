@@ -92,7 +92,9 @@ func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
 			responsePipeline: newResponsePipeline(),
 		}
 		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			FeaturePlanes: freezeBundle(testFeatureBundle{
+				CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+			}),
 		})
 		bindTestRuntimeOwners(rs, ex)
 		return ex, rs

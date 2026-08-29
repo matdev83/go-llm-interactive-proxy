@@ -443,7 +443,9 @@ func TestReassert_Runtime_NoReaderDuringAttemptsAndPTB(t *testing.T) {
 	}}
 	// Attempt transform that reintroduces tagged and deletes steering
 	lateTransform := &reintroduceAndDeleteTransform{tagged: taggedMsg, steeringText: "runtime-steering"}
-	snapOpts.RequestTransforms = []request.Transform{lateTransform}
+	snapOpts.FeaturePlanes = freezeBundle(testFeatureBundle{
+		RequestTransforms: []request.Transform{lateTransform},
+	})
 	snapOpts.Workspace = voidResolver()
 	ex := TestExecutor()
 	ex.Store = st

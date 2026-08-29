@@ -87,7 +87,9 @@ func TestReviewerSchedule_CancelAfterRegisterBeforePrepare(t *testing.T) {
 	}
 
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		}),
 	})
 	pipe := &responsePipeline{
 		runtimeSnapshot: snap,
@@ -236,7 +238,9 @@ func TestReviewerSchedule_CancelDuringPrepareCooperation(t *testing.T) {
 	}
 
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		}),
 	})
 
 	pipe := &responsePipeline{
@@ -361,7 +365,9 @@ func TestReviewerSchedule_CancelDuringPreparePendingInvalidation_RaceConsume(t *
 		}
 
 		snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-			StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+			FeaturePlanes: freezeBundle(testFeatureBundle{
+				StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+			}),
 		})
 
 		pipe := &responsePipeline{
@@ -494,7 +500,9 @@ func TestReviewerSchedule_CloseDuringPrepare(t *testing.T) {
 	}
 
 	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
-		StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		FeaturePlanes: freezeBundle(testFeatureBundle{
+			StreamObserverFactories: []response.StreamObserverFactory{obsFactory},
+		}),
 	})
 
 	pipe := &responsePipeline{

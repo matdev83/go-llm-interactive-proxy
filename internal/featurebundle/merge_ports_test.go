@@ -7,12 +7,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mergeStubAttemptTransform struct{ id string }
@@ -34,27 +39,29 @@ func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMet
 	return nil, nil
 }
 
-func TestMergedFeatureSurface_carriesAttemptTransforms(t *testing.T) {
+func TestGeneratedMergeSurface_carriesAttemptTransforms(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:     lipfeature.SchemaVersionV1,
-		AttemptTransforms: []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle)
-	if len(merged.AttemptTransforms) != 1 || merged.AttemptTransforms[0].ID() != "at" {
-		t.Fatalf("AttemptTransforms=%v", merged.AttemptTransforms)
+	gen, err := featurebundle.MergeBundlesGenerated(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms)
+	if len(at) != 1 || at[0].ID() != "at" {
+		t.Fatalf("AttemptTransforms=%v", at)
 	}
 }
 
 func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:           lipfeature.SchemaVersionV1,
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -68,13 +75,19 @@ func TestGeneratedMergeSurface_carriesStreamObservers(t *testing.T) {
 	}
 }
 
-func TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers(t *testing.T) {
+func TestSnapshotOptions_carriesFeaturePlanes(t *testing.T) {
 	t.Parallel()
+	frozen := testkit.FreezeBundle(testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+		if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}}); err != nil {
+			return err
+		}
+		return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+	}, nil))
 	opts := extensions.SnapshotOptions{
-		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+		FeaturePlanes: frozen,
 	}
-	if len(opts.AttemptTransforms) != 1 || len(opts.StreamObserverFactories) != 1 {
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
+	if len(snap.AttemptTransforms()) != 1 || len(snap.StreamObserverFactories()) != 1 {
 		t.Fatalf("SnapshotOptions fields missing: %+v", opts)
 	}
 }
@@ -106,31 +119,30 @@ func (mergeStubCompactionPreserver) BeforeResponseRelease(context.Context, *lipa
 // snapshot accessor with defensive-copy semantics (requirements 2.1-2.2).
 func TestCompactionObservers_portWiring(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "a"}, mergeStubCompactionObserver{id: "z"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-1", []compaction.Observer{mergeStubCompactionObserver{id: "a"}, mergeStubCompactionObserver{id: "z"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
-		SchemaVersion:       lipfeature.SchemaVersionV1,
-		CompactionObservers: []compaction.Observer{mergeStubCompactionObserver{id: "m"}},
-	})
-	if len(merged.CompactionObservers) != 3 {
-		t.Fatalf("CompactionObservers len=%d want 3", len(merged.CompactionObservers))
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, testkit.FeatureBundle(t, "feat-2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, "feat-2", []compaction.Observer{mergeStubCompactionObserver{id: "m"}})
+	}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionObservers)
+	if len(obs) != 3 {
+		t.Fatalf("CompactionObservers len=%d want 3", len(obs))
 	}
 	for i, want := range []string{"a", "z", "m"} {
-		got, ok := merged.CompactionObservers[i].(mergeStubCompactionObserver)
+		got, ok := obs[i].(mergeStubCompactionObserver)
 		if !ok || got.id != want {
-			t.Fatalf("merged observer[%d]=%T/%q want %q", i, merged.CompactionObservers[i], got.id, want)
+			t.Fatalf("merged observer[%d]=%T/%q want %q", i, obs[i], got.id, want)
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionObservers: merged.CompactionObservers}
-	if len(opts.CompactionObservers) != 3 {
-		t.Fatalf("SnapshotOptions CompactionObservers len=%d want 3", len(opts.CompactionObservers))
-	}
+	opts := extensions.SnapshotOptions{FeaturePlanes: gen.Frozen}
 
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
 	got := snap.CompactionObservers()
@@ -154,34 +166,36 @@ func TestCompactionObservers_portWiring(t *testing.T) {
 
 func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 	t.Parallel()
-	bundle := lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "a"}, mergeStubCompactionPreserver{id: "z"}},
-	}
+	bundle := testkit.FeatureBundle(t, "feat-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-1", []compaction.Preserver{mergeStubCompactionPreserver{id: "a"}, mergeStubCompactionPreserver{id: "z"}})
+	}, nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	merged := featurebundle.MergeBundles(bundle, lipfeature.FeatureBundle{
-		SchemaVersion:        lipfeature.SchemaVersionV1,
-		CompactionPreservers: []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}},
-	})
-	if len(merged.CompactionPreservers) != 3 {
-		t.Fatalf("CompactionPreservers len=%d want 3", len(merged.CompactionPreservers))
+	gen, err := featurebundle.MergeBundlesGenerated(bundle, testkit.FeatureBundle(t, "feat-2", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, "feat-2", []compaction.Preserver{mergeStubCompactionPreserver{id: "m"}})
+	}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres := lipfeature.Get(gen.Frozen, lipfeature.PlaneCompactionPreservers)
+	if len(pres) != 3 {
+		t.Fatalf("CompactionPreservers len=%d want 3", len(pres))
 	}
 	for i, want := range []string{"a", "z", "m"} {
-		got, ok := merged.CompactionPreservers[i].(mergeStubCompactionPreserver)
+		got, ok := pres[i].(mergeStubCompactionPreserver)
 		if !ok || got.id != want {
-			t.Fatalf("merged preserver[%d]=%T/%q want %q", i, merged.CompactionPreservers[i], got.id, want)
+			t.Fatalf("merged preserver[%d]=%T/%q want %q", i, pres[i], got.id, want)
 		}
 	}
 
-	opts := extensions.SnapshotOptions{CompactionPreservers: merged.CompactionPreservers}
+	opts := extensions.SnapshotOptions{FeaturePlanes: gen.Frozen}
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), opts)
 	got := snap.CompactionPreservers()
 	if len(got) != 3 {
 		t.Fatalf("snapshot CompactionPreservers len=%d want 3", len(got))
 	}
-	merged.CompactionPreservers[0] = nil
+	pres[0] = nil
 	if frozen := snap.CompactionPreservers(); frozen[0] == nil {
 		t.Fatal("snapshot must freeze an input defensive copy")
 	}
@@ -194,8 +208,12 @@ func TestCompactionPreservers_portWiringAndDefensiveSnapshot(t *testing.T) {
 func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
-		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+		FeaturePlanes: testkit.FreezeBundle(testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "feat", []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "feat", []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}})
+		}, nil)),
 	})
 	gotAT := snap.AttemptTransforms()
 	gotSO := snap.StreamObserverFactories()
@@ -213,4 +231,108 @@ func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *te
 	if len(snap.StreamObserverFactories()) != 1 || snap.StreamObserverFactories()[0] == nil {
 		t.Fatal("StreamObserverFactories must return a defensive copy")
 	}
+}
+
+func TestContributeBundle_NilContributionSetError(t *testing.T) {
+	t.Parallel()
+
+	b := testkit.FeatureBundle(t, "my-plugin", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "my-plugin", []sdkhooks.SubmitHook{
+			mergeStubSubmitHook{id: "sub-1"},
+		})
+	}, nil)
+
+	err := featurebundle.ContributeBundle(nil, "my-plugin", b)
+	require.EqualError(t, err, "featurebundle: nil ContributionSet")
+}
+
+func TestContributeBundle_EmptyPluginIDFallback(t *testing.T) {
+	t.Parallel()
+
+	cs := lipfeature.NewContributionSet()
+	b := testkit.FeatureBundle(t, "sub-1", func(cs *lipfeature.ContributionSet) error {
+		return lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "sub-1", []sdkhooks.SubmitHook{
+			mergeStubSubmitHook{id: "sub-1"},
+		})
+	}, nil)
+
+	err := featurebundle.ContributeBundle(cs, "", b)
+	require.NoError(t, err)
+
+	frozen := cs.Freeze()
+	hooks := lipfeature.Get(frozen, lipfeature.PlaneSubmitHooks)
+	require.Len(t, hooks, 1)
+	assert.Equal(t, "sub-1", hooks[0].ID())
+}
+
+type mergeStubSubmitHook struct{ id string }
+
+func (s mergeStubSubmitHook) ID() string                        { return s.id }
+func (s mergeStubSubmitHook) Order() int                        { return 0 }
+func (s mergeStubSubmitHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (s mergeStubSubmitHook) Handle(context.Context, *lipapi.Call, *sdkhooks.SubmitMeta) (sdkhooks.SubmitDecision, error) {
+	return sdkhooks.SubmitDecision{}, nil
+}
+
+type mergeStubTerminalProvider struct {
+	id string
+}
+
+func (p mergeStubTerminalProvider) ID() string {
+	return p.id
+}
+func (p mergeStubTerminalProvider) ProviderIdentity() (string, error) {
+	return p.id, nil
+}
+func (p mergeStubTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
+	return terminaldecision.Decision{}, nil
+}
+
+func TestFreezeBundle_ParityAndFallbacks(t *testing.T) {
+	t.Parallel()
+
+	// 1. Explicit empty SessionOpeners vs nil SessionOpeners
+	csEmpty := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csEmpty, lipfeature.PlaneSessionOpeners, "test-plugin", []session.Opener{}))
+	bExplicitEmpty := lipfeature.BundleFromPlanes(csEmpty.Freeze(), nil)
+
+	frozenEmpty, err := featurebundle.FreezeBundle(bExplicitEmpty, "test-plugin")
+	require.NoError(t, err)
+	gotEmptyOpeners := lipfeature.Get(frozenEmpty, lipfeature.PlaneSessionOpeners)
+	require.NotNil(t, gotEmptyOpeners, "explicitly empty SessionOpeners must materialize non-nil slice")
+	assert.Empty(t, gotEmptyOpeners)
+
+	bNilOpeners := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+	}
+	frozenNil, err := featurebundle.FreezeBundle(bNilOpeners, "test-plugin")
+	require.NoError(t, err)
+	gotNilOpeners := lipfeature.Get(frozenNil, lipfeature.PlaneSessionOpeners)
+	assert.Nil(t, gotNilOpeners, "nil SessionOpeners must remain nil")
+
+	// 2. Empty plugin ID fallback to terminal decision provider identity
+	csProv := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csProv, lipfeature.PlaneTerminalDecisionProvider, "provider-auth", terminaldecision.Provider(mergeStubTerminalProvider{id: "provider-auth"})))
+	bWithProvider := lipfeature.BundleFromPlanes(csProv.Freeze(), nil)
+
+	frozenProv, err := featurebundle.FreezeBundle(bWithProvider, "")
+	require.NoError(t, err)
+	prov := lipfeature.Get(frozenProv, lipfeature.PlaneTerminalDecisionProvider)
+	require.NotNil(t, prov)
+	id, err := terminaldecision.ProviderIdentity(prov)
+	require.NoError(t, err)
+	assert.Equal(t, "provider-auth", id)
+
+	// 3. Empty plugin ID with no provider defaults to "feature"
+	csGen := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csGen, lipfeature.PlaneSubmitHooks, "sub-gen", []sdkhooks.SubmitHook{
+		mergeStubSubmitHook{id: "sub-gen"},
+	}))
+	bGeneric := lipfeature.BundleFromPlanes(csGen.Freeze(), nil)
+
+	frozenGeneric, err := featurebundle.FreezeBundle(bGeneric, "")
+	require.NoError(t, err)
+	subHooks := lipfeature.Get(frozenGeneric, lipfeature.PlaneSubmitHooks)
+	require.Len(t, subHooks, 1)
+	assert.Equal(t, "sub-gen", subHooks[0].ID())
 }

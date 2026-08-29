@@ -103,15 +103,20 @@ func p5ReasoningEvents(text string) []lipapi.Event {
 	}
 }
 
-func p5Executor(t *testing.T, mutateBundle func(*lipfeature.FeatureBundle), mutateEx func(*runtime.Executor)) (*runtime.Executor, *reasoningpreservation.InstanceParts) {
+func p5Executor(t *testing.T, mutateBundle func(*lipfeature.ContributionSet), mutateEx func(*runtime.Executor)) (*runtime.Executor, *reasoningpreservation.InstanceParts) {
 	t.Helper()
 	parts, bundle, err := reasoningpreservation.FeatureBundleWithParts(p5Config(t))
 	if err != nil {
 		t.Fatalf("FeatureBundleWithParts: %v", err)
 	}
-	if mutateBundle != nil {
-		mutateBundle(&bundle)
+	cs := lipfeature.NewContributionSet()
+	if err := bundle.PlaneSet.ReplayTo(cs, "rp"); err != nil {
+		t.Fatalf("ReplayTo: %v", err)
 	}
+	if mutateBundle != nil {
+		mutateBundle(cs)
+	}
+	bundle = lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := bundle.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -237,8 +242,8 @@ func TestPhase5_failoverIsolationBaselineAndObserverOnce(t *testing.T) {
 			var mu sync.Mutex
 			var opens []lipapi.Call
 			finishFactory := &countingFinishObserverFactory{finishes: &atomic.Int64{}, opens: &atomic.Int64{}}
-			ex, parts := p5Executor(t, func(b *lipfeature.FeatureBundle) {
-				b.StreamObserverFactories = append(b.StreamObserverFactories, finishFactory)
+			ex, parts := p5Executor(t, func(cs *lipfeature.ContributionSet) {
+				_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "finish", []response.StreamObserverFactory{finishFactory})
 			}, func(ex *runtime.Executor) {
 				ex.MaxAttempts = 3
 				ex.Rand = routing.NewSeededRng(11)
@@ -466,8 +471,8 @@ func TestPhase5_weightedIndependentClonesAndDialectEligibility(t *testing.T) {
 
 func TestPhase5_responseHookAndGateLifecycleWithFeatureStore(t *testing.T) {
 	t.Parallel()
-	ex, parts := p5Executor(t, func(b *lipfeature.FeatureBundle) {
-		b.ResponsePartHooks = []sdkhooks.ResponsePartHook{mutateTextResponseHook{}}
+	ex, parts := p5Executor(t, func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, "hook", []sdkhooks.ResponsePartHook{mutateTextResponseHook{}})
 	}, func(ex *runtime.Executor) {
 		ex.Backends = map[string]execbackend.Backend{
 			"be": p5ReplayBackend(func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
@@ -514,8 +519,8 @@ func TestPhase5_responseHookAndGateLifecycleWithFeatureStore(t *testing.T) {
 		t.Fatal("stored reasoning payload must remain from observed deltas")
 	}
 
-	ex2, parts2 := p5Executor(t, func(b *lipfeature.FeatureBundle) {
-		b.CompletionGates = []completion.Gate{replaceAllGate{}}
+	ex2, parts2 := p5Executor(t, func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "gate", []completion.Gate{replaceAllGate{}})
 	}, func(ex *runtime.Executor) {
 		ex.Backends = map[string]execbackend.Backend{"be": fixedSuccessBackend("orig")}
 	})
@@ -544,8 +549,8 @@ func TestPhase5_observerFailurePreservesCommittedOutputNoRetry(t *testing.T) {
 	t.Parallel()
 	var opens atomic.Int64
 	failing := reasoningpreservation.NewStreamObserverFactory(p5Config(t), failingP5Store{})
-	ex, _ := p5Executor(t, func(b *lipfeature.FeatureBundle) {
-		b.StreamObserverFactories = []response.StreamObserverFactory{failing}
+	ex, _ := p5Executor(t, func(cs *lipfeature.ContributionSet) {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, "failing", []response.StreamObserverFactory{failing})
 	}, func(ex *runtime.Executor) {
 		ex.MaxAttempts = 3
 		ex.Backends = map[string]execbackend.Backend{
@@ -681,8 +686,11 @@ func TestPhase5_disabledNonInterferenceNoFeatureTelemetry(t *testing.T) {
 	if inv.Enabled || len(inv.AggregateCounters) != 0 {
 		t.Fatalf("disabled inventory=%+v", inv)
 	}
-	empty := featurebundle.MergeBundles()
-	if len(empty.AttemptTransforms) != 0 {
+	emptyGen, err := featurebundle.MergeBundlesGenerated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lipfeature.Get(emptyGen.Frozen, lipfeature.PlaneAttemptTransforms)) != 0 {
 		t.Fatal("absent FeatureBundle merge must not introduce reasoning participants")
 	}
 }

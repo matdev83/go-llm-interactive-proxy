@@ -3,6 +3,9 @@
 package feature
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -39,13 +42,19 @@ type generatedContributions struct {
 	routeHintProviders               []routehint.Provider
 	completionGates                  []completion.Gate
 	attemptTransforms                []request.AttemptTransform
+	attemptTransformsID              string
+	attemptTransformsHasID           bool
 	streamObserverFactories          []response.StreamObserverFactory
+	streamObserverFactoriesID        string
+	streamObserverFactoriesHasID     bool
 	trafficObservers                 []traffic.Observer
 	usageObservers                   []usage.Observer
 	rawCaptureSinks                  []traffic.RawCaptureSink
 	trafficRedactors                 []traffic.Redactor
 	compactionObservers              []compaction.Observer
 	compactionPreservers             []compaction.Preserver
+	compactionPreserversID           string
+	compactionPreserversHasID        bool
 	secretGuards                     []secretguard.Guard
 	localTurnHandlers                []localturn.Handler
 	terminalDecisionProvider         terminaldecision.Provider
@@ -70,13 +79,19 @@ type generatedFrozen struct {
 	routeHintProviders               []routehint.Provider
 	completionGates                  []completion.Gate
 	attemptTransforms                []request.AttemptTransform
+	attemptTransformsID              string
+	attemptTransformsHasID           bool
 	streamObserverFactories          []response.StreamObserverFactory
+	streamObserverFactoriesID        string
+	streamObserverFactoriesHasID     bool
 	trafficObservers                 []traffic.Observer
 	usageObservers                   []usage.Observer
 	rawCaptureSinks                  []traffic.RawCaptureSink
 	trafficRedactors                 []traffic.Redactor
 	compactionObservers              []compaction.Observer
 	compactionPreservers             []compaction.Preserver
+	compactionPreserversID           string
+	compactionPreserversHasID        bool
 	secretGuards                     []secretguard.Guard
 	localTurnHandlers                []localturn.Handler
 	terminalDecisionProvider         terminaldecision.Provider
@@ -109,13 +124,19 @@ func (gc *generatedContributions) clone() *generatedContributions {
 	next.routeHintProviders = cloneSlice(gc.routeHintProviders)
 	next.completionGates = cloneSlice(gc.completionGates)
 	next.attemptTransforms = cloneSlice(gc.attemptTransforms)
+	next.attemptTransformsID = gc.attemptTransformsID
+	next.attemptTransformsHasID = gc.attemptTransformsHasID
 	next.streamObserverFactories = cloneSlice(gc.streamObserverFactories)
+	next.streamObserverFactoriesID = gc.streamObserverFactoriesID
+	next.streamObserverFactoriesHasID = gc.streamObserverFactoriesHasID
 	next.trafficObservers = cloneSlice(gc.trafficObservers)
 	next.usageObservers = cloneSlice(gc.usageObservers)
 	next.rawCaptureSinks = cloneSlice(gc.rawCaptureSinks)
 	next.trafficRedactors = cloneSlice(gc.trafficRedactors)
 	next.compactionObservers = cloneSlice(gc.compactionObservers)
 	next.compactionPreservers = cloneSlice(gc.compactionPreservers)
+	next.compactionPreserversID = gc.compactionPreserversID
+	next.compactionPreserversHasID = gc.compactionPreserversHasID
 	next.secretGuards = cloneSlice(gc.secretGuards)
 	next.localTurnHandlers = cloneSlice(gc.localTurnHandlers)
 	next.terminalDecisionProvider = gc.terminalDecisionProvider
@@ -144,13 +165,19 @@ func (gc *generatedContributions) freeze() *generatedFrozen {
 		routeHintProviders:               cloneSlice(gc.routeHintProviders),
 		completionGates:                  cloneSlice(gc.completionGates),
 		attemptTransforms:                cloneSlice(gc.attemptTransforms),
+		attemptTransformsID:              gc.attemptTransformsID,
+		attemptTransformsHasID:           gc.attemptTransformsHasID,
 		streamObserverFactories:          cloneSlice(gc.streamObserverFactories),
+		streamObserverFactoriesID:        gc.streamObserverFactoriesID,
+		streamObserverFactoriesHasID:     gc.streamObserverFactoriesHasID,
 		trafficObservers:                 cloneSlice(gc.trafficObservers),
 		usageObservers:                   cloneSlice(gc.usageObservers),
 		rawCaptureSinks:                  cloneSlice(gc.rawCaptureSinks),
 		trafficRedactors:                 cloneSlice(gc.trafficRedactors),
 		compactionObservers:              cloneSlice(gc.compactionObservers),
 		compactionPreservers:             cloneSlice(gc.compactionPreservers),
+		compactionPreserversID:           gc.compactionPreserversID,
+		compactionPreserversHasID:        gc.compactionPreserversHasID,
 		secretGuards:                     cloneSlice(gc.secretGuards),
 		localTurnHandlers:                cloneSlice(gc.localTurnHandlers),
 		terminalDecisionProvider:         gc.terminalDecisionProvider,
@@ -180,19 +207,3234 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	gc.routeHintProviders = cloneSlice(gf.routeHintProviders)
 	gc.completionGates = cloneSlice(gf.completionGates)
 	gc.attemptTransforms = cloneSlice(gf.attemptTransforms)
+	gc.attemptTransformsID = gf.attemptTransformsID
+	gc.attemptTransformsHasID = gf.attemptTransformsHasID
 	gc.streamObserverFactories = cloneSlice(gf.streamObserverFactories)
+	gc.streamObserverFactoriesID = gf.streamObserverFactoriesID
+	gc.streamObserverFactoriesHasID = gf.streamObserverFactoriesHasID
 	gc.trafficObservers = cloneSlice(gf.trafficObservers)
 	gc.usageObservers = cloneSlice(gf.usageObservers)
 	gc.rawCaptureSinks = cloneSlice(gf.rawCaptureSinks)
 	gc.trafficRedactors = cloneSlice(gf.trafficRedactors)
 	gc.compactionObservers = cloneSlice(gf.compactionObservers)
 	gc.compactionPreservers = cloneSlice(gf.compactionPreservers)
+	gc.compactionPreserversID = gf.compactionPreserversID
+	gc.compactionPreserversHasID = gf.compactionPreserversHasID
 	gc.secretGuards = cloneSlice(gf.secretGuards)
 	gc.localTurnHandlers = cloneSlice(gf.localTurnHandlers)
 	gc.terminalDecisionProvider = gf.terminalDecisionProvider
 	gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
 	gc.terminalDecisionProviderHasID = gf.terminalDecisionProviderHasID
 	return gc
+}
+
+func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
+	if gf == nil {
+		return nil
+	}
+	next := &generatedFrozen{
+		submitHooks:                      cloneSlice(gf.submitHooks),
+		requestPartHooks:                 cloneSlice(gf.requestPartHooks),
+		responsePartHooks:                cloneSlice(gf.responsePartHooks),
+		toolReactors:                     cloneSlice(gf.toolReactors),
+		sessionOpeners:                   materializeRequestSlice(gf.sessionOpeners, PlaneSessionOpeners.RequestMaterializer),
+		workspaceResolvers:               cloneSlice(gf.workspaceResolvers),
+		toolCatalogFilters:               cloneSlice(gf.toolCatalogFilters),
+		toolCallPolicies:                 materializeRequestSlice(gf.toolCallPolicies, PlaneToolCallPolicies.RequestMaterializer),
+		toolCallFinalizers:               materializeRequestSlice(gf.toolCallFinalizers, PlaneToolCallFinalizers.RequestMaterializer),
+		toolCallFinalizationMaxArgsBytes: gf.toolCallFinalizationMaxArgsBytes,
+		requestTransforms:                cloneSlice(gf.requestTransforms),
+		preRequestHandlers:               materializeRequestSlice(gf.preRequestHandlers, PlanePreRequestHandlers.RequestMaterializer),
+		routeHintProviders:               cloneSlice(gf.routeHintProviders),
+		completionGates:                  cloneSlice(gf.completionGates),
+		attemptTransforms:                materializeRequestSlice(gf.attemptTransforms, PlaneAttemptTransforms.RequestMaterializer),
+		attemptTransformsID:              gf.attemptTransformsID,
+		attemptTransformsHasID:           gf.attemptTransformsHasID,
+		streamObserverFactories:          materializeRequestSlice(gf.streamObserverFactories, PlaneStreamObserverFactories.RequestMaterializer),
+		streamObserverFactoriesID:        gf.streamObserverFactoriesID,
+		streamObserverFactoriesHasID:     gf.streamObserverFactoriesHasID,
+		trafficObservers:                 cloneSlice(gf.trafficObservers),
+		usageObservers:                   cloneSlice(gf.usageObservers),
+		rawCaptureSinks:                  cloneSlice(gf.rawCaptureSinks),
+		trafficRedactors:                 materializeRequestSlice(gf.trafficRedactors, PlaneTrafficRedactors.RequestMaterializer),
+		compactionObservers:              cloneSlice(gf.compactionObservers),
+		compactionPreservers:             cloneSlice(gf.compactionPreservers),
+		compactionPreserversID:           gf.compactionPreserversID,
+		compactionPreserversHasID:        gf.compactionPreserversHasID,
+		secretGuards:                     materializeRequestSlice(gf.secretGuards, PlaneSecretGuards.RequestMaterializer),
+		localTurnHandlers:                materializeRequestSlice(gf.localTurnHandlers, PlaneLocalTurnHandlers.RequestMaterializer),
+		terminalDecisionProvider:         gf.terminalDecisionProvider,
+		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
+		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+	}
+	return next
+}
+
+func (gf *generatedFrozen) clone() *generatedFrozen {
+	if gf == nil {
+		return nil
+	}
+	next := &generatedFrozen{
+		submitHooks:                      cloneSlice(gf.submitHooks),
+		requestPartHooks:                 cloneSlice(gf.requestPartHooks),
+		responsePartHooks:                cloneSlice(gf.responsePartHooks),
+		toolReactors:                     cloneSlice(gf.toolReactors),
+		sessionOpeners:                   cloneSlice(gf.sessionOpeners),
+		workspaceResolvers:               cloneSlice(gf.workspaceResolvers),
+		toolCatalogFilters:               cloneSlice(gf.toolCatalogFilters),
+		toolCallPolicies:                 cloneSlice(gf.toolCallPolicies),
+		toolCallFinalizers:               cloneSlice(gf.toolCallFinalizers),
+		toolCallFinalizationMaxArgsBytes: gf.toolCallFinalizationMaxArgsBytes,
+		requestTransforms:                cloneSlice(gf.requestTransforms),
+		preRequestHandlers:               cloneSlice(gf.preRequestHandlers),
+		routeHintProviders:               cloneSlice(gf.routeHintProviders),
+		completionGates:                  cloneSlice(gf.completionGates),
+		attemptTransforms:                cloneSlice(gf.attemptTransforms),
+		attemptTransformsID:              gf.attemptTransformsID,
+		attemptTransformsHasID:           gf.attemptTransformsHasID,
+		streamObserverFactories:          cloneSlice(gf.streamObserverFactories),
+		streamObserverFactoriesID:        gf.streamObserverFactoriesID,
+		streamObserverFactoriesHasID:     gf.streamObserverFactoriesHasID,
+		trafficObservers:                 cloneSlice(gf.trafficObservers),
+		usageObservers:                   cloneSlice(gf.usageObservers),
+		rawCaptureSinks:                  cloneSlice(gf.rawCaptureSinks),
+		trafficRedactors:                 cloneSlice(gf.trafficRedactors),
+		compactionObservers:              cloneSlice(gf.compactionObservers),
+		compactionPreservers:             cloneSlice(gf.compactionPreservers),
+		compactionPreserversID:           gf.compactionPreserversID,
+		compactionPreserversHasID:        gf.compactionPreserversHasID,
+		secretGuards:                     cloneSlice(gf.secretGuards),
+		localTurnHandlers:                cloneSlice(gf.localTurnHandlers),
+		terminalDecisionProvider:         gf.terminalDecisionProvider,
+		terminalDecisionProviderID:       gf.terminalDecisionProviderID,
+		terminalDecisionProviderHasID:    gf.terminalDecisionProviderHasID,
+	}
+	return next
+}
+
+func (gf *generatedFrozen) validate() error {
+	if gf == nil {
+		return nil
+	}
+	if gf.submitHooks != nil {
+		if PlaneSubmitHooks.Validate != nil {
+			if err := PlaneSubmitHooks.Validate(gf.submitHooks); err != nil {
+				return newPlaneValidationError(PlaneSubmitHooks.ID, err)
+			}
+		}
+	}
+	if gf.requestPartHooks != nil {
+		if PlaneRequestPartHooks.Validate != nil {
+			if err := PlaneRequestPartHooks.Validate(gf.requestPartHooks); err != nil {
+				return newPlaneValidationError(PlaneRequestPartHooks.ID, err)
+			}
+		}
+	}
+	if gf.responsePartHooks != nil {
+		if PlaneResponsePartHooks.Validate != nil {
+			if err := PlaneResponsePartHooks.Validate(gf.responsePartHooks); err != nil {
+				return newPlaneValidationError(PlaneResponsePartHooks.ID, err)
+			}
+		}
+	}
+	if gf.toolReactors != nil {
+		if PlaneToolReactors.Validate != nil {
+			if err := PlaneToolReactors.Validate(gf.toolReactors); err != nil {
+				return newPlaneValidationError(PlaneToolReactors.ID, err)
+			}
+		}
+	}
+	if gf.sessionOpeners != nil {
+		if PlaneSessionOpeners.Validate != nil {
+			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+				return newPlaneValidationError(PlaneSessionOpeners.ID, err)
+			}
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if PlaneWorkspaceResolvers.Validate != nil {
+			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+				return newPlaneValidationError(PlaneWorkspaceResolvers.ID, err)
+			}
+		}
+	}
+	if gf.toolCatalogFilters != nil {
+		if PlaneToolCatalogFilters.Validate != nil {
+			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+				return newPlaneValidationError(PlaneToolCatalogFilters.ID, err)
+			}
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if PlaneToolCallPolicies.Validate != nil {
+			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+				return newPlaneValidationError(PlaneToolCallPolicies.ID, err)
+			}
+		}
+	}
+	if gf.toolCallFinalizers != nil {
+		if PlaneToolCallFinalizers.Validate != nil {
+			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
+				return newPlaneValidationError(PlaneToolCallFinalizers.ID, err)
+			}
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes < 0 {
+		return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, fmt.Errorf("must be >= 0, got %d", gf.toolCallFinalizationMaxArgsBytes))
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 && PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
+		if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+			return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, err)
+		}
+	}
+	if gf.requestTransforms != nil {
+		if PlaneRequestTransforms.Validate != nil {
+			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+				return newPlaneValidationError(PlaneRequestTransforms.ID, err)
+			}
+		}
+	}
+	if gf.preRequestHandlers != nil {
+		if PlanePreRequestHandlers.Validate != nil {
+			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+				return newPlaneValidationError(PlanePreRequestHandlers.ID, err)
+			}
+		}
+	}
+	if gf.routeHintProviders != nil {
+		if PlaneRouteHintProviders.Validate != nil {
+			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+				return newPlaneValidationError(PlaneRouteHintProviders.ID, err)
+			}
+		}
+	}
+	if gf.completionGates != nil {
+		if PlaneCompletionGates.Validate != nil {
+			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+				return newPlaneValidationError(PlaneCompletionGates.ID, err)
+			}
+		}
+	}
+	if gf.attemptTransforms == nil {
+		if gf.attemptTransformsHasID || gf.attemptTransformsID != "" {
+			return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if PlaneAttemptTransforms.Validate != nil {
+			if err := PlaneAttemptTransforms.Validate(gf.attemptTransforms); err != nil {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+			}
+		}
+		if !gf.attemptTransformsHasID {
+			if gf.attemptTransformsID != "" || len(gf.attemptTransforms) > 0 {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+			}
+		} else {
+			if gf.attemptTransformsID == "" {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+			}
+			if err := PlaneAttemptTransforms.ValidateIdentity(gf.attemptTransformsID); err != nil {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+			}
+		}
+	}
+	if gf.streamObserverFactories == nil {
+		if gf.streamObserverFactoriesHasID || gf.streamObserverFactoriesID != "" {
+			return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if PlaneStreamObserverFactories.Validate != nil {
+			if err := PlaneStreamObserverFactories.Validate(gf.streamObserverFactories); err != nil {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+			}
+		}
+		if !gf.streamObserverFactoriesHasID {
+			if gf.streamObserverFactoriesID != "" || len(gf.streamObserverFactories) > 0 {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+			}
+		} else {
+			if gf.streamObserverFactoriesID == "" {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+			}
+			if err := PlaneStreamObserverFactories.ValidateIdentity(gf.streamObserverFactoriesID); err != nil {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+			}
+		}
+	}
+	if gf.trafficObservers != nil {
+		if PlaneTrafficObservers.Validate != nil {
+			if err := PlaneTrafficObservers.Validate(gf.trafficObservers); err != nil {
+				return newPlaneValidationError(PlaneTrafficObservers.ID, err)
+			}
+		}
+	}
+	if gf.usageObservers != nil {
+		if PlaneUsageObservers.Validate != nil {
+			if err := PlaneUsageObservers.Validate(gf.usageObservers); err != nil {
+				return newPlaneValidationError(PlaneUsageObservers.ID, err)
+			}
+		}
+	}
+	if gf.rawCaptureSinks != nil {
+		if PlaneRawCaptureSinks.Validate != nil {
+			if err := PlaneRawCaptureSinks.Validate(gf.rawCaptureSinks); err != nil {
+				return newPlaneValidationError(PlaneRawCaptureSinks.ID, err)
+			}
+		}
+	}
+	if gf.trafficRedactors != nil {
+		if PlaneTrafficRedactors.Validate != nil {
+			if err := PlaneTrafficRedactors.Validate(gf.trafficRedactors); err != nil {
+				return newPlaneValidationError(PlaneTrafficRedactors.ID, err)
+			}
+		}
+	}
+	if gf.compactionObservers != nil {
+		if PlaneCompactionObservers.Validate != nil {
+			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
+				return newPlaneValidationError(PlaneCompactionObservers.ID, err)
+			}
+		}
+	}
+	if gf.compactionPreservers == nil {
+		if gf.compactionPreserversHasID || gf.compactionPreserversID != "" {
+			return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if PlaneCompactionPreservers.Validate != nil {
+			if err := PlaneCompactionPreservers.Validate(gf.compactionPreservers); err != nil {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+			}
+		}
+		if !gf.compactionPreserversHasID {
+			if gf.compactionPreserversID != "" || len(gf.compactionPreservers) > 0 {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+			}
+		} else {
+			if gf.compactionPreserversID == "" {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+			}
+			if err := PlaneCompactionPreservers.ValidateIdentity(gf.compactionPreserversID); err != nil {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+			}
+		}
+	}
+	if gf.secretGuards != nil {
+		if PlaneSecretGuards.Validate != nil {
+			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+				return newPlaneValidationError(PlaneSecretGuards.ID, err)
+			}
+		}
+	}
+	if gf.localTurnHandlers != nil {
+		if PlaneLocalTurnHandlers.Validate != nil {
+			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+				return newPlaneValidationError(PlaneLocalTurnHandlers.ID, err)
+			}
+		}
+	}
+	if gf.terminalDecisionProvider == nil {
+		if gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID != "" {
+			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("malformed metadata without value"))
+		}
+	} else {
+		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
+			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("missing cached identity"))
+		}
+		if err := PlaneTerminalDecisionProvider.ValidateIdentity(gf.terminalDecisionProviderID); err != nil {
+			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, err)
+		}
+	}
+	return nil
+}
+
+func (gf *generatedFrozen) contributeCandidateTo(gc *generatedContributions, source SourceKind, contributorID string) error {
+	if gf == nil || gc == nil {
+		return nil
+	}
+	if gf.sessionOpeners != nil {
+		if PlaneSessionOpeners.Validate != nil {
+			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+			return err
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if PlaneWorkspaceResolvers.Validate != nil {
+			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+			return err
+		}
+	}
+	if gf.toolCatalogFilters != nil {
+		if PlaneToolCatalogFilters.Validate != nil {
+			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if PlaneToolCallPolicies.Validate != nil {
+			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallFinalizers != nil {
+		if PlaneToolCallFinalizers.Validate != nil {
+			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallFinalizers.generated.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 {
+		if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
+			if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
+			return err
+		}
+	}
+	if gf.requestTransforms != nil {
+		if PlaneRequestTransforms.Validate != nil {
+			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
+			return err
+		}
+	}
+	if gf.preRequestHandlers != nil {
+		if PlanePreRequestHandlers.Validate != nil {
+			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
+			return err
+		}
+	}
+	if gf.routeHintProviders != nil {
+		if PlaneRouteHintProviders.Validate != nil {
+			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+			return err
+		}
+	}
+	if gf.completionGates != nil {
+		if PlaneCompletionGates.Validate != nil {
+			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+			return err
+		}
+	}
+	if gf.attemptTransforms == nil {
+		if gf.attemptTransformsHasID || gf.attemptTransformsID != "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneAttemptTransforms.ID,
+				Err:      fmt.Errorf("%w: malformed metadata without value", ErrInvalidContribution),
+			}
+		}
+	} else {
+		if PlaneAttemptTransforms.Validate != nil {
+			if err := PlaneAttemptTransforms.Validate(gf.attemptTransforms); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if !gf.attemptTransformsHasID {
+			if gf.attemptTransformsID != "" || len(gf.attemptTransforms) > 0 {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
+				}
+			}
+		} else {
+			if gf.attemptTransformsID == "" {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
+				}
+			}
+			if err := PlaneAttemptTransforms.ValidateIdentity(gf.attemptTransformsID); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneAttemptTransforms.generated.contribute(gc, source, contributorID, gf.attemptTransforms); err != nil {
+			return err
+		}
+	}
+	if gf.compactionObservers != nil {
+		if PlaneCompactionObservers.Validate != nil {
+			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneCompactionObservers.generated.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
+			return err
+		}
+	}
+	if gf.compactionPreservers == nil {
+		if gf.compactionPreserversHasID || gf.compactionPreserversID != "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompactionPreservers.ID,
+				Err:      fmt.Errorf("%w: malformed metadata without value", ErrInvalidContribution),
+			}
+		}
+	} else {
+		if PlaneCompactionPreservers.Validate != nil {
+			if err := PlaneCompactionPreservers.Validate(gf.compactionPreservers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionPreservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if !gf.compactionPreserversHasID {
+			if gf.compactionPreserversID != "" || len(gf.compactionPreservers) > 0 {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionPreservers.ID,
+					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
+				}
+			}
+		} else {
+			if gf.compactionPreserversID == "" {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionPreservers.ID,
+					Err:      fmt.Errorf("%w: missing cached identity", ErrInvalidContribution),
+				}
+			}
+			if err := PlaneCompactionPreservers.ValidateIdentity(gf.compactionPreserversID); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionPreservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneCompactionPreservers.generated.contribute(gc, source, contributorID, gf.compactionPreservers); err != nil {
+			return err
+		}
+	}
+	if gf.secretGuards != nil {
+		if PlaneSecretGuards.Validate != nil {
+			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+			return err
+		}
+	}
+	if gf.localTurnHandlers != nil {
+		if PlaneLocalTurnHandlers.Validate != nil {
+			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+			return err
+		}
+	}
+	if gf.terminalDecisionProvider != nil {
+		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.terminalDecisionProviderHasID {
+			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
+		}
+		gc.terminalDecisionProvider = gf.terminalDecisionProvider
+		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
+		gc.terminalDecisionProviderHasID = true
+	}
+	return nil
+}
+
+func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source SourceKind, contributorID string) error {
+	if gf == nil || gc == nil {
+		return nil
+	}
+	if gf.submitHooks != nil {
+		if PlaneSubmitHooks.Validate != nil {
+			if err := PlaneSubmitHooks.Validate(gf.submitHooks); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSubmitHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSubmitHooks.generated.contribute(gc, source, contributorID, gf.submitHooks); err != nil {
+			return err
+		}
+	}
+	if gf.requestPartHooks != nil {
+		if PlaneRequestPartHooks.Validate != nil {
+			if err := PlaneRequestPartHooks.Validate(gf.requestPartHooks); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestPartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRequestPartHooks.generated.contribute(gc, source, contributorID, gf.requestPartHooks); err != nil {
+			return err
+		}
+	}
+	if gf.responsePartHooks != nil {
+		if PlaneResponsePartHooks.Validate != nil {
+			if err := PlaneResponsePartHooks.Validate(gf.responsePartHooks); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneResponsePartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneResponsePartHooks.generated.contribute(gc, source, contributorID, gf.responsePartHooks); err != nil {
+			return err
+		}
+	}
+	if gf.toolReactors != nil {
+		if PlaneToolReactors.Validate != nil {
+			if err := PlaneToolReactors.Validate(gf.toolReactors); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolReactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolReactors.generated.contribute(gc, source, contributorID, gf.toolReactors); err != nil {
+			return err
+		}
+	}
+	if gf.sessionOpeners != nil {
+		if PlaneSessionOpeners.Validate != nil {
+			if err := PlaneSessionOpeners.Validate(gf.sessionOpeners); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSessionOpeners.generated.contribute(gc, source, contributorID, gf.sessionOpeners); err != nil {
+			return err
+		}
+	}
+	if gf.workspaceResolvers != nil {
+		if PlaneWorkspaceResolvers.Validate != nil {
+			if err := PlaneWorkspaceResolvers.Validate(gf.workspaceResolvers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneWorkspaceResolvers.generated.contribute(gc, source, contributorID, gf.workspaceResolvers); err != nil {
+			return err
+		}
+	}
+	if gf.toolCatalogFilters != nil {
+		if PlaneToolCatalogFilters.Validate != nil {
+			if err := PlaneToolCatalogFilters.Validate(gf.toolCatalogFilters); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCatalogFilters.generated.contribute(gc, source, contributorID, gf.toolCatalogFilters); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallPolicies != nil {
+		if PlaneToolCallPolicies.Validate != nil {
+			if err := PlaneToolCallPolicies.Validate(gf.toolCallPolicies); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallPolicies.generated.contribute(gc, source, contributorID, gf.toolCallPolicies); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallFinalizers != nil {
+		if PlaneToolCallFinalizers.Validate != nil {
+			if err := PlaneToolCallFinalizers.Validate(gf.toolCallFinalizers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallFinalizers.generated.contribute(gc, source, contributorID, gf.toolCallFinalizers); err != nil {
+			return err
+		}
+	}
+	if gf.toolCallFinalizationMaxArgsBytes > 0 {
+		if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
+			if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(gf.toolCallFinalizationMaxArgsBytes); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(gc, source, contributorID, gf.toolCallFinalizationMaxArgsBytes); err != nil {
+			return err
+		}
+	}
+	if gf.requestTransforms != nil {
+		if PlaneRequestTransforms.Validate != nil {
+			if err := PlaneRequestTransforms.Validate(gf.requestTransforms); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRequestTransforms.generated.contribute(gc, source, contributorID, gf.requestTransforms); err != nil {
+			return err
+		}
+	}
+	if gf.preRequestHandlers != nil {
+		if PlanePreRequestHandlers.Validate != nil {
+			if err := PlanePreRequestHandlers.Validate(gf.preRequestHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlanePreRequestHandlers.generated.contribute(gc, source, contributorID, gf.preRequestHandlers); err != nil {
+			return err
+		}
+	}
+	if gf.routeHintProviders != nil {
+		if PlaneRouteHintProviders.Validate != nil {
+			if err := PlaneRouteHintProviders.Validate(gf.routeHintProviders); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRouteHintProviders.generated.contribute(gc, source, contributorID, gf.routeHintProviders); err != nil {
+			return err
+		}
+	}
+	if gf.completionGates != nil {
+		if PlaneCompletionGates.Validate != nil {
+			if err := PlaneCompletionGates.Validate(gf.completionGates); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneCompletionGates.generated.contribute(gc, source, contributorID, gf.completionGates); err != nil {
+			return err
+		}
+	}
+	if gf.attemptTransforms != nil {
+		hadDestinationValue := len(gc.attemptTransforms) > 0
+		existingID := gc.attemptTransformsID
+		existingHasID := gc.attemptTransformsHasID
+
+		incoming := cloneSlice(gf.attemptTransforms)
+		current := cloneSlice(gc.attemptTransforms)
+		combined, err := PlaneAttemptTransforms.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneAttemptTransforms.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (gf.attemptTransforms != nil || gc.attemptTransforms != nil) && combined == nil {
+			combined = make([]request.AttemptTransform, 0)
+		}
+		gc.attemptTransforms = cloneSlice(combined)
+		if len(gc.attemptTransforms) == 0 {
+			gc.attemptTransformsID = ""
+			gc.attemptTransformsHasID = false
+		} else if hadDestinationValue {
+			gc.attemptTransformsID = existingID
+			gc.attemptTransformsHasID = existingHasID
+		} else {
+			gc.attemptTransformsID = gf.attemptTransformsID
+			gc.attemptTransformsHasID = gf.attemptTransformsHasID
+		}
+	}
+	if gf.streamObserverFactories != nil {
+		hadDestinationValue := len(gc.streamObserverFactories) > 0
+		existingID := gc.streamObserverFactoriesID
+		existingHasID := gc.streamObserverFactoriesHasID
+
+		incoming := cloneSlice(gf.streamObserverFactories)
+		current := cloneSlice(gc.streamObserverFactories)
+		combined, err := PlaneStreamObserverFactories.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneStreamObserverFactories.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (gf.streamObserverFactories != nil || gc.streamObserverFactories != nil) && combined == nil {
+			combined = make([]response.StreamObserverFactory, 0)
+		}
+		gc.streamObserverFactories = cloneSlice(combined)
+		if len(gc.streamObserverFactories) == 0 {
+			gc.streamObserverFactoriesID = ""
+			gc.streamObserverFactoriesHasID = false
+		} else if hadDestinationValue {
+			gc.streamObserverFactoriesID = existingID
+			gc.streamObserverFactoriesHasID = existingHasID
+		} else {
+			gc.streamObserverFactoriesID = gf.streamObserverFactoriesID
+			gc.streamObserverFactoriesHasID = gf.streamObserverFactoriesHasID
+		}
+	}
+	if gf.trafficObservers != nil {
+		if PlaneTrafficObservers.Validate != nil {
+			if err := PlaneTrafficObservers.Validate(gf.trafficObservers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneTrafficObservers.generated.contribute(gc, source, contributorID, gf.trafficObservers); err != nil {
+			return err
+		}
+	}
+	if gf.usageObservers != nil {
+		if PlaneUsageObservers.Validate != nil {
+			if err := PlaneUsageObservers.Validate(gf.usageObservers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneUsageObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneUsageObservers.generated.contribute(gc, source, contributorID, gf.usageObservers); err != nil {
+			return err
+		}
+	}
+	if gf.rawCaptureSinks != nil {
+		if PlaneRawCaptureSinks.Validate != nil {
+			if err := PlaneRawCaptureSinks.Validate(gf.rawCaptureSinks); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRawCaptureSinks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneRawCaptureSinks.generated.contribute(gc, source, contributorID, gf.rawCaptureSinks); err != nil {
+			return err
+		}
+	}
+	if gf.trafficRedactors != nil {
+		if PlaneTrafficRedactors.Validate != nil {
+			if err := PlaneTrafficRedactors.Validate(gf.trafficRedactors); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficRedactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneTrafficRedactors.generated.contribute(gc, source, contributorID, gf.trafficRedactors); err != nil {
+			return err
+		}
+	}
+	if gf.compactionObservers != nil {
+		if PlaneCompactionObservers.Validate != nil {
+			if err := PlaneCompactionObservers.Validate(gf.compactionObservers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneCompactionObservers.generated.contribute(gc, source, contributorID, gf.compactionObservers); err != nil {
+			return err
+		}
+	}
+	if gf.compactionPreservers != nil {
+		hadDestinationValue := len(gc.compactionPreservers) > 0
+		existingID := gc.compactionPreserversID
+		existingHasID := gc.compactionPreserversHasID
+
+		incoming := cloneSlice(gf.compactionPreservers)
+		current := cloneSlice(gc.compactionPreservers)
+		combined, err := PlaneCompactionPreservers.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompactionPreservers.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (gf.compactionPreservers != nil || gc.compactionPreservers != nil) && combined == nil {
+			combined = make([]compaction.Preserver, 0)
+		}
+		gc.compactionPreservers = cloneSlice(combined)
+		if len(gc.compactionPreservers) == 0 {
+			gc.compactionPreserversID = ""
+			gc.compactionPreserversHasID = false
+		} else if hadDestinationValue {
+			gc.compactionPreserversID = existingID
+			gc.compactionPreserversHasID = existingHasID
+		} else {
+			gc.compactionPreserversID = gf.compactionPreserversID
+			gc.compactionPreserversHasID = gf.compactionPreserversHasID
+		}
+	}
+	if gf.secretGuards != nil {
+		if PlaneSecretGuards.Validate != nil {
+			if err := PlaneSecretGuards.Validate(gf.secretGuards); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneSecretGuards.generated.contribute(gc, source, contributorID, gf.secretGuards); err != nil {
+			return err
+		}
+	}
+	if gf.localTurnHandlers != nil {
+		if PlaneLocalTurnHandlers.Validate != nil {
+			if err := PlaneLocalTurnHandlers.Validate(gf.localTurnHandlers); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if err := PlaneLocalTurnHandlers.generated.contribute(gc, source, contributorID, gf.localTurnHandlers); err != nil {
+			return err
+		}
+	}
+	if gf.terminalDecisionProvider != nil {
+		if !gf.terminalDecisionProviderHasID || gf.terminalDecisionProviderID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if gc.terminalDecisionProviderHasID {
+			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, gc.terminalDecisionProviderID, gf.terminalDecisionProviderID)
+		}
+		gc.terminalDecisionProvider = gf.terminalDecisionProvider
+		gc.terminalDecisionProviderID = gf.terminalDecisionProviderID
+		gc.terminalDecisionProviderHasID = true
+	}
+	return nil
+}
+
+// hasIdentityReplayRule reports whether gf contains a present identity-bearing plane
+// whose declared rule for source matches the given combination rule.
+func (gf *generatedFrozen) hasIdentityReplayRule(source SourceKind, rule Combination) (string, bool) {
+	if gf == nil {
+		return "", false
+	}
+	if PlaneAttemptTransforms.Rules.RuleFor(source) == rule {
+		if len(gf.attemptTransforms) > 0 {
+			return PlaneAttemptTransforms.ID, true
+		}
+	}
+	if PlaneStreamObserverFactories.Rules.RuleFor(source) == rule {
+		if len(gf.streamObserverFactories) > 0 {
+			return PlaneStreamObserverFactories.ID, true
+		}
+	}
+	if PlaneCompactionPreservers.Rules.RuleFor(source) == rule {
+		if len(gf.compactionPreservers) > 0 {
+			return PlaneCompactionPreservers.ID, true
+		}
+	}
+	if PlaneTerminalDecisionProvider.Rules.RuleFor(source) == rule {
+		if !isNilValue(gf.terminalDecisionProvider) {
+			return PlaneTerminalDecisionProvider.ID, true
+		}
+	}
+	return "", false
+}
+
+// contributeCandidateMapTo contributes map-backed candidate values into dst.
+func contributeCandidateMapTo(values map[string]any, dst *ContributionSet, source SourceKind, contributorID string) error {
+	if len(values) == 0 || dst == nil {
+		return nil
+	}
+	if v, ok := values[PlaneSessionOpeners.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]session.Opener)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: expected []session.Opener, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneSessionOpeners, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneWorkspaceResolvers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]workspace.Resolver)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: expected []workspace.Resolver, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneWorkspaceResolvers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCatalogFilters.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolcatalog.Filter)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: expected []toolcatalog.Filter, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCatalogFilters, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallPolicies.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolpolicy.Policy)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: expected []toolpolicy.Policy, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCallPolicies, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolcall.Finalizer)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: expected []toolcall.Finalizer, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCallFinalizers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizationMaxArgsBytes.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.(int)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					Err:      fmt.Errorf("%w: expected int, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneToolCallFinalizationMaxArgsBytes, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneRequestTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.Transform)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: expected []request.Transform, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneRequestTransforms, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlanePreRequestHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]prerequest.Handler)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: expected []prerequest.Handler, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlanePreRequestHandlers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneRouteHintProviders.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]routehint.Provider)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: expected []routehint.Provider, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneRouteHintProviders, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneCompletionGates.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]completion.Gate)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: expected []completion.Gate, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneCompletionGates, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneAttemptTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.AttemptTransform)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneAttemptTransforms.ID,
+					Err:      fmt.Errorf("%w: expected []request.AttemptTransform, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneAttemptTransforms, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneCompactionObservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]compaction.Observer)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: expected []compaction.Observer, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneCompactionObservers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneCompactionPreservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]compaction.Preserver)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionPreservers.ID,
+					Err:      fmt.Errorf("%w: expected []compaction.Preserver, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneCompactionPreservers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneSecretGuards.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]secretguard.Guard)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: expected []secretguard.Guard, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneSecretGuards, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneLocalTurnHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]localturn.Handler)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: expected []localturn.Handler, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneLocalTurnHandlers, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := values[PlaneTerminalDecisionProvider.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.(terminaldecision.Provider)
+			if !ok {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTerminalDecisionProvider.ID,
+					Err:      fmt.Errorf("%w: expected terminaldecision.Provider, got %T", ErrInvalidContribution, v),
+				}
+			}
+			if err := ContributeSource(dst, PlaneTerminalDecisionProvider, source, contributorID, typed); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateAllPlanesMap validates map-backed plane values and identities without replaying.
+func validateAllPlanesMap(values map[string]any, identities map[string]string) error {
+	if len(values) == 0 && len(identities) == 0 {
+		return nil
+	}
+	if v, ok := values[PlaneSubmitHooks.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]hooks.SubmitHook)
+			if !ok {
+				return newPlaneValidationError(PlaneSubmitHooks.ID, fmt.Errorf("expected []hooks.SubmitHook, got %T", v))
+			}
+			_ = typed
+			if PlaneSubmitHooks.Validate != nil {
+				if err := PlaneSubmitHooks.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneSubmitHooks.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneRequestPartHooks.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]hooks.RequestPartHook)
+			if !ok {
+				return newPlaneValidationError(PlaneRequestPartHooks.ID, fmt.Errorf("expected []hooks.RequestPartHook, got %T", v))
+			}
+			_ = typed
+			if PlaneRequestPartHooks.Validate != nil {
+				if err := PlaneRequestPartHooks.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneRequestPartHooks.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneResponsePartHooks.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]hooks.ResponsePartHook)
+			if !ok {
+				return newPlaneValidationError(PlaneResponsePartHooks.ID, fmt.Errorf("expected []hooks.ResponsePartHook, got %T", v))
+			}
+			_ = typed
+			if PlaneResponsePartHooks.Validate != nil {
+				if err := PlaneResponsePartHooks.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneResponsePartHooks.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneToolReactors.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]hooks.ToolReactor)
+			if !ok {
+				return newPlaneValidationError(PlaneToolReactors.ID, fmt.Errorf("expected []hooks.ToolReactor, got %T", v))
+			}
+			_ = typed
+			if PlaneToolReactors.Validate != nil {
+				if err := PlaneToolReactors.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneToolReactors.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneSessionOpeners.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]session.Opener)
+			if !ok {
+				return newPlaneValidationError(PlaneSessionOpeners.ID, fmt.Errorf("expected []session.Opener, got %T", v))
+			}
+			_ = typed
+			if PlaneSessionOpeners.Validate != nil {
+				if err := PlaneSessionOpeners.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneSessionOpeners.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneWorkspaceResolvers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]workspace.Resolver)
+			if !ok {
+				return newPlaneValidationError(PlaneWorkspaceResolvers.ID, fmt.Errorf("expected []workspace.Resolver, got %T", v))
+			}
+			_ = typed
+			if PlaneWorkspaceResolvers.Validate != nil {
+				if err := PlaneWorkspaceResolvers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneWorkspaceResolvers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCatalogFilters.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolcatalog.Filter)
+			if !ok {
+				return newPlaneValidationError(PlaneToolCatalogFilters.ID, fmt.Errorf("expected []toolcatalog.Filter, got %T", v))
+			}
+			_ = typed
+			if PlaneToolCatalogFilters.Validate != nil {
+				if err := PlaneToolCatalogFilters.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneToolCatalogFilters.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallPolicies.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolpolicy.Policy)
+			if !ok {
+				return newPlaneValidationError(PlaneToolCallPolicies.ID, fmt.Errorf("expected []toolpolicy.Policy, got %T", v))
+			}
+			_ = typed
+			if PlaneToolCallPolicies.Validate != nil {
+				if err := PlaneToolCallPolicies.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneToolCallPolicies.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]toolcall.Finalizer)
+			if !ok {
+				return newPlaneValidationError(PlaneToolCallFinalizers.ID, fmt.Errorf("expected []toolcall.Finalizer, got %T", v))
+			}
+			_ = typed
+			if PlaneToolCallFinalizers.Validate != nil {
+				if err := PlaneToolCallFinalizers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneToolCallFinalizers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizationMaxArgsBytes.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.(int)
+			if !ok {
+				return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, fmt.Errorf("expected int, got %T", v))
+			}
+			_ = typed
+			if typed < 0 {
+				return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, fmt.Errorf("must be >= 0, got %d", typed))
+			}
+			if typed > 0 && PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
+				if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneToolCallFinalizationMaxArgsBytes.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneRequestTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.Transform)
+			if !ok {
+				return newPlaneValidationError(PlaneRequestTransforms.ID, fmt.Errorf("expected []request.Transform, got %T", v))
+			}
+			_ = typed
+			if PlaneRequestTransforms.Validate != nil {
+				if err := PlaneRequestTransforms.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneRequestTransforms.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlanePreRequestHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]prerequest.Handler)
+			if !ok {
+				return newPlaneValidationError(PlanePreRequestHandlers.ID, fmt.Errorf("expected []prerequest.Handler, got %T", v))
+			}
+			_ = typed
+			if PlanePreRequestHandlers.Validate != nil {
+				if err := PlanePreRequestHandlers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlanePreRequestHandlers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneRouteHintProviders.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]routehint.Provider)
+			if !ok {
+				return newPlaneValidationError(PlaneRouteHintProviders.ID, fmt.Errorf("expected []routehint.Provider, got %T", v))
+			}
+			_ = typed
+			if PlaneRouteHintProviders.Validate != nil {
+				if err := PlaneRouteHintProviders.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneRouteHintProviders.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneCompletionGates.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]completion.Gate)
+			if !ok {
+				return newPlaneValidationError(PlaneCompletionGates.ID, fmt.Errorf("expected []completion.Gate, got %T", v))
+			}
+			_ = typed
+			if PlaneCompletionGates.Validate != nil {
+				if err := PlaneCompletionGates.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneCompletionGates.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneAttemptTransforms.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]request.AttemptTransform)
+			if !ok {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, fmt.Errorf("expected []request.AttemptTransform, got %T", v))
+			}
+			_ = typed
+			if PlaneAttemptTransforms.Validate != nil {
+				if err := PlaneAttemptTransforms.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+				}
+			}
+			id, hasID := identities[PlaneAttemptTransforms.ID]
+			if !hasID {
+				if id != "" || len(typed) > 0 {
+					return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+				}
+			} else {
+				if id == "" {
+					return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("missing cached identity"))
+				}
+				if err := PlaneAttemptTransforms.ValidateIdentity(id); err != nil {
+					return newPlaneValidationError(PlaneAttemptTransforms.ID, err)
+				}
+			}
+		} else {
+			if id, hasID := identities[PlaneAttemptTransforms.ID]; hasID || id != "" {
+				return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("malformed metadata without value"))
+			}
+		}
+	} else {
+		if id, hasID := identities[PlaneAttemptTransforms.ID]; hasID || id != "" {
+			return newPlaneValidationError(PlaneAttemptTransforms.ID, errors.New("malformed metadata without value"))
+		}
+	}
+	if v, ok := values[PlaneStreamObserverFactories.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]response.StreamObserverFactory)
+			if !ok {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, fmt.Errorf("expected []response.StreamObserverFactory, got %T", v))
+			}
+			_ = typed
+			if PlaneStreamObserverFactories.Validate != nil {
+				if err := PlaneStreamObserverFactories.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+				}
+			}
+			id, hasID := identities[PlaneStreamObserverFactories.ID]
+			if !hasID {
+				if id != "" || len(typed) > 0 {
+					return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+				}
+			} else {
+				if id == "" {
+					return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("missing cached identity"))
+				}
+				if err := PlaneStreamObserverFactories.ValidateIdentity(id); err != nil {
+					return newPlaneValidationError(PlaneStreamObserverFactories.ID, err)
+				}
+			}
+		} else {
+			if id, hasID := identities[PlaneStreamObserverFactories.ID]; hasID || id != "" {
+				return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("malformed metadata without value"))
+			}
+		}
+	} else {
+		if id, hasID := identities[PlaneStreamObserverFactories.ID]; hasID || id != "" {
+			return newPlaneValidationError(PlaneStreamObserverFactories.ID, errors.New("malformed metadata without value"))
+		}
+	}
+	if v, ok := values[PlaneTrafficObservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]traffic.Observer)
+			if !ok {
+				return newPlaneValidationError(PlaneTrafficObservers.ID, fmt.Errorf("expected []traffic.Observer, got %T", v))
+			}
+			_ = typed
+			if PlaneTrafficObservers.Validate != nil {
+				if err := PlaneTrafficObservers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneTrafficObservers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneUsageObservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]usage.Observer)
+			if !ok {
+				return newPlaneValidationError(PlaneUsageObservers.ID, fmt.Errorf("expected []usage.Observer, got %T", v))
+			}
+			_ = typed
+			if PlaneUsageObservers.Validate != nil {
+				if err := PlaneUsageObservers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneUsageObservers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneRawCaptureSinks.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]traffic.RawCaptureSink)
+			if !ok {
+				return newPlaneValidationError(PlaneRawCaptureSinks.ID, fmt.Errorf("expected []traffic.RawCaptureSink, got %T", v))
+			}
+			_ = typed
+			if PlaneRawCaptureSinks.Validate != nil {
+				if err := PlaneRawCaptureSinks.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneRawCaptureSinks.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneTrafficRedactors.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]traffic.Redactor)
+			if !ok {
+				return newPlaneValidationError(PlaneTrafficRedactors.ID, fmt.Errorf("expected []traffic.Redactor, got %T", v))
+			}
+			_ = typed
+			if PlaneTrafficRedactors.Validate != nil {
+				if err := PlaneTrafficRedactors.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneTrafficRedactors.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneCompactionObservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]compaction.Observer)
+			if !ok {
+				return newPlaneValidationError(PlaneCompactionObservers.ID, fmt.Errorf("expected []compaction.Observer, got %T", v))
+			}
+			_ = typed
+			if PlaneCompactionObservers.Validate != nil {
+				if err := PlaneCompactionObservers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneCompactionObservers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneCompactionPreservers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]compaction.Preserver)
+			if !ok {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, fmt.Errorf("expected []compaction.Preserver, got %T", v))
+			}
+			_ = typed
+			if PlaneCompactionPreservers.Validate != nil {
+				if err := PlaneCompactionPreservers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+				}
+			}
+			id, hasID := identities[PlaneCompactionPreservers.ID]
+			if !hasID {
+				if id != "" || len(typed) > 0 {
+					return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+				}
+			} else {
+				if id == "" {
+					return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("missing cached identity"))
+				}
+				if err := PlaneCompactionPreservers.ValidateIdentity(id); err != nil {
+					return newPlaneValidationError(PlaneCompactionPreservers.ID, err)
+				}
+			}
+		} else {
+			if id, hasID := identities[PlaneCompactionPreservers.ID]; hasID || id != "" {
+				return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("malformed metadata without value"))
+			}
+		}
+	} else {
+		if id, hasID := identities[PlaneCompactionPreservers.ID]; hasID || id != "" {
+			return newPlaneValidationError(PlaneCompactionPreservers.ID, errors.New("malformed metadata without value"))
+		}
+	}
+	if v, ok := values[PlaneSecretGuards.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]secretguard.Guard)
+			if !ok {
+				return newPlaneValidationError(PlaneSecretGuards.ID, fmt.Errorf("expected []secretguard.Guard, got %T", v))
+			}
+			_ = typed
+			if PlaneSecretGuards.Validate != nil {
+				if err := PlaneSecretGuards.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneSecretGuards.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneLocalTurnHandlers.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.([]localturn.Handler)
+			if !ok {
+				return newPlaneValidationError(PlaneLocalTurnHandlers.ID, fmt.Errorf("expected []localturn.Handler, got %T", v))
+			}
+			_ = typed
+			if PlaneLocalTurnHandlers.Validate != nil {
+				if err := PlaneLocalTurnHandlers.Validate(typed); err != nil {
+					return newPlaneValidationError(PlaneLocalTurnHandlers.ID, err)
+				}
+			}
+		}
+	}
+	if v, ok := values[PlaneTerminalDecisionProvider.ID]; ok {
+		if !isNilValue(v) {
+			typed, ok := v.(terminaldecision.Provider)
+			if !ok {
+				return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, fmt.Errorf("expected terminaldecision.Provider, got %T", v))
+			}
+			_ = typed
+			id, hasID := identities[PlaneTerminalDecisionProvider.ID]
+			if !hasID || id == "" {
+				return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("missing cached identity"))
+			}
+			if err := PlaneTerminalDecisionProvider.ValidateIdentity(id); err != nil {
+				return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, err)
+			}
+		} else {
+			if id, hasID := identities[PlaneTerminalDecisionProvider.ID]; hasID || id != "" {
+				return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("malformed metadata without value"))
+			}
+		}
+	} else {
+		if id, hasID := identities[PlaneTerminalDecisionProvider.ID]; hasID || id != "" {
+			return newPlaneValidationError(PlaneTerminalDecisionProvider.ID, errors.New("malformed metadata without value"))
+		}
+	}
+	return nil
+}
+
+// mapHasIdentityReplayRule reports whether map-backed values contains any present identity-bearing plane
+// whose declared rule for source matches the given combination rule.
+func mapHasIdentityReplayRule(values map[string]any, source SourceKind, rule Combination) (string, bool) {
+	if len(values) == 0 {
+		return "", false
+	}
+	if PlaneAttemptTransforms.Rules.RuleFor(source) == rule {
+		if v, ok := values[PlaneAttemptTransforms.ID]; ok && !isNilValue(v) {
+			if typed, ok := v.([]request.AttemptTransform); ok {
+				if len(typed) > 0 {
+					return PlaneAttemptTransforms.ID, true
+				}
+			} else {
+				return PlaneAttemptTransforms.ID, true
+			}
+		}
+	}
+	if PlaneStreamObserverFactories.Rules.RuleFor(source) == rule {
+		if v, ok := values[PlaneStreamObserverFactories.ID]; ok && !isNilValue(v) {
+			if typed, ok := v.([]response.StreamObserverFactory); ok {
+				if len(typed) > 0 {
+					return PlaneStreamObserverFactories.ID, true
+				}
+			} else {
+				return PlaneStreamObserverFactories.ID, true
+			}
+		}
+	}
+	if PlaneCompactionPreservers.Rules.RuleFor(source) == rule {
+		if v, ok := values[PlaneCompactionPreservers.ID]; ok && !isNilValue(v) {
+			if typed, ok := v.([]compaction.Preserver); ok {
+				if len(typed) > 0 {
+					return PlaneCompactionPreservers.ID, true
+				}
+			} else {
+				return PlaneCompactionPreservers.ID, true
+			}
+		}
+	}
+	if PlaneTerminalDecisionProvider.Rules.RuleFor(source) == rule {
+		if v, ok := values[PlaneTerminalDecisionProvider.ID]; ok && !isNilValue(v) {
+			return PlaneTerminalDecisionProvider.ID, true
+		}
+	}
+	return "", false
+}
+
+// replayAllPlanesMapTo replays map-backed frozen values and identities into dst.
+func replayAllPlanesMapTo(values map[string]any, identities map[string]string, dst *ContributionSet, source SourceKind, contributorID string) error {
+	if (len(values) == 0 && len(identities) == 0) || dst == nil {
+		return nil
+	}
+	if v, ok := values[PlaneSubmitHooks.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]hooks.SubmitHook)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneSubmitHooks.ID,
+				Err:      fmt.Errorf("%w: expected []hooks.SubmitHook, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneSubmitHooks.Validate != nil {
+			if err := PlaneSubmitHooks.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSubmitHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneSubmitHooks.generated.contribute != nil {
+			if err := PlaneSubmitHooks.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSubmitHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []hooks.SubmitHook
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneSubmitHooks.ID]; exists {
+					if curTyped, ok := existingVal.([]hooks.SubmitHook); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneSubmitHooks.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSubmitHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]hooks.SubmitHook, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneSubmitHooks.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneSubmitHooks.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneRequestPartHooks.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]hooks.RequestPartHook)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneRequestPartHooks.ID,
+				Err:      fmt.Errorf("%w: expected []hooks.RequestPartHook, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneRequestPartHooks.Validate != nil {
+			if err := PlaneRequestPartHooks.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestPartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneRequestPartHooks.generated.contribute != nil {
+			if err := PlaneRequestPartHooks.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestPartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []hooks.RequestPartHook
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneRequestPartHooks.ID]; exists {
+					if curTyped, ok := existingVal.([]hooks.RequestPartHook); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneRequestPartHooks.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestPartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]hooks.RequestPartHook, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneRequestPartHooks.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneRequestPartHooks.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneResponsePartHooks.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]hooks.ResponsePartHook)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneResponsePartHooks.ID,
+				Err:      fmt.Errorf("%w: expected []hooks.ResponsePartHook, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneResponsePartHooks.Validate != nil {
+			if err := PlaneResponsePartHooks.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneResponsePartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneResponsePartHooks.generated.contribute != nil {
+			if err := PlaneResponsePartHooks.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneResponsePartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []hooks.ResponsePartHook
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneResponsePartHooks.ID]; exists {
+					if curTyped, ok := existingVal.([]hooks.ResponsePartHook); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneResponsePartHooks.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneResponsePartHooks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]hooks.ResponsePartHook, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneResponsePartHooks.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneResponsePartHooks.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneToolReactors.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]hooks.ToolReactor)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneToolReactors.ID,
+				Err:      fmt.Errorf("%w: expected []hooks.ToolReactor, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneToolReactors.Validate != nil {
+			if err := PlaneToolReactors.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolReactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneToolReactors.generated.contribute != nil {
+			if err := PlaneToolReactors.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolReactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []hooks.ToolReactor
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneToolReactors.ID]; exists {
+					if curTyped, ok := existingVal.([]hooks.ToolReactor); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneToolReactors.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolReactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]hooks.ToolReactor, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneToolReactors.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneToolReactors.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneSessionOpeners.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]session.Opener)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneSessionOpeners.ID,
+				Err:      fmt.Errorf("%w: expected []session.Opener, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneSessionOpeners.Validate != nil {
+			if err := PlaneSessionOpeners.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneSessionOpeners.generated.contribute != nil {
+			if err := PlaneSessionOpeners.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []session.Opener
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneSessionOpeners.ID]; exists {
+					if curTyped, ok := existingVal.([]session.Opener); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneSessionOpeners.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSessionOpeners.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]session.Opener, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneSessionOpeners.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneSessionOpeners.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneWorkspaceResolvers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]workspace.Resolver)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneWorkspaceResolvers.ID,
+				Err:      fmt.Errorf("%w: expected []workspace.Resolver, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneWorkspaceResolvers.Validate != nil {
+			if err := PlaneWorkspaceResolvers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneWorkspaceResolvers.generated.contribute != nil {
+			if err := PlaneWorkspaceResolvers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []workspace.Resolver
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneWorkspaceResolvers.ID]; exists {
+					if curTyped, ok := existingVal.([]workspace.Resolver); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneWorkspaceResolvers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneWorkspaceResolvers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]workspace.Resolver, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneWorkspaceResolvers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneWorkspaceResolvers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneToolCatalogFilters.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]toolcatalog.Filter)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneToolCatalogFilters.ID,
+				Err:      fmt.Errorf("%w: expected []toolcatalog.Filter, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneToolCatalogFilters.Validate != nil {
+			if err := PlaneToolCatalogFilters.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneToolCatalogFilters.generated.contribute != nil {
+			if err := PlaneToolCatalogFilters.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []toolcatalog.Filter
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneToolCatalogFilters.ID]; exists {
+					if curTyped, ok := existingVal.([]toolcatalog.Filter); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneToolCatalogFilters.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCatalogFilters.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]toolcatalog.Filter, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneToolCatalogFilters.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneToolCatalogFilters.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneToolCallPolicies.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]toolpolicy.Policy)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneToolCallPolicies.ID,
+				Err:      fmt.Errorf("%w: expected []toolpolicy.Policy, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneToolCallPolicies.Validate != nil {
+			if err := PlaneToolCallPolicies.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneToolCallPolicies.generated.contribute != nil {
+			if err := PlaneToolCallPolicies.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []toolpolicy.Policy
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneToolCallPolicies.ID]; exists {
+					if curTyped, ok := existingVal.([]toolpolicy.Policy); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneToolCallPolicies.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallPolicies.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]toolpolicy.Policy, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneToolCallPolicies.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneToolCallPolicies.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]toolcall.Finalizer)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneToolCallFinalizers.ID,
+				Err:      fmt.Errorf("%w: expected []toolcall.Finalizer, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneToolCallFinalizers.Validate != nil {
+			if err := PlaneToolCallFinalizers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneToolCallFinalizers.generated.contribute != nil {
+			if err := PlaneToolCallFinalizers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []toolcall.Finalizer
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneToolCallFinalizers.ID]; exists {
+					if curTyped, ok := existingVal.([]toolcall.Finalizer); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneToolCallFinalizers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]toolcall.Finalizer, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneToolCallFinalizers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneToolCallFinalizers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneToolCallFinalizationMaxArgsBytes.ID]; ok && !isNilValue(v) {
+		typed, ok := v.(int)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+				Err:      fmt.Errorf("%w: expected int, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if typed > 0 {
+			if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
+				if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(typed); err != nil {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+					}
+				}
+			}
+			if dst.generated != nil && PlaneToolCallFinalizationMaxArgsBytes.generated.contribute != nil {
+				if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+					}
+				}
+			} else {
+				var current int
+				if dst.values != nil {
+					if existingVal, exists := dst.values[PlaneToolCallFinalizationMaxArgsBytes.ID]; exists {
+						if curTyped, ok := existingVal.(int); ok {
+							current = curTyped
+						}
+					}
+				}
+				combined, err := PlaneToolCallFinalizationMaxArgsBytes.Combine(source, current, typed)
+				if err != nil {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+					}
+				}
+				if dst.values != nil {
+					dst.values[PlaneToolCallFinalizationMaxArgsBytes.ID] = combined
+				}
+			}
+			if dst.pluginIDs != nil {
+				dst.pluginIDs[PlaneToolCallFinalizationMaxArgsBytes.ID] = contributorID
+			}
+		}
+	}
+	if v, ok := values[PlaneRequestTransforms.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]request.Transform)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneRequestTransforms.ID,
+				Err:      fmt.Errorf("%w: expected []request.Transform, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneRequestTransforms.Validate != nil {
+			if err := PlaneRequestTransforms.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneRequestTransforms.generated.contribute != nil {
+			if err := PlaneRequestTransforms.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []request.Transform
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneRequestTransforms.ID]; exists {
+					if curTyped, ok := existingVal.([]request.Transform); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneRequestTransforms.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRequestTransforms.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]request.Transform, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneRequestTransforms.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneRequestTransforms.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlanePreRequestHandlers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]prerequest.Handler)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlanePreRequestHandlers.ID,
+				Err:      fmt.Errorf("%w: expected []prerequest.Handler, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlanePreRequestHandlers.Validate != nil {
+			if err := PlanePreRequestHandlers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlanePreRequestHandlers.generated.contribute != nil {
+			if err := PlanePreRequestHandlers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []prerequest.Handler
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlanePreRequestHandlers.ID]; exists {
+					if curTyped, ok := existingVal.([]prerequest.Handler); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlanePreRequestHandlers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlanePreRequestHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]prerequest.Handler, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlanePreRequestHandlers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlanePreRequestHandlers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneRouteHintProviders.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]routehint.Provider)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneRouteHintProviders.ID,
+				Err:      fmt.Errorf("%w: expected []routehint.Provider, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneRouteHintProviders.Validate != nil {
+			if err := PlaneRouteHintProviders.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneRouteHintProviders.generated.contribute != nil {
+			if err := PlaneRouteHintProviders.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []routehint.Provider
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneRouteHintProviders.ID]; exists {
+					if curTyped, ok := existingVal.([]routehint.Provider); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneRouteHintProviders.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRouteHintProviders.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]routehint.Provider, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneRouteHintProviders.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneRouteHintProviders.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneCompletionGates.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]completion.Gate)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompletionGates.ID,
+				Err:      fmt.Errorf("%w: expected []completion.Gate, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneCompletionGates.Validate != nil {
+			if err := PlaneCompletionGates.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneCompletionGates.generated.contribute != nil {
+			if err := PlaneCompletionGates.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []completion.Gate
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneCompletionGates.ID]; exists {
+					if curTyped, ok := existingVal.([]completion.Gate); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneCompletionGates.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompletionGates.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]completion.Gate, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneCompletionGates.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneCompletionGates.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneAttemptTransforms.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]request.AttemptTransform)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneAttemptTransforms.ID,
+				Err:      fmt.Errorf("%w: expected []request.AttemptTransform, got %T", ErrInvalidContribution, v),
+			}
+		}
+		srcID := identities[PlaneAttemptTransforms.ID]
+		var current []request.AttemptTransform
+		hadDestinationValue := false
+		existingID := ""
+		if dst.generated != nil {
+			hadDestinationValue = len(dst.generated.attemptTransforms) > 0
+			existingID = dst.generated.attemptTransformsID
+			current = cloneSlice(dst.generated.attemptTransforms)
+		} else if dst.values != nil {
+			if existingVal, exists := dst.values[PlaneAttemptTransforms.ID]; exists {
+				if curTyped, ok := existingVal.([]request.AttemptTransform); ok {
+					hadDestinationValue = len(curTyped) > 0
+					current = cloneSlice(curTyped)
+				}
+			}
+			existingID = dst.identities[PlaneAttemptTransforms.ID]
+		}
+		incoming := cloneSlice(typed)
+		combined, err := PlaneAttemptTransforms.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneAttemptTransforms.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (typed != nil || current != nil) && combined == nil {
+			combined = make([]request.AttemptTransform, 0)
+		}
+		clonedCombined := cloneSlice(combined)
+		finalID := ""
+		finalHasID := false
+		if len(clonedCombined) == 0 {
+			finalID = ""
+			finalHasID = false
+		} else if hadDestinationValue {
+			finalID = existingID
+			finalHasID = (existingID != "")
+		} else {
+			finalID = srcID
+			finalHasID = (srcID != "")
+		}
+		if dst.generated != nil {
+			dst.generated.attemptTransforms = clonedCombined
+			dst.generated.attemptTransformsID = finalID
+			dst.generated.attemptTransformsHasID = finalHasID
+		}
+		if dst.values != nil {
+			dst.values[PlaneAttemptTransforms.ID] = clonedCombined
+		}
+		if dst.identities != nil {
+			if finalHasID && finalID != "" {
+				dst.identities[PlaneAttemptTransforms.ID] = finalID
+			} else {
+				delete(dst.identities, PlaneAttemptTransforms.ID)
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneAttemptTransforms.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneStreamObserverFactories.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]response.StreamObserverFactory)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneStreamObserverFactories.ID,
+				Err:      fmt.Errorf("%w: expected []response.StreamObserverFactory, got %T", ErrInvalidContribution, v),
+			}
+		}
+		srcID := identities[PlaneStreamObserverFactories.ID]
+		var current []response.StreamObserverFactory
+		hadDestinationValue := false
+		existingID := ""
+		if dst.generated != nil {
+			hadDestinationValue = len(dst.generated.streamObserverFactories) > 0
+			existingID = dst.generated.streamObserverFactoriesID
+			current = cloneSlice(dst.generated.streamObserverFactories)
+		} else if dst.values != nil {
+			if existingVal, exists := dst.values[PlaneStreamObserverFactories.ID]; exists {
+				if curTyped, ok := existingVal.([]response.StreamObserverFactory); ok {
+					hadDestinationValue = len(curTyped) > 0
+					current = cloneSlice(curTyped)
+				}
+			}
+			existingID = dst.identities[PlaneStreamObserverFactories.ID]
+		}
+		incoming := cloneSlice(typed)
+		combined, err := PlaneStreamObserverFactories.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneStreamObserverFactories.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (typed != nil || current != nil) && combined == nil {
+			combined = make([]response.StreamObserverFactory, 0)
+		}
+		clonedCombined := cloneSlice(combined)
+		finalID := ""
+		finalHasID := false
+		if len(clonedCombined) == 0 {
+			finalID = ""
+			finalHasID = false
+		} else if hadDestinationValue {
+			finalID = existingID
+			finalHasID = (existingID != "")
+		} else {
+			finalID = srcID
+			finalHasID = (srcID != "")
+		}
+		if dst.generated != nil {
+			dst.generated.streamObserverFactories = clonedCombined
+			dst.generated.streamObserverFactoriesID = finalID
+			dst.generated.streamObserverFactoriesHasID = finalHasID
+		}
+		if dst.values != nil {
+			dst.values[PlaneStreamObserverFactories.ID] = clonedCombined
+		}
+		if dst.identities != nil {
+			if finalHasID && finalID != "" {
+				dst.identities[PlaneStreamObserverFactories.ID] = finalID
+			} else {
+				delete(dst.identities, PlaneStreamObserverFactories.ID)
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneStreamObserverFactories.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneTrafficObservers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]traffic.Observer)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTrafficObservers.ID,
+				Err:      fmt.Errorf("%w: expected []traffic.Observer, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneTrafficObservers.Validate != nil {
+			if err := PlaneTrafficObservers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneTrafficObservers.generated.contribute != nil {
+			if err := PlaneTrafficObservers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []traffic.Observer
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneTrafficObservers.ID]; exists {
+					if curTyped, ok := existingVal.([]traffic.Observer); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneTrafficObservers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]traffic.Observer, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneTrafficObservers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneTrafficObservers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneUsageObservers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]usage.Observer)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneUsageObservers.ID,
+				Err:      fmt.Errorf("%w: expected []usage.Observer, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneUsageObservers.Validate != nil {
+			if err := PlaneUsageObservers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneUsageObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneUsageObservers.generated.contribute != nil {
+			if err := PlaneUsageObservers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneUsageObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []usage.Observer
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneUsageObservers.ID]; exists {
+					if curTyped, ok := existingVal.([]usage.Observer); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneUsageObservers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneUsageObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]usage.Observer, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneUsageObservers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneUsageObservers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneRawCaptureSinks.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]traffic.RawCaptureSink)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneRawCaptureSinks.ID,
+				Err:      fmt.Errorf("%w: expected []traffic.RawCaptureSink, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneRawCaptureSinks.Validate != nil {
+			if err := PlaneRawCaptureSinks.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRawCaptureSinks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneRawCaptureSinks.generated.contribute != nil {
+			if err := PlaneRawCaptureSinks.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRawCaptureSinks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []traffic.RawCaptureSink
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneRawCaptureSinks.ID]; exists {
+					if curTyped, ok := existingVal.([]traffic.RawCaptureSink); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneRawCaptureSinks.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneRawCaptureSinks.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]traffic.RawCaptureSink, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneRawCaptureSinks.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneRawCaptureSinks.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneTrafficRedactors.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]traffic.Redactor)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTrafficRedactors.ID,
+				Err:      fmt.Errorf("%w: expected []traffic.Redactor, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneTrafficRedactors.Validate != nil {
+			if err := PlaneTrafficRedactors.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficRedactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneTrafficRedactors.generated.contribute != nil {
+			if err := PlaneTrafficRedactors.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficRedactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []traffic.Redactor
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneTrafficRedactors.ID]; exists {
+					if curTyped, ok := existingVal.([]traffic.Redactor); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneTrafficRedactors.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneTrafficRedactors.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]traffic.Redactor, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneTrafficRedactors.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneTrafficRedactors.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneCompactionObservers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]compaction.Observer)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompactionObservers.ID,
+				Err:      fmt.Errorf("%w: expected []compaction.Observer, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneCompactionObservers.Validate != nil {
+			if err := PlaneCompactionObservers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneCompactionObservers.generated.contribute != nil {
+			if err := PlaneCompactionObservers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []compaction.Observer
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneCompactionObservers.ID]; exists {
+					if curTyped, ok := existingVal.([]compaction.Observer); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneCompactionObservers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneCompactionObservers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]compaction.Observer, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneCompactionObservers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneCompactionObservers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneCompactionPreservers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]compaction.Preserver)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompactionPreservers.ID,
+				Err:      fmt.Errorf("%w: expected []compaction.Preserver, got %T", ErrInvalidContribution, v),
+			}
+		}
+		srcID := identities[PlaneCompactionPreservers.ID]
+		var current []compaction.Preserver
+		hadDestinationValue := false
+		existingID := ""
+		if dst.generated != nil {
+			hadDestinationValue = len(dst.generated.compactionPreservers) > 0
+			existingID = dst.generated.compactionPreserversID
+			current = cloneSlice(dst.generated.compactionPreservers)
+		} else if dst.values != nil {
+			if existingVal, exists := dst.values[PlaneCompactionPreservers.ID]; exists {
+				if curTyped, ok := existingVal.([]compaction.Preserver); ok {
+					hadDestinationValue = len(curTyped) > 0
+					current = cloneSlice(curTyped)
+				}
+			}
+			existingID = dst.identities[PlaneCompactionPreservers.ID]
+		}
+		incoming := cloneSlice(typed)
+		combined, err := PlaneCompactionPreservers.Combine(source, current, incoming)
+		if err != nil {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneCompactionPreservers.ID,
+				Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+			}
+		}
+		if (typed != nil || current != nil) && combined == nil {
+			combined = make([]compaction.Preserver, 0)
+		}
+		clonedCombined := cloneSlice(combined)
+		finalID := ""
+		finalHasID := false
+		if len(clonedCombined) == 0 {
+			finalID = ""
+			finalHasID = false
+		} else if hadDestinationValue {
+			finalID = existingID
+			finalHasID = (existingID != "")
+		} else {
+			finalID = srcID
+			finalHasID = (srcID != "")
+		}
+		if dst.generated != nil {
+			dst.generated.compactionPreservers = clonedCombined
+			dst.generated.compactionPreserversID = finalID
+			dst.generated.compactionPreserversHasID = finalHasID
+		}
+		if dst.values != nil {
+			dst.values[PlaneCompactionPreservers.ID] = clonedCombined
+		}
+		if dst.identities != nil {
+			if finalHasID && finalID != "" {
+				dst.identities[PlaneCompactionPreservers.ID] = finalID
+			} else {
+				delete(dst.identities, PlaneCompactionPreservers.ID)
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneCompactionPreservers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneSecretGuards.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]secretguard.Guard)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneSecretGuards.ID,
+				Err:      fmt.Errorf("%w: expected []secretguard.Guard, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneSecretGuards.Validate != nil {
+			if err := PlaneSecretGuards.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneSecretGuards.generated.contribute != nil {
+			if err := PlaneSecretGuards.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []secretguard.Guard
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneSecretGuards.ID]; exists {
+					if curTyped, ok := existingVal.([]secretguard.Guard); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneSecretGuards.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneSecretGuards.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]secretguard.Guard, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneSecretGuards.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneSecretGuards.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneLocalTurnHandlers.ID]; ok && !isNilValue(v) {
+		typed, ok := v.([]localturn.Handler)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneLocalTurnHandlers.ID,
+				Err:      fmt.Errorf("%w: expected []localturn.Handler, got %T", ErrInvalidContribution, v),
+			}
+		}
+		if PlaneLocalTurnHandlers.Validate != nil {
+			if err := PlaneLocalTurnHandlers.Validate(typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		}
+		if dst.generated != nil && PlaneLocalTurnHandlers.generated.contribute != nil {
+			if err := PlaneLocalTurnHandlers.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+		} else {
+			var current []localturn.Handler
+			if dst.values != nil {
+				if existingVal, exists := dst.values[PlaneLocalTurnHandlers.ID]; exists {
+					if curTyped, ok := existingVal.([]localturn.Handler); ok {
+						current = cloneSlice(curTyped)
+					}
+				}
+			}
+			incoming := cloneSlice(typed)
+			combined, err := PlaneLocalTurnHandlers.Combine(source, current, incoming)
+			if err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneLocalTurnHandlers.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+				}
+			}
+			if (typed != nil || current != nil) && combined == nil {
+				combined = make([]localturn.Handler, 0)
+			}
+			clonedCombined := cloneSlice(combined)
+			if dst.values != nil {
+				dst.values[PlaneLocalTurnHandlers.ID] = clonedCombined
+			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneLocalTurnHandlers.ID] = contributorID
+		}
+	}
+	if v, ok := values[PlaneTerminalDecisionProvider.ID]; ok && !isNilValue(v) {
+		typed, ok := v.(terminaldecision.Provider)
+		if !ok {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				Err:      fmt.Errorf("%w: expected terminaldecision.Provider, got %T", ErrInvalidContribution, v),
+			}
+		}
+		srcID, hasSrcID := identities[PlaneTerminalDecisionProvider.ID]
+		if !hasSrcID || srcID == "" {
+			return &AttributedError{
+				PluginID: contributorID,
+				PlaneID:  PlaneTerminalDecisionProvider.ID,
+				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
+			}
+		}
+		if dst.generated != nil && dst.generated.terminalDecisionProviderHasID {
+			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, dst.generated.terminalDecisionProviderID, srcID)
+		}
+		if existingID, exists := dst.identities[PlaneTerminalDecisionProvider.ID]; exists && existingID != "" {
+			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, existingID, srcID)
+		}
+		if dst.generated != nil {
+			dst.generated.terminalDecisionProvider = typed
+			dst.generated.terminalDecisionProviderID = srcID
+			dst.generated.terminalDecisionProviderHasID = true
+		}
+		if dst.values != nil {
+			dst.values[PlaneTerminalDecisionProvider.ID] = cloneValue(typed)
+		}
+		if dst.identities != nil {
+			dst.identities[PlaneTerminalDecisionProvider.ID] = srcID
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneTerminalDecisionProvider.ID] = contributorID
+		}
+	}
+	return nil
 }
 
 func init() {
@@ -497,6 +3739,9 @@ func init() {
 				combined = make([]request.AttemptTransform, 0)
 			}
 			gc.attemptTransforms = cloneSlice(combined)
+			id, hasID := PlaneAttemptTransforms.Identity(gc.attemptTransforms)
+			gc.attemptTransformsID = id
+			gc.attemptTransformsHasID = hasID
 			return nil
 		},
 		get: func(gf *generatedFrozen) []request.AttemptTransform {
@@ -509,7 +3754,7 @@ func init() {
 			if gf == nil {
 				return "", false
 			}
-			return PlaneAttemptTransforms.Identity(gf.attemptTransforms)
+			return gf.attemptTransformsID, gf.attemptTransformsHasID
 		},
 	}
 	PlaneStreamObserverFactories.generated = generatedAccess[[]response.StreamObserverFactory]{
@@ -524,6 +3769,9 @@ func init() {
 				combined = make([]response.StreamObserverFactory, 0)
 			}
 			gc.streamObserverFactories = cloneSlice(combined)
+			id, hasID := PlaneStreamObserverFactories.Identity(gc.streamObserverFactories)
+			gc.streamObserverFactoriesID = id
+			gc.streamObserverFactoriesHasID = hasID
 			return nil
 		},
 		get: func(gf *generatedFrozen) []response.StreamObserverFactory {
@@ -536,7 +3784,7 @@ func init() {
 			if gf == nil {
 				return "", false
 			}
-			return PlaneStreamObserverFactories.Identity(gf.streamObserverFactories)
+			return gf.streamObserverFactoriesID, gf.streamObserverFactoriesHasID
 		},
 	}
 	PlaneTrafficObservers.generated = generatedAccess[[]traffic.Observer]{
@@ -656,6 +3904,9 @@ func init() {
 				combined = make([]compaction.Preserver, 0)
 			}
 			gc.compactionPreservers = cloneSlice(combined)
+			id, hasID := PlaneCompactionPreservers.Identity(gc.compactionPreservers)
+			gc.compactionPreserversID = id
+			gc.compactionPreserversHasID = hasID
 			return nil
 		},
 		get: func(gf *generatedFrozen) []compaction.Preserver {
@@ -668,7 +3919,7 @@ func init() {
 			if gf == nil {
 				return "", false
 			}
-			return PlaneCompactionPreservers.Identity(gf.compactionPreservers)
+			return gf.compactionPreserversID, gf.compactionPreserversHasID
 		},
 	}
 	PlaneSecretGuards.generated = generatedAccess[[]secretguard.Guard]{
@@ -720,7 +3971,7 @@ func init() {
 				return err
 			}
 			gc.terminalDecisionProvider = combined
-			id, hasID := PlaneTerminalDecisionProvider.Identity(v)
+			id, hasID := PlaneTerminalDecisionProvider.Identity(gc.terminalDecisionProvider)
 			gc.terminalDecisionProviderID = id
 			gc.terminalDecisionProviderHasID = hasID
 			return nil
@@ -738,6 +3989,53 @@ func init() {
 			return gf.terminalDecisionProviderID, gf.terminalDecisionProviderHasID
 		},
 	}
+}
+
+// RequestExecutionView is an immutable borrowed view over request-materialized planes.
+// Its returned slices must not be mutated.
+type RequestExecutionView struct {
+	frozen FrozenPlaneSet
+}
+
+// RequestExecution constructs a RequestExecutionView over the request-materialized planes in in.
+func RequestExecution(in FrozenPlaneSet) RequestExecutionView {
+	return RequestExecutionView{frozen: in}
+}
+
+// ToolCallPolicies returns the request-materialized ToolCallPolicies without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallPolicies() []toolpolicy.Policy {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallPolicies
+}
+
+// ToolCallFinalizers returns the request-materialized ToolCallFinalizers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) ToolCallFinalizers() []toolcall.Finalizer {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.toolCallFinalizers
+}
+
+// SecretGuards returns the request-materialized SecretGuards without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) SecretGuards() []secretguard.Guard {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.secretGuards
+}
+
+// LocalTurnHandlers returns the request-materialized LocalTurnHandlers without cloning.
+// The returned slice is immutable borrowed storage and MUST NOT be mutated.
+func (v RequestExecutionView) LocalTurnHandlers() []localturn.Handler {
+	if v.frozen.frozen == nil {
+		return nil
+	}
+	return v.frozen.frozen.localTurnHandlers
 }
 
 // BindAttemptTransforms replaces AttemptTransforms under SourceGenerationBinder semantics.
@@ -768,4 +4066,799 @@ func (s *ContributionSet) BindCompactionPreservers(contributorID string, v []com
 // ReplaceCompactionPreservers replaces CompactionPreservers under SourceGenerationBinder semantics.
 func (s *ContributionSet) ReplaceCompactionPreservers(contributorID string, v []compaction.Preserver) error {
 	return ContributeSource(s, PlaneCompactionPreservers, SourceGenerationBinder, contributorID, v)
+}
+
+// ProjectDiagnostics projects diagnostic occupants and privileges from a frozen plane set.
+func ProjectDiagnostics(in FrozenPlaneSet) []DiagnosticPlaneProjection {
+	if in.IsZero() {
+		return nil
+	}
+	gf := in.frozen
+	if gf == nil && (in.values != nil || in.identities != nil) {
+		cset := in.ToContributions()
+		gf = cset.Freeze().frozen
+	}
+	if gf == nil {
+		return nil
+	}
+	var projections []DiagnosticPlaneProjection
+
+	// Project PlaneSubmitHooks
+	{
+		val := gf.submitHooks
+		occ := PlaneSubmitHooks.MaterializeOccupants(val)
+		priv := PlaneSubmitHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSubmitHooks.ID,
+				StageID:       PlaneSubmitHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneSubmitHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneSubmitHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRequestPartHooks
+	{
+		val := gf.requestPartHooks
+		occ := PlaneRequestPartHooks.MaterializeOccupants(val)
+		priv := PlaneRequestPartHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRequestPartHooks.ID,
+				StageID:       PlaneRequestPartHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneRequestPartHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneRequestPartHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneResponsePartHooks
+	{
+		val := gf.responsePartHooks
+		occ := PlaneResponsePartHooks.MaterializeOccupants(val)
+		priv := PlaneResponsePartHooks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneResponsePartHooks.ID,
+				StageID:       PlaneResponsePartHooks.Diagnostics.StageID,
+				CoalesceGroup: PlaneResponsePartHooks.Diagnostics.CoalesceGroup,
+				Order:         PlaneResponsePartHooks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolReactors
+	{
+		val := gf.toolReactors
+		occ := PlaneToolReactors.MaterializeOccupants(val)
+		priv := PlaneToolReactors.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolReactors.ID,
+				StageID:       PlaneToolReactors.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolReactors.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolReactors.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneSessionOpeners
+	{
+		val := gf.sessionOpeners
+		occ := PlaneSessionOpeners.MaterializeOccupants(val)
+		priv := PlaneSessionOpeners.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSessionOpeners.ID,
+				StageID:       PlaneSessionOpeners.Diagnostics.StageID,
+				CoalesceGroup: PlaneSessionOpeners.Diagnostics.CoalesceGroup,
+				Order:         PlaneSessionOpeners.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneWorkspaceResolvers
+	{
+		val := gf.workspaceResolvers
+		occ := PlaneWorkspaceResolvers.MaterializeOccupants(val)
+		priv := PlaneWorkspaceResolvers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneWorkspaceResolvers.ID,
+				StageID:       PlaneWorkspaceResolvers.Diagnostics.StageID,
+				CoalesceGroup: PlaneWorkspaceResolvers.Diagnostics.CoalesceGroup,
+				Order:         PlaneWorkspaceResolvers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCatalogFilters
+	{
+		val := gf.toolCatalogFilters
+		occ := PlaneToolCatalogFilters.MaterializeOccupants(val)
+		priv := PlaneToolCatalogFilters.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCatalogFilters.ID,
+				StageID:       PlaneToolCatalogFilters.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCatalogFilters.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCatalogFilters.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCallPolicies
+	{
+		val := gf.toolCallPolicies
+		occ := PlaneToolCallPolicies.MaterializeOccupants(val)
+		priv := PlaneToolCallPolicies.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCallPolicies.ID,
+				StageID:       PlaneToolCallPolicies.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCallPolicies.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCallPolicies.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneToolCallFinalizers
+	{
+		val := gf.toolCallFinalizers
+		occ := PlaneToolCallFinalizers.MaterializeOccupants(val)
+		priv := PlaneToolCallFinalizers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneToolCallFinalizers.ID,
+				StageID:       PlaneToolCallFinalizers.Diagnostics.StageID,
+				CoalesceGroup: PlaneToolCallFinalizers.Diagnostics.CoalesceGroup,
+				Order:         PlaneToolCallFinalizers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRequestTransforms
+	{
+		val := gf.requestTransforms
+		occ := PlaneRequestTransforms.MaterializeOccupants(val)
+		priv := PlaneRequestTransforms.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRequestTransforms.ID,
+				StageID:       PlaneRequestTransforms.Diagnostics.StageID,
+				CoalesceGroup: PlaneRequestTransforms.Diagnostics.CoalesceGroup,
+				Order:         PlaneRequestTransforms.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlanePreRequestHandlers
+	{
+		val := gf.preRequestHandlers
+		occ := PlanePreRequestHandlers.MaterializeOccupants(val)
+		priv := PlanePreRequestHandlers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlanePreRequestHandlers.ID,
+				StageID:       PlanePreRequestHandlers.Diagnostics.StageID,
+				CoalesceGroup: PlanePreRequestHandlers.Diagnostics.CoalesceGroup,
+				Order:         PlanePreRequestHandlers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRouteHintProviders
+	{
+		val := gf.routeHintProviders
+		occ := PlaneRouteHintProviders.MaterializeOccupants(val)
+		priv := PlaneRouteHintProviders.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRouteHintProviders.ID,
+				StageID:       PlaneRouteHintProviders.Diagnostics.StageID,
+				CoalesceGroup: PlaneRouteHintProviders.Diagnostics.CoalesceGroup,
+				Order:         PlaneRouteHintProviders.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneCompletionGates
+	{
+		val := gf.completionGates
+		occ := PlaneCompletionGates.MaterializeOccupants(val)
+		priv := PlaneCompletionGates.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneCompletionGates.ID,
+				StageID:       PlaneCompletionGates.Diagnostics.StageID,
+				CoalesceGroup: PlaneCompletionGates.Diagnostics.CoalesceGroup,
+				Order:         PlaneCompletionGates.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneAttemptTransforms
+	{
+		val := gf.attemptTransforms
+		occ := PlaneAttemptTransforms.MaterializeOccupants(val)
+		priv := PlaneAttemptTransforms.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneAttemptTransforms.ID,
+				StageID:       PlaneAttemptTransforms.Diagnostics.StageID,
+				CoalesceGroup: PlaneAttemptTransforms.Diagnostics.CoalesceGroup,
+				Order:         PlaneAttemptTransforms.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneStreamObserverFactories
+	{
+		val := gf.streamObserverFactories
+		occ := PlaneStreamObserverFactories.MaterializeOccupants(val)
+		priv := PlaneStreamObserverFactories.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneStreamObserverFactories.ID,
+				StageID:       PlaneStreamObserverFactories.Diagnostics.StageID,
+				CoalesceGroup: PlaneStreamObserverFactories.Diagnostics.CoalesceGroup,
+				Order:         PlaneStreamObserverFactories.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneTrafficObservers
+	{
+		val := gf.trafficObservers
+		occ := PlaneTrafficObservers.MaterializeOccupants(val)
+		priv := PlaneTrafficObservers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneTrafficObservers.ID,
+				StageID:       PlaneTrafficObservers.Diagnostics.StageID,
+				CoalesceGroup: PlaneTrafficObservers.Diagnostics.CoalesceGroup,
+				Order:         PlaneTrafficObservers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneUsageObservers
+	{
+		val := gf.usageObservers
+		occ := PlaneUsageObservers.MaterializeOccupants(val)
+		priv := PlaneUsageObservers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneUsageObservers.ID,
+				StageID:       PlaneUsageObservers.Diagnostics.StageID,
+				CoalesceGroup: PlaneUsageObservers.Diagnostics.CoalesceGroup,
+				Order:         PlaneUsageObservers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneRawCaptureSinks
+	{
+		val := gf.rawCaptureSinks
+		occ := PlaneRawCaptureSinks.MaterializeOccupants(val)
+		priv := PlaneRawCaptureSinks.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneRawCaptureSinks.ID,
+				StageID:       PlaneRawCaptureSinks.Diagnostics.StageID,
+				CoalesceGroup: PlaneRawCaptureSinks.Diagnostics.CoalesceGroup,
+				Order:         PlaneRawCaptureSinks.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneTrafficRedactors
+	{
+		val := gf.trafficRedactors
+		occ := PlaneTrafficRedactors.MaterializeOccupants(val)
+		priv := PlaneTrafficRedactors.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneTrafficRedactors.ID,
+				StageID:       PlaneTrafficRedactors.Diagnostics.StageID,
+				CoalesceGroup: PlaneTrafficRedactors.Diagnostics.CoalesceGroup,
+				Order:         PlaneTrafficRedactors.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneSecretGuards
+	{
+		val := gf.secretGuards
+		occ := PlaneSecretGuards.MaterializeOccupants(val)
+		priv := PlaneSecretGuards.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneSecretGuards.ID,
+				StageID:       PlaneSecretGuards.Diagnostics.StageID,
+				CoalesceGroup: PlaneSecretGuards.Diagnostics.CoalesceGroup,
+				Order:         PlaneSecretGuards.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	// Project PlaneLocalTurnHandlers
+	{
+		val := gf.localTurnHandlers
+		occ := PlaneLocalTurnHandlers.MaterializeOccupants(val)
+		priv := PlaneLocalTurnHandlers.ProjectPrivileges(val)
+		if len(occ) > 0 || len(priv.Flags) > 0 {
+			var occCopy []DiagnosticOccupant
+			if len(occ) > 0 {
+				occCopy = make([]DiagnosticOccupant, len(occ))
+				for i := 0; i < len(occ); i++ {
+					o := occ[i]
+					var pCopy []string
+					if len(o.Privileges) > 0 {
+						pCopy = append([]string(nil), o.Privileges...)
+					}
+					occCopy[i] = DiagnosticOccupant{
+						Label:      o.Label,
+						PluginID:   o.PluginID,
+						Privileges: pCopy,
+					}
+				}
+			}
+			var privCopy []string
+			if len(priv.Flags) > 0 {
+				privCopy = append([]string(nil), priv.Flags...)
+			}
+			projections = append(projections, DiagnosticPlaneProjection{
+				PlaneID:       PlaneLocalTurnHandlers.ID,
+				StageID:       PlaneLocalTurnHandlers.Diagnostics.StageID,
+				CoalesceGroup: PlaneLocalTurnHandlers.Diagnostics.CoalesceGroup,
+				Order:         PlaneLocalTurnHandlers.Diagnostics.Order,
+				Occupants:     occCopy,
+				Privileges:    PrivilegeProjection{Flags: privCopy},
+			})
+		}
+	}
+
+	return projections
 }

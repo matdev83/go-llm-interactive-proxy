@@ -132,16 +132,14 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 
 	reg := generationRegistry(t)
 	require.NoError(t, reg.RegisterFeature("traffic-cap-1", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{trafficCap},
-		}, nil
+		return testkit.FeatureBundle(t, "traffic-cap-1", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "traffic-cap-1", []traffic.Observer{trafficCap})
+		}, nil), nil
 	}))
 	require.NoError(t, reg.RegisterFeature("traffic-cap-2", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
-		return lipfeature.FeatureBundle{
-			SchemaVersion:    lipfeature.SchemaVersionV1,
-			TrafficObservers: []traffic.Observer{trafficCap2},
-		}, nil
+		return testkit.FeatureBundle(t, "traffic-cap-2", func(cs *lipfeature.ContributionSet) error {
+			return lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, "traffic-cap-2", []traffic.Observer{trafficCap2})
+		}, nil), nil
 	}))
 
 	cfg := task51BaseConfig()
@@ -164,14 +162,14 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 	gen1Cfg.Plugins.Features = append(gen1Cfg.Plugins.Features, config.PluginConfig{
 		ID: "traffic-cap-1", Enabled: true,
 	})
+	cs1 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneLocalTurnHandlers, "h1", []localturn.Handler{handler1}))
 	gen1, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: gen1Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
 		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				LocalTurnHandlers: []localturn.Handler{handler1},
-			},
+			FeaturePlanes: cs1.Freeze(),
 		},
 	})
 	if err != nil {
@@ -229,11 +227,6 @@ func TestTask51_GenerationReload_RuntimeBundleHarness(t *testing.T) {
 		Process:   ps,
 		Candidate: gen2Cfg,
 		Compose:   stdhttp.ComposeStandardHTTP,
-		CandidateOpts: &runtimebundle.BuildOptions{
-			Extensions: runtimebundle.ExtensionsOptions{
-				LocalTurnHandlers: nil, // no handlers
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration gen2: %v", err)

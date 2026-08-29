@@ -12,8 +12,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -30,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
+	"gopkg.in/yaml.v3"
 )
 
 // --- Extension Stubs for RuntimeBundle Pinned Concurrency Characterization ---
@@ -181,44 +184,110 @@ func (p *charBundleTerminalProvider) Decide(context.Context, terminaldecision.In
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "char-done"}, nil
 }
 
-// buildBundleExtensions creates a populated ExtensionsOptions struct for testing candidate compilation.
+// buildBundleExtensions creates an ExtensionsOptions struct for testing candidate compilation.
 func buildBundleExtensions(gen int64, label string) runtimebundle.ExtensionsOptions {
-	return runtimebundle.ExtensionsOptions{
-		SessionOpeners: []session.Opener{
-			charBundleSessionOpener{id: label + "-session"},
+	return runtimebundle.ExtensionsOptions{}
+}
+
+func newProcessForPinnedGeneration(t *testing.T) *runtimebundle.ProcessServices {
+	t.Helper()
+	cat := stdFactoryCatalog(t)
+	err := cat.RegisterFeature("char-bundle-feature", func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		var cfg struct {
+			Label string `yaml:"label"`
+		}
+		_ = n.Decode(&cfg)
+		label := cfg.Label
+		return testkit.FeatureBundle(t, "char-bundle-feature", func(cs *lipfeature.ContributionSet) error {
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, label+"-terminal", terminaldecision.Provider(&charBundleTerminalProvider{id: label + "-terminal"})); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "char-bundle-feature", []localturn.Handler{
+				charBundleLocalTurnHandler{id: label + "-localturn", ord: 0},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, "char-bundle-feature", []session.Opener{
+				charBundleSessionOpener{id: label + "-session"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, "char-bundle-feature", []toolcatalog.Filter{
+				charBundleToolCatalogFilter{id: label + "-catalog"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, "char-bundle-feature", []toolpolicy.Policy{
+				charBundleToolCallPolicy{id: label + "-policy"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "char-bundle-feature", []toolcall.Finalizer{
+				charBundleToolCallFinalizer{id: label + "-finalizer"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, "char-bundle-feature", []request.Transform{
+				charBundleRequestTransform{id: label + "-reqxform"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, "char-bundle-feature", []prerequest.Handler{
+				charBundlePreRequestHandler{id: label + "-prereq"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, "char-bundle-feature", []routehint.Provider{
+				charBundleRouteHintProvider{id: label + "-routehint"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, "char-bundle-feature", []completion.Gate{
+				charBundleCompletionGate{id: label + "-gate"},
+			}); err != nil {
+				return err
+			}
+			if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, "char-bundle-feature", []request.AttemptTransform{
+				charBundleAttemptTransform{id: label + "-attxform"},
+			}); err != nil {
+				return err
+			}
+			return lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "char-bundle-feature", []secretguard.Guard{
+				charBundleSecretGuard{id: label + "-sg", ord: 0},
+			})
+		}, nil), nil
+	})
+	require.NoError(t, err)
+	cfg := processBaseConfig()
+	require.NoError(t, config.Validate(cfg))
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg:  cfg,
+		Log:  testkit.DiscardLogger(),
+		Opts: &runtimebundle.BuildOptions{PluginRegistry: cat},
+		Tracing: runtimebundle.ProcessTracing{
+			Shutdown: func(context.Context) error { return nil },
 		},
-		ToolCatalogFilters: []toolcatalog.Filter{
-			charBundleToolCatalogFilter{id: label + "-catalog"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+	return ps
+}
+
+func pinnedCandidateConfig(t *testing.T, backendID, text, defaultRoute, label string) *config.Config {
+	t.Helper()
+	cfg := stubCandidateConfig(t, backendID, text, defaultRoute, []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+	})
+	cfg.Plugins.Features = []config.PluginConfig{
+		{
+			Kind:    "char-bundle-feature",
+			ID:      "char-bundle-feature",
+			Enabled: true,
+			Config:  genYAMLNode(t, fmt.Sprintf("label: %q\n", label)),
 		},
-		ToolCallPolicies: []toolpolicy.Policy{
-			charBundleToolCallPolicy{id: label + "-policy", ord: int(gen)},
-		},
-		ToolCallFinalizers: []toolcall.Finalizer{
-			charBundleToolCallFinalizer{id: label + "-finalizer", ord: int(gen)},
-		},
-		RequestTransforms: []request.Transform{
-			charBundleRequestTransform{id: label + "-reqxform"},
-		},
-		PreRequestHandlers: []prerequest.Handler{
-			charBundlePreRequestHandler{id: label + "-prereq"},
-		},
-		RouteHintProviders: []routehint.Provider{
-			charBundleRouteHintProvider{id: label + "-routehint"},
-		},
-		CompletionGates: []completion.Gate{
-			charBundleCompletionGate{id: label + "-gate"},
-		},
-		AttemptTransforms: []request.AttemptTransform{
-			charBundleAttemptTransform{id: label + "-attxform"},
-		},
-		SecretGuards: []secretguard.Guard{
-			charBundleSecretGuard{id: label + "-sg", ord: int(gen)},
-		},
-		LocalTurnHandlers: []localturn.Handler{
-			charBundleLocalTurnHandler{id: label + "-localturn", ord: int(gen)},
-		},
-		TerminalDecisionProvider: &charBundleTerminalProvider{id: label + "-terminal"},
 	}
+	require.NoError(t, config.Validate(cfg))
+	return cfg
 }
 
 // assertGenerationPlanesMatch verifies that all planes exposed by a GenerationBundle
@@ -331,12 +400,10 @@ func TestGenerationPublish_PinnedRequestRetainsFrozenExtensionSurface(t *testing
 	t.Parallel()
 
 	// 1. Establish ProcessServices
-	ps := newProcessForGeneration(t)
+	ps := newProcessForPinnedGeneration(t)
 
 	// 2. Compile Generation 1 with Gen 1 extensions
-	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
+	gen1Cfg := pinnedCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", "gen1")
 	gen1Extensions := buildBundleExtensions(1, "gen1")
 	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
@@ -413,9 +480,7 @@ func TestGenerationPublish_PinnedRequestRetainsFrozenExtensionSurface(t *testing
 
 		<-req1Stage1Done
 
-		gen2Cfg := stubCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", []config.PluginConfig{
-			{ID: "openai-responses", Enabled: true},
-		})
+		gen2Cfg := pinnedCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", "gen2")
 		gen2Extensions := buildBundleExtensions(2, "gen2")
 		gen2Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 			Process:   ps,
@@ -472,7 +537,7 @@ func TestGenerationPublish_PinnedRequestRetainsFrozenExtensionSurface(t *testing
 func TestGenerationPublish_PinnedRequest_RepeatedPublishAcrossInterleavings(t *testing.T) {
 	t.Parallel()
 
-	ps := newProcessForGeneration(t)
+	ps := newProcessForPinnedGeneration(t)
 	mgr := runtimehost.NewManager(16, nil)
 	t.Cleanup(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -481,9 +546,7 @@ func TestGenerationPublish_PinnedRequest_RepeatedPublishAcrossInterleavings(t *t
 	})
 
 	// Publish Generation 1
-	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
+	gen1Cfg := pinnedCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", "gen1")
 	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: gen1Cfg,
@@ -513,9 +576,7 @@ func TestGenerationPublish_PinnedRequest_RepeatedPublishAcrossInterleavings(t *t
 		backendID := fmt.Sprintf("gen-%d-backend", i)
 		route := fmt.Sprintf("%s:stub-default", backendID)
 
-		candCfg := stubCandidateConfig(t, backendID, "serving-"+genLabel, route, []config.PluginConfig{
-			{ID: "openai-responses", Enabled: true},
-		})
+		candCfg := pinnedCandidateConfig(t, backendID, "serving-"+genLabel, route, genLabel)
 		candBundle, compileErr := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 			Process:   ps,
 			Candidate: candCfg,
@@ -550,13 +611,11 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
 	)
 
-	ps := newProcessForGeneration(t)
+	ps := newProcessForPinnedGeneration(t)
 	mgr := runtimehost.NewManager(16, nil)
 
 	// Publish Generation 1
-	gen1Cfg := stubCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
+	gen1Cfg := pinnedCandidateConfig(t, "gen-1-backend", "serving-gen1", "gen-1-backend:stub-default", "gen1")
 	gen1Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: gen1Cfg,
@@ -599,9 +658,7 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 	}
 
 	// Publish Generation 2 concurrently while leases are being acquired and pinned
-	gen2Cfg := stubCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
+	gen2Cfg := pinnedCandidateConfig(t, "gen-2-backend", "serving-gen2", "gen-2-backend:stub-default", "gen2")
 	gen2Bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: gen2Cfg,

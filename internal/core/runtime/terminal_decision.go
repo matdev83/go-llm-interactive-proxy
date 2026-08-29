@@ -61,7 +61,7 @@ func (t *turnTerminal) sharedTerminalDecision(ctx context.Context, provider term
 		}
 		t.terminalDecisionMu.Unlock()
 		cancel()
-		return evaluateTerminalDecisionWithLogger(ctx, provider, input, t.log)
+		return evaluateTerminalDecisionWithFrozenIdentity(ctx, provider, t.terminalDecisionProviderID, t.terminalDecisionProviderHasID, input, t.log)
 	}
 	key := terminalDecisionKey{
 		cause:               input.Candidate.Cause,
@@ -116,7 +116,7 @@ func (t *turnTerminal) sharedTerminalDecision(ctx context.Context, provider term
 		t.terminalDecisionFlight = flight
 		t.terminalDecisionMu.Unlock()
 
-		outcome := evaluateTerminalDecisionWithLogger(sharedCtx, provider, input, t.log)
+		outcome := evaluateTerminalDecisionWithFrozenIdentity(sharedCtx, provider, t.terminalDecisionProviderID, t.terminalDecisionProviderHasID, input, t.log)
 		cancel()
 		t.terminalDecisionMu.Lock()
 		flight.outcome = outcome
@@ -156,7 +156,26 @@ func evaluateTerminalDecision(ctx context.Context, provider terminaldecision.Pro
 	return evaluateTerminalDecisionWithLogger(ctx, provider, input, nil)
 }
 
-func evaluateTerminalDecisionWithLogger(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, observationLogger *slog.Logger) (out terminalDecisionOutcome) {
+func evaluateTerminalDecisionWithLogger(ctx context.Context, provider terminaldecision.Provider, input terminaldecision.Input, observationLogger *slog.Logger) terminalDecisionOutcome {
+	var providerID string
+	var hasProviderID bool
+	if provider != nil {
+		if id, err := terminaldecision.ProviderIdentity(provider); err == nil {
+			providerID = id
+			hasProviderID = true
+		}
+	}
+	return evaluateTerminalDecisionWithFrozenIdentity(ctx, provider, providerID, hasProviderID, input, observationLogger)
+}
+
+func evaluateTerminalDecisionWithFrozenIdentity(
+	ctx context.Context,
+	provider terminaldecision.Provider,
+	providerID string,
+	hasProviderID bool,
+	input terminaldecision.Input,
+	observationLogger *slog.Logger,
+) (out terminalDecisionOutcome) {
 	out.OutputCommitted = input.Candidate.OutputCommitted
 	out.Decision = allowStopDecision("no_provider")
 	providerLabel := terminalDecisionObservationProviderInvalid
@@ -182,8 +201,7 @@ func evaluateTerminalDecisionWithLogger(ctx context.Context, provider terminalde
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	providerID, providerErr := terminaldecision.ProviderIdentity(provider)
-	if providerErr != nil {
+	if !hasProviderID || providerID == "" {
 		out.Decision = allowStopDecision(terminalDecisionReasonInvalidProvider)
 		return out
 	}

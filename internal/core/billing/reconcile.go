@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 )
 
 type ReconciliationIssue struct {
@@ -74,7 +75,7 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 	for index, journal := range ordered {
 		expectedSequence := uint64(index + 1)
 		if journal.AccountSequence != expectedSequence {
-			report.addIssue("account_sequence_gap", journal.AccountSequence, fmt.Sprintf("got %d want %d", journal.AccountSequence, expectedSequence))
+			report.addIssue("account_sequence_gap", journal.AccountSequence, "got "+strconv.FormatUint(journal.AccountSequence, 10)+" want "+strconv.FormatUint(expectedSequence, 10))
 		}
 		if err := journal.Validate(); err != nil {
 			report.addIssue("journal_invalid", journal.AccountSequence, err.Error())
@@ -150,7 +151,7 @@ func ReplayAccount(account Account, openingBalance int64, journals []JournalTran
 		report.Rebuilt = AccountSnapshot{BalanceNano: balance, SpendableNano: spendable, CreditFloorNano: floor, CreditLimitNano: account.CreditLimit, Mode: account.Mode, Currency: account.Currency, Version: account.Version}
 	}
 	if balance < floor {
-		report.addIssue("balance_below_floor", 0, fmt.Sprintf("balance=%d floor=%d", balance, floor))
+		report.addIssue("balance_below_floor", 0, "balance="+strconv.FormatInt(balance, 10)+" floor="+strconv.FormatInt(floor, 10))
 	}
 	report.OK = len(report.Issues) == 0
 	return report

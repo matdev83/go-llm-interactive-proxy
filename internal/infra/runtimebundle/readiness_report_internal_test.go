@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -305,11 +306,14 @@ func newSecretGuardReadinessExecutor(t *testing.T, withSecureSession bool, quara
 		mgr = newReadinessSecureSessionManager(t, b2, quarantineErr)
 	}
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSecretGuards, "test", []secretguard.Guard{alwaysBlockSecretGuard{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{noopWorkspaceResolver{}}),
 		SecretGuardPlane: extensions.SecretGuardPlane{
-			Guards: []secretguard.Guard{alwaysBlockSecretGuard{}},
+			AuditFailurePolicy: secretguard.AuditFailClosed,
 		},
+		FeaturePlanes: cset.Freeze(),
 	})
 	ex := runtime.TestExecutor()
 	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial

@@ -248,42 +248,64 @@ func charTags[T any](xs []T, tag func(T) string) []string {
 // charBundle contributes two tagged elements on every ordered plane so both
 // bundle order and within-bundle order are observable after a merge.
 func charBundle(prefix string) lipfeature.FeatureBundle {
-	return lipfeature.FeatureBundle{
-		SchemaVersion:            lipfeature.SchemaVersionV1,
-		SubmitHooks:              []sdkhooks.SubmitHook{charSubmitHook{tag: prefix + "-a"}, charSubmitHook{tag: prefix + "-b"}},
-		RequestPartHooks:         []sdkhooks.RequestPartHook{charRequestPartHook{tag: prefix + "-a"}, charRequestPartHook{tag: prefix + "-b"}},
-		ResponsePartHooks:        []sdkhooks.ResponsePartHook{charResponsePartHook{tag: prefix + "-a"}, charResponsePartHook{tag: prefix + "-b"}},
-		ToolReactors:             []sdkhooks.ToolReactor{charToolReactor{tag: prefix + "-a"}, charToolReactor{tag: prefix + "-b"}},
-		Lifecycles:               []lipplugin.Lifecycle{charLifecycle{tag: prefix + "-a"}, charLifecycle{tag: prefix + "-b"}},
-		SessionOpeners:           []session.Opener{charOpener{tag: prefix + "-a"}, charOpener{tag: prefix + "-b"}},
-		WorkspaceResolvers:       []lipworkspace.Resolver{charResolver{tag: prefix + "-a"}, charResolver{tag: prefix + "-b"}},
-		ToolCatalogFilters:       []toolcatalog.Filter{charCatalogFilter{tag: prefix + "-a"}, charCatalogFilter{tag: prefix + "-b"}},
-		ToolCallPolicies:         []toolpolicy.Policy{charPolicy{tag: prefix + "-a"}, charPolicy{tag: prefix + "-b"}},
-		ToolCallFinalizers:       []toolcall.Finalizer{charFinalizer{tag: prefix + "-a"}, charFinalizer{tag: prefix + "-b"}},
-		RequestTransforms:        []request.Transform{charTransform{tag: prefix + "-a"}, charTransform{tag: prefix + "-b"}},
-		PreRequestHandlers:       []prerequest.Handler{charPreReq{tag: prefix + "-a"}, charPreReq{tag: prefix + "-b"}},
-		RouteHintProviders:       []routehint.Provider{charRouteHint{tag: prefix + "-a"}, charRouteHint{tag: prefix + "-b"}},
-		CompletionGates:          []completion.Gate{charCompGate{tag: prefix + "-a"}, charCompGate{tag: prefix + "-b"}},
-		AttemptTransforms:        []request.AttemptTransform{charAttemptTransform{tag: prefix + "-a"}, charAttemptTransform{tag: prefix + "-b"}},
-		StreamObserverFactories:  []response.StreamObserverFactory{charStreamObserverFactory{tag: prefix + "-a"}, charStreamObserverFactory{tag: prefix + "-b"}},
-		TrafficObservers:         []traffic.Observer{charTrafficObs{tag: prefix + "-a"}, charTrafficObs{tag: prefix + "-b"}},
-		UsageObservers:           []usage.Observer{charUsageObs{tag: prefix + "-a"}, charUsageObs{tag: prefix + "-b"}},
-		RawCaptureSinks:          []traffic.RawCaptureSink{charRawSink{tag: prefix + "-a"}, charRawSink{tag: prefix + "-b"}},
-		TrafficRedactors:         []traffic.Redactor{charRedactor{tag: prefix + "-a"}, charRedactor{tag: prefix + "-b"}},
-		CompactionObservers:      []compaction.Observer{charCompactionObs{tag: prefix + "-a"}, charCompactionObs{tag: prefix + "-b"}},
-		CompactionPreservers:     []compaction.Preserver{charCompactionPreserver{tag: prefix + "-a"}, charCompactionPreserver{tag: prefix + "-b"}},
-		SecretGuards:             []secretguard.Guard{charSecretGuard{tag: prefix + "-a"}, charSecretGuard{tag: prefix + "-b"}},
-		LocalTurnHandlers:        []localturn.Handler{charLocalTurnHandler{tag: prefix + "-a"}, charLocalTurnHandler{tag: prefix + "-b"}},
-		TerminalDecisionProvider: charTerminalProvider{tag: prefix + "-provider"},
-	}
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, prefix, []sdkhooks.SubmitHook{charSubmitHook{tag: prefix + "-a"}, charSubmitHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, prefix, []sdkhooks.RequestPartHook{charRequestPartHook{tag: prefix + "-a"}, charRequestPartHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, prefix, []sdkhooks.ResponsePartHook{charResponsePartHook{tag: prefix + "-a"}, charResponsePartHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, prefix, []sdkhooks.ToolReactor{charToolReactor{tag: prefix + "-a"}, charToolReactor{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, prefix, []session.Opener{charOpener{tag: prefix + "-a"}, charOpener{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, prefix, []lipworkspace.Resolver{charResolver{tag: prefix + "-a"}, charResolver{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, prefix, []toolcatalog.Filter{charCatalogFilter{tag: prefix + "-a"}, charCatalogFilter{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, prefix, []toolpolicy.Policy{charPolicy{tag: prefix + "-a"}, charPolicy{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, prefix, []toolcall.Finalizer{charFinalizer{tag: prefix + "-a"}, charFinalizer{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, prefix, []request.Transform{charTransform{tag: prefix + "-a"}, charTransform{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, prefix, []prerequest.Handler{charPreReq{tag: prefix + "-a"}, charPreReq{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, prefix, []routehint.Provider{charRouteHint{tag: prefix + "-a"}, charRouteHint{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, prefix, []completion.Gate{charCompGate{tag: prefix + "-a"}, charCompGate{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, prefix, []request.AttemptTransform{charAttemptTransform{tag: prefix + "-a"}, charAttemptTransform{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, prefix, []response.StreamObserverFactory{charStreamObserverFactory{tag: prefix + "-a"}, charStreamObserverFactory{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, prefix, []traffic.Observer{charTrafficObs{tag: prefix + "-a"}, charTrafficObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, prefix, []usage.Observer{charUsageObs{tag: prefix + "-a"}, charUsageObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, prefix, []traffic.RawCaptureSink{charRawSink{tag: prefix + "-a"}, charRawSink{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, prefix, []traffic.Redactor{charRedactor{tag: prefix + "-a"}, charRedactor{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, prefix, []compaction.Observer{charCompactionObs{tag: prefix + "-a"}, charCompactionObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, prefix, []compaction.Preserver{charCompactionPreserver{tag: prefix + "-a"}, charCompactionPreserver{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, prefix, []secretguard.Guard{charSecretGuard{tag: prefix + "-a"}, charSecretGuard{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, prefix, []localturn.Handler{charLocalTurnHandler{tag: prefix + "-a"}, charLocalTurnHandler{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, prefix, terminaldecision.Provider(charTerminalProvider{tag: prefix + "-provider"}))
+	lifecycles := []lipplugin.Lifecycle{charLifecycle{tag: prefix + "-a"}, charLifecycle{tag: prefix + "-b"}}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), lifecycles)
 }
 
 // charOrderedBundle contributes on every ordered plane without touching the
 // exclusive terminal-decision slot.
 func charOrderedBundle(prefix string) lipfeature.FeatureBundle {
-	b := charBundle(prefix)
-	b.TerminalDecisionProvider = nil
-	return b
+	cs := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, prefix, []sdkhooks.SubmitHook{charSubmitHook{tag: prefix + "-a"}, charSubmitHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, prefix, []sdkhooks.RequestPartHook{charRequestPartHook{tag: prefix + "-a"}, charRequestPartHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneResponsePartHooks, prefix, []sdkhooks.ResponsePartHook{charResponsePartHook{tag: prefix + "-a"}, charResponsePartHook{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, prefix, []sdkhooks.ToolReactor{charToolReactor{tag: prefix + "-a"}, charToolReactor{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionOpeners, prefix, []session.Opener{charOpener{tag: prefix + "-a"}, charOpener{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneWorkspaceResolvers, prefix, []lipworkspace.Resolver{charResolver{tag: prefix + "-a"}, charResolver{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCatalogFilters, prefix, []toolcatalog.Filter{charCatalogFilter{tag: prefix + "-a"}, charCatalogFilter{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallPolicies, prefix, []toolpolicy.Policy{charPolicy{tag: prefix + "-a"}, charPolicy{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, prefix, []toolcall.Finalizer{charFinalizer{tag: prefix + "-a"}, charFinalizer{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRequestTransforms, prefix, []request.Transform{charTransform{tag: prefix + "-a"}, charTransform{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlanePreRequestHandlers, prefix, []prerequest.Handler{charPreReq{tag: prefix + "-a"}, charPreReq{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRouteHintProviders, prefix, []routehint.Provider{charRouteHint{tag: prefix + "-a"}, charRouteHint{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompletionGates, prefix, []completion.Gate{charCompGate{tag: prefix + "-a"}, charCompGate{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, prefix, []request.AttemptTransform{charAttemptTransform{tag: prefix + "-a"}, charAttemptTransform{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneStreamObserverFactories, prefix, []response.StreamObserverFactory{charStreamObserverFactory{tag: prefix + "-a"}, charStreamObserverFactory{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficObservers, prefix, []traffic.Observer{charTrafficObs{tag: prefix + "-a"}, charTrafficObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneUsageObservers, prefix, []usage.Observer{charUsageObs{tag: prefix + "-a"}, charUsageObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneRawCaptureSinks, prefix, []traffic.RawCaptureSink{charRawSink{tag: prefix + "-a"}, charRawSink{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, prefix, []traffic.Redactor{charRedactor{tag: prefix + "-a"}, charRedactor{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, prefix, []compaction.Observer{charCompactionObs{tag: prefix + "-a"}, charCompactionObs{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneCompactionPreservers, prefix, []compaction.Preserver{charCompactionPreserver{tag: prefix + "-a"}, charCompactionPreserver{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, prefix, []secretguard.Guard{charSecretGuard{tag: prefix + "-a"}, charSecretGuard{tag: prefix + "-b"}})
+	_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, prefix, []localturn.Handler{charLocalTurnHandler{tag: prefix + "-a"}, charLocalTurnHandler{tag: prefix + "-b"}})
+	lifecycles := []lipplugin.Lifecycle{charLifecycle{tag: prefix + "-a"}, charLifecycle{tag: prefix + "-b"}}
+	return lipfeature.BundleFromPlanes(cs.Freeze(), lifecycles)
 }
 
 func assertAllSliceFieldsNil(t *testing.T, v any) {
@@ -327,118 +349,6 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 				return ""
 			})
 		}},
-		{"SessionOpeners", func(m MergedFeatureSurface) []string {
-			return charTags(m.SessionOpeners, func(o session.Opener) string {
-				if op, ok := o.(charOpener); ok {
-					return op.tag
-				}
-				return ""
-			})
-		}},
-		{"WorkspaceResolvers", func(m MergedFeatureSurface) []string {
-			return charTags(m.WorkspaceResolvers, func(r lipworkspace.Resolver) string {
-				if wr, ok := r.(charResolver); ok {
-					return wr.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolCatalogFilters", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCatalogFilters, func(f toolcatalog.Filter) string {
-				if cf, ok := f.(charCatalogFilter); ok {
-					return cf.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolCallPolicies", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallPolicies, func(p toolpolicy.Policy) string {
-				if cp, ok := p.(charPolicy); ok {
-					return cp.tag
-				}
-				return ""
-			})
-		}},
-		{"ToolCallFinalizers", func(m MergedFeatureSurface) []string {
-			return charTags(m.ToolCallFinalizers, func(f toolcall.Finalizer) string {
-				if cf, ok := f.(charFinalizer); ok {
-					return cf.tag
-				}
-				return ""
-			})
-		}},
-		{"RequestTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.RequestTransforms, func(tr request.Transform) string {
-				if rt, ok := tr.(charTransform); ok {
-					return rt.tag
-				}
-				return ""
-			})
-		}},
-		{"PreRequestHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.PreRequestHandlers, func(h prerequest.Handler) string {
-				if pr, ok := h.(charPreReq); ok {
-					return pr.tag
-				}
-				return ""
-			})
-		}},
-		{"RouteHintProviders", func(m MergedFeatureSurface) []string {
-			return charTags(m.RouteHintProviders, func(p routehint.Provider) string {
-				if rh, ok := p.(charRouteHint); ok {
-					return rh.tag
-				}
-				return ""
-			})
-		}},
-		{"CompletionGates", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompletionGates, func(g completion.Gate) string {
-				if cg, ok := g.(charCompGate); ok {
-					return cg.tag
-				}
-				return ""
-			})
-		}},
-		{"AttemptTransforms", func(m MergedFeatureSurface) []string {
-			return charTags(m.AttemptTransforms, func(tr request.AttemptTransform) string {
-				if at, ok := tr.(charAttemptTransform); ok {
-					return at.tag
-				}
-				return ""
-			})
-		}},
-		{"CompactionObservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionObservers, func(o compaction.Observer) string {
-				if co, ok := o.(charCompactionObs); ok {
-					return co.tag
-				}
-				return ""
-			})
-		}},
-		{"CompactionPreservers", func(m MergedFeatureSurface) []string {
-			return charTags(m.CompactionPreservers, func(p compaction.Preserver) string {
-				if cp, ok := p.(charCompactionPreserver); ok {
-					return cp.tag
-				}
-				return ""
-			})
-		}},
-		{"SecretGuards", func(m MergedFeatureSurface) []string {
-			return charTags(m.SecretGuards, func(g secretguard.Guard) string {
-				if sg, ok := g.(charSecretGuard); ok {
-					return sg.tag
-				}
-				return ""
-			})
-		}},
-		{"LocalTurnHandlers", func(m MergedFeatureSurface) []string {
-			return charTags(m.LocalTurnHandlers, func(h localturn.Handler) string {
-				if lh, ok := h.(charLocalTurnHandler); ok {
-					return lh.tag
-				}
-				return ""
-			})
-		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -448,12 +358,14 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 	}
 
 	// Exclusive slot: a later bundle's provider lands after ordered slice
-	// contributions; the single contribution wins the one slot.
+	// contributions; the single contribution wins the one slot in GeneratedMergeSurface.
 	provider := charTerminalProvider{tag: "C-provider"}
-	final, err := MergeBundlesChecked(charOrderedBundle("A"), charOrderedBundle("B"),
-		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, TerminalDecisionProvider: provider})
+	csC := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(csC, lipfeature.PlaneTerminalDecisionProvider, "C", terminaldecision.Provider(provider)))
+	finalGen, err := MergeBundlesGenerated(charOrderedBundle("A"), charOrderedBundle("B"),
+		lipfeature.BundleFromPlanes(csC.Freeze(), nil))
 	require.NoError(t, err)
-	require.Equal(t, provider, final.TerminalDecisionProvider)
+	require.Equal(t, provider, lipfeature.Get(finalGen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 }
 
 // Pins actual nil-vs-empty semantics of the legacy merge: nothing materializes
@@ -479,28 +391,8 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 	t.Run("explicitly_empty_bundle_slices_do_not_materialize", func(t *testing.T) {
 		t.Parallel()
 		bundle := lipfeature.FeatureBundle{
-			SchemaVersion:            lipfeature.SchemaVersionV1,
-			SubmitHooks:              []sdkhooks.SubmitHook{},
-			RequestPartHooks:         []sdkhooks.RequestPartHook{},
-			ResponsePartHooks:        []sdkhooks.ResponsePartHook{},
-			ToolReactors:             []sdkhooks.ToolReactor{},
-			Lifecycles:               []lipplugin.Lifecycle{},
-			SessionOpeners:           []session.Opener{},
-			WorkspaceResolvers:       []lipworkspace.Resolver{},
-			ToolCatalogFilters:       []toolcatalog.Filter{},
-			ToolCallPolicies:         []toolpolicy.Policy{},
-			ToolCallFinalizers:       []toolcall.Finalizer{},
-			RequestTransforms:        []request.Transform{},
-			PreRequestHandlers:       []prerequest.Handler{},
-			RouteHintProviders:       []routehint.Provider{},
-			CompletionGates:          []completion.Gate{},
-			AttemptTransforms:        []request.AttemptTransform{},
-			StreamObserverFactories:  []response.StreamObserverFactory{},
-			CompactionObservers:      []compaction.Observer{},
-			CompactionPreservers:     []compaction.Preserver{},
-			SecretGuards:             []secretguard.Guard{},
-			LocalTurnHandlers:        []localturn.Handler{},
-			TerminalDecisionProvider: nil,
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			Lifecycles:    []lipplugin.Lifecycle{},
 		}
 		merged, err := MergeBundlesChecked(bundle)
 		require.NoError(t, err)
@@ -511,41 +403,36 @@ func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
 		t.Parallel()
 		merged, err := MergeBundlesChecked(charBundle("A"))
 		require.NoError(t, err)
-		require.Len(t, merged.SessionOpeners, 2)
 		require.Len(t, merged.Lifecycles, 2)
-		require.False(t, reflect.ValueOf(merged.SessionOpeners).IsNil())
+		require.False(t, reflect.ValueOf(merged.Lifecycles).IsNil())
 	})
 }
 
 // Pins validate-before-mutate: a rejected contribution leaves the accumulated
 // receiver byte-for-byte unchanged, so lifecycles/hooks already merged are
 // neither lost nor reordered by a failing Append.
-func TestMergedFeatureSurface_Append_failureLeavesReceiverUnchanged(t *testing.T) {
+func TestMergeBundlesGenerated_failureLeavesCandidateDiscarded(t *testing.T) {
 	t.Parallel()
 
-	m, err := MergeBundlesChecked(charBundle("A"))
-	require.NoError(t, err)
-	snapshot := m
-
-	err = m.Append(charBundle("B"))
+	gen, err := MergeBundlesGenerated(charBundle("A"), charBundle("B"))
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 	require.Contains(t, err.Error(), "A-provider")
 	require.Contains(t, err.Error(), "B-provider")
-	require.Equal(t, snapshot, m)
+	require.Equal(t, GeneratedMergeSurface{}, gen)
 }
 
 // Pins fail-closed candidate discard: when a later bundle conflicts, the whole
 // accumulated candidate (including earlier lifecycles) is discarded rather
 // than returned partially merged.
-func TestMergeBundlesChecked_conflictDiscardsAccumulatedCandidate(t *testing.T) {
+func TestMergeBundlesGenerated_conflictDiscardsAccumulatedCandidate(t *testing.T) {
 	t.Parallel()
 
-	merged, err := MergeBundlesChecked(
+	merged, err := MergeBundlesGenerated(
 		charBundle("A"),
 		charBundle("B"),
 	)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrTerminalDecisionProviderConflict)
-	require.Equal(t, MergedFeatureSurface{}, merged)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+	require.Equal(t, GeneratedMergeSurface{}, merged)
 }

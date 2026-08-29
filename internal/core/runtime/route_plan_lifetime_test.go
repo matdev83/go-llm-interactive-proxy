@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -378,9 +380,11 @@ func TestExecutor_ctpRecordsClientSelectorSeparateFromEffectiveBaseline(t *testi
 		},
 	})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:         voidWorkspaceResolver{},
-		TrafficObserver:   ctp,
-		RequestTransforms: []request.Transform{selectorRewriteTransform{from: clientSelector, to: hookSelector}},
+		Workspace:       voidWorkspaceResolver{},
+		TrafficObserver: ctp,
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			RequestTransforms: []request.Transform{selectorRewriteTransform{from: clientSelector, to: hookSelector}},
+		}),
 	})
 	ex.SecureSessionRecorder = rec
 

@@ -1,7 +1,6 @@
 package runtimebundle
 
 import (
-	"slices"
 	"strings"
 	"time"
 
@@ -11,17 +10,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -79,59 +70,23 @@ func buildRuntimeSnapshot(
 	sgPlane extensions.SecretGuardPlane,
 	extensionState lipstate.Store,
 ) *extensions.RequestRuntimeSnapshot {
+	var frozen lipfeature.FrozenPlaneSet
+	if opts != nil {
+		frozen = opts.FeaturePlanes
+	}
+	wsResolvers := lipfeature.Get(frozen, lipfeature.PlaneWorkspaceResolvers)
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
-	if len(opts.Extensions.WorkspaceResolvers) > 0 {
+	if len(wsResolvers) > 0 {
 		ss := cfg.SecureSession
 		secureOn := cfg.SecureSessionEffectivelyEnabled()
 		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
 		failClosedWS := secureOn && resolveFailClosed
 		if failClosedWS {
-			ws = coreworkspace.NewStrictChain(opts.Extensions.WorkspaceResolvers)
+			ws = coreworkspace.NewStrictChain(wsResolvers)
 		} else {
-			ws = coreworkspace.NewResolverChain(opts.Extensions.WorkspaceResolvers)
+			ws = coreworkspace.NewResolverChain(wsResolvers)
 		}
 	}
-	var openers []session.Opener
-	if len(opts.Extensions.SessionOpeners) > 0 {
-		openers = slices.Clone(opts.Extensions.SessionOpeners)
-	}
-	var catalogFilters []toolcatalog.Filter
-	if len(opts.Extensions.ToolCatalogFilters) > 0 {
-		catalogFilters = slices.Clone(opts.Extensions.ToolCatalogFilters)
-	}
-	var toolPolicies []toolpolicy.Policy
-	if len(opts.Extensions.ToolCallPolicies) > 0 {
-		toolPolicies = slices.Clone(opts.Extensions.ToolCallPolicies)
-	}
-	var toolFinalizers []toolcall.Finalizer
-	if len(opts.Extensions.ToolCallFinalizers) > 0 {
-		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
-	}
-	var reqTransforms []request.Transform
-	if len(opts.Extensions.RequestTransforms) > 0 {
-		reqTransforms = slices.Clone(opts.Extensions.RequestTransforms)
-	}
-	var preReqs []prerequest.Handler
-	if len(opts.Extensions.PreRequestHandlers) > 0 {
-		preReqs = slices.Clone(opts.Extensions.PreRequestHandlers)
-	}
-	var routeHints []routehint.Provider
-	if len(opts.Extensions.RouteHintProviders) > 0 {
-		routeHints = slices.Clone(opts.Extensions.RouteHintProviders)
-	}
-	var compGates []completion.Gate
-	if len(opts.Extensions.CompletionGates) > 0 {
-		compGates = slices.Clone(opts.Extensions.CompletionGates)
-	}
-	var attemptXforms []request.AttemptTransform
-	if len(opts.Extensions.AttemptTransforms) > 0 {
-		attemptXforms = slices.Clone(opts.Extensions.AttemptTransforms)
-	}
-	var frozen lipfeature.FrozenPlaneSet
-	if opts != nil {
-		frozen = opts.FeaturePlanes
-	}
-	streamObs := lipfeature.Get(frozen, lipfeature.PlaneStreamObserverFactories)
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
 	if rawObs := lipfeature.Get(frozen, lipfeature.PlaneTrafficObservers); len(rawObs) > 0 {
 		trafficObs = traffic.ChainObservers(rawObs...)
@@ -152,39 +107,24 @@ func buildRuntimeSnapshot(
 	if rawSinks := lipfeature.Get(frozen, lipfeature.PlaneRawCaptureSinks); len(rawSinks) > 0 {
 		trafficRaw = traffic.MultiRawCapture(rawSinks...)
 	}
-	trafficRedactors := lipfeature.Get(frozen, lipfeature.PlaneTrafficRedactors)
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
-	if opts.Policy.PolicyTimeoutBudgetSource != nil {
+	if opts != nil && opts.Policy.PolicyTimeoutBudgetSource != nil {
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
-	compactionObservers := slices.Clone(opts.Extensions.CompactionObservers)
 	stateStore := extensionState
 	if stateStore == nil {
 		stateStore = corestate.NewMem(nowFn)
 	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:                    stateStore,
-		Aux:                      auxreq.NewClient(execRunnerProvider),
-		Workspace:                ws,
-		SessionOpeners:           openers,
-		ToolCatalogFilters:       catalogFilters,
-		ToolCallPolicies:         toolPolicies,
-		ToolCallFinalizers:       toolFinalizers,
-		RequestTransforms:        reqTransforms,
-		PreRequestHandlers:       preReqs,
-		RouteHintProviders:       routeHints,
-		CompletionGates:          compGates,
-		AttemptTransforms:        attemptXforms,
-		StreamObserverFactories:  streamObs,
-		TrafficObserver:          trafficObs,
-		UsageObserver:            usageObs,
-		RawCapture:               trafficRaw,
-		TrafficRedactors:         trafficRedactors,
-		CompactionObservers:      compactionObservers,
-		LocalTurnHandlers:        slices.Clone(opts.Extensions.LocalTurnHandlers),
-		TerminalDecisionProvider: opts.Extensions.TerminalDecisionProvider,
-		SecretGuardPlane:         sgPlane,
-		PolicyObserver:           policyObs,
-		TimeoutBudgetSource:      budgetSrc,
+		State:               stateStore,
+		Aux:                 auxreq.NewClient(execRunnerProvider),
+		Workspace:           ws,
+		TrafficObserver:     trafficObs,
+		UsageObserver:       usageObs,
+		RawCapture:          trafficRaw,
+		FeaturePlanes:       frozen,
+		SecretGuardPlane:    sgPlane,
+		PolicyObserver:      policyObs,
+		TimeoutBudgetSource: budgetSrc,
 	})
 }

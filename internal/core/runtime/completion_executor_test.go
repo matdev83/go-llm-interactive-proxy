@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -40,7 +42,9 @@ func TestExecute_completionGateReplacesStream(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testReplaceGate{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{testReplaceGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -116,7 +120,9 @@ func TestExecute_completionGate_truncatedUpstreamNoSyntheticSuccess(t *testing.T
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testReplaceGate{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{testReplaceGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -196,7 +202,9 @@ func TestExecute_completionGateOverflowLivePassthrough(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{testPassGate{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{testPassGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -277,7 +285,9 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{preOutputPanicOnlyGate{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{preOutputPanicOnlyGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st
@@ -326,7 +336,9 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	ex2.Bus = hooks.New(hooks.Config{})
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(
 		hooks.New(hooks.Config{}), extensions.SnapshotOptions{
-			CompletionGates: []completion.Gate{testPassGate{}},
+			FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+				CompletionGates: []completion.Gate{testPassGate{}},
+			}),
 		},
 	)
 	ex2.Backends = map[string]execbackend.Backend{
@@ -375,7 +387,9 @@ func TestExecute_completionGatePanic_postCommittedNotRecoverable(t *testing.T) {
 	}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: []completion.Gate{panicCompletionGate{}},
+		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
+			CompletionGates: []completion.Gate{panicCompletionGate{}},
+		}),
 	})
 	ex := runtime.TestExecutor()
 	ex.Store = st

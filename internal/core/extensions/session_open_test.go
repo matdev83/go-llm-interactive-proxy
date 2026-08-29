@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
@@ -26,8 +27,10 @@ func (openErr) Open(context.Context, session.OpenInput) (session.OpenResult, err
 func TestRunSessionOpenStage_failOpenContinues(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
+	cset := lipfeature.NewContributionSet()
+	_ = lipfeature.Contribute(cset, lipfeature.PlaneSessionOpeners, "test", []session.Opener{openErr{}, open1{}})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		SessionOpeners: []session.Opener{openErr{}, open1{}},
+		FeaturePlanes: cset.Freeze(),
 	})
 	in := session.OpenInput{TraceID: "t1", Session: session.SessionView{ClientSessionHint: "s"}}
 	got := extensions.RunSessionOpenStage(context.Background(), nil, nil, snap.SessionOpeners(), in)
