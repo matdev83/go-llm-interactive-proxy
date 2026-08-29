@@ -4,9 +4,8 @@
 
 This document is the frozen research input for the implementation plan. Implementation agents are **not** expected to repeat the provider survey or decide architecture. If a live/current provider contract contradicts a frozen row, stop only that provider task and report the contradiction; do not invent a new protocol/auth scheme.
 
-Research was completed on 2026-08-28 against:
+Research was completed on 2026-08-28 and brownfield-revalidated on 2026-08-29 against Go-LIP current `main` at `3cf952ca` (including the feature-extension consolidation through #541 and the SDK-contract documentation in #542). Provider evidence was drawn from:
 
-- Go-LIP `main` and its steering/tests;
 - OpenCode provider docs/implementation;
 - Cline provider catalog/overrides;
 - Hermes Agent provider registry/OAuth implementations;
@@ -15,10 +14,10 @@ Research was completed on 2026-08-28 against:
 
 ## Brownfield Findings
 
-Go-LIP already contains the scalable implementation mechanism required for most of this feature:
+Go-LIP contains the bounded schema, catalog and family adapters required for most of this feature:
 
 - `internal/providerprofiles` owns the bounded `lip.provider-profile/v1` schema, embedded catalog, compiler and certification.
-- `internal/standardplugins/provider_profile_binding.go` expands `kind: provider-profile` into one of four existing compatible factory kinds.
+- `internal/standardplugins/provider_profile_binding.go` resolves and compiles `kind: provider-profile` rows, then rewrites them to one of four existing compatible factory kinds.
 - Supported profile families are:
   - `openai-chat-compatible` -> `custom-openai-legacy-compatible`
   - `openai-responses-compatible` -> `custom-openai-responses-compatible`
@@ -27,9 +26,22 @@ Go-LIP already contains the scalable implementation mechanism required for most 
 - Compatible family adapters already own execution, streaming, credential pools, inventory, tokenizer/admission hooks, diagnostics and canonical translation.
 - `make profile-only-check` and family/profile TCKs already ratchet profile-only growth away from core/canonical/frontend/ABI edits.
 
-The primary gap is therefore **catalog population**, not protocol implementation. At this specification baseline, `internal/providerprofiles/catalog.json` contains only `example-openai-responses`.
+The production profile-to-backend binding is not yet semantically complete. On current `main`, `ExpandProviderProfileRows` compiles a profile but replaces it with `ProfileConfigNode(profile)` plus a generic compatible factory kind. That projection carries the prefix, base URL, env-var root, tokenizer and static models, but drops compiled capability ceilings, bounded safe headers, alternate model paths/closed quirks and OpenResponses capability/dialect configuration. The profile-aware `BuildProviderProfileBackend` applies those semantics, but current runtime composition does not call it; its direct uses are tests and conformance support. The placeholder profile does not exercise the dropped fields, so existing tests stay green.
+
+The first implementation prerequisite is therefore a **narrow provider-profile binding repair** that carries the complete compiled profile semantics through the real registry build path. After that repair, the primary feature work is catalog population, not new protocol implementation. At this specification baseline, `internal/providerprofiles/catalog.json` contains only `example-openai-responses`.
 
 A second key finding is that profile v1 is intentionally narrow. A standard profile can encode a static base URL, one supported credential env-var reference, family-default or static inventory, bounded safe headers, capability reductions and a closed quirk set. It intentionally rejects arbitrary transforms, URL templates, multi-secret schemes, unsupported namespace rewrites and disabled discovery. Providers needing dynamic account/project/product addressing, cloud signing, OAuth lifecycle, control-plane discovery, asynchronous prediction or native non-compatible request formats therefore belong in external connectors/bridges.
+
+### Current-main extension-plane revalidation
+
+The #535-#541 consolidation changed feature-extension composition (`FeatureBundle`/`PlaneSet`, frozen projections and lifecycle ownership), not provider-profile or backend-plugin ownership. The diff from `40168ce1` through current `main` does not change `internal/providerprofiles`, `internal/standardplugins/provider_profile_binding.go`, or the external backend-plugin ABI. In `compileCandidate`, `PrepareProviderProfiles` still runs as pure configuration preparation before feature surfaces are merged and frozen.
+
+Required integration boundary:
+
+- provider profiles remain immutable backend-generation input and do not become feature-plane contributions;
+- external provider connectors remain external backend plugins rather than `PlaneSet` features;
+- this work does not require changes to `internal/featurebundle`, `pkg/lipsdk/feature`, the `FeatureBundle`/`PlaneSet` projections, or core routing;
+- a discovered need to change those surfaces is a stop condition for separate design review, not a reason to widen this spec.
 
 ## Existing Go-LIP Support: Do Not Duplicate
 
@@ -100,6 +112,20 @@ Do **not** mass-assign `cl100k_base` or any other tokenizer merely because gener
 - Anthropic-family default discovery: `<base>/v1/models`, Anthropic-compatible model response.
 - Use static inventory if the provider's global catalog is broader than the selected API flavor.
 - Do not add provider-specific parsers merely to filter flavor coverage.
+- Every static inventory fixture asserts the complete `providerprofiles.Model` identity (`canonical_id`, `native_id`, and `display_name`), not IDs alone.
+
+The explicitly frozen static identities are:
+
+| Profile | Canonical ID | Native ID | Display name |
+| --- | --- | --- | --- |
+| `deepseek-responses` | `deepseek-v4-flash` | `deepseek-v4-flash` | `DeepSeek V4 Flash` |
+| `scaleway-responses` | `openai/gpt-oss-120b:fp4` | `openai/gpt-oss-120b:fp4` | `GPT-OSS 120B FP4` |
+| `scaleway-responses` | `openai/gpt-oss-20b:fp4` | `openai/gpt-oss-20b:fp4` | `GPT-OSS 20B FP4` |
+| `kimi-coding` | `k3` | `k3` | `Kimi K3` |
+| `kimi-coding` | `k3-256k` | `k3-256k` | `Kimi K3 256K` |
+| `kimi-coding` | `kimi-for-coding` | `kimi-for-coding` | `Kimi for Coding` |
+| `kimi-coding` | `kimi-for-coding-highspeed` | `kimi-for-coding-highspeed` | `Kimi for Coding High-Speed` |
+| `thinking-machines` | `thinkingmachines/Inkling` | `thinkingmachines/Inkling` | `Thinking Machines Inkling` |
 
 ## Locked Responses / Multi-Flavor Profiles
 
@@ -114,7 +140,7 @@ Do **not** mass-assign `cl100k_base` or any other tokenizer merely because gener
 | `scaleway-openai` | Chat | supplemental | `https://api.scaleway.ai/v1` | `SCW_SECRET_KEY` | family default | Broader Chat catalog. |
 | `vercel-ai-gateway` | Responses | yes | `https://ai-gateway.vercel.sh/v1` | `AI_GATEWAY_API_KEY` | family default | Gateway natively exposes Responses, Chat, Anthropic and OpenResponses; use Responses as one default identity. |
 | `requesty` | Responses | yes | `https://router.requesty.ai/v1` | `REQUESTY_API_KEY` | family default | Requesty exposes `/v1/responses` and `/v1/models`; no duplicate Chat alias needed. |
-| `meta` | Responses | yes | `https://api.meta.ai/v1` | `META_MODEL_API_KEY` | family default if fixture conforms | Meta Model API is currently classified/implemented via OpenAI Responses family by surveyed coding client. |
+| `meta` | Responses | yes | `https://api.meta.ai/v1` | `META_MODEL_API_KEY` | family default after official list-models fixture conforms | Meta officially documents the OpenAI-compatible Responses API, `client.responses.create`, and `GET /models`; keep the profile only with an offline fixture of those public contracts. |
 | `xai` | Chat | yes | `https://api.x.ai/v1` | `XAI_API_KEY` | family default | Current official xAI OpenAPI had Chat but no native Responses. OAuth is separate. |
 
 Primary official evidence:
@@ -126,12 +152,13 @@ Primary official evidence:
 - Scaleway Generative API/models: <https://www.scaleway.com/en/developers/api/generative-apis>, <https://www.scaleway.com/en/docs/generative-apis/api-cli/using-models-api/>
 - Vercel AI Gateway: <https://vercel.com/docs/ai-gateway/sdks-and-apis>, <https://vercel.com/docs/ai-gateway/models-and-providers>
 - Requesty Responses/models: <https://docs.requesty.ai/api-reference/endpoint/responses-create>, <https://docs.requesty.ai/api-reference/endpoint/models-list>
+- Meta Model API Responses/models: <https://ai.developer.meta.com/docs/features/responses/>, <https://ai.developer.meta.com/docs/api-reference/responses/create-response/>, <https://ai.developer.meta.com/docs/api-reference/models/list-models>
 - xAI OpenAPI: <https://api.x.ai/api-docs/openapi.json>
 - Kilo Gateway Chat contract: <https://kilo.ai/docs/gateway/quickstart>, <https://kilo.ai/docs/gateway/api-reference>
 
 ## Locked OpenAI Chat Profile Matrix
 
-Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, `models.discovery: family_default`, `models.namespace.mode: preserve` unless a task explicitly switches that row to static inventory after an offline fixture proves the provider model-list shape does not fit the existing contract. Apply the conservative capability policy above. Exact base URLs/env names are frozen here.
+Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, `models.discovery: family_default`, `models.namespace.mode: preserve` unless a task explicitly switches that row to static inventory after an offline fixture proves the provider model-list shape does not fit the existing contract. Apply the conservative capability policy above. Exact base URLs/env names are frozen here. Region/plan-suffixed env roots are deliberate Go-LIP configuration references that permit independent credentials; they are not claims that the vendor mandates those shell-variable names.
 
 | Profile ID | Base URL | Env var | Note |
 | --- | --- | --- | --- |
@@ -143,10 +170,10 @@ Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, 
 | `aihubmix` | `https://api.aihubmix.com/v1` | `AIHUBMIX_API_KEY` | Cline product override URL |
 | `aki-io` | `https://aki.io/v1` | `AKI_IO_API_KEY` | hosted |
 | `alibaba` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` | international Model Studio |
-| `alibaba-cn` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` | China Model Studio |
+| `alibaba-cn` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_CN_API_KEY` | China Model Studio; independent from international account |
 | `alibaba-coding-plan` | `https://coding-intl.dashscope.aliyuncs.com/v1` | `ALIBABA_CODING_PLAN_API_KEY` | international plan |
-| `alibaba-coding-plan-cn` | `https://coding.dashscope.aliyuncs.com/v1` | `ALIBABA_CODING_PLAN_API_KEY` | China plan |
-| `alibaba-token-plan-cn` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `ALIBABA_TOKEN_PLAN_API_KEY` | do not duplicate existing Intl backend |
+| `alibaba-coding-plan-cn` | `https://coding.dashscope.aliyuncs.com/v1` | `ALIBABA_CODING_PLAN_CN_API_KEY` | China plan; independent from international plan |
+| `alibaba-token-plan-cn` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `ALIBABA_TOKEN_PLAN_CN_API_KEY` | China plan; do not duplicate existing Intl backend or its credential root |
 | `ambient` | `https://api.ambient.xyz/v1` | `AMBIENT_API_KEY` | hosted |
 | `amd` | `https://developer.amd.com.cn/radeon/api/v1` | `AMD_API_KEY` | AMD token factory |
 | `anyapi` | `https://api.anyapi.ai/v1` | `ANYAPI_API_KEY` | broker |
@@ -209,7 +236,7 @@ Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, 
 | `modelis` | `https://modelishub.com/v1` | `MODELIS_API_KEY` | broker |
 | `modelscope` | `https://api-inference.modelscope.cn/v1` | `MODELSCOPE_API_KEY` | China model service |
 | `moonshot` | `https://api.moonshot.ai/v1` | `MOONSHOT_API_KEY` | international pay-as-you-go |
-| `moonshot-cn` | `https://api.moonshot.cn/v1` | `MOONSHOT_API_KEY` | China pay-as-you-go |
+| `moonshot-cn` | `https://api.moonshot.cn/v1` | `MOONSHOT_CN_API_KEY` | China pay-as-you-go; independent from international account |
 | `morph` | `https://api.morphllm.com/v1` | `MORPH_API_KEY` | conservative text-only unless frozen fixture proves tools |
 | `neuralwatt` | `https://api.neuralwatt.com/v1` | `NEURALWATT_API_KEY` | broker |
 | `nova` | `https://api.nova.amazon.com/v1` | `NOVA_API_KEY` | Amazon Nova direct API; distinct from Bedrock |
@@ -233,9 +260,9 @@ Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, 
 | `stackit` | `https://api.openai-compat.model-serving.eu01.onstackit.cloud/v1` | `STACKIT_API_KEY` | EU sovereign platform |
 | `standardcompute` | `https://api.stdcmpt.com/v1` | `STANDARDCOMPUTE_API_KEY` | hosted |
 | `stepfun` | `https://api.stepfun.ai/v1` | `STEPFUN_API_KEY` | global |
-| `stepfun-cn` | `https://api.stepfun.com/v1` | `STEPFUN_API_KEY` | China |
-| `stepfun-step-plan` | `https://api.stepfun.ai/step_plan/v1` | `STEPFUN_API_KEY` | global plan |
-| `stepfun-step-plan-cn` | `https://api.stepfun.com/step_plan/v1` | `STEPFUN_API_KEY` | China plan |
+| `stepfun-cn` | `https://api.stepfun.com/v1` | `STEPFUN_CN_API_KEY` | China |
+| `stepfun-step-plan` | `https://api.stepfun.ai/step_plan/v1` | `STEPFUN_STEP_PLAN_API_KEY` | global plan |
+| `stepfun-step-plan-cn` | `https://api.stepfun.com/step_plan/v1` | `STEPFUN_STEP_PLAN_CN_API_KEY` | China plan |
 | `submodel` | `https://llm.submodel.ai/v1` | `SUBMODEL_INSTAGEN_ACCESS_KEY` | hosted |
 | `synthetic` | `https://api.synthetic.new/openai/v1` | `SYNTHETIC_API_KEY` | broker |
 | `tencent-coding-plan` | `https://api.lkeap.cloud.tencent.com/coding/v3` | `TENCENT_CODING_PLAN_API_KEY` | coding plan |
@@ -250,14 +277,14 @@ Every row below uses `family: openai-chat-compatible`, `auth.mode: bearer_env`, 
 | `wafer-ai` | `https://pass.wafer.ai/v1` | `WAFER_API_KEY` | Wafer Pass |
 | `wandb` | `https://api.inference.wandb.ai/v1` | `WANDB_API_KEY` | W&B Inference |
 | `xiaomi` | `https://api.xiaomimimo.com/v1` | `XIAOMI_API_KEY` | MiMo API |
-| `xiaomi-token-plan-eu` | `https://token-plan-ams.xiaomimimo.com/v1` | `XIAOMI_API_KEY` | Europe |
-| `xiaomi-token-plan-cn` | `https://token-plan-cn.xiaomimimo.com/v1` | `XIAOMI_API_KEY` | China |
-| `xiaomi-token-plan-sg` | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_API_KEY` | Singapore |
+| `xiaomi-token-plan-eu` | `https://token-plan-ams.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_EU_API_KEY` | Europe |
+| `xiaomi-token-plan-cn` | `https://token-plan-cn.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | China |
+| `xiaomi-token-plan-sg` | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_SG_API_KEY` | Singapore |
 | `xpersona` | `https://www.xpersona.co/v1` | `XPERSONA_API_KEY` | broker |
 | `zai` | `https://api.z.ai/api/paas/v4` | `ZHIPU_API_KEY` | global GLM |
-| `zai-cn` | `https://open.bigmodel.cn/api/paas/v4` | `ZHIPU_API_KEY` | China GLM |
-| `zai-coding-plan` | `https://api.z.ai/api/coding/paas/v4` | `ZHIPU_API_KEY` | global coding plan |
-| `zai-coding-plan-cn` | `https://open.bigmodel.cn/api/coding/paas/v4` | `ZHIPU_API_KEY` | China coding plan |
+| `zai-cn` | `https://open.bigmodel.cn/api/paas/v4` | `ZHIPU_CN_API_KEY` | China GLM |
+| `zai-coding-plan` | `https://api.z.ai/api/coding/paas/v4` | `ZHIPU_CODING_PLAN_API_KEY` | global coding plan |
+| `zai-coding-plan-cn` | `https://open.bigmodel.cn/api/coding/paas/v4` | `ZHIPU_CODING_PLAN_CN_API_KEY` | China coding plan |
 | `zeldoc` | `https://api.zeldoc.ai/v1` | `ZELDOC_API_KEY` | hosted |
 | `zenifra` | `https://ai.zenifra.com/v1` | `ZENIFRA_AI_KEY` | hosted |
 | `zenmux` | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` | broker |
@@ -283,7 +310,7 @@ Thinking Machines/Tinker reference: <https://tinker-docs.thinkingmachines.ai/tin
 
 | Product | Why profile v1 is insufficient | Treatment |
 | --- | --- | --- |
-| Cloudflare AI Gateway / Workers AI | account ID in base URL, optional gateway ID, protocol/model-dependent support | external connector, Responses preferred |
+| Cloudflare AI Gateway REST API | account ID in base URL, optional gateway ID header, protocol/model-dependent support | external connector, Responses preferred; Workers AI-specific product support is not claimed by this row |
 | Azure OpenAI/Foundry | resource/deployment, API key or Entra, cloud control plane | external connector |
 | Vertex AI | project/location/ADC/service account, publisher model routing | external connector |
 | AWS SageMaker | SigV4, endpoint-specific payload contracts/control plane | external connector |
@@ -309,7 +336,7 @@ Thinking Machines/Tinker reference: <https://tinker-docs.thinkingmachines.ai/tin
 
 | Planned identity | Transport / endpoint | Auth/addressing | Model enumeration | Implementation instruction |
 | --- | --- | --- | --- | --- |
-| `cloudflare-ai-gateway` | current account-scoped Cloudflare AI REST under `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1`; Responses preferred | account ID + API token; optional gateway ID | Cloudflare account/model catalog filtered to selected protocol | reuse compatible codec inside connector; do not use deprecated universal endpoint |
+| `cloudflare-ai-gateway` | current account-scoped Cloudflare AI Gateway REST API under `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1`; Responses preferred | account ID + API token; optional gateway ID sent as `cf-aig-gateway-id` | Cloudflare account/model catalog filtered to selected protocol | reuse compatible codec inside connector; do not claim a separate Workers AI integration or use the deprecated `/compat` endpoint for ordinary calls |
 | `azure-openai` / `azure-foundry` | Azure OpenAI/Foundry v1, Responses preferred where deployment supports it | resource/endpoint + deployment + API key or Microsoft Entra | Azure deployed model/resource APIs | one connector artifact may expose distinct kinds if product semantics require |
 | `vertex` | native Vertex/Google generative API | GCP project + location + ADC/service account/workload identity | Vertex publisher/model catalog | distinct from existing Gemini API-key backend |
 | `sagemaker` | SageMaker Runtime `InvokeEndpoint`/streaming equivalent | region + endpoint + AWS SigV4/default chain | SageMaker endpoints/control plane | require configured deterministic inference contract per endpoint; arbitrary containers are not automatically OpenAI-compatible |
@@ -462,25 +489,28 @@ plugins:
         profile: together
 ```
 
-The existing binding derives the backend prefix (`profile.ID`), base URL, env-var root, inventory and capability ceiling.
+The repaired runtime binding must derive the backend prefix (`profile.ID`), base URL, env-var root, inventory, bounded headers, closed quirks/dialects and capability ceiling from the single compiled profile authority. Current `ProfileConfigNode` projection is not sufficient evidence because it omits part of that compiled contract.
 
 ## Brownfield Gap Analysis and Repairs Applied
 
-1. **Placeholder-only catalog** -> requirements/tasks explicitly populate real profiles and remove `example-openai-responses`.
-2. **Schema types that are not executable** -> this spec does not enable namespace prefix/strip, disabled discovery, arbitrary transforms or an endpoint-template DSL.
-3. **Family maximum capability overclaim** -> every real profile receives a conservative capability reduction; richer capabilities require frozen evidence.
-4. **Tokenizer overgeneralization risk** -> mass tokenizer assignment was removed; tokenizer is omitted unless deliberate.
-5. **Flavor-overbroad model discovery** -> narrow Responses identities use static model inventories when provider-wide `/models` is broader; DeepSeek/Scaleway are explicit cases.
-6. **Translated/secondary protocol ambiguity** -> native flavor decisions require upstream/official evidence; xAI and Kilo remain Chat despite secondary classifications.
-7. **Dynamic endpoint/multi-auth products** -> reclassified to connectors rather than widening profile v1.
-8. **Ambiguous multi-protocol naming** -> if multiple identities are needed, all receive protocol suffixes; Responses is documented preferred.
-9. **Regional credential collision** -> MiniMax global uses `MINIMAX_API_KEY`; MiniMax China uses `MINIMAX_CN_API_KEY` so both can be configured independently.
+1. **Lossy runtime profile projection** -> add a prerequisite RED test through the production registry build path and repair the existing binding so all compiled profile semantics reach the family adapter; direct helper tests cannot certify this seam.
+2. **Placeholder-only catalog** -> requirements/tasks explicitly populate real profiles and remove `example-openai-responses`.
+3. **Schema types that are not executable** -> this spec does not enable namespace prefix/strip, disabled discovery, arbitrary transforms or an endpoint-template DSL.
+4. **Family maximum capability overclaim** -> every real profile receives a conservative capability reduction; richer capabilities require frozen evidence.
+5. **Tokenizer overgeneralization risk** -> mass tokenizer assignment was removed; tokenizer is omitted unless deliberate.
+6. **Flavor-overbroad model discovery** -> narrow Responses identities use static flavor inventories with complete canonical/native/display identities when provider-wide `/models` is broader; DeepSeek/Scaleway are explicit cases.
+7. **Translated/secondary protocol ambiguity** -> native flavor decisions require upstream/official evidence; Meta now has official Responses/models evidence, while xAI and Kilo remain Chat.
+8. **Dynamic endpoint/multi-auth products** -> reclassified to connectors rather than widening profile v1.
+9. **Ambiguous multi-protocol naming** -> if multiple identities are needed, all receive protocol suffixes; Responses is documented preferred.
+10. **Regional credential collision** -> Alibaba, Moonshot, StepFun, Xiaomi, Z.AI, and MiniMax region/plan products use distinct env-var roots when accounts/entitlements may coexist; only deliberate same-credential protocol splits share a root.
+11. **Post-#541 extension-plane drift risk** -> provider profiles remain pre-feature-plane immutable config input and provider connectors remain backend plugins; no `PlaneSet`/feature-bundle work was added.
 
 ## Risk Controls
 
 | Risk | Required control |
 | --- | --- |
 | huge provider dump hides bad metadata | deterministic batches + exact expected-profile tests |
+| compiler output is lost before backend construction | production-path RED tests + one profile-aware runtime authority |
 | provider-wide `/models` advertises unsupported flavor | static flavor inventory |
 | profile count creates runtime resources | preserve offline embedded compile and 1,000-profile scale proof |
 | provider SDK leaks into root | external connector module only |
@@ -499,6 +529,8 @@ The existing binding derives the backend prefix (`profile.ID`), base URL, env-va
 - `docs/extension-authoring.md`
 - `internal/providerprofiles/{schema.go,compiler.go,embedded.go,certification.go,catalog.json}`
 - `internal/standardplugins/{provider_profiles.go,provider_profile_binding.go,provider_profile_binding_test.go}`
+- `internal/infra/runtimebundle/candidate_compile.go`
+- `internal/featurebundle/merge_surface.go` and `pkg/lipsdk/feature`
 - `internal/plugins/backends/modeldiscover/http_providers.go`
 - archived `.kiro/specs/archive/extension-scalability-and-architecture-simplification/research.md`
 

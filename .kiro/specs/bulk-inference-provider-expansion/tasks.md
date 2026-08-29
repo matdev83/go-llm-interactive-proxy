@@ -15,63 +15,61 @@ These rules are mandatory for every executor working from this plan:
 9. Do not assign a tokenizer unless `research.md` or an existing provider-family rule explicitly requires one.
 10. Keep default tests offline. Use `httptest`, SDK stubs, public-schema fixtures or connector contract harnesses; live provider credentials may only be optional/env-gated evidence.
 11. If one provider's upstream contract now contradicts `research.md`, stop **that provider task only**, record the exact contradiction, and continue independent tasks. Do not invent a new protocol/auth architecture.
-12. A task that discovers a need for canonical/core/frontend/backend-plugin ABI changes is blocked and requires separate design review; do not push those changes through this bulk spec.
+12. A task that discovers a need for canonical/core/frontend/backend-plugin ABI or feature-extension `PlaneSet` changes is blocked and requires separate design review; do not push those changes through this bulk spec.
 
 ## Task Graph
 
-```text
-1 Profile foundation characterization
-  |
-  +--> 2 Responses-first profiles
-  |      |
-  |      +--> 3 Chat profile batches
-  |      +--> 4 Anthropic profile batch
-  |             |
-  |             `--> 5 Profile docs/release contract
-  |
-  +--> 6 Managed/dynamic compatible connectors (parallel by connector)
-  +--> 7 Native cloud/provider connectors (parallel by connector)
-  +--> 8 OAuth/subscription bridges (parallel after common auth pattern)
-                 |
-                 `--> 9 Final provider inventory/docs/release gates
+```mermaid
+flowchart TD
+    P[1 Profile binding repair] --> R[2 Responses profiles]
+    R --> C[3.1-3.3 Chat batches]
+    C --> A[4 Anthropic batch]
+    A --> L[4.4 Final profile lock]
+    L --> D[5 Profile docs]
+    X[6-7 Backend connectors] --> Z[9 Convergence]
+    O[8 OAuth bridges] --> Z
+    D --> Z
 ```
 
-Profile batches are sequential/small because they edit the same embedded catalog and expected-ID fixture. Individual external connectors are separate modules and may be implemented in parallel after Task 1.
+Profile batches are sequential/small because they edit the same embedded catalog and expected-ID fixture. Tasks 6-8 use the already-stable external backend-plugin seam and may start in parallel with Task 1; they do not depend on the provider-profile binding repair.
 
 ---
 
-- [ ] 1. Freeze the real provider-profile population contract
-- [ ] 1.1 Add an expected embedded-provider characterization table
-  - Create `internal/providerprofiles/catalog_population_test.go` (or equivalently focused `_test.go`).
-  - Define a test-only table with stable fields: `ID`, `Family`, `BaseURL`, `AuthMode`, `EnvVar`, `Discovery`, optional static model IDs, expected disabled capabilities.
-  - Seed it from the full frozen profile matrix in `research.md`; it is never runtime input.
-  - Assert exact ID uniqueness, no `example-*` placeholder after real population, no ACP IDs, and no semantic duplicate of an existing dedicated backend/connector.
-  - Assert required suffix pairs exist together (`deepseek-responses` + `deepseek-openai`, `scaleway-responses` + `scaleway-openai`).
-  - Assert every real profile carries an explicit reviewed capability posture. Long-tail Chat rows must at minimum disable `vision`, `documents`, `reasoning`, `parallel_tool_calls` unless frozen evidence deliberately says otherwise. Anthropic rows disable unproven `reasoning_replay`, media and parallel-tool capability.
-  - Observable completion: one mutated endpoint/family/env/capability or deleted expected ID fails the test.
-  - _Requirements: 1,2,3,4,8,9,10,12_
-  - _Boundary: tests/provider-profile contract_
-  - _Depends: none_
-  - _Validation: `go test ./internal/providerprofiles/...`_
-
-- [ ] 1.2 Characterize real catalog expansion through the existing binding
-  - Extend `internal/standardplugins/provider_profile_binding_test.go` using **real embedded profiles**, not duplicate hand-written profiles, for one Responses, one Chat and one Anthropic row after those rows land.
-  - Assert `kind: provider-profile` expands to the intended existing compatible kind, source config is immutable, `backend_prefix == profile.ID`, and base URL/env-var root/inventory/capability ceiling match catalog data.
-  - Use `httptest` to prove representative Responses and Anthropic profiles select the correct operation path/auth header without real network calls.
-  - Do not add a production factory, registry or provider-specific switch.
+- [ ] 1. Repair and freeze the real provider-profile runtime contract
+- [ ] 1.1 Add a RED regression through the production profile-to-registry path
+  - Extend `internal/standardplugins/provider_profile_binding_test.go` and, where the candidate build seam needs coverage, a focused `internal/infra/runtimebundle` test.
+  - Start from an operator row with `kind: provider-profile`; drive it through `PrepareProviderProfiles` and the same backend registry lifecycle used by candidate compilation. A direct call to `BuildProviderProfileBackend` alone does **not** certify this path.
+  - Prove the current path loses at least a compiled disabled capability. Add focused fixtures for a bounded safe header, the Anthropic alternate model path quirk, and OpenResponses capabilities/dialects so the complete compiler boundary is locked.
+  - Assert source config immutability and demonstrate zero upstream work when a disabled required capability is rejected.
+  - A representative frozen row from Tasks 2/4 may be staged in the same bounded branch for the production-path test; it is not complete until Task 1.2 makes the regression green.
   - _Requirements: 1,3,4,7,8,10_
-  - _Boundary: tests/config-wiring_
-  - _Depends: 1.1 and representative rows from Tasks 2/4 may land in same bounded branch_
-  - _Validation: `go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible'`_
+  - _Boundary: tests/config-to-registry wiring_
+  - _Depends: none_
+  - _Validation: focused test fails before 1.2 and passes after it; final gate `go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && go test ./internal/infra/runtimebundle/... -run 'ProviderProfile|Candidate'`_
 
-- [ ] 1.3 Preserve profile schema and scale guardrails
-  - `schema.go`, `compiler.go`, and `provider_profile_binding.go` should remain unchanged unless an existing characterization proves a pre-existing bug independent of population.
-  - Keep 1,000-profile bounded/no-goroutine/no-factory scaling proof passing.
-  - Keep non-preserve namespace modes, disabled discovery, arbitrary transforms, unsupported quirks, unsafe headers, literal secrets and remote HTTP endpoints fail-closed.
-  - Add/retain an assertion that catalog population does not create one runtime factory/contribution per profile.
-  - _Requirements: 1,4,8,10_
-  - _Boundary: tests/architecture guardrail_
+- [ ] 1.2 Preserve the complete compiled profile at backend construction
+  - Repair the existing `internal/standardplugins` profile-binding/family-lifecycle seam so the runtime family builder receives the selected profile's complete compiled semantics: endpoint/auth, inventory, tokenizer, bounded headers, capability ceiling, closed quirks/model path, and OpenResponses capability/dialect declarations.
+  - Keep `providerprofiles.CompileProfile`/the embedded catalog as the single semantic authority. Do not maintain an independently-derived capability/header/quirk policy in generic compatible YAML.
+  - Preserve current behavior for arbitrary `custom-*-compatible` rows and keep their config independent of provider profiles.
+  - Do not add a factory/contribution/registry entry per profile, provider-specific switches, startup resources, or a new public/internal framework.
+  - `internal/providerprofiles/schema.go`, `compiler.go`, `internal/infra/runtimebundle/candidate_compile.go`, core/canonical/frontend/backend-plugin ABI, and feature-extension `PlaneSet` surfaces are expected unchanged. A proven need to change one is a stop condition, not scope for this task.
+  - Retain direct profile-aware builder tests as units, but make the Task 1.1 production-path tests the integration authority.
+  - _Requirements: 1,3,4,7,8,10_
+  - _Boundary: existing standardplugins profile binding/contribution lifecycle + tests; no new contribution_
   - _Depends: 1.1_
+  - _Validation: Task 1.1 gates + `go test ./internal/providerprofiles/...` + `make parity-checks`_
+
+- [ ] 1.3 Add the incremental embedded-provider characterization and scale guardrails
+  - Create `internal/providerprofiles/catalog_population_test.go` (or equivalently focused `_test.go`).
+  - Define a test-only table with stable fields: `ID`, `Family`, `BaseURL`, `AuthMode`, `EnvVar`, `Discovery`, exact `[]providerprofiles.Model` static rows, and expected disabled capabilities.
+  - Start with the representative rows landed with/after Task 1.2; each Tasks 2-4 batch extends the expected table in the same commit. Task 4.4 locks the exact final set. Do not seed a full expected set that cannot pass before its catalog rows exist.
+  - Assert complete canonical/native/display identity for every static model, exact env-var roots, required suffix pairs, explicit capability posture, no ACP IDs, and no semantic duplicate of an existing dedicated backend/connector.
+  - Assert independent Alibaba, Moonshot, StepFun, Xiaomi, Z.AI, and MiniMax region/plan products do not share credential roots; deliberate same-product protocol splits may share.
+  - Keep 1,000-profile bounded/no-goroutine/no-factory scaling proof passing and keep unsupported schema behavior fail-closed.
+  - Observable completion: one mutated endpoint/family/env/capability/static-model field or deleted expected ID fails the test.
+  - _Requirements: 1,2,3,4,8,9,10,12_
+  - _Boundary: tests/provider-profile contract and architecture guardrails_
+  - _Depends: 1.2_
   - _Validation: `go test ./internal/providerprofiles/...` plus profile-only gate_
 
 ---
@@ -82,12 +80,13 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Use `family_default` inventory only where frozen matrix permits; otherwise use the frozen static set.
   - Omit tokenizer unless explicitly frozen.
   - Explicitly disable all unproven family-max capabilities. Retain tools/reasoning only where frozen official evidence supports them; do not assume vision/documents/parallel tools.
+  - For `meta`, add an offline fixture for the official Responses create contract and `GET /models` shape linked in `research.md`; secondary coding-client classification alone is not acceptance evidence.
   - Do not add equivalent Chat/Anthropic aliases just because those APIs also exist.
   - Add every row to the expected-profile test in same batch.
   - **Do not put Kilo here.** Current official Kilo Gateway docs expose OpenAI Chat `/chat/completions`; Kilo is Task 3.2.
   - _Requirements: 1,2,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1.1_
+  - _Depends: 1.3_
   - _Validation: `go test ./internal/providerprofiles/... && go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && make profile-only-check PROFILE_ONLY_BASE=<batch-base-sha> && make parity-checks`_
 
 - [ ] 2.2 Add DeepSeek as an explicit flavor split
@@ -95,20 +94,20 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Add `deepseek-openai`: Chat family, same base/env; use family-default `/models` only if existing discovery fixture conforms, otherwise static Flash+Pro.
   - Do not add bare `deepseek` or redundant Anthropic alias.
   - Retain reasoning where frozen model evidence supports it; disable unproven media/parallel capabilities.
-  - Add offline test proving the Responses inventory can never surface the Pro-only model.
+  - Add offline test proving the Responses inventory can never surface the Pro-only model and assert the complete frozen canonical/native/display identity for `deepseek-v4-flash`.
   - _Requirements: 2,3,8,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1.1_
+  - _Depends: 2.1_
   - _Validation: profile-batch gate from 2.1_
 
 - [ ] 2.3 Add Scaleway as a flavor-correct split
   - Add `scaleway-responses`: Responses family, base `https://api.scaleway.ai/v1`, env `SCW_SECRET_KEY`, static Responses-supported inventory seeded from frozen serverless list including `openai/gpt-oss-120b:fp4` and `openai/gpt-oss-20b:fp4` when present in frozen fixture.
   - Add `scaleway-openai`: Chat family, same base/env, family-default `/models` for broader Chat set.
   - Do not add bare `scaleway`.
-  - Add test proving a Chat-only model cannot appear under Responses profile.
+  - Add test proving a Chat-only model cannot appear under Responses profile and assert complete frozen canonical/native/display identities for every static Responses model.
   - _Requirements: 2,3,8,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1.1_
+  - _Depends: 2.2_
   - _Validation: profile-batch gate from 2.1_
 
 ---
@@ -118,6 +117,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Add exactly: `302ai`, `abacus`, `abliteration-ai`, `ai-router`, `aiand`, `aihubmix`, `aki-io`, `alibaba`, `alibaba-cn`, `alibaba-coding-plan`, `alibaba-coding-plan-cn`, `alibaba-token-plan-cn`, `ambient`, `amd`, `anyapi`, `arcee`, `auriko`, `baseten`, `berget`, `blueclaw`, `cerebras`, `chutes`, `clarifai`, `claudinio`, `cline-pass`, `cloudferro-sherlock`, `coralbricks`, `cortecs`, `crof`, `crossmodel`, `crusoe`.
   - Copy exact base/env data from `research.md`; family is `openai-chat-compatible` for every row.
   - Do **not** add Alibaba Token Plan International: existing `alibaba-token-plan-intl` owns that product.
+  - Preserve the distinct Alibaba China/plan credential roots frozen in `research.md`; do not collapse them back to the international roots.
   - Default capability posture: streaming+tools; disable `vision`, `documents`, `reasoning`, `parallel_tool_calls` unless frozen evidence explicitly enriches one row.
   - Use family-default `/models` unless research/task explicitly requires static. Nonconforming model-list fixture -> switch only that row to static; no new parser.
   - Add every row to expected-profile table in same batch.
@@ -131,6 +131,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Use exact base/env data from `research.md`.
   - `kilo`: base `https://api.kilo.ai/api/gateway`, env `KILO_API_KEY`, Chat family. This follows Kilo's current official Quickstart/API Reference; do not implement Cline's secondary Responses classification.
   - `inference-net` intentionally differs from surveyed generic `inference` ID to avoid ambiguous generic identity.
+  - `moonshot` and `moonshot-cn` use the distinct credential roots frozen in `research.md` so both accounts can coexist.
   - `morph`: conservative text-only unless a previously frozen fixture proves tools; disable `tools` as well as vision/documents/reasoning/parallel.
   - `mistral`: first run existing compatible-family offline fixture against frozen Mistral Chat/tool shape. If it cannot fit without provider-specific translation, stop only `mistral` and move it to a future family-adapter spec; do not patch generic Chat around it.
   - All other rows use default long-tail capability posture.
@@ -144,35 +145,25 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Use exact base/env data from `research.md`.
   - `xai` is deliberately Chat: current official xAI OpenAPI was authoritative and contained `/v1/chat/completions` but no `/v1/responses`.
   - `nova` is Amazon Nova direct API, distinct from Bedrock.
-  - Region/plan identities remain separate where endpoint/entitlement differs.
+  - Region/plan identities remain separate where endpoint/entitlement differs; StepFun, Xiaomi, and Z.AI rows use the exact distinct credential roots frozen in `research.md`.
   - Apply default long-tail capability posture.
   - _Requirements: 1,2,3,4,8,9,10,12_
   - _Boundary: provider-profile data/tests_
   - _Depends: 3.2_
   - _Validation: profile-batch gate from 2.1_
 
-- [ ] 3.4 Remove placeholder and lock complete Chat/Responses ID set
-  - Remove `example-openai-responses` after real catalog population.
-  - Make expected-ID test compare exact final profile set from Tasks 2-4.
-  - Add negative assertion forbidding profile duplication of dedicated products such as `openrouter`, `nvidia`, `huggingface`, `opencode-go`, `opencode-zen`, `openai-codex`, `commandcode-*`, `ollama*`, `lmstudio`, `vllm`, `alibaba-token-plan-intl` unless future ownership intentionally changes.
-  - _Requirements: 1,9,10,12_
-  - _Boundary: provider-profile data/tests_
-  - _Depends: 3.3,4_
-  - _Validation: `go test ./internal/providerprofiles/... && make profile-only-check PROFILE_ONLY_BASE=<profile-program-base-sha>`_
-
----
-
 - [ ] 4. Add Anthropic-compatible provider profiles
 - [ ] 4.1 Add `kimi-coding`
   - Family `anthropic-compatible`; base `https://api.kimi.com/coding/`; auth `api_key_env`, env `KIMI_API_KEY`.
   - Static inventory exactly `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed` unless a frozen provider deprecation is already recorded in implementation branch.
+  - Assert each static row's complete canonical/native/display identity from `research.md`, not IDs alone.
   - Do not add equivalent Kimi OpenAI alias because intended model set is the same.
   - Do not spoof Claude Code/OpenCode/Kimi client identifiers. Preserve truthful Go-LIP identity and Kimi anti-tampering requirement.
   - Disable unproven vision/documents/parallel/reasoning_replay.
   - Add offline `/v1/messages` request/stream characterization using `httptest`.
   - _Requirements: 1,2,3,4,8,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1_
+  - _Depends: 3.3_
   - _Validation: profile-batch gate from 2.1_
 
 - [ ] 4.2 Add MiniMax API-key profiles
@@ -182,17 +173,27 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Disable unproven reasoning_replay/vision/documents/parallel tools.
   - _Requirements: 1,3,4,8,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1_
+  - _Depends: 4.1_
   - _Validation: profile-batch gate from 2.1_
 
 - [ ] 4.3 Add Thinking Machines/Tinker
   - Add `thinking-machines`: Anthropic family, base `https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api`, env `TINKER_API_KEY`, static initial model `thinkingmachines/Inkling`.
+  - Assert the static row's complete canonical/native/display identity from `research.md`.
   - Explicitly disable unsupported/unproven capabilities including `reasoning_replay`; do not claim prompt-cache behavior because Tinker documents `cache_control` as ignored.
   - Add offline request-path/auth/stream fixture under existing Anthropic compatible TCK.
   - _Requirements: 1,3,4,8,12_
   - _Boundary: provider-profile data/tests_
-  - _Depends: 1_
+  - _Depends: 4.2_
   - _Validation: profile-batch gate from 2.1_
+
+- [ ] 4.4 Remove placeholder and lock the complete embedded profile set
+  - Remove `example-openai-responses` after real catalog population.
+  - Make the expected-profile test compare the exact final profile set from Tasks 2-4, including complete static-model identities and the frozen distinct region/plan credential roots.
+  - Add negative assertion forbidding profile duplication of dedicated products such as `openrouter`, `nvidia`, `huggingface`, `opencode-go`, `opencode-zen`, `openai-codex`, `commandcode-*`, `ollama*`, `lmstudio`, `vllm`, `alibaba-token-plan-intl` unless future ownership intentionally changes.
+  - _Requirements: 1,3,4,9,10,12_
+  - _Boundary: provider-profile data/tests_
+  - _Depends: 4.3_
+  - _Validation: `go test ./internal/providerprofiles/... && make profile-only-check PROFILE_ONLY_BASE=<profile-program-base-sha>`_
 
 ---
 
@@ -203,7 +204,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Verify check-config/routes/inventory behavior without requiring real credentials for structural validation.
   - _Requirements: 7,11_
   - _Boundary: config/docs_
-  - _Depends: 2,3,4_
+  - _Depends: 4.4_
   - _Validation: `make example-config-check`_
 
 - [ ] 5.2 Document complete first-class profile table
@@ -213,7 +214,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Explicitly say ACP is outside this feature.
   - _Requirements: 7,11,12_
   - _Boundary: docs_
-  - _Depends: 3.4_
+  - _Depends: 5.1_
   - _Validation: `make docs-check knowledge-check`_
 
 ---
@@ -221,13 +222,13 @@ Profile batches are sequential/small because they edit the same embedded catalog
 - [ ] 6. Implement managed/dynamic-address compatible connectors (P)
 - [ ] 6.1 Cloudflare AI Gateway connector (P)
   - Create `connectors/cloudflare` using standard external connector layout.
-  - Use current account-scoped REST API; Responses preferred. Do not use deprecated universal endpoint.
+  - Implement the current account-scoped Cloudflare AI Gateway REST API; Responses preferred. This task does not claim a separate Workers AI connector/product.
   - Typed config: `account_id`, API-token reference, optional `gateway_id`; construct `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` inside connector.
-  - Apply documented gateway ID behavior connector-locally; reuse `connector-support/openaicompat` for Responses-compatible mapping rather than second codec.
+  - When configured, send `gateway_id` through the documented `cf-aig-gateway-id` header. Do not use the deprecated `/compat` endpoint for ordinary calls; reuse `connector-support/openaicompat` for Responses-compatible mapping rather than a second codec.
   - Inventory/filter only models compatible with declared Responses surface.
   - _Requirements: 5,7,8,9,10,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector module tests + `make backend-plugin-cross-platform-qa` + `make backend-plugin-release-gates-static`_
 
 - [ ] 6.2 Azure OpenAI / Azure AI Foundry connector (P)
@@ -240,7 +241,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Follow Azure contract linked in `research.md`; no provider survey is expected.
   - _Requirements: 5,7,8,9,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 6.3 Snowflake Cortex connector (P)
@@ -250,7 +251,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Inventory only coding/tool-capable model families frozen by support contract.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 6.4 Databricks AI connector (P)
@@ -259,7 +260,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Reuse shared compatible transport; connector owns workspace auth and serving-endpoint discovery.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 6.5 Infomaniak AI connector (P)
@@ -268,7 +269,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Do not add generic URL-template profile support for this product.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 ---
@@ -282,7 +283,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Inventory publisher/model catalog scoped by project/location with stable canonical IDs.
   - _Requirements: 5,7,8,9,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.2 AWS SageMaker connector (P)
@@ -292,7 +293,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Enumerate endpoints through SageMaker control plane but never claim arbitrary containers are OpenAI-compatible; route only configured deterministic contracts.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.3 OCI Generative AI connector (P)
@@ -301,7 +302,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Enumerate generative models/endpoints and preserve stable Go-LIP IDs across generated endpoint resources.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.4 IBM watsonx.ai connector (P)
@@ -310,7 +311,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Enumerate supported foundation/deployed language models and filter to declared Go-LIP semantics.
   - _Requirements: 5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.5 SAP AI Core connector (P)
@@ -321,7 +322,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Reuse compatible transport after deployment resolution only when deployment is actually compatible.
   - _Requirements: 4,5,7,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.6 Cohere native connector (P)
@@ -331,7 +332,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Hard-negative tests for canonical semantics Cohere cannot preserve.
   - _Requirements: 5,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 - [ ] 7.7 Replicate language-model connector (P)
@@ -341,7 +342,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Cancellation stops local I/O and provider prediction when cancellable.
   - _Requirements: 5,8,11_
   - _Boundary: external backend plugin_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector tests + connector release gates_
 
 ---
@@ -354,7 +355,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Tests cover state/PKCE validation, refresh, `invalid_grant`/4xx quarantine, logout/removal, no repeated terminal refresh replay.
   - _Requirements: 4,6,8,10_
   - _Boundary: connector-support/external plugins_
-  - _Depends: 1_
+  - _Depends: none_
   - _Validation: connector-support tests + connector release gates_
 
 - [ ] 8.2 GitHub Copilot direct HTTP subscription bridge (P)
@@ -442,7 +443,7 @@ Profile batches are sequential/small because they edit the same embedded catalog
   - Optional connector artifacts need not be installed merely to validate source-tree expected set; use manifest/source metadata.
   - _Requirements: 9,10,12_
   - _Boundary: tests/release evidence_
-  - _Depends: 3.4,5,6,7,8_
+  - _Depends: 4.4,5,6,7,8_
   - _Validation: expected-inventory test + `make backend-plugin-release-gates-static`_
 
 - [ ] 9.2 Update top-level supported-backend documentation
@@ -457,21 +458,23 @@ Profile batches are sequential/small because they edit the same embedded catalog
 
 - [ ] 9.3 Run final architecture and quality gates
   - Run full quality/tests/parity/example/profile-scale/connector static release gates.
+  - Confirm the production `provider-profile` registry path preserves compiled capability ceilings, bounded headers, closed quirks/model paths and OpenResponses dialect declarations; direct helper tests alone are not release evidence.
   - Confirm ordinary profile population did not edit canonical/core/frontend/ABI/shared-composition production surfaces.
+  - Confirm provider profiles remain pre-feature-plane immutable generation input and connectors remain backend plugins: no provider contribution was added to `PlaneSet`, `FeatureBundle`, or feature lifecycle projections.
+  - Confirm every static model fixture compares canonical ID, native ID and display name, and every independent region/plan product uses its frozen credential root.
   - Confirm no runtime network fetch of Models.dev/Cline/OpenCode/Hermes/LiteLLM was introduced.
   - Confirm no production ACP changes were made.
   - Confirm external connectors remain optional/closed-manifest and provider SDK dependencies do not leak into root/core packages.
   - _Requirements: 1,4,8,9,10,12_
   - _Boundary: repository-wide validation_
   - _Depends: 9.2_
-  - _Validation: `make quality-checks && make test && make qa && make example-config-check && make backend-plugin-release-gates-static && make docs-check knowledge-check`_
+  - _Validation: `go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible' && go test ./internal/infra/runtimebundle/... -run 'ProviderProfile|Candidate' && make quality-checks && make test && make qa && make example-config-check && make backend-plugin-release-gates-static && make docs-check knowledge-check`_
 
 ## Parallelization Summary
 
-- Tasks 1-5 are profile-catalog work and should be sequential/small rebased batches because they share catalog/expected-table files.
-- Tasks 6.1-6.5 may run in parallel after Task 1.
-- Tasks 7.1-7.7 may run in parallel after Task 1.
-- Task 8.1 establishes shared credential primitives only where justified; Tasks 8.2-8.8 may run in parallel after 8.1.
+- Tasks 1-5 form the sequential profile path because they share the binding/catalog/expected-table contract.
+- Tasks 6.1-6.5 and 7.1-7.7 may start immediately and run in parallel by connector; they use the existing backend-plugin ABI and do not wait for Task 1.
+- Task 8.1 may start immediately and establishes shared credential primitives only where justified; Tasks 8.2-8.8 may run in parallel after 8.1.
 - Task 9 is the convergence gate after release-intended providers have landed or been explicitly recorded unsupported/deferred under stop rules.
 
 ## Implementation Stop Conditions

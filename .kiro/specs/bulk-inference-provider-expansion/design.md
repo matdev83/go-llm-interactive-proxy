@@ -2,15 +2,16 @@
 
 ## Overview
 
-This feature expands Go-LIP from a small first-class provider catalog to broad hosted-provider coverage while preserving the repository's existing scaling architecture. The design does **not** introduce a new provider framework. It operationalizes the already-landed `internal/providerprofiles` seam for providers that are wire-compatible with a certified family and uses the existing external connector architecture only where declarative profiles are intentionally insufficient.
+This feature expands Go-LIP from a small first-class provider catalog to broad hosted-provider coverage while preserving the repository's existing scaling architecture. The design does **not** introduce a new provider framework. It first repairs the narrow existing runtime binding so the complete compiled `internal/providerprofiles` contract reaches backend construction, then operationalizes that seam for providers that are wire-compatible with a certified family. It uses the existing external connector architecture only where declarative profiles are intentionally insufficient.
 
-The bulk path is data-first: real provider records are added to the embedded `internal/providerprofiles/catalog.json`, referenced at runtime with `kind: provider-profile`, and compiled through `internal/standardplugins/provider_profile_binding.go` into an existing compatible factory. A second, smaller path adds external connectors/credential bridges for managed clouds, dynamic-address products, provider-native APIs, and non-ACP subscription/OAuth products.
+The bulk path remains data-first: real provider records are added to the embedded `internal/providerprofiles/catalog.json`, referenced at runtime with `kind: provider-profile`, and compiled through one profile-aware `internal/standardplugins/provider_profile_binding.go` seam into an existing compatible family. A second, independent path adds external connectors/credential bridges for managed clouds, dynamic-address products, provider-native APIs, and non-ACP subscription/OAuth products.
 
 Implementation is deliberately staged so a lighter executor never has to decide architecture or perform broad provider research. The frozen provider matrix, protocol selections, endpoints, env-var names, enumeration strategy, exclusions, and stop conditions live in `research.md` and are normative inputs to implementation.
 
 ### Goals
 
 - Populate the embedded provider catalog with the researched compatible providers without one Go backend package per vendor.
+- Preserve every compiled profile semantic through the actual runtime registry build path before bulk catalog population begins.
 - Prefer native OpenAI Responses for a provider when it covers the intended model population; split protocol identities only when model/API coverage genuinely differs.
 - Keep model inventories flavor-correct and prevent a Responses profile from advertising models that only execute through Chat or Anthropic Messages.
 - Keep provider capability declarations truthful and conservative.
@@ -28,12 +29,14 @@ Implementation is deliberately staged so a lighter executor never has to decide 
 - Replacing or reimplementing existing OpenRouter, NVIDIA, Hugging Face, OpenCode, Codex, CommandCode, Ollama, llama.cpp, LM Studio, vLLM, Bedrock, Gemini, Anthropic, OpenAI, or Alibaba Token Plan International support.
 - Enabling every theoretical profile-schema enum merely because the type already exists. v1 behavior remains closed to the executable subset.
 - Open Core/Enterprise packaging separation.
+- Moving provider profiles or backend connectors into the feature-extension `PlaneSet`.
 
 ## Boundary Commitments
 
 ### This Spec Owns
 
 - The first production population of `internal/providerprofiles/catalog.json`.
+- The narrow provider-profile runtime binding repair required to preserve compiled capability, header, quirk, inventory and dialect semantics.
 - Stable provider/profile IDs and protocol-suffix rules.
 - The preferred protocol decision for every included multi-flavor provider.
 - Flavor-specific model inventory policy for the provider records frozen in `research.md`.
@@ -52,11 +55,12 @@ Implementation is deliberately staged so a lighter executor never has to decide 
 - Runtime synchronization with Models.dev or any surveyed repository.
 - Provider pricing/billing catalogs beyond existing usage/accounting contracts.
 - Dynamic installation of connector binaries.
+- Feature-extension `PlaneSet`, `FeatureBundle`, or feature lifecycle changes; the post-#541 extension plane is not the provider integration seam.
 
 ### Allowed Dependencies
 
 - Existing `internal/providerprofiles` schema/compiler/certification code.
-- Existing `provider-profile` expansion in `internal/standardplugins`.
+- Existing `provider-profile` expansion and profile-aware family builders in `internal/standardplugins`, with the bounded binding repair specified below.
 - Existing compatible family adapters and `modeldiscover` providers.
 - Existing backend TCK/profile certification and change-surface tooling.
 - Existing external connector ABI, manifest, packaging, process-host, and contract-test infrastructure.
@@ -71,6 +75,7 @@ Re-run design review instead of extending this spec opportunistically if impleme
 - a new backend-plugin ABI field/version;
 - a new profile auth mode, arbitrary endpoint template, transform DSL, or unbounded quirk;
 - a provider-specific branch in core/runtime/routing/frontend code;
+- a change to `PlaneSet`, feature-bundle projection, or feature lifecycle ownership for a provider profile/connector;
 - post-output transparent retry/failover behavior;
 - profile rows that need more than the current bounded one-secret/static-endpoint model and cannot be moved to a connector;
 - a surveyed provider's public contract materially contradicting the frozen protocol family or authentication model.
@@ -79,7 +84,7 @@ Re-run design review instead of extending this spec opportunistically if impleme
 
 ### Existing Architecture Analysis
 
-The required scaling architecture is already present:
+The required scaling architecture is present, but its last profile-to-factory handoff is currently lossy:
 
 ```text
 operator config
@@ -90,10 +95,10 @@ operator config
 internal/providerprofiles/catalog.json
     |
     v
-EmbeddedCatalog -> CompileProfile -> FamilyBinding
+EmbeddedCatalog -> CompileProfile -> CompiledProfile
     |
     v
-internal/standardplugins/ExpandProviderProfileRows
+internal/standardplugins profile-aware binding
     |
     +--> custom-openai-responses-compatible
     +--> custom-openai-legacy-compatible
@@ -104,9 +109,11 @@ internal/standardplugins/ExpandProviderProfileRows
        canonical execbackend.Backend
 ```
 
-The profile compiler is pure data. A profile does not create a factory, HTTP client, process, goroutine, or frontend/backend matrix cell merely by being present in the catalog. Runtime resources are created only for configured backend instances through normal generation composition.
+The profile compiler is pure data. A profile does not create a factory, HTTP client, process, goroutine, feature-plane contribution, or frontend/backend matrix cell merely by being present in the catalog. Runtime resources are created only for configured backend instances through normal immutable-generation composition.
 
-The current gap is not missing compatible-protocol code. The checked-in embedded catalog contains only a placeholder record, so the scalable architecture has not yet been populated with real providers.
+The current gap is not missing compatible-protocol code. `ExpandProviderProfileRows` currently compiles the selected profile, then rewrites it to generic compatible YAML through `ProfileConfigNode`; the production lifecycle builds that generic row without calling the existing profile-aware builder. That projection preserves common endpoint/auth/inventory fields but loses capability ceilings, safe headers, alternate model paths/closed quirks and OpenResponses capability/dialect declarations. The checked-in embedded catalog contains only a placeholder record that does not exercise those fields, so the gap is hidden until real profiles are added.
+
+The repair must retain one authoritative compiled profile contract through backend construction. It may carry a bounded profile identity or immutable compiled material through the existing internal binding, but it must not create a per-provider factory/registry, duplicate compiler policy in generic YAML, or add a new runtime framework.
 
 ### Architecture Pattern & Boundary Map
 
@@ -146,7 +153,7 @@ flowchart LR
 - no Go `plugin` dynamic loading;
 - no frontend-by-provider Cartesian certification.
 
-**New components:** no new runtime architecture is planned for the profile path. New components are only provider-specific external connector modules from the connector matrix and test-owned expected-ID/capability fixtures.
+**New components:** no new runtime architecture is planned for the profile path. One existing internal binding changes so the existing compiled profile reaches the existing family builder. Other new components are only provider-specific external connector modules from the connector matrix and test-owned expected-ID/capability fixtures.
 
 **Core-owned or plugin-owned?** Provider execution, auth, endpoint and inventory details are backend/profile/connector-owned. No new core policy belongs to this spec.
 
@@ -158,12 +165,15 @@ flowchart LR
 
 **Post-output retry invariant preserved?** Yes. This spec adds no transparent provider retry/failover authority after client-visible output.
 
+**Extension plane involved?** No. Current-main candidate compilation prepares provider profiles before feature surfaces are merged/frozen. Profiles remain backend-generation input, and optional providers remain backend plugins; neither becomes a `PlaneSet` feature.
+
 ### Technology Stack
 
 | Layer | Choice | Role | Notes |
 | --- | --- | --- | --- |
 | Profile data | JSON, `lip.provider-profile/v1` | first-class compatible providers | embedded offline with `go:embed` |
 | Profile compiler | existing Go `internal/providerprofiles` | validation, family binding, capability ceiling | no network/process work |
+| Profile binding | repaired existing `internal/standardplugins` seam | carry complete compiled semantics into family construction | one internal authority; no per-profile factory |
 | Compatible execution | existing OpenAI Chat/Responses, Anthropic, OpenResponses adapters | execution and remote/static model inventory | no per-provider Go factory |
 | Optional providers | existing gRPC backend-plugin ABI | cloud/native/OAuth connector modules | one closed manifest per connector artifact |
 | HTTP | `net/http`, provider SDK only where justified | connector upstream calls | respect shared transport/cancellation standards |
@@ -369,7 +379,7 @@ Use existing `connector-support/openaicompat` where a connector needs dynamic au
 
 | Connector | Fixed pattern |
 | --- | --- |
-| Cloudflare AI Gateway | dynamic account-ID REST connector; Responses preferred; do not use deprecated universal endpoint |
+| Cloudflare AI Gateway | account-ID REST connector at `/ai/v1`; Responses preferred; optional gateway selected with `cf-aig-gateway-id`; no separate Workers AI claim |
 | Azure OpenAI/Foundry | resource/deployment-aware connector; API key and Entra credential paths; Responses preferred where supported |
 | Vertex | GCP project/location + ADC/service-account connector; do not alias existing Gemini API-key backend |
 | SageMaker | AWS SDK/SigV4 connector; only configured compatible deployment contracts are routable |
@@ -398,11 +408,15 @@ internal/providerprofiles/
 ├── catalog.json                       # production source: add real profiles, remove placeholder
 ├── profile_test.go                    # retain generic schema/scale tests
 ├── catalog_population_test.go         # NEW: expected IDs/families/auth/base/inventory/capability posture
-└── ... existing compiler/schema files # should remain unchanged unless characterization exposes a true bug
+└── ... existing compiler/schema files # expected unchanged; compiler remains the profile authority
 
 internal/standardplugins/
-├── provider_profile_binding.go        # expected unchanged
-└── provider_profile_binding_test.go   # add representative real-profile expansion/execution tests if needed
+├── provider_profile_binding.go        # REQUIRED narrow repair: retain complete compiled semantics at runtime
+├── standard_contributions.go          # only if needed: wrap existing family lifecycle, no new contribution
+└── provider_profile_binding_test.go   # production-path RED/regression tests, not helper-only certification
+
+internal/infra/runtimebundle/
+└── candidate_compile.go               # expected unchanged; profiles stay pre-feature-plane config preparation
 
 config/examples/
 └── provider-profiles-bulk.example.yaml # small representative example, not one block per provider
@@ -412,7 +426,7 @@ docs/
 └── custom-compatible-backends.md      # cross-link standard profiles vs private custom endpoints
 ```
 
-`catalog_population_test.go` is test-owned characterization, not a second runtime catalog. Prefer table-driven assertions with only stable contract data. Do not paste a second list of static model details unless a test is proving a specific flavor split.
+`catalog_population_test.go` is test-owned characterization, not a second runtime catalog. Prefer table-driven assertions with only stable contract data. For static inventories, the stable contract is the complete canonical/native/display identity frozen in `research.md`; IDs alone are insufficient.
 
 ### Connector work
 
@@ -428,14 +442,14 @@ sequenceDiagram
     participant P as PrepareProviderProfiles
     participant C as EmbeddedCatalog
     participant F as Compatible family
-    participant R as Runtime/Core
+    participant R as Backend registry
     participant U as Upstream
 
     O->>P: kind=provider-profile, profile=<id>
     P->>C: resolve + CompileProfile(<id>)
-    C-->>P: family, endpoint, env ref, inventory, caps
-    P-->>O: expanded immutable compatible row
-    R->>F: build configured backend instance
+    C-->>P: immutable compiled profile
+    P-->>R: prepared row + complete profile authority
+    R->>F: build with endpoint, auth, inventory, caps, headers, quirks/dialects
     F->>U: /responses, /chat/completions, /v1/messages or OpenResponses
     U-->>F: provider stream
     F-->>R: canonical events
@@ -466,13 +480,13 @@ sequenceDiagram
 
 | Requirement | Design realization |
 | --- | --- |
-| 1 | Existing provider-profile catalog/compiler/binding; no per-provider factory |
+| 1 | Existing provider-profile catalog/compiler plus repaired profile-aware runtime binding; no per-provider factory |
 | 2 | Identity grammar + deterministic protocol preference algorithm |
 | 3 | flavor-specific inventory decision tree + static inventories for narrow profiles |
 | 4 | profile auth modes unchanged; connector-local credential lifecycle |
 | 5 | graduation rule + external connector pattern |
 | 6 | separate OAuth/subscription bridge pattern; explicit no-ACP rule |
-| 7 | concise `kind: provider-profile` config + existing diagnostics/binding |
+| 7 | concise `kind: provider-profile` config + lossless compiled-profile binding + existing diagnostics |
 | 8 | conservative capability ceilings + profile/connector TCKs |
 | 9 | staged catalog batches and independent connector tasks |
 | 10 | embedded offline catalog + no factory/resource per unconfigured profile |
@@ -511,14 +525,14 @@ Test table fields should include:
 
 ```go
 type expectedProviderProfile struct {
-    ID             string
-    Family         providerprofiles.Family
-    BaseURL        string
-    AuthMode       providerprofiles.AuthMode
-    EnvVar         string
-    Discovery      providerprofiles.DiscoveryPolicy
-    StaticModelIDs []string // only when flavor correctness requires static inventory
-    DisabledCaps   []lipapi.Capability
+    ID           string
+    Family       providerprofiles.Family
+    BaseURL      string
+    AuthMode     providerprofiles.AuthMode
+    EnvVar       string
+    Discovery    providerprofiles.DiscoveryPolicy
+    StaticModels []providerprofiles.Model // exact canonical/native/display rows when static
+    DisabledCaps []lipapi.Capability
 }
 ```
 
@@ -530,21 +544,34 @@ The test shall compare exact stable IDs and selected stable fields against the e
 - no forbidden ACP profile IDs;
 - no catalog row collides with an existing dedicated factory/connector semantic product;
 - every Responses profile has the intended inventory policy;
+- every static inventory matches the complete frozen canonical/native/display identity;
 - every catalog row has an explicit conservative capability posture rather than inheriting unreviewed family maximums.
 
 ### Provider Profile Binding
 
-No production changes expected.
+One narrow production repair is required at the existing internal binding. Current runtime expansion calls `CompileProfile` but projects only `ProfileConfigNode` into a generic family lifecycle; the separate profile-aware builder that applies headers, capability ceilings, Anthropic model-path quirks and OpenResponses configuration is not the runtime authority.
 
-Characterization tests must prove at least one **real** catalog profile for each used family expands to the intended existing compatible kind and derives:
+Required postconditions:
+
+- the complete compiled profile contract reaches the existing family builder from the actual `kind: provider-profile` registry path;
+- the compiler/catalog remains the single authority for capability, header, inventory, quirk and dialect policy;
+- arbitrary `custom-*-compatible` rows keep their current generic config behavior;
+- source configuration remains immutable;
+- no per-profile factory, contribution, goroutine, HTTP client or process is created for unconfigured catalog entries;
+- no canonical/core/frontend/backend-plugin ABI or feature-plane surface changes.
+
+RED/regression tests must prove at least one representative profile for each used family reaches the intended existing compatible builder and derives:
 
 - `backend_prefix == profile.ID`;
 - frozen base URL;
 - correct environment-variable root;
 - correct static/remote inventory behavior;
-- capability ceiling.
+- capability ceiling and zero-upstream rejection for a disabled required capability;
+- bounded safe headers where configured;
+- alternate Anthropic model path/closed quirk where configured;
+- OpenResponses capabilities and dialect declarations where configured.
 
-Use `httptest` for executable representative profiles; do not call real provider networks in default tests.
+Drive the test through production config preparation plus the same registry lifecycle used by candidate compilation. A direct call to `BuildProviderProfileBackend` may remain as a unit test but cannot certify the runtime seam. Use `httptest`; do not call real provider networks in default tests.
 
 ### External Connector Modules
 
@@ -561,6 +588,8 @@ Each connector implements the existing backend-plugin service contract and produ
 ### Provider Profile Data
 
 No schema migration is planned. Use current `providerprofiles.Profile` exactly.
+
+`providerprofiles.CompiledProfile` is the immutable semantic authority for one selected row. Runtime binding may carry a bounded profile identity and re-resolve/recompile it deterministically, or carry equivalent immutable compiled material internally, but shall not maintain a second independently-derived capability/header/quirk/dialect authority in generic compatible YAML.
 
 Important population invariants:
 
@@ -619,10 +648,11 @@ Never copy raw credential-bearing SDK messages into client-facing errors or diag
 Before the first bulk catalog batch:
 
 1. Run existing `go test ./internal/providerprofiles/...` and `go test ./internal/standardplugins/...` relevant tests unchanged.
-2. Add table-driven population tests for the exact expected provider IDs/families/auth/endpoints/capability posture.
-3. Add representative real-profile expansion tests for Responses, Chat and Anthropic families.
-4. Add static-inventory characterization for DeepSeek Responses and Kimi Coding.
-5. Preserve the existing 1,000-profile bounded/goroutine independence test.
+2. Add a RED test showing that a configured `provider-profile` loses at least the compiled capability ceiling through the current production registry build path; cover bounded headers, Anthropic alternate model path and OpenResponses dialect/capability data with focused fixtures so helper-only tests cannot mask the bug.
+3. Repair the existing binding and make those tests green without changing generic custom-compatible behavior or feature-plane composition.
+4. Add an incremental table-driven population harness for the exact expected provider IDs/families/auth/endpoints/capability posture; each catalog batch extends it in the same commit, and the final batch locks the complete set.
+5. Assert complete canonical/native/display identities for static inventories, including DeepSeek Responses, Scaleway Responses, Kimi Coding and Thinking Machines.
+6. Preserve the existing 1,000-profile bounded/goroutine/factory independence test.
 
 ### Per profile batch
 
@@ -631,6 +661,7 @@ Every batch must pass, before the next batch starts:
 ```bash
 go test ./internal/providerprofiles/...
 go test ./internal/standardplugins/... -run 'ProviderProfile|Compatible'
+go test ./internal/infra/runtimebundle/... -run 'ProviderProfile|Candidate'
 make profile-only-check PROFILE_ONLY_BASE=<batch-base-sha>
 make parity-checks
 ```
@@ -669,9 +700,12 @@ make test
 make qa
 make example-config-check
 make backend-plugin-release-gates-static
+go test ./internal/infra/runtimebundle/... -run 'ProviderProfile|Candidate'
 ```
 
 No live provider credentials are required for default/PR tests. Optional live-provider certification may exist as explicitly env-gated integration evidence but cannot replace offline contract tests.
+
+The final diff review must also confirm that profile/connector work did not add provider contributions to `PlaneSet` or modify feature-bundle projections. The focused runtimebundle test is for the existing candidate-build integration seam only, not permission to redesign candidate composition.
 
 ## Security Considerations
 
@@ -688,6 +722,7 @@ No live provider credentials are required for default/PR tests. Optional live-pr
 - Preserve the existing `MaxCatalogProfiles=4096`, byte bounds, deterministic sort, and 1,000-profile proof.
 - No startup/provider validation network calls.
 - No goroutine/factory/process per unconfigured profile.
+- Carrying or re-resolving one configured profile's immutable compiled authority must not allocate catalog-wide runtime objects.
 - Remote inventory is per configured instance and follows existing refresh/admission behavior.
 - Connector SDK clients are instance/generation-owned, not request-global registries.
 
@@ -696,15 +731,13 @@ No live provider credentials are required for default/PR tests. Optional live-pr
 There is no persisted-data migration. Rollout is implementation/batch migration only:
 
 ```mermaid
-flowchart LR
-    A[Characterize real profile binding] --> B[Responses-first strategic profiles]
-    B --> C[Strategic Chat profiles]
-    C --> D[Long-tail Chat batch A-M]
-    D --> E[Long-tail Chat batch N-Z]
-    E --> F[Anthropic profiles]
-    F --> G[Cloud/native connectors in parallel]
-    G --> H[OAuth/subscription bridges in parallel]
-    H --> I[Docs + final expected inventory + release gates]
+flowchart TD
+    A[Repair profile binding] --> B[Profile batches]
+    C[Existing backend connector ABI] --> D[Cloud/native connectors]
+    C --> E[OAuth bridges]
+    B --> F[Convergence gates]
+    D --> F
+    E --> F
 ```
 
 A profile batch can be reverted independently because it adds embedded data and tests without state migration. A connector is optional/discovered and can be omitted/rolled back independently of other provider support.
@@ -713,13 +746,17 @@ A profile batch can be reverted independently because it adds embedded data and 
 
 **GO**, with the following repaired constraints incorporated into the design:
 
-1. **No profile-schema expansion as a convenience:** dynamic-address and multi-auth providers are connectors.
-2. **No optimistic family capability inheritance:** every real profile carries a conservative capability ceiling.
-3. **No blanket tokenizer assignment:** tokenizer is omitted unless deliberately verified.
-4. **No provider-wide remote inventory on narrow protocol flavors:** use static flavor-specific inventories.
-5. **No ambiguous bare ID when multiple flavors are required:** suffix all protocol variants.
-6. **No ACP implementation:** direct provider HTTP/OAuth products only.
-7. **No runtime Models.dev dependency:** all researched facts are frozen in reviewed data/tests/docs.
-8. **No implementation-time architecture research:** a contradiction blocks only that provider and is recorded rather than guessed around.
+1. **No lossy runtime profile projection:** complete compiled semantics reach the actual family build path before catalog growth begins.
+2. **No profile-schema expansion as a convenience:** dynamic-address and multi-auth providers are connectors.
+3. **No optimistic family capability inheritance:** every real profile carries a conservative capability ceiling.
+4. **No partial static-model assertions:** canonical, native and display identities are all frozen/tested.
+5. **No shared credential root across independent region/plan products:** only deliberate same-product protocol splits share.
+6. **No blanket tokenizer assignment:** tokenizer is omitted unless deliberately verified.
+7. **No provider-wide remote inventory on narrow protocol flavors:** use static flavor-specific inventories.
+8. **No ambiguous bare ID when multiple flavors are required:** suffix all protocol variants.
+9. **No ACP implementation:** direct provider HTTP/OAuth products only.
+10. **No runtime Models.dev dependency:** all researched facts are frozen in reviewed data/tests/docs.
+11. **No feature-plane migration:** profiles stay immutable backend-generation input and connectors stay backend plugins.
+12. **No implementation-time architecture research:** a contradiction blocks only that provider and is recorded rather than guessed around.
 
-These repairs keep the work within the existing provider-profile/external-connector boundaries and avoid touching core/canonical/ABI surfaces for ordinary provider breadth.
+These repairs keep the work within the existing provider-profile/external-connector boundaries and avoid touching core/canonical/ABI/feature-plane surfaces for ordinary provider breadth.
