@@ -265,8 +265,7 @@ func TestTerminalDecisionProvider_RequestPathUsesFrozenIdentityWithoutCallingID(
 
 	// Parse each JSON log line into map[string]any to find terminal_decision_evaluation record
 	var evalRecords []map[string]any
-	lines := strings.Split(strings.TrimSpace(logBuf.String()), "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(strings.TrimSpace(logBuf.String()), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

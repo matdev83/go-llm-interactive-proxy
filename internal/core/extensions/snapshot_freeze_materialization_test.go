@@ -117,6 +117,7 @@ func (testLocalTurnStub) FailureMode() sdkhooks.FailureMode { return sdkhooks.Fa
 func (testLocalTurnStub) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{Claimed: false}, nil
 }
+
 func (testLocalTurnStub) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{Text: "test"}, nil
 }
@@ -176,9 +177,11 @@ func (p testCompactionPreserverStub) ID() string { return p.id }
 func (testCompactionPreserverStub) BeforeRequest(context.Context, *lipapi.Call, compaction.RequestPreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (testCompactionPreserverStub) RequestOpened(context.Context, lipapi.Call, []compaction.Event, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
+
 func (testCompactionPreserverStub) BeforeResponseRelease(context.Context, *lipapi.Event, compaction.ResponsePreview, compaction.PreservationMeta, compaction.Services) error {
 	return nil
 }
@@ -408,7 +411,7 @@ var (
 
 // TestSnapshot_ExecutionAccessors_ZeroAllocations asserts that all four narrow execution
 // accessors perform zero heap allocations on the hot path (Finding 4).
-func TestSnapshot_ExecutionAccessors_ZeroAllocations(t *testing.T) {
+func TestSnapshot_ExecutionAccessors_ZeroAllocations(t *testing.T) { //nolint:paralleltest // uses package-level sink variables for AllocsPerRun
 	cset := lipfeature.NewContributionSet()
 	require.NoError(t, lipfeature.Contribute(cset, lipfeature.PlaneToolCallPolicies, "p1", []toolpolicy.Policy{
 		testPolicyStub{id: "p1", ord: 1},

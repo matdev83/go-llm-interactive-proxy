@@ -15,7 +15,7 @@ func findRepoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
@@ -115,7 +115,7 @@ func TestInventory_DiscoveredMigrationRootsMatch(t *testing.T) {
 		base := info.Name()
 		if strings.HasSuffix(base, ".go") && !strings.HasSuffix(base, "_test.go") && len(base) > 14 {
 			isTimestamp := true
-			for i := 0; i < 14; i++ {
+			for i := range 14 {
 				if base[i] < '0' || base[i] > '9' {
 					isTimestamp = false
 					break

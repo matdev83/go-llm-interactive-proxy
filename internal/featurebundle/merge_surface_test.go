@@ -744,7 +744,9 @@ func TestContributeBundle_PlaneSetReplay(t *testing.T) {
 	gen, err := MergeBundlesGenerated(bundle)
 	require.NoError(t, err)
 	require.Len(t, gen.Lifecycles, 1)
-	assert.Equal(t, "life-1", gen.Lifecycles[0].(testLifecycle).tag)
+	lc, ok := gen.Lifecycles[0].(testLifecycle)
+	require.True(t, ok)
+	assert.Equal(t, "life-1", lc.tag)
 
 	genSH := lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks)
 	require.Len(t, genSH, 1)

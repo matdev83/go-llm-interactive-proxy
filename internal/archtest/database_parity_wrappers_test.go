@@ -223,6 +223,7 @@ func TestDatabaseParity_SyntheticInvalidEvidenceAnchorFails(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateCapabilityEvidence(tempDir, tc.cap)
 			if err == nil {
 				t.Fatalf("Expected ValidateCapabilityEvidence to fail for case %q, but got nil error", tc.name)

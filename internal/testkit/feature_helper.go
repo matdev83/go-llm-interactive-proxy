@@ -182,14 +182,14 @@ func FreezeTestBundle(b TestFeatureBundle) lipfeature.FrozenPlaneSet {
 // not override contributor IDs passed to lipfeature.Contribute inside the callback.
 // If contribute is nil, an empty PlaneSet is used.
 // If contribute fails, the test fails via t.Fatalf (or panics if t is nil).
-func FeatureBundle(
-	t testing.TB,
+func FeatureBundle( //nolint:thelper // tb is optional to support testing panic fallback on nil
+	tb testing.TB,
 	contributorID string,
 	contribute func(*lipfeature.ContributionSet) error,
 	lifecycles []lipplugin.Lifecycle,
 ) lipfeature.FeatureBundle {
-	if t != nil {
-		t.Helper()
+	if tb != nil {
+		tb.Helper()
 	}
 	if contributorID == "" {
 		contributorID = "test-feature"
@@ -197,8 +197,8 @@ func FeatureBundle(
 	cs := lipfeature.NewContributionSet()
 	if contribute != nil {
 		if err := contribute(cs); err != nil {
-			if t != nil {
-				t.Fatalf("testkit.FeatureBundle (%s): contribute: %v", contributorID, err)
+			if tb != nil {
+				tb.Fatalf("testkit.FeatureBundle (%s): contribute: %v", contributorID, err)
 			}
 			panic(fmt.Errorf("testkit.FeatureBundle (%s): contribute: %w", contributorID, err))
 		}

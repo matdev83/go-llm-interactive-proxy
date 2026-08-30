@@ -338,11 +338,11 @@ func buildPopulatedSnapshot(gen int64, label string) *extensions.RequestRuntimeS
 
 	// Immediate source slice mutations (replace, reorder, append within capacity) to prove isolation
 	sourceSessionOpeners[0] = charPinnedSessionOpener{id: "mutated-session"}
-	sourceSessionOpeners = append(sourceSessionOpeners, charPinnedSessionOpener{id: "leaked-session"})
+	_ = append(sourceSessionOpeners, charPinnedSessionOpener{id: "leaked-session"})
 
 	sourcePolicies[0] = charPinnedToolCallPolicy{id: "mutated-policy", ord: 999}
 	sourcePolicies[1], sourcePolicies[2] = sourcePolicies[2], sourcePolicies[1]
-	sourcePolicies = append(sourcePolicies, charPinnedToolCallPolicy{id: "leaked-policy", ord: 1})
+	_ = append(sourcePolicies, charPinnedToolCallPolicy{id: "leaked-policy", ord: 1})
 
 	sourceFinalizers[0] = charPinnedToolCallFinalizer{id: "mutated-finalizer", ord: 999}
 	sourceReqTransforms[0] = charPinnedRequestTransform{id: "mutated-reqxform"}

@@ -150,7 +150,7 @@ func TestMeteringJournalSchemaSpec_NegativeCases(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", filepath.ToSlash(path))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	require.NoError(t, err)
 	require.NoError(t, Migrate(ctx, bunDB))

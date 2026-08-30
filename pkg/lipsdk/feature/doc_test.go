@@ -79,6 +79,7 @@ func TestPackageDoc_RequiredContractAnchors(t *testing.T) {
 
 	for _, anchor := range requiredAnchors {
 		t.Run(anchor, func(t *testing.T) {
+			t.Parallel()
 			assert.Truef(t, strings.Contains(normalized, anchor),
 				"package documentation in %s missing required contract anchor %q", docPath, anchor)
 		})
@@ -98,9 +99,11 @@ func TestPackageDoc_RequiredContractAnchors(t *testing.T) {
 	}
 
 	t.Run("go run ./scripts/generate-feature-planes.go", func(t *testing.T) {
+		t.Parallel()
 		assert.True(t, hasGenerateCmd, "package documentation missing distinct generate command line")
 	})
 	t.Run("go run ./scripts/generate-feature-planes.go -check", func(t *testing.T) {
+		t.Parallel()
 		assert.True(t, hasCheckCmd, "package documentation missing distinct generate check command line")
 	})
 }

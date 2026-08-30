@@ -28,7 +28,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		ctx := context.Background()
 		dsn := sqliteAuthorityDSN(filepath.Join(t.TempDir(), "parity.db"))
 		bunDB := openSQLiteAuthorityBun(t, dsn)
-		defer bunDB.Close()
+		defer func() { _ = bunDB.Close() }()
 		require.NoError(t, authoritystore.Migrate(ctx, bunDB))
 		require.NoError(t, dbparity.VerifySchema(ctx, bunDB, authoritystore.UsageAuthorityLogicalSchemaSpec()))
 
@@ -41,7 +41,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		var names []string
 		rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_usage_authority_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

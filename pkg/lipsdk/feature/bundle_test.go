@@ -106,8 +106,8 @@ func TestFeatureBundle_FinalFields(t *testing.T) {
 	t.Parallel()
 	bundleType := reflect.TypeFor[feature.FeatureBundle]()
 	var actualFields []string
-	for i := 0; i < bundleType.NumField(); i++ {
-		actualFields = append(actualFields, bundleType.Field(i).Name)
+	for f := range bundleType.Fields() {
+		actualFields = append(actualFields, f.Name)
 	}
 	expectedFields := []string{"SchemaVersion", "PlaneSet", "Lifecycles"}
 	assert.Equal(t, expectedFields, actualFields)
@@ -571,10 +571,13 @@ func (c callCountingStreamObserverFactory) ID() string {
 	}
 	return c.id
 }
+
 func (c callCountingStreamObserverFactory) Order() int { return 0 }
+
 func (c callCountingStreamObserverFactory) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailOpen
 }
+
 func (c callCountingStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return stubStreamObserver{}, nil
 }
@@ -588,7 +591,7 @@ func (c callCountingCompactionPreserver) ID() string {
 	if c.calls != nil {
 		*c.calls++
 	}
-	return c.stubPreserver.id
+	return c.id
 }
 
 func TestPlaneSet_ValidateIdentity_ThreePlanes_AllTenCases(t *testing.T) {

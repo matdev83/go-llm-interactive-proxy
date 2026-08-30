@@ -192,7 +192,6 @@ func redactKVPassword(s string) string {
 					if valStart >= len(s) {
 						sb.WriteString("***")
 						last = len(s)
-						i = len(s)
 						break
 					}
 
@@ -451,10 +450,10 @@ func FormatList(cat Catalog) string {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(fmt.Sprintf("%s:\n", comp.ID))
+		fmt.Fprintf(&sb, "%s:\n", comp.ID)
 		sb.WriteString("  TestPackages:\n")
 		for _, tp := range comp.TestPackages {
-			sb.WriteString(fmt.Sprintf("    - %s\n", tp))
+			fmt.Fprintf(&sb, "    - %s\n", tp)
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")

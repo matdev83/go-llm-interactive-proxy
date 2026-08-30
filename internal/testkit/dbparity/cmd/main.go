@@ -45,19 +45,19 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&testFlags, "flags", "", "Extra flags passed through to go test (overrides GO_TEST_FLAGS env if set)")
 
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: dbparity [flags] [mode]\n\n")
-		fmt.Fprintf(stderr, "Modes:\n")
-		fmt.Fprintf(stderr, "  list             Show catalog component and test package inventory\n")
-		fmt.Fprintf(stderr, "  sqlite           Execute canonical SQLite parity tests\n")
-		fmt.Fprintf(stderr, "  postgres-direct  Execute canonical PostgreSQL direct parity tests (fail-closed)\n")
-		fmt.Fprintf(stderr, "  all              Execute SQLite followed by PostgreSQL direct parity tests (default)\n\n")
-		fmt.Fprintf(stderr, "Flags:\n")
+		_, _ = fmt.Fprintf(stderr, "Usage: dbparity [flags] [mode]\n\n")
+		_, _ = fmt.Fprintf(stderr, "Modes:\n")
+		_, _ = fmt.Fprintf(stderr, "  list             Show catalog component and test package inventory\n")
+		_, _ = fmt.Fprintf(stderr, "  sqlite           Execute canonical SQLite parity tests\n")
+		_, _ = fmt.Fprintf(stderr, "  postgres-direct  Execute canonical PostgreSQL direct parity tests (fail-closed)\n")
+		_, _ = fmt.Fprintf(stderr, "  all              Execute SQLite followed by PostgreSQL direct parity tests (default)\n\n")
+		_, _ = fmt.Fprintf(stderr, "Flags:\n")
 		fs.PrintDefaults()
 	}
 
 	reordered, err := dbparity.ReorderCLIArgs(args)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		_, _ = fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
 		fs.Usage()
 		return 2
 	}
@@ -66,7 +66,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
-		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		_, _ = fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
 		fs.Usage()
 		return 2
 	}
@@ -76,7 +76,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		positionalMode = strings.TrimSpace(fs.Arg(0))
 		if fs.NArg() > 1 {
 			msg := fmt.Sprintf("Error: unexpected extra positional argument %q\n", fs.Arg(1))
-			fmt.Fprint(stderr, dbparity.RedactDSN(msg))
+			_, _ = fmt.Fprint(stderr, dbparity.RedactDSN(msg))
 			fs.Usage()
 			return 2
 		}
@@ -85,7 +85,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	modeStr := strings.TrimSpace(modeFlag)
 	if modeStr != "" && positionalMode != "" {
 		msg := fmt.Sprintf("Error: cannot specify both -mode flag (%q) and positional mode (%q)\n", modeStr, positionalMode)
-		fmt.Fprint(stderr, dbparity.RedactDSN(msg))
+		_, _ = fmt.Fprint(stderr, dbparity.RedactDSN(msg))
 		fs.Usage()
 		return 2
 	}
@@ -98,7 +98,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	mode, err := dbparity.ParseRunnerMode(modeStr)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
+		_, _ = fmt.Fprintf(stderr, "Error: %s\n", dbparity.RedactDSN(err.Error()))
 		fs.Usage()
 		return 2
 	}
@@ -111,14 +111,14 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if strings.TrimSpace(testFlags) != "" {
 		parsedFlags, parseErr := dbparity.ParseFlagWords(testFlags)
 		if parseErr != nil {
-			fmt.Fprintf(stderr, "Error: invalid -flags argument: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			_, _ = fmt.Fprintf(stderr, "Error: invalid -flags argument: %s\n", dbparity.RedactDSN(parseErr.Error()))
 			return 2
 		}
 		goTestFlags = parsedFlags
 	} else if envFlags := strings.TrimSpace(os.Getenv("GO_TEST_FLAGS")); envFlags != "" {
 		parsedFlags, parseErr := dbparity.ParseFlagWords(envFlags)
 		if parseErr != nil {
-			fmt.Fprintf(stderr, "Error: invalid GO_TEST_FLAGS environment variable: %s\n", dbparity.RedactDSN(parseErr.Error()))
+			_, _ = fmt.Fprintf(stderr, "Error: invalid GO_TEST_FLAGS environment variable: %s\n", dbparity.RedactDSN(parseErr.Error()))
 			return 2
 		}
 		goTestFlags = parsedFlags
@@ -131,13 +131,13 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if jsonFlag || strings.EqualFold(formatFlag, "json") {
 			jsonOut, jsonErr := dbparity.FormatListJSON(cat)
 			if jsonErr != nil {
-				fmt.Fprintf(stderr, "Error formatting JSON: %s\n", dbparity.RedactDSN(jsonErr.Error()))
+				_, _ = fmt.Fprintf(stderr, "Error formatting JSON: %s\n", dbparity.RedactDSN(jsonErr.Error()))
 				return 1
 			}
-			fmt.Fprintln(stdout, jsonOut)
+			_, _ = fmt.Fprintln(stdout, jsonOut)
 			return 0
 		}
-		fmt.Fprintln(stdout, dbparity.FormatList(cat))
+		_, _ = fmt.Fprintln(stdout, dbparity.FormatList(cat))
 		return 0
 	}
 
@@ -152,13 +152,13 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		var stepErr *dbparity.RunStepError
 		if errors.As(runErr, &stepErr) {
 			exitCode := dbparity.MapExitStatus(stepErr)
-			fmt.Fprintf(stderr, "\ndbparity: test failed for component %q package %q (backend: %s, exit code: %d)\n",
+			_, _ = fmt.Fprintf(stderr, "\ndbparity: test failed for component %q package %q (backend: %s, exit code: %d)\n",
 				stepErr.Component, stepErr.Package, stepErr.Backend, exitCode)
 			return exitCode
 		}
 
 		exitCode := dbparity.MapExitStatus(runErr)
-		fmt.Fprintf(stderr, "\nError: %s\n", dbparity.RedactDSN(runErr.Error()))
+		_, _ = fmt.Fprintf(stderr, "\nError: %s\n", dbparity.RedactDSN(runErr.Error()))
 		return exitCode
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun"
 	_ "modernc.org/sqlite"
 )
 
@@ -114,16 +115,23 @@ func UsageAuthorityLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 func TestUsageAuthoritySchemaSpec_NegativeCases(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "negative.db")
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", filepath.ToSlash(path))
-	sqlDB, err := sql.Open("sqlite", dsn)
-	require.NoError(t, err)
-	defer sqlDB.Close()
-	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
-	require.NoError(t, err)
-	require.NoError(t, Migrate(ctx, bunDB))
+
+	newTestDB := func(t *testing.T) *bun.DB {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "negative.db")
+		dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", filepath.ToSlash(path))
+		sqlDB, err := sql.Open("sqlite", dsn)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = sqlDB.Close() })
+		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+		require.NoError(t, err)
+		require.NoError(t, Migrate(ctx, bunDB))
+		return bunDB
+	}
 
 	t.Run("missing column fails", func(t *testing.T) {
+		t.Parallel()
+		bunDB := newTestDB(t)
 		spec := UsageAuthorityLogicalSchemaSpec()
 		spec.Tables[0].Columns = append(spec.Tables[0].Columns, dbparity.ColumnSpec{
 			Name: "non_existent_column",
@@ -135,6 +143,8 @@ func TestUsageAuthoritySchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("wrong index column fails", func(t *testing.T) {
+		t.Parallel()
+		bunDB := newTestDB(t)
 		spec := UsageAuthorityLogicalSchemaSpec()
 		spec.Indexes[0].Columns = []string{"store_id", "decision_seq"}
 		err := dbparity.VerifySQLiteSchema(ctx, bunDB, spec)

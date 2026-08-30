@@ -49,7 +49,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("query bun_billing_migrations: %v", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

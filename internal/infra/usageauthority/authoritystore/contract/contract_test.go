@@ -22,6 +22,7 @@ func (f *concurrencyTrackingFactory) ParallelContract() bool {
 }
 
 func (f *concurrencyTrackingFactory) Build(t *testing.T) app.StateStore {
+	t.Helper()
 	cur := f.active.Add(1)
 	for {
 		old := f.maxConcurrent.Load()
@@ -41,6 +42,7 @@ func (f *concurrencyTrackingFactory) Build(t *testing.T) app.StateStore {
 }
 
 func TestRunSuite_OptOutParallelism_NeverConcurrentBuild(t *testing.T) {
+	t.Parallel()
 	factory := &concurrencyTrackingFactory{allowParallel: false}
 	t.Cleanup(func() {
 		if max := factory.maxConcurrent.Load(); max != 1 {

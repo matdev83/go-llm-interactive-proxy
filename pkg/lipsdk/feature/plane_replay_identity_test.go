@@ -711,12 +711,12 @@ func TestOrderedIdentityPlanes_MapBacked_MalformedStateAndRollback(t *testing.T)
 // - FrozenPlaneSet.Validate() returns an error satisfying errors.Is(err, errValidator) with validatorCalls == 1;
 // - ReplayTo() returns an attributed error satisfying errors.Is(err, errValidator) with exact contributor/plane, and increments validator exactly once;
 // - live Identity() / object ID() counter remains 0 throughout both operations.
-func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) {
+func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 	// Note: non-parallel execution to safely swap plane ValidateIdentity temporarily
 	wantID := "cached-test-id"
 	errValidator := errors.New("validator sentinel error")
 
-	t.Run("PlaneAttemptTransforms", func(t *testing.T) {
+	t.Run("PlaneAttemptTransforms", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneAttemptTransforms.ValidateIdentity
 		validatorCalls := 0
 		feature.PlaneAttemptTransforms.ValidateIdentity = func(id string) error {
@@ -759,7 +759,7 @@ func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) {
 		assert.Equal(t, 0, calls, "replay must not invoke live ID()")
 	})
 
-	t.Run("PlaneStreamObserverFactories", func(t *testing.T) {
+	t.Run("PlaneStreamObserverFactories", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneStreamObserverFactories.ValidateIdentity
 		validatorCalls := 0
 		feature.PlaneStreamObserverFactories.ValidateIdentity = func(id string) error {
@@ -799,7 +799,7 @@ func TestOrderedIdentityPlanes_ValidatorInvocationProof(t *testing.T) {
 		assert.Equal(t, 0, calls, "replay must not invoke live ID()")
 	})
 
-	t.Run("PlaneCompactionPreservers", func(t *testing.T) {
+	t.Run("PlaneCompactionPreservers", func(t *testing.T) { //nolint:paralleltest // mutates package-level plane ValidateIdentity globals
 		origValidator := feature.PlaneCompactionPreservers.ValidateIdentity
 		validatorCalls := 0
 		feature.PlaneCompactionPreservers.ValidateIdentity = func(id string) error {

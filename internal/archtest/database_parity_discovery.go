@@ -282,8 +282,7 @@ type PackageParityWrappers struct {
 
 // HasIntegrationBuildTag checks if the source code contains //go:build integration or // +build integration.
 func HasIntegrationBuildTag(src []byte) bool {
-	lines := strings.Split(string(src), "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "package ") {
 			break

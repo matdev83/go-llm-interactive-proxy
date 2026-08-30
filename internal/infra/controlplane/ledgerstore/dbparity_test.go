@@ -36,7 +36,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		var names []string
 		rows, err := st.db.QueryContext(ctx, "SELECT name FROM bun_controlplane_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

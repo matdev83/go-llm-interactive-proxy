@@ -762,6 +762,7 @@ func (dummyLTHandler) FailureMode() hooks.FailureMode { return hooks.FailClosed 
 func (dummyLTHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{Claimed: false}, nil
 }
+
 func (dummyLTHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{}, nil
 }

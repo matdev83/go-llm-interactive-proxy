@@ -184,6 +184,7 @@ func TestControlPlaneLedgerSchemaSpec_NegativeCases(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("predicate removal fails", func(t *testing.T) {
+		t.Parallel()
 		st := newSQLiteStoreForTest(t, nil)
 
 		_, err := st.db.ExecContext(ctx, "DROP INDEX idx_control_plane_events_source_key")
@@ -197,6 +198,7 @@ func TestControlPlaneLedgerSchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("wrong column fails", func(t *testing.T) {
+		t.Parallel()
 		st := newSQLiteStoreForTest(t, nil)
 
 		_, err := st.db.ExecContext(ctx, "DROP INDEX idx_control_plane_events_source_key")
@@ -210,6 +212,7 @@ func TestControlPlaneLedgerSchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("non-unique index fails", func(t *testing.T) {
+		t.Parallel()
 		st := newSQLiteStoreForTest(t, nil)
 
 		_, err := st.db.ExecContext(ctx, "DROP INDEX idx_control_plane_events_source_key")
