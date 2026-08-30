@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Characterize the corrective boundaries
-- [ ] 1.1 Lock in nil-safe generation behavior
+- [x] 1.1 Lock in nil-safe generation behavior
   - Add a regression that invokes terminal-provider access on an absent generation and proves the no-provider result without panic.
   - Audit all generation pointer accessors and characterize any documented zero behavior not already covered.
   - Preserve the existing published-generation and request-pinning characterizations as the non-nil control cases.
