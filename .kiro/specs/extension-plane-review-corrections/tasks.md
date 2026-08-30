@@ -19,7 +19,7 @@
   - _Boundary: Bundle Validation Choke Point_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 1.3 (P) Lock in hook projection and mirror-ratchet expectations
+- [x] 1.3 (P) Lock in hook projection and mirror-ratchet expectations
   - Characterize populated, absent, nil, explicit-empty, ordered, defensive-copy, and host-policy hook configurations.
   - Add generator tests for valid hook-view metadata and rejection of duplicate, unknown, or type-incompatible targets.
   - Add architecture tests proving a handwritten hook-plane projection is rejected without relying on a named-function exemption.
