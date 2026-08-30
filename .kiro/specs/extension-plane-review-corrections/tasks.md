@@ -10,7 +10,7 @@
   - _Boundary: Generation Accessor_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 1.2 (P) Lock in feature-bundle schema negotiation and rollback
+- [x] 1.2 (P) Lock in feature-bundle schema negotiation and rollback
   - Characterize empty version-zero and V1 bundles, non-empty plane bundles, lifecycle-only bundles, and unsupported schema versions.
   - Exercise direct contribution, direct generated merge, registry-generated merge, and host/candidate merge using a registry that deliberately returns malformed bundles.
   - Assert contributor attribution, zero returned candidates, unchanged destination contributions, and no lifecycle publication on every failure.
