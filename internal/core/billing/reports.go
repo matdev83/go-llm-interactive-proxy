@@ -24,10 +24,12 @@ type ReportingStore interface {
 
 // ReportsStore is an alias for ReportingStore to align with canonical store naming.
 type ReportsStore = ReportingStore
+
 type AuthoritativeBilling interface {
 	CallSettlementStore
 	ReportingStore
 }
+
 type PageRequest struct {
 	AfterSequence uint64
 	AfterKey      string

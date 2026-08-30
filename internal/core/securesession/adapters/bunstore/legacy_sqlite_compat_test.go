@@ -67,7 +67,7 @@ func TestLegacySQLiteFixture_ReadCompat(t *testing.T) {
 	require.NoError(t, err)
 	rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_securesession_migrations")
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	recorded := make(map[string]bool)
 	for rows.Next() {
 		var name string

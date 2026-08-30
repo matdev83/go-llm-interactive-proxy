@@ -290,7 +290,8 @@ func TestLocalTurnProjection_CandidateAtomicFailureAndRollback(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	initialBundle := genInitial.(*GenerationBundle)
+	initialBundle, ok := genInitial.(*GenerationBundle)
+	require.True(t, ok)
 	initialSnap := initialBundle.execution.executor.RuntimeSnapshot
 	initialHandlers := initialSnap.LocalTurnHandlersExecution()
 	require.Len(t, initialHandlers, 1)
@@ -364,7 +365,8 @@ func TestLocalTurnProjection_BindingTimeSensitivity_MatchDeclinedLeavesHandleZer
 		},
 	})
 	require.NoError(t, err)
-	bundle := gen.(*GenerationBundle)
+	bundle, ok := gen.(*GenerationBundle)
+	require.True(t, ok)
 	ex := bundle.execution.executor
 	require.NotNil(t, ex)
 

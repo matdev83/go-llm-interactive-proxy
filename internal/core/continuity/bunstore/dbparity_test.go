@@ -50,6 +50,7 @@ func (f *sqliteContinuityFixture) NewStore(t *testing.T) *Store {
 }
 
 func (f *sqliteContinuityFixture) RouteOverrideEnv(t *testing.T) routeoverrideStorecontract.ContractEnv {
+	t.Helper()
 	return routeoverrideStorecontract.ContractEnv{
 		New: func(t *testing.T) routeoverrideStorecontract.ContractPair {
 			t.Helper()
@@ -69,6 +70,7 @@ func (f *sqliteContinuityFixture) RouteOverrideEnv(t *testing.T) routeoverrideSt
 }
 
 func (f *sqliteContinuityFixture) ConversationViewEnv(t *testing.T) conversationviewStorecontract.Env {
+	t.Helper()
 	return conversationviewStorecontract.Env{
 		New: func(t *testing.T) conversationviewStorecontract.Deps {
 			t.Helper()
@@ -430,6 +432,7 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 	t.Run("InterleavedState", func(t *testing.T) {
 		t.Run("contract", func(t *testing.T) {
 			b2buatest.TestInterleavedStateStore(t, func(t *testing.T) b2buatest.Store {
+				t.Helper()
 				return f.NewStore(t)
 			})
 		})
@@ -665,7 +668,7 @@ func runContinuityParitySuite(t *testing.T, f continuityParityFixture) {
 		var names []string
 		rows, err := st.db.QueryContext(ctx, "SELECT name FROM bun_continuity_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

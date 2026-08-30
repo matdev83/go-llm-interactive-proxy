@@ -45,6 +45,7 @@ func (h *ptrLTHandler) Handle(_ context.Context, _ localturn.HandleInput) (local
 }
 
 func ltBundle(t *testing.T, id string, handlers ...localturn.Handler) lipfeature.FeatureBundle {
+	t.Helper()
 	cs := lipfeature.NewContributionSet()
 	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, id, handlers))
 	return lipfeature.BundleFromPlanes(cs.Freeze(), nil)

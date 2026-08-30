@@ -18,9 +18,9 @@ func ContinuityLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 			{
 				Name: "a_legs",
 				Columns: []dbparity.ColumnSpec{
-					{Name: "a_leg_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), PrimaryKey: true},
-					{Name: "continuity_key", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
-					{Name: "created_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
+					{Name: "a_leg_id", Type: dbparity.TypeText, Nullable: new(false), PrimaryKey: true},
+					{Name: "continuity_key", Type: dbparity.TypeText, Nullable: new(false)},
+					{Name: "created_at_unix", Type: dbparity.TypeInteger, Nullable: new(false)},
 					{Name: "last_seen_at_unix", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
 					{Name: "weighted_first_consumed", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
 					{Name: "next_b_seq", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
@@ -144,6 +144,7 @@ func TestContinuitySchemaSpec_NegativeCases(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("predicate removal fails", func(t *testing.T) {
+		t.Parallel()
 		st, cleanup := newTestStore(t)
 		defer cleanup()
 
@@ -158,6 +159,7 @@ func TestContinuitySchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("wrong column fails", func(t *testing.T) {
+		t.Parallel()
 		st, cleanup := newTestStore(t)
 		defer cleanup()
 
@@ -172,6 +174,7 @@ func TestContinuitySchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("non-unique index fails", func(t *testing.T) {
+		t.Parallel()
 		st, cleanup := newTestStore(t)
 		defer cleanup()
 

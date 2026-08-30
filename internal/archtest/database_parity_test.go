@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,6 +208,7 @@ func TestDatabaseParity_SyntheticUnregisteredPackageFails(t *testing.T) {
 
 	for _, tc := range syntheticCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fset, f, err := ParseGoSource("synthetic.go", []byte(tc.sourceCode))
 			if err != nil {
 				t.Fatalf("ParseGoSource: %v", err)
@@ -278,14 +280,7 @@ func TestDatabaseParity_SharedInfraClassification(t *testing.T) {
 		"internal/infra/runtimebundle",
 	}
 	for _, expected := range expectedShared {
-		isShared := false
-		for _, infra := range catalog.SharedInfra {
-			if infra == expected {
-				isShared = true
-				break
-			}
-		}
-		if !isShared {
+		if !slices.Contains(catalog.SharedInfra, expected) {
 			t.Errorf("Expected %q to be in SharedInfra", expected)
 		}
 

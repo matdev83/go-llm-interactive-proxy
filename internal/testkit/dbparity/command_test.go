@@ -344,7 +344,7 @@ func TestPlan_AllMode(t *testing.T) {
 	}
 
 	// First half is SQLite, second half is PostgresDirect
-	for i := 0; i < len(expectedPkgs); i++ {
+	for i := range expectedPkgs {
 		if plans[i].Backend != "sqlite" {
 			t.Errorf("plans[%d] backend = %q, want 'sqlite'", i, plans[i].Backend)
 		}
@@ -604,7 +604,7 @@ func TestFormatList(t *testing.T) {
 		t.Fatalf("FormatListJSON failed: %v", err)
 	}
 
-	var parsed []map[string]interface{}
+	var parsed []map[string]any
 	if err := json.Unmarshal([]byte(jsonOut), &parsed); err != nil {
 		t.Fatalf("FormatListJSON returned invalid JSON: %v", err)
 	}
@@ -1619,14 +1619,7 @@ func TestPlan_PostgresDirect_MixedCaseBaseEnv(t *testing.T) {
 		if len(plans) == 0 {
 			t.Fatal("expected plans to be generated")
 		}
-		found := false
-		for _, e := range plans[0].Env {
-			if e == "LIP_TEST_POSTGRES_DSN=postgres://admin:pass@localhost:5432/admin" {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(plans[0].Env, "LIP_TEST_POSTGRES_DSN=postgres://admin:pass@localhost:5432/admin") {
 			t.Errorf("expected plans[0].Env to contain injected runtime DSN from mixed-case admin DSN, got: %v", plans[0].Env)
 		}
 	})

@@ -201,7 +201,7 @@ func runSecureSessionMigrationAndSchemaParity(t *testing.T, bunDB *bun.DB, migra
 	var names []string
 	rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_securesession_migrations")
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	recorded := make(map[string]bool)
 	for rows.Next() {
 		var name string
@@ -241,6 +241,7 @@ func TestSecureSessionSchemaSpec_NegativeCases(t *testing.T) {
 	}
 
 	t.Run("predicate removal fails", func(t *testing.T) {
+		t.Parallel()
 		bunDB := newTestDB(t)
 
 		_, err := bunDB.ExecContext(ctx, "DROP INDEX idx_lip_secure_sessions_a_leg_unique")
@@ -254,6 +255,7 @@ func TestSecureSessionSchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("wrong column fails", func(t *testing.T) {
+		t.Parallel()
 		bunDB := newTestDB(t)
 
 		_, err := bunDB.ExecContext(ctx, "DROP INDEX idx_lip_secure_sessions_a_leg_unique")
@@ -267,6 +269,7 @@ func TestSecureSessionSchemaSpec_NegativeCases(t *testing.T) {
 	})
 
 	t.Run("non-unique index fails", func(t *testing.T) {
+		t.Parallel()
 		bunDB := newTestDB(t)
 
 		_, err := bunDB.ExecContext(ctx, "DROP INDEX idx_lip_secure_sessions_a_leg_unique")

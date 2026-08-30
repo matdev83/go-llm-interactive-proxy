@@ -38,7 +38,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		ctx := context.Background()
 		sqlDB, err := sql.Open("sqlite", memorySQLiteDSN())
 		require.NoError(t, err)
-		defer sqlDB.Close()
+		defer func() { _ = sqlDB.Close() }()
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		require.NoError(t, err)
 		require.NoError(t, journalstore.Migrate(ctx, bunDB))
@@ -53,7 +53,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		var names []string
 		rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_metering_journal_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

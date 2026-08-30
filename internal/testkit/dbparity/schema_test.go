@@ -545,22 +545,23 @@ func TestVerifySchema_SQLite_RetiredArtifactPresent(t *testing.T) {
 func TestVerifySchema_NilValidation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	var nilCtx context.Context
 	bunDB := newSQLiteTestDB(t)
 	spec := dbparity.LogicalSchemaSpec{}
 
-	if err := dbparity.VerifySchema(nil, bunDB, spec); err == nil {
+	if err := dbparity.VerifySchema(nilCtx, bunDB, spec); err == nil {
 		t.Error("VerifySchema(nil ctx) should error")
 	}
 	if err := dbparity.VerifySchema(ctx, nil, spec); err == nil {
 		t.Error("VerifySchema(nil db) should error")
 	}
-	if err := dbparity.VerifySQLiteSchema(nil, bunDB, spec); err == nil {
+	if err := dbparity.VerifySQLiteSchema(nilCtx, bunDB, spec); err == nil {
 		t.Error("VerifySQLiteSchema(nil ctx) should error")
 	}
 	if err := dbparity.VerifySQLiteSchema(ctx, nil, spec); err == nil {
 		t.Error("VerifySQLiteSchema(nil db) should error")
 	}
-	if err := dbparity.VerifyPostgresSchema(nil, bunDB, spec); err == nil {
+	if err := dbparity.VerifyPostgresSchema(nilCtx, bunDB, spec); err == nil {
 		t.Error("VerifyPostgresSchema(nil ctx) should error")
 	}
 	if err := dbparity.VerifyPostgresSchema(ctx, nil, spec); err == nil {

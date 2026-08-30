@@ -87,7 +87,7 @@ func runLeaseParitySuite(t *testing.T, newStore func(t *testing.T) *leaseStoreFa
 		var names []string
 		rows, err := f.db.QueryContext(ctx, "SELECT name FROM bun_concurrency_lease_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

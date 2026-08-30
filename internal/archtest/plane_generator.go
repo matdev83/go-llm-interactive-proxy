@@ -362,7 +362,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte) (planeInfo, erro
 								}
 							case "Order":
 								if basicLit, ok := dKV.Value.(*ast.BasicLit); ok && basicLit.Kind == token.INT {
-									fmt.Sscanf(basicLit.Value, "%d", &diagOrder)
+									_, _ = fmt.Sscanf(basicLit.Value, "%d", &diagOrder)
 								}
 							case "Materialize":
 								hasDiagMaterialize = !isNilIdent(dKV.Value)

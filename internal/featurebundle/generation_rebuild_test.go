@@ -38,6 +38,7 @@ func (g genCompactionObs) OnCompaction(context.Context, compaction.Event) error 
 }
 
 func makeGenBundle(t *testing.T, tag string) lipfeature.FeatureBundle {
+	t.Helper()
 	return testkit.FeatureBundle(t, tag, func(cs *lipfeature.ContributionSet) error {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneCompactionObservers, tag, []compaction.Observer{genCompactionObs{tag: tag}}); err != nil {
 			return err

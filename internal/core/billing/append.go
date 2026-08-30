@@ -25,12 +25,14 @@ type ExposureAdmissionStore interface {
 
 // ExposureStore is an alias for ExposureAdmissionStore to align with canonical store naming.
 type ExposureStore = ExposureAdmissionStore
+
 type CallUsageStore interface {
 	CompleteCallClaimer
 	ClaimCompleteCalls(context.Context, int) ([]CompleteCall, error)
 	GetCallExposure(context.Context, BillingCallID) (CallExposure, error)
 	RetryCompleteCall(context.Context, BillingCallID, string) error
 }
+
 type CallUsageReader interface {
 	ListCallUsage(context.Context, string) ([]CallUsageRecord, error)
 }

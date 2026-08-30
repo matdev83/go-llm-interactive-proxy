@@ -584,6 +584,7 @@ func (diagDummyLTHandler) FailureMode() sdkhooks.FailureMode { return sdkhooks.F
 func (diagDummyLTHandler) Match(context.Context, lipapi.Call, localturn.Meta) (localturn.MatchResult, error) {
 	return localturn.MatchResult{Claimed: false}, nil
 }
+
 func (diagDummyLTHandler) Handle(context.Context, localturn.HandleInput) (localturn.Reply, error) {
 	return localturn.Reply{}, nil
 }

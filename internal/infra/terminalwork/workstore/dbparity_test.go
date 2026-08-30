@@ -34,7 +34,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "parity.db")
 		sqlDB, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 		require.NoError(t, err)
-		defer sqlDB.Close()
+		defer func() { _ = sqlDB.Close() }()
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		require.NoError(t, err)
 		require.NoError(t, workstore.Migrate(ctx, bunDB))
@@ -49,7 +49,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		var names []string
 		rows, err := bunDB.QueryContext(ctx, "SELECT name FROM bun_terminal_work_migrations")
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		recorded := make(map[string]bool)
 		for rows.Next() {
 			var name string

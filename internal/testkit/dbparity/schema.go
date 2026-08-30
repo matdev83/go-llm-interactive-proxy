@@ -31,7 +31,7 @@ const (
 
 // PtrBool is a convenience helper returning a pointer to a bool value.
 func PtrBool(b bool) *bool {
-	return &b
+	return new(b)
 }
 
 // IsMissingRow reports whether err is or wraps sql.ErrNoRows.
@@ -796,7 +796,7 @@ func sqliteGetForeignKeys(ctx context.Context, database *bun.DB, tableName strin
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: sqlite foreign_key_list %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	grouped := make(map[int][]sqliteFKEntry)
 	for rows.Next() {
@@ -838,7 +838,7 @@ func sqliteTableColumns(ctx context.Context, database *bun.DB, tableName string)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: sqlite table_info %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols := make(map[string]sqliteColInfo)
 	for rows.Next() {
@@ -865,7 +865,7 @@ func sqliteGetIndexList(ctx context.Context, database *bun.DB, tableName string)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: sqlite index_list %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entries []sqliteIndexEntry
 	for rows.Next() {
@@ -913,7 +913,7 @@ func sqliteIndexColumns(ctx context.Context, database *bun.DB, indexName string)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: sqlite index_xinfo %q: %w", indexName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cols []string
 	for rows.Next() {
@@ -990,7 +990,7 @@ WHERE table_schema = current_schema() AND table_name = ?`, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: postgres query columns for table %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols := make(map[string]pgColInfo)
 	for rows.Next() {
@@ -1020,7 +1020,7 @@ ORDER BY kcu.ordinal_position`, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: postgres query PK for table %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cols []string
 	for rows.Next() {
@@ -1048,7 +1048,7 @@ WHERE n.nspname = current_schema()
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: postgres query constraint %q for table %q: %w", contype, tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var defs []string
 	for rows.Next() {
@@ -1092,7 +1092,7 @@ func matchSQLiteSemanticType(expected SemanticType, rawType string) bool {
 	case TypeNumeric:
 		return strings.Contains(upper, "REAL") ||
 			strings.Contains(upper, "FLOA") ||
-			strings.Contains(upper, "DOUB") ||
+			strings.Contains(upper, "DOUB") || //nolint:misspell // SQLite type affinity matching rule for DOUBLE ("DOUB")
 			strings.Contains(upper, "NUM") ||
 			strings.Contains(upper, "DEC")
 	default:
@@ -1209,7 +1209,7 @@ WHERE n.nspname = current_schema()
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: postgres query foreign keys for %q: %w", tableName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var fks []pgFKInfo
 	for rows.Next() {
@@ -1257,7 +1257,7 @@ WHERE n.nspname = current_schema()
 		if err != nil {
 			return false, fmt.Errorf("dbparity: postgres query unique constraints for %q: %w", tableName, err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var name, colsJSON string
@@ -1309,7 +1309,7 @@ WHERE n.nspname = current_schema()
 		if err != nil {
 			return false, fmt.Errorf("dbparity: postgres query unique indexes for %q: %w", tableName, err)
 		}
-		defer idxRows.Close()
+		defer func() { _ = idxRows.Close() }()
 
 		for idxRows.Next() {
 			var name, colsJSON string
@@ -1396,7 +1396,7 @@ ORDER BY k.ord`, indexName)
 	if err != nil {
 		return nil, fmt.Errorf("dbparity: postgres query index columns for %q: %w", indexName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cols []string
 	for rows.Next() {
@@ -1425,7 +1425,7 @@ WHERE n.nspname = current_schema()
 		if err != nil {
 			return nil, fmt.Errorf("dbparity: postgres query index names for table %q: %w", tableName, err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		var names []string
 		for rows.Next() {

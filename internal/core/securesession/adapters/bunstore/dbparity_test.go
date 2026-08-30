@@ -101,7 +101,7 @@ func TestDBParity_SQLite(t *testing.T) {
 		sqlDB.SetMaxOpenConns(1)
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		require.NoError(t, err)
-		defer bunDB.Close()
+		defer func() { _ = bunDB.Close() }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()

@@ -185,8 +185,8 @@ func parsePhonyTargets(content string) []string {
 		}
 
 		// Only parse genuine column-zero .PHONY: declarations
-		if strings.HasPrefix(rawLine, ".PHONY:") {
-			trimmed := strings.TrimSpace(strings.TrimPrefix(rawLine, ".PHONY:"))
+		if rest, ok := strings.CutPrefix(rawLine, ".PHONY:"); ok {
+			trimmed := strings.TrimSpace(rest)
 			hasCont := strings.HasSuffix(trimmed, "\\")
 			if hasCont {
 				trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "\\"))
@@ -215,7 +215,7 @@ func validateMakefileDatabaseParity(content string) []string {
 
 	// 1. Check export GO_TEST_FLAGS directive
 	hasExportGoTestFlags := false
-	for _, rawLine := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+	for rawLine := range strings.SplitSeq(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
 		trimmed := strings.TrimSpace(rawLine)
 		if trimmed == "export GO_TEST_FLAGS" {
 			hasExportGoTestFlags = true
@@ -332,6 +332,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing export GO_TEST_FLAGS directive",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "export GO_TEST_FLAGS\n", "")
 			},
 			wantSubstr: "Makefile must export GO_TEST_FLAGS to child processes via 'export GO_TEST_FLAGS'",
@@ -339,6 +340,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing test-db-parity-sqlite target",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "test-db-parity-sqlite:\n\t$(GO) run ./internal/testkit/dbparity/cmd sqlite", "")
 			},
 			wantSubstr: "missing Makefile target 'test-db-parity-sqlite:'",
@@ -346,6 +348,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing test-db-parity-postgres-direct target",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "test-db-parity-postgres-direct:\n", "# removed postgres-direct\n_disabled_target:\n")
 			},
 			wantSubstr: "missing Makefile target 'test-db-parity-postgres-direct:'",
@@ -353,6 +356,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing test-db-parity target",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "test-db-parity:\n", "# removed test-db-parity\n_disabled_target:\n")
 			},
 			wantSubstr: "missing Makefile target 'test-db-parity:'",
@@ -360,6 +364,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing target in .PHONY",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, ".PHONY: test-db-parity-sqlite", ".PHONY: other-target")
 			},
 			wantSubstr: "Makefile .PHONY declaration must include canonical database parity target 'test-db-parity-sqlite'",
@@ -367,6 +372,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "recipe drift in test-db-parity-sqlite",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "./internal/testkit/dbparity/cmd sqlite", "./internal/testkit/dbparity/cmd sqlite ./internal/infra/billingstore")
 			},
 			wantSubstr: "target \"test-db-parity-sqlite\" recipe block does not match canonical definition",
@@ -374,6 +380,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "recipe interpolating -flags in test-db-parity-sqlite",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "./internal/testkit/dbparity/cmd sqlite", "./internal/testkit/dbparity/cmd -flags \"$(GO_TEST_FLAGS)\" sqlite")
 			},
 			wantSubstr: "recipe must not interpolate -flags CLI arguments",
@@ -381,6 +388,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "recipe drift in test-db-parity",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "./internal/testkit/dbparity/cmd all", "./internal/testkit/dbparity/cmd all ./internal/core/continuity")
 			},
 			wantSubstr: "target \"test-db-parity\" recipe block does not match canonical definition",
@@ -388,6 +396,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing LIP_REQUIRE_POSTGRES on POSIX in test-db-parity-postgres-direct",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct", "@LIP_TEST_POSTGRES_DSN=\"$${LIP_TEST_POSTGRES_DSN:-$${LIP_MANAGED_POSTGRES_DSN:-$$LIP_TEST_POSTGRES_ADMIN_DSN}}\" $(GO) run ./internal/testkit/dbparity/cmd postgres-direct")
 			},
 			wantSubstr: "target \"test-db-parity-postgres-direct\" recipe block does not match canonical definition",
@@ -395,6 +404,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing Windows SetEnvironmentVariable in test-db-parity",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				idx := strings.Index(s, "test-db-parity:\n")
 				if idx < 0 {
 					t.Fatalf("test-db-parity target not found")
@@ -406,6 +416,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "target prerequisites on test-db-parity",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "test-db-parity:\n", "test-db-parity: test-db-parity-sqlite test-db-parity-postgres-direct\n")
 			},
 			wantSubstr: "target \"test-db-parity\" recipe block does not match canonical definition",
@@ -413,6 +424,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "missing help entry for test-db-parity",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "make test-db-parity ", "make other ")
 			},
 			wantSubstr: "Makefile help missing entry make test-db-parity ",
@@ -420,6 +432,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "false conditional in test-db-parity-postgres-direct (ifeq (1,0))",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "test-db-parity-postgres-direct:\nifeq ($(OS),Windows_NT)", "test-db-parity-postgres-direct:\nifeq (1,0)")
 			},
 			wantSubstr: "target \"test-db-parity-postgres-direct\" recipe block does not match canonical definition",
@@ -427,6 +440,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "powershell using -File instead of -Command in test-db-parity",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				idx := strings.Index(s, "test-db-parity:\n")
 				if idx < 0 {
 					t.Fatalf("test-db-parity target not found")
@@ -438,6 +452,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "reordered runner argv in test-db-parity-sqlite",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s, "./internal/testkit/dbparity/cmd sqlite", "sqlite ./internal/testkit/dbparity/cmd")
 			},
 			wantSubstr: "target \"test-db-parity-sqlite\" recipe block does not match canonical definition",
@@ -445,6 +460,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "continued .PHONY followed by comment listing canonical targets",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s,
 					".PHONY: test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity",
 					".PHONY: other-target \\\n# test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity",
@@ -455,6 +471,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "tab-indented .PHONY inside recipe cannot satisfy membership",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				s = mustMutate(t, s,
 					".PHONY: test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity\n",
 					"",
@@ -469,6 +486,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "commented-out help entry with tab recipe comment",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s,
 					"\t@echo \"  make test-db-parity-sqlite",
 					"\t# @echo \"  make test-db-parity-sqlite",
@@ -479,6 +497,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "commented-out help entry with non-recipe comment",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s,
 					"\t@echo \"  make test-db-parity-postgres-direct",
 					"# make test-db-parity-postgres-direct",
@@ -489,6 +508,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "non-output @true command in help recipe cannot satisfy entry requirement",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s,
 					"\t@echo \"  make test-db-parity-sqlite",
 					"\t@true \"  make test-db-parity-sqlite",
@@ -499,6 +519,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "canonical .PHONY inside define body is inert and rejected",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				s = mustMutate(t, s,
 					".PHONY: test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity\n",
 					"",
@@ -513,6 +534,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "exact help recipe line redirected to >NUL cannot satisfy entry requirement",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				return mustMutate(t, s,
 					"\t@echo \"  make test-db-parity-sqlite - canonical SQLite database parity tests across all registered components\"",
 					"\t@echo \"  make test-db-parity-sqlite - canonical SQLite database parity tests across all registered components\" >NUL",
@@ -523,6 +545,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 		{
 			name: "canonical .PHONY inside ifeq conditional is inert and rejected",
 			mutate: func(t *testing.T, s string) string {
+				t.Helper()
 				s = mustMutate(t, s,
 					".PHONY: test-db-parity-sqlite test-db-parity-postgres-direct test-db-parity\n",
 					"",
@@ -538,6 +561,7 @@ func TestDatabaseParity_MakefileFailClosedPolicy(t *testing.T) {
 
 	for _, tc := range negativeCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			mutated := tc.mutate(t, makefileContent)
 			violations := validateMakefileDatabaseParity(mutated)
 			joined := strings.Join(violations, "; ")

@@ -281,9 +281,11 @@ type mergeStubTerminalProvider struct {
 func (p mergeStubTerminalProvider) ID() string {
 	return p.id
 }
+
 func (p mergeStubTerminalProvider) ProviderIdentity() (string, error) {
 	return p.id, nil
 }
+
 func (p mergeStubTerminalProvider) Decide(context.Context, terminaldecision.Input) (terminaldecision.Decision, error) {
 	return terminaldecision.Decision{}, nil
 }
