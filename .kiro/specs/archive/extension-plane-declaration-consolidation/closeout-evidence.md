@@ -226,7 +226,7 @@
 goos: windows
 goarch: amd64
 pkg: github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions
-cpu: AMD Ryzen 7 5800X 8-Core Processor             
+cpu: AMD Ryzen 7 5800X 8-Core Processor
 BenchmarkCompletionGates_Populated-12                            	40743984	        30.33 ns/op	      32 B/op	       1 allocs/op
 BenchmarkCompletionGates_Empty-12                                	217075521	         5.594 ns/op	       0 B/op	       0 allocs/op
 BenchmarkCompletionGates_NilSnapshot-12                          	270539041	         4.214 ns/op	       0 B/op	       0 allocs/op
@@ -438,7 +438,7 @@ Multi-threaded race detection was executed on Ubuntu-latest CI runners across th
 #### #394 Hardening Coordination Conclusions
 - **No #394 Certification Claimed**: This consolidation specification accomplishes declaration, storage, and dispatch consolidation; performance certification remains the responsibility of issue #394. HOLD memory retention and latency/timing are unresolved and not certified here.
 - **No Allocation Ceiling Refresh Required**: Because all 31 benchmarked request-path seams exhibit allocations $\le$ baseline (100% allocation neutral), no allocation ceiling adjustments are required.
-- **Phase 2 Baseline Recommendation**: Issue #394 Phase 2 should establish a fresh current merged `main` (`3cf952ca`) baseline and run statistical same-environment `benchstat` analysis before performance optimization.
+- **Phase 2 Baseline Recommendation**: Commit `3cf952ca` is the preserved post-consolidation/pre-lint benchmark capture base for Task 10.2, whereas current merged `main` after lint remediation is `6a579810c61cd186e7794c3183e7d77bad369503`. Issue #394 Phase 2 must establish a fresh then-current merged-`main` baseline (starting from at least `6a579810` or later) before performance optimization and run statistical same-environment `benchstat` analysis; no performance certification is claimed here.
 - **Timing and Latency Status**: Absolute current `ns/op` values are recorded, but timing neutrality is not established by a single sample. Several timings are higher than Wave 0. Compiler optimizations, runtime scheduling noise, CPU governor fluctuations, and background operating system activity preclude causal conclusions. The task verdict is allocation neutrality only; timing and latency remain unresolved and not certified here.
 
 ---
@@ -459,15 +459,15 @@ All requirements for **Task 10.2** are satisfied:
 ### Preflight and Disposable-Residue Audit
 
 - **Worktree Branch**: `chore/extension-plane-closeout`
-- **Git Base SHA**: `3cf952ca4be58be90733df84ea22eb6a0bd8c352` (`origin/main`, PR #542 merged)
+- **Git Base SHA**: `6a579810c61cd186e7794c3183e7d77bad369503` (`origin/main`, PR #544 merged; rebased closeout branch on merged main at `6a579810c61cd186e7794c3183e7d77bad369503`)
 - **Worktree Location**: `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-extension-plane-closeout`
 - **Changed Go Files Count**: Exactly `0` (`$go = @(git diff --name-only origin/main -- '*.go'); $go.Count` returns `0`).
 - **Preflight Command Outputs**:
   - `git status --short`:
     ```
-     M .kiro/specs/extension-plane-declaration-consolidation/tasks.md
-    ?? .kiro/specs/extension-plane-declaration-consolidation/closeout-evidence.md
+     M .kiro/specs/extension-plane-declaration-consolidation/closeout-evidence.md
     ```
+    (Note: `tasks.md` is committed with tasks 10.1 and 10.2 checked and 10.3 unchecked; the closeout branch has one evidence commit on top of `origin/main`).
   - `git diff --check`: Exit code 0 (clean, no trailing whitespace or formatting warnings).
   - `git worktree list`: 15 active worktrees; zero temporary probe worktrees present (`go-lip-probe-new-plane-final` and `go-lip-probe-existing-plane-feature-final` cleanly removed).
   - `git branch --list 'probe/*'`: Empty (0 probe branches remain).
@@ -507,9 +507,9 @@ All requirements for **Task 10.2** are satisfied:
   ```powershell
   make arch-report
   ```
-- **Run 1 Output SHA-256**: `CCBDA87F4D352DAD4C339E0DE9DD1FFA670E478C88DA085ED4DF3D5C04B38A3E`
-- **Run 2 Output SHA-256**: `CCBDA87F4D352DAD4C339E0DE9DD1FFA670E478C88DA085ED4DF3D5C04B38A3E`
-- **Determinism Check**: `Hash1 -eq Hash2` is `True` (100% byte-deterministic between consecutive runs).
+- **Run 1 Output SHA-256**: `7980A51B0A5A37EB7B3D5385A54599B6CFE112A62D61A8BAD1906E1486C112F9` (bytes: 21103)
+- **Run 2 Output SHA-256**: `7980A51B0A5A37EB7B3D5385A54599B6CFE112A62D61A8BAD1906E1486C112F9` (bytes: 21103)
+- **Capture-Specific Deterministic Hash Comparison**: `Hash1 -eq Hash2` is `True` (100% byte-deterministic between consecutive runs using consistent UTF-8 string join capture).
 - **Baseline File Diff**: `git diff -- testdata/architecture/extension_planes_baseline.json` produced `0` lines (no change relative to `HEAD`).
 - **Post-Run Baseline SHA-256**: `839E59F712790F2AFC14446C21667AAC6975AF2AFF6427113C19B661838DA8D6` (unaltered).
 - **Exact Document Values Verified**:
@@ -531,17 +531,17 @@ All requirements for **Task 10.2** are satisfied:
   ```powershell
   go test -v -count=1 ./internal/archtest -run 'ExtensionPlanesReport|ForbiddenMirrors|FeatureBundle|ExtensionsOptions|Generated|RequestExecution'
   ```
-- **Exit Code**: `0` (execution duration `2.503s`)
+- **Exit Code**: `0` (execution duration `2.449s`)
 - **Verbatim Test Cases and Outcomes**:
   - `TestNoFixedOptional_NoGeneratedBlankImportOrBuildTagLists`: `PASS` (0.01s)
   - `TestDiagnosticsArchitecture_ProductionZeroForbiddenMirrors`: `PASS` (0.00s)
-  - `TestExtensionPlanesReportFormatting`: `PASS` (1.03s)
-  - `TestWriteGeneratedFileAtomic_Success`: `PASS` (0.10s)
+  - `TestExtensionPlanesReportFormatting`: `PASS` (1.01s)
+  - `TestWriteGeneratedFileAtomic_Success`: `PASS` (0.01s)
   - `TestPlaneRules_ForeignPackageRequestExecutionRejected`: `PASS` (0.00s)
   - `TestForbiddenMirrorPredicate_FeatureBundleField`: `PASS` (0.00s)
   - `TestForbiddenMirrorPredicate_ExtensionsOptionsField`: `PASS` (0.00s)
   - `TestForbiddenMirrorPredicate_GeneratedFileWhitelist`: `PASS` (0.00s)
-  - `TestForbiddenMirrorsAbsent_ProductionBaseline`: `PASS` (0.57s)
+  - `TestForbiddenMirrorsAbsent_ProductionBaseline`: `PASS` (0.54s)
   - `TestTask81FeatureBundleHasOneTerminalDecisionProvider`: `PASS` (0.00s)
 - **Exact Struct Fields Verified**:
   - `FeatureBundle` (`pkg/lipsdk/feature/bundle.go`):
@@ -563,9 +563,19 @@ All requirements for **Task 10.2** are satisfied:
 
 ### Quality and QA Results
 
-#### 1. Full Quality Checks (`make quality-checks`)
+#### 1. Linter Verification (`golangci-lint run` / `make lint`)
+- **Historical Remediation Note**: The initial validation run on base `3cf952ca4be58be90733df84ea22eb6a0bd8c352` encountered 83 pre-existing linter findings across untouched repository packages (`internal/infra`, `internal/qa`, `internal/testkit`, `pkg/lipsdk/feature/doc_test.go`, etc.). The issue was reproduced on clean `main` under `golangci-lint v2.11.4`, remediated independently in upstream PR #544 (`fix(quality): clear repository lint baseline`, merged at `6a579810c61cd186e7794c3183e7d77bad369503`), and the closeout worktree was rebased onto merged `origin/main`.
+- **Command 1**: `golangci-lint run`
+  - **Exit Code**: `0`
+  - **Output**: `0 issues.`
+- **Command 2**: `make lint`
+  - **Exit Code**: `0`
+  - **Output**: `0 issues.`
+- **Verdict**: `PASS`
+
+#### 2. Full Quality Checks (`make quality-checks`)
 - **Command**: `make quality-checks`
-- **Exit Code**: `0`
+- **Exit Code**: `0` (duration `122.13s`)
 - **Stage Breakdown**:
   - `[1/8]` Checking generated feature planes: `OK: Generated feature planes check passed` (`generated feature planes file is up to date.`)
   - `[2/8]` Checking Go formatting: `OK: Format check passed`
@@ -575,21 +585,27 @@ All requirements for **Task 10.2** are satisfied:
   - `[6-8/8]` Running independent guardrails in parallel:
     - Ad-hoc goroutine allowlist check: `OK: ad-hoc goroutine allowlist check passed (35 allowed file(s))`
     - Regex hot-path check: `OK: regex hot-path check passed`
-    - Architecture AST and changesurface tests: `ok github.com/matdev83/go-llm-interactive-proxy/internal/archtest 39.881s`, `ok github.com/matdev83/go-llm-interactive-proxy/internal/archtest/tools/changesurface/cmd 0.350s`
+    - Architecture AST and changesurface tests: `PASS`
   - **Verdict**: `=== All Quality Checks Passed ===` (Exit 0)
 
-#### 2. Full QA Suite (`make qa`) Subtarget Executions
-- `make qa` orchestrates: `quality-checks-fast qa-tests lint vuln backend-plugin-release-gates-static test-openresponses-compliance-static`
+#### 3. Full QA Suite (`make qa`)
+- **Command**: `make qa`
+- **Exit Code**: `0` (duration `447.48s` / ~7m 27s)
 - **Subtarget Results**:
   - **`quality-checks-fast`**: `PASS` (Exit 0)
   - **`qa-tests`** (`go test -tags=precommit,integration ./...` across entire repository): `PASS` (Exit 0, all root packages and integration suites green)
+  - **`lint`** (`golangci-lint run`): `PASS` (Exit 0, `0 issues.`)
   - **`vuln`** (`go tool govulncheck ./...`): `PASS` (Exit 0, `No vulnerabilities found. Your code is affected by 0 vulnerabilities.`)
   - **`backend-plugin-release-gates-static`**: `PASS` (Exit 0, static requirement/selector validation passed across `tools/backendplugin`, `tools/backendplugin/release_gates`, and `internal/archtest`)
   - **`test-openresponses-compliance-static`**: `PASS` (Exit 0, `openresponses-compliance-static: Task 8.5 wiring and evidence verified`)
-  - **`lint`** (`golangci-lint run`): `FAIL` (Exit 1).
-    - **Exact Failing Command**: `golangci-lint run` (invoked via `scripts/windows-task.ps1` / `scripts/taskrunner.ps1` under `make lint`).
-    - **Failure Summary**: 83 pre-existing linter findings reported across untouched repository packages (`internal/infra`, `internal/qa`, `internal/testkit`, `pkg/lipsdk/feature/doc_test.go`, etc.): `errcheck: 18`, `forcetypeassert: 3`, `gofumpt: 3`, `ineffassign: 3`, `misspell: 1`, `modernize: 15`, `paralleltest: 30`, `staticcheck: 6`, `thelper: 4`.
-    - **Policy & Task Mandate**: Task 10.3 forbids production source changes (`No production source changes are expected for 10.3`). The failure is pre-existing on `origin/main` under `golangci-lint v2.11.4`. Per instructions ("If make qa fails, stop BLOCKED and report exact failing command; do not edit production code in this task"), status is recorded as BLOCKED on repository-wide `make lint` without modifying production code.
+- **Aggregate QA Verdict**: `PASS` (all subtargets and full orchestrator exited 0)
+
+#### 4. Exact Validation Chain Summary
+- `go run ./scripts/generate-feature-planes.go -check`: `PASS` (Exit 0)
+- `make quality-checks`: `PASS` (Exit 0)
+- `make qa`: `PASS` (Exit 0)
+- `make arch-report`: `PASS` (Exit 0)
+- **Chain Verdict**: `PASS` (complete exact chain green)
 
 ---
 
@@ -634,7 +650,7 @@ Multi-threaded race detection was re-verified against accepted pull request #543
 - Separate follow-up specification/issue to be scheduled (no tracked issue exists in the repository).
 
 #### 2. Issue #394 Phase 2
-- Uses merged post-consolidation `main` (`3cf952ca`) as fresh baseline;
+- Commit `3cf952ca` is the preserved post-consolidation/pre-lint benchmark capture base for Task 10.2, while current merged `main` after lint remediation is `6a579810c61cd186e7794c3183e7d77bad369503`; issue #394 Phase 2 must establish a fresh then-current merged-`main` baseline (starting from at least `6a579810` or later) before optimization, then run `benchstat`;
 - Task 10.2 proved allocation ceilings only (all 31 benchmarked request-path seams $\le$ baseline);
 - Latency/timing and HOLD memory retention remain to measure statistically;
 - No #394 certification or completion claimed.
@@ -645,12 +661,42 @@ Multi-threaded race detection was re-verified against accepted pull request #543
 
 1. **Preflight and Residue**: PASS. Exactly 0 modified Go files vs `origin/main`. Zero probe worktrees, zero probe branches, and zero disposable probe/workflow identifiers remain in the repository.
 2. **Generated Output Currency**: PASS. `go run ./scripts/generate-feature-planes.go -check` exited 0.
-3. **Architecture Report Determinism**: PASS. SHA-256 output hashes `CCBDA87F...` are identical across runs; baseline JSON `testdata/architecture/extension_planes_baseline.json` diff is 0 bytes; active wave `W5c_Residual` (ordinal 7) with 25 planes and 0 forbidden mirrors.
+3. **Architecture Report Determinism**: PASS. Capture-specific output SHA-256 hash `7980A51B0A5A37EB7B3D5385A54599B6CFE112A62D61A8BAD1906E1486C112F9` is byte-identical across consecutive runs; baseline JSON `testdata/architecture/extension_planes_baseline.json` diff is 0 bytes; active wave `W5c_Residual` (ordinal 7) with 25 planes and 0 forbidden mirrors.
 4. **W5c Ratchets**: PASS. All 10 targeted archtest mirror ratchet tests passed; exact struct field shapes for `FeatureBundle` and `ExtensionsOptions` confirmed.
 5. **Quality Checks**: PASS. `make quality-checks` exited 0 across all 8 stages.
-6. **Full QA Status**: STOP BLOCKED on repository-wide `make lint` / `golangci-lint run` (exit 1 with 83 pre-existing findings across untouched repository packages; all other QA suites `qa-tests`, `vuln`, `backend-plugin-release-gates-static`, `test-openresponses-compliance-static` passed with exit 0; per task mandates, no production code edited).
+6. **Full QA Status**: PASS. `make qa` exited 0 aggregate across all subtargets (`quality-checks-fast`, `qa-tests`, `lint`, `vuln`, `backend-plugin-release-gates-static`, `test-openresponses-compliance-static`).
 7. **Linux Race Cross-Reference**: PASS. PR #543 Ubuntu CI run `33278165796` re-verified green for exact required packages; unmerged PR closed; workflow not retained.
 8. **Follow-Up Boundaries**: DOCUMENTED. Core kernel-vs-stages decomposition and #394 Phase 2 boundaries explicitly recorded without absorbing either scope.
-9. **Task State**: Task 10.3 and parent Task 10 remain unchecked in `tasks.md`, `spec.json` unmodified, directory not archived, awaiting independent review.
+9. **Task State**: All tasks 1.1 through 10.3 and parent tasks 1 through 10 checked `[x]` in `tasks.md`, feature-level validation complete, proceeding to spec metadata update and archive move.
 
+---
+
+## Feature-Level Integration Validation
+
+- **Decision**: `GO`
+- **Status**: `VERIFIED`
+- **Current Merged Main Base**: `6a579810c61cd186e7794c3183e7d77bad369503` (upstream merge of lint remediation PR #544).
+- **Branch and Head Context**: Working branch `chore/extension-plane-closeout` in dedicated closeout worktree `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-extension-plane-closeout`, branched from `6a579810c61cd186e7794c3183e7d77bad369503` with local commit `189ede980860a4f5b5b2fbbfb30467554fbc40d2` (`docs(extension-planes): record ROI and performance evidence`).
+- **Exact Mechanical Commands and Results**:
+  - **Generated Output Check**: `go run ./scripts/generate-feature-planes.go -check` -> `PASS` (Exit 0, `generated feature planes file is up to date.`).
+  - **Linter Baseline**: `golangci-lint run` / `make lint` -> `PASS` (Exit 0, `0 issues.`).
+  - **Spec Check**: `go test ./tools/kiro/speccheck` -> `PASS` (Exit 0).
+  - **Quality Checks**: `make quality-checks` -> `PASS` (Exit 0 across all 8 stages).
+  - **Unit & Conformance Tests**: `make test` -> `PASS` (Exit 0).
+  - **Full QA Suite**: `make qa` -> `PASS` (Exit 0 across `quality-checks-fast`, `qa-tests`, `lint`, `vuln`, `backend-plugin-release-gates-static`, `test-openresponses-compliance-static`).
+  - **Architecture Report**: `make arch-report` -> `PASS` (Exit 0, deterministic output hash `7980A51B0A5A37EB7B3D5385A54599B6CFE112A62D61A8BAD1906E1486C112F9`, 0 forbidden mirrors, W5c active).
+  - **Docs Check**: `make docs-check` (`go test ./docs/backend-plugins/ -run 'TestDocs|TestExample|TestOperator|TestExampleConfig|TestThreat'` and `go test ./internal/archtest/ -run '^TestExtensionAuthoringDoc_'`) -> `PASS` (Exit 0).
+  - **Binary Build & Help Smoke**: `go run ./cmd/lipstd --help` -> `PASS` (Exit 0, CLI usage successfully displayed).
+  - **Linux CI Multi-Threaded Race Gate**: PR #543 Ubuntu CI Run `33278165796` Job `99168500683` -> `PASS` (`ok internal/core/extensions 2.108s`, `ok internal/infra/runtimebundle 393.243s`).
+- **Requirement Coverage**: 8 of 8 requirement sections and 25 of 25 subrequirements fully implemented and verified across PRs #526, #527, #530, #533, #535, #536, #537, #538, #540, #541, and #542.
+- **Integration, Design, and Boundary Summary**:
+  - Declarative manifest-driven extension plane architecture successfully replaces ad-hoc per-plane mirrors across `FeatureBundle`, `MergedFeatureSurface`, and `ExtensionsOptions`.
+  - All 25 extension planes use typed storage and generated dispatch without reflection, map lookups, or runtime type assertions on the request path.
+  - Zero architectural forbidden mirrors remain (`W5c_Residual` ratchet active and enforced).
+  - Public SDK contract published and verified with consumer examples and TCK parity.
+- **No Blocked Tasks**: All tasks 1.1 through 10.3 and parent groups 1 through 10 are completed with direct evidence; zero `_Blocked:` entries exist in the specification.
+- **Deferred Boundaries**:
+  - **Core Kernel-vs-Stages Decomposition**: Remains distinct future architectural refactoring; no package relocation or core decomposition was introduced in this specification.
+  - **Issue #394 Phase 2 Optimization**: Allocation neutrality and ceilings were verified in Task 10.2 (all 31 request-path seam allocations $\le$ baseline); formal latency and HOLD statistical benchmarks will be conducted against fresh post-consolidation `main` under issue #394 Phase 2.
+- **Archive Delivery Notice**: Merged-main verification of the archived specification artifact itself will occur after the closeout pull request is submitted, reviewed, and merged into `main`.
 

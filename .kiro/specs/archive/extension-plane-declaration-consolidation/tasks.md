@@ -2,7 +2,7 @@
 
 > Execute each migration wave as a standalone PR-sized checkpoint. Keep the default suite green and the Go-source change count within the repository gate. Physical core relocation and #394 performance optimization remain out of boundary.
 
-- [ ] 1. Characterize the current extension surface before introducing the manifest
+- [x] 1. Characterize the current extension surface before introducing the manifest
 - [x] 1.1 Capture ordered-merge and lifecycle-side-channel parity
   - Characterize registration ordering, disabled-feature behavior, nil versus empty slices, backing-array isolation, and lifecycle side-channel behavior for ordered feature contributions.
   - Observable completion: table-driven tests fail on any ordered-merge or lifecycle transport change and pass on the unmodified legacy path.
@@ -49,7 +49,7 @@
   - _Boundary: core/runtime, architecture gates/tests_
   - **Validation:** `go test ./internal/core/extensions ./internal/infra/runtimebundle -run 'Publish.*Pinned|Frozen.*Generation'; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
 
-- [ ] 2. Build the single hand-authored manifest and deterministic typed adapters
+- [x] 2. Build the single hand-authored manifest and deterministic typed adapters
 - [x] 2.1 Define multiplicity, source-rule, fallible-combine, and attribution contracts
   - Define ordered/exclusive multiplicity, an explicit unsupported source-rule sentinel, per-source combination rules, validation, attributed errors, and fail-before-mutate behavior.
   - Observable completion: RED/GREEN contract tests reject incomplete source rules and preserve both validated identities on exclusive conflict.
@@ -97,7 +97,7 @@
   - _Depends: 2.5_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/featurebundle ./internal/testkit/...`
 
-- [ ] 3. Establish progressive architecture and ROI gates before migration
+- [x] 3. Establish progressive architecture and ROI gates before migration
 - [x] 3.1 Define the exact forbidden-mirror predicate and progressive whitelist
   - Reject hand-authored plane fields/branches in `FeatureBundle`, `MergedFeatureSurface`, merge/copy/overlay/hook projections, `ExtensionsOptions`, generation operations, and diagnostics; allow generated fields, explicit stage consumers, and thin compatibility delegates only.
   - Scope each migrated family so its old mirrors must reach zero before that wave completes.
@@ -114,7 +114,7 @@
   - _Depends: 3.1_
   - **Validation:** `make arch-report`
 
-- [ ] 4. Migrate the hook-bus family as W1
+- [x] 4. Migrate the hook-bus family as W1
 - [x] 4.1 Migrate submit, request-part, and response-part hook contributions without deleting mirrors
   - Use ordered plane declarations while preserving sorting, panic behavior, and dual-path parity; keep legacy mirrors until the hook view is fully derived.
   - Observable completion: all three hook families run through generated contributions and parity stays green with no production behavior switch yet.
@@ -260,7 +260,7 @@
   - _Depends: 9.3_
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/plugins/features/... ./internal/standardplugins`
 
-- [ ] 10. Prove the simplification ROI and #394-compatible neutrality
+- [x] 10. Prove the simplification ROI and #394-compatible neutrality
 - [x] 10.1 Run disposable new-plane and existing-plane feature change-surface probes
   - Add a throwaway plane with one stage consumer and a throwaway feature using only existing planes as separate commits/diffs; record hand-authored/generated path classifications; then remove both probes.
   - Observable completion: the new-plane probe changes only its contract, consumer packages, one manifest entry, and generated files; the new-feature probe changes only its package plus one standard-distribution registration entry.
@@ -276,7 +276,7 @@
   - _Boundary: core/runtime, architecture gates/tests_
   - _Depends: 9.3_
   - **Validation:** `go test -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem ./internal/core/extensions/...; Linux CI go test -race ./internal/core/extensions ./internal/infra/runtimebundle`
-- [ ] 10.3 Run final repository gates and archive follow-up decisions
+- [x] 10.3 Run final repository gates and archive follow-up decisions
   - Run generated-output check, arch-report determinism, mirror ratchets, change-size gate, full QA, and Linux race evidence where Windows skips it.
   - Confirm core kernel-vs-stages decomposition remains explicit follow-up work and #394 Phase 2 baseline sequencing is communicated without absorbing either scope.
   - Observable completion: all approvals are supported by fresh evidence and no disposable probes remain.
@@ -284,3 +284,11 @@
   - _Boundary: architecture gates/tests, docs_
   - _Depends: 10.1, 10.2_
   - **Validation:** `go run ./scripts/generate-feature-planes.go -check && make quality-checks && make qa && make arch-report`
+
+## Completion Status
+
+- **Implementation Tasks**: All 10 major task groups and 37 subtasks (1.1 through 10.3) are fully completed (`[x]`).
+- **Feature Validation**: Verdict is `GO` / Status `VERIFIED`.
+- **Implementation Baseline**: Extension-plane implementation merge chain (#526, #527, #530, #533, #535, #536, #537, #538, #540, #541, #542) completed at merge commit `3cf952ca4be58be90733df84ea22eb6a0bd8c352`; later certified validation baseline `6a579810c61cd186e7794c3183e7d77bad369503` includes lint remediation PR #544.
+- **Closeout Evidence**: Recorded in full detail in [`closeout-evidence.md`](closeout-evidence.md).
+- **Deferred Scope**: Kernel-vs-stages package decomposition and Issue #394 Phase 2 latency/memory statistical optimizations remain separate future work.
