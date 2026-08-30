@@ -276,6 +276,25 @@ func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider 
 	if len(allowedFindings) != 0 {
 		t.Fatalf("expected 0 findings for thin delegate method, got %+v", allowedFindings)
 	}
+
+	// Nil-safe thin delegate calling lipfeature.Get passes
+	nilSafeThinDelegateSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+)
+
+func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider {
+	if b == nil {
+		return nil
+	}
+	return lipfeature.Get(b.operations.frozen, lipfeature.PlaneTerminalDecisionProvider)
+}
+`
+	allowedNilSafeFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/generation_bundle.go", nilSafeThinDelegateSrc, Wave5c_Residual)
+	if len(allowedNilSafeFindings) != 0 {
+		t.Fatalf("expected 0 findings for nil-safe thin delegate method, got %+v", allowedNilSafeFindings)
+	}
 }
 
 // TestForbiddenMirrorPredicate_GeneratedFileWhitelist verifies that generated files

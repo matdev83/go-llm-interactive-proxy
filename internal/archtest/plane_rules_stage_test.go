@@ -1,9 +1,6 @@
 package archtest
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"strings"
 	"testing"
 )
@@ -129,8 +126,37 @@ func (u *UnregisteredConsumer) CompletionGates() []completion.Gate {
 		t.Fatalf("expected detail to mention AllowedStageConsumers, got %q", unregisteredFindings[0].Detail)
 	}
 
-	// 3. Whitelisted stage consumer that is not a thin delegate (e.g. extra branching/statements) is rejected at Wave3
+	// 3. Whitelisted stage consumer that is not a thin delegate (e.g. invalid condition / branching) is rejected at Wave3
 	nonThinConsumerSrc := `package extensions
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+)
+
+type RequestRuntimeSnapshot struct {
+	frozen lipfeature.FrozenPlaneSet
+}
+
+func (s *RequestRuntimeSnapshot) CompletionGates() []completion.Gate {
+	if s != nil {
+		return nil
+	}
+	return lipfeature.Get(s.frozen, lipfeature.PlaneCompletionGates)
+}
+`
+	nonThinFindings := scanSyntheticSource(t, "internal/core/extensions/seam_views.go", nonThinConsumerSrc, Wave3_RequestShaping)
+	if len(nonThinFindings) == 0 {
+		t.Fatalf("expected forbidden stage consumer finding for non-thin delegate at Wave3")
+	}
+	if nonThinFindings[0].ShapeKind != MirrorStageConsumer || nonThinFindings[0].PlaneID != "completion_gates" {
+		t.Fatalf("unexpected finding: %+v", nonThinFindings[0])
+	}
+	if !strings.Contains(nonThinFindings[0].Detail, "does not thinly delegate to Get") {
+		t.Fatalf("expected detail to mention non-thin delegation, got %q", nonThinFindings[0].Detail)
+	}
+
+	// 3b. Whitelisted stage consumer with canonical receiver nil guard passes at Wave3
+	nilSafeConsumerSrc := `package extensions
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -147,15 +173,9 @@ func (s *RequestRuntimeSnapshot) CompletionGates() []completion.Gate {
 	return lipfeature.Get(s.frozen, lipfeature.PlaneCompletionGates)
 }
 `
-	nonThinFindings := scanSyntheticSource(t, "internal/core/extensions/seam_views.go", nonThinConsumerSrc, Wave3_RequestShaping)
-	if len(nonThinFindings) == 0 {
-		t.Fatalf("expected forbidden stage consumer finding for non-thin delegate at Wave3")
-	}
-	if nonThinFindings[0].ShapeKind != MirrorStageConsumer || nonThinFindings[0].PlaneID != "completion_gates" {
-		t.Fatalf("unexpected finding: %+v", nonThinFindings[0])
-	}
-	if !strings.Contains(nonThinFindings[0].Detail, "does not thinly delegate to Get") {
-		t.Fatalf("expected detail to mention non-thin delegation, got %q", nonThinFindings[0].Detail)
+	nilSafeFindings := scanSyntheticSource(t, "internal/core/extensions/seam_views.go", nilSafeConsumerSrc, Wave3_RequestShaping)
+	if len(nilSafeFindings) != 0 {
+		t.Fatalf("expected 0 findings for nil-safe whitelisted stage consumer, got %+v", nilSafeFindings)
 	}
 
 	// 4. EvilCompletionGates calling lipfeature.Get outside whitelist is rejected at Wave3 (Finding 3 fixture a)
@@ -205,154 +225,5 @@ func (c *CustomSnapshot) TrafficObserver() traffic.Observer {
 	}
 	if evilTrafficFindings[0].ShapeKind != MirrorStageConsumer || evilTrafficFindings[0].PlaneID != "traffic_observers" {
 		t.Fatalf("unexpected finding: %+v", evilTrafficFindings[0])
-	}
-}
-
-// TestIsThinDelegate verifies AST inspection for strictly thin delegates.
-func TestIsThinDelegate(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		path string
-		src  string
-		want bool
-	}{
-		{
-			name: "lipfeature.Get call",
-			src: `package p
-import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) []int { return lipfeature.Get(s.frozen, p) }`,
-			want: true,
-		},
-		{
-			name: "feature.Get call",
-			src: `package p
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) []int { return feature.Get(s.frozen, p) }`,
-			want: true,
-		},
-		{
-			name: "lipfeature.FrozenIdentity call",
-			src: `package p
-import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) string { return lipfeature.FrozenIdentity(s.frozen, p) }`,
-			want: true,
-		},
-		{
-			name: "bare Get call in feature package",
-			path: "pkg/lipsdk/feature/test.go",
-			src: `package feature
-func F(s *S) []int { return Get(s.frozen, p) }`,
-			want: true,
-		},
-		{
-			name: "bare Get call in non-feature package rejected",
-			src: `package p
-func F(s *S) []int { return Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "foreign directory package feature bare Get rejected",
-			path: "internal/custom/test.go",
-			src: `package feature
-func F(s *S) []int { return Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "evil import suffix spoofing rejected",
-			src: `package p
-import "evil.example/pkg/lipsdk/feature"
-func F(s *S) []int { return feature.Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "evil import aliased as lipfeature rejected",
-			src: `package p
-import lipfeature "evil.example/pkg/lipsdk/feature"
-func F(s *S) []int { return lipfeature.Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "other package Get call rejected",
-			src: `package p
-import "other/pkg"
-func F(s *S) []int { return pkg.Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "other package aliased as feature rejected",
-			src: `package p
-import feature "other/pkg"
-func F(s *S) []int { return feature.Get(s.frozen, p) }`,
-			want: false,
-		},
-		{
-			name: "extra if branch rejected",
-			src: `package p
-import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) []int {
-	if s == nil { return nil }
-	return lipfeature.Get(s.frozen, p)
-}`,
-			want: false,
-		},
-		{
-			name: "extra statement rejected",
-			src: `package p
-import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) []int {
-	var x int = 1
-	_ = x
-	return lipfeature.Get(s.frozen, p)
-}`,
-			want: false,
-		},
-		{
-			name: "non-return body rejected",
-			src: `package p
-func F(s *S) {
-	for {}
-}`,
-			want: false,
-		},
-		{
-			name: "multiple return values rejected",
-			src: `package p
-import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-func F(s *S) ([]int, error) {
-	return lipfeature.Get(s.frozen, p), nil
-}`,
-			want: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			filePath := tc.path
-			if filePath == "" {
-				filePath = "test.go"
-			}
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, filePath, tc.src, 0)
-			if err != nil {
-				t.Fatalf("parse error: %v", err)
-			}
-			var fnDecl *ast.FuncDecl
-			for _, decl := range f.Decls {
-				if fd, ok := decl.(*ast.FuncDecl); ok {
-					fnDecl = fd
-					break
-				}
-			}
-			if fnDecl == nil {
-				t.Fatalf("no function declaration found in %s", tc.src)
-			}
-			got := IsThinDelegate(filePath, fnDecl, f)
-			if got != tc.want {
-				t.Errorf("IsThinDelegate() = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }

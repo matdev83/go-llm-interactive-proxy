@@ -38,7 +38,7 @@
   - _Validation: go test -count=1 ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/planeparity_
 
 - [ ] 2. Correct runtime and assembly behavior
-- [ ] 2.1 Restore nil-safe frozen terminal-provider access
+- [x] 2.1 Restore nil-safe frozen terminal-provider access
   - Return the zero provider before reading generation state when the receiver is absent.
   - Continue resolving non-nil generations through the generated frozen plane set; do not add a duplicate provider slot or mutable binding.
   - Done means absent generation, absent provider, published provider, request pinning, and conflict rollback tests all pass.
