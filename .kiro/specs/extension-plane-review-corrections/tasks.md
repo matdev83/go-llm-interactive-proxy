@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Characterize the corrective boundaries
+- [x] 1. Characterize the corrective boundaries
 - [x] 1.1 Lock in nil-safe generation behavior
   - Add a regression that invokes terminal-provider access on an absent generation and proves the no-provider result without panic.
   - Audit all generation pointer accessors and characterize any documented zero behavior not already covered.
@@ -28,7 +28,7 @@
   - _Boundary: Hook View Generator, Mirror Scanner_
   - _Validation: go test -count=1 ./internal/archtest ./internal/infra/runtimebundle_
 
-- [ ] 1.4 (P) Inventory legacy lifecycle-surface behavior before deletion
+- [x] 1.4 (P) Inventory legacy lifecycle-surface behavior before deletion
   - Identify production and test consumers of the lifecycle-only legacy merge type and its dual-path helpers.
   - Move lifecycle order, nil-versus-empty, conflict, typed-nil, and rollback expectations onto the generated surface as RED-or-preservation tests.
   - Confirm generation compilation does not derive plane or extension behavior from the legacy value.
