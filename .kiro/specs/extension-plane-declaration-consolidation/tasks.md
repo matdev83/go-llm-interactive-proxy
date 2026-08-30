@@ -261,14 +261,14 @@
   - **Validation:** `go test ./pkg/lipsdk/feature ./internal/plugins/features/... ./internal/standardplugins`
 
 - [ ] 10. Prove the simplification ROI and #394-compatible neutrality
-- [ ] 10.1 Run disposable new-plane and existing-plane feature change-surface probes
+- [x] 10.1 Run disposable new-plane and existing-plane feature change-surface probes
   - Add a throwaway plane with one stage consumer and a throwaway feature using only existing planes as separate commits/diffs; record hand-authored/generated path classifications; then remove both probes.
   - Observable completion: the new-plane probe changes only its contract, consumer packages, one manifest entry, and generated files; the new-feature probe changes only its package plus one standard-distribution registration entry.
   - _Requirements: 2.1, 3.1, 8.3_
   - _Boundary: SDK/public contract, architecture gates/tests, test feature plugin_
   - _Depends: 9.4_
   - **Validation:** `go test ./internal/archtest/tools/changesurface ./internal/testkit/...`
-- [ ] 10.2 Re-run request-path benchmarks and concurrency evidence
+- [x] 10.2 Re-run request-path benchmarks and concurrency evidence
   - Compare absolute ns/op, B/op, allocs/op and defensive-copy semantics to 1.6; require equal-or-better allocs/op and no new locks/key-search loops.
   - Record whether #394 OBSERVE, DELTA-allocation, and HOLD fixed-cost scenarios require refresh; do not claim #394 certification.
   - Observable completion: a durable parity report is attached to the final delivery evidence and race checks pass on supported CI.
