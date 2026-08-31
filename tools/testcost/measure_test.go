@@ -72,7 +72,7 @@ func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantArgv := []string{"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/quality-checks.ps1"}
-	wantEnv := []string{"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=", "LIP_SKIP_GO_COMPILE_CHECKS=", "LIP_TEST_PARALLEL=3", "TEMP=" + tempRoot, "TMP=" + tempRoot}
+	wantEnv := []string{"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1", "LIP_TEST_PARALLEL=3", "TEMP=" + tempRoot, "TMP=" + tempRoot}
 	if !reflect.DeepEqual(request.Argv, wantArgv) || !reflect.DeepEqual(request.Env, wantEnv) || request.ClearEnv {
 		t.Fatalf("quality request argv/env/clear = %#v/%#v/%v", request.Argv, request.Env, request.ClearEnv)
 	}

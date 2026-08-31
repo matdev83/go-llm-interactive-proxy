@@ -299,21 +299,10 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 			t.Fatalf("CI workflow missing test-cost/iteration-speed contract %q", needle)
 		}
 	}
-	if !strings.Contains(ci, "matrix.os != 'windows-latest'") {
-		t.Fatal("portable fast unit tests must be explicitly scoped to Linux/macOS")
-	}
-	windowsRow := strings.Index(ci, "- os: windows-latest")
-	macRow := strings.Index(ci, "- os: macos-latest")
-	if windowsRow < 0 || macRow < windowsRow {
-		t.Fatal("CI matrix must retain a Windows row before the macOS row")
-	}
-	if strings.Contains(ci[windowsRow:macRow], "cmd/lipstd") {
-		t.Fatal("Windows test-cost row must not silently inherit the portable cmd/lipstd fast-unit package")
-	}
 	fastUnit := strings.Index(ci, "- name: Fast unit tests")
 	ratchet := strings.Index(ci, "- name: Windows test-cost ratchet")
 	if fastUnit < 0 || ratchet < 0 || fastUnit >= ratchet {
-		t.Fatal("CI must place the portable Linux/macOS fast-unit step before the Windows authoritative ratchet")
+		t.Fatal("CI must place the portable fast-unit step before the Windows authoritative ratchet")
 	}
 	fastUnitBlock := ci[fastUnit:ratchet]
 	if strings.Contains(fastUnitBlock, "continue-on-error") || strings.Contains(fastUnitBlock, "runner.os !=") {

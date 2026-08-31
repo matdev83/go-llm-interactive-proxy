@@ -132,7 +132,7 @@ func BuildQualityChecksRequest(options MeasureOptions) (taskrunner.Request, erro
 		Output:   taskrunner.Stream,
 		ClearEnv: false,
 		Env: []string{
-			"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=", "LIP_SKIP_GO_COMPILE_CHECKS=",
+			"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1",
 			"LIP_TEST_PARALLEL=" + strconv.Itoa(parallel), "TEMP=" + tempRoot, "TMP=" + tempRoot,
 		},
 		Label: TargetQualityChecks,

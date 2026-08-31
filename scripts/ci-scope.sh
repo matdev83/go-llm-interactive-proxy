@@ -73,6 +73,14 @@ file_matches() {
         *) return 1 ;;
       esac
       ;;
+    test_cost)
+      case "$file" in
+        scripts/test-cost-*|tools/testcost/**|internal/qa/test_cost_policy_test.go)
+          return 0
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
     *)
       echo "unknown scope: $scope" >&2
       return 2
@@ -87,12 +95,13 @@ classify_diff() {
   local go=false
   local test=false
   local coverage=false
+  local test_cost=false
   local file diff_file
 
   # Non-PR events and manual dispatches have no base SHA. Run every scope
   # rather than risking a false bypass.
   if [[ -z "$base" ]]; then
-    printf 'code=true\ngo=true\ntest=true\nopenresponses_coverage=true\n'
+    printf 'code=true\ngo=true\ntest=true\nopenresponses_coverage=true\ntest_cost=true\n'
     return 0
   fi
 
@@ -107,16 +116,17 @@ classify_diff() {
     file_matches go "$file" && go=true
     file_matches test "$file" && test=true
     file_matches openresponses_coverage "$file" && coverage=true
+    file_matches test_cost "$file" && test_cost=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$coverage"; do
+  for value in "$code" "$go" "$test" "$coverage" "$test_cost"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nopenresponses_coverage=%s\n' "$code" "$go" "$test" "$coverage"
+  printf 'code=%s\ngo=%s\ntest=%s\nopenresponses_coverage=%s\ntest_cost=%s\n' "$code" "$go" "$test" "$coverage" "$test_cost"
 }
 
 self_test() {
@@ -161,6 +171,22 @@ self_test() {
     echo "coverage scope included unrelated matcher scripts/openresponses-compliance-scope.sh" >&2
     return 1
   }
+  for relevant in \
+    scripts/test-cost-ratchet.ps1 \
+    scripts/test-cost-budget.json \
+    tools/testcost/measure.go \
+    internal/qa/test_cost_policy_test.go; do
+    file_matches test_cost "$relevant" || {
+      echo "test_cost scope missed $relevant" >&2
+      return 1
+    }
+  done
+  for unrelated in docs/README.md internal/core/runtime.go; do
+    file_matches test_cost "$unrelated" && {
+      echo "test_cost scope included $unrelated" >&2
+      return 1
+    }
+  done
   if classify_diff invalid-base HEAD >/dev/null 2>&1; then
     echo "invalid base revision did not fail closed" >&2
     return 1

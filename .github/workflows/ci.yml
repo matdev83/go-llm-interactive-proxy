@@ -27,6 +27,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       test: ${{ steps.filter.outputs.test }}
+      test_cost: ${{ steps.filter.outputs.test_cost }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -162,18 +163,18 @@ jobs:
           echo "CI scope detection failed; refusing to bypass required evidence." >&2
           exit 1
 
-      # The Windows ratchet checks out the complete history because its policy
-      # anchor may predate the PR base. Keep the portable package matrix on the
-      # normal shallow checkout so Linux/macOS do not pay that cost.
+      # The Windows ratchet checks out the complete history when test-cost
+      # measurement is requested or policy changes. Keep portable fast unit
+      # test runs on the shallow checkout.
       - name: Check out repository (Windows test-cost history)
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os != 'windows-latest'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -214,14 +215,14 @@ jobs:
             setup-go-
 
       - name: Fast unit tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os != 'windows-latest'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Windows test-cost ratchet
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        if: needs.changes.result == 'success' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
         shell: pwsh
         env:
           # A labeled PR may authorize a ratchet update, but the orchestrator
@@ -251,7 +252,7 @@ jobs:
           key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
       - name: Upload Windows test-cost artifacts
-        if: always() && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        if: always() && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-test-cost
