@@ -8,7 +8,7 @@ import (
 
 type otherProcess struct{ cmd *exec.Cmd }
 
-func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
+func newPlatformProcessAdapter(cmd *exec.Cmd, _ bool) (processAdapter, error) {
 	return &otherProcess{cmd: cmd}, nil
 }
 func (p *otherProcess) start() error               { return p.cmd.Start() }

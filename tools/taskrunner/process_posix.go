@@ -9,7 +9,7 @@ import (
 
 type posixProcess struct{ cmd *exec.Cmd }
 
-func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
+func newPlatformProcessAdapter(cmd *exec.Cmd, _ bool) (processAdapter, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return &posixProcess{cmd: cmd}, nil
 }

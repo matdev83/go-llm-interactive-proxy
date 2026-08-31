@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,6 +22,7 @@ type windowsProcess struct {
 	closed   bool
 	killOnce sync.Once
 	killErr  error
+	token    windows.Token
 }
 
 type jobObjectBasicAccountingInformation struct {
@@ -39,7 +41,7 @@ type jobObjectBasicAndIOAccountingInformation struct {
 	IOInfo    windows.IO_COUNTERS
 }
 
-func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
+func newPlatformProcessAdapter(cmd *exec.Cmd, restrictAdmin bool) (processAdapter, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create job object: %w", err)
@@ -50,10 +52,26 @@ func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
 		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("configure job object: %w", err)
 	}
-	return &windowsProcess{cmd: cmd, job: job}, nil
+	p := &windowsProcess{cmd: cmd, job: job}
+	if restrictAdmin {
+		token, err := newRestrictedProcessToken()
+		if err != nil {
+			_ = windows.CloseHandle(job)
+			return nil, fmt.Errorf("create restricted process token: %w", err)
+		}
+		p.token = token
+		cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
+	}
+	return p, nil
 }
 
 func (p *windowsProcess) start() error {
+	if p.token != 0 {
+		defer func() {
+			_ = p.token.Close()
+			p.token = 0
+		}()
+	}
 	if err := p.cmd.Start(); err != nil {
 		return err
 	}
@@ -146,6 +164,10 @@ func (p *windowsProcess) close() error {
 	}
 	p.closed = true
 	var err error
+	if p.token != 0 {
+		err = p.token.Close()
+		p.token = 0
+	}
 	if p.process != 0 {
 		err = windows.CloseHandle(p.process)
 	}
@@ -156,3 +178,38 @@ func (p *windowsProcess) close() error {
 }
 
 const stillActive = 259
+
+const disableMaxPrivilege = 0x1
+
+var createRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
+
+func newRestrictedProcessToken() (windows.Token, error) {
+	var current windows.Token
+	if err := windows.OpenProcessToken(
+		windows.CurrentProcess(),
+		windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY,
+		&current,
+	); err != nil {
+		return 0, err
+	}
+	defer func() { _ = current.Close() }()
+	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return 0, err
+	}
+	disabled := windows.SIDAndAttributes{Sid: adminSID}
+	var token windows.Token
+	ok, _, callErr := createRestrictedToken.Call(
+		uintptr(current),
+		disableMaxPrivilege,
+		1,
+		uintptr(unsafe.Pointer(&disabled)),
+		0, 0,
+		0, 0,
+		uintptr(unsafe.Pointer(&token)),
+	)
+	if ok == 0 {
+		return 0, callErr
+	}
+	return token, nil
+}

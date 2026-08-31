@@ -31,4 +31,6 @@ type ProcessAccounting struct {
 	OtherBytes uint64
 }
 
-func newProcessAdapter(cmd *exec.Cmd) (processAdapter, error) { return newPlatformProcessAdapter(cmd) }
+func newProcessAdapter(cmd *exec.Cmd, restrictAdmin bool) (processAdapter, error) {
+	return newPlatformProcessAdapter(cmd, restrictAdmin)
+}

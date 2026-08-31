@@ -56,6 +56,9 @@ func TestBuildTestUnitRequestExactCommand(t *testing.T) {
 	if request.Timeout != 12*time.Minute || request.Output != taskrunner.Stream {
 		t.Fatalf("timeout/output = %s/%v", request.Timeout, request.Output)
 	}
+	if !request.RestrictAdmin {
+		t.Fatal("test-unit measurement must run with an administrative SID disabled")
+	}
 }
 
 func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
@@ -75,6 +78,9 @@ func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
 	wantEnv := []string{"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1", "LIP_TEST_PARALLEL=3", "TEMP=" + tempRoot, "TMP=" + tempRoot}
 	if !reflect.DeepEqual(request.Argv, wantArgv) || !reflect.DeepEqual(request.Env, wantEnv) || request.ClearEnv {
 		t.Fatalf("quality request argv/env/clear = %#v/%#v/%v", request.Argv, request.Env, request.ClearEnv)
+	}
+	if !request.RestrictAdmin {
+		t.Fatal("quality measurement must run with an administrative SID disabled")
 	}
 }
 

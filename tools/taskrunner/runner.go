@@ -38,6 +38,7 @@ type Request struct {
 	TailLimit      int
 	Label          string
 	Redactions     []string
+	RestrictAdmin  bool
 }
 
 type Kind string
@@ -117,7 +118,7 @@ func Run(ctx context.Context, req Request) (result Result) {
 	cmd := exec.Command(req.Argv[0], req.Argv[1:]...)
 	cmd.Dir = req.Dir
 	cmd.Env = env
-	adapter, err := newProcessAdapter(cmd)
+	adapter, err := newProcessAdapter(cmd, req.RestrictAdmin)
 	if err != nil {
 		return fail(result, StartFailure, err)
 	}

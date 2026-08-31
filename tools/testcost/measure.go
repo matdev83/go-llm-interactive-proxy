@@ -96,11 +96,12 @@ func BuildTestUnitRequest(options MeasureOptions) (taskrunner.Request, error) {
 		return taskrunner.Request{}, err
 	}
 	return taskrunner.Request{
-		Argv:    []string{"go", "test", "-count=1", "-json", "-parallel=" + strconv.Itoa(parallel), "-timeout=10m", "./..."},
-		Dir:     root,
-		Timeout: timeout,
-		Output:  taskrunner.Stream,
-		Label:   TargetTestUnit,
+		Argv:          []string{"go", "test", "-count=1", "-json", "-parallel=" + strconv.Itoa(parallel), "-timeout=10m", "./..."},
+		Dir:           root,
+		Timeout:       timeout,
+		Output:        taskrunner.Stream,
+		Label:         TargetTestUnit,
+		RestrictAdmin: true,
 	}, nil
 }
 
@@ -135,7 +136,8 @@ func BuildQualityChecksRequest(options MeasureOptions) (taskrunner.Request, erro
 			"CI=", "LIP_VERIFY_MODULE_CACHE=", "LIP_SKIP_ARCHTEST=1", "LIP_SKIP_GO_COMPILE_CHECKS=1",
 			"LIP_TEST_PARALLEL=" + strconv.Itoa(parallel), "TEMP=" + tempRoot, "TMP=" + tempRoot,
 		},
-		Label: TargetQualityChecks,
+		Label:         TargetQualityChecks,
+		RestrictAdmin: true,
 	}, nil
 }
 

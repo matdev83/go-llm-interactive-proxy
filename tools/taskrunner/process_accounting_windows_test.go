@@ -5,9 +5,28 @@ package taskrunner
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestRunner_WindowsRestrictedAdminToken(t *testing.T) {
+	result := Run(context.Background(), Request{
+		Argv: []string{
+			"powershell", "-NoProfile", "-Command",
+			`([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`,
+		},
+		Timeout:       30 * time.Second,
+		Output:        Capture,
+		RestrictAdmin: true,
+	})
+	if result.Kind != Success {
+		t.Fatalf("result = %#v, error = %v", result, result.Err)
+	}
+	if got := strings.TrimSpace(string(result.Stdout)); !strings.EqualFold(got, "false") {
+		t.Fatalf("restricted child administrative membership = %q, want false", got)
+	}
+}
 
 func TestRunner_WindowsJobAccountingIncludesDescendants(t *testing.T) {
 	ioFile := filepath.Join(t.TempDir(), "child-io.bin")
