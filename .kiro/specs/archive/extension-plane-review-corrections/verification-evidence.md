@@ -10,6 +10,16 @@
 - **Validated Tree:** Base `2c9b4b086b3dc19890fc7d2d5e3c3f9782ae494d` plus Tasks 5.1–5.3 verification and documentation commits, pre-merge commit `0614a009` (`0614a009fb39a7ec7d55e722840d360e2e4b73c1`).
 - **Scope Status:** Pre-merge corrective verification evidence. Does NOT claim merged-main certification (owned by Task 5.4) or #394 performance neutrality (owned by Issue #394 / project maintainers).
 
+## Certified Corrective Baseline
+
+- **Implementation PR:** [#555](https://github.com/matdev83/go-llm-interactive-proxy/pull/555)
+- **Merged Main Commit:** `1f69c577983cd60b03120ae855bc215e8e5138af`
+- **Merged At:** 2026-08-31T16:24:50Z
+- **Remote CI:** all required checks passed, including Linux race run `33412791511` job `99556140276` and QA run `33412791610` job `99556272903`.
+- **Fresh Merged-Main Verification:** generated output check, focused SDK/feature/hooks/extensions/runtime/architecture/parity/speccheck tests, `go build ./cmd/lipstd`, and `go run ./cmd/lipstd --help` passed from clean `main` at the merged commit.
+- **Independent Review:** no must-fix finding on the merged commit.
+- **Certification Boundary:** This is the corrective extension-plane baseline. It does not certify #394 performance neutrality and does not remove or certify the dynamic ungenerated-plane fallback tracked by #554.
+
 ---
 
 ## 1. Pre-Validation Tree State & Working Tree Changes
