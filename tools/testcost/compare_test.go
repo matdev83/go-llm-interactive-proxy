@@ -1,9 +1,23 @@
 package testcost
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestReportJSONIncludesFalseOverride(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(Report{SchemaVersion: 1, Target: TargetTestUnit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"overridden":false`) {
+		t.Fatalf("report must make unauthorized status explicit: %s", encoded)
+	}
+}
 
 func validPolicy(overall OverallPolicy, packagePolicy PackagePolicy, overrides map[string]PackagePolicy) Policy {
 	return Policy{SchemaVersion: SchemaVersion, AnchorRef: "origin/main", Targets: map[string]TargetPolicy{TargetTestUnit: {CPU: overall.CPU, Processes: overall.Processes, IOOperations: overall.IOOperations, Wall: overall.Wall, Package: packagePolicy, PackageOverrides: overrides}}}

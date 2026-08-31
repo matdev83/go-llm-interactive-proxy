@@ -217,7 +217,7 @@ type Report struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Target        string              `json:"target"`
 	Passed        bool                `json:"passed"`
-	Overridden    bool                `json:"overridden,omitempty"`
+	Overridden    bool                `json:"overridden"`
 	Violations    []Violation         `json:"violations,omitempty"`
 	Warnings      []Warning           `json:"warnings,omitempty"`
 	Overall       []OverallComparison `json:"overall,omitempty"`
