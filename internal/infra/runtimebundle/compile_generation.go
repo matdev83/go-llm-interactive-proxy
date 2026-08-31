@@ -99,7 +99,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
+		bus = hooks.New(lipfeature.ProjectHookConfig(genMerged.Frozen, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process: ps, Bus: bus, Candidate: frozen,

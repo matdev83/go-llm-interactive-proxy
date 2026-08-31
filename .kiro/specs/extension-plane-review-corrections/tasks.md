@@ -74,7 +74,7 @@
   - _Boundary: Hook View Generator_
   - _Validation: go test -count=1 ./internal/archtest ./pkg/lipsdk/feature && go run ./scripts/generate-feature-planes.go -check_
 
-- [ ] 3.3 Integrate the generated hook view with core and runtime composition
+- [x] 3.3 Integrate the generated hook view with core and runtime composition
   - Make core hook configuration share the generated SDK type while retaining core-owned sorting and execution.
   - Replace runtimebundle's per-plane reads with direct generated projection consumption.
   - Preserve feature-hook construction, generation compilation, host policy, and lifecycle side-channel behavior.

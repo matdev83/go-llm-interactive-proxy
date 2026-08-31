@@ -85,7 +85,7 @@ func (l stubLifecycle) Start(context.Context) error {
 }
 func (stubLifecycle) Stop(context.Context) error { return nil }
 
-func TestHooksConfigFromGenerated_ParityWithFrozenAndExpectedConfig(t *testing.T) {
+func TestProjectHookConfig_ParityWithFrozenAndExpectedConfig(t *testing.T) {
 	t.Parallel()
 
 	b1 := testkit.FeatureBundle(t, "b1", func(cs *lipfeature.ContributionSet) error {
@@ -168,11 +168,9 @@ func TestHooksConfigFromGenerated_ParityWithFrozenAndExpectedConfig(t *testing.T
 				ToolReactorErrorPolicy: pol,
 			}
 
-			derivedCfg := HooksConfigFromGenerated(genMerged, pol)
-			frozenCfg := HooksConfigFromFrozen(genMerged.Frozen, pol)
+			derivedCfg := lipfeature.ProjectHookConfig(genMerged.Frozen, pol)
 
-			assert.True(t, reflect.DeepEqual(expectedCfg, derivedCfg), "HooksConfigFromGenerated must match expected hooks config")
-			assert.True(t, reflect.DeepEqual(derivedCfg, frozenCfg), "HooksConfigFromFrozen must equal HooksConfigFromGenerated")
+			assert.True(t, reflect.DeepEqual(expectedCfg, derivedCfg), "ProjectHookConfig must match expected hooks config")
 
 			// Check individual fields
 			assert.Equal(t, expectedCfg.SubmitHooks, derivedCfg.SubmitHooks)
@@ -200,14 +198,14 @@ func TestHooksConfigFromGenerated_ParityWithFrozenAndExpectedConfig(t *testing.T
 	}
 }
 
-func TestHooksConfigFromGenerated_EmptySurfaceYieldsNilOrEmptySlices(t *testing.T) {
+func TestProjectHookConfig_EmptySurfaceYieldsNilOrEmptySlices(t *testing.T) {
 	t.Parallel()
 
 	emptyGen := featurebundle.GeneratedMergeSurface{
 		Frozen: lipfeature.NewContributionSet().Freeze(),
 	}
 
-	cfg := HooksConfigFromGenerated(emptyGen, sdkhooks.ToolReactorErrorsFailOpen)
+	cfg := lipfeature.ProjectHookConfig(emptyGen.Frozen, sdkhooks.ToolReactorErrorsFailOpen)
 	assert.Empty(t, cfg.SubmitHooks)
 	assert.Empty(t, cfg.RequestPartHooks)
 	assert.Empty(t, cfg.ResponsePartHooks)
@@ -293,13 +291,13 @@ func TestConfigOwnedToolReactorErrorPolicy_FeatureContributionsCannotSetPolicy(t
 	require.NoError(t, err)
 
 	// Policy is purely injected at projection time from host/config
-	cfgDefault := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+	cfgDefault := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 	assert.Equal(t, sdkhooks.ToolReactorErrorPolicyUnspecified, cfgDefault.ToolReactorErrorPolicy)
 
-	cfgFailClosed := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorsFailClosed)
+	cfgFailClosed := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorsFailClosed)
 	assert.Equal(t, sdkhooks.ToolReactorErrorsFailClosed, cfgFailClosed.ToolReactorErrorPolicy)
 
-	cfgSwallow := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorsSwallowEvent)
+	cfgSwallow := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorsSwallowEvent)
 	assert.Equal(t, sdkhooks.ToolReactorErrorsSwallowEvent, cfgSwallow.ToolReactorErrorPolicy)
 }
 
@@ -354,22 +352,19 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2)
 		require.NoError(t, err)
 
-		cfgGen := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorsFailOpen)
-		cfgFrozen := HooksConfigFromFrozen(gen.Frozen, sdkhooks.ToolReactorErrorsFailOpen)
+		cfg := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorsFailOpen)
 
-		require.Len(t, cfgGen.SubmitHooks, 3)
-		assert.Equal(t, []string{"sub-1a", "sub-1b", "sub-2a"}, []string{cfgGen.SubmitHooks[0].ID(), cfgGen.SubmitHooks[1].ID(), cfgGen.SubmitHooks[2].ID()})
+		require.Len(t, cfg.SubmitHooks, 3)
+		assert.Equal(t, []string{"sub-1a", "sub-1b", "sub-2a"}, []string{cfg.SubmitHooks[0].ID(), cfg.SubmitHooks[1].ID(), cfg.SubmitHooks[2].ID()})
 
-		require.Len(t, cfgGen.RequestPartHooks, 2)
-		assert.Equal(t, []string{"req-1a", "req-2a"}, []string{cfgGen.RequestPartHooks[0].ID(), cfgGen.RequestPartHooks[1].ID()})
+		require.Len(t, cfg.RequestPartHooks, 2)
+		assert.Equal(t, []string{"req-1a", "req-2a"}, []string{cfg.RequestPartHooks[0].ID(), cfg.RequestPartHooks[1].ID()})
 
-		require.Len(t, cfgGen.ResponsePartHooks, 2)
-		assert.Equal(t, []string{"resp-1a", "resp-2a"}, []string{cfgGen.ResponsePartHooks[0].ID(), cfgGen.ResponsePartHooks[1].ID()})
+		require.Len(t, cfg.ResponsePartHooks, 2)
+		assert.Equal(t, []string{"resp-1a", "resp-2a"}, []string{cfg.ResponsePartHooks[0].ID(), cfg.ResponsePartHooks[1].ID()})
 
-		require.Len(t, cfgGen.ToolReactors, 2)
-		assert.Equal(t, []string{"reactor-1a", "reactor-2a"}, []string{cfgGen.ToolReactors[0].ID(), cfgGen.ToolReactors[1].ID()})
-
-		assert.Equal(t, cfgGen, cfgFrozen)
+		require.Len(t, cfg.ToolReactors, 2)
+		assert.Equal(t, []string{"reactor-1a", "reactor-2a"}, []string{cfg.ToolReactors[0].ID(), cfg.ToolReactors[1].ID()})
 	})
 
 	t.Run("AbsentPlanes", func(t *testing.T) {
@@ -383,7 +378,7 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 		gen, err := featurebundle.MergeBundlesGenerated(b)
 		require.NoError(t, err)
 
-		cfg := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorsFailClosed)
+		cfg := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorsFailClosed)
 		require.Len(t, cfg.SubmitHooks, 1)
 		assert.Equal(t, "sub-only", cfg.SubmitHooks[0].ID())
 		assert.Nil(t, cfg.RequestPartHooks, "absent RequestPartHooks must project to nil")
@@ -450,35 +445,27 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				// 1. Nil contribution must project to nil slice in both Generated and Frozen paths
+				// 1. Nil contribution must project to nil slice
 				bNil := testkit.FeatureBundle(t, "b-nil", func(cs *lipfeature.ContributionSet) error {
 					return tc.contribute(cs, true)
 				}, nil)
 				genNil, err := featurebundle.MergeBundlesGenerated(bNil)
 				require.NoError(t, err)
 
-				cfgGenNil := HooksConfigFromGenerated(genNil, sdkhooks.ToolReactorErrorPolicyUnspecified)
-				assert.Nil(t, tc.extractGen(cfgGenNil), "nil contribution must project to nil slice via generated")
+				cfgNil := lipfeature.ProjectHookConfig(genNil.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+				assert.Nil(t, tc.extractGen(cfgNil), "nil contribution must project to nil slice")
 
-				cfgFrozenNil := HooksConfigFromFrozen(genNil.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-				assert.Nil(t, tc.extractGen(cfgFrozenNil), "nil contribution must project to nil slice via frozen")
-
-				// 2. Explicit empty contribution must project to non-nil empty slice in both Generated and Frozen paths
+				// 2. Explicit empty contribution must project to non-nil empty slice
 				bEmpty := testkit.FeatureBundle(t, "b-empty", func(cs *lipfeature.ContributionSet) error {
 					return tc.contribute(cs, false)
 				}, nil)
 				genEmpty, err := featurebundle.MergeBundlesGenerated(bEmpty)
 				require.NoError(t, err)
 
-				cfgGenEmpty := HooksConfigFromGenerated(genEmpty, sdkhooks.ToolReactorErrorPolicyUnspecified)
-				valGen := tc.extractGen(cfgGenEmpty)
-				assert.NotNil(t, valGen, "explicit empty slice must project to non-nil empty slice via generated")
+				cfgEmpty := lipfeature.ProjectHookConfig(genEmpty.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+				valGen := tc.extractGen(cfgEmpty)
+				assert.NotNil(t, valGen, "explicit empty slice must project to non-nil empty slice")
 				assert.Empty(t, valGen)
-
-				cfgFrozenEmpty := HooksConfigFromFrozen(genEmpty.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-				valFrozen := tc.extractGen(cfgFrozenEmpty)
-				assert.NotNil(t, valFrozen, "explicit empty slice must project to non-nil empty slice via frozen")
-				assert.Empty(t, valFrozen)
 			})
 		}
 	})
@@ -501,7 +488,7 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 			// 1. Mutate input slice after bundle contribution
 			inputHooks[0] = stubSubmitHook{id: "mutated-input", order: 999}
 
-			cfg1 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg1 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg1.SubmitHooks, 2)
 			assert.Equal(t, "orig-1", cfg1.SubmitHooks[0].ID())
 
@@ -509,17 +496,11 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 			cfg1.SubmitHooks[0] = stubSubmitHook{id: "mutated-cfg", order: 777}
 			cfg1.SubmitHooks = append(cfg1.SubmitHooks, stubSubmitHook{id: "appended", order: 888})
 
-			// 3. Second projection from Generated must remain uncorrupted
-			cfg2 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			// 3. Second projection must remain uncorrupted
+			cfg2 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg2.SubmitHooks, 2)
 			assert.Equal(t, "orig-1", cfg2.SubmitHooks[0].ID())
 			assert.Equal(t, "orig-2", cfg2.SubmitHooks[1].ID())
-
-			// 4. Projection from Frozen must also remain uncorrupted
-			cfgFrozen := HooksConfigFromFrozen(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-			require.Len(t, cfgFrozen.SubmitHooks, 2)
-			assert.Equal(t, "orig-1", cfgFrozen.SubmitHooks[0].ID())
-			assert.Equal(t, "orig-2", cfgFrozen.SubmitHooks[1].ID())
 		})
 
 		t.Run("RequestPartHooks", func(t *testing.T) {
@@ -536,22 +517,17 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 
 			inputHooks[0] = stubRequestPartHook{id: "mutated-input", order: 999}
 
-			cfg1 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg1 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg1.RequestPartHooks, 2)
 			assert.Equal(t, "orig-1", cfg1.RequestPartHooks[0].ID())
 
 			cfg1.RequestPartHooks[0] = stubRequestPartHook{id: "mutated-cfg", order: 777}
 			cfg1.RequestPartHooks = append(cfg1.RequestPartHooks, stubRequestPartHook{id: "appended", order: 888})
 
-			cfg2 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg2 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg2.RequestPartHooks, 2)
 			assert.Equal(t, "orig-1", cfg2.RequestPartHooks[0].ID())
 			assert.Equal(t, "orig-2", cfg2.RequestPartHooks[1].ID())
-
-			cfgFrozen := HooksConfigFromFrozen(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-			require.Len(t, cfgFrozen.RequestPartHooks, 2)
-			assert.Equal(t, "orig-1", cfgFrozen.RequestPartHooks[0].ID())
-			assert.Equal(t, "orig-2", cfgFrozen.RequestPartHooks[1].ID())
 		})
 
 		t.Run("ResponsePartHooks", func(t *testing.T) {
@@ -568,22 +544,17 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 
 			inputHooks[0] = stubResponsePartHook{id: "mutated-input", order: 999}
 
-			cfg1 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg1 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg1.ResponsePartHooks, 2)
 			assert.Equal(t, "orig-1", cfg1.ResponsePartHooks[0].ID())
 
 			cfg1.ResponsePartHooks[0] = stubResponsePartHook{id: "mutated-cfg", order: 777}
 			cfg1.ResponsePartHooks = append(cfg1.ResponsePartHooks, stubResponsePartHook{id: "appended", order: 888})
 
-			cfg2 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg2 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg2.ResponsePartHooks, 2)
 			assert.Equal(t, "orig-1", cfg2.ResponsePartHooks[0].ID())
 			assert.Equal(t, "orig-2", cfg2.ResponsePartHooks[1].ID())
-
-			cfgFrozen := HooksConfigFromFrozen(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-			require.Len(t, cfgFrozen.ResponsePartHooks, 2)
-			assert.Equal(t, "orig-1", cfgFrozen.ResponsePartHooks[0].ID())
-			assert.Equal(t, "orig-2", cfgFrozen.ResponsePartHooks[1].ID())
 		})
 
 		t.Run("ToolReactors", func(t *testing.T) {
@@ -600,22 +571,17 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 
 			inputHooks[0] = stubToolReactor{id: "mutated-input", order: 999}
 
-			cfg1 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg1 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg1.ToolReactors, 2)
 			assert.Equal(t, "orig-1", cfg1.ToolReactors[0].ID())
 
 			cfg1.ToolReactors[0] = stubToolReactor{id: "mutated-cfg", order: 777}
 			cfg1.ToolReactors = append(cfg1.ToolReactors, stubToolReactor{id: "appended", order: 888})
 
-			cfg2 := HooksConfigFromGenerated(gen, sdkhooks.ToolReactorErrorPolicyUnspecified)
+			cfg2 := lipfeature.ProjectHookConfig(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
 			require.Len(t, cfg2.ToolReactors, 2)
 			assert.Equal(t, "orig-1", cfg2.ToolReactors[0].ID())
 			assert.Equal(t, "orig-2", cfg2.ToolReactors[1].ID())
-
-			cfgFrozen := HooksConfigFromFrozen(gen.Frozen, sdkhooks.ToolReactorErrorPolicyUnspecified)
-			require.Len(t, cfgFrozen.ToolReactors, 2)
-			assert.Equal(t, "orig-1", cfgFrozen.ToolReactors[0].ID())
-			assert.Equal(t, "orig-2", cfgFrozen.ToolReactors[1].ID())
 		})
 	})
 
@@ -641,11 +607,8 @@ func TestHooksConfigProjection_IndependentCharacterization(t *testing.T) {
 		for _, tc := range policies {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
-				cfgGen := HooksConfigFromGenerated(gen, tc.policy)
-				cfgFrozen := HooksConfigFromFrozen(gen.Frozen, tc.policy)
-
-				assert.Equal(t, tc.policy, cfgGen.ToolReactorErrorPolicy)
-				assert.Equal(t, tc.policy, cfgFrozen.ToolReactorErrorPolicy)
+				cfg := lipfeature.ProjectHookConfig(gen.Frozen, tc.policy)
+				assert.Equal(t, tc.policy, cfg.ToolReactorErrorPolicy)
 			})
 		}
 	})
