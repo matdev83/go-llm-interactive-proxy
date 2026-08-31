@@ -322,11 +322,20 @@ function Apply-AnchorCompatibilityPatch {
         }
     }
 
-    # Copy security_guard.go from head to support LIP_ALLOW_ADMIN_USER in anchor
-    $guardSrc = Join-Path $RepositoryRoot "internal/stdhttp/security_guard.go"
-    $guardDst = Join-Path $AnchorRoot "internal/stdhttp/security_guard.go"
-    if (Test-Path -LiteralPath $guardSrc) {
-        Copy-Item -LiteralPath $guardSrc -Destination $guardDst -Force
+    # Copy security guard and flake stability fixes from head to anchor
+    $flakeFixes = @(
+        "internal/stdhttp/security_guard.go",
+        "internal/infra/backendplugins/processhost/windows_production_test.go",
+        "internal/testkit/backendplugin/cmd/lip-backendplugin-fake/pipe_windows.go",
+        "scripts/taskrunner.ps1",
+        "internal/qa/windows_task_reliability_contract_test.go"
+    )
+    foreach ($relPath in $flakeFixes) {
+        $src = Join-Path $RepositoryRoot $relPath
+        $dst = Join-Path $AnchorRoot $relPath
+        if (Test-Path -LiteralPath $src) {
+            Copy-Item -LiteralPath $src -Destination $dst -Force
+        }
     }
 
     # Normalize line endings of files that check exact byte hashes on Windows

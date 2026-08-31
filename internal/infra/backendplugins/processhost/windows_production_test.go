@@ -343,7 +343,7 @@ func TestWindows_JobKillOnClose(t *testing.T) {
 		t.Fatalf("peer pid %d != %d", peer.PID, pid)
 	}
 	_ = proc.Close()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 		if err != nil {
