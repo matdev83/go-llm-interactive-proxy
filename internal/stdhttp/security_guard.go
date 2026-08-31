@@ -2,7 +2,6 @@ package stdhttp
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -20,13 +19,16 @@ func validateStartupSecurity(cfg *config.Config) error {
 	noAuth := cfg.EffectiveServerAuthMode() == config.AuthModeNoAuth
 	loopback := config.IsExplicitLoopbackListenAddress(cfg.Server.Address)
 	if noAuth && !loopback {
-		return fmt.Errorf("stdhttp: no_auth mode requires explicit loopback server.address, got %q", cfg.Server.Address)
+		return fmt.Errorf(
+			"stdhttp: no_auth mode requires explicit loopback server.address, got %q",
+			cfg.Server.Address,
+		)
 	}
 	isAdmin, err := runningAsAdmin()
 	if err != nil {
 		return fmt.Errorf("stdhttp: determine administrative privilege: %w", err)
 	}
-	if isAdmin && os.Getenv("LIP_ALLOW_ADMIN_USER") != "1" {
+	if isAdmin {
 		return fmt.Errorf("stdhttp: refusing to start as administrative user on %s", runtime.GOOS)
 	}
 	return nil

@@ -217,12 +217,10 @@ function Invoke-External {
     # ensuring taskrunner helpers built by each tree cannot cross-use a cache.
     $previousTemp = [Environment]::GetEnvironmentVariable("TEMP", "Process")
     $previousTmp = [Environment]::GetEnvironmentVariable("TMP", "Process")
-    $previousAdmin = [Environment]::GetEnvironmentVariable("LIP_ALLOW_ADMIN_USER", "Process")
     $exitCode = 1
     try {
         $env:TEMP = $TempRoot
         $env:TMP = $TempRoot
-        $env:LIP_ALLOW_ADMIN_USER = "1"
         Push-Location -LiteralPath $WorkingDirectory
         try {
             $previousPreference = $ErrorActionPreference
@@ -249,11 +247,6 @@ function Invoke-External {
             Remove-Item Env:TMP -ErrorAction SilentlyContinue
         } else {
             $env:TMP = $previousTmp
-        }
-        if ($null -eq $previousAdmin) {
-            Remove-Item Env:LIP_ALLOW_ADMIN_USER -ErrorAction SilentlyContinue
-        } else {
-            $env:LIP_ALLOW_ADMIN_USER = $previousAdmin
         }
     }
     return [int]$exitCode
@@ -318,37 +311,6 @@ function Apply-AnchorCompatibilityPatch {
         }
     }
 
-    # Copy security guard and flake stability fixes from head to anchor
-    $flakeFixes = @(
-        "internal/stdhttp/security_guard.go",
-        "internal/infra/backendplugins/processhost/windows_production_test.go",
-        "internal/testkit/backendplugin/cmd/lip-backendplugin-fake/pipe_windows.go",
-        "scripts/taskrunner.ps1",
-        "internal/qa/windows_task_reliability_contract_test.go"
-    )
-    foreach ($relPath in $flakeFixes) {
-        $src = Join-Path $RepositoryRoot $relPath
-        $dst = Join-Path $AnchorRoot $relPath
-        if (Test-Path -LiteralPath $src) {
-            Copy-Item -LiteralPath $src -Destination $dst -Force
-        }
-    }
-
-    # Normalize line endings of files that check exact byte hashes on Windows
-    $filesToNormalizeLF = @(
-        "tools/openresponses_compliance/src/lib/compliance-tests.ts",
-        "internal/archtest/extension_planes_baseline.json"
-    )
-    foreach ($relPath in $filesToNormalizeLF) {
-        $targetFile = Join-Path $AnchorRoot $relPath
-        if (Test-Path -LiteralPath $targetFile) {
-            $bytes = [IO.File]::ReadAllBytes($targetFile)
-            $text = [Text.Encoding]::UTF8.GetString($bytes)
-            $normalized = $text -replace "`r`n", "`n"
-            [IO.File]::WriteAllBytes($targetFile, [Text.UTF8Encoding]::new($false).GetBytes($normalized))
-        }
-    }
-
     # Stage only the files intentionally changed by this compatibility patch.
     # The anchor is created with autocrlf disabled below; keeping this list
     # explicit also prevents a future checkout conversion from entering the
@@ -356,14 +318,8 @@ function Apply-AnchorCompatibilityPatch {
     $compatibilityPaths = @(
         "internal/testkit/dbparity/cmd/main_test.go",
         "internal/testkit/postgres_makefile_gate_test.go"
-    ) + $flakeFixes + $filesToNormalizeLF
-    $stagePaths = @($compatibilityPaths | Where-Object {
-        Test-Path -LiteralPath (Join-Path $AnchorRoot $_) -PathType Leaf
-    })
-    if ($stagePaths.Count -eq 0) {
-        throw "anchor compatibility patch did not identify any stageable paths"
-    }
-    Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $stagePaths)
+    )
+    Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $compatibilityPaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
         "-c", "user.name=Go-LIP test-cost ratchet",

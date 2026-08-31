@@ -271,9 +271,24 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if strings.Contains(script, `"add", "-A"`) || strings.Contains(script, `"add", "."`) {
 		t.Fatal("anchor compatibility commit must not stage unrelated checkout conversions")
 	}
+	compatibilityStart := strings.Index(script, "$compatibilityPaths = @(")
+	if compatibilityStart < 0 {
+		t.Fatal("anchor compatibility paths must be declared explicitly")
+	}
+	compatibilityEnd := strings.Index(script[compatibilityStart:], ")")
+	if compatibilityEnd < 0 {
+		t.Fatal("anchor compatibility path declaration is unterminated")
+	}
+	compatibilityBlock := script[compatibilityStart : compatibilityStart+compatibilityEnd]
 	for _, compatibilityPath := range []string{
 		"internal/testkit/dbparity/cmd/main_test.go",
 		"internal/testkit/postgres_makefile_gate_test.go",
+	} {
+		if !strings.Contains(compatibilityBlock, compatibilityPath) {
+			t.Fatalf("anchor compatibility paths must remain explicit: %q", compatibilityPath)
+		}
+	}
+	for _, forbiddenPath := range []string{
 		"internal/stdhttp/security_guard.go",
 		"internal/infra/backendplugins/processhost/windows_production_test.go",
 		"internal/testkit/backendplugin/cmd/lip-backendplugin-fake/pipe_windows.go",
@@ -282,8 +297,8 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"tools/openresponses_compliance/src/lib/compliance-tests.ts",
 		"internal/archtest/extension_planes_baseline.json",
 	} {
-		if !strings.Contains(script, compatibilityPath) {
-			t.Fatalf("anchor compatibility paths must remain explicit: %q", compatibilityPath)
+		if strings.Contains(script, forbiddenPath) {
+			t.Fatalf("anchor compatibility must not mutate speculative path %q", forbiddenPath)
 		}
 	}
 

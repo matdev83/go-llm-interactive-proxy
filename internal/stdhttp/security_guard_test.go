@@ -16,22 +16,11 @@ func withRunningAsAdmin(t *testing.T, fn func() (bool, error)) {
 
 //nolint:paralleltest // tests mutate package-level runningAsAdmin hook
 func TestValidateStartupSecurity_rejectsAdminUser(t *testing.T) {
-	t.Setenv("LIP_ALLOW_ADMIN_USER", "")
 	withRunningAsAdmin(t, func() (bool, error) { return true, nil })
 	cfg := &config.Config{Server: config.ServerConfig{Address: "127.0.0.1:8080"}}
 	err := validateStartupSecurity(cfg)
 	if err == nil || !strings.Contains(err.Error(), "administrative") {
 		t.Fatalf("want administrative rejection, got %v", err)
-	}
-}
-
-//nolint:paralleltest // tests mutate package-level runningAsAdmin hook
-func TestValidateStartupSecurity_allowsAdminWithOverride(t *testing.T) {
-	t.Setenv("LIP_ALLOW_ADMIN_USER", "1")
-	withRunningAsAdmin(t, func() (bool, error) { return true, nil })
-	cfg := &config.Config{Server: config.ServerConfig{Address: "127.0.0.1:8080"}}
-	if err := validateStartupSecurity(cfg); err != nil {
-		t.Fatalf("want admin allowed with override, got %v", err)
 	}
 }
 

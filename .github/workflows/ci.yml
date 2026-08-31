@@ -227,7 +227,6 @@ jobs:
         env:
           # A labeled PR may authorize a ratchet update, but the orchestrator
           # still measures and reports both targets under the override.
-          LIP_ALLOW_ADMIN_USER: "1"
           LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP "golip-test-cost-ratchet"
