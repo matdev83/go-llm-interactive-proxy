@@ -356,7 +356,10 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		t.Fatal("CI must place the portable fast-unit step before the Windows authoritative ratchet")
 	}
 	fastUnitBlock := ci[fastUnit:ratchet]
-	if strings.Contains(fastUnitBlock, "continue-on-error") || strings.Contains(fastUnitBlock, "runner.os !=") {
-		t.Fatal("CI must not bypass the portable fast-unit contract on Windows through a soft-failure condition")
+	if strings.Contains(fastUnitBlock, "continue-on-error") {
+		t.Fatal("CI must not soften the portable fast-unit contract")
+	}
+	if !strings.Contains(fastUnitBlock, "matrix.os != 'windows-latest'") || !strings.Contains(fastUnitBlock, "needs.changes.outputs.test_cost != 'true'") {
+		t.Fatal("CI must preserve fast units on Linux/macOS and avoid duplicating a measured Windows head run")
 	}
 }

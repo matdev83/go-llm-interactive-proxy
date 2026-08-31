@@ -215,10 +215,11 @@ jobs:
             setup-go-
 
       - name: Fast unit tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
-        # host security posture checks on administrative Windows runners.
+        # host security posture checks on administrative Windows runners. A
+        # measured Windows head run is broader, so do not execute it twice.
         run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Windows test-cost ratchet
