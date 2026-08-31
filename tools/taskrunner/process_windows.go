@@ -179,8 +179,6 @@ func (p *windowsProcess) close() error {
 
 const stillActive = 259
 
-const disableMaxPrivilege = 0x1
-
 var createRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
 
 func newRestrictedProcessToken() (windows.Token, error) {
@@ -201,7 +199,7 @@ func newRestrictedProcessToken() (windows.Token, error) {
 	var token windows.Token
 	ok, _, callErr := createRestrictedToken.Call(
 		uintptr(current),
-		disableMaxPrivilege,
+		0,
 		1,
 		uintptr(unsafe.Pointer(&disabled)),
 		0, 0,
