@@ -305,12 +305,9 @@ function Apply-AnchorCompatibilityPatch {
     $null = Resolve-Commit $RepositoryRoot $correctionCommit "anchor compatibility correction"
     $patchText = Get-GitText @(
         "-C", $RepositoryRoot, "diff", $bootstrapAnchor, $correctionCommit, "--",
+        "internal/archtest",
         "internal/testkit/dbparity/cmd/main_test.go",
-        "internal/testkit/postgres_makefile_gate_test.go",
-        "internal/archtest/source_scan.go",
-        "internal/archtest/source_scan_cache.go",
-        "internal/archtest/plane_report.go",
-        "internal/archtest/rules_test.go"
+        "internal/testkit/postgres_makefile_gate_test.go"
     )
     if (-not [string]::IsNullOrWhiteSpace($patchText)) {
         $patchPath = Join-Path ([IO.Path]::GetTempPath()) ("lip-testcost-anchor-compat-" + [Guid]::NewGuid().ToString("N") + ".patch")
