@@ -1,14 +1,14 @@
-# Verification Evidence: Extension Plane Review Corrections (Task 5.1)
+# Verification Evidence: Extension Plane Review Corrections (Tasks 5.1–5.3)
 
 - **Spec:** `extension-plane-review-corrections`
-- **Task:** 5.1 Run focused and repository-wide correctness gates
+- **Tasks Covered:** 5.1 (Run focused and repository-wide correctness gates), 5.2 (Refresh consolidation benchmark and Linux race evidence), 5.3 (Record adjacent SDK-hardening ownership)
 - **Date:** 2026-08-31
 - **Host OS:** Microsoft Windows NT 10.0.19045.0 (Windows 10 Pro 64-bit amd64)
 - **Go Version:** `go version go1.26.6 windows/amd64`
 - **Worktree:** `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-feat-extension-plane-review-corrections`
 - **Rebase Base Commit:** `a7a00cedddc4e49d7f96502ee28a6ea1d9603315` (`origin/main`, PR #553)
-- **Validated Tree:** Base `2c9b4b086b3dc19890fc7d2d5e3c3f9782ae494d` plus Task 5.1 verification-only fixes, committed as `9e45eb7c` (`test(extension-plane-review-corrections): record correctness gates`).
-- **Scope Status:** Pre-merge corrective verification evidence. Does NOT claim merged-main certification (owned by Task 5.4) or #394 performance neutrality (owned by Tasks 5.2 and 5.3).
+- **Validated Tree:** Base `2c9b4b086b3dc19890fc7d2d5e3c3f9782ae494d` plus Tasks 5.1–5.3 verification and documentation commits, pre-merge commit `0614a009` (`0614a009fb39a7ec7d55e722840d360e2e4b73c1`).
+- **Scope Status:** Pre-merge corrective verification evidence. Does NOT claim merged-main certification (owned by Task 5.4) or #394 performance neutrality (owned by Issue #394 / project maintainers).
 
 ---
 
@@ -227,7 +227,7 @@ No production code files were modified. All working-tree changes are strictly te
 - **Go Version:** `go version go1.26.6 windows/amd64`
 - **GOMAXPROCS:** `12`
 - **Target Worktree:** `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-feat-extension-plane-review-corrections`
-- **Base Commit / HEAD:** `95c3ed6a`
+- **Execution Commit / HEAD:** `95c3ed6a` (`docs(extension-plane-review-corrections): complete correctness gates`). Results also apply to evidence commit `0614a009` because the intervening Task 5.2 commit changed only this Markdown evidence and `tasks.md`, not Go source.
 - **Benchmark Command:**
   ```powershell
   go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=1 ./internal/core/extensions/...
@@ -364,3 +364,36 @@ Targeted AST and code inspection confirms that the correction preserves the stan
   ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	249.079s
   ```
 - **Verdict:** **PASS** for the local exact scope: the race detector reported no data race and both package test suites completed successfully. This run does not independently prove absence of leaks or deadlocks, and it does not replace the remote current-commit CI identity required before Task 5.4 certification.
+
+---
+
+## 9. Task 5.3 Adjacent Scope & SDK-Hardening Ownership
+
+### 9.1 Dedicated SDK-Hardening Tracking (Issue #554)
+- **Issue Link:** [Issue #554: sdk(feature): Decide support contract for dynamically declared planes](https://github.com/matdev83/go-llm-interactive-proxy/issues/554)
+- **State:** OPEN
+- **Assignee / Ownership:** GitHub issue tracker / project maintainers (`matdev83` repository owner; unassigned in tracker, no individual assignee invented).
+- **Scope & Required Compatibility Decision:**
+  - Follow-up from #549 (`extension-plane-review-corrections`). The corrective feature intentionally **neither removes nor certifies** the dynamic map/reflection fallback for SDK planes that are not generated from the canonical manifest (`pkg/lipsdk/feature/plane_manifest.go`).
+  - Issue #554 owns the architectural and compatibility decision to select and implement one versionable contract:
+    1. Explicitly reject ungenerated SDK planes, or
+    2. Fully support them consistently across contribution freeze, request freeze, bundle validation, candidate replay, and ordinary replay.
+  - Acceptance boundaries require auditing `pkg/lipsdk/feature` dynamic storage and reflection fallbacks, preserving empty-vs-null and fail-before-mutate invariants, adding public contract and architecture test coverage, ensuring no silent drops, and assessing compatibility impact on undocumented SDK consumers before altering the exported surface.
+  - The corrective feature strictly preserves existing behavior and does not absorb this contract decision.
+
+### 9.2 Fixed-Cost Benchmark Evidence & Performance Seam Boundary (Issue #394)
+- **Comment Link:** [Issue #394 Comment: Fixed-Cost Seam Evidence (Comment 5480862601)](https://github.com/matdev83/go-llm-interactive-proxy/issues/394#issuecomment-5480862601)
+- **State:** OPEN / TRACKING
+- **Assignee / Ownership:** GitHub issue tracker / project maintainers (`matdev83` repository owner; unassigned in tracker).
+- **Communicated Evidence:**
+  - Refreshed fixed-cost seam benchmarks executed on `95c3ed6a` across all 31 cases in 5 request-path families. The results apply to evidence commit `0614a009fb39a7ec7d55e722840d360e2e4b73c1` because the intervening commit changed only this evidence and `tasks.md`, with no Go-source delta.
+  - Preserved 100% allocation parity (24/31 zero-allocation cases at `0 B/op`, `0 allocs/op`; 7/7 defensive-cloning cases at exact baseline allocations).
+- **Strict Boundary Separation:**
+  - This evidence demonstrates fixed-cost allocation and structural non-regression only.
+  - In strict compliance with Requirements 6.6 and 7.4, this feature makes **no performance-neutrality claim**, latency improvement claim, or load-capacity certification.
+  - All latency, load, optimization, and HOLD boundaries remain exclusively retained under Issue #394.
+  - A post-merge benchmark refresh on Linux CI is requested if needed under #394 workflows.
+
+### 9.3 Boundary Preservation & Forward Certification Separation
+- **No Scope Absorption:** Both adjacent scopes (#554 dynamic SDK plane contract and #394 performance/load governance) have explicit external tracking and maintainer ownership. Neither scope is absorbed or closed by this corrective specification.
+- **Forward Certification Ownership:** Pre-merge Task 5.3 is complete. Remote Linux CI run/job identities, merged-main rerun, and final certification remain owned exclusively by Task 5.4.

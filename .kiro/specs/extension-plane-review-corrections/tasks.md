@@ -146,7 +146,7 @@
   - _Boundary: Verification Harness_
   - _Validation: benchmark suite; go test -count=1 -race ./internal/core/extensions ./internal/infra/runtimebundle on Linux_
 
-- [ ] 5.3 Record adjacent SDK-hardening ownership
+- [x] 5.3 Record adjacent SDK-hardening ownership
   - Create and link separate work that decides whether ungenerated SDK planes are rejected or fully supported across freeze, request freeze, validation, candidate replay, and ordinary replay.
   - State that this corrective feature neither removes nor certifies the dynamic map/reflection fallback.
   - Link refreshed fixed-cost benchmark evidence to #394 while retaining its latency, load, optimization, and HOLD boundary.
