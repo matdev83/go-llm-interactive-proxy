@@ -349,7 +349,21 @@ function Apply-AnchorCompatibilityPatch {
         }
     }
 
-    Invoke-GitChecked @("-C", $AnchorRoot, "add", "-A")
+    # Stage only the files intentionally changed by this compatibility patch.
+    # The anchor is created with autocrlf disabled below; keeping this list
+    # explicit also prevents a future checkout conversion from entering the
+    # synthetic anchor commit.
+    $compatibilityPaths = @(
+        "internal/testkit/dbparity/cmd/main_test.go",
+        "internal/testkit/postgres_makefile_gate_test.go"
+    ) + $flakeFixes + $filesToNormalizeLF
+    $stagePaths = @($compatibilityPaths | Where-Object {
+        Test-Path -LiteralPath (Join-Path $AnchorRoot $_) -PathType Leaf
+    })
+    if ($stagePaths.Count -eq 0) {
+        throw "anchor compatibility patch did not identify any stageable paths"
+    }
+    Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $stagePaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
         "-c", "user.name=Go-LIP test-cost ratchet",
@@ -524,7 +538,12 @@ $comparisons = [System.Collections.Generic.List[object]]::new()
 try {
     # Create exactly one worktree: the detached anchor.  The current checkout
     # remains the head, so its caller-owned worktree is never removed.
-    Invoke-GitChecked @("-C", $RepositoryRoot, "worktree", "add", "--detach", $anchorRoot, $AnchorCommit)
+    Invoke-GitChecked @(
+        "-C", $RepositoryRoot,
+        "-c", "core.autocrlf=false",
+        "-c", "core.eol=lf",
+        "worktree", "add", "--detach", $anchorRoot, $AnchorCommit
+    )
     $anchorCreated = $true
     Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
 

@@ -262,6 +262,30 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 			t.Fatalf("test-cost-ratchet script missing contract %q", needle)
 		}
 	}
+	if !strings.Contains(script, `"-c", "core.autocrlf=false"`) {
+		t.Fatal("anchor worktree creation must disable autocrlf for the command")
+	}
+	if !strings.Contains(script, `"-c", "core.eol=lf"`) {
+		t.Fatal("anchor worktree creation must force LF checkout for the command")
+	}
+	if strings.Contains(script, `"add", "-A"`) || strings.Contains(script, `"add", "."`) {
+		t.Fatal("anchor compatibility commit must not stage unrelated checkout conversions")
+	}
+	for _, compatibilityPath := range []string{
+		"internal/testkit/dbparity/cmd/main_test.go",
+		"internal/testkit/postgres_makefile_gate_test.go",
+		"internal/stdhttp/security_guard.go",
+		"internal/infra/backendplugins/processhost/windows_production_test.go",
+		"internal/testkit/backendplugin/cmd/lip-backendplugin-fake/pipe_windows.go",
+		"scripts/taskrunner.ps1",
+		"internal/qa/windows_task_reliability_contract_test.go",
+		"tools/openresponses_compliance/src/lib/compliance-tests.ts",
+		"internal/archtest/extension_planes_baseline.json",
+	} {
+		if !strings.Contains(script, compatibilityPath) {
+			t.Fatalf("anchor compatibility paths must remain explicit: %q", compatibilityPath)
+		}
+	}
 
 	var policy struct {
 		SchemaVersion int                        `json:"schema_version"`
