@@ -609,6 +609,7 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
 		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
+		goleak.IgnoreAnyFunction("net/http.setRequestCancel"),
 	)
 
 	ps := newProcessForPinnedGeneration(t)

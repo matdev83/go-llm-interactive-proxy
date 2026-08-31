@@ -280,7 +280,7 @@ func TestMakefile_ExportGoTestFlagsPropagation(t *testing.T) {
 		}
 
 		// Valid GO_TEST_FLAGS with quoted no-op regex in sqlite mode (must execute actual sqlite mode and succeed with exit code 0)
-		cmdValid := exec.Command(binPath, "sqlite")
+		cmdValid := exec.Command(binPath, "sqlite", "-component", "ledgerstore")
 		cmdValid.Dir = root
 		cmdValid.Env = append(os.Environ(), `GO_TEST_FLAGS=-run "^$" -count=1`)
 		outValid, errValid := cmdValid.CombinedOutput()

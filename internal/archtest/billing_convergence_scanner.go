@@ -142,39 +142,6 @@ type billingFinalConvergenceDeclInfo struct {
 	references map[string]struct{}
 }
 
-func resolvePackageName(fs archtestFS, importPath string) string {
-	if !strings.HasPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/") {
-		parts := strings.Split(importPath, "/")
-		return parts[len(parts)-1]
-	}
-	relDir := strings.TrimPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/")
-	entries, err := fs.ReadDir(relDir)
-	if err != nil {
-		parts := strings.Split(importPath, "/")
-		return parts[len(parts)-1]
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		content, err := fs.ReadFile(relDir + "/" + entry.Name())
-		if err != nil {
-			continue
-		}
-		for line := range strings.SplitSeq(string(content), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "package ") {
-				parts := strings.Fields(line)
-				if len(parts) >= 2 {
-					return parts[1]
-				}
-			}
-		}
-	}
-	parts := strings.Split(importPath, "/")
-	return parts[len(parts)-1]
-}
-
 func billingFinalConvergenceFileDecls(fs archtestFS, fset *token.FileSet, f *ast.File, rel string) []billingFinalConvergenceDeclInfo {
 	var out []billingFinalConvergenceDeclInfo
 	pkgPath := filepath.ToSlash(filepath.Dir(rel))

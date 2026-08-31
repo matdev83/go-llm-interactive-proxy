@@ -122,8 +122,7 @@ func initTempRepo(t *testing.T) string {
 		t.Skip("git not on PATH")
 	}
 	dir := t.TempDir()
-	git(t, dir, "init", "-q")
-	git(t, dir, "config", "core.autocrlf", "false")
+	git(t, dir, "-c", "core.autocrlf=false", "init", "-q")
 	return dir
 }
 
