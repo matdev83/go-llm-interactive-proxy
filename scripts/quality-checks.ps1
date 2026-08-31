@@ -50,6 +50,12 @@ function Test-AgentSkillPath {
 function Get-QualityPackages {
     $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
     if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
+        $stagedGoFiles = @(git diff --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
+    }
+    if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
+        $stagedGoFiles = @(git ls-files --others --exclude-standard 2>$null | Where-Object { $_ -match '\.go$' })
+    }
+    if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
         return @("./...")
     }
 

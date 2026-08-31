@@ -253,3 +253,62 @@ func (g *gitCommitFS) ReadDir(rel string) ([]os.DirEntry, error) {
 
 	return out, nil
 }
+
+var (
+	resolvedPkgNamesMu sync.RWMutex
+	resolvedPkgNames   = make(map[string]string)
+)
+
+func resolvePackageName(fs archtestFS, importPath string) string {
+	if !strings.HasPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/") {
+		parts := strings.Split(importPath, "/")
+		return parts[len(parts)-1]
+	}
+	if _, isWorkingTree := fs.(*workingTreeFS); isWorkingTree {
+		resolvedPkgNamesMu.RLock()
+		if name, ok := resolvedPkgNames[importPath]; ok {
+			resolvedPkgNamesMu.RUnlock()
+			return name
+		}
+		resolvedPkgNamesMu.RUnlock()
+	}
+	relDir := strings.TrimPrefix(importPath, "github.com/matdev83/go-llm-interactive-proxy/")
+	entries, err := fs.ReadDir(relDir)
+	if err != nil {
+		parts := strings.Split(importPath, "/")
+		return parts[len(parts)-1]
+	}
+	var resolved string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		content, err := fs.ReadFile(relDir + "/" + entry.Name())
+		if err != nil {
+			continue
+		}
+		for line := range strings.SplitSeq(string(content), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "package ") {
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					resolved = parts[1]
+					break
+				}
+			}
+		}
+		if resolved != "" {
+			break
+		}
+	}
+	if resolved == "" {
+		parts := strings.Split(importPath, "/")
+		resolved = parts[len(parts)-1]
+	}
+	if _, isWorkingTree := fs.(*workingTreeFS); isWorkingTree {
+		resolvedPkgNamesMu.Lock()
+		resolvedPkgNames[importPath] = resolved
+		resolvedPkgNamesMu.Unlock()
+	}
+	return resolved
+}

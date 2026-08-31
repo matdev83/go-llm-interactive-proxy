@@ -57,7 +57,7 @@ func getLipstdBinary(tb testing.TB, root string) string {
 			name += ".exe"
 		}
 		dst := filepath.Join(dir, name)
-		cmd := exec.Command("go", "build", "-o", dst, "./cmd/lipstd")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", dst, "./cmd/lipstd")
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
 			lipstdBinErr = fmt.Errorf("build lipstd: %w\n%s", err, out)

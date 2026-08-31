@@ -261,8 +261,8 @@ func TestRunCLI_ComponentAndOnly_OrderPrecedence(t *testing.T) {
 
 	t.Run("-component then -only: only wins", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		// -component billing followed by -only nonexistent should fail on nonexistent because -only wins
-		code := runCLI(context.Background(), []string{"sqlite", "-component", "billing", "-only", "nonexistent"}, &stdout, &stderr)
+		// -component ledgerstore followed by -only nonexistent should fail on nonexistent because -only wins
+		code := runCLI(context.Background(), []string{"sqlite", "-component", "ledgerstore", "-only", "nonexistent"}, &stdout, &stderr)
 		if code == 0 {
 			t.Fatalf("expected error for nonexistent component")
 		}
@@ -273,19 +273,19 @@ func TestRunCLI_ComponentAndOnly_OrderPrecedence(t *testing.T) {
 
 	t.Run("-only then -component: component wins", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		// -only nonexistent followed by -component billing should resolve to billing (-only is overwritten)
-		code := runCLI(context.Background(), []string{"sqlite", "-only", "nonexistent", "-component", "billing"}, &stdout, &stderr)
+		// -only nonexistent followed by -component ledgerstore should resolve to ledgerstore (-only is overwritten)
+		code := runCLI(context.Background(), []string{"sqlite", "-flags", `-run "^$"`, "-only", "nonexistent", "-component", "ledgerstore"}, &stdout, &stderr)
 		if strings.Contains(stderr.String(), `unknown component "nonexistent"`) {
-			t.Errorf("expected component billing to overwrite only nonexistent, but got error: %s", stderr.String())
+			t.Errorf("expected component ledgerstore to overwrite only nonexistent, but got error: %s", stderr.String())
 		}
 		if code != 0 {
-			t.Errorf("expected exit code 0 for billing sqlite parity run, got %d (stderr: %s)", code, stderr.String())
+			t.Errorf("expected exit code 0 for ledgerstore sqlite parity run, got %d (stderr: %s)", code, stderr.String())
 		}
 	})
 
 	t.Run("--component=... then --only=... equals form: only wins", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		code := runCLI(context.Background(), []string{"sqlite", "--component=billing", "--only=nonexistent"}, &stdout, &stderr)
+		code := runCLI(context.Background(), []string{"sqlite", "--component=ledgerstore", "--only=nonexistent"}, &stdout, &stderr)
 		if code == 0 {
 			t.Fatalf("expected error for nonexistent component")
 		}
@@ -296,12 +296,12 @@ func TestRunCLI_ComponentAndOnly_OrderPrecedence(t *testing.T) {
 
 	t.Run("--only=... then --component=... equals form: component wins", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		code := runCLI(context.Background(), []string{"sqlite", "--only=nonexistent", "--component=billing"}, &stdout, &stderr)
+		code := runCLI(context.Background(), []string{"sqlite", "-flags", `-run "^$"`, "--only=nonexistent", "--component=ledgerstore"}, &stdout, &stderr)
 		if strings.Contains(stderr.String(), `unknown component "nonexistent"`) {
-			t.Errorf("expected component billing to overwrite only nonexistent, but got error: %s", stderr.String())
+			t.Errorf("expected component ledgerstore to overwrite only nonexistent, but got error: %s", stderr.String())
 		}
 		if code != 0 {
-			t.Errorf("expected exit code 0 for billing sqlite parity run, got %d (stderr: %s)", code, stderr.String())
+			t.Errorf("expected exit code 0 for ledgerstore sqlite parity run, got %d (stderr: %s)", code, stderr.String())
 		}
 	})
 }

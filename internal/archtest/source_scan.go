@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // ProductionScanRoots are the top-level trees walked for production guardrails.
@@ -46,39 +47,76 @@ func PackageDirFromRel(rel string) string {
 	return dir
 }
 
+type productionFileEntry struct {
+	rel string
+	abs string
+	src []byte
+}
+
+var (
+	productionFilesCacheMu sync.Mutex
+	productionFilesCache   = make(map[string][]productionFileEntry)
+)
+
 // WalkProductionGoFiles walks non-test .go files under ProductionScanRoots.
-// Callback receives repo-relative slash path, absolute path, and file bytes.
+// For performance during multi-suite test runs, files for each root are loaded
+// into an in-memory snapshot on first access. The callback receives repo-relative
+// slash path, absolute path, and an isolated copy of file bytes.
 func WalkProductionGoFiles(root string, fn func(rel, abs string, src []byte) error) error {
-	for _, top := range ProductionScanRoots() {
-		base := filepath.Join(root, top)
-		if _, err := os.Stat(base); err != nil {
-			continue
-		}
-		err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
+	productionFilesCacheMu.Lock()
+	entries, ok := productionFilesCache[root]
+	if !ok {
+		productionFilesCacheMu.Unlock()
+		var loaded []productionFileEntry
+		for _, top := range ProductionScanRoots() {
+			base := filepath.Join(root, top)
+			if _, err := os.Stat(base); err != nil {
+				continue
 			}
-			if info.IsDir() {
-				name := info.Name()
-				if name == "vendor" || name == "testdata" || name == "node_modules" {
-					return filepath.SkipDir
+			err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
 				}
+				if info.IsDir() {
+					name := info.Name()
+					if name == "vendor" || name == "testdata" || name == "node_modules" {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+					return nil
+				}
+				rel, err := filepath.Rel(root, path)
+				if err != nil {
+					return err
+				}
+				src, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				loaded = append(loaded, productionFileEntry{
+					rel: SlashPath(rel),
+					abs: path,
+					src: src,
+				})
 				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
+			})
 			if err != nil {
 				return err
 			}
-			src, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			return fn(SlashPath(rel), path, src)
-		})
-		if err != nil {
+		}
+		productionFilesCacheMu.Lock()
+		productionFilesCache[root] = loaded
+		entries = loaded
+		productionFilesCacheMu.Unlock()
+	} else {
+		productionFilesCacheMu.Unlock()
+	}
+
+	for _, entry := range entries {
+		srcCopy := append([]byte(nil), entry.src...)
+		if err := fn(entry.rel, entry.abs, srcCopy); err != nil {
 			return err
 		}
 	}

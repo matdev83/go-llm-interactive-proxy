@@ -20,16 +20,18 @@ type goListCacheEntry struct {
 type packageJSONBlock struct {
 	importPath string
 	relDir     string
+	deps       []string
 	raw        []byte
 }
 
 var (
-	goListCacheMu  sync.Mutex
-	goListCache    = make(map[string]*goListCacheEntry)
-	moduleListOnce sync.Once
-	modulePackages []packageJSONBlock
-	moduleListErr  error
-	moduleRootPath string
+	goListCacheMu   sync.Mutex
+	goListCache     = make(map[string]*goListCacheEntry)
+	moduleListOnce  sync.Once
+	modulePackages  []packageJSONBlock
+	modulePkgByPath map[string]packageJSONBlock
+	moduleListErr   error
+	moduleRootPath  string
 )
 
 // goListCacheKey canonicalizes equivalent `go list` argument lists into a
@@ -45,17 +47,18 @@ func goListCacheKey(args []string) string {
 	return strings.Join(append(flags, args[firstPositional:]...), "\x00")
 }
 
-func loadModulePackages(t *testing.T) ([]packageJSONBlock, error) {
+func loadModulePackages(t *testing.T) ([]packageJSONBlock, map[string]packageJSONBlock, error) {
 	t.Helper()
 	moduleListOnce.Do(func() {
 		moduleRootPath = repoRoot(t)
-		cmd := exec.CommandContext(t.Context(), "go", "list", "-json", "-test=false", "./...")
+		cmd := exec.CommandContext(t.Context(), "go", "list", "-json", "-deps", "-test=false", "./...")
 		cmd.Dir = moduleRootPath
 		out, err := cmd.Output()
 		if err != nil {
 			moduleListErr = err
 			return
 		}
+		modulePkgByPath = make(map[string]packageJSONBlock)
 		dec := json.NewDecoder(bytes.NewReader(out))
 		for dec.More() {
 			var raw json.RawMessage
@@ -64,8 +67,9 @@ func loadModulePackages(t *testing.T) ([]packageJSONBlock, error) {
 				return
 			}
 			var meta struct {
-				ImportPath string `json:"ImportPath"`
-				Dir        string `json:"Dir"`
+				ImportPath string   `json:"ImportPath"`
+				Dir        string   `json:"Dir"`
+				Deps       []string `json:"Deps"`
 			}
 			if err := json.Unmarshal(raw, &meta); err != nil {
 				moduleListErr = err
@@ -76,14 +80,17 @@ func loadModulePackages(t *testing.T) ([]packageJSONBlock, error) {
 				rel = meta.Dir
 			}
 			rel = filepath.ToSlash(rel)
-			modulePackages = append(modulePackages, packageJSONBlock{
+			block := packageJSONBlock{
 				importPath: meta.ImportPath,
 				relDir:     rel,
+				deps:       meta.Deps,
 				raw:        raw,
-			})
+			}
+			modulePackages = append(modulePackages, block)
+			modulePkgByPath[meta.ImportPath] = block
 		}
 	})
-	return modulePackages, moduleListErr
+	return modulePackages, modulePkgByPath, moduleListErr
 }
 
 func matchesPattern(pkg packageJSONBlock, pattern string) bool {
@@ -123,12 +130,12 @@ func trySliceFromModuleCache(t *testing.T, args []string) ([]byte, bool, error) 
 		if f == "-json" {
 			hasJSON = true
 		}
-		if f != "-json" && f != "-test=false" && f != "-e" {
+		if f != "-json" && f != "-test=false" && f != "-e" && f != "-deps" {
 			return nil, false, nil
 		}
 		firstPositional++
 	}
-	if hasDeps || !hasJSON {
+	if !hasJSON {
 		return nil, false, nil
 	}
 
@@ -143,7 +150,7 @@ func trySliceFromModuleCache(t *testing.T, args []string) ([]byte, bool, error) 
 		}
 	}
 
-	pkgs, err := loadModulePackages(t)
+	pkgs, pkgByPath, err := loadModulePackages(t)
 	if err != nil {
 		return nil, false, err
 	}
@@ -157,6 +164,24 @@ func trySliceFromModuleCache(t *testing.T, args []string) ([]byte, bool, error) 
 					seen[pkg.importPath] = true
 					buf.Write(pkg.raw)
 					buf.WriteByte('\n')
+				}
+				if hasDeps {
+					for _, d := range pkg.deps {
+						if !seen[d] {
+							seen[d] = true
+							if depBlock, ok := pkgByPath[d]; ok {
+								buf.Write(depBlock.raw)
+								buf.WriteByte('\n')
+							} else {
+								synthetic, _ := json.Marshal(map[string]any{
+									"ImportPath": d,
+									"Standard":   !strings.Contains(d, "."),
+								})
+								buf.Write(synthetic)
+								buf.WriteByte('\n')
+							}
+						}
+					}
 				}
 			}
 		}
@@ -183,6 +208,30 @@ func TestGoListCacheKeyCanonicalizesLeadingFlagsOnly(t *testing.T) {
 	flagAfterQuery := goListCacheKey([]string{"-json", "./internal/core/...", "-test=false"})
 	if flagBeforeQuery == flagAfterQuery {
 		t.Fatalf("argument after a positional query was incorrectly canonicalized: %q", flagBeforeQuery)
+	}
+}
+
+func TestCachedGoListSlicesModuleScan(t *testing.T) {
+	t.Parallel()
+
+	out, err := cachedGoList(t, "-json", "-test=false", "./pkg/lipsdk/auth")
+	if err != nil {
+		t.Fatalf("cachedGoList error: %v", err)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(out))
+	var pkgs []string
+	for dec.More() {
+		var pkg struct {
+			ImportPath string `json:"ImportPath"`
+		}
+		if err := dec.Decode(&pkg); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		pkgs = append(pkgs, pkg.ImportPath)
+	}
+	if len(pkgs) != 1 || !strings.Contains(pkgs[0], "pkg/lipsdk/auth") {
+		t.Fatalf("expected single auth package, got: %v", pkgs)
 	}
 }
 
@@ -219,4 +268,80 @@ func cachedGoList(t *testing.T, args ...string) ([]byte, error) {
 	cmd.Dir = repoRoot(t)
 	entry.out, entry.err = cmd.Output()
 	return entry.out, entry.err
+}
+
+func TestCachedGoListWithDepsReturnsDependencies(t *testing.T) {
+	t.Parallel()
+
+	out, err := cachedGoList(t, "-deps", "-test=false", "-json", "./pkg/lipsdk/auth")
+	if err != nil {
+		t.Fatalf("cachedGoList error: %v", err)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(out))
+	foundAuth := false
+	foundContext := false
+	for dec.More() {
+		var pkg struct {
+			ImportPath string `json:"ImportPath"`
+			DepOnly    bool   `json:"DepOnly"`
+		}
+		if err := dec.Decode(&pkg); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if strings.Contains(pkg.ImportPath, "pkg/lipsdk/auth") {
+			foundAuth = true
+			if pkg.DepOnly {
+				t.Errorf("primary target %s must have DepOnly=false", pkg.ImportPath)
+			}
+		}
+		if pkg.ImportPath == "context" {
+			foundContext = true
+			if !pkg.DepOnly {
+				t.Errorf("dependency context must have DepOnly=true")
+			}
+		}
+	}
+	if !foundAuth {
+		t.Fatalf("expected pkg/lipsdk/auth in output")
+	}
+	if !foundContext {
+		t.Fatalf("expected context dependency in output")
+	}
+}
+
+func TestWalkProductionGoFiles_MutationIsolated(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	var firstBytes []byte
+	var targetRel string
+	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+		if targetRel == "" && len(src) > 5 {
+			targetRel = rel
+			firstBytes = append([]byte(nil), src...)
+			// Mutate callback slice in place
+			src[0] = 0xFF
+			src[1] = 0xFE
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("first walk: %v", err)
+	}
+
+	var secondBytes []byte
+	err = WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+		if rel == targetRel {
+			secondBytes = append([]byte(nil), src...)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("second walk: %v", err)
+	}
+
+	if !bytes.Equal(firstBytes, secondBytes) {
+		t.Fatalf("WalkProductionGoFiles cache was mutated across runs for %s", targetRel)
+	}
 }
