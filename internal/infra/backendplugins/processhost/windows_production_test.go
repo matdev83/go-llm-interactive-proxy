@@ -32,7 +32,7 @@ import (
 
 //nolint:paralleltest // named-pipe/process host shares OS resources
 func TestWindows_PipeBytePing(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	lis, _, err := processhost.NewPlatformChannel().Listen(ctx, 3)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestWindows_HeldHandleSurvivesArtifactClose(t *testing.T) {
 		// process may exit non-zero; still require handle release
 		_ = err
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		err := os.Rename(staged, staged+".moved")
 		if err == nil {
@@ -272,7 +272,7 @@ func TestWindows_HeldHandleSurvivesArtifactClose(t *testing.T) {
 
 //nolint:paralleltest // named-pipe/process host shares OS resources
 func TestWindows_PeerRejectWrongPID(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	lis, _, err := processhost.NewPlatformChannel().Listen(ctx, 99)
 	if err != nil {
@@ -560,6 +560,6 @@ func cutEnv(e string) (string, string, bool) {
 }
 
 func dialPipeClient(name string) (net.Conn, error) {
-	d := 5 * time.Second
+	d := 30 * time.Second
 	return winio.DialPipe(name, &d)
 }

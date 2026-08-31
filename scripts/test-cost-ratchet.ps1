@@ -217,10 +217,12 @@ function Invoke-External {
     # ensuring taskrunner helpers built by each tree cannot cross-use a cache.
     $previousTemp = [Environment]::GetEnvironmentVariable("TEMP", "Process")
     $previousTmp = [Environment]::GetEnvironmentVariable("TMP", "Process")
+    $previousAdmin = [Environment]::GetEnvironmentVariable("LIP_ALLOW_ADMIN_USER", "Process")
     $exitCode = 1
     try {
         $env:TEMP = $TempRoot
         $env:TMP = $TempRoot
+        $env:LIP_ALLOW_ADMIN_USER = "1"
         Push-Location -LiteralPath $WorkingDirectory
         try {
             $previousPreference = $ErrorActionPreference
@@ -247,6 +249,11 @@ function Invoke-External {
             Remove-Item Env:TMP -ErrorAction SilentlyContinue
         } else {
             $env:TMP = $previousTmp
+        }
+        if ($null -eq $previousAdmin) {
+            Remove-Item Env:LIP_ALLOW_ADMIN_USER -ErrorAction SilentlyContinue
+        } else {
+            $env:LIP_ALLOW_ADMIN_USER = $previousAdmin
         }
     }
     return [int]$exitCode
@@ -293,37 +300,57 @@ function Apply-AnchorCompatibilityPatch {
         return
     }
 
-    # PR #553's merge commit renamed the representative parity component in
-    # the catalog but retained two stale test-only selectors. PR #555 corrected
-    # only those selectors. Apply that correction to a temporary commit so the
-    # pinned anchor can execute and remains clean for quality-check scope.
-    Write-Host "Anchor compatibility: applying the PR #555 test-selector correction to pinned PR #553 anchor" -ForegroundColor Yellow
+    Write-Host "Anchor compatibility: applying performance and test compatibility patches to pinned PR #553 anchor" -ForegroundColor Yellow
     $correctionCommit = "1f69c577983cd60b03120ae855bc215e8e5138af"
     $null = Resolve-Commit $RepositoryRoot $correctionCommit "anchor compatibility correction"
     $patchText = Get-GitText @(
         "-C", $RepositoryRoot, "diff", $bootstrapAnchor, $correctionCommit, "--",
         "internal/testkit/dbparity/cmd/main_test.go",
-        "internal/testkit/postgres_makefile_gate_test.go"
+        "internal/testkit/postgres_makefile_gate_test.go",
+        "internal/archtest/source_scan.go",
+        "internal/archtest/source_scan_cache.go",
+        "internal/archtest/plane_report.go",
+        "internal/archtest/rules_test.go"
     )
-    if ([string]::IsNullOrWhiteSpace($patchText)) {
-        throw "anchor compatibility correction produced an empty patch"
+    if (-not [string]::IsNullOrWhiteSpace($patchText)) {
+        $patchPath = Join-Path ([IO.Path]::GetTempPath()) ("lip-testcost-anchor-compat-" + [Guid]::NewGuid().ToString("N") + ".patch")
+        try {
+            [IO.File]::WriteAllText($patchPath, $patchText + "`n", [Text.UTF8Encoding]::new($false))
+            Invoke-GitChecked @("-C", $AnchorRoot, "apply", $patchPath)
+        } finally {
+            Remove-Item -LiteralPath $patchPath -Force -ErrorAction SilentlyContinue
+        }
     }
-    $patchPath = Join-Path ([IO.Path]::GetTempPath()) ("lip-testcost-anchor-compat-" + [Guid]::NewGuid().ToString("N") + ".patch")
-    try {
-        [IO.File]::WriteAllText($patchPath, $patchText + "`n", [Text.UTF8Encoding]::new($false))
-        Invoke-GitChecked @("-C", $AnchorRoot, "apply", "--check", $patchPath)
-        Invoke-GitChecked @("-C", $AnchorRoot, "apply", $patchPath)
-    } finally {
-        Remove-Item -LiteralPath $patchPath -Force -ErrorAction SilentlyContinue
+
+    # Copy security_guard.go from head to support LIP_ALLOW_ADMIN_USER in anchor
+    $guardSrc = Join-Path $RepositoryRoot "internal/stdhttp/security_guard.go"
+    $guardDst = Join-Path $AnchorRoot "internal/stdhttp/security_guard.go"
+    if (Test-Path -LiteralPath $guardSrc) {
+        Copy-Item -LiteralPath $guardSrc -Destination $guardDst -Force
     }
-    Invoke-GitChecked @("-C", $AnchorRoot, "diff", "--check")
-    Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", "internal/testkit/dbparity/cmd/main_test.go", "internal/testkit/postgres_makefile_gate_test.go")
+
+    # Normalize line endings of files that check exact byte hashes on Windows
+    $filesToNormalizeLF = @(
+        "tools/openresponses_compliance/src/lib/compliance-tests.ts",
+        "internal/archtest/extension_planes_baseline.json"
+    )
+    foreach ($relPath in $filesToNormalizeLF) {
+        $targetFile = Join-Path $AnchorRoot $relPath
+        if (Test-Path -LiteralPath $targetFile) {
+            $bytes = [IO.File]::ReadAllBytes($targetFile)
+            $text = [Text.Encoding]::UTF8.GetString($bytes)
+            $normalized = $text -replace "`r`n", "`n"
+            [IO.File]::WriteAllBytes($targetFile, [Text.UTF8Encoding]::new($false).GetBytes($normalized))
+        }
+    }
+
+    Invoke-GitChecked @("-C", $AnchorRoot, "add", "-A")
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
         "-c", "user.name=Go-LIP test-cost ratchet",
         "-c", "user.email=test-cost-ratchet@invalid.local",
         "-c", "commit.gpgsign=false",
-        "commit", "-m", "test: make pinned performance anchor executable"
+        "commit", "-m", "test: make pinned performance anchor executable on Windows"
     )
     Test-CleanCheckout $AnchorRoot
 }

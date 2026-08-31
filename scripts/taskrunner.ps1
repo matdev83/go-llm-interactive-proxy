@@ -25,16 +25,26 @@ function Get-TaskRunnerBinary {
     }
 
     if ($needsBuild) {
+        $tmpPath = Join-Path $cacheDir ("lip-taskrunner-" + $PID + "-" + [Guid]::NewGuid().ToString("N") + ".exe")
         Push-Location $TaskRunnerRoot
         try {
             # The helper is a local diagnostic executable; do not require repository
             # VCS metadata merely to compile the process-tree boundary.
-            & go build -buildvcs=false -o $path ./tools/taskrunner/cmd/lip-taskrunner
+            & go build -buildvcs=false -o $tmpPath ./tools/taskrunner/cmd/lip-taskrunner
             if ($LASTEXITCODE -ne 0) {
                 throw "failed to build temporary lip-taskrunner (exit $LASTEXITCODE)"
             }
         } finally {
             Pop-Location
+        }
+        try {
+            Move-Item -LiteralPath $tmpPath -Destination $path -Force -ErrorAction Stop
+        } catch {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $tmpPath -Force -ErrorAction SilentlyContinue
+            } else {
+                $path = $tmpPath
+            }
         }
     }
     $script:TaskRunnerBinary = $path
