@@ -3,11 +3,10 @@ package archtest
 // KnownPlaneFields maps struct field and identifier names to plane metadata.
 var KnownPlaneFields = map[string]PlaneFieldMetadata{
 	// Wave 1: Hooks
-	"SubmitHooks":            {PlaneID: "submit_hooks", Wave: Wave1_HookBus},
-	"RequestPartHooks":       {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
-	"ResponsePartHooks":      {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
-	"ToolReactors":           {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
-	"ToolReactorErrorPolicy": {PlaneID: "tool_reactor_error_policy", Wave: Wave1_HookBus},
+	"SubmitHooks":       {PlaneID: "submit_hooks", Wave: Wave1_HookBus},
+	"RequestPartHooks":  {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
+	"ResponsePartHooks": {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
+	"ToolReactors":      {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
 
 	// Wave 2: Observers
 	"TrafficObservers":        {PlaneID: "traffic_observers", Wave: Wave2_Observers},
@@ -49,7 +48,6 @@ var KnownPlaneIDs = map[string]PlaneFieldMetadata{
 	"request_part_hooks":                    {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
 	"response_part_hooks":                   {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
 	"tool_reactors":                         {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
-	"tool_reactor_error_policy":             {PlaneID: "tool_reactor_error_policy", Wave: Wave1_HookBus},
 	"traffic_observers":                     {PlaneID: "traffic_observers", Wave: Wave2_Observers},
 	"usage_observers":                       {PlaneID: "usage_observers", Wave: Wave2_Observers},
 	"raw_capture_sinks":                     {PlaneID: "raw_capture_sinks", Wave: Wave2_Observers},
@@ -157,13 +155,6 @@ var (
 		"internal/core/extensions.CompletionGatesFromContext":                                 true,
 	}
 
-	// AllowedHookProjections is the qualified-symbol allowlist of hook-bus projection functions.
-	// Any other function whose body reads hook-family fields on MergedFeatureSurface past Wave 1 is forbidden.
-	AllowedHookProjections = map[string]bool{
-		"internal/infra/runtimebundle.HooksConfigFromGenerated": true,
-		"internal/infra/runtimebundle.HooksConfigFromFrozen":    true,
-	}
-
 	// AllowedObserverProjections is the qualified-symbol allowlist of observer and tool projection functions.
 	// Any other function whose body reads observer/tool planes via Get past Wave 2/4 is forbidden.
 	AllowedObserverProjections = map[string]bool{
@@ -174,11 +165,6 @@ var (
 		"internal/infra/runtimebundle.bindReasoningPreservationCompression": true,
 	}
 )
-
-// IsAllowedHookProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for hook projection.
-func IsAllowedHookProjection(qualifiedSymbol string) bool {
-	return AllowedHookProjections[qualifiedSymbol]
-}
 
 // IsAllowedObserverProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for observer projection.
 func IsAllowedObserverProjection(qualifiedSymbol string) bool {

@@ -100,9 +100,9 @@ func buildRuntimeSnapshot(f lipfeature.FrozenPlaneSet) []traffic.Observer {
 	}
 }
 
-// TestForbiddenMirrorPredicate_ForeignHookProjectionSpoofRejected verifies that a same-name
+// TestForbiddenMirrorPredicate_ForeignHookProjectionRejected verifies that a
 // foreign function attempting to project hooks via Get is strictly rejected under Wave 1.
-func TestForbiddenMirrorPredicate_ForeignHookProjectionSpoofRejected(t *testing.T) {
+func TestForbiddenMirrorPredicate_ForeignHookProjectionRejected(t *testing.T) {
 	t.Parallel()
 
 	foreignHookSrc := `package foreign
@@ -112,7 +112,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
-func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
+func ForeignHookProjection(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorErrorPolicy) hooks.Config {
 	return hooks.Config{
 		SubmitHooks: lipfeature.Get(f, lipfeature.PlaneSubmitHooks),
 	}
@@ -120,7 +120,7 @@ func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorEr
 `
 	foreignFindings := scanSyntheticSource(t, "internal/foreign/fake_hooks.go", foreignHookSrc, Wave1_HookBus)
 	if len(foreignFindings) == 0 {
-		t.Fatalf("expected forbidden finding for foreign same-name spoof HooksConfigFromFrozen at Wave1")
+		t.Fatalf("expected forbidden finding for foreign hook projection at Wave1")
 	}
 }
 

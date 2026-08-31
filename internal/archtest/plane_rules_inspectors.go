@@ -36,6 +36,9 @@ func inspectProjectionBody(fd *ast.FuncDecl, fset *token.FileSet, maxCompletedWa
 		switch node := n.(type) {
 		case *ast.KeyValueExpr:
 			if k, ok := node.Key.(*ast.Ident); ok {
+				if k.Name == "ToolReactorErrorPolicy" {
+					return true
+				}
 				if meta, exists := KnownPlaneFields[k.Name]; exists && meta.Wave <= maxCompletedWave {
 					pos := fset.Position(k.Pos())
 					record(MirrorProjectionBranch, k.Name, meta.PlaneID,
@@ -45,6 +48,9 @@ func inspectProjectionBody(fd *ast.FuncDecl, fset *token.FileSet, maxCompletedWa
 			}
 		case *ast.SelectorExpr:
 			name := node.Sel.Name
+			if name == "ToolReactorErrorPolicy" {
+				return true
+			}
 			if meta, exists := KnownPlaneFields[name]; exists && meta.Wave <= maxCompletedWave {
 				pos := fset.Position(node.Pos())
 				record(MirrorProjectionBranch, name, meta.PlaneID,

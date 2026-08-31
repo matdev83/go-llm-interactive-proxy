@@ -263,8 +263,6 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 				inspectDiagnosticsBody(f, node, fset, maxCompletedWave, addFinding)
 			} else if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
-			} else if IsAllowedHookProjection(qualSym) {
-				// Exact qualified symbol allowlist: Hook-bus view projection via Get is allowed
 			} else if IsAllowedObserverProjection(qualSym) {
 				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
 			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||

@@ -316,11 +316,11 @@ type FeatureBundle struct {
 	}
 }
 
-// TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing verifies that exact
-// hook projections (HooksConfigFromGenerated, HooksConfigFromFrozen) are allowed, while
-// adversarial variants (HooksConfigFromMerged, HooksConfigFromMerged2, HooksConfigfromX)
-// reading SubmitHooks from MergedFeatureSurface are strictly rejected under Wave1.
-func TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing(t *testing.T) {
+// TestForbiddenMirrorPredicate_HookProjectionsHandwrittenAndSpoofingRejected verifies that
+// adversarial and handwritten hook projections (including former allowlist symbols
+// HooksConfigFromGenerated and HooksConfigFromFrozen) reading hook planes via struct
+// fields or Get are strictly rejected under Wave1.
+func TestForbiddenMirrorPredicate_HookProjectionsHandwrittenAndSpoofingRejected(t *testing.T) {
 	t.Parallel()
 
 	// 1. Adversarial HooksConfigFromMerged reading MergedFeatureSurface.SubmitHooks is REJECTED
@@ -378,8 +378,8 @@ func ` + tc.funcName + `(m featurebundle.MergedFeatureSurface) hooks.Config {
 		})
 	}
 
-	// 3. Legitimate exact allowlist functions (HooksConfigFromGenerated, HooksConfigFromFrozen) are ALLOWED
-	allowedHookSrc := `package runtimebundle
+	// 3. Former allowlist functions (HooksConfigFromGenerated, HooksConfigFromFrozen) with handwritten Get are REJECTED
+	formerAllowedHookSrc := `package runtimebundle
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
@@ -397,9 +397,12 @@ func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorEr
 	}
 }
 `
-	allowedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", allowedHookSrc, Wave1_HookBus)
-	if len(allowedFindings) != 0 {
-		t.Fatalf("expected 0 findings for allowed exact hook projection functions, got: %+v", allowedFindings)
+	rejectedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", formerAllowedHookSrc, Wave1_HookBus)
+	if len(rejectedFindings) == 0 {
+		t.Fatalf("expected forbidden finding for handwritten HooksConfigFromFrozen at Wave1 when no allowlist exists")
+	}
+	if rejectedFindings[0].ShapeKind != MirrorProjectionBranch || rejectedFindings[0].PlaneID != "submit_hooks" {
+		t.Fatalf("unexpected finding for former allowed hook projection: %+v", rejectedFindings[0])
 	}
 }
 

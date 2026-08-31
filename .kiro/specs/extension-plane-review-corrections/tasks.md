@@ -55,7 +55,7 @@
   - _Boundary: Bundle Validation Choke Point_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 3. Generate and consume the hook view
+- [x] 3. Generate and consume the hook view
 - [x] 3.1 Add canonical hook-view declaration metadata
   - Extend plane declarations with optional typed metadata that names their generated hook configuration target.
   - Annotate only the four canonical hook planes; keep host error policy outside extension-plane declarations.
@@ -84,7 +84,7 @@
   - _Boundary: Hook Bus Config, Runtime composition integration_
   - _Validation: go test -count=1 ./internal/core/hooks ./internal/infra/runtimebundle_
 
-- [ ] 3.4 Remove the hook projection exemption and tighten W5c
+- [x] 3.4 Remove the hook projection exemption and tighten W5c
   - Delete the exact-symbol hook allowlist and route all handwritten production hook projections through normal mirror inspection.
   - Keep generated files exempt only through the existing generated-file contract.
   - Update architecture catalog descriptions and deterministic baseline facts after the stricter scan passes.
