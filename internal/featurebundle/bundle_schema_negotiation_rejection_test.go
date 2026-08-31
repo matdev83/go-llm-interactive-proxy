@@ -1,5 +1,3 @@
-//go:build red
-
 package featurebundle
 
 import (
@@ -15,12 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
-// TestFeatureBundle_SchemaNegotiation_NonEmptySchema0Rejected_RED characterizes Requirement 2.4 (Task 1.2):
+// TestFeatureBundle_SchemaNegotiation_NonEmptySchema0Rejected characterizes Requirement 2.4 (Task 1.2, Task 2.2):
 // If a non-empty feature-plane bundle declares the compatibility zero version (SchemaVersion 0),
 // the feature composition system shall reject it before publishing any contribution.
-// On the review baseline before Task 2.2, ContributeBundle ignores bundle schema validation and
-// replays the PlaneSet, incorrectly accepting the malformed bundle.
-func TestFeatureBundle_SchemaNegotiation_NonEmptySchema0Rejected_RED(t *testing.T) {
+func TestFeatureBundle_SchemaNegotiation_NonEmptySchema0Rejected(t *testing.T) {
 	t.Parallel()
 
 	emptyFrozen := lipfeature.NewContributionSet().Freeze()
@@ -74,11 +70,10 @@ func TestFeatureBundle_SchemaNegotiation_NonEmptySchema0Rejected_RED(t *testing.
 	})
 }
 
-// TestFeatureBundle_SchemaNegotiation_UnsupportedSchemaRejected_RED characterizes Requirement 2.6 (Task 1.2):
+// TestFeatureBundle_SchemaNegotiation_UnsupportedSchemaRejected characterizes Requirement 2.6 (Task 1.2, Task 2.2):
 // If any bundle declares an unsupported schema version (e.g. 2 or negative), the feature composition
 // system shall reject it before publishing planes or lifecycles.
-// On the review baseline before Task 2.2, ContributeBundle does not validate bundle schema version.
-func TestFeatureBundle_SchemaNegotiation_UnsupportedSchemaRejected_RED(t *testing.T) {
+func TestFeatureBundle_SchemaNegotiation_UnsupportedSchemaRejected(t *testing.T) {
 	t.Parallel()
 
 	emptyFrozen := lipfeature.NewContributionSet().Freeze()
@@ -188,12 +183,10 @@ func TestFeatureBundle_SchemaNegotiation_UnsupportedSchemaRejected_RED(t *testin
 	})
 }
 
-// TestFeatureBundle_SchemaNegotiation_LifecycleOnlySchema0AndUnsupportedRejected_RED characterizes Requirement 2.5, 2.6 (Task 1.2):
+// TestFeatureBundle_SchemaNegotiation_LifecycleOnlySchema0AndUnsupportedRejected characterizes Requirement 2.5, 2.6 (Task 1.2, Task 2.2):
 // If a lifecycle-only bundle declares the compatibility zero version or an unsupported version,
 // the feature composition system shall reject it before publishing any lifecycle.
-// On the review baseline before Task 2.2, lifecycle-only bundles bypass ContributeBundle validation
-// and their lifecycles are published into the candidate merge surface.
-func TestFeatureBundle_SchemaNegotiation_LifecycleOnlySchema0AndUnsupportedRejected_RED(t *testing.T) {
+func TestFeatureBundle_SchemaNegotiation_LifecycleOnlySchema0AndUnsupportedRejected(t *testing.T) {
 	t.Parallel()
 
 	emptyFrozen := lipfeature.NewContributionSet().Freeze()
@@ -277,11 +270,10 @@ func TestFeatureBundle_SchemaNegotiation_LifecycleOnlySchema0AndUnsupportedRejec
 	})
 }
 
-// TestFeatureBundle_ContributeBundle_FailBeforeMutate_AttributedError_RED characterizes Requirement 2.8 (Task 1.2):
+// TestFeatureBundle_ContributeBundle_FailBeforeMutate_AttributedError characterizes Requirement 2.8 (Task 1.2, Task 2.2):
 // Direct ContributeBundle failure leaves a pre-populated ContributionSet byte/behavior-equivalent
 // and returns an error attributed/wrapped with contributor identity.
-// On the review baseline before Task 2.2, malformed bundles are accepted and no error is returned.
-func TestFeatureBundle_ContributeBundle_FailBeforeMutate_AttributedError_RED(t *testing.T) {
+func TestFeatureBundle_ContributeBundle_FailBeforeMutate_AttributedError(t *testing.T) {
 	t.Parallel()
 
 	setupPrepopulatedSet := func(t *testing.T) *lipfeature.ContributionSet {
@@ -358,10 +350,9 @@ func TestFeatureBundle_ContributeBundle_FailBeforeMutate_AttributedError_RED(t *
 	})
 }
 
-// TestFeatureBundle_MergeBundlesGenerated_FailureDiscardsAllCandidateAndLifecycles_RED characterizes Requirement 4.3 (Task 1.2):
+// TestFeatureBundle_MergeBundlesGenerated_FailureDiscardsAllCandidateAndLifecycles characterizes Requirement 4.3 (Task 1.2, Task 2.2):
 // MergeBundlesGenerated failure returns zero GeneratedMergeSurface and publishes no lifecycle.
-// On the review baseline before Task 2.2, malformed bundles are accepted and partial/full lifecycles are published.
-func TestFeatureBundle_MergeBundlesGenerated_FailureDiscardsAllCandidateAndLifecycles_RED(t *testing.T) {
+func TestFeatureBundle_MergeBundlesGenerated_FailureDiscardsAllCandidateAndLifecycles(t *testing.T) {
 	t.Parallel()
 
 	validBundle := lipfeature.FeatureBundle{
@@ -415,11 +406,10 @@ func TestFeatureBundle_MergeBundlesGenerated_FailureDiscardsAllCandidateAndLifec
 	})
 }
 
-// TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle_RED characterizes Requirement 2.7, 2.8, 4.3 (Task 1.2):
+// TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle characterizes Requirement 2.7, 2.8, 4.3 (Task 1.2, Task 2.2):
 // Fake/generalized FeatureBundleRegistry returning a malformed bundle is rejected through
 // MergeFeatureSurfaceGenerated and MergeFeatureSurfacesWithHost, including extra/candidate bundle.
-// On the review baseline before Task 2.2, malformed bundles from registry or candidate extras are accepted without schema check.
-func TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle_RED(t *testing.T) {
+func TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle(t *testing.T) {
 	t.Parallel()
 
 	malformedBundle0 := lipfeature.FeatureBundle{
@@ -539,5 +529,328 @@ func TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle_RED(t *testin
 		require.Contains(t, errExtra.Error(), "candidate-feature-1", "error must be attributed to candidate-feature-1")
 		require.True(t, gExtra.Frozen.IsZero())
 		require.Empty(t, gExtra.Lifecycles)
+	})
+}
+
+// TestFeatureBundle_MergeFeatureSurface_RejectsMalformedRegistryBundle characterizes Requirement 2.7, 2.8, 4.3 (Task 2.2):
+// MergeFeatureSurface and MergeFeatureSurfaceViaGenerated validate registry bundles transactionally with normalized
+// registration contributor attribution and return zero MergedFeatureSurface on error without building bundles twice.
+func TestFeatureBundle_MergeFeatureSurface_RejectsMalformedRegistryBundle(t *testing.T) {
+	t.Parallel()
+
+	malformedBundle0 := lipfeature.FeatureBundle{
+		SchemaVersion: 0,
+		PlaneSet:      makeSchemaTestPlaneSet(t, "reg-bad-0"),
+		Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-reg-bad"}},
+	}
+	malformedBundle2 := lipfeature.FeatureBundle{
+		SchemaVersion: 2,
+		PlaneSet:      makeSchemaTestPlaneSet(t, "reg-bad-2"),
+		Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-reg-bad-2"}},
+	}
+	malformedLcBundle := lipfeature.FeatureBundle{
+		SchemaVersion: 0,
+		Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-reg-bad-lc"}},
+	}
+
+	validBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		PlaneSet:      makeSchemaTestPlaneSet(t, "reg-good"),
+		Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-reg-good"}},
+	}
+
+	t.Run("MergeFeatureSurface_RegistrationID_Schema0", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				return malformedBundle0, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "reg-feat-bad0", FactoryKind: "bad-plugin", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.Error(t, err, "MergeFeatureSurface must reject malformed bundle from registry")
+		require.Contains(t, err.Error(), "reg-feat-bad0", "error must be attributed to registration ID")
+		require.Equal(t, MergedFeatureSurface{}, m, "returned MergedFeatureSurface must be zero value on failure")
+		require.Empty(t, m.Lifecycles, "no lifecycles must be published on failure")
+	})
+
+	t.Run("MergeFeatureSurface_RegistrationID_Schema2", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				return malformedBundle2, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "reg-feat-bad2", FactoryKind: "bad-plugin-2", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.Error(t, err, "MergeFeatureSurface must reject schema 2 bundle from registry")
+		require.Contains(t, err.Error(), "reg-feat-bad2", "error must be attributed to registration ID")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("MergeFeatureSurface_RegistrationID_LifecycleOnlySchema0", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				return malformedLcBundle, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "reg-feat-bad-lc", FactoryKind: "bad-plugin-lc", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.Error(t, err, "MergeFeatureSurface must reject lifecycle-only schema 0 bundle from registry")
+		require.Contains(t, err.Error(), "reg-feat-bad-lc", "error must be attributed to registration ID")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("MergeFeatureSurface_FactoryKeyFallback", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				return malformedBundle0, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "", FactoryKind: "fallback-factory-key", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.Error(t, err, "MergeFeatureSurface must reject malformed bundle with factory key fallback")
+		require.Contains(t, err.Error(), "fallback-factory-key", "error must fall back to factory key for attribution")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("MergeFeatureSurface_ValidThenMalformed_TransactionalRollback", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				if factoryKey == "good-plugin" {
+					return validBundle, nil
+				}
+				return malformedBundle0, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "first-good", FactoryKind: "good-plugin", Enabled: true},
+			{Kind: lipsdk.PluginKindFeature, ID: "second-bad", FactoryKind: "bad-plugin", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.Error(t, err, "MergeFeatureSurface must fail when second bundle is malformed")
+		require.Contains(t, err.Error(), "second-bad", "error must identify second registration")
+		require.Equal(t, MergedFeatureSurface{}, m, "returned surface must be zero value, discarding first bundle lifecycles")
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("MergeFeatureSurface_SingleBuildPerRegistration", func(t *testing.T) {
+		t.Parallel()
+		buildCounts := make(map[string]int)
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				buildCounts[factoryKey]++
+				return validBundle, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "f1", FactoryKind: "factory-1", Enabled: true},
+			{Kind: lipsdk.PluginKindFeature, ID: "f2", FactoryKind: "factory-2", Enabled: false},
+			{Kind: lipsdk.PluginKindFeature, ID: "f3", FactoryKind: "factory-3", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurface(reg, regs)
+		require.NoError(t, err)
+		require.Len(t, m.Lifecycles, 2)
+		require.Equal(t, 1, buildCounts["factory-1"], "factory-1 must be built exactly once")
+		require.Equal(t, 0, buildCounts["factory-2"], "disabled factory-2 must not be built")
+		require.Equal(t, 1, buildCounts["factory-3"], "factory-3 must be built exactly once")
+	})
+
+	t.Run("MergeFeatureSurfaceViaGenerated_RejectsMalformed", func(t *testing.T) {
+		t.Parallel()
+		reg := fakeFeatureBundleRegistry{
+			buildFn: func(factoryKey string, _ yaml.Node) (lipfeature.FeatureBundle, error) {
+				return malformedBundle0, nil
+			},
+		}
+		regs := []lipsdk.Registration{
+			{Kind: lipsdk.PluginKindFeature, ID: "via-gen-bad", FactoryKind: "bad-plugin", Enabled: true},
+		}
+
+		m, err := MergeFeatureSurfaceViaGenerated(reg, regs)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "via-gen-bad")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+}
+
+// TestFeatureBundle_MergeBundlesChecked_RejectsMalformedBundles characterizes Requirement 2.4, 2.6, 4.3 (Task 2.2):
+// MergeBundlesChecked rejects malformed bundles and returns zero MergedFeatureSurface on failure.
+func TestFeatureBundle_MergeBundlesChecked_RejectsMalformedBundles(t *testing.T) {
+	t.Parallel()
+
+	validBundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		PlaneSet:      makeSchemaTestPlaneSet(t, "checked-good"),
+		Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-checked-good"}},
+	}
+
+	t.Run("SingleMalformedSchema0", func(t *testing.T) {
+		t.Parallel()
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 0,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "bad-0"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-bad-0"}},
+		}
+
+		m, err := MergeBundlesChecked(malformed)
+		require.Error(t, err, "MergeBundlesChecked must reject non-empty schema 0 bundle")
+		require.Contains(t, err.Error(), "bundle-0", "error must be attributed to bundle-0")
+		require.Equal(t, MergedFeatureSurface{}, m, "returned surface must be zero value")
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("SingleMalformedSchema2", func(t *testing.T) {
+		t.Parallel()
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 2,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "bad-2"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-bad-2"}},
+		}
+
+		m, err := MergeBundlesChecked(malformed)
+		require.Error(t, err, "MergeBundlesChecked must reject schema 2 bundle")
+		require.Contains(t, err.Error(), "bundle-0")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("SingleMalformedLifecycleOnlySchema0", func(t *testing.T) {
+		t.Parallel()
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 0,
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-bad-lc"}},
+		}
+
+		m, err := MergeBundlesChecked(malformed)
+		require.Error(t, err, "MergeBundlesChecked must reject lifecycle-only schema 0 bundle")
+		require.Contains(t, err.Error(), "bundle-0")
+		require.Equal(t, MergedFeatureSurface{}, m)
+		require.Empty(t, m.Lifecycles)
+	})
+
+	t.Run("ValidThenMalformed_TransactionalRollback", func(t *testing.T) {
+		t.Parallel()
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 0,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "bad-1"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-bad-1"}},
+		}
+
+		m, err := MergeBundlesChecked(validBundle, malformed)
+		require.Error(t, err, "MergeBundlesChecked must reject second malformed bundle")
+		require.Contains(t, err.Error(), "bundle-1", "error must be attributed to bundle-1")
+		require.Equal(t, MergedFeatureSurface{}, m, "first bundle's lifecycles must be discarded on error")
+		require.Empty(t, m.Lifecycles)
+	})
+}
+
+// TestFeatureBundle_MergedFeatureSurfaceAppend_RejectsMalformedSchema characterizes Requirement 2.4, 2.6, 2.8 (Task 2.2):
+// Direct (m *MergedFeatureSurface).Append(b) validates bundle schema and fails before mutating m.Lifecycles.
+func TestFeatureBundle_MergedFeatureSurfaceAppend_RejectsMalformedSchema(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NilReceiver_ReturnsError", func(t *testing.T) {
+		t.Parallel()
+		var nilSurface *MergedFeatureSurface
+		validBundle := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "life-ok"}},
+		}
+		err := nilSurface.Append(validBundle)
+		require.Error(t, err, "Append on nil receiver must return error")
+		require.Equal(t, "featurebundle: nil merged feature surface", err.Error())
+	})
+
+	t.Run("NonEmptySchema0_FailBeforeMutate", func(t *testing.T) {
+		t.Parallel()
+		surface := MergedFeatureSurface{
+			Lifecycles: []lipplugin.Lifecycle{schemaTestLifecycle{tag: "initial-life"}},
+		}
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 0,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "bad-append-0"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "bad-append-life"}},
+		}
+
+		err := surface.Append(malformed)
+		require.Error(t, err, "Append must reject non-empty schema 0 bundle")
+		require.Contains(t, err.Error(), "legacy-append", "error must wrap stable contributor identity")
+		require.Len(t, surface.Lifecycles, 1, "surface.Lifecycles must not be mutated on failure")
+		require.Equal(t, "initial-life", surface.Lifecycles[0].(schemaTestLifecycle).tag)
+	})
+
+	t.Run("Schema2_FailBeforeMutate", func(t *testing.T) {
+		t.Parallel()
+		surface := MergedFeatureSurface{
+			Lifecycles: []lipplugin.Lifecycle{schemaTestLifecycle{tag: "initial-life"}},
+		}
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 2,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "bad-append-2"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "bad-append-life-2"}},
+		}
+
+		err := surface.Append(malformed)
+		require.Error(t, err, "Append must reject schema 2 bundle")
+		require.Contains(t, err.Error(), "legacy-append")
+		require.Len(t, surface.Lifecycles, 1)
+		require.Equal(t, "initial-life", surface.Lifecycles[0].(schemaTestLifecycle).tag)
+	})
+
+	t.Run("LifecycleOnlySchema0_FailBeforeMutate", func(t *testing.T) {
+		t.Parallel()
+		surface := MergedFeatureSurface{
+			Lifecycles: []lipplugin.Lifecycle{schemaTestLifecycle{tag: "initial-life"}},
+		}
+		malformed := lipfeature.FeatureBundle{
+			SchemaVersion: 0,
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "bad-append-lc"}},
+		}
+
+		err := surface.Append(malformed)
+		require.Error(t, err, "Append must reject lifecycle-only schema 0 bundle")
+		require.Contains(t, err.Error(), "legacy-append")
+		require.Len(t, surface.Lifecycles, 1)
+		require.Equal(t, "initial-life", surface.Lifecycles[0].(schemaTestLifecycle).tag)
+	})
+
+	t.Run("ValidBundle_AppendsLifecycles", func(t *testing.T) {
+		t.Parallel()
+		surface := MergedFeatureSurface{
+			Lifecycles: []lipplugin.Lifecycle{schemaTestLifecycle{tag: "initial-life"}},
+		}
+		valid := lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			PlaneSet:      makeSchemaTestPlaneSet(t, "good-append"),
+			Lifecycles:    []lipplugin.Lifecycle{schemaTestLifecycle{tag: "second-life"}},
+		}
+
+		err := surface.Append(valid)
+		require.NoError(t, err, "Append must accept valid V1 bundle")
+		require.Len(t, surface.Lifecycles, 2)
+		require.Equal(t, "initial-life", surface.Lifecycles[0].(schemaTestLifecycle).tag)
+		require.Equal(t, "second-life", surface.Lifecycles[1].(schemaTestLifecycle).tag)
 	})
 }

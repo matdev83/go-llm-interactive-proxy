@@ -130,10 +130,17 @@ func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
 }
 
 // ContributeBundle contributes all planes from FeatureBundle b into the given ContributionSet
-// using the provided pluginID via b.PlaneSet.ReplayTo. If b.PlaneSet is zero, it is a no-op.
+// using the provided pluginID via b.PlaneSet.ReplayTo. It validates the bundle schema before replay.
+// If b.PlaneSet is zero, it is a no-op after schema validation.
 func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeature.FeatureBundle) error {
 	if cs == nil {
 		return errors.New("featurebundle: nil ContributionSet")
+	}
+	if pluginID == "" {
+		pluginID = "feature"
+	}
+	if err := b.Validate(); err != nil {
+		return fmt.Errorf("featurebundle: invalid bundle %q: %w", pluginID, err)
 	}
 	return b.PlaneSet.ReplayTo(cs, pluginID)
 }
@@ -197,32 +204,7 @@ func MergeFeatureSurfaceGenerated(reg FeatureBundleRegistry, registrations []lip
 	if err != nil {
 		return GeneratedMergeSurface{}, err
 	}
-	cs := lipfeature.NewContributionSet()
-	var lifecycles []lipplugin.Lifecycle
-	bIdx := 0
-	for _, regEntry := range registrations {
-		if regEntry.Kind != lipsdk.PluginKindFeature || !regEntry.Enabled {
-			continue
-		}
-		b := bundles[bIdx]
-		bIdx++
-		pluginID := regEntry.ID
-		if pluginID == "" {
-			pluginID = regEntry.RegistryFactoryKey()
-		}
-		if pluginID == "" {
-			pluginID = fmt.Sprintf("feature-%d", bIdx)
-		}
-		if err := ContributeBundle(cs, pluginID, b); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-		lifecycles = append(lifecycles, b.Lifecycles...)
-	}
-	return GeneratedMergeSurface{
-		Frozen:     cs.Freeze(),
-		Lifecycles: lifecycles,
-		set:        cs,
-	}, nil
+	return mergeBuiltFeatureBundlesWithHost(bundles, registrations, HostContributions{})
 }
 
 // MergeFeatureSurfaceViaGenerated merges enabled feature plugins using generated adapters

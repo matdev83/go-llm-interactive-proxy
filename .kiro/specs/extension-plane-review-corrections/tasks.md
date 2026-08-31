@@ -37,7 +37,7 @@
   - _Boundary: Generated Merge Surface_
   - _Validation: go test -count=1 ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/planeparity_
 
-- [ ] 2. Correct runtime and assembly behavior
+- [x] 2. Correct runtime and assembly behavior
 - [x] 2.1 Restore nil-safe frozen terminal-provider access
   - Return the zero provider before reading generation state when the receiver is absent.
   - Continue resolving non-nil generations through the generated frozen plane set; do not add a duplicate provider slot or mutable binding.
@@ -46,7 +46,7 @@
   - _Boundary: Generation Accessor_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 2.2 (P) Enforce bundle schema validation at the contribution choke point
+- [x] 2.2 (P) Enforce bundle schema validation at the contribution choke point
   - Validate the complete bundle before replay and wrap failures with the normalized contributor identity.
   - Retain transactional plane replay and its existing validation rather than weakening either boundary.
   - Keep every lifecycle append after successful validation and replay in direct, registry, host, and candidate merge paths.
