@@ -214,3 +214,153 @@ No production code files were modified. All working-tree changes are strictly te
 - **Hook Projection Ratchet:** Validated by `internal/archtest/plane_hook_projection_ratchet_test.go` and `internal/infra/runtimebundle/hooks_projection_parity_test.go` (Req 3.1-3.6).
 - **Single Generated Merge Surface:** Validated by `internal/featurebundle/generated_surface_parity_test.go` and `internal/featurebundle/lifecycle_surface_empty_test.go` (Req 4.1-4.5).
 - **Performance Neutrality:** Does NOT claim #394 performance neutrality; owned by Tasks 5.2 and 5.3.
+
+---
+
+## 8. Task 5.2 Consolidation Benchmarks, Structural Hot-Path & Linux Race Evidence
+
+### 8.1 Seam Benchmark Suite Execution & Wave-0 Comparison
+
+#### Run Context
+- **Host Platform:** Windows (`win32` / `amd64`)
+- **CPU:** AMD Ryzen 7 5800X 8-Core Processor (16 logical processors)
+- **Go Version:** `go version go1.26.6 windows/amd64`
+- **GOMAXPROCS:** `12`
+- **Target Worktree:** `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-feat-extension-plane-review-corrections`
+- **Base Commit / HEAD:** `95c3ed6a`
+- **Benchmark Command:**
+  ```powershell
+  go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=1 ./internal/core/extensions/...
+  ```
+- **Benchmark Count:** Exactly 31 benchmark cases evaluated across 5 request-path families (Completion, Traffic, Secret Guard, Compaction, Terminal Decision).
+- **Baseline Source:** Archived consolidation closeout evidence (`.kiro/specs/archive/extension-plane-declaration-consolidation/closeout-evidence.md`, lines 210–307).
+
+#### Verbatim Corrective Benchmark Output
+```
+goos: windows
+goarch: amd64
+pkg: github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions
+cpu: AMD Ryzen 7 5800X 8-Core Processor
+BenchmarkCompletionGates_Populated-12                            	39819352	        28.78 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCompletionGates_Empty-12                                	231474112	         5.265 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompletionGates_NilSnapshot-12                          	291056558	         4.291 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompletionGatesFromContext_Populated-12                 	33194928	        35.53 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCompletionGatesFromContext_Empty-12                     	98461538	        11.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompletionGatesFromContext_NilContextFallback-12        	33097695	        35.39 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCompletionGatesFromContext_nilFallback_empty-12         	167783076	         7.104 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompletionGatesFromContext_fallbackNilGates_empty-12    	91660428	        12.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompletionGatesFromContext_withGates-12                 	36250928	        35.74 ns/op	      16 B/op	       1 allocs/op
+BenchmarkTrafficPortBundle_Populated-12                          	33769902	        35.84 ns/op	      32 B/op	       1 allocs/op
+BenchmarkTrafficPortBundle_Empty-12                              	100000000	        10.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTrafficPortBundle_NilSnapshot-12                        	171311149	         7.078 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTrafficObserver_Populated-12                            	1000000000	         1.089 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTrafficRedactors_Populated-12                           	39086929	        30.71 ns/op	      32 B/op	       1 allocs/op
+BenchmarkTrafficRedactors_Empty-12                               	207156246	         5.817 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTrafficRedactors_NilSnapshot-12                         	274050562	         4.411 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSecretGuardPlane_Populated-12                           	28165592	        42.20 ns/op	      32 B/op	       1 allocs/op
+BenchmarkSecretGuardPlane_Empty-12                               	71501348	        16.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSecretGuardPlane_NilSnapshot-12                         	189221650	         6.371 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSecretGuardExecutionPlane_Populated-12                  	83427188	        14.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSecretGuardExecutionPlane_Empty-12                      	80205325	        14.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSecretGuardExecutionPlane_NilSnapshot-12                	728889979	         1.661 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompactionObservers_Populated-12                        	37815165	        28.78 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCompactionObservers_Empty-12                            	217079134	         5.490 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompactionObservers_NilSnapshot-12                      	224716954	         5.769 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompactionPreservers_Populated-12                       	31375255	        35.21 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCompactionPreservers_Empty-12                           	173548741	         6.514 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompactionPreservers_NilSnapshot-12                     	223712520	         5.183 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTerminalDecisionProvider_Populated-12                   	185196960	         6.455 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTerminalDecisionProvider_Empty-12                       	221692950	         5.545 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTerminalDecisionProvider_NilSnapshot-12                 	256520482	         4.575 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions	36.647s
+```
+
+#### Wave-0 Comparison & Allocation Parity Table
+
+| Benchmark Name | Wave-0 ns/op | Wave-0 B/op | Wave-0 allocs/op | Current ns/op | Current B/op | Current allocs/op | Allocation Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `BenchmarkCompletionGates_Populated` | 41.60 | 32 | 1 | 28.78 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkCompletionGates_Empty` | 1.092 | 0 | 0 | 5.265 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompletionGates_NilSnapshot` | 1.102 | 0 | 0 | 4.291 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompletionGatesFromContext_Populated` | 62.78 | 32 | 1 | 35.53 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkCompletionGatesFromContext_Empty` | 8.203 | 0 | 0 | 11.13 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompletionGatesFromContext_NilContextFallback` | 65.06 | 32 | 1 | 35.39 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkCompletionGatesFromContext_nilFallback_empty` | 7.951 | 0 | 0 | 7.104 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompletionGatesFromContext_fallbackNilGates_empty` | 9.453 | 0 | 0 | 12.56 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompletionGatesFromContext_withGates` | 43.85 | 16 | 1 | 35.74 | 16 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkTrafficPortBundle_Populated` | 63.35 | 32 | 1 | 35.84 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkTrafficPortBundle_Empty` | 7.986 | 0 | 0 | 10.25 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTrafficPortBundle_NilSnapshot` | 0.9779 | 0 | 0 | 7.078 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTrafficObserver_Populated` | 1.044 | 0 | 0 | 1.089 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTrafficRedactors_Populated` | 51.07 | 32 | 1 | 30.71 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkTrafficRedactors_Empty` | 3.197 | 0 | 0 | 5.817 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTrafficRedactors_NilSnapshot` | 1.156 | 0 | 0 | 4.411 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkSecretGuardPlane_Populated` | 66.66 | 32 | 1 | 42.20 | 32 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkSecretGuardPlane_Empty` | 13.91 | 0 | 0 | 16.44 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkSecretGuardPlane_NilSnapshot` | 1.703 | 0 | 0 | 6.371 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkSecretGuardExecutionPlane_Populated` | 7.069 | 0 | 0 | 14.60 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkSecretGuardExecutionPlane_Empty` | 7.081 | 0 | 0 | 14.84 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkSecretGuardExecutionPlane_NilSnapshot` | 1.770 | 0 | 0 | 1.661 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompactionObservers_Populated` | 42.18 | 16 | 1 | 28.78 | 16 | 1 | PASS (Equal, $\le$ Baseline) |
+| `BenchmarkCompactionObservers_Empty` | 1.602 | 0 | 0 | 5.490 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompactionObservers_NilSnapshot` | 1.086 | 0 | 0 | 5.769 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompactionPreservers_Populated` | 38.75 | 16 | 1 | 35.21 | 16 | 1 | PASS (Equal, 16 B/op) |
+| `BenchmarkCompactionPreservers_Empty` | 1.151 | 0 | 0 | 6.514 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkCompactionPreservers_NilSnapshot` | 1.182 | 0 | 0 | 5.183 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTerminalDecisionProvider_Populated` | 1.458 | 0 | 0 | 6.455 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTerminalDecisionProvider_Empty` | 1.058 | 0 | 0 | 5.545 | 0 | 0 | PASS (Equal, 0 allocs) |
+| `BenchmarkTerminalDecisionProvider_NilSnapshot` | 0.8839 | 0 | 0 | 4.575 | 0 | 0 | PASS (Equal, 0 allocs) |
+
+#### Allocation Summary & Fixed-Cost Non-Regression
+- **Total Benchmarks Evaluated:** 31
+- **Zero-Allocation Benchmarks:** 24 of 31 (100% preserved at `0 B/op`, `0 allocs/op`)
+- **Defensive-Cloning Benchmarks:** 7 of 31 (100% preserved at baseline allocation count of `1 alloc/op`, exactly `16 B/op` or `32 B/op`)
+- **Allocation Regressions:** `0` (Zero regressions across the entire suite)
+- **Performance Neutrality Boundary:** Absolute timing values (`ns/op`) are recorded for observability only. In accordance with Requirements 6.6 and 7.4, no causal inference or broad performance-neutrality claim is made from a single Windows sample. Issue #394 retains latency, load, optimization, and HOLD boundary ownership.
+
+---
+
+### 8.2 Structural Hot-Path Verification
+
+Targeted AST and code inspection confirms that the correction preserves the standard generated-plane retrieval invariants:
+1. **Generated Retrieval Uses No Reflection / Unsafe:** Standard feature-plane reads use generated direct field access in `pkg/lipsdk/feature/plane_generated.go`; the correction adds no reflection or unsafe operation to that retrieval path. Other extension processing outside this generated retrieval seam retains pre-existing reflection where its own contracts require it.
+2. **Generated Retrieval Uses No Map Lookup / Key Search:** Standard declared planes are retrieved through generated accessors over `FrozenPlaneSet`, with defensive slice cloning where characterized by the benchmarks. The correction adds no map lookup, linear string-key search, or reflection type switch to standard generated-plane retrieval. This statement does not cover unrelated request-processing maps or the separately deferred dynamic SDK fallback.
+3. **Generated Retrieval Uses No Mutex / Lock:** Reading standard generated planes and the terminal-decision provider from `GenerationBundle` / `RequestRuntimeSnapshot` requires no lock acquisition.
+4. **Construction Boundary:** `ContributionSet` maps remain part of contribution assembly and freezing for standard planes. Dynamic-plane map/reflection fallback remains explicitly uncertified and separately owned; this evidence does not claim its removal.
+5. **Architecture Gates Passed:** Validated by `internal/archtest` AST scanners (`go test -count=1 ./internal/archtest`), enforcing zero forbidden mirror patterns and zero unregistered plane transports.
+
+---
+
+### 8.3 Linux Race Verification Evidence
+
+#### Environment
+- **Local Run Identity:** `wsl-UbuntuOld-mateusz-20260831T153011Z`
+- **CI Run / Job Identity:** Not available for this local WSL execution. Task 5.4 must attach the current corrective commit's remote Linux CI run and job before merged-main certification.
+- **Platform:** WSL 2 (Windows Subsystem for Linux) on Windows 10 Pro amd64
+- **Linux Distribution:** Ubuntu 22.04.5 LTS (`jammy`), Linux kernel 6.18.33.2-2
+- **C Compiler (CGO):** `gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0` (x86_64-linux-gnu)
+- **Linux Go Version:** `go version go1.26.6 linux/amd64`
+- **Execution User:** Non-root user `mateusz` (uid 1000, gid 1000), ensuring `stdhttp` administrative user protection policies pass correctly under Linux.
+- **Worktree Mount:** `/mnt/c/Users/Mateusz/source/repos/go-llm-interactive-proxy-feat-extension-plane-review-corrections`
+- **Code Commit at Execution:** `95c3ed6a` (`docs(extension-plane-review-corrections): complete correctness gates`)
+- **Working Tree Qualification:** The only subsequent change is this evidence text; no Go source changed after the race run.
+
+#### Contemporaneous Provenance
+- `pwd`: `/mnt/c/Users/Mateusz/source/repos/go-llm-interactive-proxy-feat-extension-plane-review-corrections`
+- `git rev-parse HEAD`: `95c3ed6a`
+- `git status --short`: clean before the evidence append
+- `go version`: `go version go1.26.6 linux/amd64`
+
+#### Command & Output
+- **Command:**
+  ```bash
+  go test -count=1 -race ./internal/core/extensions ./internal/infra/runtimebundle
+  ```
+- **Exit Code:** `0`
+- **Output:**
+  ```
+  ok  	github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions	2.073s
+  ok  	github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle	249.079s
+  ```
+- **Verdict:** **PASS** for the local exact scope: the race detector reported no data race and both package test suites completed successfully. This run does not independently prove absence of leaks or deadlocks, and it does not replace the remote current-commit CI identity required before Task 5.4 certification.

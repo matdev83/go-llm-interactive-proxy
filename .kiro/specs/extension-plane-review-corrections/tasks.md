@@ -136,7 +136,7 @@
   - _Boundary: Verification Harness_
   - _Validation: go run ./scripts/generate-feature-planes.go -check && make quality-checks && make test && make qa && make arch-report && go run ./cmd/lipstd --help_
 
-- [ ] 5.2 Refresh consolidation benchmark and Linux race evidence
+- [x] 5.2 Refresh consolidation benchmark and Linux race evidence
   - Rerun the complete seam benchmark suite and compare `ns/op`, `B/op`, and `allocs/op` with the Wave-0 baseline.
   - Confirm no request-path maps, reflection, key-search loops, or locks were introduced by the correction.
   - Run the exact Linux race scope against the final corrective commit and capture run and job identities.
