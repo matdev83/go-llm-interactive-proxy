@@ -59,7 +59,9 @@ var (
 )
 
 // WalkProductionGoFiles walks non-test .go files under ProductionScanRoots.
-// Callback receives repo-relative slash path, absolute path, and file bytes.
+// For performance during multi-suite test runs, files for each root are loaded
+// into an in-memory snapshot on first access. The callback receives repo-relative
+// slash path, absolute path, and an isolated copy of file bytes.
 func WalkProductionGoFiles(root string, fn func(rel, abs string, src []byte) error) error {
 	productionFilesCacheMu.Lock()
 	entries, ok := productionFilesCache[root]
@@ -113,7 +115,8 @@ func WalkProductionGoFiles(root string, fn func(rel, abs string, src []byte) err
 	}
 
 	for _, entry := range entries {
-		if err := fn(entry.rel, entry.abs, entry.src); err != nil {
+		srcCopy := append([]byte(nil), entry.src...)
+		if err := fn(entry.rel, entry.abs, srcCopy); err != nil {
 			return err
 		}
 	}
