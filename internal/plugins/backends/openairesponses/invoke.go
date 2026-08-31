@@ -123,7 +123,14 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 					return nil, fmt.Errorf("openairesponses: tool message part kind %q not supported", p.Kind)
 				}
 				out := toolResultString(p)
-				items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(p.ToolCallID, out))
+				items = append(items, responses.ResponseInputItemUnionParam{
+					OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+						CallID: param.NewOpt(p.ToolCallID),
+						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+							OfString: param.NewOpt(out),
+						},
+					},
+				})
 			}
 			continue
 		}
