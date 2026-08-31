@@ -124,29 +124,11 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 }
 
 // TestForbiddenMirrorPredicate_ProjectionBranches verifies that per-plane field
-// projections in extensionsFromMerged, overlayExtensions, and hooksConfigFromMerged are rejected.
+// projections in overlayExtensions and hooksConfigFromMerged are rejected.
 func TestForbiddenMirrorPredicate_ProjectionBranches(t *testing.T) {
 	t.Parallel()
 
-	// 1. extensionsFromMerged
-	extSrc := `package runtimebundle
-import "github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-
-func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
-	return ExtensionsOptions{
-		SessionOpeners: append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
-	}
-}
-`
-	findingsExt := scanSyntheticSource(t, "internal/infra/runtimebundle/compile_generation.go", extSrc, Wave3_RequestShaping)
-	if len(findingsExt) == 0 {
-		t.Fatalf("expected forbidden ProjectionBranch finding for SessionOpeners in extensionsFromMerged")
-	}
-	if findingsExt[0].ShapeKind != MirrorProjectionBranch || findingsExt[0].PlaneID != "session_openers" {
-		t.Fatalf("unexpected finding: %+v", findingsExt[0])
-	}
-
-	// 2. overlayExtensions
+	// 1. overlayExtensions
 	overlaySrc := `package runtimebundle
 
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {

@@ -282,7 +282,7 @@ func TestConfigOwnedToolReactorErrorPolicy_FeatureContributionsCannotSetPolicy(t
 	_, hasField := fbType.FieldByName("ToolReactorErrorPolicy")
 	assert.False(t, hasField, "FeatureBundle must NOT have a ToolReactorErrorPolicy field")
 
-	// MergedFeatureSurface created via MergeBundlesGenerated does NOT set ToolReactorErrorPolicy
+	// GeneratedMergeSurface created via MergeBundlesGenerated does NOT set ToolReactorErrorPolicy
 	gen, err := featurebundle.MergeBundlesGenerated(testkit.FeatureBundle(t, "reactor-1", func(cs *lipfeature.ContributionSet) error {
 		return lipfeature.Contribute(cs, lipfeature.PlaneToolReactors, "reactor-1", []sdkhooks.ToolReactor{
 			stubToolReactor{id: "reactor-1", order: 1},

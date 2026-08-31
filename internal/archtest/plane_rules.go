@@ -265,7 +265,7 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
 			} else if IsAllowedObserverProjection(qualSym) {
 				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
-			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||
+			} else if funcName == "overlayExtensions" ||
 				strings.Contains(strings.ToLower(funcName), "frommerged") ||
 				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||
 				strings.Contains(relPath, "internal/infra/runtimebundle/build_feature_hooks.go") {

@@ -105,7 +105,7 @@
   - _Boundary: Generated Merge Surface_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 4.2 Integrate the single surface into generation compilation
+- [x] 4.2 Integrate the single surface into generation compilation
   - Update live and candidate generation compilation to consume the simplified merge result.
   - Remove the no-op legacy parameter from extension projection and retain process secret-guard option behavior.
   - Use the generated surface's lifecycle side channel for generation build and candidate overlays.

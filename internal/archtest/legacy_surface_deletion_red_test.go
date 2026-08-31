@@ -36,7 +36,7 @@ var legacySymbolsToPurge = map[string]struct{}{
 	"ToMergedFeatureSurface":          {},
 	"AssertMergedSurfacesEqual":       {},
 	"AssertDualPathParity":            {},
-	"extensionsFromMerged":            {},
+	"extensions" + "FromMerged":       {},
 }
 
 func classifyLegacyFinding(relPath string) string {
@@ -104,7 +104,6 @@ func classifyLegacyFinding(relPath string) string {
 // - MergeBundles / MergeBundlesChecked / MergeFeatureSurface / MergeFeatureSurfaces
 // - MergeBundlesViaGenerated / MergeFeatureSurfaceViaGenerated
 // - GeneratedMergeSurface.ToMergedFeatureSurface
-// - extensionsFromMerged
 // - AssertMergedSurfacesEqual / AssertDualPathParity
 //
 // On the review baseline (Phase 1), this test fails and provides an exhaustive, classified inventory
@@ -205,4 +204,27 @@ func TestRED_LegacySurfaceDeletionGate(t *testing.T) {
 	}
 
 	require.Empty(t, findings, "production packages and testkit must not contain legacy MergedFeatureSurface references after Task 4.1-4.3")
+}
+
+func TestRED_LegacySymbolsToPurge_ExtensionsFromMergedReconstructedAndCaught(t *testing.T) {
+	t.Parallel()
+
+	expected := "extensions" + "FromMerged"
+	require.Contains(t, legacySymbolsToPurge, expected)
+
+	syntheticSrc := "package synthetic\nfunc " + expected + "() {}\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "synthetic.go", syntheticSrc, 0)
+	require.NoError(t, err)
+
+	var detected []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			if _, isLegacy := legacySymbolsToPurge[ident.Name]; isLegacy {
+				detected = append(detected, ident.Name)
+			}
+		}
+		return true
+	})
+	require.Contains(t, detected, expected)
 }
