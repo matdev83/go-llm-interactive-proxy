@@ -283,7 +283,7 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 
 	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
 	for _, needle := range []string{
-		"types: [opened, synchronize, reopened, labeled]",
+		"types: [opened, synchronize, reopened, labeled, unlabeled]",
 		"github.event.pull_request.base.sha",
 		"github.head_ref || github.ref_name",
 		"- os: ubuntu-latest",

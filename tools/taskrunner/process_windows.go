@@ -107,6 +107,9 @@ func (p *windowsProcess) kill() error {
 }
 
 func (p *windowsProcess) accounting() (ProcessAccounting, error) {
+	if !p.assigned {
+		return ProcessAccounting{Supported: true}, errors.New("process not assigned to job object")
+	}
 	var info jobObjectBasicAndIOAccountingInformation
 	if err := windows.QueryInformationJobObject(
 		p.job,

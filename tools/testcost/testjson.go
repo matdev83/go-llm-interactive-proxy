@@ -1,9 +1,8 @@
 package testcost
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +13,7 @@ type TestEvent struct {
 	Action  string  `json:"Action"`
 	Package string  `json:"Package"`
 	Test    string  `json:"Test"`
+	Output  string  `json:"Output"`
 	Elapsed float64 `json:"Elapsed"`
 }
 
@@ -32,35 +32,25 @@ func ParseTestJSON(input io.Reader, target ...string) (Measurement, error) {
 		LogicalCPUs:   runtime.NumCPU(),
 		Packages:      make(map[string]PackageMetrics),
 	}
-	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	line := 0
-	for scanner.Scan() {
-		line++
-		data := bytes.TrimSpace(scanner.Bytes())
-		if len(data) == 0 {
-			continue
-		}
-		if data[0] != '{' {
-			return Measurement{}, fmt.Errorf("%w at line %d: event must be an object", ErrMalformedJSON, line)
-		}
+	dec := json.NewDecoder(input)
+	for {
 		var event TestEvent
-		if err := json.Unmarshal(data, &event); err != nil {
-			return Measurement{}, fmt.Errorf("%w at line %d: %v", ErrMalformedJSON, line, err)
+		if err := dec.Decode(&event); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return Measurement{}, fmt.Errorf("%w: %v", ErrMalformedJSON, err)
 		}
 		if event.Action != "pass" || event.Test != "" {
 			continue
 		}
 		if event.Package == "" {
-			return Measurement{}, fmt.Errorf("%w at line %d: package pass has no package", ErrMalformedJSON, line)
+			return Measurement{}, fmt.Errorf("%w: package pass has no package", ErrMalformedJSON)
 		}
 		if math.IsNaN(event.Elapsed) || math.IsInf(event.Elapsed, 0) || event.Elapsed < 0 {
-			return Measurement{}, fmt.Errorf("%w at line %d: invalid elapsed", ErrMalformedJSON, line)
+			return Measurement{}, fmt.Errorf("%w: invalid elapsed", ErrMalformedJSON)
 		}
 		measurement.Packages[event.Package] = PackageMetrics{ElapsedNanos: secondsToNanosFloat(event.Elapsed)}
-	}
-	if err := scanner.Err(); err != nil {
-		return Measurement{}, fmt.Errorf("%w: read test JSON: %v", ErrMalformedJSON, err)
 	}
 	return measurement, nil
 }

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/testcost"
 )
@@ -18,17 +20,19 @@ const (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(stderr, "invalid request: subcommand must be measure or compare")
 		return exitInvalidCLI
 	}
 	switch args[0] {
 	case "measure":
-		return runMeasure(args[1:], stdout, stderr)
+		return runMeasure(ctx, args[1:], stdout, stderr)
 	case "compare":
 		return runCompare(args[1:], stdout, stderr)
 	default:
@@ -37,7 +41,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func runMeasure(args []string, stdout, stderr io.Writer) int {
+func runMeasure(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lip-testcost measure", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	target := flags.String("target", "", "measurement target: test-unit or quality-checks")
@@ -57,7 +61,7 @@ func runMeasure(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "invalid request: --root, --revision, --out, and --temp-root are required")
 		return exitInvalidCLI
 	}
-	measurement, err := testcost.Measure(context.Background(), *target, testcost.MeasureOptions{Root: *root, Revision: *revision, TempRoot: *tempRoot, Parallel: *parallel})
+	measurement, err := testcost.Measure(ctx, *target, testcost.MeasureOptions{Root: *root, Revision: *revision, TempRoot: *tempRoot, Parallel: *parallel})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "measurement failed: %v\n", err)
 		if measurement.FailureTail != "" {
@@ -89,6 +93,10 @@ func runCompare(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "invalid request: baseline, current, and policy are required")
 		return exitInvalidCLI
 	}
+	if *out == "" {
+		_, _ = fmt.Fprintln(stderr, "invalid request: --out cannot be empty")
+		return exitInvalidCLI
+	}
 	baseline, err := loadMeasurement(*baselinePath)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "invalid baseline: %v\n", err)
@@ -113,19 +121,9 @@ func runCompare(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "comparison failed: %v\n", err)
 		return exitInvalidCLI
 	}
-	if *out != "" && *out != "-" {
-		if err := writeJSON(*out, report, stdout); err != nil {
-			_, _ = fmt.Fprintf(stderr, "write output: %v\n", err)
-			return exitOperational
-		}
-	} else {
-		writeReportJSON := *out == "-"
-		if writeReportJSON {
-			if err := writeJSON(*out, report, stdout); err != nil {
-				_, _ = fmt.Fprintf(stderr, "write output: %v\n", err)
-				return exitOperational
-			}
-		}
+	if err := writeJSON(*out, report, stdout); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write output: %v\n", err)
+		return exitOperational
 	}
 	writeReportSummary(stderr, report, baseline, current)
 	return report.ExitCode()

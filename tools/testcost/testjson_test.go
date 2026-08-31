@@ -23,3 +23,18 @@ func TestParseTestJSONUsesPackagePassAndNeverSumsWall(t *testing.T) {
 		t.Fatalf("missing parser target error = %v", err)
 	}
 }
+
+func TestParseTestJSONHandlesLargeOutputEvent(t *testing.T) {
+	// Create a JSON event with > 2MB Output field followed by a package pass event
+	largeString := strings.Repeat("x", 2*1024*1024)
+	input := `{"Action":"output","Package":"example/pkg","Test":"TestLarge","Output":"` + largeString + `"}
+{"Action":"pass","Package":"example/pkg","Elapsed":2.5}
+`
+	measurement, err := ParseTestJSON(strings.NewReader(input), TargetTestUnit)
+	if err != nil {
+		t.Fatalf("ParseTestJSON() large event error = %v", err)
+	}
+	if got := measurement.Packages["example/pkg"].ElapsedNanos; got != 2_500_000_000 {
+		t.Fatalf("package elapsed = %d, want 2500000000", got)
+	}
+}

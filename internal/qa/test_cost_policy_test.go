@@ -200,7 +200,7 @@ func TestQAFastPreflight_TestCost_DBParityPostgresMakePropagation(t *testing.T) 
 		Catalog:     catalog,
 		ComponentID: representative,
 		GoTestFlags: []string{"-run", "^$", "-count=1"},
-		BaseEnv:     []string{dbparity.EnvTestPostgresDSN + "=postgres://user:pass@localhost:5432/lip_test"},
+		BaseEnv:     []string{dbparity.EnvTestPostgresDSN + "=postgres://user@localhost:5432/lip_test"},
 	})
 	if err != nil {
 		t.Fatalf("plan representative PostgreSQL parity: %v", err)

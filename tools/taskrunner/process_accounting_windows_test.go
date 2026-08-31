@@ -39,3 +39,14 @@ func TestRunner_WindowsJobAccountingIncludesDescendants(t *testing.T) {
 		t.Fatalf("accounting error: %v", result.AccountingErr)
 	}
 }
+
+func TestWindowsProcess_UnassignedAccountingReturnsError(t *testing.T) {
+	p := &windowsProcess{assigned: false}
+	acc, err := p.accounting()
+	if err == nil {
+		t.Fatal("want error when unassigned, got nil")
+	}
+	if !acc.Supported {
+		t.Fatal("Supported should remain true on Windows")
+	}
+}
