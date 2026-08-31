@@ -306,6 +306,8 @@ function Apply-AnchorCompatibilityPatch {
     $patchText = Get-GitText @(
         "-C", $RepositoryRoot, "diff", $bootstrapAnchor, $correctionCommit, "--",
         "internal/archtest",
+        "internal/testkit/planeparity",
+        "pkg/lipsdk/feature",
         "internal/testkit/dbparity/cmd/main_test.go",
         "internal/testkit/postgres_makefile_gate_test.go"
     )
