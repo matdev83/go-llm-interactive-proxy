@@ -94,6 +94,8 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 
 	seenIDs := make(map[string]string, len(orderedPlanes))
 	seenHookTargets := make(map[string]string)
+	var canonicalHookPkg string
+	var canonicalHookPkgOwner string
 	for _, info := range orderedPlanes {
 		if prevVar, exists := seenIDs[info.planeID]; exists {
 			return nil, fmt.Errorf("duplicate plane ID %q declared in %s and %s", info.planeID, prevVar, info.varName)
@@ -105,6 +107,13 @@ func extractPlanes(f *ast.File, src []byte) ([]planeInfo, error) {
 				return nil, fmt.Errorf("duplicate HookTarget %s declared in %s and %s", info.hookTarget, prevVar, info.varName)
 			}
 			seenHookTargets[info.hookTarget] = info.varName
+			if canonicalHookPkg == "" {
+				canonicalHookPkg = info.hookPkg
+				canonicalHookPkgOwner = info.varName
+			} else if canonicalHookPkg != info.hookPkg {
+				return nil, fmt.Errorf("inconsistent hook package aliases for HookTarget planes: %q in %s vs %q in %s",
+					canonicalHookPkg, canonicalHookPkgOwner, info.hookPkg, info.varName)
+			}
 		}
 	}
 
@@ -388,10 +397,13 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 		return planeInfo{}, fmt.Errorf("diagnostics StageID must not be empty when diagnostics metadata is provided")
 	}
 
+	var hookPkg string
 	if hookTarget != "" {
-		if err := validateHookTargetType(varName, hookTarget, typeArgAST, importMap); err != nil {
+		pkg, err := validateHookTargetType(varName, hookTarget, typeArgAST, importMap)
+		if err != nil {
 			return planeInfo{}, err
 		}
+		hookPkg = pkg
 	}
 
 	return planeInfo{
@@ -400,6 +412,7 @@ func parsePlaneValue(varName string, expr ast.Expr, src []byte, importMap map[st
 		fieldName:              fieldName,
 		typeExpr:               typeArgStr,
 		hookTarget:             hookTarget,
+		hookPkg:                hookPkg,
 		isExclusive:            isExclusive,
 		hasIdentity:            hasIdentity,
 		hasValidateIdentity:    hasValidateIdentity,

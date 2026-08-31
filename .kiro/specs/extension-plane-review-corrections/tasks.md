@@ -65,7 +65,7 @@
   - _Boundary: Hook View Generator_
   - _Validation: go test -count=1 ./internal/archtest ./pkg/lipsdk/feature_
 
-- [ ] 3.2 Emit the typed hook configuration and projection
+- [x] 3.2 Emit the typed hook configuration and projection
   - Extend generation to emit the SDK-owned hook configuration and projection from declaration metadata.
   - Preserve generated getter cloning, nil-versus-empty semantics, registration order, and the explicit host policy argument.
   - Regenerate feature-plane output solely through the generator.

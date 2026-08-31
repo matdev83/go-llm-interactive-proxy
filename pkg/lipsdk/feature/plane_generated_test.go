@@ -762,3 +762,108 @@ func TestGeneratedFrozen_InvalidCachedIdentityTriggersValidator(t *testing.T) {
 	assert.Contains(t, err.Error(), feature.PlaneTerminalDecisionProvider.ID)
 	assert.Contains(t, err.Error(), "exceeds 128 bytes")
 }
+
+type dummyRequestPartHook struct {
+	id  string
+	ord int
+}
+
+func (h dummyRequestPartHook) ID() string                     { return h.id }
+func (h dummyRequestPartHook) Order() int                     { return h.ord }
+func (h dummyRequestPartHook) FailureMode() hooks.FailureMode { return hooks.FailClosed }
+func (h dummyRequestPartHook) HandleRequestParts(context.Context, *lipapi.Call, hooks.PartMeta) error {
+	return nil
+}
+
+type dummyResponsePartHook struct {
+	id  string
+	ord int
+}
+
+func (h dummyResponsePartHook) ID() string                     { return h.id }
+func (h dummyResponsePartHook) Order() int                     { return h.ord }
+func (h dummyResponsePartHook) FailureMode() hooks.FailureMode { return hooks.FailClosed }
+func (h dummyResponsePartHook) HandleEvent(context.Context, *lipapi.Event, hooks.PartMeta) error {
+	return nil
+}
+
+type dummyToolReactor struct {
+	id  string
+	ord int
+}
+
+func (r dummyToolReactor) ID() string { return r.id }
+func (r dummyToolReactor) Order() int { return r.ord }
+func (r dummyToolReactor) HandleToolEvent(context.Context, lipapi.ToolEvent, hooks.ToolMeta) (hooks.ToolDecision, lipapi.ToolEvent, error) {
+	return hooks.ToolPass, lipapi.ToolEvent{}, nil
+}
+
+// TestProjectHookConfig_PopulatedAndDefensiveCopies verifies that generated ProjectHookConfig
+// populates all four hook planes from FrozenPlaneSet, isolates returned slices defensively,
+// preserves nil vs explicit empty semantics, and maps error policies.
+func TestProjectHookConfig_PopulatedAndDefensiveCopies(t *testing.T) {
+	t.Parallel()
+
+	// 1. Populated with all four hook planes
+	cs := feature.NewContributionSet()
+	sh1 := dummySubmitHook{id: "sh-1", ord: 10}
+	rqh1 := dummyRequestPartHook{id: "rqh-1", ord: 20}
+	rsh1 := dummyResponsePartHook{id: "rsh-1", ord: 30}
+	tr1 := dummyToolReactor{id: "tr-1", ord: 40}
+
+	require.NoError(t, feature.Contribute(cs, feature.PlaneSubmitHooks, "plugin-hooks", []hooks.SubmitHook{sh1}))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneRequestPartHooks, "plugin-hooks", []hooks.RequestPartHook{rqh1}))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneResponsePartHooks, "plugin-hooks", []hooks.ResponsePartHook{rsh1}))
+	require.NoError(t, feature.Contribute(cs, feature.PlaneToolReactors, "plugin-hooks", []hooks.ToolReactor{tr1}))
+
+	frozen := cs.Freeze()
+
+	cfg := feature.ProjectHookConfig(frozen, hooks.ToolReactorErrorsFailClosed)
+	require.Len(t, cfg.SubmitHooks, 1)
+	assert.Equal(t, "sh-1", cfg.SubmitHooks[0].ID())
+	require.Len(t, cfg.RequestPartHooks, 1)
+	assert.Equal(t, "rqh-1", cfg.RequestPartHooks[0].ID())
+	require.Len(t, cfg.ResponsePartHooks, 1)
+	assert.Equal(t, "rsh-1", cfg.ResponsePartHooks[0].ID())
+	require.Len(t, cfg.ToolReactors, 1)
+	assert.Equal(t, "tr-1", cfg.ToolReactors[0].ID())
+	assert.Equal(t, hooks.ToolReactorErrorsFailClosed, cfg.ToolReactorErrorPolicy)
+
+	// 2. Defensive copies: mutating returned slices in HookConfig does not affect FrozenPlaneSet
+	cfg.SubmitHooks[0] = dummySubmitHook{id: "sh-mutated", ord: 99}
+	cfg.RequestPartHooks[0] = dummyRequestPartHook{id: "rqh-mutated", ord: 99}
+	cfg.ResponsePartHooks[0] = dummyResponsePartHook{id: "rsh-mutated", ord: 99}
+	cfg.ToolReactors[0] = dummyToolReactor{id: "tr-mutated", ord: 99}
+
+	cfg2 := feature.ProjectHookConfig(frozen, hooks.ToolReactorErrorsFailOpen)
+	assert.Equal(t, "sh-1", cfg2.SubmitHooks[0].ID())
+	assert.Equal(t, "rqh-1", cfg2.RequestPartHooks[0].ID())
+	assert.Equal(t, "rsh-1", cfg2.ResponsePartHooks[0].ID())
+	assert.Equal(t, "tr-1", cfg2.ToolReactors[0].ID())
+	assert.Equal(t, hooks.ToolReactorErrorsFailOpen, cfg2.ToolReactorErrorPolicy)
+
+	// 3. Nil vs Explicit Empty Semantics
+	csEmpty := feature.NewContributionSet()
+	// SubmitHooks never contributed -> nil
+	// RequestPartHooks contributed as explicit empty slice -> non-nil empty slice
+	require.NoError(t, feature.Contribute(csEmpty, feature.PlaneRequestPartHooks, "plugin-empty", []hooks.RequestPartHook{}))
+
+	frozenEmpty := csEmpty.Freeze()
+	cfgEmpty := feature.ProjectHookConfig(frozenEmpty, hooks.ToolReactorErrorsSwallowEvent)
+
+	assert.Nil(t, cfgEmpty.SubmitHooks, "uncontributed plane must project to nil slice")
+	assert.NotNil(t, cfgEmpty.RequestPartHooks, "explicit empty contributed plane must project to non-nil empty slice")
+	assert.Empty(t, cfgEmpty.RequestPartHooks)
+	assert.Nil(t, cfgEmpty.ResponsePartHooks, "uncontributed plane must project to nil slice")
+	assert.Nil(t, cfgEmpty.ToolReactors, "uncontributed plane must project to nil slice")
+	assert.Equal(t, hooks.ToolReactorErrorsSwallowEvent, cfgEmpty.ToolReactorErrorPolicy)
+
+	// Zero-value FrozenPlaneSet
+	var zeroFrozen feature.FrozenPlaneSet
+	cfgZero := feature.ProjectHookConfig(zeroFrozen, hooks.ToolReactorErrorPolicyUnspecified)
+	assert.Nil(t, cfgZero.SubmitHooks)
+	assert.Nil(t, cfgZero.RequestPartHooks)
+	assert.Nil(t, cfgZero.ResponsePartHooks)
+	assert.Nil(t, cfgZero.ToolReactors)
+	assert.Equal(t, hooks.ToolReactorErrorPolicyUnspecified, cfgZero.ToolReactorErrorPolicy)
+}

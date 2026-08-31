@@ -19,6 +19,7 @@ type planeInfo struct {
 	fieldName              string // e.g. submitHooks
 	typeExpr               string // e.g. []hooks.SubmitHook
 	hookTarget             string // e.g. "SubmitHooks"
+	hookPkg                string // e.g. "hooks" or "sdkhooks"
 	isExclusive            bool   // e.g. terminaldecision.Provider
 	hasIdentity            bool   // whether plane has an identity accessor
 	hasValidateIdentity    bool   // whether plane has a ValidateIdentity validator
@@ -129,49 +130,49 @@ func parseHookTargetExpr(varName string, expr ast.Expr) (string, error) {
 	}
 }
 
-func validateHookTargetType(varName string, hookTarget string, typeArgAST ast.Expr, importMap map[string]string) error {
+func validateHookTargetType(varName string, hookTarget string, typeArgAST ast.Expr, importMap map[string]string) (string, error) {
 	expectedElemType, ok := expectedHookTargetTypes[hookTarget]
 	if !ok {
-		return fmt.Errorf("plane %s: unknown hook target %q", varName, hookTarget)
+		return "", fmt.Errorf("plane %s: unknown hook target %q", varName, hookTarget)
 	}
 
 	arrType, ok := typeArgAST.(*ast.ArrayType)
 	if !ok || arrType.Len != nil {
 		rendered, _ := renderTypeExpr(typeArgAST)
-		return fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (expected slice of %s from canonical import %q)",
+		return "", fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (expected slice of %s from canonical import %q)",
 			varName, rendered, hookTarget, expectedElemType, canonicalHooksImportPath)
 	}
 
 	selExpr, ok := arrType.Elt.(*ast.SelectorExpr)
 	if !ok {
 		rendered, _ := renderTypeExpr(typeArgAST)
-		return fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (expected selector from canonical import %q, got %T)",
+		return "", fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (expected selector from canonical import %q, got %T)",
 			varName, rendered, hookTarget, canonicalHooksImportPath, arrType.Elt)
 	}
 
 	pkgIdent, ok := selExpr.X.(*ast.Ident)
 	if !ok {
 		rendered, _ := renderTypeExpr(typeArgAST)
-		return fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (selector package must be an identifier)",
+		return "", fmt.Errorf("plane %s: incompatible type %s for HookTarget %s (selector package must be an identifier)",
 			varName, rendered, hookTarget)
 	}
 
 	importPath, hasImport := importMap[pkgIdent.Name]
 	if !hasImport {
-		return fmt.Errorf("plane %s: unknown package %q in type for HookTarget %s", varName, pkgIdent.Name, hookTarget)
+		return "", fmt.Errorf("plane %s: unknown package %q in type for HookTarget %s", varName, pkgIdent.Name, hookTarget)
 	}
 
 	if importPath != canonicalHooksImportPath {
-		return fmt.Errorf("plane %s: package %q in type resolves to %q, not canonical hooks import %q for HookTarget %s",
+		return "", fmt.Errorf("plane %s: package %q in type resolves to %q, not canonical hooks import %q for HookTarget %s",
 			varName, pkgIdent.Name, importPath, canonicalHooksImportPath, hookTarget)
 	}
 
 	if selExpr.Sel.Name != expectedElemType {
-		return fmt.Errorf("plane %s: incompatible hook element type %s.%s for HookTarget %s (expected %s.%s)",
+		return "", fmt.Errorf("plane %s: incompatible hook element type %s.%s for HookTarget %s (expected %s.%s)",
 			varName, pkgIdent.Name, selExpr.Sel.Name, hookTarget, pkgIdent.Name, expectedElemType)
 	}
 
-	return nil
+	return pkgIdent.Name, nil
 }
 
 // WriteGeneratedFileAtomic atomically installs one generated file via temp write + sync + rename.
