@@ -75,14 +75,12 @@ func TestSourceScanCache_ConcurrentCoalescing(t *testing.T) {
 	waitersRegistered.Add(numWaiters - 1)
 	errs := make(chan error, numWaiters)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		entries, err := loadCachedSourceFiles(uniqueKey, customLoader)
 		if err != nil || len(entries) != 1 {
 			errs <- fmt.Errorf("initial caller err=%v len=%d", err, len(entries))
 		}
-	}()
+	})
 
 	<-loaderStarted
 	for i := 1; i < numWaiters; i++ {
@@ -137,13 +135,11 @@ func TestSourceScanCache_SharedErrorAndRetry(t *testing.T) {
 	waitersRegistered.Add(numWaiters - 1)
 	errs := make(chan error, numWaiters)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if _, err := loadCachedSourceFiles(uniqueKey, failingLoader); !errors.Is(err, sentinelErr) {
 			errs <- fmt.Errorf("initial caller got %v, want sentinelErr", err)
 		}
-	}()
+	})
 
 	<-loaderStarted
 	for i := 1; i < numWaiters; i++ {
@@ -257,19 +253,17 @@ func TestSourceScanCache_PanicConcurrentWaitersUnblock(t *testing.T) {
 
 	winnerPanicCh := make(chan any, 1)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				winnerPanicCh <- r
 			}
 		}()
 		_, _ = loadCachedSourceFiles(uniqueKey, panickingLoader)
-	}()
+	})
 
 	<-loaderStarted
-	for i := 0; i < numWaiters; i++ {
+	for i := range numWaiters {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -341,28 +335,24 @@ func TestSourceScanCache_LinearizeFailureCompletion(t *testing.T) {
 	waiterRegistered.Add(1)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 
 	// Predecessor (winner)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = loadCachedSourceFiles(uniqueKey, failingLoader)
-	}()
+	})
 
 	// Establish the predecessor before starting a waiter; otherwise the waiter
 	// can win the cache race and never execute its registration callback.
 	<-loaderStarted
-	wg.Add(1)
 
 	// Waiter
 	waiterUnblocked := make(chan struct{})
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = loadCachedSourceFilesWithObserver(uniqueKey, failingLoader, func() {
 			waiterRegistered.Done()
 		})
 		close(waiterUnblocked)
-	}()
+	})
 
 	waiterRegistered.Wait()
 
