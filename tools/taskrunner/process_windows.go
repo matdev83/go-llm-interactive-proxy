@@ -181,6 +181,8 @@ const stillActive = 259
 
 var createRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
 
+const luaToken = 0x4
+
 func newRestrictedProcessToken() (windows.Token, error) {
 	var current windows.Token
 	if err := windows.OpenProcessToken(
@@ -191,17 +193,12 @@ func newRestrictedProcessToken() (windows.Token, error) {
 		return 0, err
 	}
 	defer func() { _ = current.Close() }()
-	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return 0, err
-	}
-	disabled := windows.SIDAndAttributes{Sid: adminSID}
 	var token windows.Token
 	ok, _, callErr := createRestrictedToken.Call(
 		uintptr(current),
+		luaToken,
 		0,
-		1,
-		uintptr(unsafe.Pointer(&disabled)),
+		0,
 		0, 0,
 		0, 0,
 		uintptr(unsafe.Pointer(&token)),
