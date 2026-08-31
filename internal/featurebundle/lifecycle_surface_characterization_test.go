@@ -64,7 +64,7 @@ func TestGeneratedMergeSurface_LifecycleNilSemantics(t *testing.T) {
 		regs := []lipsdk.Registration{
 			{Kind: lipsdk.PluginKindFeature, ID: "nil-feat", FactoryKind: "nil-feat", Enabled: true},
 		}
-		_, gen, err := MergeFeatureSurfacesWithHost(reg, regs, HostContributions{}, bNil2)
+		gen, err := MergeFeatureSurfacesWithHost(reg, regs, HostContributions{}, bNil2)
 		require.NoError(t, err)
 		require.Nil(t, gen.Lifecycles)
 	})

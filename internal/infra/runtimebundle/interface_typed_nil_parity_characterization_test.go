@@ -519,19 +519,19 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		}
 	})
 
-	t.Run("merged_feature_surface_append_preserves_nil_elements_verbatim", func(t *testing.T) {
+	t.Run("merge_bundles_generated_preserves_nil_elements_verbatim", func(t *testing.T) {
 		t.Parallel()
-		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
 			SchemaVersion: lipfeature.SchemaVersionV1,
 			Lifecycles:    []lipplugin.Lifecycle{nil, charStubLifecycle{tag: "l1"}, nil},
 		}
 
-		require.NoError(t, m.Append(b))
-		require.Len(t, m.Lifecycles, 3)
-		assert.Nil(t, m.Lifecycles[0])
-		assert.NotNil(t, m.Lifecycles[1])
-		assert.Nil(t, m.Lifecycles[2])
+		gen, err := featurebundle.MergeBundlesGenerated(b)
+		require.NoError(t, err)
+		require.Len(t, gen.Lifecycles, 3)
+		assert.Nil(t, gen.Lifecycles[0])
+		assert.NotNil(t, gen.Lifecycles[1])
+		assert.Nil(t, gen.Lifecycles[2])
 	})
 
 	t.Run("secret_guards_plane_and_generated_storage_preserves_literal_and_typed_nil_verbatim", func(t *testing.T) {

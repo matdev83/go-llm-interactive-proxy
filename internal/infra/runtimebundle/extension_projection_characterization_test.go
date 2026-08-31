@@ -71,9 +71,9 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-// projMerged builds a merged surface and generated merge surface with one tagged element on the planes the
+// projMerged builds a generated merge surface with one tagged element on the planes the
 // projection tests observe.
-func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
+func projMerged(t *testing.T) featurebundle.GeneratedMergeSurface {
 	t.Helper()
 	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "feat", []toolcall.Finalizer{projFinalizer{id: "finalizer"}}); err != nil {
@@ -90,10 +90,9 @@ func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle
 		}
 		return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feat", []localturn.Handler{wiringHandler{id: "handler", ord: 1}})
 	}, nil)
-	m := featurebundle.MergeBundles(b)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
-	return m, gen
+	return gen
 }
 
 func assertAllSliceFieldsNil(t *testing.T, v any) {
@@ -112,21 +111,20 @@ func assertAllSliceFieldsNil(t *testing.T, v any) {
 
 // Pins exact emptiness transport through extensionsFromMerged: a zero merged
 // surface projects to all-nil slices; populated slices project to equal
-// non-nil copies; hand-built empty non-nil merged slices keep their non-nil
-// emptiness (the defensive copy preserves whatever state exists).
+// non-nil copies.
 func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 	t.Parallel()
 
 	t.Run("zero_merged_surface_projects_all_nil_slices", func(t *testing.T) {
 		t.Parallel()
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
+		ext := extensionsFromMerged(featurebundle.GeneratedMergeSurface{}, nil)
 		assertAllSliceFieldsNil(t, ext)
 	})
 
 	t.Run("populated_merged_projects_equal_non_nil_copies", func(t *testing.T) {
 		t.Parallel()
-		merged, gen := projMerged(t)
-		ext := extensionsFromMerged(merged, gen, nil)
+		gen := projMerged(t)
+		ext := extensionsFromMerged(gen, nil)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers), 1)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers), 1)
 		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
@@ -137,8 +135,7 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 
 	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
 		t.Parallel()
-		merged := featurebundle.MergedFeatureSurface{}
-		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
+		ext := extensionsFromMerged(featurebundle.GeneratedMergeSurface{}, nil)
 		assertAllSliceFieldsNil(t, ext)
 	})
 }
@@ -149,7 +146,7 @@ func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
 func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) {
 	t.Parallel()
 
-	_, gen := projMerged(t)
+	gen := projMerged(t)
 	ltFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
 	require.Len(t, ltFrozen, 1)
 	require.Equal(t, "handler", ltFrozen[0].ID())

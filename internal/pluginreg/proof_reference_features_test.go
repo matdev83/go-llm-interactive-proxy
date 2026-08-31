@@ -63,7 +63,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: empty},
 		})
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

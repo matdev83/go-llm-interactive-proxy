@@ -119,7 +119,7 @@ func TestFeatureBundle_SchemaNegotiation_EmptyBundlesAccepted(t *testing.T) {
 	require.Equal(t, emptyFrozen, genReg.Frozen)
 	require.Empty(t, genReg.Lifecycles)
 
-	_, gHost, errHost := MergeFeatureSurfacesWithHost(reg, regs, HostContributions{}, emptyBundle0, emptyBundleV1)
+	gHost, errHost := MergeFeatureSurfacesWithHost(reg, regs, HostContributions{}, emptyBundle0, emptyBundleV1)
 	require.NoError(t, errHost)
 	require.Equal(t, emptyFrozen, gHost.Frozen)
 	require.Empty(t, gHost.Lifecycles)
@@ -237,7 +237,7 @@ func TestFeatureBundle_SchemaNegotiation_PreserveBundleOrderAndLifecycles(t *tes
 		UsageObservers:   []usage.Observer{schemaTestUsageObserver{tag: "host-uo"}},
 	}
 
-	_, gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, bCand)
+	gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, bCand)
 	require.NoError(t, err)
 
 	// Check hook order: hook-A, hook-B, hook-cand

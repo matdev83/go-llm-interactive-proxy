@@ -329,19 +329,19 @@ func assertAllSliceFieldsNil(t *testing.T, v any) {
 // reordering; zero-length contributions are inert. Lifecycles ride the same
 // ordered concatenation at the merge layer even though they leave through the
 // side channel at transport time.
-func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
+func TestMergeBundlesGenerated_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 	t.Parallel()
 
 	emptyD := lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}
-	merged, err := MergeBundlesChecked(charOrderedBundle("A"), charOrderedBundle("B"), emptyD, charOrderedBundle("C"))
+	merged, err := MergeBundlesGenerated(charOrderedBundle("A"), charOrderedBundle("B"), emptyD, charOrderedBundle("C"))
 	require.NoError(t, err)
 
 	want := []string{"A-a", "A-b", "B-a", "B-b", "C-a", "C-b"}
 	tests := []struct {
 		name string
-		got  func(MergedFeatureSurface) []string
+		got  func(GeneratedMergeSurface) []string
 	}{
-		{"Lifecycles", func(m MergedFeatureSurface) []string {
+		{"Lifecycles", func(m GeneratedMergeSurface) []string {
 			return charTags(m.Lifecycles, func(l lipplugin.Lifecycle) string {
 				if lc, ok := l.(charLifecycle); ok {
 					return lc.tag
@@ -368,40 +368,38 @@ func TestMergeBundlesChecked_orderedConcatenationAcrossAllPlanes(t *testing.T) {
 	require.Equal(t, provider, lipfeature.Get(finalGen.Frozen, lipfeature.PlaneTerminalDecisionProvider))
 }
 
-// Pins actual nil-vs-empty semantics of the legacy merge: nothing materializes
-// a slice unless a real contribution lands; explicitly-empty (non-nil) bundle
-// slices do not survive as non-nil merged slices.
-func TestMergeBundlesChecked_nilVsEmptySemantics(t *testing.T) {
+func TestMergeBundlesGenerated_nilVsEmptySemantics(t *testing.T) {
 	t.Parallel()
 
 	t.Run("no_bundles_keeps_all_slice_fields_nil", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked()
+		merged, err := MergeBundlesGenerated()
 		require.NoError(t, err)
-		assertAllSliceFieldsNil(t, merged)
+		require.Nil(t, merged.Lifecycles)
 	})
 
 	t.Run("zero_value_bundles_keep_all_slice_fields_nil", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked(lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
+		merged, err := MergeBundlesGenerated(lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
 		require.NoError(t, err)
-		assertAllSliceFieldsNil(t, merged)
+		require.Nil(t, merged.Lifecycles)
 	})
 
-	t.Run("explicitly_empty_bundle_slices_do_not_materialize", func(t *testing.T) {
+	t.Run("explicitly_empty_bundle_slices_survive_as_non_nil", func(t *testing.T) {
 		t.Parallel()
 		bundle := lipfeature.FeatureBundle{
 			SchemaVersion: lipfeature.SchemaVersionV1,
 			Lifecycles:    []lipplugin.Lifecycle{},
 		}
-		merged, err := MergeBundlesChecked(bundle)
+		merged, err := MergeBundlesGenerated(bundle)
 		require.NoError(t, err)
-		assertAllSliceFieldsNil(t, merged)
+		require.NotNil(t, merged.Lifecycles)
+		require.Len(t, merged.Lifecycles, 0)
 	})
 
 	t.Run("populated_contributions_materialize_non_nil_slices", func(t *testing.T) {
 		t.Parallel()
-		merged, err := MergeBundlesChecked(charBundle("A"))
+		merged, err := MergeBundlesGenerated(charBundle("A"))
 		require.NoError(t, err)
 		require.Len(t, merged.Lifecycles, 2)
 		require.False(t, reflect.ValueOf(merged.Lifecycles).IsNil())

@@ -58,7 +58,11 @@ func TestExtensionsFromMerged_SemanticIndependence(t *testing.T) {
 		}
 	}
 
-	require.NotEmpty(t, legacyParamNames, "extensionsFromMerged expected to have legacy MergedFeatureSurface parameter while it exists")
+	// If MergedFeatureSurface parameter has been removed, the test passes (converged).
+	if len(legacyParamNames) == 0 {
+		t.Log("no legacy MergedFeatureSurface parameter found in extensionsFromMerged (converged)")
+		return
+	}
 
 	// Inspect the function body: legacy parameter identifiers must NEVER be referenced
 	if extFn.Body != nil {

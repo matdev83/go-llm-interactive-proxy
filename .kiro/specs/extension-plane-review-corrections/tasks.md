@@ -95,7 +95,7 @@
   - _Validation: go test -count=1 ./internal/archtest && make arch-report_
 
 - [ ] 4. Remove lifecycle-only legacy merge compatibility
-- [ ] 4.1 Simplify feature assembly to one generated surface
+- [x] 4.1 Simplify feature assembly to one generated surface
   - Remove the lifecycle-only legacy surface, append path, checked/unchecked legacy bundle merges, generated-to-legacy projections, and dual-return merge APIs.
   - Retain registry bundle construction, registered-feature then host then candidate ordering, generated frozen state, and ordered lifecycles.
   - Preserve zero-surface rollback on bundle, host, candidate, validation, and conflict failures.

@@ -143,7 +143,7 @@ func TestMergeFeatureSurface_concatCompletionGates(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
@@ -174,7 +174,7 @@ func TestMergeFeatureSurface_concatOpenersAndResolvers(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
@@ -206,7 +206,7 @@ func TestMergeFeatureSurface_concatCatalogAndTransforms(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
@@ -235,7 +235,7 @@ func TestMergeFeatureSurface_concatRouteHints(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "i1", FactoryKind: fac, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})
 	if err != nil {
@@ -298,7 +298,7 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, []lipsdk.Registration{
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "en-a", FactoryKind: facPol, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "dis", FactoryKind: facPanic, Enabled: false, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "en-b", FactoryKind: facUsage, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
@@ -335,7 +335,7 @@ func TestMergeFeatureSurface_ignoresExplicitOtherFactoryEvenWhenIDMatches(t *tes
 	regs := []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "secrets-guard", FactoryKind: "other-feature", Enabled: true, Config: lipsdk.ConfigPayload{Node: yaml.Node{}}},
 	}
-	_, gen, err := featurebundle.MergeFeatureSurfaces(reg, regs)
+	gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

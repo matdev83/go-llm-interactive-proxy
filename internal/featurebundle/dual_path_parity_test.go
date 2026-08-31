@@ -316,7 +316,7 @@ func TestPlaneParity_DualPathOrderedConcatenation(t *testing.T) {
 	bB := makeParityBundle("B", false)
 	bC := makeParityBundle("C", false)
 
-	planeparity.AssertDualPathParity(t, bA, bB, bC)
+	planeparity.AssertGeneratedSurfaceInvariants(t, bA, bB, bC)
 }
 
 func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
@@ -324,12 +324,12 @@ func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
 
 	t.Run("nil_bundles", func(t *testing.T) {
 		t.Parallel()
-		planeparity.AssertDualPathParity(t)
+		planeparity.AssertGeneratedSurfaceInvariants(t)
 	})
 
 	t.Run("zero_value_bundles", func(t *testing.T) {
 		t.Parallel()
-		planeparity.AssertDualPathParity(t, lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
+		planeparity.AssertGeneratedSurfaceInvariants(t, lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
 	})
 
 	t.Run("explicitly_empty_slices", func(t *testing.T) {
@@ -359,7 +359,7 @@ func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "p", []secretguard.Guard{})
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "p", []localturn.Handler{})
 		})
-		planeparity.AssertDualPathParity(t, emptyBundle)
+		planeparity.AssertGeneratedSurfaceInvariants(t, emptyBundle)
 	})
 }
 
@@ -408,7 +408,7 @@ func TestPlaneParity_DualPathScalarMinReduction(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			planeparity.AssertDualPathParity(t, tc.bundles...)
+			planeparity.AssertGeneratedSurfaceInvariants(t, tc.bundles...)
 		})
 	}
 }
@@ -425,7 +425,7 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p", []sdkhooks.SubmitHook{paritySubmitHook{tag: "h1"}})
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
 		})
-		planeparity.AssertDualPathParity(t, b)
+		planeparity.AssertGeneratedSurfaceInvariants(t, b)
 	})
 
 	t.Run("distinct_providers_conflict", func(t *testing.T) {
@@ -522,7 +522,7 @@ func TestPlaneParity_DualPathLifecycleSideChannel(t *testing.T) {
 		Lifecycles:    []lipplugin.Lifecycle{parityLifecycle{tag: "life-C1"}, parityLifecycle{tag: "life-C2"}},
 	}
 
-	planeparity.AssertDualPathParity(t, bA, bB, bC)
+	planeparity.AssertGeneratedSurfaceInvariants(t, bA, bB, bC)
 }
 
 func TestPlaneParity_DualPathInvalidSliceItems(t *testing.T) {
@@ -608,17 +608,10 @@ func TestPlaneParity_DualPathMergeFeatureSurfaceWithRegistry(t *testing.T) {
 		},
 	}
 
-	legacy, errLegacy := featurebundle.MergeFeatureSurface(reg, registrations)
-	require.NoError(t, errLegacy)
-
 	gen, errGen := featurebundle.MergeFeatureSurfaceGenerated(reg, registrations)
 	require.NoError(t, errGen)
-
-	planeparity.AssertMergedSurfacesEqual(t, legacy, gen)
-
-	viaGen, errViaGen := featurebundle.MergeFeatureSurfaceViaGenerated(reg, registrations)
-	require.NoError(t, errViaGen)
-	require.Equal(t, legacy, viaGen)
+	require.Len(t, gen.Lifecycles, 2)
+	require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks), 2)
 }
 
 type trackingSubmitHook struct {
@@ -744,7 +737,7 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		planeparity.AssertDualPathParity(t, b1, b2, b3)
+		planeparity.AssertGeneratedSurfaceInvariants(t, b1, b2, b3)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -956,7 +949,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		planeparity.AssertDualPathParity(t, b1, b2, b3)
+		planeparity.AssertGeneratedSurfaceInvariants(t, b1, b2, b3)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)

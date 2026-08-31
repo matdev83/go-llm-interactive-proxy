@@ -71,7 +71,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		if catalog == nil {
 			catalog = opts.PluginRegistry
 		}
-		_, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(catalog, config.RegistrationsFromConfig(cfg), host)
+		genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(catalog, config.RegistrationsFromConfig(cfg), host)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 		}
