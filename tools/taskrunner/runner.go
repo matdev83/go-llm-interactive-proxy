@@ -62,6 +62,9 @@ type Result struct {
 	Label           string
 	Dir             string
 	DurationClass   string
+	Elapsed         time.Duration
+	Accounting      ProcessAccounting
+	AccountingErr   error
 	Stdout          []byte
 	Stderr          []byte
 	StdoutTruncated bool
@@ -77,9 +80,14 @@ const (
 	defaultTail        = 32 * 1024
 )
 
-func Run(ctx context.Context, req Request) Result {
+func Run(ctx context.Context, req Request) (result Result) {
 	started := time.Now()
-	result := Result{Label: req.Label}
+	result = Result{Label: req.Label}
+	defer func() {
+		if result.Elapsed == 0 {
+			result.Elapsed = time.Since(started)
+		}
+	}()
 	if ctx == nil {
 		return invalid(result, "nil caller context")
 	}
@@ -298,6 +306,7 @@ func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, 
 	if stderr != nil {
 		_ = stderr.Close()
 	}
+	result.Accounting, result.AccountingErr = adapter.accounting()
 	if closeErr := adapter.close(); closeErr != nil && result.Cleanup.Err == nil {
 		result.Cleanup.Err = closeErr
 	}
@@ -316,7 +325,8 @@ func waitForProcess(ctx context.Context, cmd *exec.Cmd, adapter processAdapter, 
 	if result.Cleanup.Err != nil && result.Kind == Success {
 		result.Kind = CleanupFailure
 	}
-	result.DurationClass = durationClass(time.Since(started), timeout)
+	result.Elapsed = time.Since(started)
+	result.DurationClass = durationClass(result.Elapsed, timeout)
 	return result
 }
 

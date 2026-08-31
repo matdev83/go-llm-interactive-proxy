@@ -1,0 +1,41 @@
+//go:build windows
+
+package taskrunner
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestRunner_WindowsJobAccountingIncludesDescendants(t *testing.T) {
+	ioFile := filepath.Join(t.TempDir(), "child-io.bin")
+	result := Run(context.Background(), Request{
+		Argv:    []string{buildHelper(t), "-mode=accounting-tree", "-io-file", ioFile},
+		Timeout: 30 * time.Second,
+		Output:  Capture,
+	})
+	if result.Kind != Success {
+		t.Fatalf("result = %#v", result)
+	}
+	if !result.Accounting.Supported {
+		t.Fatal("Windows Job Object accounting is unsupported")
+	}
+	if result.Accounting.TotalProcesses < 2 {
+		t.Fatalf("total processes = %d, want root plus child", result.Accounting.TotalProcesses)
+	}
+	if result.Accounting.TotalCPUNanos <= 0 {
+		t.Fatalf("total CPU nanos = %d, want positive descendant-inclusive CPU", result.Accounting.TotalCPUNanos)
+	}
+	operations := result.Accounting.ReadOperations + result.Accounting.WriteOperations + result.Accounting.OtherOperations
+	if operations == 0 {
+		t.Fatal("I/O operations = 0, want descendant-inclusive I/O")
+	}
+	if result.Elapsed <= 0 {
+		t.Fatalf("elapsed = %s, want positive duration", result.Elapsed)
+	}
+	if result.AccountingErr != nil {
+		t.Fatalf("accounting error: %v", result.AccountingErr)
+	}
+}

@@ -23,6 +23,22 @@ type windowsProcess struct {
 	killErr  error
 }
 
+type jobObjectBasicAccountingInformation struct {
+	TotalUserTime             int64
+	TotalKernelTime           int64
+	ThisPeriodTotalUserTime   int64
+	ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount       uint32
+	TotalProcesses            uint32
+	ActiveProcesses           uint32
+	TotalTerminatedProcesses  uint32
+}
+
+type jobObjectBasicAndIOAccountingInformation struct {
+	BasicInfo jobObjectBasicAccountingInformation
+	IOInfo    windows.IO_COUNTERS
+}
+
 func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -88,6 +104,37 @@ func (p *windowsProcess) kill() error {
 		p.killErr = p.killDirect()
 	})
 	return p.killErr
+}
+
+func (p *windowsProcess) accounting() (ProcessAccounting, error) {
+	var info jobObjectBasicAndIOAccountingInformation
+	if err := windows.QueryInformationJobObject(
+		p.job,
+		windows.JobObjectBasicAndIoAccountingInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+		nil,
+	); err != nil {
+		return ProcessAccounting{Supported: true}, fmt.Errorf("query job object accounting: %w", err)
+	}
+	userNanos := info.BasicInfo.TotalUserTime * 100
+	kernelNanos := info.BasicInfo.TotalKernelTime * 100
+	return ProcessAccounting{
+		Supported:           true,
+		UserCPUNanos:        userNanos,
+		KernelCPUNanos:      kernelNanos,
+		TotalCPUNanos:       userNanos + kernelNanos,
+		TotalProcesses:      info.BasicInfo.TotalProcesses,
+		ActiveProcesses:     info.BasicInfo.ActiveProcesses,
+		TerminatedProcesses: info.BasicInfo.TotalTerminatedProcesses,
+		PageFaults:          info.BasicInfo.TotalPageFaultCount,
+		ReadOperations:      info.IOInfo.ReadOperationCount,
+		WriteOperations:     info.IOInfo.WriteOperationCount,
+		OtherOperations:     info.IOInfo.OtherOperationCount,
+		ReadBytes:           info.IOInfo.ReadTransferCount,
+		WriteBytes:          info.IOInfo.WriteTransferCount,
+		OtherBytes:          info.IOInfo.OtherTransferCount,
+	}, nil
 }
 
 func (p *windowsProcess) close() error {
