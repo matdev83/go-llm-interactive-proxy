@@ -146,10 +146,10 @@ func TestGenerationDispatcher_CoexistOldNewHandlers(t *testing.T) {
 
 	bodyOld := postPlaneResponses(t, lease.Handler(), "stub-default")
 	bodyNew := postPlaneResponses(t, disp, "stub-default")
-	if !strings.Contains(bodyOld, "OLD") || strings.Contains(bodyOld, "NEW") {
+	if !strings.Contains(bodyOld, `"text":"OLD"`) || strings.Contains(bodyOld, `"text":"NEW"`) {
 		t.Fatalf("old=%s", bodyOld)
 	}
-	if !strings.Contains(bodyNew, "NEW") || strings.Contains(bodyNew, "OLD") {
+	if !strings.Contains(bodyNew, `"text":"NEW"`) || strings.Contains(bodyNew, `"text":"OLD"`) {
 		t.Fatalf("new=%s", bodyNew)
 	}
 }

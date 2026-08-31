@@ -271,6 +271,11 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if strings.Contains(script, `"add", "-A"`) || strings.Contains(script, `"add", "."`) {
 		t.Fatal("anchor compatibility commit must not stage unrelated checkout conversions")
 	}
+	for _, shortTempRoot := range []string{`("a-" + $runID.Substring(0, 8))`, `("h-" + $runID.Substring(0, 8))`} {
+		if !strings.Contains(script, shortTempRoot) {
+			t.Fatalf("isolated measurement temp roots must stay short enough for Windows image paths: %q", shortTempRoot)
+		}
+	}
 	compatibilityStart := strings.Index(script, "$compatibilityPaths = @(")
 	if compatibilityStart < 0 {
 		t.Fatal("anchor compatibility paths must be declared explicitly")
@@ -286,6 +291,13 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	} {
 		if !strings.Contains(compatibilityBlock, compatibilityPath) {
 			t.Fatalf("anchor compatibility paths must remain explicit: %q", compatibilityPath)
+		}
+	}
+	for _, loadCompatibilityPath := range []string{
+		"internal/stdhttp/request_plane_generation_test.go",
+	} {
+		if !strings.Contains(script, loadCompatibilityPath) {
+			t.Fatalf("anchor load compatibility must remain test-only and explicit: %q", loadCompatibilityPath)
 		}
 	}
 	for _, forbiddenPath := range []string{

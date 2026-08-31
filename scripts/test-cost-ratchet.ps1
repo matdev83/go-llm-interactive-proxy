@@ -178,7 +178,7 @@ function Get-EffectiveOutputRoot {
     )
 
     if ([string]::IsNullOrWhiteSpace($Requested)) {
-        $name = "golip-test-cost-ratchet-" + [Guid]::NewGuid().ToString("N")
+        $name = "ltc-" + [Guid]::NewGuid().ToString("N").Substring(0, 8)
         return [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) $name))
     }
     return Convert-ToAbsolutePath $Requested $RepositoryRoot
@@ -311,6 +311,16 @@ function Apply-AnchorCompatibilityPatch {
         }
     }
 
+    # The pinned anchor predates Windows load-stability fixes needed when its
+    # full suite runs under the ratchet. Keep this compatibility surface
+    # test-only and explicit; production sources still come from the anchor.
+    $loadCompatibilityPaths = @(
+        "internal/stdhttp/request_plane_generation_test.go"
+    )
+    foreach ($relativePath in $loadCompatibilityPaths) {
+        Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
+    }
+
     # Stage only the files intentionally changed by this compatibility patch.
     # The anchor is created with autocrlf disabled below; keeping this list
     # explicit also prevents a future checkout conversion from entering the
@@ -319,6 +329,7 @@ function Apply-AnchorCompatibilityPatch {
         "internal/testkit/dbparity/cmd/main_test.go",
         "internal/testkit/postgres_makefile_gate_test.go"
     )
+    $compatibilityPaths += $loadCompatibilityPaths
     Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $compatibilityPaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
@@ -477,8 +488,8 @@ $runID = [Guid]::NewGuid().ToString("N")
 # Keep the checkout path short: the pinned anchor contains tracked paths that
 # exceed legacy Win32 MAX_PATH when nested under a long runner TEMP directory.
 $anchorRoot = Join-Path (Split-Path -Parent $RepositoryRoot) ("lip-testcost-anchor-" + $runID.Substring(0, 8))
-$anchorTempRoot = Join-Path $EffectiveOutputRoot ("temp-anchor-" + $runID)
-$headTempRoot = Join-Path $EffectiveOutputRoot ("temp-head-" + $runID)
+$anchorTempRoot = Join-Path $EffectiveOutputRoot ("a-" + $runID.Substring(0, 8))
+$headTempRoot = Join-Path $EffectiveOutputRoot ("h-" + $runID.Substring(0, 8))
 if (Test-Path -LiteralPath $anchorRoot) {
     throw "refusing to use existing anchor worktree path: $anchorRoot"
 }
