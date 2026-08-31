@@ -1,6 +1,7 @@
 package qa
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -207,5 +208,115 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 				t.Errorf("%s cache-dependency-path missing %q", name, needle)
 			}
 		}
+	}
+}
+
+func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepositoryFile(t, "Makefile")
+	if !strings.Contains(strings.SplitN(makefile, "\n", 2)[0], "test-cost") {
+		t.Fatal("Makefile .PHONY declaration must include test-cost")
+	}
+	for _, needle := range []string{
+		"TEST_COST_BASE_SHA ?=",
+		"TEST_COST_OUTPUT_ROOT ?=",
+		"TEST_COST_PARALLEL ?= 0",
+		"make test-cost",
+		"Windows-authoritative",
+	} {
+		if !strings.Contains(makefile, needle) {
+			t.Fatalf("Makefile missing test-cost interface/help contract %q", needle)
+		}
+	}
+	target := makeTargetBlock(makefile, "test-cost")
+	for _, needle := range []string{
+		"test-cost:",
+		"ifeq ($(OS),Windows_NT)",
+		"scripts/test-cost-ratchet.ps1",
+		"-BaseSHA",
+		"-OutputRoot",
+		"-Parallel",
+		"Windows-only",
+		"exit 1",
+	} {
+		if !strings.Contains(target, needle) {
+			t.Fatalf("test-cost target missing contract %q", needle)
+		}
+	}
+	if strings.Contains(makeTargetBlock(makefile, "test"), "test-cost") {
+		t.Fatal("test-cost must remain opt-in, not a make test prerequisite")
+	}
+
+	script := readRepositoryFile(t, "scripts", "test-cost-ratchet.ps1")
+	for _, needle := range []string{
+		"function Test-IsWindows",
+		"if (-not (Test-IsWindows))",
+		"$Targets = @(\"test-unit\", \"quality-checks\")",
+		"-count=1",
+		"LIP_ALLOW_TEST_COST_GROWTH",
+		"worktree\", \"add\", \"--detach\"",
+		"worktree\", \"remove\", \"--force\"",
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("test-cost-ratchet script missing contract %q", needle)
+		}
+	}
+
+	var policy struct {
+		SchemaVersion int                        `json:"schema_version"`
+		AnchorRef     string                     `json:"anchor_ref"`
+		Targets       map[string]json.RawMessage `json:"targets"`
+	}
+	policyBytes := []byte(readRepositoryFile(t, "scripts", "test-cost-budget.json"))
+	if err := json.Unmarshal(policyBytes, &policy); err != nil {
+		t.Fatalf("test-cost policy must be valid JSON: %v", err)
+	}
+	if policy.SchemaVersion != 1 || strings.TrimSpace(policy.AnchorRef) == "" {
+		t.Fatalf("test-cost policy must declare schema_version=1 and a non-empty anchor_ref: %#v", policy)
+	}
+	for _, targetName := range []string{"test-unit", "quality-checks"} {
+		if _, ok := policy.Targets[targetName]; !ok {
+			t.Fatalf("test-cost policy missing authoritative target %q", targetName)
+		}
+	}
+
+	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
+	for _, needle := range []string{
+		"types: [opened, synchronize, reopened, labeled]",
+		"github.event.pull_request.base.sha",
+		"github.head_ref || github.ref_name",
+		"- os: ubuntu-latest",
+		"- os: windows-latest",
+		"- os: macos-latest",
+		"go test -timeout=8m ${{ matrix.packages }}",
+		"- name: Windows test-cost ratchet",
+		"matrix.os == 'windows-latest'",
+		"allow-test-cost-growth",
+		"-BaseSHA \"${{ github.event.pull_request.base.sha }}\"",
+	} {
+		if !strings.Contains(ci, needle) {
+			t.Fatalf("CI workflow missing test-cost/iteration-speed contract %q", needle)
+		}
+	}
+	if !strings.Contains(ci, "matrix.os != 'windows-latest'") {
+		t.Fatal("portable fast unit tests must be explicitly scoped to Linux/macOS")
+	}
+	windowsRow := strings.Index(ci, "- os: windows-latest")
+	macRow := strings.Index(ci, "- os: macos-latest")
+	if windowsRow < 0 || macRow < windowsRow {
+		t.Fatal("CI matrix must retain a Windows row before the macOS row")
+	}
+	if strings.Contains(ci[windowsRow:macRow], "cmd/lipstd") {
+		t.Fatal("Windows test-cost row must not silently inherit the portable cmd/lipstd fast-unit package")
+	}
+	fastUnit := strings.Index(ci, "- name: Fast unit tests")
+	ratchet := strings.Index(ci, "- name: Windows test-cost ratchet")
+	if fastUnit < 0 || ratchet < 0 || fastUnit >= ratchet {
+		t.Fatal("CI must place the portable Linux/macOS fast-unit step before the Windows authoritative ratchet")
+	}
+	fastUnitBlock := ci[fastUnit:ratchet]
+	if strings.Contains(fastUnitBlock, "continue-on-error") || strings.Contains(fastUnitBlock, "runner.os !=") {
+		t.Fatal("CI must not bypass the portable fast-unit contract on Windows through a soft-failure condition")
 	}
 }

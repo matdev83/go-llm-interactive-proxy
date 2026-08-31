@@ -9,6 +9,14 @@
 
 ---
 
+## Test-Cost and Iteration-Speed Policy
+
+- Keep an explicit architectural/test-cost budget: default tests must stay narrow and cheap. Do not add recursive repository-wide test invocations when a package, cached scope, or focused contract proves the invariant.
+- Architecture checks share a cached loader; reusable test executables are compiled once and invoked for their intended checks rather than rebuilt by each consumer.
+- Prefer in-memory databases unless a test proves durability or reopen behavior; use fake clocks (and deterministic IDs/stores) for time- or randomness-dependent tests.
+- Before an intentionally expensive test-infrastructure change, run the Windows-authoritative `make test-cost` ratchet and include its evidence with the change.
+- `allow-test-cost-growth` is a maintainer-only label for an authorized policy update; it never bypasses the Windows measurement or comparison.
+
 ## Build Tag & Environment Gating Rules
 
 - **Default `make test-unit` vs `make test`**:
@@ -28,6 +36,7 @@
 - **PR CI & Hygiene Integration**:
   - CI job `db-parity` in `.github/workflows/ci.yml` starts an ephemeral direct PostgreSQL container (`postgres:17-alpine`), runs canonical `make test-db-parity` for test-relevant changes, emits an explicit bypass for changes classified as non-test-relevant by `scripts/ci-scope.sh`, and feeds into the required `repo-hygiene` aggregate status check (`if: always() && needs.db-parity.result != 'success'`).
   - PR QA in `.github/workflows/qa.yml` runs fast preflight, hygiene, provider profile ratchet, vet, and architecture guardrails; it does not run full tagged integration or postgres authority suites.
+  - The Windows-only `make test-cost` target is the authoritative, opt-in comparison of `test-unit` and `quality-checks` against `scripts/test-cost-budget.json`; it must not be a prerequisite of `make test`. CI passes the PR base SHA and runs the ratchet only on the Windows matrix leg.
 
 ---
 

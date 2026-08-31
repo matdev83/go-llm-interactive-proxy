@@ -162,8 +162,18 @@ jobs:
           echo "CI scope detection failed; refusing to bypass required evidence." >&2
           exit 1
 
+      # The Windows ratchet checks out the complete history because its policy
+      # anchor may predate the PR base. Keep the portable package matrix on the
+      # normal shallow checkout so Linux/macOS do not pay that cost.
+      - name: Check out repository (Windows test-cost history)
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os != 'windows-latest'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -204,11 +214,25 @@ jobs:
             setup-go-
 
       - name: Fast unit tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os != 'windows-latest'
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
+
+      - name: Windows test-cost ratchet
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          # A labeled PR may authorize a ratchet update, but the orchestrator
+          # still measures and reports both targets under the override.
+          LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP "golip-test-cost-ratchet"
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test-cost-ratchet.ps1 `
+            -BaseSHA "${{ github.event.pull_request.base.sha }}" `
+            -OutputRoot $outputRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -224,6 +248,15 @@ jobs:
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
           key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Upload Windows test-cost artifacts
+        if: always() && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-test-cost
+          path: ${{ runner.temp }}/golip-test-cost-ratchet
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

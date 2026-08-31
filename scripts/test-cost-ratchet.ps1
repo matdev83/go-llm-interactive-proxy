@@ -63,8 +63,14 @@ function Get-GitText {
 function Invoke-GitChecked {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $output = @(& git @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& git @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     foreach ($line in $output) {
         Write-Host $line
     }
@@ -217,8 +223,14 @@ function Invoke-External {
         $env:TMP = $TempRoot
         Push-Location -LiteralPath $WorkingDirectory
         try {
-            $output = @(& $FilePath @Arguments 2>&1)
-            $exitCode = $LASTEXITCODE
+            $previousPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = "Continue"
+                $output = @(& $FilePath @Arguments 2>&1)
+                $exitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $previousPreference
+            }
             foreach ($line in $output) {
                 Write-Host $line
             }
@@ -267,6 +279,53 @@ function Warm-Tree {
     # Keep this exact no-test warm-up separate from measured runs so the
     # anchor/head pair starts with the same compile cache shape.
     Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
+}
+
+function Apply-AnchorCompatibilityPatch {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$AnchorRoot,
+        [Parameter(Mandatory = $true)][string]$AnchorCommit
+    )
+
+    $bootstrapAnchor = "a7a00cedddc4e49d7f96502ee28a6ea1d9603315"
+    if ($AnchorCommit -ne $bootstrapAnchor) {
+        return
+    }
+
+    # PR #553's merge commit renamed the representative parity component in
+    # the catalog but retained two stale test-only selectors. PR #555 corrected
+    # only those selectors. Apply that correction to a temporary commit so the
+    # pinned anchor can execute and remains clean for quality-check scope.
+    Write-Host "Anchor compatibility: applying the PR #555 test-selector correction to pinned PR #553 anchor" -ForegroundColor Yellow
+    $correctionCommit = "1f69c577983cd60b03120ae855bc215e8e5138af"
+    $null = Resolve-Commit $RepositoryRoot $correctionCommit "anchor compatibility correction"
+    $patchText = Get-GitText @(
+        "-C", $RepositoryRoot, "diff", $bootstrapAnchor, $correctionCommit, "--",
+        "internal/testkit/dbparity/cmd/main_test.go",
+        "internal/testkit/postgres_makefile_gate_test.go"
+    )
+    if ([string]::IsNullOrWhiteSpace($patchText)) {
+        throw "anchor compatibility correction produced an empty patch"
+    }
+    $patchPath = Join-Path ([IO.Path]::GetTempPath()) ("lip-testcost-anchor-compat-" + [Guid]::NewGuid().ToString("N") + ".patch")
+    try {
+        [IO.File]::WriteAllText($patchPath, $patchText + "`n", [Text.UTF8Encoding]::new($false))
+        Invoke-GitChecked @("-C", $AnchorRoot, "apply", "--check", $patchPath)
+        Invoke-GitChecked @("-C", $AnchorRoot, "apply", $patchPath)
+    } finally {
+        Remove-Item -LiteralPath $patchPath -Force -ErrorAction SilentlyContinue
+    }
+    Invoke-GitChecked @("-C", $AnchorRoot, "diff", "--check")
+    Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", "internal/testkit/dbparity/cmd/main_test.go", "internal/testkit/postgres_makefile_gate_test.go")
+    Invoke-GitChecked @(
+        "-C", $AnchorRoot,
+        "-c", "user.name=Go-LIP test-cost ratchet",
+        "-c", "user.email=test-cost-ratchet@invalid.local",
+        "-c", "commit.gpgsign=false",
+        "commit", "-m", "test: make pinned performance anchor executable"
+    )
+    Test-CleanCheckout $AnchorRoot
 }
 
 function Build-TestCostBinary {
@@ -353,8 +412,8 @@ function Compare-TreePair {
 function Write-FinalTables {
     param(
         [Parameter(Mandatory = $true)][string]$OutputRoot,
-        [Parameter(Mandatory = $true)][object[]]$Measurements,
-        [Parameter(Mandatory = $true)][object[]]$Comparisons
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Measurements,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Comparisons
     )
 
     Write-Host ""
@@ -413,7 +472,9 @@ $binaryRoot = Join-Path $EffectiveOutputRoot "binaries"
 New-Item -ItemType Directory -Path $measurementRoot, $reportRoot, $binaryRoot -Force | Out-Null
 
 $runID = [Guid]::NewGuid().ToString("N")
-$anchorRoot = Join-Path $EffectiveOutputRoot ("anchor-worktree-" + $runID)
+# Keep the checkout path short: the pinned anchor contains tracked paths that
+# exceed legacy Win32 MAX_PATH when nested under a long runner TEMP directory.
+$anchorRoot = Join-Path (Split-Path -Parent $RepositoryRoot) ("lip-testcost-anchor-" + $runID.Substring(0, 8))
 $anchorTempRoot = Join-Path $EffectiveOutputRoot ("temp-anchor-" + $runID)
 $headTempRoot = Join-Path $EffectiveOutputRoot ("temp-head-" + $runID)
 if (Test-Path -LiteralPath $anchorRoot) {
@@ -433,6 +494,7 @@ try {
     # remains the head, so its caller-owned worktree is never removed.
     Invoke-GitChecked @("-C", $RepositoryRoot, "worktree", "add", "--detach", $anchorRoot, $AnchorCommit)
     $anchorCreated = $true
+    Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
 
     # The committed anchor predates the ratchet tool itself. Build the neutral
     # measurement wrapper once from head, then point it at each source tree.

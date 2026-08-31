@@ -25,8 +25,7 @@
       "cpu": { "ratio": 1.30, "delta_seconds": 5 },
       "processes": { "ratio": 1.15, "delta": 6 },
       "io_operations": { "ratio": 1.40, "delta": 7500 },
-      "wall": { "ratio": 1.50, "delta_seconds": 10 },
-      "packages": {}
+      "wall": { "ratio": 1.50, "delta_seconds": 10 }
     }
   }
 }
