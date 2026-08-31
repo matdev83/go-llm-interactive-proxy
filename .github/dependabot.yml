@@ -8,11 +8,14 @@ updates:
     directories:
       - /
       - /testdata/enterprise_module
+      - /testdata/external_connector
       - /connector-support/acp
       - /connector-support/openaicompat
       - /connectors/acp
       - /connectors/agycliacp
       - /connectors/codex
+      - /connectors/commandcode-anthropic
+      - /connectors/commandcode-openai
       - /connectors/cursorcliacp
       - /connectors/cursorsdk
       - /connectors/geminicliacp
