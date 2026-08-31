@@ -110,7 +110,7 @@ func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransfo
 	return b
 }
 
-// wireMergedAttemptSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
+// wireMergedAttemptSurface mirrors bootstrap: MergeBundlesGenerated + SnapshotOptions contribution.
 func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
 	gen, err := featurebundle.MergeBundlesGenerated(bundle)

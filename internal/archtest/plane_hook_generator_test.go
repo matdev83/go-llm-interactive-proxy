@@ -68,6 +68,7 @@ func hookGenExprToString(expr ast.Expr) string {
 }
 
 func hookGenAssertStructFields(t *testing.T, st *ast.StructType, expected []hookGenExpectedField) {
+	t.Helper()
 	require.NotNil(t, st, "HookConfig struct must not be nil")
 	require.NotNil(t, st.Fields, "HookConfig struct fields must not be nil")
 	require.Equal(t, len(expected), len(st.Fields.List), "field count mismatch")
@@ -95,6 +96,7 @@ func hookGenAssertStructFields(t *testing.T, st *ast.StructType, expected []hook
 }
 
 func hookGenAssertProjectHookConfigSignature(t *testing.T, fn *ast.FuncDecl, expectedPolicyPkg string) {
+	t.Helper()
 	require.NotNil(t, fn, "ProjectHookConfig must be declared")
 	require.Nil(t, fn.Recv, "ProjectHookConfig must be package-level")
 	require.NotNil(t, fn.Type, "signature type required")
@@ -123,6 +125,7 @@ func hookGenAssertProjectHookConfigSignature(t *testing.T, fn *ast.FuncDecl, exp
 }
 
 func hookGenExtractReturnHookConfigLit(t *testing.T, fn *ast.FuncDecl) *ast.CompositeLit {
+	t.Helper()
 	require.NotNil(t, fn)
 	require.NotNil(t, fn.Body)
 	require.Len(t, fn.Body.List, 1)
@@ -138,6 +141,7 @@ func hookGenExtractReturnHookConfigLit(t *testing.T, fn *ast.FuncDecl) *ast.Comp
 }
 
 func hookGenAssertHookConfigLiteral(t *testing.T, comp *ast.CompositeLit, expectedOrder []hookGenExpectedKV) {
+	t.Helper()
 	require.NotNil(t, comp)
 	expectedTotal := len(expectedOrder) + 1
 	require.Equal(t, expectedTotal, len(comp.Elts), "literal element count mismatch")

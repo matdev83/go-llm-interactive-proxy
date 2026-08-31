@@ -1,11 +1,12 @@
 package archtest
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -56,7 +57,7 @@ type MirrorShapeKind string
 
 const (
 	MirrorFeatureBundleField          MirrorShapeKind = "FeatureBundleField"
-	MirrorMergedSurfaceField          MirrorShapeKind = "MergedFeatureSurfaceField"
+	MirrorNamedTransportField         MirrorShapeKind = "NamedTransportField"
 	MirrorAppendBranch                MirrorShapeKind = "AppendBranch"
 	MirrorProjectionBranch            MirrorShapeKind = "ProjectionBranch"
 	MirrorExtensionsOptionsField      MirrorShapeKind = "ExtensionsOptionsField"
@@ -122,26 +123,38 @@ func QualifiedSymbol(relPath string, fd *ast.FuncDecl) string {
 // ForbiddenMirrorPredicate inspects an AST node in a file and returns a finding if forbidden.
 type ForbiddenMirrorPredicate func(relPath string, node ast.Node, fset *token.FileSet, maxCompletedWave MigrationWave) (MirrorFinding, bool)
 
-// IsGeneratedFile reports whether path or content indicates a generated file.
+var generatedHeaderRegex = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// IsGeneratedFile reports whether f (or src/path) contains a canonical generated code header
+// comment before the package clause. In accordance with the Go generated-code convention,
+// the marker must be a single-line comment matching '^// Code generated .* DO NOT EDIT\.$'
+// occurring before the package declaration. Filename suffixes alone are not exempt.
 func IsGeneratedFile(path string, src []byte, f *ast.File) bool {
-	if strings.HasSuffix(path, "_generated.go") || filepath.Base(path) == "plane_generated.go" {
-		return true
-	}
-	if len(src) > 0 {
-		head := src
-		if len(head) > 1024 {
-			head = head[:1024]
+	if f == nil {
+		if len(src) == 0 {
+			if path == "" {
+				return false
+			}
+			var err error
+			src, err = os.ReadFile(path)
+			if err != nil {
+				return false
+			}
 		}
-		if bytes.Contains(head, []byte("Code generated")) && bytes.Contains(head, []byte("DO NOT EDIT")) {
-			return true
+		_, parsed, err := ParseGoSource(path, src)
+		if err != nil || parsed == nil {
+			return false
 		}
+		f = parsed
 	}
-	if f != nil {
-		for _, cg := range f.Comments {
-			for _, c := range cg.List {
-				if strings.Contains(c.Text, "Code generated") && strings.Contains(c.Text, "DO NOT EDIT") {
-					return true
-				}
+
+	for _, cg := range f.Comments {
+		if cg.Pos() >= f.Package {
+			continue
+		}
+		for _, c := range cg.List {
+			if generatedHeaderRegex.MatchString(c.Text) {
+				return true
 			}
 		}
 	}
@@ -207,39 +220,47 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
+			if strings.Contains(relPath, "internal/testkit/") || strings.Contains(relPath, "internal/refbackend/") || strings.Contains(relPath, "internal/refclient/") {
+				return true
+			}
 			st, ok := node.Type.(*ast.StructType)
 			if !ok || st.Fields == nil {
 				return true
 			}
 			structName := node.Name.Name
-			var allowed map[string]bool
+			pkgDir := PackageDirFromRel(relPath)
+			qualStruct := structName
+			if pkgDir != "" {
+				qualStruct = pkgDir + "." + structName
+			}
+
+			// Wave ratchet exception for FeatureBundle SDK contract before Wave5c
+			if (qualStruct == "pkg/lipsdk/feature.FeatureBundle" || structName == "FeatureBundle") && maxCompletedWave < Wave5c_Residual {
+				return true
+			}
+
+			allowedFields, isAllowlisted := AllowedStructFields[qualStruct]
+			if !isAllowlisted {
+				allowedFields = AllowedStructFields[structName]
+			}
+
 			var shapeKind MirrorShapeKind
 			switch structName {
 			case "FeatureBundle":
-				if maxCompletedWave < Wave5c_Residual {
-					return true
-				}
-				allowed = AllowedFeatureBundleFields
 				shapeKind = MirrorFeatureBundleField
-			case "MergedFeatureSurface":
-				allowed = AllowedMergedSurfaceFields
-				shapeKind = MirrorMergedSurfaceField
 			case "ExtensionsOptions":
-				allowed = AllowedExtensionsOptionsFields
 				shapeKind = MirrorExtensionsOptionsField
 			case "generationOperations":
-				allowed = AllowedGenerationOperationsFields
 				shapeKind = MirrorGenerationOpField
 			case "RequestRuntimeSnapshot":
-				allowed = AllowedRequestRuntimeSnapshotFields
 				shapeKind = MirrorRequestRuntimeSnapshotField
 			default:
-				return true
+				shapeKind = MirrorNamedTransportField
 			}
 
 			for _, field := range st.Fields.List {
 				for _, name := range field.Names {
-					if allowed[name.Name] {
+					if allowedFields != nil && allowedFields[name.Name] {
 						continue
 					}
 					meta, exists := KnownPlaneFields[name.Name]
@@ -266,7 +287,8 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 			} else if IsAllowedObserverProjection(qualSym) {
 				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
 			} else if funcName == "overlayExtensions" ||
-				strings.Contains(strings.ToLower(funcName), "frommerged") ||
+				strings.Contains(strings.ToLower(funcName), "fromtransport") ||
+				strings.Contains(strings.ToLower(funcName), "projecthook") ||
 				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||
 				strings.Contains(relPath, "internal/infra/runtimebundle/build_feature_hooks.go") {
 				inspectProjectionBody(node, fset, maxCompletedWave, addFinding)

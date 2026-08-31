@@ -155,12 +155,9 @@ func TestDiagnosticsArchitecture_TargetFileForeignStructAccepted(t *testing.T) {
 	t.Parallel()
 
 	syntheticSrc := `package diag
+import foreign "github.com/example/foreign"
 
-type ForeignStruct struct {
-	ToolCatalogFilters []string
-}
-
-func readForeign(x ForeignStruct) []string {
+func readForeign(x foreign.ForeignStruct) []string {
 	return x.ToolCatalogFilters
 }
 `
@@ -174,12 +171,9 @@ func TestDiagnosticsArchitecture_ForeignFileWithSameFieldNameNotFlagged(t *testi
 	t.Parallel()
 
 	foreignSrc := `package foreignpkg
+import foreign "github.com/example/foreign"
 
-type ForeignStruct struct {
-	ToolCatalogFilters []string
-}
-
-func ReadForeign(f ForeignStruct) []string {
+func ReadForeign(f foreign.ForeignStruct) []string {
 	return f.ToolCatalogFilters
 }
 `
@@ -193,12 +187,9 @@ func TestDiagnosticsArchitecture_ForeignSameNamedFunctionNotTrusted(t *testing.T
 	t.Parallel()
 
 	foreignSrc := `package otherpkg
+import foreign "github.com/example/foreign"
 
-type CustomBundle struct {
-	ToolCatalogFilters []string
-}
-
-func buildInventoryExtensions(b CustomBundle) []string {
+func buildInventoryExtensions(b foreign.CustomBundle) []string {
 	return b.ToolCatalogFilters
 }
 `

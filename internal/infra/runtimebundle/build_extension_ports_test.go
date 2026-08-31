@@ -44,7 +44,7 @@ func (portsStubStreamObserverFactory) Open(context.Context, response.StreamMeta,
 }
 
 // TestBuildRuntimeSnapshot_featureBundlePortsReachSnap mirrors bootstrap wiring:
-// MergeBundles → ExtensionsOptions → buildRuntimeSnapshot → sorted Snap accessors.
+// MergeBundlesGenerated → ExtensionsOptions → buildRuntimeSnapshot → sorted Snap accessors.
 // Inventory occupancy IDs/stages for these ports are covered in package diag.
 func TestBuildRuntimeSnapshot_featureBundlePortsReachSnap(t *testing.T) {
 	t.Parallel()

@@ -79,10 +79,11 @@ var (
 		"Lifecycles":    true,
 	}
 
-	AllowedMergedSurfaceFields = map[string]bool{
+	AllowedGeneratedMergeSurfaceFields = map[string]bool{
 		"Lifecycles": true,
 		"frozen":     true,
 		"Frozen":     true,
+		"set":        true,
 	}
 
 	AllowedExtensionsOptionsFields = map[string]bool{
@@ -120,6 +121,49 @@ var (
 		"timeoutGuard":     true,
 		"featurePlanes":    true,
 		"gen":              true,
+	}
+
+	AllowedExtensionRuntimeFields = map[string]bool{
+		"ToolCallFinalizationMaxArgsBytes": true,
+		"toolCallFinalizers":               true,
+	}
+
+	AllowedResponsePipelineFields = map[string]bool{
+		"compactionObservers":  true,
+		"compactionPreservers": true,
+	}
+
+	AllowedTurnTerminalFields = map[string]bool{
+		"terminalDecisionProvider":   true,
+		"terminalDecisionProviderID": true,
+	}
+
+	// AllowedStructFields maps fully qualified struct paths ("dir.StructName") to their allowed field names.
+	AllowedStructFields = map[string]map[string]bool{
+		"pkg/lipsdk/feature.FeatureBundle":                AllowedFeatureBundleFields,
+		"internal/featurebundle.GeneratedMergeSurface":    AllowedGeneratedMergeSurfaceFields,
+		"internal/infra/runtimebundle.ExtensionsOptions":  AllowedExtensionsOptionsFields,
+		"internal/core/runtime.generationOperations":      AllowedGenerationOperationsFields,
+		"internal/core/extensions.RequestRuntimeSnapshot": AllowedRequestRuntimeSnapshotFields,
+		"internal/core/runtime.ExtensionRuntime":          AllowedExtensionRuntimeFields,
+		"internal/core/runtime.responsePipeline":          AllowedResponsePipelineFields,
+		"internal/core/runtime.turnTerminal":              AllowedTurnTerminalFields,
+		"internal/featurebundle.HostContributions": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"internal/infra/runtimebundle.ProductionOptions": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"pkg/lipruntime.Options": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"pkg/lipsdk/controlplane.HostCapabilities": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
 	}
 
 	// AllowedStageConsumers is the explicit allowlist of fully-qualified Go symbol paths
@@ -163,6 +207,8 @@ var (
 		"internal/infra/runtimebundle.buildSecretGuardRuntime":              true,
 		"internal/infra/compactioncompose.BindFeatureSurface":               true,
 		"internal/infra/runtimebundle.bindReasoningPreservationCompression": true,
+		"internal/featurebundle.FreezeBundle":                               true,
+		"internal/featurebundle.MergeBundlesGenerated":                      true,
 	}
 )
 

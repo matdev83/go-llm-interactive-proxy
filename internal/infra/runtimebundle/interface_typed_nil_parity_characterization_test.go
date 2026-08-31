@@ -318,9 +318,9 @@ func (g *charStubSGGuard) Evaluate(context.Context, *lipapi.Call, sdksg.Meta, sd
 
 // TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration pins Requirement 1.2, 1.4, 4.2:
 // - FeatureBundle.Validate() returns ErrInvalidProvider on typed-nil provider.
-// - GeneratedMergeSurface.Append() returns ErrInvalidProvider on typed-nil provider.
-// - Append fails BEFORE any receiver mutation: fields on GeneratedMergeSurface remain identical.
-// - Append validates receiver and incoming provider identity before checking conflict.
+// - MergeBundlesGenerated / ContributeBundle returns ErrInvalidProvider on typed-nil provider.
+// - Merge fails BEFORE any candidate mutation: fields on GeneratedMergeSurface remain identical.
+// - Merge validates candidate and incoming provider identity before checking conflict.
 // - CompileGeneration rejects typed-nil provider fail-closed.
 // - overlayExtensions carries typed-nil provider when dst is nil, which fails candidate compile.
 func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testing.T) {
@@ -406,8 +406,8 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 //   - Exactly 4 planes reject nil interface elements (AttemptTransforms, StreamObserverFactories, CompactionPreservers, LocalTurnHandlers).
 //   - The remaining 20 planes accept slices with nil interface elements without error.
 //
-// 2. GeneratedMergeSurface.Append():
-//   - All 24 planes append slices verbatim, preserving nil interface elements and relative slice positions.
+// 2. MergeBundlesGenerated():
+//   - All 24 planes concatenate slices verbatim, preserving nil interface elements and relative slice positions.
 //
 // 3. extensionsFromProcessOptions() and overlayExtensions():
 //   - Nil interface elements are copied and appended without omission across all projected slice planes.
@@ -727,7 +727,7 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 
 // TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues verifies that an invalid
 // contribution (panicking provider, invalid identity, etc.) fails BEFORE modifying
-// any field of the receiver GeneratedMergeSurface.
+// any field of the merged GeneratedMergeSurface.
 func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 	t.Parallel()
 

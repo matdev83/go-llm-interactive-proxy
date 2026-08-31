@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// AssertGeneratedSurfaceInvariants builds an independent oracle by validating and replaying
+// AssertGeneratedMergeInvariants builds an independent oracle by validating and replaying
 // each bundle sequentially into an independent ContributionSet using public lipfeature operations,
 // and accumulating lifecycles only on success. It executes MergeBundlesGenerated and asserts exact
 // value, nilness, identity, diagnostics, fail-before-mutate, and error attribution invariants.
-func AssertGeneratedSurfaceInvariants(tb testing.TB, bundles ...lipfeature.FeatureBundle) {
+func AssertGeneratedMergeInvariants(tb testing.TB, bundles ...lipfeature.FeatureBundle) {
 	tb.Helper()
 
 	// 1. Execute production MergeBundlesGenerated

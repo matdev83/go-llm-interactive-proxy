@@ -260,7 +260,13 @@ func TestFeatureBundle_SchemaNegotiation_PreserveBundleOrderAndLifecycles(t *tes
 
 	// Check lifecycle ordering: life-A, life-B, life-cand
 	require.Len(t, gen.Lifecycles, 3)
-	assert.Equal(t, "life-A", gen.Lifecycles[0].(schemaTestLifecycle).tag)
-	assert.Equal(t, "life-B", gen.Lifecycles[1].(schemaTestLifecycle).tag)
-	assert.Equal(t, "life-cand", gen.Lifecycles[2].(schemaTestLifecycle).tag)
+	lifeA, ok := gen.Lifecycles[0].(schemaTestLifecycle)
+	require.True(t, ok)
+	assert.Equal(t, "life-A", lifeA.tag)
+	lifeB, ok := gen.Lifecycles[1].(schemaTestLifecycle)
+	require.True(t, ok)
+	assert.Equal(t, "life-B", lifeB.tag)
+	lifeCand, ok := gen.Lifecycles[2].(schemaTestLifecycle)
+	require.True(t, ok)
+	assert.Equal(t, "life-cand", lifeCand.tag)
 }

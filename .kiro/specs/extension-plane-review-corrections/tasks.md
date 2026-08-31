@@ -94,7 +94,7 @@
   - _Boundary: Mirror Scanner_
   - _Validation: go test -count=1 ./internal/archtest && make arch-report_
 
-- [ ] 4. Remove lifecycle-only legacy merge compatibility
+- [x] 4. Remove lifecycle-only legacy merge compatibility
 - [x] 4.1 Simplify feature assembly to one generated surface
   - Remove the lifecycle-only legacy surface, append path, checked/unchecked legacy bundle merges, generated-to-legacy projections, and dual-return merge APIs.
   - Retain registry bundle construction, registered-feature then host then candidate ordering, generated frozen state, and ordered lifecycles.
@@ -115,7 +115,7 @@
   - _Boundary: Runtime composition integration_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 4.3 Delete obsolete dual-path test infrastructure and refresh architecture facts
+- [x] 4.3 Delete obsolete dual-path test infrastructure and refresh architecture facts
   - Remove legacy parity helpers and tests only after their behavioral assertions exist on the generated path.
   - Remove obsolete architecture catalog and mirror-shape assumptions tied solely to the deleted type while retaining guards against reintroducing named plane transports.
   - Verify there are no residual production or test references to the legacy surface or misleading comments about append-based plane merging.

@@ -123,10 +123,54 @@ func WalkProductionGoFiles(root string, fn func(rel, abs string, src []byte) err
 	return nil
 }
 
-// ParseGoSource parses src with SkipObjectResolution.
+// WalkGoFiles walks all .go files (including _test.go) under ProductionScanRoots.
+// Callback receives repo-relative slash path, absolute path, and file bytes.
+func WalkGoFiles(root string, fn func(rel, abs string, src []byte) error) error {
+	for _, top := range ProductionScanRoots() {
+		base := filepath.Join(root, top)
+		if _, err := os.Stat(base); err != nil {
+			continue
+		}
+		err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				name := info.Name()
+				if name == "vendor" || name == "testdata" || name == "node_modules" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			return fn(SlashPath(rel), path, src)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WalkAllGoFiles is an alias for WalkGoFiles.
+func WalkAllGoFiles(root string, fn func(rel, abs string, src []byte) error) error {
+	return WalkGoFiles(root, fn)
+}
+
+// ParseGoSource parses src with SkipObjectResolution and ParseComments.
 func ParseGoSource(filename string, src []byte) (*token.FileSet, *ast.File, error) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		return nil, nil, err
 	}

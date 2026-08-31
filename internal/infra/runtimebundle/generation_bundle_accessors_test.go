@@ -93,7 +93,7 @@ func TestGenerationBundle_NilReceiverNeighboringAccessors(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		assert.Equal(t, ctx, b.BindModelViews(ctx))
-		assert.NotNil(t, b.BindModelViews(nil))
+		assert.NotNil(t, b.BindModelViews(context.TODO()))
 	})
 
 	t.Run("TerminalProviders", func(t *testing.T) {

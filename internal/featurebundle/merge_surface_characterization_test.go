@@ -407,8 +407,8 @@ func TestMergeBundlesGenerated_nilVsEmptySemantics(t *testing.T) {
 }
 
 // Pins validate-before-mutate: a rejected contribution leaves the accumulated
-// receiver byte-for-byte unchanged, so lifecycles/hooks already merged are
-// neither lost nor reordered by a failing Append.
+// candidate byte-for-byte unchanged, so lifecycles/hooks already merged are
+// neither lost nor reordered by a failing merge replay.
 func TestMergeBundlesGenerated_failureLeavesCandidateDiscarded(t *testing.T) {
 	t.Parallel()
 

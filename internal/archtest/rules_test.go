@@ -25,7 +25,7 @@ func repoRoot(t *testing.T) string {
 func TestForbiddenDeclarationsAbsent(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	got, err := ScanForbiddenDeclarations(root)
+	got, err := ScanForbiddenDeclarationsIncludingTests(root)
 	if err != nil {
 		t.Fatal(err)
 	}

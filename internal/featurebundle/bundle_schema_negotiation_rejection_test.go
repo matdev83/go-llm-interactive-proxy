@@ -532,10 +532,10 @@ func TestFeatureBundle_RegistryAndHostMerge_RejectsMalformedBundle(t *testing.T)
 	})
 }
 
-// TestFeatureBundle_MergeFeatureSurface_RejectsMalformedRegistryBundle characterizes Requirement 2.7, 2.8, 4.3 (Task 2.2, Task 4.1):
+// TestFeatureBundle_MergeFeatureSurfaceGenerated_RejectsMalformedRegistryBundle characterizes Requirement 2.7, 2.8, 4.3 (Task 2.2, Task 4.1):
 // MergeFeatureSurfaceGenerated must reject malformed bundles constructed from registry, attribute errors to
 // registration contributor attribution and return zero GeneratedMergeSurface on error without building bundles twice.
-func TestFeatureBundle_MergeFeatureSurface_RejectsMalformedRegistryBundle(t *testing.T) {
+func TestFeatureBundle_MergeFeatureSurfaceGenerated_RejectsMalformedRegistryBundle(t *testing.T) {
 	t.Parallel()
 
 	malformedBundle0 := lipfeature.FeatureBundle{

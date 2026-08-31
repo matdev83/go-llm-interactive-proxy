@@ -56,7 +56,7 @@ func (harnessTerminalProvider) Decide(context.Context, terminaldecision.Input) (
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "done"}, nil
 }
 
-func TestAssertGeneratedSurfaceInvariants_Success(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_Success(t *testing.T) {
 	t.Parallel()
 
 	cs1 := lipfeature.NewContributionSet()
@@ -74,10 +74,10 @@ func TestAssertGeneratedSurfaceInvariants_Success(t *testing.T) {
 	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "b2", terminaldecision.Provider(harnessTerminalProvider{id: "term-1"})))
 	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-2"}})
 
-	planeparity.AssertGeneratedSurfaceInvariants(t, b1, b2)
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
 }
 
-func TestAssertGeneratedSurfaceInvariants_Conflict(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_Conflict(t *testing.T) {
 	t.Parallel()
 
 	cs1 := lipfeature.NewContributionSet()
@@ -88,7 +88,7 @@ func TestAssertGeneratedSurfaceInvariants_Conflict(t *testing.T) {
 	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "b2", terminaldecision.Provider(harnessTerminalProvider{id: "term-2"})))
 	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), nil)
 
-	planeparity.AssertGeneratedSurfaceInvariants(t, b1, b2)
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
 }
 
 func TestMergeBundlesGenerated_Conflict(t *testing.T) {
@@ -108,7 +108,7 @@ func TestMergeBundlesGenerated_Conflict(t *testing.T) {
 	require.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
 }
 
-func TestAssertGeneratedSurfaceInvariants_MixedConflictPrecedesMalformedSchema(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_MixedConflictPrecedesMalformedSchema(t *testing.T) {
 	t.Parallel()
 
 	// bundle0: valid terminal provider A
@@ -131,7 +131,7 @@ func TestAssertGeneratedSurfaceInvariants_MixedConflictPrecedesMalformedSchema(t
 	}
 
 	// Invariants assertion should succeed because conflict at bundle1 is evaluated and precedes malformed bundle2
-	planeparity.AssertGeneratedSurfaceInvariants(t, b0, b1, b2)
+	planeparity.AssertGeneratedMergeInvariants(t, b0, b1, b2)
 
 	// Explicitly verify production behavior and error precedence
 	res, err := featurebundle.MergeBundlesGenerated(b0, b1, b2)
@@ -150,7 +150,7 @@ func TestAssertGeneratedSurfaceInvariants_MixedConflictPrecedesMalformedSchema(t
 	require.Contains(t, err.Error(), "term-B")
 }
 
-func TestAssertGeneratedSurfaceInvariants_ReplayMutationAttackProvesOracleUnchanged(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_ReplayMutationAttackProvesOracleUnchanged(t *testing.T) {
 	t.Parallel()
 
 	// Initial valid bundle with multiple planes and lifecycles
@@ -166,8 +166,8 @@ func TestAssertGeneratedSurfaceInvariants_ReplayMutationAttackProvesOracleUnchan
 	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "attacker", terminaldecision.Provider(harnessTerminalProvider{id: "term-2"})))
 	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-attacker"}})
 
-	// AssertGeneratedSurfaceInvariants asserts fail-before-mutate on oracleCS during replay error
-	planeparity.AssertGeneratedSurfaceInvariants(t, b1, b2)
+	// AssertGeneratedMergeInvariants asserts fail-before-mutate on oracleCS during replay error
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
 
 	// Verify fail-before-mutate directly on ContributionSet
 	workingCS := lipfeature.NewContributionSet()
@@ -187,7 +187,7 @@ func TestAssertGeneratedSurfaceInvariants_ReplayMutationAttackProvesOracleUnchan
 	require.Equal(t, lipfeature.ProjectDiagnostics(beforeFrozen), lipfeature.ProjectDiagnostics(afterFrozen))
 }
 
-func TestAssertGeneratedSurfaceInvariants_ValidationFailure(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_ValidationFailure(t *testing.T) {
 	t.Parallel()
 
 	cs := lipfeature.NewContributionSet()
@@ -197,7 +197,7 @@ func TestAssertGeneratedSurfaceInvariants_ValidationFailure(t *testing.T) {
 		PlaneSet:      cs.Freeze(),
 	}
 
-	planeparity.AssertGeneratedSurfaceInvariants(t, b0)
+	planeparity.AssertGeneratedMergeInvariants(t, b0)
 }
 
 func TestFreezeTestBundleChecked_InvalidTerminalProviderPanicsAndFails(t *testing.T) {

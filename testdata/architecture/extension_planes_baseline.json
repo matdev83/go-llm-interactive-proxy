@@ -196,7 +196,7 @@
       {
         "path": "internal/featurebundle/merge_surface.go",
         "category": "hand_authored",
-        "role": "MergedFeatureSurface composition engine",
+        "role": "GeneratedMergeSurface composition/registry assembly",
         "description": "Registration-order merge over catalog; conflict rejection and deterministic reduce"
       },
       {

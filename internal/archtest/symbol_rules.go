@@ -22,10 +22,11 @@ const (
 
 // ForbiddenDeclRule forbids a package-scope declaration by exact name.
 type ForbiddenDeclRule struct {
-	Package string     // repo-relative package dir (e.g. internal/infra/runtimebundle)
-	Kind    SymbolKind // declaration kind
-	Name    string     // exact symbol name
-	Reason  string     // short rationale
+	Package  string     // repo-relative package dir (e.g. internal/infra/runtimebundle)
+	Kind     SymbolKind // declaration kind
+	Receiver string     // optional receiver base type name for SymbolMethod
+	Name     string     // exact symbol name
+	Reason   string     // short rationale
 }
 
 // RuleFinding is one violation of a permanent architecture rule.
@@ -121,6 +122,22 @@ var ForbiddenDeclarations = []ForbiddenDeclRule{
 	{Package: "internal/core/configreload", Kind: SymbolType, Name: "ReloadResult", Reason: "contract owned by pkg/lipsdk/configreload"},
 	{Package: "internal/core/configreload", Kind: SymbolType, Name: "ReloadStatus", Reason: "contract owned by pkg/lipsdk/configreload"},
 	{Package: "internal/core/configreload", Kind: SymbolType, Name: "ResultCategory", Reason: "contract owned by pkg/lipsdk/configreload"},
+
+	// Obsolete feature-merge APIs (Phase 4 / Task 4.3)
+	{Package: "internal/featurebundle", Kind: SymbolType, Name: "Merged" + "Feature" + "Surface", Reason: "legacy feature" + " surface type deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "Bundles", Reason: "legacy unchecked" + " bundle merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "BundlesChecked", Reason: "legacy checked" + " bundle merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "FeatureSurface", Reason: "legacy singular" + " surface merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "FeatureSurfaces", Reason: "legacy plural" + " surface merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "BundlesViaGenerated", Reason: "legacy generated-to-legacy" + " bundle merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolFunc, Name: "Merge" + "FeatureSurfaceViaGenerated", Reason: "legacy generated-to-legacy" + " surface merge deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolMethod, Name: "To" + "Merged" + "Feature" + "Surface", Reason: "legacy surface" + " projection method deleted"},
+	{Package: "internal/featurebundle", Kind: SymbolMethod, Receiver: "Merged" + "Feature" + "Surface", Name: "App" + "end", Reason: "legacy mutable append" + " method deleted"},
+	{Package: "internal/infra/runtimebundle", Kind: SymbolFunc, Name: "extensions" + "FromMerged", Reason: "legacy runtime extension" + " projection deleted"},
+	{Package: "internal/infra/runtimebundle", Kind: SymbolFunc, Name: "hooksConfig" + "FromMerged", Reason: "legacy hook config" + " projection deleted"},
+	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "MergedSurfacesEqual", Reason: "legacy surface equality" + " testkit helper deleted"},
+	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "DualPathParity", Reason: "legacy dual path" + " parity testkit helper deleted"},
+	{Package: "internal/testkit/planeparity", Kind: SymbolFunc, Name: "Assert" + "GeneratedSurfaceInvariants", Reason: "superseded by Assert" + "GeneratedMergeInvariants"},
 }
 
 // AbsentFiles must not exist in the production tree.
@@ -134,14 +151,25 @@ var AbsentFiles = []string{
 	"internal/infra/tokenaccounting/ledgerstore/20260514000000_token_accounting_ledger_baseline.go",
 }
 
-// ScanForbiddenDeclarations reports package-scope declarations matching ForbiddenDeclarations.
+// ScanForbiddenDeclarations reports package-scope declarations matching ForbiddenDeclarations
+// in production Go files.
 func ScanForbiddenDeclarations(root string) ([]RuleFinding, error) {
+	return scanForbiddenDeclarationsWith(root, WalkProductionGoFiles)
+}
+
+// ScanForbiddenDeclarationsIncludingTests reports package-scope declarations matching ForbiddenDeclarations
+// in all Go files, including tests (_test.go), excluding generated files.
+func ScanForbiddenDeclarationsIncludingTests(root string) ([]RuleFinding, error) {
+	return scanForbiddenDeclarationsWith(root, WalkGoFiles)
+}
+
+func scanForbiddenDeclarationsWith(root string, walker func(string, func(rel, abs string, src []byte) error) error) ([]RuleFinding, error) {
 	index := make(map[string][]ForbiddenDeclRule)
 	for _, r := range ForbiddenDeclarations {
 		index[r.Package] = append(index[r.Package], r)
 	}
 	var out []RuleFinding
-	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+	err := walker(root, func(rel, abs string, src []byte) error {
 		pkg := PackageDirFromRel(rel)
 		rules := matchingPackageRules(index, pkg)
 		if len(rules) == 0 {
@@ -151,12 +179,20 @@ func ScanForbiddenDeclarations(root string) ([]RuleFinding, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", rel, err)
 		}
+		if IsGeneratedFile(rel, src, f) {
+			return nil
+		}
 		for _, r := range rules {
 			if DeclExists(f, r) {
+				detail := string(r.Kind) + " "
+				if r.Receiver != "" {
+					detail += "(" + r.Receiver + ")."
+				}
+				detail += r.Name + " (" + r.Reason + ")"
 				out = append(out, RuleFinding{
 					Rule:   "forbidden_decl",
 					Path:   rel,
-					Detail: string(r.Kind) + " " + r.Name + " (" + r.Reason + ")",
+					Detail: detail,
 				})
 			}
 		}
@@ -179,6 +215,28 @@ func matchingPackageRules(index map[string][]ForbiddenDeclRule, pkg string) []Fo
 	return out
 }
 
+func receiverBaseTypeName(expr ast.Expr) string {
+	for expr != nil {
+		switch e := expr.(type) {
+		case *ast.StarExpr:
+			expr = e.X
+		case *ast.ParenExpr:
+			expr = e.X
+		case *ast.IndexExpr:
+			expr = e.X
+		case *ast.IndexListExpr:
+			expr = e.X
+		case *ast.Ident:
+			return e.Name
+		case *ast.SelectorExpr:
+			return e.Sel.Name
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 // DeclExists reports whether rule matches a declaration in f.
 func DeclExists(f *ast.File, r ForbiddenDeclRule) bool {
 	switch r.Kind {
@@ -192,8 +250,14 @@ func DeclExists(f *ast.File, r ForbiddenDeclRule) bool {
 	case SymbolMethod:
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
-			if ok && fd.Recv != nil && fd.Name != nil && fd.Name.Name == r.Name {
-				return true
+			if ok && fd.Recv != nil && len(fd.Recv.List) > 0 && fd.Name != nil && fd.Name.Name == r.Name {
+				if r.Receiver == "" {
+					return true
+				}
+				recvType := receiverBaseTypeName(fd.Recv.List[0].Type)
+				if recvType == r.Receiver {
+					return true
+				}
 			}
 		}
 	case SymbolType:
