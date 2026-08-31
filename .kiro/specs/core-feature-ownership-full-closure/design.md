@@ -214,6 +214,34 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 
 `ProcessServices` owns one `*featurehost.Runtime` and registers exactly one `Runtime.Close` after successful construction. `Runtime.Close` closes only its own process feature resources in reverse dependency order; it must not close `BackgroundAux`, database pools, secure-session store, or other borrowed generic resources.
 
+### Transitional ownership handoff during Wave 2
+
+Introducing the `StandardFeatures` handle is **not** itself an ownership transfer. Task 2.3 is a structural seam only. At that checkpoint, `featurehost.NewProcess` MUST NOT construct, adopt, register cleanup for, or close a process feature resource that is still constructed/owned by the legacy `ProcessServices`/compose path. A process resource moves to featurehost only in the dedicated migration task that simultaneously removes its legacy constructor and legacy close registration.
+
+The implementation must regenerate this table from the post-first Task 1 census before coding. The rows below are the expected ownership classes, not permission to guess stale field names:
+
+| Resource/class at Task 2.3 | Constructor/owner before handoff | `featurehost.Runtime` at Task 2.3 | Atomic handoff task | Close rule during transition |
+| --- | --- | --- | --- | --- |
+| Reasoning + secret-guard generation compose adapters | legacy generation compiler; generation lifecycles remain `ResourceLedger` owned | may invoke them only after Task 2.4; owns no extra process close | 2.4 / later adapter consolidation | no new process close; generation lifecycles stay singular |
+| Post-first concrete compaction detector/support | legacy process construction represented by the post-first `ProcessServices` field/port | no duplicate construction; no ownership until its final standard-feature/support handoff | 3.3 if coupled to compaction migration, otherwise Task 10 before 10.4 | whichever path constructed it owns the only close; if it still has no `Close`, record that explicitly |
+| Compaction-continuity coordinator/parent adapter | legacy `ProcessServices`/compaction compose path | absent/non-owned | 3.3 | remove legacy constructor/closer in the same change that featurehost begins owning it |
+| Conversation-view mutable state/services | existing process/store composition | absent/non-owned; generic DB/store dependencies are only borrowed later | 4.3 | preserve existing physical DB/store owner; never close a borrowed pool twice |
+| Interleaved processor state | current core/generation path | absent until generation adapter is introduced | 5.3 | request/generation state is not promoted to a process closer |
+| Keep-warm policy/registry/manager/scheduler | legacy process/generation composition | absent/non-owned | 6.3 | featurehost/lifecycle becomes sole owner only when legacy fields/closers are removed |
+| Terminal-decision mutable policy store | legacy `ProcessServices` constructor/closer | absent/non-owned | 7.3 | featurehost/sessionpolicy becomes sole owner in same change as legacy constructor/closer removal |
+| `BackgroundAux`, DB pools, secure-session stores, backend host | generic process owners | borrowed through `ProcessInput` only | never transferred by this SDD | `Runtime.Close` must never close them |
+
+Handoff rules for every row:
+
+1. **No dual construction**: before handoff, only the legacy path constructs the resource; after handoff, only featurehost (or its child adapter) constructs it.
+2. **No dual cleanup**: the commit that enables the featurehost constructor must delete/disable the legacy cleanup registration in the same change. Never rely on both closers being idempotent.
+3. **No hidden adoption**: if a temporary adapter must observe a legacy resource before its handoff, it receives a non-owning reference and `Runtime.Close` ignores it. Prefer no reference when possible.
+4. **One process registration**: `ProcessServices` may register the single `StandardFeatures.Close` as soon as Task 2.3 lands; at that point it closes only resources already owned by featurehost, which may initially be none. Existing legacy close callbacks remain solely for not-yet-transferred rows.
+5. **Generation construction is not process construction**: `CompileGeneration` must never create a second process-scoped instance.
+6. **Counted verification**: package-local test constructors/fakes or the existing ownership-test seams must count successful construction and physical close. For every migrated process resource, tests require exactly one successful construction and one physical close on process shutdown, and zero duplicate construction during overlapping generation compilation.
+
+If the post-first topology exposes another per-feature process resource, add it to this transition table before Task 2.4 and assign one explicit transfer task. Do not leave an unlisted dual-owner candidate.
+
 ### Generation output
 
 Conceptual:
@@ -436,6 +464,59 @@ type InterleavedTurn interface {
 
 `InterleavedMemo` is a minimal kernel DTO (bounded text + opaque revision/reference metadata if core persistence needs it), not the feature's store implementation. If current code can avoid exposing memo text back to core by letting the `InterleavedTurn` retain it internally, prefer that smaller contract: `FinalizeThinker` returns only persistence/reference evidence and `ShapeExecutor(call)` uses feature-owned captured state. **Do not broaden the interface beyond methods the current orchestration actually calls.**
 
+### Featurehost interleaved adapter contract
+
+The concrete `internal/plugins/features/interleavedthinking` package MUST NOT import `internal/core/runtime`, so it does **not** implement the core-owned interfaces directly. It defines its own feature-owned `Processor`/`Turn` contracts and DTOs using only `pkg/lipapi`, `pkg/lipsdk/*`, standard-library and feature-local types. `internal/standardplugins/featurehost/interleaved.go` is the sole type-conversion boundary and implements the core interfaces.
+
+Conceptual shape (final names follow the post-first code):
+
+```go
+// feature package: no core imports
+type Processor interface {
+    BeginTurn(context.Context, TurnInput) (Turn, error)
+}
+
+type Turn interface {
+    ShapeThinker(lipapi.Call) (lipapi.Call, error)
+    ObserveThinkerEvent(lipapi.Event) ([]lipapi.Event, error)
+    FinalizeThinker(context.Context) (MemoResult, error)
+    ShapeExecutor(lipapi.Call, MemoResult) (lipapi.Call, error) // omit MemoResult if Turn retains it internally
+}
+
+// standardplugins/featurehost/interleaved.go
+type interleavedProcessorAdapter struct {
+    inner interleavedthinking.Processor
+}
+
+var _ runtime.InterleavedProcessor = (*interleavedProcessorAdapter)(nil)
+```
+
+Mapping rules are explicit and exhaustive:
+
+| Core call | Featurehost mapping | Feature-owned call/result | Required behavior |
+| --- | --- | --- | --- |
+| `BeginTurn(ctx, runtime.InterleavedTurnInput)` | copy only bounded primitives and public canonical/SDK values into a feature `TurnInput`; translate routing-owned enum/value fields explicitly | `Processor.BeginTurn(ctx, feature.TurnInput)` | pass `ctx` unchanged; no core object/store pointer crosses into feature; nil/disabled processor follows core disabled semantics |
+| `InterleavedTurn.ShapeThinker(call)` | no domain conversion for `lipapi.Call`; clone only where existing ownership rules require it | `Turn.ShapeThinker(call)` | preserve call isolation and existing validation/error semantics |
+| `ObserveThinkerEvent(ev)` | pass canonical `lipapi.Event`; convert/defensively clone returned slice according to current stream ownership rules | `Turn.ObserveThinkerEvent(ev)` | preserve order, sanitization, visibility and error behavior; no event is swallowed/duplicated by adapter |
+| `FinalizeThinker(ctx)` | convert feature `MemoResult` to minimal core `InterleavedMemo` field-by-field only if core genuinely needs persistence/reference evidence | `Turn.FinalizeThinker(ctx)` | preferred end-state keeps memo payload/state inside feature turn; no feature store implementation leaks to core |
+| `ShapeExecutor(call, memo)` or minimized `ShapeExecutor(call)` | when a core memo DTO remains, explicitly convert its bounded reference/evidence back to feature DTO; otherwise delegate with feature-retained state | `Turn.ShapeExecutor(...)` | no unchecked type assertion/`any`; preserve memo budget/dedup/injection behavior |
+
+Ownership/error rules:
+
+- the processor adapter is generation-bound and owned by the featurehost generation output; it does not register an independent process close;
+- each returned turn adapter is request/turn scoped and owns only feature turn state; it must not outlive the request except through existing durable feature state/reference contracts;
+- context cancellation is forwarded unchanged; the adapter does not spawn workers or create a new cancellation owner;
+- adapter methods return feature errors without swallowing them; wrapping is allowed only when it preserves `errors.Is`/`errors.As` behavior relied on by characterization tests and does not change the core stage's fail-open/fail-closed policy;
+- panic isolation remains at the existing core orchestration boundary unless characterization proves the current feature code owns an equivalent narrower guard;
+- all core-to-feature DTO conversion is field-explicit. Adding a field to either side must break/update an adapter test rather than silently drop it.
+
+Required tests:
+
+1. compile-time interface assertions for both processor and turn adapters in `internal/standardplugins/featurehost`;
+2. adapter unit tests with a fake feature processor covering `BeginTurn`, `ShapeThinker`, `ObserveThinkerEvent`, `FinalizeThinker`, `ShapeExecutor`, cancellation and representative errors;
+3. a recursive feature import-boundary architecture test proving `internal/plugins/features/interleavedthinking/...` imports no `internal/core`, `runtimebundle` or `standardplugins/featurehost` package;
+4. a runtime integration test proving the adapter produces the same hidden/visible/cancellation/output-commit behavior as the pre-move implementation.
+
 ### State split
 
 Default:
@@ -656,7 +737,7 @@ sequenceDiagram
     RT->>PS: register FH.Close once
 ```
 
-No feature resource escapes before featurehost records its own ownership; if later construction fails, featurehost unwinds already-created feature resources before returning an error.
+No feature resource escapes before featurehost records its own ownership; if later construction fails, featurehost unwinds already-created feature resources before returning an error. During the Wave-2 transition, this flow applies only to rows already transferred in the explicit handoff table; untransferred legacy resources remain exclusively legacy-owned until their atomic handoff task.
 
 ### Generation compilation
 
@@ -686,10 +767,10 @@ There is **no featurehost lookup** on the request path. Executor holds frozen pl
 | Requirement | Design realization |
 | --- | --- |
 | 1 | Hard prerequisite gate, post-first census, Core Admission Test |
-| 2 | preserved lifetime/authority model, featurehost nested owner, no DI |
+| 2 | preserved lifetime/authority model, featurehost nested owner, explicit transitional ownership handoff, no DI |
 | 3 | compaction-continuity feature state migration + featurehost adapter |
 | 4 | `conversationprojection` kernel + outside-core conversation state/services |
-| 5 | routing/interleaved state split + `InterleavedProcessor` consumer port |
+| 5 | routing/interleaved state split + `InterleavedProcessor` consumer port + featurehost type adapter |
 | 6 | `internal/plugins/features/keepwarm` + prompt-cache maintenance port |
 | 7 | featurehost/sessionpolicy + effective reader |
 | 8 | `internal/standardplugins/featurehost` process/generation facade |
@@ -706,11 +787,12 @@ There is **no featurehost lookup** on the request path. Executor holds frozen pl
 - Feature config decode/validation errors remain attributed to feature ID and fail before candidate publication.
 - Duplicate/unsupported host bindings fail at startup/generation compile; never ignore them.
 - Featurehost process construction unwinds already-owned feature resources in reverse order.
+- During staged ownership migration, an untransferred legacy process resource is never placed in the featurehost owned-resource closer set.
 - Candidate generation failure leaves the last-good published generation untouched.
 
 ### Request-time feature errors
 
-Preserve each existing feature's failure policy. Package movement does not grant permission to change fail-open/fail-closed semantics. Panic isolation and context cancellation remain at the existing generic stage/consumer chokepoints.
+Preserve each existing feature's failure policy. Package movement does not grant permission to change fail-open/fail-closed semantics. Panic isolation and context cancellation remain at the existing generic stage/consumer chokepoints. Featurehost type adapters must preserve `errors.Is`/`errors.As` behavior relied on by characterization tests and must not reinterpret feature errors into a new policy.
 
 ### Configuration migration errors
 
@@ -722,6 +804,7 @@ New+legacy duplicate config fails deterministically. Invalid legacy config is va
 - No new request-time maps, reflection, global locks, goroutine spawning, or database reads because of this refactor.
 - Immutable plane snapshot access remains as certified by predecessor extension-plane work.
 - Conversation projection remains pure over one frozen snapshot.
+- Interleaved featurehost adaptation is direct typed delegation; no reflection/map lookup or per-event service resolution.
 - Keep-warm/background work preserves bounded existing workers/queues.
 - Full closure should reduce generic core/process composition change surface; it is not a throughput optimization project.
 
@@ -738,6 +821,7 @@ Required evidence:
 - Host-feature registrations are trusted startup inputs, not client-controlled request fields.
 - Standard featurehost receives only required capabilities; do not pass full `BuildOptions`, process service aggregate, database pool registry, or backend map to feature constructors.
 - Secure-session authority remains core-owned and is translated to bounded feature query/parent facts by adapters.
+- Interleaved adapter inputs are explicit DTOs; no core store/authority object is handed to the feature as an opaque capability.
 
 ## Migration Strategy
 
@@ -764,6 +848,7 @@ Each wave must leave tests green before the next. Do not perform the migrations 
 
 - A wave that changes semantics rather than ownership must be reverted/repaired before continuing.
 - Do not keep temporary dual execution paths across more than one migration wave.
+- No process-scoped resource may have both a legacy and featurehost constructor/closer even transiently in a merged checkpoint; resource handoff is atomic per row in the transition table.
 - Compatibility adapters must be one-way and deleted when no longer needed; no permanent parallel authority.
 - If a move requires >100 changed files, split mechanical movement from dependency rewiring/tests into separate PRs or use the repository's explicit large-change authorization; do not weaken the file-count guardrail silently.
 
@@ -792,10 +877,12 @@ Permanent tests must enforce:
 - optional feature config semantic types/defaults are not declared in core config;
 - standard featurehost has no request-time resolver/service-map API;
 - feature packages do not import core/runtimebundle;
+- interleaved featurehost adapters satisfy core interfaces at compile time while the feature tree itself has zero core imports;
+- process feature ownership tests prove one constructor/one physical closer per transferred resource;
 - core ownership manifest covers every top-level core package;
 - final core and standard-featurehost budgets.
 
-Use existing compact archtest rule infrastructure; do not create task-number-specific analyzers.
+Use existing compact archtest rule infrastructure; do not create task-number-specific analyzers. Existing task-numbered ratchets may be migrated in place when they already enforce a required invariant; do not leave stale assertions for deleted package ownership.
 
 ### Full validation
 
@@ -829,7 +916,9 @@ This simplification program is complete only when all of the following are true 
 8. optional feature config/defaults/prompts are feature-owned;
 9. standard featurehost is explicit, typed, startup/generation-only and budgeted—not a DI/service runtime;
 10. architecture/change-surface/core-size gates make regression mechanically difficult;
-11. independent review finds no material simplification/ownership defect;
-12. clean merged-main certification passes.
+11. process-scoped feature resource ownership is singular at every final handoff, with counted construction/close evidence;
+12. interleaved core/feature adaptation is compile-time typed and leaves the concrete feature tree free of core imports;
+13. independent review finds no material simplification/ownership defect;
+14. clean merged-main certification passes.
 
 A finding that would otherwise require a third simplification SDD means this SDD is **not finished**.
