@@ -56,7 +56,7 @@ func (harnessTerminalProvider) Decide(context.Context, terminaldecision.Input) (
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "done"}, nil
 }
 
-func TestAssertDualPathParity_Success(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_Success(t *testing.T) {
 	t.Parallel()
 
 	cs1 := lipfeature.NewContributionSet()
@@ -74,7 +74,21 @@ func TestAssertDualPathParity_Success(t *testing.T) {
 	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "b2", terminaldecision.Provider(harnessTerminalProvider{id: "term-1"})))
 	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-2"}})
 
-	planeparity.AssertDualPathParity(t, b1, b2)
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
+}
+
+func TestAssertGeneratedMergeInvariants_Conflict(t *testing.T) {
+	t.Parallel()
+
+	cs1 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneTerminalDecisionProvider, "b1", terminaldecision.Provider(harnessTerminalProvider{id: "term-1"})))
+	b1 := lipfeature.BundleFromPlanes(cs1.Freeze(), nil)
+
+	cs2 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "b2", terminaldecision.Provider(harnessTerminalProvider{id: "term-2"})))
+	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), nil)
+
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
 }
 
 func TestMergeBundlesGenerated_Conflict(t *testing.T) {
@@ -94,31 +108,96 @@ func TestMergeBundlesGenerated_Conflict(t *testing.T) {
 	require.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
 }
 
-func TestMergeBundlesViaGenerated_Equivalence(t *testing.T) {
+func TestAssertGeneratedMergeInvariants_MixedConflictPrecedesMalformedSchema(t *testing.T) {
 	t.Parallel()
 
+	// bundle0: valid terminal provider A
+	cs0 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs0, lipfeature.PlaneTerminalDecisionProvider, "bundle-0", terminaldecision.Provider(harnessTerminalProvider{id: "term-A"})))
+	b0 := lipfeature.BundleFromPlanes(cs0.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-0"}})
+
+	// bundle1: terminal conflict B (valid internally, but conflicts with b0)
 	cs1 := lipfeature.NewContributionSet()
-	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneSubmitHooks, "b1", []sdkhooks.SubmitHook{harnessHook{id: "h1"}}))
-	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneRequestPartHooks, "b1", []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "rp1"}}))
-	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneResponsePartHooks, "b1", []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "rsp1"}}))
-	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b1", 8192))
-	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneTerminalDecisionProvider, "b1", terminaldecision.Provider(harnessTerminalProvider{id: "term-1"})))
-	b1 := lipfeature.BundleFromPlanes(cs1.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "l1"}})
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneTerminalDecisionProvider, "bundle-1", terminaldecision.Provider(harnessTerminalProvider{id: "term-B"})))
+	b1 := lipfeature.BundleFromPlanes(cs1.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-1"}})
 
+	// bundle2: malformed schema (invalid SchemaVersion 999 with non-empty planes)
 	cs2 := lipfeature.NewContributionSet()
-	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneSubmitHooks, "b2", []sdkhooks.SubmitHook{harnessHook{id: "h2"}}))
-	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneRequestPartHooks, "b2", []sdkhooks.RequestPartHook{harnessRequestPartHook{id: "rp2"}}))
-	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneResponsePartHooks, "b2", []sdkhooks.ResponsePartHook{harnessResponsePartHook{id: "rsp2"}}))
-	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b2", 4096))
-	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "l2"}})
+	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneSubmitHooks, "bundle-2", []sdkhooks.SubmitHook{harnessHook{id: "hook-2"}}))
+	b2 := lipfeature.FeatureBundle{
+		SchemaVersion: 999,
+		PlaneSet:      cs2.Freeze(),
+		Lifecycles:    []lipplugin.Lifecycle{harnessLifecycle{id: "life-2"}},
+	}
 
-	legacy, errLegacy := featurebundle.MergeBundlesChecked(b1, b2)
-	require.NoError(t, errLegacy)
+	// Invariants assertion should succeed because conflict at bundle1 is evaluated and precedes malformed bundle2
+	planeparity.AssertGeneratedMergeInvariants(t, b0, b1, b2)
 
-	viaGen, errGen := featurebundle.MergeBundlesViaGenerated(b1, b2)
-	require.NoError(t, errGen)
+	// Explicitly verify production behavior and error precedence
+	res, err := featurebundle.MergeBundlesGenerated(b0, b1, b2)
+	require.Error(t, err)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+	require.ErrorIs(t, err, lipfeature.ErrTerminalDecisionProviderConflict)
+	require.Equal(t, featurebundle.GeneratedMergeSurface{}, res)
+	require.Nil(t, res.Lifecycles)
 
-	require.Equal(t, legacy, viaGen)
+	// Production derives incoming bundle terminal frozen identity before contribute, so pluginID is "term-B"
+	var attrErr *lipfeature.AttributedError
+	require.ErrorAs(t, err, &attrErr)
+	require.Equal(t, "term-B", attrErr.PluginID)
+	require.Equal(t, lipfeature.PlaneTerminalDecisionProvider.ID, attrErr.PlaneID)
+	require.Contains(t, err.Error(), "term-A")
+	require.Contains(t, err.Error(), "term-B")
+}
+
+func TestAssertGeneratedMergeInvariants_ReplayMutationAttackProvesOracleUnchanged(t *testing.T) {
+	t.Parallel()
+
+	// Initial valid bundle with multiple planes and lifecycles
+	cs1 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneSubmitHooks, "b1", []sdkhooks.SubmitHook{harnessHook{id: "hook-1"}}))
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, "b1", 4096))
+	require.NoError(t, lipfeature.Contribute(cs1, lipfeature.PlaneTerminalDecisionProvider, "b1", terminaldecision.Provider(harnessTerminalProvider{id: "term-1"})))
+	b1 := lipfeature.BundleFromPlanes(cs1.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-1"}})
+
+	// Attack bundle that contains a valid SubmitHook but also an exclusive conflict on TerminalDecisionProvider
+	cs2 := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneSubmitHooks, "attacker", []sdkhooks.SubmitHook{harnessHook{id: "hook-attacker"}}))
+	require.NoError(t, lipfeature.Contribute(cs2, lipfeature.PlaneTerminalDecisionProvider, "attacker", terminaldecision.Provider(harnessTerminalProvider{id: "term-2"})))
+	b2 := lipfeature.BundleFromPlanes(cs2.Freeze(), []lipplugin.Lifecycle{harnessLifecycle{id: "life-attacker"}})
+
+	// AssertGeneratedMergeInvariants asserts fail-before-mutate on oracleCS during replay error
+	planeparity.AssertGeneratedMergeInvariants(t, b1, b2)
+
+	// Verify fail-before-mutate directly on ContributionSet
+	workingCS := lipfeature.NewContributionSet()
+	require.NoError(t, b1.PlaneSet.ReplayTo(workingCS, "b1"))
+
+	beforeFrozen := workingCS.Freeze()
+
+	// Attempt replaying b2 should fail and leave workingCS unchanged
+	err := b2.PlaneSet.ReplayTo(workingCS, "attacker")
+	require.Error(t, err)
+	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
+
+	afterFrozen := workingCS.Freeze()
+	require.Equal(t, lipfeature.Get(beforeFrozen, lipfeature.PlaneSubmitHooks), lipfeature.Get(afterFrozen, lipfeature.PlaneSubmitHooks))
+	require.Equal(t, lipfeature.Get(beforeFrozen, lipfeature.PlaneTerminalDecisionProvider), lipfeature.Get(afterFrozen, lipfeature.PlaneTerminalDecisionProvider))
+	require.Equal(t, lipfeature.Get(beforeFrozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes), lipfeature.Get(afterFrozen, lipfeature.PlaneToolCallFinalizationMaxArgsBytes))
+	require.Equal(t, lipfeature.ProjectDiagnostics(beforeFrozen), lipfeature.ProjectDiagnostics(afterFrozen))
+}
+
+func TestAssertGeneratedMergeInvariants_ValidationFailure(t *testing.T) {
+	t.Parallel()
+
+	cs := lipfeature.NewContributionSet()
+	require.NoError(t, lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "b0", []sdkhooks.SubmitHook{harnessHook{id: "hook-0"}}))
+	b0 := lipfeature.FeatureBundle{
+		SchemaVersion: 999,
+		PlaneSet:      cs.Freeze(),
+	}
+
+	planeparity.AssertGeneratedMergeInvariants(t, b0)
 }
 
 func TestFreezeTestBundleChecked_InvalidTerminalProviderPanicsAndFails(t *testing.T) {

@@ -1,27 +1,39 @@
 package runtimebundle
 
-import lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+import (
+	"slices"
+
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+)
 
 // mergeCandidateBuildOptions overlays generation-owned FeatureLifecycles and
 // Extensions onto a shallow copy of process options without mutating Process.
 // ReplaceCandidateSurface true replaces FeatureLifecycles/Extensions even when
 // nil/empty; false means nil overlay fields are "no override".
 func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *BuildOptions {
+	if process == nil && overlay == nil {
+		return nil
+	}
 	if process == nil {
-		return overlay
+		out := *overlay
+		out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
+		out.Extensions = cloneExtensionsOptions(overlay.Extensions)
+		out.ReplaceCandidateSurface = false
+		return &out
 	}
 	out := *process
+	out.Extensions = cloneExtensionsOptions(process.Extensions)
 	if overlay != nil {
 		if overlay.ReplaceCandidateSurface {
-			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
-			out.Extensions = overlay.Extensions
+			out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
+			out.Extensions = cloneExtensionsOptions(overlay.Extensions)
 			out.FeaturePlanes = overlay.FeaturePlanes
 		} else {
 			if overlay.FeatureLifecycles != nil {
-				out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
+				out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
 			}
 			if hasExtensionOverlay(overlay.Extensions) {
-				out.Extensions = overlay.Extensions
+				out.Extensions = cloneExtensionsOptions(overlay.Extensions)
 			}
 			if !overlay.FeaturePlanes.IsZero() {
 				out.FeaturePlanes = overlay.FeaturePlanes
@@ -47,4 +59,27 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 func hasExtensionOverlay(e ExtensionsOptions) bool {
 	return e.SecretGuardEnvironment != nil ||
 		e.SecretDecisionObserver != nil
+}
+
+func cloneExtensionsOptions(in ExtensionsOptions) ExtensionsOptions {
+	out := in
+	out.SecretGuardInputs = cloneSecretGuardInputs(in.SecretGuardInputs)
+	return out
+}
+
+func cloneSecretGuardInputs(in SecretGuardInputs) SecretGuardInputs {
+	out := in
+	out.SingleUser.IncludeEnv = slices.Clone(in.SingleUser.IncludeEnv)
+	out.SingleUser.ExcludeEnv = slices.Clone(in.SingleUser.ExcludeEnv)
+	return out
+}
+
+func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.Lifecycle {
+	if gen == nil && overlay == nil {
+		return nil
+	}
+	out := make([]lipplugin.Lifecycle, 0, len(gen)+len(overlay))
+	out = append(out, gen...)
+	out = append(out, overlay...)
+	return out
 }

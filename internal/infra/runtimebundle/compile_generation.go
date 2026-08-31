@@ -74,7 +74,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 		host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
 	}
 	var extraBundles []lipfeature.FeatureBundle
-	merged, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host, extraBundles...)
+	genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(ps.FactoryCatalog, regs, host, extraBundles...)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 	}
@@ -92,14 +92,14 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	toolReactorErrorPolicy := config.ParseToolReactorErrorPolicy(frozen.Hooks.ToolReactorErrorPolicy)
 	lifecycles := append([]lipplugin.Lifecycle(nil), genMerged.Lifecycles...)
-	ext := extensionsFromMerged(merged, genMerged, ps.opts)
+	ext := extensionsFromProcessOptions(ps.opts)
 	if in.CandidateOpts != nil {
 		lifecycles = append(lifecycles, in.CandidateOpts.FeatureLifecycles...)
 		overlayExtensions(&ext, in.CandidateOpts.Extensions)
 	}
 	bus := in.Bus
 	if bus == nil {
-		bus = hooks.New(HooksConfigFromGenerated(genMerged, toolReactorErrorPolicy))
+		bus = hooks.New(lipfeature.ProjectHookConfig(genMerged.Frozen, toolReactorErrorPolicy))
 	}
 	cand, err := compileCandidate(ctx, GenerationCompileInput{
 		Process: ps, Bus: bus, Candidate: frozen,
@@ -310,12 +310,11 @@ func injectCandidateFault(fi CandidateFaultInject, boundary string) error {
 	return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 }
 
-func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, genMerged featurebundle.GeneratedMergeSurface, processOpts *BuildOptions) ExtensionsOptions {
-	ext := ExtensionsOptions{}
-	if processOpts != nil {
-		ext.SecretGuardEnvironment, ext.SecretGuardInputs, ext.SecretDecisionObserver = processOpts.Extensions.SecretGuardEnvironment, processOpts.Extensions.SecretGuardInputs, processOpts.Extensions.SecretDecisionObserver
+func extensionsFromProcessOptions(processOpts *BuildOptions) ExtensionsOptions {
+	if processOpts == nil {
+		return ExtensionsOptions{}
 	}
-	return ext
+	return cloneExtensionsOptions(processOpts.Extensions)
 }
 
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {

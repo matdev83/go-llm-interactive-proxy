@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -62,20 +63,15 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if opts.FeaturePlanes.IsZero() {
 		var host featurebundle.HostContributions
 		if ps.opts != nil {
-			host = featurebundle.HostContributions{
-				TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers),
-				UsageObservers:   slices.Clone(ps.opts.Production.UsageObservers),
-			}
+			host = featurebundle.HostContributions{TrafficObservers: slices.Clone(ps.opts.Production.TrafficObservers), UsageObservers: slices.Clone(ps.opts.Production.UsageObservers)}
 		}
-		catalog := ps.FactoryCatalog
-		if catalog == nil {
-			catalog = opts.PluginRegistry
-		}
-		_, genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(catalog, config.RegistrationsFromConfig(cfg), host)
+		catalog := cmp.Or(ps.FactoryCatalog, opts.PluginRegistry)
+		genMerged, err := featurebundle.MergeFeatureSurfacesWithHost(catalog, config.RegistrationsFromConfig(cfg), host)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: feature surface: %w", err)
 		}
 		opts.FeaturePlanes = genMerged.Frozen
+		opts.FeatureLifecycles = prependGeneratedLifecycles(genMerged.Lifecycles, opts.FeatureLifecycles)
 	}
 	if err := validateCandidateManifestOwnership(cfg, opts.PluginRegistry); err != nil {
 		return nil, err

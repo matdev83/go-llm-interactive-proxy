@@ -334,7 +334,7 @@ type RequestRuntimeSnapshot struct {
 }
 
 func (s *RequestRuntimeSnapshot) ` + fix.funcName + `() any {
-	if s == nil { return nil }
+	if s != nil { return nil }
 	return lipfeature.Get(s.frozen, ` + fix.planeExpr + `)
 }
 `
@@ -347,7 +347,7 @@ type RequestRuntimeSnapshot struct {
 }
 
 func ` + fix.funcName + `(s *RequestRuntimeSnapshot) any {
-	if s == nil { return nil }
+	if s != nil { return nil }
 	return lipfeature.Get(s.frozen, ` + fix.planeExpr + `)
 }
 `
@@ -358,6 +358,26 @@ func ` + fix.funcName + `(s *RequestRuntimeSnapshot) any {
 			}
 			if !strings.Contains(nonThinFindings[0].Detail, "does not thinly delegate to Get") {
 				t.Fatalf("expected detail to mention non-thin delegation for %q, got: %q", fix.qualSym, nonThinFindings[0].Detail)
+			}
+
+			// (d) Scanned at authorized path with nil-safe thin delegate: PASSES for methods
+			if fix.isMethod {
+				nilSafeMethodSrc := `package extensions
+import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+
+type RequestRuntimeSnapshot struct {
+	frozen lipfeature.FrozenPlaneSet
+}
+
+func (s *RequestRuntimeSnapshot) ` + fix.funcName + `() any {
+	if s == nil { return nil }
+	return lipfeature.Get(s.frozen, ` + fix.planeExpr + `)
+}
+`
+				nilSafeFindings := scanSyntheticSource(t, fix.relPath, nilSafeMethodSrc, fix.wave)
+				if len(nilSafeFindings) != 0 {
+					t.Fatalf("expected 0 findings for nil-safe authorized stage consumer %q at %s, got: %+v", fix.qualSym, fix.relPath, nilSafeFindings)
+				}
 			}
 		})
 	}

@@ -84,7 +84,7 @@ func StandardWaveDefinitions() []WaveMirrorFamily {
 func StandardExtensionPlanePaths() ExtensionPlanePathManifest {
 	return ExtensionPlanePathManifest{
 		Generated: []ExtensionPlanePathEntry{
-			{Path: "pkg/lipsdk/feature/plane_generated.go", Category: "generated", Role: "Generated typed storage, dispatch, and metadata adapters", Description: "Emitted by generate-feature-planes.go from plane_manifest.go; zero reflection/unsafe"},
+			{Path: "pkg/lipsdk/feature/plane_generated.go", Category: "generated", Role: "Generated typed storage, hook projection, dispatch, and metadata adapters", Description: "Emitted by generate-feature-planes.go from plane_manifest.go; zero reflection/unsafe"},
 		},
 		HandAuthored: []ExtensionPlanePathEntry{
 			{Path: "pkg/lipsdk/feature/plane.go", Category: "hand_authored", Role: "Plane[T] contracts and descriptors", Description: "Core generic plane types, multiplicity, nil policy, and diagnostics descriptors"},
@@ -92,9 +92,9 @@ func StandardExtensionPlanePaths() ExtensionPlanePathManifest {
 			{Path: "pkg/lipsdk/feature/contributions.go", Category: "hand_authored", Role: "ContributionSet builder contract", Description: "Type-safe contribution accumulation with error attribution"},
 			{Path: "pkg/lipsdk/feature/frozen.go", Category: "hand_authored", Role: "FrozenPlaneSet contracts and generic accessors", Description: "Immutable published snapshot store with package-level Get/Contribute"},
 			{Path: "pkg/lipsdk/feature/bundle.go", Category: "hand_authored", Role: "FeatureBundle SDK integration", Description: "Plugin SDK bundle carrying ContributionSet and lifecycle registrations"},
-			{Path: "internal/featurebundle/merge_surface.go", Category: "hand_authored", Role: "MergedFeatureSurface composition engine", Description: "Registration-order merge over catalog; conflict rejection and deterministic reduce"},
+			{Path: "internal/featurebundle/merge_surface.go", Category: "hand_authored", Role: "GeneratedMergeSurface composition/registry assembly", Description: "Registration-order merge over catalog; conflict rejection and deterministic reduce"},
 			{Path: "internal/infra/runtimebundle/build_extension.go", Category: "hand_authored", Role: "ExtensionsOptions composition", Description: "Generic projection of frozen candidate into executor options and host pseudo-contributions"},
-			{Path: "internal/infra/runtimebundle/build_feature_hooks.go", Category: "hand_authored", Role: "Hook-bus view projection", Description: "Catalog-driven derivation of hooks.Config from frozen candidate"},
+			{Path: "internal/infra/runtimebundle/build_feature_hooks.go", Category: "hand_authored", Role: "Hook-bus composition consumer", Description: "Direct consumption of generated ProjectHookConfig into hooks.Config"},
 			{Path: "internal/infra/runtimebundle/generation_bundle.go", Category: "hand_authored", Role: "Generation operations freeze", Description: "Immutable generation operations holding FrozenPlaneSet"},
 			{Path: "internal/core/extensions/snapshot.go", Category: "hand_authored", Role: "RequestRuntimeSnapshot freeze and stage accessors", Description: "Pinned request snapshot delegating stage reads to FrozenPlaneSet"},
 			{Path: "internal/core/diag/inventory_extensions.go", Category: "hand_authored", Role: "Diagnostics inventory projection", Description: "Catalog-driven stage occupancy and privilege projection"},

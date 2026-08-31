@@ -251,11 +251,12 @@ func makeTestBundle(fn func(cs *lipfeature.ContributionSet)) lipfeature.FeatureB
 
 // --- Tests ---
 
-func TestMergeBundles_empty(t *testing.T) {
+func TestMergeBundlesGenerated_empty(t *testing.T) {
 	t.Parallel()
-	m := MergeBundles()
-	if len(m.Lifecycles) != 0 {
-		t.Fatalf("MergeBundles() with no args should be empty: %+v", m)
+	gen, err := MergeBundlesGenerated()
+	require.NoError(t, err)
+	if len(gen.Lifecycles) != 0 {
+		t.Fatalf("MergeBundlesGenerated() with no args should have empty lifecycles: %+v", gen)
 	}
 }
 
@@ -299,7 +300,7 @@ func TestMergeBundlesGenerated_TerminalDecisionProviderConflictFailsBeforePublic
 	if !errors.Is(err, lipfeature.ErrExclusiveConflict) {
 		t.Fatalf("conflict error = %v, want ErrExclusiveConflict", err)
 	}
-	if !errors.Is(err, ErrTerminalDecisionProviderConflict) {
+	if !errors.Is(err, lipfeature.ErrTerminalDecisionProviderConflict) {
 		t.Fatalf("conflict error = %v, want ErrTerminalDecisionProviderConflict", err)
 	}
 	if !strings.Contains(err.Error(), first.ID()) || !strings.Contains(err.Error(), second.ID()) {
@@ -320,7 +321,7 @@ func TestMergeBundlesGenerated_TerminalDecisionProviderRejectsInvalidProvider(t 
 	}
 }
 
-func TestMergedFeatureSurfaceAppend_concatenatesLifecycles(t *testing.T) {
+func TestMergeBundlesGenerated_concatenatesLifecycles(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
 		SchemaVersion: lipfeature.SchemaVersionV1,
@@ -330,8 +331,9 @@ func TestMergedFeatureSurfaceAppend_concatenatesLifecycles(t *testing.T) {
 		SchemaVersion: lipfeature.SchemaVersionV1,
 		Lifecycles:    []lipplugin.Lifecycle{testLifecycle{tag: "l2"}},
 	}
-	m := MergeBundles(b1, b2)
-	require.Len(t, m.Lifecycles, 2)
+	gen, err := MergeBundlesGenerated(b1, b2)
+	require.NoError(t, err)
+	require.Len(t, gen.Lifecycles, 2)
 }
 
 func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
@@ -373,7 +375,7 @@ func TestMergeBundlesGenerated_ToolCallFinalizationMaxArgsBytesIgnoresNonPositiv
 	}
 }
 
-func TestMergeBundles_preservesBundleOrderAcrossSlices(t *testing.T) {
+func TestMergeBundlesGenerated_preservesBundleOrderAcrossSlices(t *testing.T) {
 	t.Parallel()
 	b1 := makeTestBundle(func(cs *lipfeature.ContributionSet) {
 		_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "b1", []localturn.Handler{testLocalTurnHandler{tag: "first"}})
@@ -454,7 +456,7 @@ func TestMergeFeatureSurfacesWithHost_ThreeSourceOrdering(t *testing.T) {
 		_ = lipfeature.Contribute(cs, lipfeature.PlaneTrafficRedactors, "cand", []traffic.Redactor{testRedactor{tag: "cand-red"}})
 	})
 
-	_, gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, candExtra)
+	gen, err := MergeFeatureSurfacesWithHost(reg, regs, host, candExtra)
 	if err != nil {
 		t.Fatalf("MergeFeatureSurfacesWithHost error: %v", err)
 	}

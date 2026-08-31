@@ -1,12 +1,12 @@
 package archtest
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -57,7 +57,7 @@ type MirrorShapeKind string
 
 const (
 	MirrorFeatureBundleField          MirrorShapeKind = "FeatureBundleField"
-	MirrorMergedSurfaceField          MirrorShapeKind = "MergedFeatureSurfaceField"
+	MirrorNamedTransportField         MirrorShapeKind = "NamedTransportField"
 	MirrorAppendBranch                MirrorShapeKind = "AppendBranch"
 	MirrorProjectionBranch            MirrorShapeKind = "ProjectionBranch"
 	MirrorExtensionsOptionsField      MirrorShapeKind = "ExtensionsOptionsField"
@@ -123,170 +123,42 @@ func QualifiedSymbol(relPath string, fd *ast.FuncDecl) string {
 // ForbiddenMirrorPredicate inspects an AST node in a file and returns a finding if forbidden.
 type ForbiddenMirrorPredicate func(relPath string, node ast.Node, fset *token.FileSet, maxCompletedWave MigrationWave) (MirrorFinding, bool)
 
-// IsGeneratedFile reports whether path or content indicates a generated file.
+var generatedHeaderRegex = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// IsGeneratedFile reports whether f (or src/path) contains a canonical generated code header
+// comment before the package clause. In accordance with the Go generated-code convention,
+// the marker must be a single-line comment matching '^// Code generated .* DO NOT EDIT\.$'
+// occurring before the package declaration. Filename suffixes alone are not exempt.
 func IsGeneratedFile(path string, src []byte, f *ast.File) bool {
-	if strings.HasSuffix(path, "_generated.go") || filepath.Base(path) == "plane_generated.go" {
-		return true
-	}
-	if len(src) > 0 {
-		head := src
-		if len(head) > 1024 {
-			head = head[:1024]
-		}
-		if bytes.Contains(head, []byte("Code generated")) && bytes.Contains(head, []byte("DO NOT EDIT")) {
-			return true
-		}
-	}
-	if f != nil {
-		for _, cg := range f.Comments {
-			for _, c := range cg.List {
-				if strings.Contains(c.Text, "Code generated") && strings.Contains(c.Text, "DO NOT EDIT") {
-					return true
-				}
+	if f == nil {
+		if len(src) == 0 {
+			if path == "" {
+				return false
+			}
+			var err error
+			src, err = os.ReadFile(path)
+			if err != nil {
+				return false
 			}
 		}
-	}
-	return false
-}
-
-// IsThinDelegate reports whether a function/method is a strictly thin delegate
-// whose body contains exactly one return statement calling Get or FrozenIdentity
-// from pkg/lipsdk/feature, with no other statements or branching logic.
-func IsThinDelegate(relPath string, fd *ast.FuncDecl, files ...*ast.File) bool {
-	if fd == nil || fd.Body == nil || len(fd.Body.List) != 1 {
-		return false
-	}
-	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 {
-		return false
-	}
-	var f *ast.File
-	if len(files) > 0 {
-		f = files[0]
-	}
-	return isGetCall(relPath, ret.Results[0], f)
-}
-
-func isGetCall(relPath string, expr ast.Expr, f *ast.File) bool {
-	call, ok := expr.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	if isGetOrFrozenIdentity(relPath, call.Fun, f) {
-		return true
-	}
-	return isRequestExecutionViewCall(relPath, call, f)
-}
-
-func isFeaturePkgImport(imp *ast.ImportSpec) bool {
-	if imp == nil || imp.Path == nil {
-		return false
-	}
-	path := strings.Trim(imp.Path.Value, `"`)
-	return path == "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
-}
-
-func isFeaturePkgDotImportOrSamePkg(relPath string, f *ast.File) bool {
-	if f == nil {
-		return false
-	}
-	if f.Name != nil && f.Name.Name == "feature" {
-		slash := filepath.ToSlash(relPath)
-		dir := path.Dir(slash)
-		if dir == "pkg/lipsdk/feature" {
-			return true
+		_, parsed, err := ParseGoSource(path, src)
+		if err != nil || parsed == nil {
+			return false
 		}
+		f = parsed
 	}
-	for _, imp := range f.Imports {
-		if isFeaturePkgImport(imp) && imp.Name != nil && imp.Name.Name == "." {
-			return true
-		}
-	}
-	return false
-}
 
-func isFeaturePkgIdent(relPath string, expr ast.Expr, f *ast.File) bool {
-	pkgIdent, ok := expr.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	pkgName := pkgIdent.Name
-	if f == nil {
-		return false
-	}
-	for _, imp := range f.Imports {
-		if isFeaturePkgImport(imp) {
-			if imp.Name != nil {
-				if imp.Name.Name == pkgName {
-					return true
-				}
-			} else if pkgName == "feature" {
+	for _, cg := range f.Comments {
+		if cg.Pos() >= f.Package {
+			continue
+		}
+		for _, c := range cg.List {
+			if generatedHeaderRegex.MatchString(c.Text) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func isGetOrFrozenIdentity(relPath string, fn ast.Expr, f *ast.File) bool {
-	switch e := fn.(type) {
-	case *ast.IndexExpr:
-		return isGetOrFrozenIdentity(relPath, e.X, f)
-	case *ast.IndexListExpr:
-		return isGetOrFrozenIdentity(relPath, e.X, f)
-	case *ast.ParenExpr:
-		return isGetOrFrozenIdentity(relPath, e.X, f)
-	case *ast.Ident:
-		if e.Name != "Get" && e.Name != "FrozenIdentity" {
-			return false
-		}
-		return isFeaturePkgDotImportOrSamePkg(relPath, f)
-	case *ast.SelectorExpr:
-		if e.Sel.Name != "Get" && e.Sel.Name != "FrozenIdentity" {
-			return false
-		}
-		return isFeaturePkgIdent(relPath, e.X, f)
-	default:
-		return false
-	}
-}
-
-var allowedRequestExecutionMethods = map[string]bool{
-	"ToolCallPolicies":   true,
-	"ToolCallFinalizers": true,
-	"SecretGuards":       true,
-	"LocalTurnHandlers":  true,
-}
-
-func isRequestExecutionViewCall(relPath string, call *ast.CallExpr, f *ast.File) bool {
-	if call == nil {
-		return false
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	if !allowedRequestExecutionMethods[sel.Sel.Name] {
-		return false
-	}
-	innerCall, ok := sel.X.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	switch fn := innerCall.Fun.(type) {
-	case *ast.SelectorExpr:
-		if fn.Sel.Name != "RequestExecution" {
-			return false
-		}
-		return isFeaturePkgIdent(relPath, fn.X, f)
-	case *ast.Ident:
-		if fn.Name != "RequestExecution" {
-			return false
-		}
-		return isFeaturePkgDotImportOrSamePkg(relPath, f)
-	default:
-		return false
-	}
 }
 
 func isDiagnosticsTargetFile(relPath string) bool {
@@ -348,39 +220,47 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
+			if strings.Contains(relPath, "internal/testkit/") || strings.Contains(relPath, "internal/refbackend/") || strings.Contains(relPath, "internal/refclient/") {
+				return true
+			}
 			st, ok := node.Type.(*ast.StructType)
 			if !ok || st.Fields == nil {
 				return true
 			}
 			structName := node.Name.Name
-			var allowed map[string]bool
+			pkgDir := PackageDirFromRel(relPath)
+			qualStruct := structName
+			if pkgDir != "" {
+				qualStruct = pkgDir + "." + structName
+			}
+
+			// Wave ratchet exception for FeatureBundle SDK contract before Wave5c
+			if (qualStruct == "pkg/lipsdk/feature.FeatureBundle" || structName == "FeatureBundle") && maxCompletedWave < Wave5c_Residual {
+				return true
+			}
+
+			allowedFields, isAllowlisted := AllowedStructFields[qualStruct]
+			if !isAllowlisted {
+				allowedFields = AllowedStructFields[structName]
+			}
+
 			var shapeKind MirrorShapeKind
 			switch structName {
 			case "FeatureBundle":
-				if maxCompletedWave < Wave5c_Residual {
-					return true
-				}
-				allowed = AllowedFeatureBundleFields
 				shapeKind = MirrorFeatureBundleField
-			case "MergedFeatureSurface":
-				allowed = AllowedMergedSurfaceFields
-				shapeKind = MirrorMergedSurfaceField
 			case "ExtensionsOptions":
-				allowed = AllowedExtensionsOptionsFields
 				shapeKind = MirrorExtensionsOptionsField
 			case "generationOperations":
-				allowed = AllowedGenerationOperationsFields
 				shapeKind = MirrorGenerationOpField
 			case "RequestRuntimeSnapshot":
-				allowed = AllowedRequestRuntimeSnapshotFields
 				shapeKind = MirrorRequestRuntimeSnapshotField
 			default:
-				return true
+				shapeKind = MirrorNamedTransportField
 			}
 
 			for _, field := range st.Fields.List {
 				for _, name := range field.Names {
-					if allowed[name.Name] {
+					if allowedFields != nil && allowedFields[name.Name] {
 						continue
 					}
 					meta, exists := KnownPlaneFields[name.Name]
@@ -404,12 +284,11 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 				inspectDiagnosticsBody(f, node, fset, maxCompletedWave, addFinding)
 			} else if funcName == "Append" {
 				inspectAppendBody(node, fset, maxCompletedWave, addFinding)
-			} else if IsAllowedHookProjection(qualSym) {
-				// Exact qualified symbol allowlist: Hook-bus view projection via Get is allowed
 			} else if IsAllowedObserverProjection(qualSym) {
 				// Exact qualified symbol allowlist: Observer view projection via Get is allowed
-			} else if funcName == "extensionsFromMerged" || funcName == "overlayExtensions" ||
-				strings.Contains(strings.ToLower(funcName), "frommerged") ||
+			} else if funcName == "overlayExtensions" ||
+				strings.Contains(strings.ToLower(funcName), "fromtransport") ||
+				strings.Contains(strings.ToLower(funcName), "projecthook") ||
 				strings.Contains(strings.ToLower(funcName), "hooksconfig") ||
 				strings.Contains(relPath, "internal/infra/runtimebundle/build_feature_hooks.go") {
 				inspectProjectionBody(node, fset, maxCompletedWave, addFinding)

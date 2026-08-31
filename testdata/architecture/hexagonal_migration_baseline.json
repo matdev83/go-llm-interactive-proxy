@@ -5,9 +5,9 @@
     "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3).",
     "internal/stdhttp no longer imports internal/core/b2bua or internal/core/hooks after the stdhttp/server.go concern split and removal of the stdhttp.BuildExecutor wrapper (arch review Phase 0/1); both were used only by the deleted wire.go.",
     "internal/pluginreg no longer imports internal/core/config after standard bundle tables, installers, per-backend factories, env-key resolution, and default wire model moved to internal/standardplugins (arch review Phase 3). The feature bridge (FeatureFactoryFromHooks) moved to internal/featurebundle.",
-    "internal/pluginreg reclassified from exception to aligned after the feature merge surface (MergedFeatureSurface + Registry methods) moved to internal/featurebundle as free functions and the FeatureFactoryFromHooks bridge was deleted (arch review remaining tasks). The internal/core/hooks import is gone.",
+    "internal/pluginreg reclassified from exception to aligned after the feature merge surface (GeneratedMergeSurface + Registry methods) moved to internal/featurebundle as free functions and the FeatureFactoryFromHooks bridge was deleted (arch review remaining tasks). The internal/core/hooks import is gone.",
     "internal/standardplugins reclassified from exception to aligned after frontend mount functions moved to frontend packages and all 7 hook-only features converted to native FeatureBundle, removing the internal/core/hooks import.",
-    "internal/featurebundle reclassified from exception to aligned after MergedFeatureSurface dropped hooks.Config in favor of SDK hook slices; hooks.New and BuildFeatureHooks moved to internal/infra/runtimebundle (arch review final closure)."
+    "internal/featurebundle reclassified from exception to aligned after GeneratedMergeSurface dropped hooks.Config in favor of SDK hook slices; hooks.New and BuildFeatureHooks moved to internal/infra/runtimebundle (arch review final closure)."
   ],
   "packages": [
     {

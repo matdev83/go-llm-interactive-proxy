@@ -595,7 +595,7 @@ func TestCodexStandardRegression_StandardCompositionCompanionWithCompression(t *
 			reg := pluginreg.NewRegistry()
 			require.NoError(t, standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}))
 			// Merge via featurebundle to get the production transform
-			_, gen, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(baseCfg))
+			gen, err := featurebundle.MergeFeatureSurfaceGenerated(reg, config.RegistrationsFromConfig(baseCfg))
 			require.NoError(t, err)
 			var foundXform bool
 			for _, tf := range lipfeature.Get(gen.Frozen, lipfeature.PlaneAttemptTransforms) {

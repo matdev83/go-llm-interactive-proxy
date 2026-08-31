@@ -318,9 +318,9 @@ func (g *charStubSGGuard) Evaluate(context.Context, *lipapi.Call, sdksg.Meta, sd
 
 // TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration pins Requirement 1.2, 1.4, 4.2:
 // - FeatureBundle.Validate() returns ErrInvalidProvider on typed-nil provider.
-// - MergedFeatureSurface.Append() returns ErrInvalidProvider on typed-nil provider.
-// - Append fails BEFORE any receiver mutation: fields on MergedFeatureSurface remain identical.
-// - Append validates receiver and incoming provider identity before checking conflict.
+// - MergeBundlesGenerated / ContributeBundle returns ErrInvalidProvider on typed-nil provider.
+// - Merge fails BEFORE any candidate mutation: fields on GeneratedMergeSurface remain identical.
+// - Merge validates candidate and incoming provider identity before checking conflict.
 // - CompileGeneration rejects typed-nil provider fail-closed.
 // - overlayExtensions carries typed-nil provider when dst is nil, which fails candidate compile.
 func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testing.T) {
@@ -406,10 +406,10 @@ func TestTerminalDecision_TypedNilFailBeforeMutateAndCompileGeneration(t *testin
 //   - Exactly 4 planes reject nil interface elements (AttemptTransforms, StreamObserverFactories, CompactionPreservers, LocalTurnHandlers).
 //   - The remaining 20 planes accept slices with nil interface elements without error.
 //
-// 2. MergedFeatureSurface.Append():
-//   - All 24 planes append slices verbatim, preserving nil interface elements and relative slice positions.
+// 2. MergeBundlesGenerated():
+//   - All 24 planes concatenate slices verbatim, preserving nil interface elements and relative slice positions.
 //
-// 3. extensionsFromMerged() and overlayExtensions():
+// 3. extensionsFromProcessOptions() and overlayExtensions():
 //   - Nil interface elements are copied and appended without omission across all projected slice planes.
 //
 // 4. RequestRuntimeSnapshot:
@@ -519,19 +519,19 @@ func TestPlaneParity_OrderedInterfacePlanesNilPolicyCensus(t *testing.T) {
 		}
 	})
 
-	t.Run("merged_feature_surface_append_preserves_nil_elements_verbatim", func(t *testing.T) {
+	t.Run("merge_bundles_generated_preserves_nil_elements_verbatim", func(t *testing.T) {
 		t.Parallel()
-		var m featurebundle.MergedFeatureSurface
 		b := lipfeature.FeatureBundle{
 			SchemaVersion: lipfeature.SchemaVersionV1,
 			Lifecycles:    []lipplugin.Lifecycle{nil, charStubLifecycle{tag: "l1"}, nil},
 		}
 
-		require.NoError(t, m.Append(b))
-		require.Len(t, m.Lifecycles, 3)
-		assert.Nil(t, m.Lifecycles[0])
-		assert.NotNil(t, m.Lifecycles[1])
-		assert.Nil(t, m.Lifecycles[2])
+		gen, err := featurebundle.MergeBundlesGenerated(b)
+		require.NoError(t, err)
+		require.Len(t, gen.Lifecycles, 3)
+		assert.Nil(t, gen.Lifecycles[0])
+		assert.NotNil(t, gen.Lifecycles[1])
+		assert.Nil(t, gen.Lifecycles[2])
 	})
 
 	t.Run("secret_guards_plane_and_generated_storage_preserves_literal_and_typed_nil_verbatim", func(t *testing.T) {
@@ -727,7 +727,7 @@ func TestPlaneParity_SnapshotMaterializationNilAndTypedNilFiltering(t *testing.T
 
 // TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues verifies that an invalid
 // contribution (panicking provider, invalid identity, etc.) fails BEFORE modifying
-// any field of the receiver MergedFeatureSurface.
+// any field of the merged GeneratedMergeSurface.
 func TestPlaneParity_FailBeforeMutateOnInvalidInterfaceValues(t *testing.T) {
 	t.Parallel()
 

@@ -3,18 +3,13 @@ package hooks
 import (
 	"slices"
 
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
 // Config wires hook implementations into a Bus. Any slice may be nil or empty.
-type Config struct {
-	SubmitHooks       []sdk.SubmitHook
-	RequestPartHooks  []sdk.RequestPartHook
-	ResponsePartHooks []sdk.ResponsePartHook
-	ToolReactors      []sdk.ToolReactor
-	// ToolReactorErrorPolicy controls reactor error propagation (zero = unspecified; treated as fail-open).
-	ToolReactorErrorPolicy sdk.ToolReactorErrorPolicy
-}
+// It aliases the SDK-owned [lipfeature.HookConfig] projected from declared feature planes.
+type Config = lipfeature.HookConfig
 
 // Bus runs hook chains in stable order (Order ascending, then ID ascending, then
 // registration index ascending so equal Order+ID hooks remain deterministic).

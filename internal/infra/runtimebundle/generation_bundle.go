@@ -112,6 +112,9 @@ func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderV
 // The returned instance is never rebound while the generation is published;
 // request admission snapshots the same value for the request lifetime.
 func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider {
+	if b == nil {
+		return nil
+	}
 	return lipfeature.Get(b.operations.Frozen, lipfeature.PlaneTerminalDecisionProvider)
 }
 

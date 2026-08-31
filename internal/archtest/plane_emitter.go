@@ -469,6 +469,9 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	}
 	buf.WriteString("}\n\n")
 
+	// 9b. HookConfig and ProjectHookConfig
+	emitHookConfig(&buf, planes)
+
 	// 10. RequestExecutionView and methods
 	emitRequestExecutionView(&buf, planes)
 

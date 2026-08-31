@@ -448,7 +448,7 @@ func TestObserversProjection_EndToEndSnapshotDispatch(t *testing.T) {
 	}))
 
 	gen := featurebundle.GeneratedMergeSurface{Frozen: cs.Freeze()}
-	ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, gen, nil)
+	ext := extensionsFromProcessOptions(nil)
 
 	bus := hooks.New(hooks.Config{})
 	var err error

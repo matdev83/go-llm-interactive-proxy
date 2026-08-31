@@ -121,19 +121,18 @@ func (g GeneratedMergeSurface) MergeCandidatePlanes(cand lipfeature.FrozenPlaneS
 	}, nil
 }
 
-// ToMergedFeatureSurface projects the GeneratedMergeSurface into a legacy MergedFeatureSurface,
-// retaining the Lifecycles side channel.
-func (g GeneratedMergeSurface) ToMergedFeatureSurface() MergedFeatureSurface {
-	return MergedFeatureSurface{
-		Lifecycles: g.Lifecycles,
-	}
-}
-
 // ContributeBundle contributes all planes from FeatureBundle b into the given ContributionSet
-// using the provided pluginID via b.PlaneSet.ReplayTo. If b.PlaneSet is zero, it is a no-op.
+// using the provided pluginID via b.PlaneSet.ReplayTo. It validates the bundle schema before replay.
+// If b.PlaneSet is zero, it is a no-op after schema validation.
 func ContributeBundle(cs *lipfeature.ContributionSet, pluginID string, b lipfeature.FeatureBundle) error {
 	if cs == nil {
 		return errors.New("featurebundle: nil ContributionSet")
+	}
+	if pluginID == "" {
+		pluginID = "feature"
+	}
+	if err := b.Validate(); err != nil {
+		return fmt.Errorf("featurebundle: invalid bundle %q: %w", pluginID, err)
 	}
 	return b.PlaneSet.ReplayTo(cs, pluginID)
 }
@@ -170,23 +169,13 @@ func MergeBundlesGenerated(bundles ...lipfeature.FeatureBundle) (GeneratedMergeS
 		if err := ContributeBundle(cs, pluginID, b); err != nil {
 			return GeneratedMergeSurface{}, err
 		}
-		lifecycles = append(lifecycles, b.Lifecycles...)
+		lifecycles = appendLifecycles(lifecycles, b.Lifecycles)
 	}
 	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
 		set:        cs,
 	}, nil
-}
-
-// MergeBundlesViaGenerated merges one or more FeatureBundles using the generated plane adapters
-// and projects the result into a MergedFeatureSurface.
-func MergeBundlesViaGenerated(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, error) {
-	gen, err := MergeBundlesGenerated(bundles...)
-	if err != nil {
-		return MergedFeatureSurface{}, err
-	}
-	return gen.ToMergedFeatureSurface(), nil
 }
 
 // MergeFeatureSurfaceGenerated merges enabled feature plugins into a GeneratedMergeSurface.
@@ -197,40 +186,5 @@ func MergeFeatureSurfaceGenerated(reg FeatureBundleRegistry, registrations []lip
 	if err != nil {
 		return GeneratedMergeSurface{}, err
 	}
-	cs := lipfeature.NewContributionSet()
-	var lifecycles []lipplugin.Lifecycle
-	bIdx := 0
-	for _, regEntry := range registrations {
-		if regEntry.Kind != lipsdk.PluginKindFeature || !regEntry.Enabled {
-			continue
-		}
-		b := bundles[bIdx]
-		bIdx++
-		pluginID := regEntry.ID
-		if pluginID == "" {
-			pluginID = regEntry.RegistryFactoryKey()
-		}
-		if pluginID == "" {
-			pluginID = fmt.Sprintf("feature-%d", bIdx)
-		}
-		if err := ContributeBundle(cs, pluginID, b); err != nil {
-			return GeneratedMergeSurface{}, err
-		}
-		lifecycles = append(lifecycles, b.Lifecycles...)
-	}
-	return GeneratedMergeSurface{
-		Frozen:     cs.Freeze(),
-		Lifecycles: lifecycles,
-		set:        cs,
-	}, nil
-}
-
-// MergeFeatureSurfaceViaGenerated merges enabled feature plugins using generated adapters
-// and projects the result into a MergedFeatureSurface.
-func MergeFeatureSurfaceViaGenerated(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
-	gen, err := MergeFeatureSurfaceGenerated(reg, registrations)
-	if err != nil {
-		return MergedFeatureSurface{}, err
-	}
-	return gen.ToMergedFeatureSurface(), nil
+	return mergeBuiltFeatureBundlesWithHost(bundles, registrations, HostContributions{})
 }

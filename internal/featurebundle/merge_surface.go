@@ -1,7 +1,6 @@
 package featurebundle
 
 import (
-	"errors"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
@@ -16,46 +15,14 @@ type FeatureBundleRegistry interface {
 	BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error)
 }
 
-// MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
-// registration order.
-type MergedFeatureSurface struct {
-	Lifecycles []lipplugin.Lifecycle
-}
-
-// ErrTerminalDecisionProviderConflict reports an attempted second provider
-// contribution to one immutable feature surface.
-var ErrTerminalDecisionProviderConflict = lipfeature.ErrTerminalDecisionProviderConflict
-
-// Append concatenates all fields from bundle b into the receiver. This is the single
-// merge point: every new FeatureBundle field requires exactly one append line here.
-func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
-	if m == nil {
-		return errors.New("featurebundle: nil merged feature surface")
+func appendLifecycles(dst []lipplugin.Lifecycle, incoming []lipplugin.Lifecycle) []lipplugin.Lifecycle {
+	if incoming == nil {
+		return dst
 	}
-	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
-	return nil
-}
-
-// MergeBundles concatenates one or more FeatureBundles into a single MergedFeatureSurface,
-// preserving bundle order across all slice fields.
-func MergeBundles(bundles ...lipfeature.FeatureBundle) MergedFeatureSurface {
-	out, err := MergeBundlesChecked(bundles...)
-	if err != nil {
-		panic(err)
+	if dst == nil {
+		dst = make([]lipplugin.Lifecycle, 0, len(incoming))
 	}
-	return out
-}
-
-// MergeBundlesChecked merges bundles and rejects invalid or conflicting
-// terminal-decision provider contributions before returning a candidate.
-func MergeBundlesChecked(bundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, error) {
-	var out MergedFeatureSurface
-	for _, b := range bundles {
-		if err := out.Append(b); err != nil {
-			return MergedFeatureSurface{}, err
-		}
-	}
-	return out, nil
+	return append(dst, incoming...)
 }
 
 // BuildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
@@ -85,37 +52,12 @@ func buildEnabledFeatureBundles(reg FeatureBundleRegistry, registrations []lipsd
 	return BuildEnabledFeatureBundles(reg, registrations)
 }
 
-// MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
-// It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
-// Secrets-guard uniqueness is enforced at the runtimebundle composition root
-// ([runtimebundle.BuildHost] / [buildSecretGuardRuntime]), not in this generic merge helper.
-func MergeFeatureSurface(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
-	bundles, err := buildEnabledFeatureBundles(reg, registrations)
-	if err != nil {
-		return MergedFeatureSurface{}, err
-	}
-	return MergeBundlesChecked(bundles...)
-}
-
-// MergeFeatureSurfaces merges enabled feature plugins into both legacy MergedFeatureSurface
-// and GeneratedMergeSurface using the same bundle instances.
-func MergeFeatureSurfaces(reg FeatureBundleRegistry, registrations []lipsdk.Registration) (MergedFeatureSurface, GeneratedMergeSurface, error) {
-	return MergeFeatureSurfacesWithHost(reg, registrations, HostContributions{})
-}
-
-// MergeFeatureSurfacesWithHost merges enabled feature plugins, host contributions, and optional candidate feature bundles into
-// legacy MergedFeatureSurface and GeneratedMergeSurface. Feature bundles are contributed under SourceFeature (plugins first, candidate extras last),
-// and host observer contributions are contributed under SourceHost between initial feature plugins and candidate extras.
-func MergeFeatureSurfacesWithHost(reg FeatureBundleRegistry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (MergedFeatureSurface, GeneratedMergeSurface, error) {
-	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
-	if err != nil {
-		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
-	}
-	allFeatureBundles := append(bundles, extraFeatureBundles...)
-	m, err := MergeBundlesChecked(allFeatureBundles...)
-	if err != nil {
-		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
-	}
+func mergeBuiltFeatureBundlesWithHost(
+	bundles []lipfeature.FeatureBundle,
+	registrations []lipsdk.Registration,
+	host HostContributions,
+	extraFeatureBundles ...lipfeature.FeatureBundle,
+) (GeneratedMergeSurface, error) {
 	cs := lipfeature.NewContributionSet()
 	var lifecycles []lipplugin.Lifecycle
 	bIdx := 0
@@ -133,24 +75,34 @@ func MergeFeatureSurfacesWithHost(reg FeatureBundleRegistry, registrations []lip
 			pluginID = fmt.Sprintf("feature-%d", bIdx)
 		}
 		if err := ContributeBundle(cs, pluginID, b); err != nil {
-			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+			return GeneratedMergeSurface{}, err
 		}
-		lifecycles = append(lifecycles, b.Lifecycles...)
+		lifecycles = appendLifecycles(lifecycles, b.Lifecycles)
 	}
 	if err := ContributeHost(cs, host); err != nil {
-		return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+		return GeneratedMergeSurface{}, err
 	}
 	for i, eb := range extraFeatureBundles {
 		extraID := fmt.Sprintf("candidate-feature-%d", i)
 		if err := ContributeBundle(cs, extraID, eb); err != nil {
-			return MergedFeatureSurface{}, GeneratedMergeSurface{}, err
+			return GeneratedMergeSurface{}, err
 		}
-		lifecycles = append(lifecycles, eb.Lifecycles...)
+		lifecycles = appendLifecycles(lifecycles, eb.Lifecycles)
 	}
-	g := GeneratedMergeSurface{
+	return GeneratedMergeSurface{
 		Frozen:     cs.Freeze(),
 		Lifecycles: lifecycles,
 		set:        cs,
+	}, nil
+}
+
+// MergeFeatureSurfacesWithHost merges enabled feature plugins, host contributions, and optional candidate feature bundles into
+// a GeneratedMergeSurface. Feature bundles are contributed under SourceFeature (plugins first, candidate extras last),
+// and host observer contributions are contributed under SourceHost between initial feature plugins and candidate extras.
+func MergeFeatureSurfacesWithHost(reg FeatureBundleRegistry, registrations []lipsdk.Registration, host HostContributions, extraFeatureBundles ...lipfeature.FeatureBundle) (GeneratedMergeSurface, error) {
+	bundles, err := BuildEnabledFeatureBundles(reg, registrations)
+	if err != nil {
+		return GeneratedMergeSurface{}, err
 	}
-	return m, g, nil
+	return mergeBuiltFeatureBundlesWithHost(bundles, registrations, host, extraFeatureBundles...)
 }

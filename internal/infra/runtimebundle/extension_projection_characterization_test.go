@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -12,6 +13,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -21,6 +23,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type stubProjEnv struct{ val string }
+
+func (s stubProjEnv) Lookup(name string) (string, bool) { return s.val, true }
+func (s stubProjEnv) Snapshot() []string                { return []string{s.val} }
+
+type stubProjObs struct{ val string }
+
+func (s stubProjObs) OnSecretDecision(context.Context, sdksg.DecisionEvent) error { return nil }
 
 type projCatalogFilter struct{ id string }
 
@@ -71,9 +82,9 @@ func (projTerminalProvider) Decide(context.Context, terminaldecision.Input) (ter
 	return terminaldecision.Decision{Kind: terminaldecision.DecisionAllowStop, ReasonCode: "complete"}, nil
 }
 
-// projMerged builds a merged surface and generated merge surface with one tagged element on the planes the
+// projMerged builds a generated merge surface with one tagged element on the planes the
 // projection tests observe.
-func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle.GeneratedMergeSurface) {
+func projMerged(t *testing.T) featurebundle.GeneratedMergeSurface {
 	t.Helper()
 	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {
 		if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, "feat", []toolcall.Finalizer{projFinalizer{id: "finalizer"}}); err != nil {
@@ -90,10 +101,9 @@ func projMerged(t *testing.T) (featurebundle.MergedFeatureSurface, featurebundle
 		}
 		return lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "feat", []localturn.Handler{wiringHandler{id: "handler", ord: 1}})
 	}, nil)
-	m := featurebundle.MergeBundles(b)
 	gen, err := featurebundle.MergeBundlesGenerated(b)
 	require.NoError(t, err)
-	return m, gen
+	return gen
 }
 
 func assertAllSliceFieldsNil(t *testing.T, v any) {
@@ -110,46 +120,179 @@ func assertAllSliceFieldsNil(t *testing.T, v any) {
 	}
 }
 
-// Pins exact emptiness transport through extensionsFromMerged: a zero merged
-// surface projects to all-nil slices; populated slices project to equal
-// non-nil copies; hand-built empty non-nil merged slices keep their non-nil
-// emptiness (the defensive copy preserves whatever state exists).
-func TestExtensionsFromMerged_preservesExactNilAndEmptyState(t *testing.T) {
+// Pins exact emptiness transport through extensionsFromProcessOptions: a nil or empty process options
+// projects to all-zero extension options; populated secret options project to equal values.
+func TestExtensionsFromProcessOptions_preservesExactNilAndEmptyState(t *testing.T) {
 	t.Parallel()
 
-	t.Run("zero_merged_surface_projects_all_nil_slices", func(t *testing.T) {
+	t.Run("nil_process_options_projects_all_zero_extensions", func(t *testing.T) {
 		t.Parallel()
-		ext := extensionsFromMerged(featurebundle.MergedFeatureSurface{}, featurebundle.GeneratedMergeSurface{}, nil)
-		assertAllSliceFieldsNil(t, ext)
+		ext := extensionsFromProcessOptions(nil)
+		assert.Nil(t, ext.SecretGuardEnvironment)
+		assert.Equal(t, SecretGuardInputs{}, ext.SecretGuardInputs)
+		assert.Nil(t, ext.SecretDecisionObserver)
 	})
 
-	t.Run("populated_merged_projects_equal_non_nil_copies", func(t *testing.T) {
+	t.Run("empty_process_options_projects_all_zero_extensions", func(t *testing.T) {
 		t.Parallel()
-		merged, gen := projMerged(t)
-		ext := extensionsFromMerged(merged, gen, nil)
-		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers), 1)
-		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers), 1)
-		require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneRequestTransforms), 1)
-		assert.Equal(t, "finalizer", lipfeature.Get(gen.Frozen, lipfeature.PlaneToolCallFinalizers)[0].ID())
-		assert.Equal(t, "handler", lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)[0].ID())
-		_ = ext
+		ext := extensionsFromProcessOptions(&BuildOptions{})
+		assert.Nil(t, ext.SecretGuardEnvironment)
+		assert.Equal(t, SecretGuardInputs{}, ext.SecretGuardInputs)
+		assert.Nil(t, ext.SecretDecisionObserver)
 	})
 
-	t.Run("empty_non_nil_merged_slices_stay_non_nil_empty", func(t *testing.T) {
+	t.Run("populated_process_options_projects_equal_secret_options", func(t *testing.T) {
 		t.Parallel()
-		merged := featurebundle.MergedFeatureSurface{}
-		ext := extensionsFromMerged(merged, featurebundle.GeneratedMergeSurface{}, nil)
-		assertAllSliceFieldsNil(t, ext)
+		opts := &BuildOptions{
+			Extensions: ExtensionsOptions{
+				SecretGuardEnvironment: stubProjEnv{val: "secret_env"},
+				SecretGuardInputs:      SecretGuardInputs{},
+				SecretDecisionObserver: sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil }),
+			},
+		}
+		ext := extensionsFromProcessOptions(opts)
+		assert.NotNil(t, ext.SecretGuardEnvironment)
+		assert.NotNil(t, ext.SecretDecisionObserver)
+	})
+}
+
+func TestExtensionsFromProcessOptions_DefensiveCopyAndNilSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("all_fields_populated_exact_equality_interface_identity_and_isolation", func(t *testing.T) {
+		t.Parallel()
+
+		env := stubProjEnv{val: "env-val"}
+		obs := stubProjObs{val: "obs-val"}
+		srcInputs := SecretGuardInputs{
+			SingleUser: coresg.SingleUserOptions{
+				IncludePopularEnv: true,
+				IncludeEnv:        []string{"ENV_A", "ENV_B"},
+				ExcludeEnv:        []string{"ENV_C", "ENV_D"},
+				MinSecretBytes:    16,
+				Matcher:           coresg.MatcherOptions{PreserveKnownPrefixes: true, MaskByte: '#'},
+				MatcherConfigured: true,
+			},
+		}
+		opts := &BuildOptions{
+			Extensions: ExtensionsOptions{
+				SecretGuardEnvironment: env,
+				SecretGuardInputs:      srcInputs,
+				SecretDecisionObserver: obs,
+			},
+		}
+
+		ext := extensionsFromProcessOptions(opts)
+
+		// Exact equality across all fields
+		assert.Equal(t, opts.Extensions.SecretGuardEnvironment, ext.SecretGuardEnvironment)
+		assert.Equal(t, opts.Extensions.SecretGuardInputs, ext.SecretGuardInputs)
+		assert.Equal(t, opts.Extensions.SecretDecisionObserver, ext.SecretDecisionObserver)
+
+		// Interface identity
+		assert.Equal(t, env, ext.SecretGuardEnvironment)
+		assert.Equal(t, obs, ext.SecretDecisionObserver)
+
+		// Mutate source arrays after projection -> projected arrays must remain unchanged
+		opts.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[0] = "MUTATED_SRC_A"
+		opts.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[0] = "MUTATED_SRC_C"
+		assert.Equal(t, "ENV_A", ext.SecretGuardInputs.SingleUser.IncludeEnv[0])
+		assert.Equal(t, "ENV_C", ext.SecretGuardInputs.SingleUser.ExcludeEnv[0])
+
+		// Mutate projected arrays -> source arrays must remain unchanged
+		ext.SecretGuardInputs.SingleUser.IncludeEnv[1] = "MUTATED_PROJ_B"
+		ext.SecretGuardInputs.SingleUser.ExcludeEnv[1] = "MUTATED_PROJ_D"
+		assert.Equal(t, "ENV_B", opts.Extensions.SecretGuardInputs.SingleUser.IncludeEnv[1])
+		assert.Equal(t, "ENV_D", opts.Extensions.SecretGuardInputs.SingleUser.ExcludeEnv[1])
+	})
+
+	t.Run("nil_slices_stay_nil", func(t *testing.T) {
+		t.Parallel()
+
+		opts := &BuildOptions{
+			Extensions: ExtensionsOptions{
+				SecretGuardInputs: SecretGuardInputs{
+					SingleUser: coresg.SingleUserOptions{
+						IncludeEnv: nil,
+						ExcludeEnv: nil,
+					},
+				},
+			},
+		}
+
+		ext := extensionsFromProcessOptions(opts)
+		assert.Nil(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
+		assert.Nil(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
+	})
+
+	t.Run("empty_non_nil_slices_stay_non_nil_empty", func(t *testing.T) {
+		t.Parallel()
+
+		opts := &BuildOptions{
+			Extensions: ExtensionsOptions{
+				SecretGuardInputs: SecretGuardInputs{
+					SingleUser: coresg.SingleUserOptions{
+						IncludeEnv: []string{},
+						ExcludeEnv: []string{},
+					},
+				},
+			},
+		}
+
+		ext := extensionsFromProcessOptions(opts)
+		assert.NotNil(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
+		assert.Empty(t, ext.SecretGuardInputs.SingleUser.IncludeEnv)
+		assert.NotNil(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
+		assert.Empty(t, ext.SecretGuardInputs.SingleUser.ExcludeEnv)
+	})
+}
+
+func TestOverlayExtensions_preservesSecretGuardBehavior(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil_dst_does_not_panic", func(t *testing.T) {
+		t.Parallel()
+		assert.NotPanics(t, func() {
+			overlayExtensions(nil, ExtensionsOptions{})
+		})
+	})
+
+	t.Run("empty_src_does_not_mutate_dst", func(t *testing.T) {
+		t.Parallel()
+		dst := ExtensionsOptions{
+			SecretGuardEnvironment: stubProjEnv{val: "dst_env"},
+			SecretDecisionObserver: sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil }),
+		}
+		origEnv := dst.SecretGuardEnvironment
+		origObs := dst.SecretDecisionObserver
+		overlayExtensions(&dst, ExtensionsOptions{})
+		assert.NotNil(t, dst.SecretGuardEnvironment)
+		assert.NotNil(t, dst.SecretDecisionObserver)
+		_ = origEnv
+		_ = origObs
+	})
+
+	t.Run("populated_src_overrides_dst", func(t *testing.T) {
+		t.Parallel()
+		dst := ExtensionsOptions{}
+		newEnv := stubProjEnv{val: "new_env"}
+		newObs := sdksg.ObserverFunc(func(context.Context, sdksg.DecisionEvent) error { return nil })
+		overlayExtensions(&dst, ExtensionsOptions{
+			SecretGuardEnvironment: newEnv,
+			SecretDecisionObserver: newObs,
+		})
+		assert.NotNil(t, dst.SecretGuardEnvironment)
+		assert.NotNil(t, dst.SecretDecisionObserver)
 	})
 }
 
 // Pins backing-array isolation in both directions: projections are copies with
 // zero spare capacity, so mutation or growth of either side never reaches the
 // other.
-func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) {
+func TestGeneratedMergeSurface_backingArrayIsolationBothDirections(t *testing.T) {
 	t.Parallel()
 
-	_, gen := projMerged(t)
+	gen := projMerged(t)
 	ltFrozen := lipfeature.Get(gen.Frozen, lipfeature.PlaneLocalTurnHandlers)
 	require.Len(t, ltFrozen, 1)
 	require.Equal(t, "handler", ltFrozen[0].ID())
@@ -169,7 +312,7 @@ func TestExtensionsFromMerged_backingArrayIsolationBothDirections(t *testing.T) 
 
 // Pins host-injection ordering: production observers append AFTER feature
 // contributions, and a nil process options injects nothing.
-func TestExtensionsFromMerged_hostObserversAppendAfterFeatures(t *testing.T) {
+func TestGeneratedMergeSurface_hostObserversAppendAfterFeatures(t *testing.T) {
 	t.Parallel()
 
 	b := testkit.FeatureBundle(t, "feat", func(cs *lipfeature.ContributionSet) error {

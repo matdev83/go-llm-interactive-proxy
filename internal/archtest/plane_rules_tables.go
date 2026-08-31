@@ -3,11 +3,10 @@ package archtest
 // KnownPlaneFields maps struct field and identifier names to plane metadata.
 var KnownPlaneFields = map[string]PlaneFieldMetadata{
 	// Wave 1: Hooks
-	"SubmitHooks":            {PlaneID: "submit_hooks", Wave: Wave1_HookBus},
-	"RequestPartHooks":       {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
-	"ResponsePartHooks":      {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
-	"ToolReactors":           {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
-	"ToolReactorErrorPolicy": {PlaneID: "tool_reactor_error_policy", Wave: Wave1_HookBus},
+	"SubmitHooks":       {PlaneID: "submit_hooks", Wave: Wave1_HookBus},
+	"RequestPartHooks":  {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
+	"ResponsePartHooks": {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
+	"ToolReactors":      {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
 
 	// Wave 2: Observers
 	"TrafficObservers":        {PlaneID: "traffic_observers", Wave: Wave2_Observers},
@@ -49,7 +48,6 @@ var KnownPlaneIDs = map[string]PlaneFieldMetadata{
 	"request_part_hooks":                    {PlaneID: "request_part_hooks", Wave: Wave1_HookBus},
 	"response_part_hooks":                   {PlaneID: "response_part_hooks", Wave: Wave1_HookBus},
 	"tool_reactors":                         {PlaneID: "tool_reactors", Wave: Wave1_HookBus},
-	"tool_reactor_error_policy":             {PlaneID: "tool_reactor_error_policy", Wave: Wave1_HookBus},
 	"traffic_observers":                     {PlaneID: "traffic_observers", Wave: Wave2_Observers},
 	"usage_observers":                       {PlaneID: "usage_observers", Wave: Wave2_Observers},
 	"raw_capture_sinks":                     {PlaneID: "raw_capture_sinks", Wave: Wave2_Observers},
@@ -81,10 +79,11 @@ var (
 		"Lifecycles":    true,
 	}
 
-	AllowedMergedSurfaceFields = map[string]bool{
+	AllowedGeneratedMergeSurfaceFields = map[string]bool{
 		"Lifecycles": true,
 		"frozen":     true,
 		"Frozen":     true,
+		"set":        true,
 	}
 
 	AllowedExtensionsOptionsFields = map[string]bool{
@@ -124,6 +123,49 @@ var (
 		"gen":              true,
 	}
 
+	AllowedExtensionRuntimeFields = map[string]bool{
+		"ToolCallFinalizationMaxArgsBytes": true,
+		"toolCallFinalizers":               true,
+	}
+
+	AllowedResponsePipelineFields = map[string]bool{
+		"compactionObservers":  true,
+		"compactionPreservers": true,
+	}
+
+	AllowedTurnTerminalFields = map[string]bool{
+		"terminalDecisionProvider":   true,
+		"terminalDecisionProviderID": true,
+	}
+
+	// AllowedStructFields maps fully qualified struct paths ("dir.StructName") to their allowed field names.
+	AllowedStructFields = map[string]map[string]bool{
+		"pkg/lipsdk/feature.FeatureBundle":                AllowedFeatureBundleFields,
+		"internal/featurebundle.GeneratedMergeSurface":    AllowedGeneratedMergeSurfaceFields,
+		"internal/infra/runtimebundle.ExtensionsOptions":  AllowedExtensionsOptionsFields,
+		"internal/core/runtime.generationOperations":      AllowedGenerationOperationsFields,
+		"internal/core/extensions.RequestRuntimeSnapshot": AllowedRequestRuntimeSnapshotFields,
+		"internal/core/runtime.ExtensionRuntime":          AllowedExtensionRuntimeFields,
+		"internal/core/runtime.responsePipeline":          AllowedResponsePipelineFields,
+		"internal/core/runtime.turnTerminal":              AllowedTurnTerminalFields,
+		"internal/featurebundle.HostContributions": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"internal/infra/runtimebundle.ProductionOptions": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"pkg/lipruntime.Options": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+		"pkg/lipsdk/controlplane.HostCapabilities": {
+			"TrafficObservers": true,
+			"UsageObservers":   true,
+		},
+	}
+
 	// AllowedStageConsumers is the explicit allowlist of fully-qualified Go symbol paths
 	// permitted to act as stage consumers accessing extension planes. Any stage-consumer accessor
 	// or method outside this allowlist is rejected by the forbidden-mirror architecture scanner.
@@ -157,13 +199,6 @@ var (
 		"internal/core/extensions.CompletionGatesFromContext":                                 true,
 	}
 
-	// AllowedHookProjections is the qualified-symbol allowlist of hook-bus projection functions.
-	// Any other function whose body reads hook-family fields on MergedFeatureSurface past Wave 1 is forbidden.
-	AllowedHookProjections = map[string]bool{
-		"internal/infra/runtimebundle.HooksConfigFromGenerated": true,
-		"internal/infra/runtimebundle.HooksConfigFromFrozen":    true,
-	}
-
 	// AllowedObserverProjections is the qualified-symbol allowlist of observer and tool projection functions.
 	// Any other function whose body reads observer/tool planes via Get past Wave 2/4 is forbidden.
 	AllowedObserverProjections = map[string]bool{
@@ -172,13 +207,10 @@ var (
 		"internal/infra/runtimebundle.buildSecretGuardRuntime":              true,
 		"internal/infra/compactioncompose.BindFeatureSurface":               true,
 		"internal/infra/runtimebundle.bindReasoningPreservationCompression": true,
+		"internal/featurebundle.FreezeBundle":                               true,
+		"internal/featurebundle.MergeBundlesGenerated":                      true,
 	}
 )
-
-// IsAllowedHookProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for hook projection.
-func IsAllowedHookProjection(qualifiedSymbol string) bool {
-	return AllowedHookProjections[qualifiedSymbol]
-}
 
 // IsAllowedObserverProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for observer projection.
 func IsAllowedObserverProjection(qualifiedSymbol string) bool {

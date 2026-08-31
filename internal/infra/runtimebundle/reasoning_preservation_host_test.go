@@ -201,7 +201,7 @@ func assertHasReasoningParticipants(t *testing.T, host *runtimebundle.Host, want
 	// Recompute the same merge locally from the public Registry/Registrations
 	// to characterize the participant pipeline.
 	regs := config.RegistrationsFromConfig(host.Config())
-	_, genMerged, err := featurebundle.MergeFeatureSurfaces(runtimebundle.HostProcess(host).FactoryCatalog, regs)
+	genMerged, err := featurebundle.MergeFeatureSurfaceGenerated(runtimebundle.HostProcess(host).FactoryCatalog, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

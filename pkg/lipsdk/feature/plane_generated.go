@@ -3991,6 +3991,26 @@ func init() {
 	}
 }
 
+// HookConfig contains the projected hook slices and error policy for core execution.
+type HookConfig struct {
+	SubmitHooks            []hooks.SubmitHook
+	RequestPartHooks       []hooks.RequestPartHook
+	ResponsePartHooks      []hooks.ResponsePartHook
+	ToolReactors           []hooks.ToolReactor
+	ToolReactorErrorPolicy hooks.ToolReactorErrorPolicy
+}
+
+// ProjectHookConfig projects a FrozenPlaneSet into typed HookConfig.
+func ProjectHookConfig(frozen FrozenPlaneSet, policy hooks.ToolReactorErrorPolicy) HookConfig {
+	return HookConfig{
+		SubmitHooks:            Get(frozen, PlaneSubmitHooks),
+		RequestPartHooks:       Get(frozen, PlaneRequestPartHooks),
+		ResponsePartHooks:      Get(frozen, PlaneResponsePartHooks),
+		ToolReactors:           Get(frozen, PlaneToolReactors),
+		ToolReactorErrorPolicy: policy,
+	}
+}
+
 // RequestExecutionView is an immutable borrowed view over request-materialized planes.
 // Its returned slices must not be mutated.
 type RequestExecutionView struct {

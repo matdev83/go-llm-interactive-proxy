@@ -49,53 +49,54 @@ type FeatureBundle struct {
 	}
 }
 
-// TestForbiddenMirrorPredicate_MergedFeatureSurfaceField verifies that hand-authored
-// plane fields in MergedFeatureSurface are rejected when their wave is completed.
-func TestForbiddenMirrorPredicate_MergedFeatureSurfaceField(t *testing.T) {
+// TestForbiddenMirrorPredicate_NamedTransportField verifies that hand-authored
+// plane fields in named/handwritten transport structs (such as HandwrittenPlaneTransport or
+// GeneratedMergeSurface) are rejected when their wave is completed.
+func TestForbiddenMirrorPredicate_NamedTransportField(t *testing.T) {
 	t.Parallel()
 
 	forbiddenSrc := `package featurebundle
 import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 
-type MergedFeatureSurface struct {
+type HandwrittenPlaneTransport struct {
 	RequestTransforms []request.Transform
 }
 `
 	findings := scanSyntheticSource(t, "internal/featurebundle/merge_surface.go", forbiddenSrc, Wave3_RequestShaping)
 	if len(findings) == 0 {
-		t.Fatalf("expected forbidden MergedFeatureSurface field finding for RequestTransforms at Wave3")
+		t.Fatalf("expected forbidden transport field finding for RequestTransforms at Wave3")
 	}
-	if findings[0].ShapeKind != MirrorMergedSurfaceField || findings[0].PlaneID != "request_transforms" {
+	if findings[0].ShapeKind != MirrorNamedTransportField || findings[0].PlaneID != "request_transforms" {
 		t.Fatalf("unexpected finding: %+v", findings[0])
 	}
 
-	// Whitelisted fields pass
+	// Whitelisted fields pass on GeneratedMergeSurface
 	allowedSrc := `package featurebundle
 import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
-type MergedFeatureSurface struct {
+type GeneratedMergeSurface struct {
 	Lifecycles []lipplugin.Lifecycle
 	frozen     lipfeature.FrozenPlaneSet
 }
 `
 	allowedFindings := scanSyntheticSource(t, "internal/featurebundle/merge_surface.go", allowedSrc, Wave5c_Residual)
 	if len(allowedFindings) != 0 {
-		t.Fatalf("expected 0 findings for allowed MergedFeatureSurface fields, got %+v", allowedFindings)
+		t.Fatalf("expected 0 findings for allowed GeneratedMergeSurface fields, got %+v", allowedFindings)
 	}
 }
 
 // TestForbiddenMirrorPredicate_AppendBranch verifies that per-plane append branches
-// in MergedFeatureSurface.Append are rejected.
+// in handwritten transports are rejected regardless of receiver type name.
 func TestForbiddenMirrorPredicate_AppendBranch(t *testing.T) {
 	t.Parallel()
 
 	forbiddenSrc := `package featurebundle
 import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 
-func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
+func (m *HandwrittenPlaneTransport) Append(b lipfeature.FeatureBundle) error {
 	m.SubmitHooks = append(m.SubmitHooks, b.SubmitHooks...)
 	return nil
 }
@@ -112,7 +113,7 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 	allowedSrc := `package featurebundle
 import lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 
-func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
+func (m *HandwrittenPlaneTransport) Append(b lipfeature.FeatureBundle) error {
 	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
 	return nil
 }
@@ -124,29 +125,11 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) error {
 }
 
 // TestForbiddenMirrorPredicate_ProjectionBranches verifies that per-plane field
-// projections in extensionsFromMerged, overlayExtensions, and hooksConfigFromMerged are rejected.
+// projections in overlayExtensions and hooksConfigFromTransport are rejected.
 func TestForbiddenMirrorPredicate_ProjectionBranches(t *testing.T) {
 	t.Parallel()
 
-	// 1. extensionsFromMerged
-	extSrc := `package runtimebundle
-import "github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
-
-func extensionsFromMerged(merged featurebundle.MergedFeatureSurface, processOpts *BuildOptions) ExtensionsOptions {
-	return ExtensionsOptions{
-		SessionOpeners: append(merged.SessionOpeners[:0:0], merged.SessionOpeners...),
-	}
-}
-`
-	findingsExt := scanSyntheticSource(t, "internal/infra/runtimebundle/compile_generation.go", extSrc, Wave3_RequestShaping)
-	if len(findingsExt) == 0 {
-		t.Fatalf("expected forbidden ProjectionBranch finding for SessionOpeners in extensionsFromMerged")
-	}
-	if findingsExt[0].ShapeKind != MirrorProjectionBranch || findingsExt[0].PlaneID != "session_openers" {
-		t.Fatalf("unexpected finding: %+v", findingsExt[0])
-	}
-
-	// 2. overlayExtensions
+	// 1. overlayExtensions
 	overlaySrc := `package runtimebundle
 
 func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
@@ -161,22 +144,22 @@ func overlayExtensions(dst *ExtensionsOptions, src ExtensionsOptions) {
 		t.Fatalf("unexpected finding: %+v", findingsOverlay[0])
 	}
 
-	// 3. hooksConfigFromMerged
+	// 2. hooksConfigFromTransport
 	hooksSrc := `package runtimebundle
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 )
 
-func hooksConfigFromMerged(m featurebundle.MergedFeatureSurface) hooks.Config {
+func hooksConfigFromTransport(t featurebundle.HandwrittenPlaneTransport) hooks.Config {
 	return hooks.Config{
-		SubmitHooks: m.SubmitHooks,
+		SubmitHooks: t.SubmitHooks,
 	}
 }
 `
 	findingsHooks := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", hooksSrc, Wave1_HookBus)
 	if len(findingsHooks) == 0 {
-		t.Fatalf("expected forbidden ProjectionBranch finding for SubmitHooks in hooksConfigFromMerged")
+		t.Fatalf("expected forbidden ProjectionBranch finding for SubmitHooks in hooksConfigFromTransport")
 	}
 	if findingsHooks[0].ShapeKind != MirrorProjectionBranch || findingsHooks[0].PlaneID != "submit_hooks" {
 		t.Fatalf("unexpected finding: %+v", findingsHooks[0])
@@ -276,6 +259,25 @@ func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider 
 	if len(allowedFindings) != 0 {
 		t.Fatalf("expected 0 findings for thin delegate method, got %+v", allowedFindings)
 	}
+
+	// Nil-safe thin delegate calling lipfeature.Get passes
+	nilSafeThinDelegateSrc := `package runtimebundle
+import (
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+)
+
+func (b *GenerationBundle) TerminalDecisionProvider() terminaldecision.Provider {
+	if b == nil {
+		return nil
+	}
+	return lipfeature.Get(b.operations.frozen, lipfeature.PlaneTerminalDecisionProvider)
+}
+`
+	allowedNilSafeFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/generation_bundle.go", nilSafeThinDelegateSrc, Wave5c_Residual)
+	if len(allowedNilSafeFindings) != 0 {
+		t.Fatalf("expected 0 findings for nil-safe thin delegate method, got %+v", allowedNilSafeFindings)
+	}
 }
 
 // TestForbiddenMirrorPredicate_GeneratedFileWhitelist verifies that generated files
@@ -297,40 +299,40 @@ type FeatureBundle struct {
 	}
 }
 
-// TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing verifies that exact
-// hook projections (HooksConfigFromGenerated, HooksConfigFromFrozen) are allowed, while
-// adversarial variants (HooksConfigFromMerged, HooksConfigFromMerged2, HooksConfigfromX)
-// reading SubmitHooks from MergedFeatureSurface are strictly rejected under Wave1.
-func TestForbiddenMirrorPredicate_HookProjectionsAllowlistAndSpoofing(t *testing.T) {
+// TestForbiddenMirrorPredicate_HookProjectionsHandwrittenAndSpoofingRejected verifies that
+// adversarial and handwritten hook projections (including former allowlist symbols
+// HooksConfigFromGenerated and HooksConfigFromFrozen) reading hook planes via struct
+// fields or Get are strictly rejected under Wave1.
+func TestForbiddenMirrorPredicate_HookProjectionsHandwrittenAndSpoofingRejected(t *testing.T) {
 	t.Parallel()
 
-	// 1. Adversarial HooksConfigFromMerged reading MergedFeatureSurface.SubmitHooks is REJECTED
+	// 1. Adversarial HooksConfigFromTransport reading HandwrittenPlaneTransport.SubmitHooks is REJECTED
 	adversarialUpperSrc := `package runtimebundle
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 )
 
-func HooksConfigFromMerged(m featurebundle.MergedFeatureSurface) hooks.Config {
+func HooksConfigFromTransport(t featurebundle.HandwrittenPlaneTransport) hooks.Config {
 	return hooks.Config{
-		SubmitHooks: m.SubmitHooks,
+		SubmitHooks: t.SubmitHooks,
 	}
 }
 `
 	findingsUpper := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", adversarialUpperSrc, Wave1_HookBus)
 	if len(findingsUpper) == 0 {
-		t.Fatalf("expected forbidden finding for uppercase adversarial HooksConfigFromMerged at Wave1")
+		t.Fatalf("expected forbidden finding for uppercase adversarial HooksConfigFromTransport at Wave1")
 	}
 	if findingsUpper[0].ShapeKind != MirrorProjectionBranch || findingsUpper[0].PlaneID != "submit_hooks" {
-		t.Fatalf("unexpected finding for HooksConfigFromMerged: %+v", findingsUpper[0])
+		t.Fatalf("unexpected finding for HooksConfigFromTransport: %+v", findingsUpper[0])
 	}
 
-	// 2. Spoofed variants HooksConfigFromMerged2 and HooksConfigfromX are REJECTED
+	// 2. Spoofed variants HooksConfigFromTransport2 and HooksConfigfromX are REJECTED
 	spoofVariants := []struct {
 		name     string
 		funcName string
 	}{
-		{name: "numbered spoof", funcName: "HooksConfigFromMerged2"},
+		{name: "numbered spoof", funcName: "HooksConfigFromTransport2"},
 		{name: "casing spoof", funcName: "HooksConfigfromX"},
 	}
 
@@ -343,9 +345,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 )
 
-func ` + tc.funcName + `(m featurebundle.MergedFeatureSurface) hooks.Config {
+func ` + tc.funcName + `(t featurebundle.HandwrittenPlaneTransport) hooks.Config {
 	return hooks.Config{
-		SubmitHooks: m.SubmitHooks,
+		SubmitHooks: t.SubmitHooks,
 	}
 }
 `
@@ -359,8 +361,8 @@ func ` + tc.funcName + `(m featurebundle.MergedFeatureSurface) hooks.Config {
 		})
 	}
 
-	// 3. Legitimate exact allowlist functions (HooksConfigFromGenerated, HooksConfigFromFrozen) are ALLOWED
-	allowedHookSrc := `package runtimebundle
+	// 3. Former allowlist functions (HooksConfigFromGenerated, HooksConfigFromFrozen) with handwritten Get are REJECTED
+	formerAllowedHookSrc := `package runtimebundle
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
@@ -378,9 +380,12 @@ func HooksConfigFromFrozen(f lipfeature.FrozenPlaneSet, p sdkhooks.ToolReactorEr
 	}
 }
 `
-	allowedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", allowedHookSrc, Wave1_HookBus)
-	if len(allowedFindings) != 0 {
-		t.Fatalf("expected 0 findings for allowed exact hook projection functions, got: %+v", allowedFindings)
+	rejectedFindings := scanSyntheticSource(t, "internal/infra/runtimebundle/build_feature_hooks.go", formerAllowedHookSrc, Wave1_HookBus)
+	if len(rejectedFindings) == 0 {
+		t.Fatalf("expected forbidden finding for handwritten HooksConfigFromFrozen at Wave1 when no allowlist exists")
+	}
+	if rejectedFindings[0].ShapeKind != MirrorProjectionBranch || rejectedFindings[0].PlaneID != "submit_hooks" {
+		t.Fatalf("unexpected finding for former allowed hook projection: %+v", rejectedFindings[0])
 	}
 }
 

@@ -158,7 +158,7 @@
       {
         "path": "pkg/lipsdk/feature/plane_generated.go",
         "category": "generated",
-        "role": "Generated typed storage, dispatch, and metadata adapters",
+        "role": "Generated typed storage, hook projection, dispatch, and metadata adapters",
         "description": "Emitted by generate-feature-planes.go from plane_manifest.go; zero reflection/unsafe"
       }
     ],
@@ -196,7 +196,7 @@
       {
         "path": "internal/featurebundle/merge_surface.go",
         "category": "hand_authored",
-        "role": "MergedFeatureSurface composition engine",
+        "role": "GeneratedMergeSurface composition/registry assembly",
         "description": "Registration-order merge over catalog; conflict rejection and deterministic reduce"
       },
       {
@@ -208,8 +208,8 @@
       {
         "path": "internal/infra/runtimebundle/build_feature_hooks.go",
         "category": "hand_authored",
-        "role": "Hook-bus view projection",
-        "description": "Catalog-driven derivation of hooks.Config from frozen candidate"
+        "role": "Hook-bus composition consumer",
+        "description": "Direct consumption of generated ProjectHookConfig into hooks.Config"
       },
       {
         "path": "internal/infra/runtimebundle/generation_bundle.go",

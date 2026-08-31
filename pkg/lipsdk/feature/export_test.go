@@ -260,3 +260,11 @@ func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[strin
 		frozen:     nil,
 	}
 }
+
+// DeclaredHookTargetForTest returns the declared hook target of a PlaneDeclaration if implemented.
+func DeclaredHookTargetForTest(decl PlaneDeclaration) HookTarget {
+	if htp, ok := decl.(hookTargetProvider); ok {
+		return htp.declaredHookTarget()
+	}
+	return ""
+}

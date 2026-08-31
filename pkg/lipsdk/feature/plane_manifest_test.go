@@ -153,3 +153,108 @@ func TestStandardCandidatePlanes_GeneratedMapDispatchCurrency(t *testing.T) {
 			"contributeCandidateMapTo must check candidate plane %s (%q)", varRef, candID)
 	}
 }
+
+// TestStandardPlanes_HookTargetDeclarationAndCompleteness verifies that exactly the four
+// canonical hook planes are annotated with their corresponding HookTarget constants,
+// and all other standard planes have empty HookTarget metadata.
+func TestStandardPlanes_HookTargetDeclarationAndCompleteness(t *testing.T) {
+	t.Parallel()
+
+	expectedHookPlanes := map[string]feature.HookTarget{
+		"submit_hooks":        feature.HookTargetSubmitHooks,
+		"request_part_hooks":  feature.HookTargetRequestPartHooks,
+		"response_part_hooks": feature.HookTargetResponsePartHooks,
+		"tool_reactors":       feature.HookTargetToolReactors,
+	}
+
+	annotatedCount := 0
+	for _, decl := range feature.StandardPlanes {
+		target := feature.DeclaredHookTargetForTest(decl)
+		if expTarget, ok := expectedHookPlanes[decl.PlaneID()]; ok {
+			assert.Equal(t, expTarget, target, "plane %s must have expected HookTarget", decl.PlaneID())
+			annotatedCount++
+		} else {
+			assert.Empty(t, target, "plane %s must not have HookTarget annotation", decl.PlaneID())
+		}
+	}
+
+	assert.Equal(t, 4, annotatedCount, "exactly four canonical hook planes must be annotated")
+	assert.Equal(t, feature.HookTargetSubmitHooks, feature.PlaneSubmitHooks.HookTarget)
+	assert.Equal(t, feature.HookTargetRequestPartHooks, feature.PlaneRequestPartHooks.HookTarget)
+	assert.Equal(t, feature.HookTargetResponsePartHooks, feature.PlaneResponsePartHooks.HookTarget)
+	assert.Equal(t, feature.HookTargetToolReactors, feature.PlaneToolReactors.HookTarget)
+}
+
+// TestPlaneDeclarationValidation_HookTarget verifies that Plane.ValidateDeclaration validates
+// canonical HookTarget constants, rejects unknown HookTarget metadata, and ValidateManifest rejects
+// duplicate HookTarget declarations.
+func TestPlaneDeclarationValidation_HookTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ValidHookTargetsPassValidateDeclaration", func(t *testing.T) {
+		t.Parallel()
+		validTargets := []feature.HookTarget{
+			"",
+			feature.HookTargetSubmitHooks,
+			feature.HookTargetRequestPartHooks,
+			feature.HookTargetResponsePartHooks,
+			feature.HookTargetToolReactors,
+		}
+
+		for _, target := range validTargets {
+			plane := feature.Plane[string]{
+				ID:           "test_plane",
+				Multiplicity: feature.MultOrdered,
+				Rules:        feature.SourceRules{Feature: feature.CombConcatenate},
+				Combine:      func(s feature.SourceKind, c, in string) (string, error) { return c + in, nil },
+				HookTarget:   target,
+			}
+			assert.NoError(t, plane.ValidateDeclaration(), "valid hook target %q must pass validation", target)
+		}
+	})
+
+	t.Run("UnknownHookTargetRejectedInValidateDeclaration", func(t *testing.T) {
+		t.Parallel()
+		invalidTargets := []feature.HookTarget{
+			"UnknownTargetTypo",
+			"submit_hooks",
+			"SubmitHook",
+			"ToolReactorErrorPolicy",
+		}
+		for _, target := range invalidTargets {
+			plane := feature.Plane[string]{
+				ID:           "test_plane",
+				Multiplicity: feature.MultOrdered,
+				Rules:        feature.SourceRules{Feature: feature.CombConcatenate},
+				Combine:      func(s feature.SourceKind, c, in string) (string, error) { return c + in, nil },
+				HookTarget:   target,
+			}
+			err := plane.ValidateDeclaration()
+			require.Error(t, err, "invalid hook target %q must fail validation", target)
+			assert.ErrorIs(t, err, feature.ErrInvalidPlane)
+			assert.Contains(t, err.Error(), string(target))
+		}
+	})
+
+	t.Run("DuplicateHookTargetRejectedInValidateManifest", func(t *testing.T) {
+		t.Parallel()
+		plane1 := feature.Plane[string]{
+			ID:           "test_plane_1",
+			Multiplicity: feature.MultOrdered,
+			Rules:        feature.SourceRules{Feature: feature.CombConcatenate},
+			Combine:      func(s feature.SourceKind, c, in string) (string, error) { return c + in, nil },
+			HookTarget:   feature.HookTargetSubmitHooks,
+		}
+		plane2 := feature.Plane[string]{
+			ID:           "test_plane_2",
+			Multiplicity: feature.MultOrdered,
+			Rules:        feature.SourceRules{Feature: feature.CombConcatenate},
+			Combine:      func(s feature.SourceKind, c, in string) (string, error) { return c + in, nil },
+			HookTarget:   feature.HookTargetSubmitHooks,
+		}
+		err := feature.ValidateManifest(plane1, plane2)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, feature.ErrInvalidPlane)
+		assert.Contains(t, err.Error(), "SubmitHooks")
+	})
+}

@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. Characterize the corrective boundaries
-- [ ] 1.1 Lock in nil-safe generation behavior
+- [x] 1. Characterize the corrective boundaries
+- [x] 1.1 Lock in nil-safe generation behavior
   - Add a regression that invokes terminal-provider access on an absent generation and proves the no-provider result without panic.
   - Audit all generation pointer accessors and characterize any documented zero behavior not already covered.
   - Preserve the existing published-generation and request-pinning characterizations as the non-nil control cases.
@@ -10,7 +10,7 @@
   - _Boundary: Generation Accessor_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 1.2 (P) Lock in feature-bundle schema negotiation and rollback
+- [x] 1.2 (P) Lock in feature-bundle schema negotiation and rollback
   - Characterize empty version-zero and V1 bundles, non-empty plane bundles, lifecycle-only bundles, and unsupported schema versions.
   - Exercise direct contribution, direct generated merge, registry-generated merge, and host/candidate merge using a registry that deliberately returns malformed bundles.
   - Assert contributor attribution, zero returned candidates, unchanged destination contributions, and no lifecycle publication on every failure.
@@ -19,7 +19,7 @@
   - _Boundary: Bundle Validation Choke Point_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 1.3 (P) Lock in hook projection and mirror-ratchet expectations
+- [x] 1.3 (P) Lock in hook projection and mirror-ratchet expectations
   - Characterize populated, absent, nil, explicit-empty, ordered, defensive-copy, and host-policy hook configurations.
   - Add generator tests for valid hook-view metadata and rejection of duplicate, unknown, or type-incompatible targets.
   - Add architecture tests proving a handwritten hook-plane projection is rejected without relying on a named-function exemption.
@@ -28,7 +28,7 @@
   - _Boundary: Hook View Generator, Mirror Scanner_
   - _Validation: go test -count=1 ./internal/archtest ./internal/infra/runtimebundle_
 
-- [ ] 1.4 (P) Inventory legacy lifecycle-surface behavior before deletion
+- [x] 1.4 (P) Inventory legacy lifecycle-surface behavior before deletion
   - Identify production and test consumers of the lifecycle-only legacy merge type and its dual-path helpers.
   - Move lifecycle order, nil-versus-empty, conflict, typed-nil, and rollback expectations onto the generated surface as RED-or-preservation tests.
   - Confirm generation compilation does not derive plane or extension behavior from the legacy value.
@@ -37,8 +37,8 @@
   - _Boundary: Generated Merge Surface_
   - _Validation: go test -count=1 ./internal/featurebundle ./internal/infra/runtimebundle ./internal/testkit/planeparity_
 
-- [ ] 2. Correct runtime and assembly behavior
-- [ ] 2.1 Restore nil-safe frozen terminal-provider access
+- [x] 2. Correct runtime and assembly behavior
+- [x] 2.1 Restore nil-safe frozen terminal-provider access
   - Return the zero provider before reading generation state when the receiver is absent.
   - Continue resolving non-nil generations through the generated frozen plane set; do not add a duplicate provider slot or mutable binding.
   - Done means absent generation, absent provider, published provider, request pinning, and conflict rollback tests all pass.
@@ -46,7 +46,7 @@
   - _Boundary: Generation Accessor_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 2.2 (P) Enforce bundle schema validation at the contribution choke point
+- [x] 2.2 (P) Enforce bundle schema validation at the contribution choke point
   - Validate the complete bundle before replay and wrap failures with the normalized contributor identity.
   - Retain transactional plane replay and its existing validation rather than weakening either boundary.
   - Keep every lifecycle append after successful validation and replay in direct, registry, host, and candidate merge paths.
@@ -55,8 +55,8 @@
   - _Boundary: Bundle Validation Choke Point_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 3. Generate and consume the hook view
-- [ ] 3.1 Add canonical hook-view declaration metadata
+- [x] 3. Generate and consume the hook view
+- [x] 3.1 Add canonical hook-view declaration metadata
   - Extend plane declarations with optional typed metadata that names their generated hook configuration target.
   - Annotate only the four canonical hook planes; keep host error policy outside extension-plane declarations.
   - Validate target uniqueness, supported target names and types, and membership in the standard manifest.
@@ -65,7 +65,7 @@
   - _Boundary: Hook View Generator_
   - _Validation: go test -count=1 ./internal/archtest ./pkg/lipsdk/feature_
 
-- [ ] 3.2 Emit the typed hook configuration and projection
+- [x] 3.2 Emit the typed hook configuration and projection
   - Extend generation to emit the SDK-owned hook configuration and projection from declaration metadata.
   - Preserve generated getter cloning, nil-versus-empty semantics, registration order, and the explicit host policy argument.
   - Regenerate feature-plane output solely through the generator.
@@ -74,7 +74,7 @@
   - _Boundary: Hook View Generator_
   - _Validation: go test -count=1 ./internal/archtest ./pkg/lipsdk/feature && go run ./scripts/generate-feature-planes.go -check_
 
-- [ ] 3.3 Integrate the generated hook view with core and runtime composition
+- [x] 3.3 Integrate the generated hook view with core and runtime composition
   - Make core hook configuration share the generated SDK type while retaining core-owned sorting and execution.
   - Replace runtimebundle's per-plane reads with direct generated projection consumption.
   - Preserve feature-hook construction, generation compilation, host policy, and lifecycle side-channel behavior.
@@ -84,7 +84,7 @@
   - _Boundary: Hook Bus Config, Runtime composition integration_
   - _Validation: go test -count=1 ./internal/core/hooks ./internal/infra/runtimebundle_
 
-- [ ] 3.4 Remove the hook projection exemption and tighten W5c
+- [x] 3.4 Remove the hook projection exemption and tighten W5c
   - Delete the exact-symbol hook allowlist and route all handwritten production hook projections through normal mirror inspection.
   - Keep generated files exempt only through the existing generated-file contract.
   - Update architecture catalog descriptions and deterministic baseline facts after the stricter scan passes.
@@ -94,8 +94,8 @@
   - _Boundary: Mirror Scanner_
   - _Validation: go test -count=1 ./internal/archtest && make arch-report_
 
-- [ ] 4. Remove lifecycle-only legacy merge compatibility
-- [ ] 4.1 Simplify feature assembly to one generated surface
+- [x] 4. Remove lifecycle-only legacy merge compatibility
+- [x] 4.1 Simplify feature assembly to one generated surface
   - Remove the lifecycle-only legacy surface, append path, checked/unchecked legacy bundle merges, generated-to-legacy projections, and dual-return merge APIs.
   - Retain registry bundle construction, registered-feature then host then candidate ordering, generated frozen state, and ordered lifecycles.
   - Preserve zero-surface rollback on bundle, host, candidate, validation, and conflict failures.
@@ -105,7 +105,7 @@
   - _Boundary: Generated Merge Surface_
   - _Validation: go test -count=1 ./internal/featurebundle_
 
-- [ ] 4.2 Integrate the single surface into generation compilation
+- [x] 4.2 Integrate the single surface into generation compilation
   - Update live and candidate generation compilation to consume the simplified merge result.
   - Remove the no-op legacy parameter from extension projection and retain process secret-guard option behavior.
   - Use the generated surface's lifecycle side channel for generation build and candidate overlays.
@@ -115,7 +115,7 @@
   - _Boundary: Runtime composition integration_
   - _Validation: go test -count=1 ./internal/infra/runtimebundle_
 
-- [ ] 4.3 Delete obsolete dual-path test infrastructure and refresh architecture facts
+- [x] 4.3 Delete obsolete dual-path test infrastructure and refresh architecture facts
   - Remove legacy parity helpers and tests only after their behavioral assertions exist on the generated path.
   - Remove obsolete architecture catalog and mirror-shape assumptions tied solely to the deleted type while retaining guards against reintroducing named plane transports.
   - Verify there are no residual production or test references to the legacy surface or misleading comments about append-based plane merging.
@@ -126,7 +126,7 @@
   - _Validation: go test -count=1 ./internal/featurebundle ./internal/archtest ./internal/infra/runtimebundle ./internal/testkit/planeparity && make arch-report_
 
 - [ ] 5. Validate performance and corrective completion
-- [ ] 5.1 Run focused and repository-wide correctness gates
+- [x] 5.1 Run focused and repository-wide correctness gates
   - Run formatting, generated-output, feature SDK, feature merge, core hook, runtime composition, and architecture tests from a clean corrective tree.
   - Run quality, default test, QA, deterministic architecture report, and runtime help smoke gates.
   - Treat any allocation, hot-path structure, schema, mirror, race, or compatibility failure as blocking.
@@ -136,7 +136,7 @@
   - _Boundary: Verification Harness_
   - _Validation: go run ./scripts/generate-feature-planes.go -check && make quality-checks && make test && make qa && make arch-report && go run ./cmd/lipstd --help_
 
-- [ ] 5.2 Refresh consolidation benchmark and Linux race evidence
+- [x] 5.2 Refresh consolidation benchmark and Linux race evidence
   - Rerun the complete seam benchmark suite and compare `ns/op`, `B/op`, and `allocs/op` with the Wave-0 baseline.
   - Confirm no request-path maps, reflection, key-search loops, or locks were introduced by the correction.
   - Run the exact Linux race scope against the final corrective commit and capture run and job identities.
@@ -146,7 +146,7 @@
   - _Boundary: Verification Harness_
   - _Validation: benchmark suite; go test -count=1 -race ./internal/core/extensions ./internal/infra/runtimebundle on Linux_
 
-- [ ] 5.3 Record adjacent SDK-hardening ownership
+- [x] 5.3 Record adjacent SDK-hardening ownership
   - Create and link separate work that decides whether ungenerated SDK planes are rejected or fully supported across freeze, request freeze, validation, candidate replay, and ordinary replay.
   - State that this corrective feature neither removes nor certifies the dynamic map/reflection fallback.
   - Link refreshed fixed-cost benchmark evidence to #394 while retaining its latency, load, optimization, and HOLD boundary.

@@ -47,9 +47,9 @@ func makeGenBundle(t *testing.T, tag string) lipfeature.FeatureBundle {
 	}, nil)
 }
 
-// TestMergeFeatureSurface_GenerationRebuildIsolated proves candidate feature
+// TestMergeBundlesGenerated_GenerationRebuildIsolated proves candidate feature
 // merges do not share slice backing arrays across generations.
-func TestMergeFeatureSurface_GenerationRebuildIsolated(t *testing.T) {
+func TestMergeBundlesGenerated_GenerationRebuildIsolated(t *testing.T) {
 	t.Parallel()
 	genA, errA := featurebundle.MergeBundlesGenerated(makeGenBundle(t, "gen-a"))
 	if errA != nil {

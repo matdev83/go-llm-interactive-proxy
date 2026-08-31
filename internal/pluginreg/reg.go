@@ -403,8 +403,8 @@ func (r *Registry) MountFrontend(id string, mux *http.ServeMux, opts lipsdk.Fron
 }
 
 // BuildFeatureBundle constructs one feature bundle from YAML by dispatching to the registered
-// feature factory. The featurebundle package provides MergeFeatureSurface for merging multiple
-// bundles into hook configuration plus extension slices.
+// feature factory. The featurebundle package provides MergeFeatureSurfaceGenerated and
+// MergeFeatureSurfacesWithHost for merging multiple bundles into generated merge surfaces.
 func (r *Registry) BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error) {
 	factoryKey = strings.TrimSpace(factoryKey)
 	r.mu.RLock()

@@ -309,27 +309,27 @@ func makeParityBundle(prefix string, includeTerminalProvider bool) lipfeature.Fe
 
 // --- Parity Test Suite ---
 
-func TestPlaneParity_DualPathOrderedConcatenation(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceOrderedConcatenation(t *testing.T) {
 	t.Parallel()
 
 	bA := makeParityBundle("A", false)
 	bB := makeParityBundle("B", false)
 	bC := makeParityBundle("C", false)
 
-	planeparity.AssertDualPathParity(t, bA, bB, bC)
+	planeparity.AssertGeneratedMergeInvariants(t, bA, bB, bC)
 }
 
-func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceNilVsEmptySemantics(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_bundles", func(t *testing.T) {
 		t.Parallel()
-		planeparity.AssertDualPathParity(t)
+		planeparity.AssertGeneratedMergeInvariants(t)
 	})
 
 	t.Run("zero_value_bundles", func(t *testing.T) {
 		t.Parallel()
-		planeparity.AssertDualPathParity(t, lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
+		planeparity.AssertGeneratedMergeInvariants(t, lipfeature.FeatureBundle{}, lipfeature.FeatureBundle{})
 	})
 
 	t.Run("explicitly_empty_slices", func(t *testing.T) {
@@ -359,11 +359,11 @@ func TestPlaneParity_DualPathNilVsEmptySemantics(t *testing.T) {
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "p", []secretguard.Guard{})
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneLocalTurnHandlers, "p", []localturn.Handler{})
 		})
-		planeparity.AssertDualPathParity(t, emptyBundle)
+		planeparity.AssertGeneratedMergeInvariants(t, emptyBundle)
 	})
 }
 
-func TestPlaneParity_DualPathScalarMinReduction(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceScalarMinReduction(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -408,12 +408,12 @@ func TestPlaneParity_DualPathScalarMinReduction(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			planeparity.AssertDualPathParity(t, tc.bundles...)
+			planeparity.AssertGeneratedMergeInvariants(t, tc.bundles...)
 		})
 	}
 }
 
-func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceExclusiveSlot(t *testing.T) {
 	t.Parallel()
 
 	provA := parityTerminalProvider{tag: "alg.provider.a"}
@@ -425,7 +425,7 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneSubmitHooks, "p", []sdkhooks.SubmitHook{paritySubmitHook{tag: "h1"}})
 			_ = lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, "provA", terminaldecision.Provider(provA))
 		})
-		planeparity.AssertDualPathParity(t, b)
+		planeparity.AssertGeneratedMergeInvariants(t, b)
 	})
 
 	t.Run("distinct_providers_conflict", func(t *testing.T) {
@@ -457,7 +457,7 @@ func TestPlaneParity_DualPathExclusiveSlot(t *testing.T) {
 	})
 }
 
-func TestPlaneParity_DualPathInvalidContributions(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceInvalidContributions(t *testing.T) {
 	t.Parallel()
 
 	invalidCases := []struct {
@@ -481,7 +481,7 @@ func TestPlaneParity_DualPathInvalidContributions(t *testing.T) {
 	}
 }
 
-func TestPlaneParity_DualPathFailBeforeMutate(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceFailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
 	provA := parityTerminalProvider{tag: "alg.provider.a"}
@@ -506,7 +506,7 @@ func TestPlaneParity_DualPathFailBeforeMutate(t *testing.T) {
 	require.ErrorIs(t, err, lipfeature.ErrExclusiveConflict)
 }
 
-func TestPlaneParity_DualPathLifecycleSideChannel(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceLifecycleSideChannel(t *testing.T) {
 	t.Parallel()
 
 	bA := lipfeature.FeatureBundle{
@@ -522,10 +522,10 @@ func TestPlaneParity_DualPathLifecycleSideChannel(t *testing.T) {
 		Lifecycles:    []lipplugin.Lifecycle{parityLifecycle{tag: "life-C1"}, parityLifecycle{tag: "life-C2"}},
 	}
 
-	planeparity.AssertDualPathParity(t, bA, bB, bC)
+	planeparity.AssertGeneratedMergeInvariants(t, bA, bB, bC)
 }
 
-func TestPlaneParity_DualPathInvalidSliceItems(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceInvalidSliceItems(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_attempt_transform", func(t *testing.T) {
@@ -561,7 +561,7 @@ func TestPlaneParity_DualPathInvalidSliceItems(t *testing.T) {
 	})
 }
 
-func TestPlaneParity_DualPathMergeFeatureSurfaceWithRegistry(t *testing.T) {
+func TestPlaneParity_GeneratedSurfaceMergeFeatureSurfaceWithRegistry(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
@@ -608,17 +608,10 @@ func TestPlaneParity_DualPathMergeFeatureSurfaceWithRegistry(t *testing.T) {
 		},
 	}
 
-	legacy, errLegacy := featurebundle.MergeFeatureSurface(reg, registrations)
-	require.NoError(t, errLegacy)
-
 	gen, errGen := featurebundle.MergeFeatureSurfaceGenerated(reg, registrations)
 	require.NoError(t, errGen)
-
-	planeparity.AssertMergedSurfacesEqual(t, legacy, gen)
-
-	viaGen, errViaGen := featurebundle.MergeFeatureSurfaceViaGenerated(reg, registrations)
-	require.NoError(t, errViaGen)
-	require.Equal(t, legacy, viaGen)
+	require.Len(t, gen.Lifecycles, 2)
+	require.Len(t, lipfeature.Get(gen.Frozen, lipfeature.PlaneSubmitHooks), 2)
 }
 
 type trackingSubmitHook struct {
@@ -737,14 +730,14 @@ func TestPlaneParity_HookBus_ThreeHookFamiliesGeneratedEndToEnd(t *testing.T) {
 		return b1, b2, b3
 	}
 
-	t.Run("dual_path_parity_and_registration_order", func(t *testing.T) {
+	t.Run("generated_surface_parity_and_registration_order", func(t *testing.T) {
 		t.Parallel()
 
 		var execLog []string
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		planeparity.AssertDualPathParity(t, b1, b2, b3)
+		planeparity.AssertGeneratedMergeInvariants(t, b1, b2, b3)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -949,14 +942,14 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		return b1, b2, b3
 	}
 
-	t.Run("dual_path_parity_and_registration_order", func(t *testing.T) {
+	t.Run("generated_surface_parity_and_registration_order", func(t *testing.T) {
 		t.Parallel()
 
 		var execLog []string
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		planeparity.AssertDualPathParity(t, b1, b2, b3)
+		planeparity.AssertGeneratedMergeInvariants(t, b1, b2, b3)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -977,7 +970,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		var mu sync.Mutex
 		b1, b2, b3 := makeBundles(&execLog, &mu)
 
-		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
+		directReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
@@ -988,7 +981,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			err           error
 			validationErr error
 		}
-		var legacyEvidence, genEvidence []evidenceEntry
+		var directEvidence, genEvidence []evidenceEntry
 		var evMu sync.Mutex
 		recordEvidence := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
 			return func(_ context.Context, providerID string, dec sdkhooks.ToolDecision, err error, validationErr error) {
@@ -998,14 +991,14 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			}
 		}
 
-		legacyBus := corehooks.New(corehooks.Config{
-			ToolReactors: legacyReactors,
+		directBus := corehooks.New(corehooks.Config{
+			ToolReactors: directReactors,
 		})
 		bus := corehooks.New(corehooks.Config{
 			ToolReactors: lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
 		})
 
-		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEvidence))
+		ctxDirect := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&directEvidence))
 		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEvidence))
 		ev := lipapi.ToolEvent{
 			Kind:       lipapi.ToolEventStarted,
@@ -1016,18 +1009,18 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 		// Tool reactors: sorted by Order asc, ID asc, regIdx asc
 		// Expected: reactor-b2-1 (order 1), reactor-b3-1 (order 1), reactor-b1-5 (order 5), reactor-b2-5 (order 5), reactor-b1-10 (order 10)
 		execLog = nil
-		outLegacy := legacyBus.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
-		execLogLegacy := append([]string(nil), execLog...)
+		outDirect := directBus.ApplyToolReactors(ctxDirect, ev, sdkhooks.ToolMeta{})
+		execLogDirect := append([]string(nil), execLog...)
 
 		execLog = nil
 		out := bus.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
 		require.NoError(t, out.Err)
 		require.True(t, out.Emit)
 		require.Equal(t, ev, out.Event)
-		require.Equal(t, outLegacy, out)
+		require.Equal(t, outDirect, out)
 		require.Equal(t, []string{"reactor-b2-1", "reactor-b3-1", "reactor-b1-5", "reactor-b2-5", "reactor-b1-10"}, execLog)
-		require.Equal(t, execLogLegacy, execLog)
-		require.Equal(t, legacyEvidence, genEvidence)
+		require.Equal(t, execLogDirect, execLog)
+		require.Equal(t, directEvidence, genEvidence)
 		require.Len(t, genEvidence, 5)
 		for i, id := range []string{"reactor-b2-1", "reactor-b3-1", "reactor-b1-5", "reactor-b2-5", "reactor-b1-10"} {
 			require.Equal(t, id, genEvidence[i].providerID)
@@ -1054,7 +1047,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			})
 		})
 
-		legacyReactors := append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(bPanic.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(bFollower.PlaneSet, lipfeature.PlaneToolReactors)...)
+		directReactors := append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(bPanic.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(bFollower.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(bPanic, bFollower)
 		require.NoError(t, err)
@@ -1065,7 +1058,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			hasPanicErr   bool
 			validationErr error
 		}
-		var legacyEv, genEv []evidenceEntry
+		var directEv, genEv []evidenceEntry
 		var evMu sync.Mutex
 		recordEvidence := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
 			return func(_ context.Context, providerID string, dec sdkhooks.ToolDecision, err error, validationErr error) {
@@ -1089,29 +1082,29 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 
 		// 1. FailOpen policy (default/unspecified): follower still runs, no error returned
 		execLog = nil
-		legacyEv, genEv = nil, nil
-		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		directEv, genEv = nil, nil
+		ctxDirect := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&directEv))
 		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
-		busFailOpenLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyReactors,
+		busFailOpenDirect := corehooks.New(corehooks.Config{
+			ToolReactors:           directReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
 		busFailOpen := corehooks.New(corehooks.Config{
 			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
-		outOpenLegacy := busFailOpenLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
-		execLogLegacy := append([]string(nil), execLog...)
+		outOpenDirect := busFailOpenDirect.ApplyToolReactors(ctxDirect, ev, sdkhooks.ToolMeta{})
+		execLogDirect := append([]string(nil), execLog...)
 
 		execLog = nil
 		outOpen := busFailOpen.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
 		require.NoError(t, outOpen.Err)
 		require.True(t, outOpen.Emit)
-		require.Equal(t, outOpenLegacy, outOpen)
+		require.Equal(t, outOpenDirect, outOpen)
 		require.Equal(t, []string{"reactor-panic", "reactor-follower"}, execLog, "follower must run after fail-open panic")
-		require.Equal(t, execLogLegacy, execLog)
-		require.Equal(t, legacyEv, genEv)
+		require.Equal(t, execLogDirect, execLog)
+		require.Equal(t, directEv, genEv)
 		require.Len(t, genEv, 2)
 		require.Equal(t, "reactor-panic", genEv[0].providerID)
 		require.True(t, genEv[0].hasPanicErr)
@@ -1120,62 +1113,62 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 
 		// 2. FailClosed policy: panic surfaces as *safety.PanicError, follower does NOT run
 		execLog = nil
-		legacyEv, genEv = nil, nil
-		ctxLegacy = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		directEv, genEv = nil, nil
+		ctxDirect = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&directEv))
 		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
-		busFailClosedLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyReactors,
+		busFailClosedDirect := corehooks.New(corehooks.Config{
+			ToolReactors:           directReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailClosed,
 		})
 		busFailClosed := corehooks.New(corehooks.Config{
 			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailClosed,
 		})
-		outClosedLegacy := busFailClosedLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
-		execLogLegacy = append([]string(nil), execLog...)
+		outClosedDirect := busFailClosedDirect.ApplyToolReactors(ctxDirect, ev, sdkhooks.ToolMeta{})
+		execLogDirect = append([]string(nil), execLog...)
 
 		execLog = nil
 		outClosed := busFailClosed.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
 		require.Error(t, outClosed.Err)
-		require.Error(t, outClosedLegacy.Err)
-		require.Equal(t, outClosedLegacy.Emit, outClosed.Emit)
+		require.Error(t, outClosedDirect.Err)
+		require.Equal(t, outClosedDirect.Emit, outClosed.Emit)
 		var pe *safety.PanicError
 		require.ErrorAs(t, outClosed.Err, &pe)
-		var peLegacy *safety.PanicError
-		require.ErrorAs(t, outClosedLegacy.Err, &peLegacy)
+		var peDirect *safety.PanicError
+		require.ErrorAs(t, outClosedDirect.Err, &peDirect)
 		require.Equal(t, []string{"reactor-panic"}, execLog, "follower must not run after fail-closed panic")
-		require.Equal(t, execLogLegacy, execLog)
-		require.Equal(t, legacyEv, genEv)
+		require.Equal(t, execLogDirect, execLog)
+		require.Equal(t, directEv, genEv)
 		require.Len(t, genEv, 1)
 		require.Equal(t, "reactor-panic", genEv[0].providerID)
 		require.True(t, genEv[0].hasPanicErr)
 
 		// 3. SwallowEvent policy: panic swallows event (Emit=false), follower does NOT run, no error
 		execLog = nil
-		legacyEv, genEv = nil, nil
-		ctxLegacy = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&legacyEv))
+		directEv, genEv = nil, nil
+		ctxDirect = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&directEv))
 		ctxGen = corehooks.WithToolReactorEvidence(context.Background(), recordEvidence(&genEv))
 
-		busSwallowLegacy := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyReactors,
+		busSwallowDirect := corehooks.New(corehooks.Config{
+			ToolReactors:           directReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsSwallowEvent,
 		})
 		busSwallow := corehooks.New(corehooks.Config{
 			ToolReactors:           lipfeature.Get(gen.Frozen, lipfeature.PlaneToolReactors),
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsSwallowEvent,
 		})
-		outSwallowLegacy := busSwallowLegacy.ApplyToolReactors(ctxLegacy, ev, sdkhooks.ToolMeta{})
-		execLogLegacy = append([]string(nil), execLog...)
+		outSwallowDirect := busSwallowDirect.ApplyToolReactors(ctxDirect, ev, sdkhooks.ToolMeta{})
+		execLogDirect = append([]string(nil), execLog...)
 
 		execLog = nil
 		outSwallow := busSwallow.ApplyToolReactors(ctxGen, ev, sdkhooks.ToolMeta{})
 		require.NoError(t, outSwallow.Err)
 		require.False(t, outSwallow.Emit, "swallow policy must drop event on panic")
-		require.Equal(t, outSwallowLegacy, outSwallow)
+		require.Equal(t, outSwallowDirect, outSwallow)
 		require.Equal(t, []string{"reactor-panic"}, execLog)
-		require.Equal(t, execLogLegacy, execLog)
-		require.Equal(t, legacyEv, genEv)
+		require.Equal(t, execLogDirect, execLog)
+		require.Equal(t, directEv, genEv)
 		require.Len(t, genEv, 1)
 		require.Equal(t, "reactor-panic", genEv[0].providerID)
 		require.True(t, genEv[0].hasPanicErr)
@@ -1238,12 +1231,12 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			})
 		})
 
-		legacyReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
+		directReactors := append(append(append([]sdkhooks.ToolReactor(nil), lipfeature.Get(b1.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b2.PlaneSet, lipfeature.PlaneToolReactors)...), lipfeature.Get(b3.PlaneSet, lipfeature.PlaneToolReactors)...)
 
 		gen, err := featurebundle.MergeBundlesGenerated(b1, b2, b3)
 		require.NoError(t, err)
 
-		var legacyEvEntries, genEvEntries []evidenceEntry
+		var directEvEntries, genEvEntries []evidenceEntry
 		var mu sync.Mutex
 
 		record := func(dest *[]evidenceEntry) corehooks.ToolReactorEvidenceFunc {
@@ -1259,8 +1252,8 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			}
 		}
 
-		legacyBus := corehooks.New(corehooks.Config{
-			ToolReactors:           legacyReactors,
+		directBus := corehooks.New(corehooks.Config{
+			ToolReactors:           directReactors,
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
 		genBus := corehooks.New(corehooks.Config{
@@ -1268,7 +1261,7 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			ToolReactorErrorPolicy: sdkhooks.ToolReactorErrorsFailOpen,
 		})
 
-		ctxLegacy := corehooks.WithToolReactorEvidence(context.Background(), record(&legacyEvEntries))
+		ctxDirect := corehooks.WithToolReactorEvidence(context.Background(), record(&directEvEntries))
 		ctxGen := corehooks.WithToolReactorEvidence(context.Background(), record(&genEvEntries))
 
 		inputEvent := lipapi.ToolEvent{
@@ -1278,12 +1271,12 @@ func TestPlaneParity_HookBus_ToolReactorsGeneratedEndToEnd(t *testing.T) {
 			ArgsDelta:  `{"query":"initial"}`,
 		}
 
-		outLegacy := legacyBus.ApplyToolReactors(ctxLegacy, inputEvent, sdkhooks.ToolMeta{})
+		outDirect := directBus.ApplyToolReactors(ctxDirect, inputEvent, sdkhooks.ToolMeta{})
 		outGen := genBus.ApplyToolReactors(ctxGen, inputEvent, sdkhooks.ToolMeta{})
 
-		// Dual-path parity checks
-		require.Equal(t, outLegacy, outGen, "output from ApplyToolReactors must match across legacy and generated paths")
-		require.Equal(t, legacyEvEntries, genEvEntries, "evidence records must match across legacy and generated paths")
+		// Direct vs merged parity checks
+		require.Equal(t, outDirect, outGen, "output from ApplyToolReactors must match across direct and generated paths")
+		require.Equal(t, directEvEntries, genEvEntries, "evidence records must match across direct and generated paths")
 
 		// Observable evidence assertions
 		require.Len(t, genEvEntries, 4)

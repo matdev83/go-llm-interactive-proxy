@@ -205,7 +205,7 @@ func TestCodexCompanionStandardComposition_OrdinaryAttemptGetsTrustedMarker(t *t
 	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	_, genMerged, err := featurebundle.MergeFeatureSurfaces(reg, config.RegistrationsFromConfig(cfg))
+	genMerged, err := featurebundle.MergeFeatureSurfaceGenerated(reg, config.RegistrationsFromConfig(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
