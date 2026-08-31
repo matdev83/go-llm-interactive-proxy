@@ -56,7 +56,7 @@
   - _Validation: go test -count=1 ./internal/featurebundle_
 
 - [ ] 3. Generate and consume the hook view
-- [ ] 3.1 Add canonical hook-view declaration metadata
+- [x] 3.1 Add canonical hook-view declaration metadata
   - Extend plane declarations with optional typed metadata that names their generated hook configuration target.
   - Annotate only the four canonical hook planes; keep host error policy outside extension-plane declarations.
   - Validate target uniqueness, supported target names and types, and membership in the standard manifest.

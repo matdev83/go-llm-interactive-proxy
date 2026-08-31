@@ -96,7 +96,8 @@ var PlaneSubmitHooks = Plane[[]hooks.SubmitHook]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy:  NilNotApplicable,
+	HookTarget: HookTargetSubmitHooks,
 	Combine: func(source SourceKind, current, incoming []hooks.SubmitHook) ([]hooks.SubmitHook, error) {
 		return append(current, incoming...), nil
 	},
@@ -121,7 +122,8 @@ var PlaneRequestPartHooks = Plane[[]hooks.RequestPartHook]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy:  NilNotApplicable,
+	HookTarget: HookTargetRequestPartHooks,
 	Combine: func(source SourceKind, current, incoming []hooks.RequestPartHook) ([]hooks.RequestPartHook, error) {
 		return append(current, incoming...), nil
 	},
@@ -146,7 +148,8 @@ var PlaneResponsePartHooks = Plane[[]hooks.ResponsePartHook]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy:  NilNotApplicable,
+	HookTarget: HookTargetResponsePartHooks,
 	Combine: func(source SourceKind, current, incoming []hooks.ResponsePartHook) ([]hooks.ResponsePartHook, error) {
 		return append(current, incoming...), nil
 	},
@@ -171,7 +174,8 @@ var PlaneToolReactors = Plane[[]hooks.ToolReactor]{
 	Rules: SourceRules{
 		Feature: CombConcatenate,
 	},
-	NilPolicy: NilNotApplicable,
+	NilPolicy:  NilNotApplicable,
+	HookTarget: HookTargetToolReactors,
 	Combine: func(source SourceKind, current, incoming []hooks.ToolReactor) ([]hooks.ToolReactor, error) {
 		return append(current, incoming...), nil
 	},

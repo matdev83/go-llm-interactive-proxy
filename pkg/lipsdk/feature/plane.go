@@ -187,6 +187,30 @@ type generatedAccess[T any] struct {
 	identity   func(*generatedFrozen) (string, bool)
 }
 
+// HookTarget defines the target field name in generated hook configuration.
+type HookTarget string
+
+const (
+	// HookTargetSubmitHooks targets generated HookConfig.SubmitHooks.
+	HookTargetSubmitHooks HookTarget = "SubmitHooks"
+	// HookTargetRequestPartHooks targets generated HookConfig.RequestPartHooks.
+	HookTargetRequestPartHooks HookTarget = "RequestPartHooks"
+	// HookTargetResponsePartHooks targets generated HookConfig.ResponsePartHooks.
+	HookTargetResponsePartHooks HookTarget = "ResponsePartHooks"
+	// HookTargetToolReactors targets generated HookConfig.ToolReactors.
+	HookTargetToolReactors HookTarget = "ToolReactors"
+)
+
+// validateHookTarget returns an error if target is non-empty and not one of the canonical hook targets.
+func validateHookTarget(target HookTarget) error {
+	switch target {
+	case "", HookTargetSubmitHooks, HookTargetRequestPartHooks, HookTargetResponsePartHooks, HookTargetToolReactors:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown hook target %q", ErrInvalidPlane, target)
+	}
+}
+
 // Plane declares an extension plane contract with multiplicity, per-source combination rules,
 // validation, nil policy, and diagnostics metadata.
 type Plane[T any] struct {
@@ -197,6 +221,8 @@ type Plane[T any] struct {
 	// NilReject fails before candidate mutation; NilSkip silently skips the contribution;
 	// NilNotApplicable proceeds to validation and combination.
 	NilPolicy NilPolicy
+	// HookTarget defines the optional generated hook configuration target for this plane.
+	HookTarget HookTarget
 	// IsNil is an optional predicate used to detect nil values for NilPolicy checks.
 	// For interface-valued planes (e.g. Plane[MyInterface]), Go's untyped nil check (anyVal == nil)
 	// returns false for typed nil pointers boxed in an interface (e.g. (*ConcreteStub)(nil)).
@@ -252,6 +278,11 @@ type PlaneDeclaration interface {
 	DiagnosticOrder() int
 	DiagnosticStageID() string
 	DiagnosticCoalesceGroup() string
+}
+
+// declaredHookTarget returns the optional generated hook configuration target of the plane.
+func (p Plane[T]) declaredHookTarget() HookTarget {
+	return p.HookTarget
 }
 
 // PlaneID returns the stable ID of the plane.
@@ -383,14 +414,23 @@ func (p Plane[T]) ValidateDeclaration() error {
 		}
 	}
 
+	if err := validateHookTarget(p.HookTarget); err != nil {
+		return fmt.Errorf("%w: plane %q: unknown hook target %q", ErrInvalidPlane, p.ID, p.HookTarget)
+	}
+
 	return nil
 }
 
+type hookTargetProvider interface {
+	declaredHookTarget() HookTarget
+}
+
 // ValidateManifest checks that a collection of plane declarations contains no duplicate IDs,
-// consistent diagnostic orders and coalesce groups, and that every plane declaration is valid.
+// consistent diagnostic orders and coalesce groups, no duplicate hook targets, and that every plane declaration is valid.
 func ValidateManifest(declarations ...PlaneDeclaration) error {
 	seen := make(map[string]struct{}, len(declarations))
 	seenOrders := make(map[int]PlaneDeclaration)
+	seenHookTargets := make(map[HookTarget]string)
 	coalesceStages := make(map[string]string)
 
 	for _, decl := range declarations {
@@ -405,6 +445,16 @@ func ValidateManifest(declarations ...PlaneDeclaration) error {
 			return fmt.Errorf("%w: duplicate plane ID %q in manifest", ErrInvalidPlane, id)
 		}
 		seen[id] = struct{}{}
+
+		if htp, ok := decl.(hookTargetProvider); ok {
+			ht := htp.declaredHookTarget()
+			if ht != "" {
+				if prevID, exists := seenHookTargets[ht]; exists {
+					return fmt.Errorf("%w: duplicate hook target %q between plane %q and %q", ErrInvalidPlane, ht, prevID, id)
+				}
+				seenHookTargets[ht] = id
+			}
+		}
 
 		order := decl.DiagnosticOrder()
 		if order > 0 {
