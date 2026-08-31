@@ -7,8 +7,7 @@
 - **Go Version:** `go version go1.26.6 windows/amd64`
 - **Worktree:** `C:\Users\Mateusz\source\repos\go-llm-interactive-proxy-feat-extension-plane-review-corrections`
 - **Rebase Base Commit:** `a7a00cedddc4e49d7f96502ee28a6ea1d9603315` (`origin/main`, PR #553)
-- **Working Tree / HEAD Base:** `2c9b4b086b3dc19890fc7d2d5e3c3f9782ae494d` (`2c9b4b08 + task5.1 verification-only working-tree fixes`)
-  > Note on exact HEAD: Evidence was initially executed on base commit `2c9b4b08`, with subsequent uncommitted test-only and evidence adjustments in the working tree. The final commit created by the parent will represent the exact recorded corrective commit for Task 5.1 (`2c9b4b08` is the base commit, not the final commit).
+- **Validated Tree:** Base `2c9b4b086b3dc19890fc7d2d5e3c3f9782ae494d` plus Task 5.1 verification-only fixes, committed as `9e45eb7c` (`test(extension-plane-review-corrections): record correctness gates`).
 - **Scope Status:** Pre-merge corrective verification evidence. Does NOT claim merged-main certification (owned by Task 5.4) or #394 performance neutrality (owned by Tasks 5.2 and 5.3).
 
 ---
@@ -179,19 +178,19 @@ No production code files were modified. All working-tree changes are strictly te
   Usage: lipstd [--config path] [serve|check-config|routes|inventory|inspect|doctor|migrate]
 
     -auto-resume string
-      	enable stream auto-resume/recovery
+        enable stream auto-resume/recovery
     -auto-resume-grace-period string
-      	auto-resume grace period
+        auto-resume grace period
     -auto-resume-idle-timeout string
-      	auto-resume idle timeout
+        auto-resume idle timeout
     -components string
-      	comma-separated migration components
+        comma-separated migration components
     -config string
-      	path to runtime config (default "./config/config.yaml")
+        path to runtime config (default "./config/config.yaml")
     -instance string
-      	configured backend instance id for doctor
+        configured backend instance id for doctor
     -multi-user
-      	opt in to access.mode multi_user for serve
+        opt in to access.mode multi_user for serve
   ```
 
 ---
