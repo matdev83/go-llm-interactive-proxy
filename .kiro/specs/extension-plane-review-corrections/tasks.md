@@ -126,7 +126,7 @@
   - _Validation: go test -count=1 ./internal/featurebundle ./internal/archtest ./internal/infra/runtimebundle ./internal/testkit/planeparity && make arch-report_
 
 - [ ] 5. Validate performance and corrective completion
-- [ ] 5.1 Run focused and repository-wide correctness gates
+- [x] 5.1 Run focused and repository-wide correctness gates
   - Run formatting, generated-output, feature SDK, feature merge, core hook, runtime composition, and architecture tests from a clean corrective tree.
   - Run quality, default test, QA, deterministic architecture report, and runtime help smoke gates.
   - Treat any allocation, hot-path structure, schema, mirror, race, or compatibility failure as blocking.
