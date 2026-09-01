@@ -110,20 +110,7 @@ Write-Host "OK: Format check passed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "[3/8] Checking Go modules..." -ForegroundColor Yellow
-$preTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
-$preTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
-$null = Invoke-QualityChild "go-mod-tidy" @("go", "mod", "tidy") -Timeout "3m"
-$postTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
-$postTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
-if ($preTidyMod -ne $postTidyMod -or $preTidySum -ne $postTidySum) {
-    $modChanges = git diff --name-only go.mod go.sum 2>$null
-    Write-Host "ERROR: go.mod/go.sum modified by 'go mod tidy'" -ForegroundColor Red
-    if ($modChanges) {
-        $modChanges | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
-    }
-    Write-Host "Run: go mod tidy; git add go.mod go.sum" -ForegroundColor Yellow
-    exit 1
-}
+$null = Invoke-QualityChild "go-mod-tidy" @("go", "mod", "tidy", "-diff") -Timeout "3m"
 $shouldVerifyModuleCache = $false
 if ($env:LIP_VERIFY_MODULE_CACHE -match '^(?i:1|true|yes|on)$') {
     $shouldVerifyModuleCache = $true

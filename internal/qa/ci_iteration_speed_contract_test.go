@@ -1,6 +1,7 @@
 package qa
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -54,6 +55,10 @@ func TestCIIterationSpeed_LocalMakeGraphKeepsFastAndFullQualityContracts(t *test
 		if !strings.Contains(text, "LIP_SKIP_GO_COMPILE_CHECKS") {
 			t.Fatalf("%s must expose the explicit duplicate-build/vet fast-path switch", name)
 		}
+	}
+	qualityPS1 := readRepositoryFile(t, "scripts", "quality-checks.ps1")
+	if !strings.Contains(qualityPS1, `@("go", "mod", "tidy", "-diff")`) {
+		t.Fatal("Windows quality checks must verify module tidiness without writing tracked files")
 	}
 }
 
@@ -207,5 +212,193 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 				t.Errorf("%s cache-dependency-path missing %q", name, needle)
 			}
 		}
+	}
+}
+
+func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepositoryFile(t, "Makefile")
+	if !strings.Contains(strings.SplitN(makefile, "\n", 2)[0], "test-cost") {
+		t.Fatal("Makefile .PHONY declaration must include test-cost")
+	}
+	for _, needle := range []string{
+		"TEST_COST_BASE_SHA ?=",
+		"TEST_COST_OUTPUT_ROOT ?=",
+		"TEST_COST_PARALLEL ?= 0",
+		"make test-cost",
+		"Windows-authoritative",
+	} {
+		if !strings.Contains(makefile, needle) {
+			t.Fatalf("Makefile missing test-cost interface/help contract %q", needle)
+		}
+	}
+	target := makeTargetBlock(makefile, "test-cost")
+	for _, needle := range []string{
+		"test-cost:",
+		"ifeq ($(OS),Windows_NT)",
+		"scripts/test-cost-ratchet.ps1",
+		"-BaseSHA",
+		"-OutputRoot",
+		"-Parallel",
+		"Windows-only",
+		"exit 1",
+	} {
+		if !strings.Contains(target, needle) {
+			t.Fatalf("test-cost target missing contract %q", needle)
+		}
+	}
+	if strings.Contains(makeTargetBlock(makefile, "test"), "test-cost") {
+		t.Fatal("test-cost must remain opt-in, not a make test prerequisite")
+	}
+
+	script := readRepositoryFile(t, "scripts", "test-cost-ratchet.ps1")
+	for _, needle := range []string{
+		"function Test-IsWindows",
+		"if (-not (Test-IsWindows))",
+		"$Targets = @(\"test-unit\", \"quality-checks\")",
+		`@("mod", "download", "all")`,
+		`Invoke-RequiredExternal "anchor-compatibility-tidy" "go" @("mod", "tidy")`,
+		`throw "anchor compatibility go mod tidy unexpectedly changed go.mod"`,
+		`@("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd")`,
+		`SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")`,
+		"LIP_QA_LIPSTD_BINARY",
+		"-count=1",
+		"LIP_ALLOW_TEST_COST_GROWTH",
+		"worktree\", \"add\", \"--detach\"",
+		"worktree\", \"remove\", \"--force\"",
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("test-cost-ratchet script missing contract %q", needle)
+		}
+	}
+	if !strings.Contains(script, `"-c", "core.autocrlf=false"`) {
+		t.Fatal("anchor worktree creation must disable autocrlf for the command")
+	}
+	if !strings.Contains(script, `"-c", "core.eol=lf"`) {
+		t.Fatal("anchor worktree creation must force LF checkout for the command")
+	}
+	if strings.Contains(script, `"add", "-A"`) || strings.Contains(script, `"add", "."`) {
+		t.Fatal("anchor compatibility commit must not stage unrelated checkout conversions")
+	}
+	if !strings.Contains(script, "$content.Replace(\"`r`n\", \"`n\")") {
+		t.Fatal("anchor compatibility files must be LF-normalized before quality-check measurement")
+	}
+	for _, shortTempRoot := range []string{`("a-" + $runID.Substring(0, 8))`, `("h-" + $runID.Substring(0, 8))`} {
+		if !strings.Contains(script, shortTempRoot) {
+			t.Fatalf("isolated measurement temp roots must stay short enough for Windows image paths: %q", shortTempRoot)
+		}
+	}
+	compatibilityStart := strings.Index(script, "$compatibilityPaths = @(")
+	if compatibilityStart < 0 {
+		t.Fatal("anchor compatibility paths must be declared explicitly")
+	}
+	if firstUse := strings.Index(script, "$compatibilityPaths"); firstUse != compatibilityStart {
+		t.Fatal("anchor compatibility paths must be declared before StrictMode can observe a use")
+	}
+	compatibilityEnd := strings.Index(script[compatibilityStart:], ")")
+	if compatibilityEnd < 0 {
+		t.Fatal("anchor compatibility path declaration is unterminated")
+	}
+	compatibilityBlock := script[compatibilityStart : compatibilityStart+compatibilityEnd]
+	for _, compatibilityPath := range []string{
+		"internal/testkit/dbparity/cmd/main_test.go",
+		"internal/testkit/postgres_makefile_gate_test.go",
+	} {
+		if !strings.Contains(compatibilityBlock, compatibilityPath) {
+			t.Fatalf("anchor compatibility paths must remain explicit: %q", compatibilityPath)
+		}
+	}
+	for _, loadCompatibilityPath := range []string{
+		"internal/stdhttp/request_plane_generation_test.go",
+		"internal/infra/runtimebundle/publish_pinned_characterization_test.go",
+		"internal/infra/runtimehost/observability_test.go",
+		"internal/qa/phase74_migration_rollout_evidence_test.go",
+		"internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
+		"scripts/quality-checks.ps1",
+	} {
+		if !strings.Contains(script, loadCompatibilityPath) {
+			t.Fatalf("anchor load compatibility must remain test-only and explicit: %q", loadCompatibilityPath)
+		}
+	}
+	for _, warmupModuleGuard := range []string{
+		`$moduleSnapshots = @{}`,
+		`[IO.File]::WriteAllBytes($modulePath, $moduleSnapshots[$modulePath])`,
+	} {
+		if !strings.Contains(script, warmupModuleGuard) {
+			t.Fatalf("test-cost warmup must restore clean module files before measurement: %q", warmupModuleGuard)
+		}
+	}
+	for _, forbiddenPath := range []string{
+		"internal/stdhttp/security_guard.go",
+		"internal/infra/backendplugins/processhost/windows_production_test.go",
+		"internal/testkit/backendplugin/cmd/lip-backendplugin-fake/pipe_windows.go",
+		"scripts/taskrunner.ps1",
+		"internal/qa/windows_task_reliability_contract_test.go",
+		"tools/openresponses_compliance/src/lib/compliance-tests.ts",
+		"internal/archtest/extension_planes_baseline.json",
+	} {
+		if strings.Contains(script, forbiddenPath) {
+			t.Fatalf("anchor compatibility must not mutate speculative path %q", forbiddenPath)
+		}
+	}
+
+	var policy struct {
+		SchemaVersion int                        `json:"schema_version"`
+		AnchorRef     string                     `json:"anchor_ref"`
+		Targets       map[string]json.RawMessage `json:"targets"`
+	}
+	policyBytes := []byte(readRepositoryFile(t, "scripts", "test-cost-budget.json"))
+	if err := json.Unmarshal(policyBytes, &policy); err != nil {
+		t.Fatalf("test-cost policy must be valid JSON: %v", err)
+	}
+	if policy.SchemaVersion != 1 || strings.TrimSpace(policy.AnchorRef) == "" {
+		t.Fatalf("test-cost policy must declare schema_version=1 and a non-empty anchor_ref: %#v", policy)
+	}
+	for _, targetName := range []string{"test-unit", "quality-checks"} {
+		if _, ok := policy.Targets[targetName]; !ok {
+			t.Fatalf("test-cost policy missing authoritative target %q", targetName)
+		}
+	}
+
+	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
+	for _, checkoutConfig := range []string{
+		"GIT_CONFIG_KEY_0: core.autocrlf",
+		`GIT_CONFIG_VALUE_0: "false"`,
+		"GIT_CONFIG_KEY_1: core.eol",
+		"GIT_CONFIG_VALUE_1: lf",
+	} {
+		if !strings.Contains(ci, checkoutConfig) {
+			t.Fatalf("Windows measured head checkout must remain LF-normalized: %q", checkoutConfig)
+		}
+	}
+	for _, needle := range []string{
+		"types: [opened, synchronize, reopened, labeled, unlabeled]",
+		"github.event.pull_request.base.sha",
+		"github.head_ref || github.ref_name",
+		"- os: ubuntu-latest",
+		"- os: windows-latest",
+		"- os: macos-latest",
+		"go test -timeout=8m ${{ matrix.packages }}",
+		"- name: Windows test-cost ratchet",
+		"matrix.os == 'windows-latest'",
+		"allow-test-cost-growth",
+		"-BaseSHA \"${{ github.event.pull_request.base.sha }}\"",
+	} {
+		if !strings.Contains(ci, needle) {
+			t.Fatalf("CI workflow missing test-cost/iteration-speed contract %q", needle)
+		}
+	}
+	fastUnit := strings.Index(ci, "- name: Fast unit tests")
+	ratchet := strings.Index(ci, "- name: Windows test-cost ratchet")
+	if fastUnit < 0 || ratchet < 0 || fastUnit >= ratchet {
+		t.Fatal("CI must place the portable fast-unit step before the Windows authoritative ratchet")
+	}
+	fastUnitBlock := ci[fastUnit:ratchet]
+	if strings.Contains(fastUnitBlock, "continue-on-error") {
+		t.Fatal("CI must not soften the portable fast-unit contract")
+	}
+	if !strings.Contains(fastUnitBlock, "matrix.os != 'windows-latest'") || !strings.Contains(fastUnitBlock, "needs.changes.outputs.test_cost != 'true'") {
+		t.Fatal("CI must preserve fast units on Linux/macOS and avoid duplicating a measured Windows head run")
 	}
 }

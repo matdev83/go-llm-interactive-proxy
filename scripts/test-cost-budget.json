@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "anchor_ref": "a7a00cedddc4e49d7f96502ee28a6ea1d9603315",
+  "targets": {
+    "test-unit": {
+      "cpu": { "ratio": 1.30, "delta_seconds": 10 },
+      "processes": { "ratio": 1.15, "delta": 8 },
+      "io_operations": { "ratio": 1.40, "delta": 10000 },
+      "wall": { "ratio": 1.60, "delta_seconds": 15 },
+      "packages": {
+        "existing_ratio": 1.75,
+        "existing_delta_seconds": 3,
+        "existing_floor_seconds": 5,
+        "new_warn_seconds": 4,
+        "new_fail_seconds": 8
+      },
+      "package_overrides": {
+        "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
+          "existing_ratio": 1.50,
+          "existing_delta_seconds": 5
+        }
+      }
+    },
+    "quality-checks": {
+      "cpu": { "ratio": 1.30, "delta_seconds": 5 },
+      "processes": { "ratio": 1.15, "delta": 6 },
+      "io_operations": { "ratio": 1.40, "delta": 7500 },
+      "wall": { "ratio": 1.50, "delta_seconds": 10 }
+    }
+  }
+}

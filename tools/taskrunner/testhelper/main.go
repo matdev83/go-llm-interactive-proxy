@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ func main() {
 	marker := flag.String("marker", "", "failure marker")
 	readyFile := flag.String("ready-file", "", "grandchild ready marker")
 	pidFile := flag.String("pid-file", "", "grandchild pid marker")
+	ioFile := flag.String("io-file", "", "accounting I/O marker")
 	flag.Parse()
 
 	switch *mode {
@@ -72,6 +74,27 @@ func main() {
 		}
 		for {
 			time.Sleep(time.Second)
+		}
+	case "accounting-tree":
+		self, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		child := exec.Command(self, "-mode=accounting-child", "-io-file", *ioFile)
+		if output, err := child.CombinedOutput(); err != nil {
+			panic(fmt.Errorf("accounting child: %w: %s", err, output))
+		}
+	case "accounting-child":
+		var digest [32]byte
+		block := make([]byte, 64*1024)
+		for range 4096 {
+			digest = sha256.Sum256(append(block, digest[:]...))
+		}
+		if *ioFile == "" {
+			panic("accounting-child requires -io-file")
+		}
+		if err := os.WriteFile(*ioFile, digest[:], 0o600); err != nil {
+			panic(err)
 		}
 	default:
 		panic("unknown mode")

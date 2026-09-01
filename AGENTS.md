@@ -111,6 +111,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 
 - Focused test: `go test -run TestName ./path/to/pkg`.
 - Default unit: `make test-unit`.
+- Windows test-cost ratchet: `make test-cost` is the explicit authoritative budget check; it is opt-in and not part of `make test`.
 - Database dialect parity: `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`).
 - Quality gate: `make quality-checks`.
 - Full default: `make test`.

@@ -3,6 +3,18 @@ $ErrorActionPreference = "Stop"
 $TaskRunnerRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:TaskRunnerBinary = $null
 
+function Test-TaskRunnerBuildRequired {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return $true
+    }
+    $binTime = (Get-Item $Path).LastWriteTimeUtc
+    $srcDir = Join-Path $TaskRunnerRoot "tools/taskrunner"
+    $newestSrc = Get-ChildItem -Path $srcDir -Recurse -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    return -not ($newestSrc -and $binTime -gt $newestSrc.LastWriteTimeUtc)
+}
+
 function Get-TaskRunnerBinary {
     if ($script:TaskRunnerBinary -and (Test-Path $script:TaskRunnerBinary)) {
         return $script:TaskRunnerBinary
@@ -14,27 +26,49 @@ function Get-TaskRunnerBinary {
     }
     $path = Join-Path $cacheDir "lip-taskrunner.exe"
 
-    $needsBuild = $true
-    if (Test-Path $path) {
-        $binTime = (Get-Item $path).LastWriteTimeUtc
-        $srcDir = Join-Path $TaskRunnerRoot "tools/taskrunner"
-        $newestSrc = (Get-ChildItem -Path $srcDir -Recurse -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
-        if ($newestSrc -and $binTime -gt $newestSrc.LastWriteTimeUtc) {
-            $needsBuild = $false
-        }
-    }
-
-    if ($needsBuild) {
-        Push-Location $TaskRunnerRoot
+    if (Test-TaskRunnerBuildRequired $path) {
+        $hash = [System.Security.Cryptography.SHA256]::Create()
         try {
-            # The helper is a local diagnostic executable; do not require repository
-            # VCS metadata merely to compile the process-tree boundary.
-            & go build -buildvcs=false -o $path ./tools/taskrunner/cmd/lip-taskrunner
-            if ($LASTEXITCODE -ne 0) {
-                throw "failed to build temporary lip-taskrunner (exit $LASTEXITCODE)"
+            $nameBytes = [System.Text.Encoding]::UTF8.GetBytes($path.ToLowerInvariant())
+            $mutexSuffix = ([System.BitConverter]::ToString($hash.ComputeHash($nameBytes))).Replace("-", "")
+        } finally {
+            $hash.Dispose()
+        }
+        $mutex = New-Object System.Threading.Mutex($false, ("Local\GoLIPTaskRunnerBuild-" + $mutexSuffix))
+        $lockTaken = $false
+        try {
+            try {
+                $lockTaken = $mutex.WaitOne([TimeSpan]::FromMinutes(2))
+            } catch [System.Threading.AbandonedMutexException] {
+                $lockTaken = $true
+            }
+            if (-not $lockTaken) {
+                throw "timed out waiting to build temporary lip-taskrunner"
+            }
+
+            # Another process may have completed the cold build while this one
+            # waited. Recheck under the cross-process lock before compiling.
+            if (Test-TaskRunnerBuildRequired $path) {
+                $buildPath = "$path.$PID.$([Guid]::NewGuid().ToString('N')).tmp.exe"
+                Push-Location $TaskRunnerRoot
+                try {
+                    # The helper is a local diagnostic executable; do not require repository
+                    # VCS metadata merely to compile the process-tree boundary.
+                    & go build -buildvcs=false -o $buildPath ./tools/taskrunner/cmd/lip-taskrunner
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "failed to build temporary lip-taskrunner (exit $LASTEXITCODE)"
+                    }
+                    Move-Item -LiteralPath $buildPath -Destination $path -Force
+                } finally {
+                    Pop-Location
+                    Remove-Item -LiteralPath $buildPath -Force -ErrorAction SilentlyContinue
+                }
             }
         } finally {
-            Pop-Location
+            if ($lockTaken) {
+                $mutex.ReleaseMutex()
+            }
+            $mutex.Dispose()
         }
     }
     $script:TaskRunnerBinary = $path

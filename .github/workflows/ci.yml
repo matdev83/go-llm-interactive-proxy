@@ -7,7 +7,7 @@ on:
     branches:
       - main
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -27,6 +27,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       test: ${{ steps.filter.outputs.test }}
+      test_cost: ${{ steps.filter.outputs.test_cost }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -162,8 +163,24 @@ jobs:
           echo "CI scope detection failed; refusing to bypass required evidence." >&2
           exit 1
 
+      # The Windows ratchet checks out the complete history when test-cost
+      # measurement is requested or policy changes. Keep portable fast unit
+      # test runs on the shallow checkout.
+      - name: Check out repository (Windows test-cost history)
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        env:
+          GIT_CONFIG_COUNT: 2
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: core.eol
+          GIT_CONFIG_VALUE_1: lf
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -204,26 +221,51 @@ jobs:
             setup-go-
 
       - name: Fast unit tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && (matrix.os != 'windows-latest' || (!contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && !contains(github.event.pull_request.labels.*.name, 'run-test-cost') && !contains(github.event.pull_request.labels.*.name, 'test-cost') && needs.changes.outputs.test_cost != 'true'))
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
-        # host security posture checks on administrative Windows runners.
+        # host security posture checks on administrative Windows runners. A
+        # measured Windows head run is broader, so do not execute it twice.
         run: go test -timeout=8m ${{ matrix.packages }}
+
+      - name: Windows test-cost ratchet
+        if: needs.changes.result == 'success' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
+        shell: pwsh
+        env:
+          # A labeled PR may authorize a ratchet update, but the orchestrator
+          # still measures and reports both targets under the override.
+          LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP "golip-test-cost-ratchet"
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test-cost-ratchet.ps1 `
+            -BaseSHA "${{ github.event.pull_request.base.sha }}" `
+            -OutputRoot $outputRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build release binary
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go build -trimpath ./cmd/lipstd
 
-      # Preserve the full per-OS cache for the next run; runs even on failure so
-      # partial progress is cached, skipped when the primary key already restored.
+      # Preserve the full per-OS cache after a successful job. Failed Windows
+      # ratchets already restored a warm cache; recompressing gigabytes before
+      # exposing their logs only delays diagnosis.
       - name: Save dedicated CI Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ steps.go-cache-paths.outputs.go-cache }}
             ${{ steps.go-cache-paths.outputs.go-mod-cache }}
           key: go-cache-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Upload Windows test-cost artifacts
+        if: always() && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-test-cost
+          path: ${{ runner.temp }}/golip-test-cost-ratchet
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

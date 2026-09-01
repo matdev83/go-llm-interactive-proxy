@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-cost test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 
@@ -14,6 +14,13 @@ endif
 GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
 export GO_TEST_FLAGS
 
+# The Windows test-cost ratchet is explicit and opt-in.  CI supplies the PR
+# base SHA; local callers can override these values when comparing a known
+# base or retaining artifacts outside the checkout.
+TEST_COST_BASE_SHA ?=
+TEST_COST_OUTPUT_ROOT ?=
+TEST_COST_PARALLEL ?= 0
+
 ifeq ($(OS),Windows_NT)
 WINDOWS_TASK = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-task.ps1 -Target
 endif
@@ -24,6 +31,7 @@ help:
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
+	@echo "  make test-cost [TEST_COST_BASE_SHA=<git-rev>] [TEST_COST_OUTPUT_ROOT=<dir>] [TEST_COST_PARALLEL=<n>] - Windows-authoritative test-cost ratchet (opt-in; not part of make test)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make precommit-full  - run the optional full local lint + vulnerability scan before commit"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
@@ -103,6 +111,17 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quality-checks.ps1
 else
 	@bash scripts/quality-checks.sh
+endif
+
+# The ratchet's PowerShell orchestrator is the Windows-authoritative
+# comparison of the policy targets.  Fail closed on other hosts so a local
+# POSIX invocation cannot masquerade as authoritative evidence.
+test-cost:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-cost-ratchet.ps1 -BaseSHA "$(TEST_COST_BASE_SHA)" -OutputRoot "$(TEST_COST_OUTPUT_ROOT)" -Parallel "$(TEST_COST_PARALLEL)"
+else
+	@echo "make test-cost is Windows-only; Windows is authoritative for this ratchet." >&2
+	@exit 1
 endif
 
 test: quality-checks-fast test-unit parity-checks
