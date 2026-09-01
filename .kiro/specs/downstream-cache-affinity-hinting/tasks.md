@@ -17,8 +17,9 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 11. Generated value is exactly 50 chars: `lipca1_` + full SHA-256 digest via `base64.RawURLEncoding`. Never truncate.
 12. Do not infer cache hits from hint emission.
 13. The current production `provider-profile` row expansion is known to be lossy. Repair it exactly as Task 4 before adding cache-affinity profile rows.
-14. TDD each seam: add/adjust failing focused test first, then implementation.
-15. No unrelated cleanup/refactor.
+14. `internal/providerprofiles` must stay declarative and must **not import `internal/core/cacheaffinity`**. Define local `MinCacheAffinityValueLength = 50` in `internal/providerprofiles` for schema validation and add an architecture/test equality assertion against `cacheaffinity.GeneratedLength`.
+15. TDD each seam: add/adjust failing focused test first, then implementation.
+16. No unrelated cleanup/refactor.
 
 ## Frozen File Map
 
@@ -67,7 +68,8 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - _Depends: none_
 
 - [ ] 1.4 (P) RED production provider-profile binding test
-  - **Edit:** `internal/standardplugins/provider_profile_binding_test.go`; add focused `internal/infra/runtimebundle` test if needed to exercise registry/candidate build.
+  - **Edit:** `internal/standardplugins/provider_profile_binding_test.go`.
+  - **Create:** `internal/infra/runtimebundle/provider_profile_cache_affinity_test.go` for the real registry/lifecycle/candidate path.
   - Start with config `kind: provider-profile`, `config.profile: <fixture>`.
   - Drive through `PrepareProviderProfiles` + same standard registry/lifecycle used by production candidate construction.
   - Prove current behavior loses a compiled-only semantic (use disabled capability or safe header first). Add cache-affinity assertion after schema task exists.
@@ -80,6 +82,7 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - **Edit/Create:** `internal/providerprofiles/schema_test.go`, profile-binding tests, `openaicompat` tests.
   - Validation: disabled-but-nonzero; bad transport; empty/bad wire; max49/>256; wrong family flavor; synthesis while disabled.
   - Projection: Chat header, Chat JSON, Responses JSON, max rejection, absent projection no-op, arbitrary custom-compatible no injection.
+  - Add a test pinning `providerprofiles.MinCacheAffinityValueLength == 50`; the cross-package equality with `cacheaffinity.GeneratedLength` belongs in Task 9.2 archtest to preserve package layering.
   - _Req: 5,6.2-6.9_
   - _Depends: none_
 
@@ -205,13 +208,14 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 - [ ] 5.1 Add exact `Profile.CacheAffinity` schema
   - **Edit:** `internal/providerprofiles/schema.go`.
   - Add types/fields exactly as Design §8.
-  - Strict validation exactly as Design §8: disabled strict-zero; only JSON/header transports; safe wire; max 50..256; correct family flavor; synthesis requires enabled.
+  - Define **local** `const MinCacheAffinityValueLength = 50` in `internal/providerprofiles`; use it for schema validation. **Do not import `internal/core/cacheaffinity`.**
+  - Strict validation: disabled strict-zero; only JSON/header transports; safe wire; max `MinCacheAffinityValueLength..MaxStringBytes`; correct family flavor; synthesis requires enabled.
   - Keep v1; no transform/second catalog.
   - _Req: 5.4-5.7_
-  - _Depends: 1.5,2.1,4.4_
+  - _Depends: 1.5,4.4_
 
 - [ ] 5.2 Thread complete compiled cache-affinity semantics through the now-correct production profile lifecycle
-  - **Edit:** `internal/providerprofiles/compiler.go` only if compilation helper needs explicit validation hook; `internal/standardplugins/provider_profile_binding.go` family builders.
+  - **Edit:** `internal/standardplugins/provider_profile_binding.go` family builders. `internal/providerprofiles/compiler.go` should remain unchanged unless the existing `CompileProfile` path does not already call `Validate`; if it does call `Validate` (current main), do not edit it.
   - `CompiledProfile.Profile` remains semantic authority.
   - Select `.Chat` for Chat family, `.Responses` for Responses family.
   - Pass profile ID + selected projection into profile-aware OpenAI-compatible builder.
@@ -220,7 +224,8 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - _Depends: 5.1_
 
 - [ ] 5.3 Add profile-aware projection to `openaicompat`
-  - **Edit:** `internal/plugins/backends/openaicompat/compatible_factory.go`, `backend.go`; helper file allowed only for isolation.
+  - **Create:** `internal/plugins/backends/openaicompat/cache_affinity.go` for cache-affinity request-option/support helpers.
+  - **Edit:** `internal/plugins/backends/openaicompat/compatible_factory.go`, `backend.go` only as needed to call those helpers.
   - Keep `BuildCompatible` and `BuildCompatibleWithHeaders` source-compatible.
   - Add profile-aware builder used by `BuildProviderProfileBackend` family path.
   - Enabled+synthesis => backend support namespace = profile ID.
@@ -277,9 +282,9 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 
 - [ ] 6.2 Expose executable-backend synthesis only when feature negotiated
   - **Edit:** `internal/infra/backendplugins/adapter/backend.go` + tests.
-  - Negotiated new feature => set resolver support.
-  - Namespace = first stable route/backend prefix. If none, use a bounded connector-kind/evidence-source constant already available in build metadata; never `InstanceID` or session ID.
-  - No feature => resolver nil/disabled.
+  - Negotiated new feature **and `len(prefixes) > 0`** => set resolver support with namespace `prefixes[0]`.
+  - No negotiated feature or no stable route/backend prefix => resolver disabled. Do not invent a fallback namespace.
+  - Never use `InstanceID` or session ID.
   - Do not call `session.Resolve` per request solely for this feature.
   - _Req: 5,7,10_
   - _Depends: 2.3,6.1_
@@ -318,7 +323,10 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 
 - [ ] 8.1 Extend existing `runtime.MetricsSink`
   - **Edit:** `internal/core/runtime/metrics_sink.go` + existing `internal/infra/metrics` implementation/no-op/test sinks.
-  - Add one method with typed source/outcome, e.g. `OnDownstreamCacheAffinity(source, outcome, backend)`.
+  - Add exact method:
+    ```go
+    OnDownstreamCacheAffinity(source cacheaffinity.Source, outcome cacheaffinity.Outcome, backend string)
+    ```
   - Call once per attempt preparation decision.
   - Labels only bounded enums + existing configured backend label convention. No hint/PCK/session/request/residency/raw model.
   - No cache-hit metric.
@@ -351,10 +359,10 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 # 9. Performance / Architecture / Completion Gates
 
 - [ ] 9.1 Hot-path benchmarks
-  - **Create:** `internal/core/cacheaffinity/benchmark_test.go` and focused runtime benchmark if useful.
-  - Explicit/generated/disabled paths; `-benchmem`.
-  - Confirm subkey precomputed; no DB/network/fs/goroutine/timer/prompt hashing/unbounded map.
-  - Add pooling only with benchmark evidence.
+  - **Create:** `internal/core/cacheaffinity/benchmark_test.go`.
+  - Benchmark the pure explicit/no-op resolver helper where applicable and the generated `Derive` path; if runtime-level benchmark coverage already exists for attempt preparation, extend that existing benchmark rather than create a second runtime benchmark harness.
+  - Explicit/generated/disabled behavior must show no DB/network/fs/goroutine/timer/prompt hashing/unbounded map.
+  - Confirm subkey precomputed; add pooling only with benchmark evidence.
   - _Req: 7_
   - _Depends: 2.4_
 
@@ -362,7 +370,8 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - **Edit/add:** `internal/archtest`.
   - Generic core must not contain `x-grok-conv-id`, `x-session-id`, `x-session-affinity`, provider `session_id` mapping.
   - Fail on durable cache-affinity store/table, raw session re-forwarding, new backend proto downstream-affinity value field/minor, generated hint assigned to residency identity.
-  - Add guard that production `provider-profile` preparation no longer rewrites configured rows into generic factory kinds, preventing reintroduction of compiled-semantic loss.
+  - Add guard that production `provider-profile` preparation no longer rewrites configured rows into generic factory kinds.
+  - Add dependency/constant guard: `internal/providerprofiles` must not import `internal/core/cacheaffinity`, and a cross-package test must assert `providerprofiles.MinCacheAffinityValueLength == cacheaffinity.GeneratedLength` so the duplicated boundary constant cannot drift.
   - _Req: 1,5.7-5.8,7,10_
   - _Depends: 5.4,6.3,7.1_
 
