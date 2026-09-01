@@ -74,6 +74,7 @@ The requirements below are intentionally frozen for implementation by instructio
 5. An enabled profile projection shall fail profile validation if its transport/wire name is invalid, its declared maximum cannot carry the 50-character generated value, or its API flavor conflicts with the profile family.
 6. Unknown/undeclared profiles shall default to `cache_affinity` disabled.
 7. Provider wire projection shall remain adapter/profile-owned; core shall never switch on provider names or literal values such as `x-grok-conv-id`, `session_id`, `x-session-id`, or `x-session-affinity`.
+8. When a configured backend uses `kind: provider-profile`, the complete compiled profile semantics, including `cache_affinity`, shall reach the actual production registry/lifecycle backend construction without being reduced to lossy generic compatible YAML.
 
 ## Requirement 6 — Complete the Initial Provider Matrix in This Workstream
 
@@ -92,6 +93,7 @@ The requirements below are intentionally frozen for implementation by instructio
 9. A generic unknown OpenAI-compatible backend shall receive no newly synthesized field or header.
 10. If any of `fireworks`, `xai`, `xai-responses`, `mistral`, or `runinfra` is absent from `internal/providerprofiles/catalog.json` on the implementation branch, this workstream shall add the missing row using the frozen endpoint/auth/family data in `research.md`; if a row already exists, this workstream shall augment it rather than duplicate it.
 11. Completion of this specification shall not depend on a later provider-expansion implementation to make the matrix above operational.
+12. The initial profile-matrix behavior shall be certified through the real `kind: provider-profile` production build path, not only by direct family-builder unit tests.
 
 ## Requirement 7 — Reuse Existing Key/Session Composition Without Hot-Path State
 
@@ -150,9 +152,9 @@ The requirements below are intentionally frozen for implementation by instructio
 
 ### Acceptance Criteria
 
-1. Completion shall include: secure derivation, executor capability, selected-attempt insertion, direct OpenAI forwarding, provider-profile schema/compiler/projection, required initial profile rows, OpenRouter connector parity, tests/TCK, observability, documentation, and architecture/performance gates.
+1. Completion shall include: secure derivation, executor capability, selected-attempt insertion, direct OpenAI forwarding, non-lossy production provider-profile lifecycle binding, provider-profile schema/compiler/projection, required initial profile rows, OpenRouter connector parity, tests/TCK, observability, documentation, and architecture/performance gates.
 2. The implementation shall add regression coverage proving direct OpenAI explicit `PromptCacheKey` forwarding works before/following synthesis.
 3. The implementation shall add reusable tests proving unknown-compatible, Anthropic, and Gemini negative behavior.
-4. The implementation shall add architecture guards preventing provider-name/wire-name switches in generic core and preventing generated values from becoming residency/session authority.
+4. The implementation shall add architecture guards preventing provider-name/wire-name switches in generic core, preventing generated values from becoming residency/session authority, and preventing reintroduction of the lossy provider-profile-to-generic-YAML production bridge.
 5. The final completion review shall search for unresolved TODOs/placeholders required by this feature and resolve them before archiving the spec.
 6. After this specification is complete, adding a newly documented provider carrier shall be ordinary provider-profile/adapter data/code against this completed contract, not a prerequisite generic architecture follow-up.
