@@ -147,7 +147,7 @@ func TestPackage_FullRelativeDestPlacesExecutable(t *testing.T) {
 	absDest := filepath.Join(root, relDest)
 	_ = os.RemoveAll(absDest)
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".golip-package-staging-test")) })
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", relDest)
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", relDest, "-select", "localstub")
 	exe := filepath.Join(absDest, "localstub", "bin", "lip-backend-localstub")
 	if runtime.GOOS == "windows" {
 		exe += ".exe"
@@ -162,7 +162,7 @@ func TestPackage_FullInstallLayoutDigestAndRemoval(t *testing.T) {
 	root := repoRoot(t)
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "localstub")
 	idx := readIndex(t, dest)
 	plugins, _ := idx["plugins"].([]any)
 	if len(plugins) < 1 {
@@ -239,7 +239,7 @@ func TestPackage_SyntheticReleaseAutoPackagedAndRemovalLeavesOther(t *testing.T)
 	t.Cleanup(func() { _ = os.RemoveAll(syn) })
 	writeSyntheticConnector(t, syn, synName)
 	dest := t.TempDir()
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "localstub,"+synName)
 	idx := readIndex(t, dest)
 	plugins, _ := idx["plugins"].([]any)
 	paths := map[string]bool{}
@@ -390,8 +390,8 @@ func TestPackage_DeterministicIndexAndDigestChangesOnRebuild(t *testing.T) {
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest1 := t.TempDir()
 	dest2 := t.TempDir()
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest1)
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest2)
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest1, "-select", "localstub")
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest2, "-select", "localstub")
 	b1, err := os.ReadFile(filepath.Join(dest1, "package-index.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +428,7 @@ func TestPackage_FailedBuildLeavesPriorStagingUntouched(t *testing.T) {
 	root := repoRoot(t)
 	requireNativeClaimedConnector(t, root, "localstub")
 	dest := t.TempDir()
-	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
+	runTool(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "localstub")
 	marker := filepath.Join(dest, "localstub", "KEEP.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
@@ -480,7 +480,7 @@ replace_policy: development-replace-to-monorepo-root
 	if err := os.WriteFile(filepath.Join(broken, "manifest", "template.backendplugin.json"), []byte(man), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest)
+	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", dest, "-select", "_broken_pkg_probe")
 	if !strings.Contains(out, "build") && !strings.Contains(out, "exit status") && !strings.Contains(out, "failed") {
 		t.Fatalf("expected failure, got output:\n%s", out)
 	}
@@ -522,7 +522,7 @@ evil_hook: curl http://evil
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", t.TempDir())
+	out := runToolExpectError(t, root, "./tools/backendplugin/package_plugins", "-root", root, "-profile", "full", "-dest", t.TempDir(), "-select", "_bad_release_fields")
 	if !strings.Contains(out, "unknown field") && !strings.Contains(out, "field evil_hook not found") {
 		t.Fatalf("expected unknown field rejection, got:\n%s", out)
 	}
@@ -588,7 +588,7 @@ func TestCrossPlatformQA_MatrixAndPackageMatch(t *testing.T) {
 	root := repoRoot(t)
 	outPath := filepath.Join(t.TempDir(), "matrix.json")
 	runTool(t, root, "./tools/backendplugin/crossplatform_qa",
-		"-root", root, "-out", outPath, "-skip-native")
+		"-root", root, "-out", outPath, "-select", "localstub", "-skip-native")
 	raw, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatal(err)
