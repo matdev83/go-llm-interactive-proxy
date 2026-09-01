@@ -13,6 +13,8 @@ import (
 )
 
 func TestRunCompareWritesStableJSONAndSummary(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	baseline := testcost.Measurement{SchemaVersion: 1, Target: "test-unit", Revision: "a", GOOS: "windows", GOARCH: "amd64", GoVersion: "go1.26.6", LogicalCPUs: 1, TestParallel: 1, WallNanos: 100, Packages: map[string]testcost.PackageMetrics{"pkg": {ElapsedNanos: 1}}}
 	current := baseline
@@ -51,6 +53,8 @@ func TestRunCompareWritesStableJSONAndSummary(t *testing.T) {
 }
 
 func TestRunCompareAuthorizedOverrideSucceeds(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	base := testcost.Measurement{SchemaVersion: 1, Target: "test-unit", GOOS: "windows", GOARCH: "amd64", Packages: map[string]testcost.PackageMetrics{}}
 	current := base
@@ -78,6 +82,8 @@ func TestRunCompareAuthorizedOverrideSucceeds(t *testing.T) {
 }
 
 func TestRunComparePassWritesStableEmptyCollections(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	measurement := testcost.Measurement{SchemaVersion: 1, Target: "quality-checks", GOOS: "windows", GOARCH: "amd64", WallNanos: 1}
 	policy := testcost.Policy{SchemaVersion: 1, AnchorRef: "origin/main", Targets: map[string]testcost.TargetPolicy{"quality-checks": {Wall: testcost.AbsoluteBudget{Ratio: 2, DeltaSeconds: 1}}}}
@@ -110,6 +116,8 @@ func TestRunComparePassWritesStableEmptyCollections(t *testing.T) {
 }
 
 func TestRunRejectsIncompleteCompareInputs(t *testing.T) {
+	t.Parallel()
+
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"compare", "--baseline", "missing.json"}, &stdout, &stderr); code != 2 {
 		t.Fatalf("incomplete compare exit = %d, stderr=%s", code, stderr.String())
@@ -120,6 +128,8 @@ func TestRunRejectsIncompleteCompareInputs(t *testing.T) {
 }
 
 func TestRunCompareRejectsEmptyOut(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	base := testcost.Measurement{SchemaVersion: 1, Target: "test-unit", GOOS: "windows", GOARCH: "amd64", Packages: map[string]testcost.PackageMetrics{}}
 	current := base
@@ -146,6 +156,8 @@ func TestRunCompareRejectsEmptyOut(t *testing.T) {
 }
 
 func TestRunRequiresLiteralMeasureOrCompareSubcommand(t *testing.T) {
+	t.Parallel()
+
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"--target", "test-unit"}, &stdout, &stderr); code != 2 {
 		t.Fatalf("missing subcommand exit = %d, stderr=%s", code, stderr.String())
@@ -153,6 +165,8 @@ func TestRunRequiresLiteralMeasureOrCompareSubcommand(t *testing.T) {
 }
 
 func TestRunMeasureTargetValidation(t *testing.T) {
+	t.Parallel()
+
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"measure", "--target", "invalid-target"}, &stdout, &stderr)
 	if code != 2 {
@@ -177,6 +191,8 @@ func TestRunMeasureTargetValidation(t *testing.T) {
 }
 
 func TestRunCompareAcceptsQATaggedHotspotsTarget(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	baseline := testcost.Measurement{
 		SchemaVersion: 1, Target: "qa-tagged-hotspots", Revision: "a", GOOS: "windows", GOARCH: "amd64", GoVersion: "go1.26.6",

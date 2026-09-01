@@ -15,6 +15,7 @@ import (
 )
 
 func TestLive_CommandCodeAnthropic(t *testing.T) {
+	t.Parallel()
 	key := strings.TrimSpace(os.Getenv("COMMANDCODE_API_KEY"))
 	if key == "" {
 		t.Skip("COMMANDCODE_API_KEY not set; skipping live probe")
@@ -89,7 +90,7 @@ func TestLive_CommandCodeAnthropic(t *testing.T) {
 			t.Fatalf("Live Open failed with unexpected error: %v", err)
 		}
 	} else {
-		defer es.Close()
+		defer func() { _ = es.Close() }()
 		ev, err := es.Recv(ctx)
 		t.Logf("Live CommandCode Anthropic response event: %+v err: %v", ev, err)
 	}

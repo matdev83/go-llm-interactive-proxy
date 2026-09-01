@@ -56,6 +56,7 @@ func newTestCheckpointStore(clock *checkpointTestClock, ttl time.Duration, entri
 }
 
 func TestNativeCheckpointStore_RejectsIncompleteOrUnsafeKeys(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 4, 4096)
 	defer store.Close()
 
@@ -77,6 +78,7 @@ func TestNativeCheckpointStore_RejectsIncompleteOrUnsafeKeys(t *testing.T) {
 	}
 	for _, tc := range fields {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			key := base
 			tc.set(&key)
 			if _, ok := store.Reserve(key); ok {
@@ -90,6 +92,7 @@ func TestNativeCheckpointStore_RejectsIncompleteOrUnsafeKeys(t *testing.T) {
 }
 
 func TestNativeCheckpointStore_RejectsMissingAuthoritativeSession(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 4, 4096)
 	defer store.Close()
 	key := testCheckpointKey("authority")
@@ -100,6 +103,7 @@ func TestNativeCheckpointStore_RejectsMissingAuthoritativeSession(t *testing.T) 
 }
 
 func TestNativeCheckpointStore_ReserveCommitAbortAndPreviousStateSurvives(t *testing.T) {
+	t.Parallel()
 	clock := &checkpointTestClock{now: time.Unix(100, 0)}
 	store := newTestCheckpointStore(clock, time.Hour, 4, 4096)
 	defer store.Close()
@@ -120,7 +124,12 @@ func TestNativeCheckpointStore_ReserveCommitAbortAndPreviousStateSurvives(t *tes
 	if err := store.Commit(first, testCheckpoint(key, "first")); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := store.Get(key); !ok || got.Replacement[0].(textMessageItem).Content != "first" {
+	got, ok := store.Get(key)
+	if !ok {
+		t.Fatal("first checkpoint missing")
+	}
+	firstMsg, ok := got.Replacement[0].(textMessageItem)
+	if !ok || firstMsg.Content != "first" {
 		t.Fatalf("first checkpoint = %+v, %v", got, ok)
 	}
 
@@ -145,13 +154,18 @@ func TestNativeCheckpointStore_ReserveCommitAbortAndPreviousStateSurvives(t *tes
 		t.Fatal("fourth reservation failed")
 	}
 	store.Abort(fourth)
-	got, ok := store.Get(key)
-	if !ok || got.Replacement[0].(textMessageItem).Content != "third" {
+	got, ok = store.Get(key)
+	if !ok {
+		t.Fatal("third checkpoint missing")
+	}
+	thirdMsg, ok := got.Replacement[0].(textMessageItem)
+	if !ok || thirdMsg.Content != "third" {
 		t.Fatalf("committed checkpoint changed after abort = %+v, %v", got, ok)
 	}
 }
 
 func TestNativeCheckpointStore_ReservationTokensAreOpaqueAndDistinct(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 4, 4096)
 	defer store.Close()
 
@@ -172,6 +186,7 @@ func TestNativeCheckpointStore_ReservationTokensAreOpaqueAndDistinct(t *testing.
 }
 
 func TestNativeCheckpointStore_TTLAndDeterministicLRU(t *testing.T) {
+	t.Parallel()
 	clock := &checkpointTestClock{now: time.Unix(200, 0)}
 	store := newTestCheckpointStore(clock, 10*time.Second, 2, 4096)
 	defer store.Close()
@@ -204,6 +219,7 @@ func TestNativeCheckpointStore_TTLAndDeterministicLRU(t *testing.T) {
 }
 
 func TestNativeCheckpointStore_EvictionHookRunsOutsideMutex(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 1, 4096)
 	defer store.Close()
 
@@ -240,6 +256,7 @@ func TestNativeCheckpointStore_EvictionHookRunsOutsideMutex(t *testing.T) {
 }
 
 func TestNativeCheckpointStore_CooldownInvalidationAndAccountIsolation(t *testing.T) {
+	t.Parallel()
 	clock := &checkpointTestClock{now: time.Unix(300, 0)}
 	store := newTestCheckpointStore(clock, time.Hour, 4, 4096)
 	defer store.Close()
@@ -276,6 +293,7 @@ func TestNativeCheckpointStore_CooldownInvalidationAndAccountIsolation(t *testin
 }
 
 func TestNativeCheckpointStore_AllKeyDimensionsIsolateState(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 32, 4096)
 	defer store.Close()
 	base := testCheckpointKey("identity")
@@ -308,6 +326,7 @@ func TestNativeCheckpointStore_AllKeyDimensionsIsolateState(t *testing.T) {
 }
 
 func TestNativeCheckpointStore_InvalidCandidatePreservesCommittedCheckpoint(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 4, 512)
 	defer store.Close()
 	key := testCheckpointKey("failure")
@@ -325,12 +344,17 @@ func TestNativeCheckpointStore_InvalidCandidatePreservesCommittedCheckpoint(t *t
 	}
 	store.Abort(candidate)
 	got, ok := store.Get(key)
-	if !ok || got.Replacement[0].(textMessageItem).Content != "good" {
+	if !ok {
+		t.Fatal("committed checkpoint missing")
+	}
+	goodMsg, ok := got.Replacement[0].(textMessageItem)
+	if !ok || goodMsg.Content != "good" {
 		t.Fatalf("failed candidate replaced committed checkpoint = %+v, %v", got, ok)
 	}
 }
 
 func TestNativeCheckpointStore_DefensiveCopiesAndClose(t *testing.T) {
+	t.Parallel()
 	clock := &checkpointTestClock{now: time.Unix(400, 0)}
 	store := newTestCheckpointStore(clock, time.Hour, 4, 4096)
 	key := testCheckpointKey("copies")
@@ -351,7 +375,8 @@ func TestNativeCheckpointStore_DefensiveCopiesAndClose(t *testing.T) {
 	got.SourcePrefixFP[0] = "returned-mutated"
 	got.Replacement[0] = textMessageItem{Type: "message", Role: "assistant", Content: "returned-mutated"}
 	again, _ := store.Get(key)
-	if again.SourcePrefixFP[0] != "source-original" || again.Replacement[0].(textMessageItem).Content != "original" {
+	origMsg, ok := again.Replacement[0].(textMessageItem)
+	if !ok || again.SourcePrefixFP[0] != "source-original" || origMsg.Content != "original" {
 		t.Fatal("store exposed mutable checkpoint state")
 	}
 
@@ -366,6 +391,7 @@ func TestNativeCheckpointStore_DefensiveCopiesAndClose(t *testing.T) {
 }
 
 func TestNativeCheckpointStore_ConcurrentReserveAndCloseCommit(t *testing.T) {
+	t.Parallel()
 	store := newNativeCheckpointStore(time.Hour, 8, 4096)
 	defer store.Close()
 	key := testCheckpointKey("concurrent")

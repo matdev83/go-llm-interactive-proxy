@@ -9,6 +9,7 @@ import (
 )
 
 func TestResolveCompactionModelProfile_TriggerPrecedenceAndBounds(t *testing.T) {
+	t.Parallel()
 	cat, err := catalog.Parse([]byte(`{"models":[{"slug":"m","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high"}],"context_window":10000,"max_context_window":12000,"auto_compact_token_limit":700,"comp_hash":"hash"}]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +41,7 @@ func TestResolveCompactionModelProfile_TriggerPrecedenceAndBounds(t *testing.T) 
 }
 
 func TestResolveCompactionModelProfile_CodexHarnessHeadroomV1Fallbacks(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, model, policy                            string
 		wantHard, wantUsable, wantTrigger, wantReserve int64
@@ -49,6 +51,7 @@ func TestResolveCompactionModelProfile_CodexHarnessHeadroomV1Fallbacks(t *testin
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ResolveCompactionModelProfile(nil, tt.model, NativeCompactionConfig{RetainedMessageTokens: 1})
 			if err != nil {
 				t.Fatal(err)
@@ -61,6 +64,7 @@ func TestResolveCompactionModelProfile_CodexHarnessHeadroomV1Fallbacks(t *testin
 }
 
 func TestResolveCompactionModelProfile_CatalogHardLimitClampsFallback(t *testing.T) {
+	t.Parallel()
 	cat, err := catalog.Parse([]byte(`{"models":[{"slug":"gpt-5.4-codex","supported_reasoning_levels":[{"effort":"high"}],"max_context_window":200000,"auto_compact_token_limit":180000}]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +82,7 @@ func TestResolveCompactionModelProfile_CatalogHardLimitClampsFallback(t *testing
 }
 
 func TestPlanCompaction_DefaultRetentionFitsApprovedBudgets(t *testing.T) {
+	t.Parallel()
 	config := NativeContextConfig{
 		Enabled:             true,
 		ReasoningContinuity: ContinuityBestEffort,
@@ -85,6 +90,7 @@ func TestPlanCompaction_DefaultRetentionFitsApprovedBudgets(t *testing.T) {
 	}
 	for _, model := range []string{"gpt-5.3-codex-spark", "gpt-5.4-codex"} {
 		t.Run(model, func(t *testing.T) {
+			t.Parallel()
 			profile, err := ResolveCompactionModelProfile(nil, model, config.Compaction)
 			if err != nil {
 				t.Fatal(err)
@@ -107,6 +113,7 @@ func TestPlanCompaction_DefaultRetentionFitsApprovedBudgets(t *testing.T) {
 }
 
 func TestPlanCompaction_UsesUsableCeilingForHardFailure(t *testing.T) {
+	t.Parallel()
 	profile := CompactionModelProfile{
 		ModelSlug: "gpt-5.3-codex-spark", HardLimit: 128000, UsableContextCeiling: 96000,
 		TriggerTokens: 80000, SafetyHeadroom: 32000,
@@ -141,6 +148,7 @@ func (e fixedHistoryEstimator) Estimate(context.Context, NativeHistory) (Compact
 }
 
 func TestCompactionProfileReplayRequiresExactModelAndHashIsOnlyInvalidation(t *testing.T) {
+	t.Parallel()
 	want := CompactionModelProfile{ModelSlug: "m", CompHash: "new"}
 	if !profilesCompatibleForReplay(want, CompactionModelProfile{ModelSlug: "m", CompHash: "new"}) {
 		t.Fatal("model equality should use exact slug")
@@ -160,6 +168,7 @@ func TestCompactionProfileReplayRequiresExactModelAndHashIsOnlyInvalidation(t *t
 }
 
 func TestPlanCompaction_DecisionTables(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{
 		Items: []inputItem{
 			textMessageItem{Type: "message", Role: "user", Content: "old"},
@@ -190,6 +199,7 @@ func TestPlanCompaction_DecisionTables(t *testing.T) {
 		{"in flight", func() CompactionPlanInput { v := base; v.InFlight = true; return v }(), DecisionBypass, "compaction_in_flight"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			got := PlanCompaction(test.input)
 			if got.Kind != test.kind || got.Reason != test.reason {
 				t.Fatalf("plan = %+v, want %s/%s", got, test.kind, test.reason)
@@ -199,6 +209,7 @@ func TestPlanCompaction_DecisionTables(t *testing.T) {
 }
 
 func TestPlanCompaction_LiveFixtureCompactsOnceThenReusesBelowTrigger(t *testing.T) {
+	t.Parallel()
 	const trigger int64 = 256
 	history := NativeHistory{Items: []inputItem{
 		textMessageItem{Type: "message", Role: "user", Content: strings.Repeat("older context ", 72)},
@@ -249,6 +260,7 @@ func TestPlanCompaction_LiveFixtureCompactsOnceThenReusesBelowTrigger(t *testing
 }
 
 func TestPlanCompaction_UsesEffectiveCheckpointHistoryAndRejectsMismatch(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{Items: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "old"}, textMessageItem{Type: "message", Role: "user", Content: "live"}}, Fingerprints: []string{"old", "live"}, Boundaries: []TrajectoryBoundary{{ItemIndex: 0, PairSafe: true}, {ItemIndex: 1, UserTurnStart: true, PairSafe: true}, {ItemIndex: 2, PairSafe: true}}}
 	profile := CompactionModelProfile{ModelSlug: "m", CompHash: "h", HardLimit: 100, TriggerTokens: 50}
 	checkpoint := &CheckpointView{Model: "m", CompHash: "h", SourcePrefixFP: []string{"old"}, Replacement: []inputItem{textMessageItem{Type: "message", Role: "assistant", Content: "compact"}}}
@@ -290,6 +302,7 @@ func (e *recordingHistoryEstimator) Estimate(_ context.Context, history NativeHi
 }
 
 func TestPlanCompaction_CheckpointOverCheckpointUsesEffectiveViewAndSourceMapping(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{
 		Items: []inputItem{
 			textMessageItem{Type: "message", Role: "user", Content: "old"},
@@ -327,6 +340,7 @@ func TestPlanCompaction_CheckpointOverCheckpointUsesEffectiveViewAndSourceMappin
 }
 
 func TestPlanCompaction_LatestUserTailIncludesEveryLaterItem(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{
 		Items: []inputItem{
 			textMessageItem{Type: "message", Role: "user", Content: "old"},
@@ -355,6 +369,7 @@ func TestPlanCompaction_LatestUserTailIncludesEveryLaterItem(t *testing.T) {
 }
 
 func TestPlanCompaction_InFlightPrecedesCheckpointReuse(t *testing.T) {
+	t.Parallel()
 	in := CompactionPlanInput{
 		Context: context.Background(), History: NativeHistory{Items: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "live"}}, Fingerprints: []string{"live"}},
 		Profile: CompactionModelProfile{ModelSlug: "m", HardLimit: 100, TriggerTokens: 1}, MarkerEligible: true, InFlight: true,
@@ -368,6 +383,7 @@ func TestPlanCompaction_InFlightPrecedesCheckpointReuse(t *testing.T) {
 }
 
 func TestEstimateHistory_SeparatesOpaqueStateAndUsesMetadata(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{
 		Items:                []inputItem{textMessageItem{Type: "message", Role: "user", Content: "ordinary"}, opaqueResponseItem{raw: []byte(`{"type":"reasoning","encrypted_content":"secret"}`)}},
 		OpaqueMetadataTokens: []int64{0, 77},
@@ -386,6 +402,7 @@ func TestEstimateHistory_SeparatesOpaqueStateAndUsesMetadata(t *testing.T) {
 }
 
 func TestPlanCompaction_EstimatorFailureIsHardFailure(t *testing.T) {
+	t.Parallel()
 	in := CompactionPlanInput{
 		Context: context.Background(), History: NativeHistory{Items: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "history"}}},
 		Profile: CompactionModelProfile{ModelSlug: "m", HardLimit: 100, TriggerTokens: 1}, MarkerEligible: true, Estimator: failingHistoryEstimator{},
@@ -398,6 +415,7 @@ func TestPlanCompaction_EstimatorFailureIsHardFailure(t *testing.T) {
 }
 
 func TestPlanCompaction_HardFailureAndOpaqueEstimatorBoundary(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{Items: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "old"}, textMessageItem{Type: "message", Role: "user", Content: "live"}}, Fingerprints: []string{"a", "b"}, Boundaries: []TrajectoryBoundary{{ItemIndex: 0, PairSafe: true}, {ItemIndex: 1, UserTurnStart: true, PairSafe: true}, {ItemIndex: 2, PairSafe: true}}}
 	profile := CompactionModelProfile{ModelSlug: "m", HardLimit: 4098, TriggerTokens: 1, SafetyHeadroom: 4096}
 	in := CompactionPlanInput{Context: context.Background(), History: history, Profile: profile, MarkerEligible: true, Config: NativeContextConfig{Enabled: true, ReasoningContinuity: ContinuityBestEffort, Compaction: NativeCompactionConfig{Enabled: true}}}

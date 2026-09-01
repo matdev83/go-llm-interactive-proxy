@@ -180,7 +180,6 @@ func agyCanonicalFallback(native string) string {
 func (s *agySpec) resolveNativeModel(effective string) (string, error) {
 	if s == nil {
 		return "", ErrUnknownModel
-
 	}
 	identity := strings.TrimSpace(acp.ResolveVendorModel(vendorPrefix, s.cfg.Model, defaultCanonicalModel, effective))
 	if identity == "" {

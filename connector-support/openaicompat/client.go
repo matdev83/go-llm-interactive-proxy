@@ -104,11 +104,8 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string, flavo
 	if flavor == FlavorResponses && c.Transport == TransportChatOnly {
 		return nil, fmt.Errorf("openaicompat: responses API is not available")
 	}
-	stream := true
-	if call.Invocation.DeliveryMode == lipapi.DeliveryModeNonStreaming ||
-		call.Invocation.TransportMode == lipapi.TransportModeNonStreaming {
-		stream = false
-	}
+	stream := call.Invocation.DeliveryMode != lipapi.DeliveryModeNonStreaming &&
+		call.Invocation.TransportMode != lipapi.TransportModeNonStreaming
 	body, err := buildRequestBody(call, model, flavor, stream, c.Hooks)
 	if err != nil {
 		return nil, err
@@ -127,13 +124,13 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string, flavo
 		return nil, fmt.Errorf("openaicompat: request: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return nil, readHTTPError(resp, c.maxBody())
 	}
 	if stream {
 		return lipapi.CloseOnlyManagedStream{Stream: newSSEStream(resp, flavor, c.maxSSE())}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, c.maxBody())
 	raw, err := io.ReadAll(limited)
 	if err != nil {

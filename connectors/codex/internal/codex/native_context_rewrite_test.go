@@ -20,6 +20,7 @@ func rewriteTestHistory(items ...inputItem) NativeHistory {
 }
 
 func TestRewriteNativeHistory_ExactPrefixPreservesLiveSuffix(t *testing.T) {
+	t.Parallel()
 	old := textMessageItem{Type: "message", Role: "user", Content: "old"}
 	live := richMessageItem{Type: "message", Role: "user", Content: []contentBlock{inputTextPart{Text: "live"}, inputImagePart{ImageURL: "data:image/png;base64,opaque"}}}
 	later := textMessageItem{Type: "message", Role: "assistant", Content: "later"}
@@ -35,24 +36,47 @@ func TestRewriteNativeHistory_ExactPrefixPreservesLiveSuffix(t *testing.T) {
 	if len(rewritten.Items) != 3 {
 		t.Fatalf("rewritten items = %d, want 3", len(rewritten.Items))
 	}
-	if got := rewritten.Items[1].(richMessageItem); len(got.Content) != 2 || got.Content[0].(inputTextPart).Text != "live" || got.Content[1].(inputImagePart).ImageURL != "data:image/png;base64,opaque" {
+	got, ok := rewritten.Items[1].(richMessageItem)
+	if !ok {
+		t.Fatalf("expected richMessageItem at index 1: %#v", rewritten.Items[1])
+	}
+	if len(got.Content) != 2 {
 		t.Fatalf("live suffix changed: %#v", got)
 	}
-	if got := rewritten.Items[2].(textMessageItem); got.Content != "later" {
-		t.Fatalf("later suffix changed: %#v", got)
+	firstPart, ok1 := got.Content[0].(inputTextPart)
+	secondPart, ok2 := got.Content[1].(inputImagePart)
+	if !ok1 || firstPart.Text != "live" || !ok2 || secondPart.ImageURL != "data:image/png;base64,opaque" {
+		t.Fatalf("live suffix changed: %#v", got)
+	}
+	gotLater, ok := rewritten.Items[2].(textMessageItem)
+	if !ok || gotLater.Content != "later" {
+		t.Fatalf("later suffix changed: %#v", rewritten.Items[2])
 	}
 	if len(rewritten.Fingerprints) != len(rewritten.Items) || len(rewritten.Boundaries) != len(rewritten.Items)+1 {
 		t.Fatalf("effective metadata not recomputed: %+v", rewritten)
 	}
 
 	rewritten.Fingerprints[0] = "changed"
-	rewritten.Items[1].(richMessageItem).Content[0] = inputTextPart{Text: "changed"}
-	if history.Fingerprints[0] == "changed" || history.Items[1].(richMessageItem).Content[0].(inputTextPart).Text != "live" {
+	rewrittenRich, ok := rewritten.Items[1].(richMessageItem)
+	if !ok {
+		t.Fatalf("expected richMessageItem at index 1: %#v", rewritten.Items[1])
+	}
+	rewrittenRich.Content[0] = inputTextPart{Text: "changed"}
+	historyRich, ok := history.Items[1].(richMessageItem)
+	if !ok {
+		t.Fatalf("expected richMessageItem in history: %#v", history.Items[1])
+	}
+	historyPart, ok := historyRich.Content[0].(inputTextPart)
+	if !ok {
+		t.Fatalf("expected inputTextPart in history: %#v", historyRich.Content[0])
+	}
+	if history.Fingerprints[0] == "changed" || historyPart.Text != "live" {
 		t.Fatal("rewrite exposed source history state")
 	}
 }
 
 func TestRewriteNativeHistory_MismatchIsSafeMissForForksAndStaticDrift(t *testing.T) {
+	t.Parallel()
 	history := rewriteTestHistory(
 		textMessageItem{Type: "message", Role: "user", Content: "old"},
 		textMessageItem{Type: "message", Role: "user", Content: "live"},
@@ -61,6 +85,7 @@ func TestRewriteNativeHistory_MismatchIsSafeMissForForksAndStaticDrift(t *testin
 	checkpoint.SourcePrefixFP = []string{"not-the-history"}
 	for _, name := range []string{"edit", "rollback", "fork", "truncation", "reorder", "static-shape"} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			candidate := history
 			switch name {
 			case "edit", "fork":
@@ -84,6 +109,7 @@ func TestRewriteNativeHistory_MismatchIsSafeMissForForksAndStaticDrift(t *testin
 }
 
 func TestRewriteNativeHistory_RejectsStaleDerivedMetadata(t *testing.T) {
+	t.Parallel()
 	history := rewriteTestHistory(
 		textMessageItem{Type: "message", Role: "user", Content: "original"},
 		textMessageItem{Type: "message", Role: "user", Content: "live"},
@@ -102,6 +128,7 @@ func TestRewriteNativeHistory_RejectsStaleDerivedMetadata(t *testing.T) {
 }
 
 func TestRewriteNativeHistoryWithKey_RejectsAuthorityAndStaticIdentityDrift(t *testing.T) {
+	t.Parallel()
 	history := rewriteTestHistory(
 		textMessageItem{Type: "message", Role: "user", Content: "old"},
 		textMessageItem{Type: "message", Role: "user", Content: "live"},
@@ -130,6 +157,7 @@ func TestRewriteNativeHistoryWithKey_RejectsAuthorityAndStaticIdentityDrift(t *t
 }
 
 func TestRewriteNativeHistory_RejectsInvalidStoredCheckpointAndSupportsCheckpointOverCheckpoint(t *testing.T) {
+	t.Parallel()
 	history := rewriteTestHistory(
 		textMessageItem{Type: "message", Role: "user", Content: "original"},
 		textMessageItem{Type: "message", Role: "user", Content: "live"},
@@ -154,12 +182,15 @@ func TestRewriteNativeHistory_RejectsInvalidStoredCheckpointAndSupportsCheckpoin
 	if err != nil || !applied || len(final.Items) != 2 {
 		t.Fatalf("second rewrite = %#v applied=%v err=%v", final, applied, err)
 	}
-	if final.Items[0].(textMessageItem).Content != "summary-two" || final.Items[1].(textMessageItem).Content != "live" {
+	firstItem, ok1 := final.Items[0].(textMessageItem)
+	secondItem, ok2 := final.Items[1].(textMessageItem)
+	if !ok1 || !ok2 || firstItem.Content != "summary-two" || secondItem.Content != "live" {
 		t.Fatalf("checkpoint-over-checkpoint lost suffix: %#v", final.Items)
 	}
 }
 
 func TestRewriteNativeHistory_ExpiredCheckpointIsSafeMiss(t *testing.T) {
+	t.Parallel()
 	history := rewriteTestHistory(textMessageItem{Type: "message", Role: "user", Content: "live"})
 	checkpoint := testCheckpoint(testCheckpointKey("expired"), "replacement")
 	checkpoint.SourcePrefixFP = []string{history.Fingerprints[0]}

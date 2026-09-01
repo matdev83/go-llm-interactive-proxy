@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +48,7 @@ func TestQAFastPreflight_TestCost_ArchtestGoListCallsUseDedicatedCache(t *testin
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			calls, err := findDirectGoToolCalls(tc.path, []byte(tc.src), "list")
 			if err != nil {
 				t.Fatalf("find go list calls: %v", err)
@@ -143,6 +145,7 @@ func runCLI(mode dbparity.RunnerMode) int {
 	}
 	for _, tc := range fixtures {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			violations := validateDBParityListModeSource([]byte(tc.src))
 			if got := len(violations) == 0; got != tc.want {
 				t.Fatalf("validateDBParityListModeSource() violations=%v, valid=%v, want valid=%v", violations, got, tc.want)
@@ -336,14 +339,7 @@ func TestQAFastPreflight_TestCost_BackendPluginStageCacheOwnsConnectorBuild(t *t
 
 func containsAll(values []string, wanted ...string) bool {
 	for _, item := range wanted {
-		found := false
-		for _, value := range values {
-			if value == item {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(values, item) {
 			return false
 		}
 	}
@@ -575,12 +571,7 @@ func astBlockAlwaysReturns(block *ast.BlockStmt) bool {
 	if block == nil {
 		return false
 	}
-	for _, statement := range block.List {
-		if astStatementAlwaysReturns(statement) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(block.List, astStatementAlwaysReturns)
 }
 
 func astStatementAlwaysReturns(statement ast.Stmt) bool {

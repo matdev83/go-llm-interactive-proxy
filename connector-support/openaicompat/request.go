@@ -142,11 +142,11 @@ func responsesInput(call lipapi.Call) ([]map[string]any, error) {
 		if role == "" {
 			role = "user"
 		}
-		var text string
+		var text strings.Builder
 		for _, p := range m.Parts {
 			switch p.Kind {
 			case lipapi.PartText:
-				text += p.Text
+				text.WriteString(p.Text)
 			case lipapi.PartToolResult:
 				return nil, unsupportedPartError(p.Kind)
 			default:
@@ -155,7 +155,7 @@ func responsesInput(call lipapi.Call) ([]map[string]any, error) {
 		}
 		out = append(out, map[string]any{
 			"role":    role,
-			"content": text,
+			"content": text.String(),
 		})
 	}
 	if len(out) == 0 {

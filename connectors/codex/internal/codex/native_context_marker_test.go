@@ -23,6 +23,7 @@ func TestConsumeNativeContinuityMarker_acceptsOnlyFixedPostureAndDeletesIt(t *te
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			call := lipapi.Call{Extensions: map[string]json.RawMessage{nativeContinuityMarkerKey: tc.raw}}
 			if got := consumeNativeContinuityMarker(&call); got != tc.want {
 				t.Fatalf("trusted=%v want %v", got, tc.want)

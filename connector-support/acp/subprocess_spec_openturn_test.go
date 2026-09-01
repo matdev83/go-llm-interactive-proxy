@@ -137,7 +137,12 @@ func TestOpen_RejectsConfigChangeWhileTurnInFlight(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = first.Close() })
 
-	if got := backend.(*subprocessBackend).pool.Get(RuntimeKey{Workspace: os.TempDir(), Model: "agent", ClientSession: "s1"}); got == nil || !got.HasProcess() {
+	sub, ok := backend.(*subprocessBackend)
+	if !ok {
+		t.Fatalf("backend is %T, want *subprocessBackend", backend)
+	}
+
+	if got := sub.pool.Get(RuntimeKey{Workspace: os.TempDir(), Model: "agent", ClientSession: "s1"}); got == nil || !got.HasProcess() {
 		t.Fatal("first turn must leave a live spawned child in the pool")
 	}
 
@@ -158,7 +163,7 @@ func TestOpen_RejectsConfigChangeWhileTurnInFlight(t *testing.T) {
 	if killed {
 		t.Fatal("first turn's process must not be killed by the rejected second turn")
 	}
-	rt := backend.(*subprocessBackend).pool.Get(RuntimeKey{Workspace: os.TempDir(), Model: "agent", ClientSession: "s1"})
+	rt := sub.pool.Get(RuntimeKey{Workspace: os.TempDir(), Model: "agent", ClientSession: "s1"})
 	if rt == nil || !rt.HasProcess() {
 		t.Fatal("first turn's process must still be live after the rejected second turn")
 	}

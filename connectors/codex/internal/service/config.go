@@ -86,10 +86,6 @@ func ParseConfigYAML(kind string, raw []byte) (Config, error) {
 				cfg.NativeContext.SetCompactionPresentForYAML()
 			}
 		}
-		if kind == FactoryKindAppServer {
-			// App-server remains default-off; keep its explicit block only so
-			// toAppServer can reject non-empty settings deterministically.
-		}
 	}
 	if kind != FactoryKindHTTP && kind != FactoryKindAppServer {
 		return Config{}, fmt.Errorf("codex connector: unknown factory kind %q", kind)

@@ -29,9 +29,6 @@ func ParseConfigYAML(raw []byte) (Config, error) {
 		cfg.BaseURL = DefaultURL
 	}
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
-	if cfg.APIKey == "" && "" != "" {
-		cfg.APIKey = ""
-	}
 	return cfg, nil
 }
 

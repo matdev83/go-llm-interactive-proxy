@@ -79,7 +79,7 @@ func TestParity_PayloadRemapAndBoundedExtraBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	for {
 		_, err := es.Recv(context.Background())
 		if err == io.EOF {

@@ -158,7 +158,7 @@ func ensureOnline(ctx context.Context, client *http.Client, root, url string) (s
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(temp)
+	defer func() { _ = os.RemoveAll(temp) }()
 	extracted := filepath.Join(temp, name)
 	if strings.HasSuffix(archiveAsset.Name, ".zip") {
 		err = extractZip(archive, name, extracted)
@@ -213,7 +213,7 @@ func download(ctx context.Context, client *http.Client, url string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("wrapper download %s: HTTP %s", url, resp.Status)
 	}
@@ -252,7 +252,7 @@ func extractZip(data []byte, name, target string) error {
 		if err != nil {
 			return err
 		}
-		defer source.Close()
+		defer func() { _ = source.Close() }()
 		return writeFile(target, source)
 	}
 	return errors.New("wrapper executable missing from archive")
@@ -263,7 +263,7 @@ func extractTarGz(data []byte, name, target string) error {
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tarReader := tar.NewReader(gz)
 	for {
 		header, err := tarReader.Next()

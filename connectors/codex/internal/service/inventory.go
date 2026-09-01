@@ -33,7 +33,7 @@ func (i *instance) ListModels(ctx context.Context, limit uint32) (backendplugin.
 		if limit > 0 && uint32(len(out)) >= limit {
 			break
 		}
-		caps := backendplugin.CapabilitySummary{Streaming: true, Reasoning: true}
+		var caps backendplugin.CapabilitySummary
 		if i.kind == FactoryKindHTTP {
 			caps = backendplugin.CapabilitySummary{
 				Streaming: true, Tools: true, Vision: true, Documents: true,

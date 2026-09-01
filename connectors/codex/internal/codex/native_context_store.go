@@ -396,7 +396,10 @@ func (s *nativeCheckpointStore) evictOverflowLocked() int {
 	for len(s.entries) > s.maxEntries && s.order.Len() > 0 {
 		var toRemove *list.Element
 		for elem := s.order.Front(); elem != nil; elem = elem.Next() {
-			key := elem.Value.(CheckpointKey)
+			key, ok := elem.Value.(CheckpointKey)
+			if !ok {
+				continue
+			}
 			if _, reserved := s.reservations[key]; !reserved {
 				toRemove = elem
 				break
@@ -405,7 +408,11 @@ func (s *nativeCheckpointStore) evictOverflowLocked() int {
 		if toRemove == nil {
 			return evictions
 		}
-		key := toRemove.Value.(CheckpointKey)
+		key, ok := toRemove.Value.(CheckpointKey)
+		if !ok {
+			s.order.Remove(toRemove)
+			continue
+		}
 		if s.removeEntryLocked(key) {
 			evictions++
 		}

@@ -15,6 +15,7 @@ import (
 )
 
 func TestLive_CommandCodeOpenAI(t *testing.T) {
+	t.Parallel()
 	key := strings.TrimSpace(os.Getenv("COMMANDCODE_API_KEY"))
 	if key == "" {
 		t.Skip("COMMANDCODE_API_KEY not set; skipping live probe")
@@ -84,7 +85,7 @@ func TestLive_CommandCodeOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Live Open failed: %v", err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var textBuilder strings.Builder
 	var sawUsage bool

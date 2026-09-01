@@ -66,7 +66,7 @@ func TestParity_StreamingMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var textBuilder strings.Builder
 	var sawUsage bool
@@ -136,7 +136,7 @@ func TestParity_NonStreamingMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var textBuilder strings.Builder
 	var sawUsage bool
@@ -224,7 +224,7 @@ func TestParity_ToolUseStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var sawStarted, sawFinished bool
 	var args strings.Builder
@@ -329,7 +329,7 @@ func TestParity_ThinkingStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 
 	var thinking strings.Builder
 	var signature string

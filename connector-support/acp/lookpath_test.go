@@ -64,7 +64,7 @@ func TestExecutableCache_ResetGeneration(t *testing.T) {
 		path, _ := cache.LookPath("tool")
 		oldResult <- path
 	}()
-	waitForResolverCallContext(t, ctx, started, 1)
+	waitForResolverCallContext(ctx, t, started, 1)
 
 	cache.Reset()
 	freshResult := make(chan string, 1)
@@ -72,7 +72,7 @@ func TestExecutableCache_ResetGeneration(t *testing.T) {
 		path, _ := cache.LookPath("tool")
 		freshResult <- path
 	}()
-	waitForResolverCallContext(t, ctx, started, 2)
+	waitForResolverCallContext(ctx, t, started, 2)
 
 	select {
 	case got := <-freshResult:
@@ -171,7 +171,7 @@ func runDeterministicExecutableCacheSchedule(t *testing.T) {
 		path, _ := cache.LookPath("scheduled")
 		oldResult <- path
 	}()
-	waitForResolverCallContext(t, ctx, started, 1)
+	waitForResolverCallContext(ctx, t, started, 1)
 
 	cache.Reset()
 
@@ -185,7 +185,7 @@ func runDeterministicExecutableCacheSchedule(t *testing.T) {
 			results <- path
 		}()
 	}
-	waitForResolverCallContext(t, ctx, started, 2)
+	waitForResolverCallContext(ctx, t, started, 2)
 
 	for range freshLookups {
 		select {
@@ -212,7 +212,7 @@ func runDeterministicExecutableCacheSchedule(t *testing.T) {
 	}
 }
 
-func waitForResolverCallContext(t *testing.T, ctx context.Context, started <-chan int32, want int32) {
+func waitForResolverCallContext(ctx context.Context, t *testing.T, started <-chan int32, want int32) {
 	t.Helper()
 	select {
 	case got := <-started:

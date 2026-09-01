@@ -77,7 +77,7 @@ func TestParity_AttributionHeadersAndExtraBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	for {
 		_, err := es.Recv(context.Background())
 		if err == io.EOF {
@@ -136,7 +136,7 @@ func TestOpenRouterAttribution_defaultProxyOverridesCapturedClient(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	for {
 		_, err := es.Recv(context.Background())
 		if err == io.EOF {
@@ -178,7 +178,7 @@ func TestParity_ResponsesPathAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	var sawUsage bool
 	for {
 		ev, err := es.Recv(context.Background())
@@ -295,7 +295,7 @@ func TestParity_ToolCallStreamFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
+	defer func() { _ = es.Close() }()
 	var sawStarted, sawFinished bool
 	var args strings.Builder
 	for {

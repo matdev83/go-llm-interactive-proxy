@@ -66,6 +66,7 @@ type PackageMetrics struct {
 }
 
 type PackageMeasurement = PackageMetrics
+
 type CostMeasurement = Measurement
 
 // Snapshot is retained as an API-compatible name for callers of the initial

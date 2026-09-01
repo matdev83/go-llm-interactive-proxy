@@ -21,7 +21,7 @@ func processAlive(pid int) bool {
 		}
 		return false
 	}
-	defer windows.CloseHandle(handle)
+	defer func() { _ = windows.CloseHandle(handle) }()
 
 	event, err := windows.WaitForSingleObject(handle, 0)
 	if err == nil {

@@ -33,6 +33,7 @@ const (
 // TestNativeContextCodexLive is the original opt-in compatibility probe. Keep
 // it separate from the strict automatic-compaction proof below.
 func TestNativeContextCodexLive(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(nativeContextLiveGate) != "1" {
 		t.Skip("set LIP_CODEX_NATIVE_CONTEXT_LIVE=1 to opt into live Codex validation")
 	}
@@ -95,6 +96,7 @@ func assertLiveReasoning(t *testing.T, events []lipapi.Event, label string) {
 // not call NativeContextCoordinator or Compact directly. The transport observer
 // records only bounded request-shape booleans and status/model metadata.
 func TestNativeContextAutomaticCompactionLive(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(nativeContextLiveGate) != "1" {
 		t.Skip("set LIP_CODEX_NATIVE_CONTEXT_LIVE=1 to opt into the billable live Codex proof")
 	}
@@ -373,7 +375,7 @@ func collectNativeContextLiveEvents(engine *Engine, call lipapi.Call, model stri
 	if err != nil {
 		return nil, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var events []lipapi.Event
 	for {
 		ev, err := stream.Recv(context.Background())
@@ -571,14 +573,15 @@ func nativeLiveCheckpointStoreShape(store *nativeCheckpointStore, expected nativ
 func nativeLiveEventShape(events []lipapi.Event) string {
 	parts := make([]string, 0, len(events))
 	for index, event := range events {
-		part := fmt.Sprintf("%d:%s", index, event.Kind)
+		var b strings.Builder
+		fmt.Fprintf(&b, "%d:%s", index, event.Kind)
 		if event.Kind == lipapi.EventUsageDelta {
-			part += fmt.Sprintf("[scopes=%d plane=%s source=%s authority=%s presence=%+v]", len(event.UsageScopes), event.Accounting.Plane, event.Accounting.Source, event.Accounting.Authority, event.UsagePresence)
+			fmt.Fprintf(&b, "[scopes=%d plane=%s source=%s authority=%s presence=%+v]", len(event.UsageScopes), event.Accounting.Plane, event.Accounting.Source, event.Accounting.Authority, event.UsagePresence)
 			for _, scope := range event.UsageScopes {
-				part += fmt.Sprintf("[scope plane=%s source=%s authority=%s presence=%+v]", scope.Accounting.Plane, scope.Accounting.Source, scope.Accounting.Authority, scope.UsagePresence)
+				fmt.Fprintf(&b, "[scope plane=%s source=%s authority=%s presence=%+v]", scope.Accounting.Plane, scope.Accounting.Source, scope.Accounting.Authority, scope.UsagePresence)
 			}
 		}
-		parts = append(parts, part)
+		parts = append(parts, b.String())
 	}
 	return strings.Join(parts, ",")
 }

@@ -130,7 +130,7 @@ type instance struct {
 }
 
 func (i *instance) Resolve(context.Context, *string) (backendplugin.ResolvedProfile, error) {
-	caps := backendplugin.CapabilitySummary{Streaming: true, Reasoning: true}
+	var caps backendplugin.CapabilitySummary
 	if i.kind == FactoryKindHTTP {
 		caps = backendplugin.CapabilitySummary{
 			Streaming: true, Tools: true, Vision: true, Documents: true,

@@ -34,7 +34,7 @@ func (c *Client) ListModels(ctx context.Context, limit uint32) ([]Model, error) 
 	if err != nil {
 		return nil, fmt.Errorf("openaicompat: list models: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, readHTTPError(resp, c.maxBody())
 	}

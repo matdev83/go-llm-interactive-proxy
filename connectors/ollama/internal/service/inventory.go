@@ -60,7 +60,7 @@ func (i *instance) listCloudModels(ctx context.Context, limit uint32) (backendpl
 	if err != nil {
 		return backendplugin.ListModelsResponse{}, fmt.Errorf("ollama-cloud: tags: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return backendplugin.ListModelsResponse{}, fmt.Errorf("ollama-cloud: tags HTTP %d", resp.StatusCode)
 	}
@@ -113,7 +113,7 @@ func (i *instance) fetchCaps(ctx context.Context, nativeID string) (backendplugi
 	if err != nil {
 		return backendplugin.CapabilitySummary{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return backendplugin.CapabilitySummary{}, fmt.Errorf("show HTTP %d", resp.StatusCode)
 	}

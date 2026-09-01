@@ -3,6 +3,7 @@ package nvidia_test
 import (
 	"context"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -53,6 +54,7 @@ func bufconnHostWithOffer(factory string, config []byte, secrets backendplugin.S
 }
 
 func TestSupportedContractTCK(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 	result := contracttest.Run(t, contracttest.Config{
@@ -83,6 +85,7 @@ func TestSupportedContractTCK(t *testing.T) {
 }
 
 func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 	legacyOffer := backendplugin.ProtocolOffer{
@@ -124,10 +127,5 @@ func TestSupportedContractTCK_LegacyFallback(t *testing.T) {
 }
 
 func containsFeature(features []string, want string) bool {
-	for _, f := range features {
-		if f == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(features, want)
 }

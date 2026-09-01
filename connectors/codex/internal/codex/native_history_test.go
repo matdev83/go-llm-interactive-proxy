@@ -9,6 +9,7 @@ import (
 )
 
 func TestNativeHistoryBuilder_PreservesExactReasoningActionTrajectories(t *testing.T) {
+	t.Parallel()
 	call := nativeHistoryTrajectoryCall(nil)
 
 	history, err := buildNativeHistory(call)
@@ -58,6 +59,7 @@ func TestNativeHistoryBuilder_PreservesExactReasoningActionTrajectories(t *testi
 }
 
 func TestNativeHistoryBuilder_IsIndependentOfNoToolsProjection(t *testing.T) {
+	t.Parallel()
 	withoutTools := nativeHistoryTrajectoryCall(nil)
 	withTools := nativeHistoryTrajectoryCall([]lipapi.ToolDef{{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}})
 
@@ -80,6 +82,7 @@ func TestNativeHistoryBuilder_IsIndependentOfNoToolsProjection(t *testing.T) {
 }
 
 func TestNativeHistoryBuilder_PreservesCompactionAndDefensivelyCopiesOpaqueData(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"type":"compaction","id":"cmp-1","encrypted_content":"opaque"}`)
 	call := &lipapi.Call{Items: []lipapi.Item{{
 		Kind:       lipapi.ItemKindCompaction,
@@ -105,6 +108,7 @@ func TestNativeHistoryBuilder_PreservesCompactionAndDefensivelyCopiesOpaqueData(
 }
 
 func TestNativeHistoryBuilder_DefensivelyCopiesStructuredAndRichInput(t *testing.T) {
+	t.Parallel()
 	argument := json.RawMessage(`{"query":"original"}`)
 	call := &lipapi.Call{Items: []lipapi.Item{
 		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{
@@ -127,21 +131,26 @@ func TestNativeHistoryBuilder_DefensivelyCopiesStructuredAndRichInput(t *testing
 	if !ok {
 		t.Fatalf("history item[0] type = %T, want richMessageItem", history.Items[0])
 	}
-	if got := message.Content[0].(inputTextPart).Text; got != "original text" {
-		t.Fatalf("copied rich text = %q", got)
+	textPart, ok1 := message.Content[0].(inputTextPart)
+	if !ok1 || textPart.Text != "original text" {
+		t.Fatalf("copied rich text = %#v", message.Content[0])
 	}
-	if got := message.Content[1].(inputImagePart).ImageURL; got != "image-original" {
-		t.Fatalf("copied image ref = %q", got)
+	imgPart, ok2 := message.Content[1].(inputImagePart)
+	if !ok2 || imgPart.ImageURL != "image-original" {
+		t.Fatalf("copied image ref = %#v", message.Content[1])
 	}
-	if got := history.Items[1].(functionCallItem).Arguments; got != `{"query":"original"}` {
-		t.Fatalf("copied function arguments = %q", got)
+	fnCall, ok3 := history.Items[1].(functionCallItem)
+	if !ok3 || fnCall.Arguments != `{"query":"original"}` {
+		t.Fatalf("copied function arguments = %#v", history.Items[1])
 	}
-	if got := history.Items[2].(functionCallOutputItem).Output; got != "original output" {
-		t.Fatalf("copied function output = %q", got)
+	fnOutput, ok4 := history.Items[2].(functionCallOutputItem)
+	if !ok4 || fnOutput.Output != "original output" {
+		t.Fatalf("copied function output = %#v", history.Items[2])
 	}
 }
 
 func TestNativeHistoryBuilder_FingerprintsAreStableAndTrackHistoryEdits(t *testing.T) {
+	t.Parallel()
 	base := nativeHistoryTrajectoryCall(nil)
 	first, err := buildNativeHistory(base)
 	if err != nil {
@@ -173,6 +182,7 @@ func TestNativeHistoryBuilder_FingerprintsAreStableAndTrackHistoryEdits(t *testi
 }
 
 func TestNativeHistoryBuilder_RejectsUnsafeAndUnsupportedHistory(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		call *lipapi.Call
@@ -224,6 +234,7 @@ func TestNativeHistoryBuilder_RejectsUnsafeAndUnsupportedHistory(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := buildNativeHistoryExpectError(tt.call)
 			if err == nil || !strings.Contains(err.Error(), tt.cat) {
 				t.Fatalf("error = %v, want category %q", err, tt.cat)
@@ -236,6 +247,7 @@ func TestNativeHistoryBuilder_RejectsUnsafeAndUnsupportedHistory(t *testing.T) {
 }
 
 func TestNativeHistoryBuilder_RejectsOversizedOpaqueJSON(t *testing.T) {
+	t.Parallel()
 	oversized := strings.Repeat("x", lipapi.MaxReasoningOpaqueBytes+1)
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
 		Kind:      lipapi.PartReasoning,
@@ -251,6 +263,7 @@ func TestNativeHistoryBuilder_RejectsOversizedOpaqueJSON(t *testing.T) {
 }
 
 func TestNativeHistoryBuilder_FingerprintScopeCoversTruncationAndForks(t *testing.T) {
+	t.Parallel()
 	base := nativeHistoryTrajectoryCall(nil)
 	history, err := buildNativeHistory(base)
 	if err != nil {
@@ -279,6 +292,7 @@ func TestNativeHistoryBuilder_FingerprintScopeCoversTruncationAndForks(t *testin
 }
 
 func TestNativeHistoryBuilder_LegacyAssistantPartsKeepTextReasoningAndMultipleCalls(t *testing.T) {
+	t.Parallel()
 	reasoning := func(id string) lipapi.Part {
 		return lipapi.Part{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
 			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
@@ -318,24 +332,25 @@ func TestNativeHistoryBuilder_LegacyAssistantPartsKeepTextReasoningAndMultipleCa
 			t.Fatalf("history item[%d] type = %q, want %q", i, got, want)
 		}
 	}
-	if got := history.Items[3].(textMessageItem).Content; got != "before calls" {
-		t.Fatalf("text before calls = %q", got)
+	if msg, ok := history.Items[3].(textMessageItem); !ok || msg.Content != "before calls" {
+		t.Fatalf("text before calls = %#v", history.Items[3])
 	}
-	if got := history.Items[5].(textMessageItem).Content; got != "between calls" {
-		t.Fatalf("text between calls = %q", got)
+	if msg, ok := history.Items[5].(textMessageItem); !ok || msg.Content != "between calls" {
+		t.Fatalf("text between calls = %#v", history.Items[5])
 	}
-	if got := history.Items[7].(textMessageItem).Content; got != "after calls" {
-		t.Fatalf("text after calls = %q", got)
+	if msg, ok := history.Items[7].(textMessageItem); !ok || msg.Content != "after calls" {
+		t.Fatalf("text after calls = %#v", history.Items[7])
 	}
-	if got := history.Items[8].(functionCallOutputItem).CallID; got != "call-2" {
-		t.Fatalf("first output call id = %q", got)
+	if out, ok := history.Items[8].(functionCallOutputItem); !ok || out.CallID != "call-2" {
+		t.Fatalf("first output call id = %#v", history.Items[8])
 	}
-	if got := history.Items[9].(functionCallOutputItem).CallID; got != "call-1" {
-		t.Fatalf("second output call id = %q", got)
+	if out, ok := history.Items[9].(functionCallOutputItem); !ok || out.CallID != "call-1" {
+		t.Fatalf("second output call id = %#v", history.Items[9])
 	}
 }
 
 func TestNativeTrajectoryBoundariesTrackOutstandingCallsAndAssistantTrajectories(t *testing.T) {
+	t.Parallel()
 	items := []inputItem{
 		textMessageItem{Type: "message", Role: "user", Content: "prompt"},
 		opaqueResponseItem{raw: json.RawMessage(`{"type":"reasoning","id":"r1"}`)},
@@ -356,6 +371,7 @@ func TestNativeTrajectoryBoundariesTrackOutstandingCallsAndAssistantTrajectories
 }
 
 func TestNativeTrajectoryBoundariesKeepLiveCallOutOfCompactablePrefix(t *testing.T) {
+	t.Parallel()
 	items := []inputItem{
 		textMessageItem{Type: "message", Role: "user", Content: "prompt"},
 		functionCallItem{Type: "function_call", CallID: "live", Name: "lookup", Arguments: "{}"},
@@ -367,6 +383,7 @@ func TestNativeTrajectoryBoundariesKeepLiveCallOutOfCompactablePrefix(t *testing
 }
 
 func TestNativeHistoryBuilder_EnforcesAggregateHistoryBytes(t *testing.T) {
+	t.Parallel()
 	const itemText = 8192
 	messages := make([]lipapi.Message, 0, maxNativeHistoryItems)
 	for range maxNativeHistoryItems {
@@ -379,6 +396,7 @@ func TestNativeHistoryBuilder_EnforcesAggregateHistoryBytes(t *testing.T) {
 }
 
 func TestNativeHistoryBuilder_FingerprintUsesSemanticOpaqueJSON(t *testing.T) {
+	t.Parallel()
 	makeCall := func(raw string) *lipapi.Call {
 		return &lipapi.Call{Items: []lipapi.Item{{
 			Kind: lipapi.ItemKindCompaction, Status: lipapi.ItemStatusCompleted,

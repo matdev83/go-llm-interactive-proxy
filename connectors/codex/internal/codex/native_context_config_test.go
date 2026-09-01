@@ -8,7 +8,9 @@ import (
 )
 
 func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
+	t.Parallel()
 	t.Run("nil config is disabled", func(t *testing.T) {
+		t.Parallel()
 		var cfg *NativeContextConfig
 		if cfg.CompactionEnabled() {
 			t.Errorf("expected CompactionEnabled() == false for nil config")
@@ -19,6 +21,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 	})
 
 	t.Run("disabled config", func(t *testing.T) {
+		t.Parallel()
 		cfg := &NativeContextConfig{Enabled: false}
 		if cfg.CompactionEnabled() {
 			t.Errorf("expected CompactionEnabled() == false when Enabled == false")
@@ -29,6 +32,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 	})
 
 	t.Run("normalization applies reviewed defaults", func(t *testing.T) {
+		t.Parallel()
 		raw := NativeContextConfig{
 			Enabled: true,
 		}
@@ -59,6 +63,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 	})
 
 	t.Run("explicit compaction applies defaults", func(t *testing.T) {
+		t.Parallel()
 		cfg := NativeContextConfig{Enabled: true, Compaction: NativeCompactionConfig{Enabled: true}}
 		cfg.SetCompactionPresentForYAML()
 		cfg.RequestEncryptedReasoning = true
@@ -75,6 +80,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 	})
 
 	t.Run("evaluation modes", func(t *testing.T) {
+		t.Parallel()
 		tests := []struct {
 			name     string
 			cfg      NativeContextConfig
@@ -124,6 +130,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 				norm, err := tt.cfg.NormalizeAndValidate()
 				if err != nil {
 					t.Fatalf("unexpected validation error: %v", err)
@@ -137,6 +144,7 @@ func TestNativeContextConfig_DefaultsAndEffectiveMode(t *testing.T) {
 }
 
 func TestNativeContextConfig_ExplicitNestedCompactionFalse(t *testing.T) {
+	t.Parallel()
 	cfg := NativeContextConfig{Enabled: true, Compaction: NativeCompactionConfig{Enabled: false}}
 	cfg.SetCompactionPresentForYAML()
 	cfg.RequestEncryptedReasoning = true
@@ -153,6 +161,7 @@ func TestNativeContextConfig_ExplicitNestedCompactionFalse(t *testing.T) {
 }
 
 func TestNativeContextConfig_NilDirectConfigDefaultsToFullMode(t *testing.T) {
+	t.Parallel()
 	var cfg *NativeContextConfig
 	if cfg != nil {
 		t.Fatal("test setup unexpectedly supplied native context")
@@ -164,7 +173,9 @@ func TestNativeContextConfig_NilDirectConfigDefaultsToFullMode(t *testing.T) {
 }
 
 func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
+	t.Parallel()
 	t.Run("negative values rejected", func(t *testing.T) {
+		t.Parallel()
 		negs := []struct {
 			name  string
 			field func(*NativeContextConfig)
@@ -179,6 +190,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 		}
 		for _, tt := range negs {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 				cfg := NativeContextConfig{Enabled: true}
 				tt.field(&cfg)
 				_, err := cfg.NormalizeAndValidate()
@@ -190,6 +202,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 	})
 
 	t.Run("hard bounds exceeded", func(t *testing.T) {
+		t.Parallel()
 		overBounds := []struct {
 			name  string
 			field func(*NativeContextConfig)
@@ -202,6 +215,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 		}
 		for _, tt := range overBounds {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 				cfg := NativeContextConfig{Enabled: true}
 				tt.field(&cfg)
 				_, err := cfg.NormalizeAndValidate()
@@ -213,6 +227,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 	})
 
 	t.Run("inconsistent settings rejected", func(t *testing.T) {
+		t.Parallel()
 		inconsistents := []struct {
 			name  string
 			field func(*NativeContextConfig)
@@ -245,6 +260,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 		}
 		for _, tt := range inconsistents {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 				cfg := NativeContextConfig{Enabled: true}
 				tt.field(&cfg)
 				_, err := cfg.NormalizeAndValidate()
@@ -257,6 +273,7 @@ func TestNativeContextConfig_Validation_InvalidAndBounds(t *testing.T) {
 }
 
 func TestNativeContextConfig_Diagnostics(t *testing.T) {
+	t.Parallel()
 	cfg := NativeContextConfig{
 		Enabled:                   true,
 		RequestEncryptedReasoning: true,

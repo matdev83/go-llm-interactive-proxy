@@ -9,6 +9,7 @@ import (
 )
 
 func TestBuildCommandForwardsFourHourTimeoutByDefault(t *testing.T) {
+	t.Parallel()
 	spec := testAgySpec(t, Config{})
 	cmd, _, _, err := spec.BuildCommand("google/gemini-3.5-flash-high", t.TempDir())
 	if err != nil {
@@ -18,6 +19,7 @@ func TestBuildCommandForwardsFourHourTimeoutByDefault(t *testing.T) {
 }
 
 func TestBuildCommandForwardsExplicitTimeout(t *testing.T) {
+	t.Parallel()
 	spec := testAgySpec(t, Config{TimeoutSeconds: 45})
 	cmd, _, _, err := spec.BuildCommand("google/gemini-3.5-flash-high", t.TempDir())
 	if err != nil {
@@ -27,6 +29,7 @@ func TestBuildCommandForwardsExplicitTimeout(t *testing.T) {
 }
 
 func TestResolveNativeModel_DynamicModels(t *testing.T) {
+	t.Parallel()
 	index := acp.NewModelIndex(agyCanonicalFallback)
 	index.Replace([]modelinventory.Model{
 		{
@@ -53,6 +56,7 @@ func TestResolveNativeModel_DynamicModels(t *testing.T) {
 }
 
 func TestParseAGYModelsListing_TSVWithPreamble(t *testing.T) {
+	t.Parallel()
 	output := "Fetching available models...\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\ngemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
 	models, warnings := parseAGYModelsListing(output)
 	if len(warnings) > 0 {
@@ -67,7 +71,6 @@ func TestParseAGYModelsListing_TSVWithPreamble(t *testing.T) {
 }
 
 func testAgySpec(t *testing.T, cfg Config) *agySpec {
-
 	t.Helper()
 	index := acp.NewModelIndex(agyCanonicalFallback)
 	index.Replace([]modelinventory.Model{{

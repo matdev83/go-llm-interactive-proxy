@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -52,9 +53,7 @@ func buildRequestBody(call lipapi.Call, model string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range extraBody {
-		rawMap[k] = v
-	}
+	maps.Copy(rawMap, extraBody)
 	return json.Marshal(rawMap)
 }
 

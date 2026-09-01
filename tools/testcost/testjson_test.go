@@ -7,6 +7,8 @@ import (
 )
 
 func TestParseTestJSONUsesPackagePassAndNeverSumsWall(t *testing.T) {
+	t.Parallel()
+
 	measurement, err := ParseTestJSON(strings.NewReader(`{"Action":"pass","Package":"example/pkg","Test":"TestOne","Elapsed":9}
 {"Action":"pass","Package":"example/pkg","Elapsed":1.25}
 `), TargetTestUnit)
@@ -25,6 +27,8 @@ func TestParseTestJSONUsesPackagePassAndNeverSumsWall(t *testing.T) {
 }
 
 func TestParseTestJSONHandlesLargeOutputEvent(t *testing.T) {
+	t.Parallel()
+
 	// Create a JSON event with > 2MB Output field followed by a package pass event
 	largeString := strings.Repeat("x", 2*1024*1024)
 	input := `{"Action":"output","Package":"example/pkg","Test":"TestLarge","Output":"` + largeString + `"}

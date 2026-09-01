@@ -18,6 +18,7 @@ import (
 // taskkill /T cleanup: parent helper spawns a long-lived grandchild; Kill removes
 // both. Job Objects remain plugin-host native cleanup, not ACP support.
 func TestKillProcessTree_WindowsDescendants(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	childPIDFile := filepath.Join(dir, "child.pid")
 	proc, err := acp.OSProcessStarter{}.Start([]string{
@@ -40,6 +41,7 @@ func TestKillProcessTree_WindowsDescendants(t *testing.T) {
 }
 
 func TestHelperProcess_WindowsTreeParent(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("ACP_WANT_HELPER") != "windows-tree-parent" {
 		return
 	}

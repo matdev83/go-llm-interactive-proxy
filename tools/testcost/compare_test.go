@@ -3,6 +3,7 @@ package testcost
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -28,6 +29,8 @@ func validMeasurement(target string) Measurement {
 }
 
 func TestCompareOverallUsesMultiplierOrAnchorDeltaAndProcessDelta(t *testing.T) {
+	t.Parallel()
+
 	baseline := validMeasurement(TargetTestUnit)
 	baseline.WallNanos = 100
 	baseline.Process = ProcessMetrics{TotalCPUNanos: 100, TotalProcesses: 10, ReadOperations: 100, WriteOperations: 0, OtherOperations: 0}
@@ -55,6 +58,8 @@ func TestCompareOverallUsesMultiplierOrAnchorDeltaAndProcessDelta(t *testing.T) 
 }
 
 func TestComparePackageLifecycleWarningsFailuresFloorAndArchtestOverride(t *testing.T) {
+	t.Parallel()
+
 	baseline := validMeasurement(TargetTestUnit)
 	baseline.Packages = map[string]PackageMetrics{
 		"kept":              {ElapsedNanos: 10_000_000_000},
@@ -110,9 +115,11 @@ func TestComparePackageLifecycleWarningsFailuresFloorAndArchtestOverride(t *test
 }
 
 func TestCompareTopFifteenPackageElapsedIncreases(t *testing.T) {
+	t.Parallel()
+
 	baseline := validMeasurement(TargetTestUnit)
 	current := validMeasurement(TargetTestUnit)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		name := string(rune('a' + i))
 		baseline.Packages[name] = PackageMetrics{ElapsedNanos: 1}
 		current.Packages[name] = PackageMetrics{ElapsedNanos: uint64(i + 2)}
@@ -127,6 +134,8 @@ func TestCompareTopFifteenPackageElapsedIncreases(t *testing.T) {
 }
 
 func TestCompareAuthorizedOverrideRetainsViolationsAndPasses(t *testing.T) {
+	t.Parallel()
+
 	baseline := validMeasurement(TargetTestUnit)
 	baseline.WallNanos = 1
 	current := baseline
@@ -142,6 +151,8 @@ func TestCompareAuthorizedOverrideRetainsViolationsAndPasses(t *testing.T) {
 }
 
 func TestCompareFailsClosedForMissingTargetAndUnknownSchema(t *testing.T) {
+	t.Parallel()
+
 	base := validMeasurement(TargetTestUnit)
 	current := base
 	policy := validPolicy(OverallPolicy{}, PackagePolicy{}, nil)
@@ -155,6 +166,7 @@ func TestCompareFailsClosedForMissingTargetAndUnknownSchema(t *testing.T) {
 		{name: "unknown current schema", base: base, current: Measurement{SchemaVersion: 99, Target: TargetTestUnit}, want: ErrUnknownSchema},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := Compare(tc.base, tc.current, policy)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("Compare() error = %v, want %v", err, tc.want)
@@ -226,6 +238,8 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	}
 
 	t.Run("Observed same-code backendplugin noise passes", func(t *testing.T) {
+		t.Parallel()
+
 		currentObserved := validMeasurement(TargetQATaggedHotspots)
 		currentObserved.WallNanos = 58_638_498_800
 		currentObserved.Process = ProcessMetrics{
@@ -252,6 +266,8 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Synthetic 26 percent CPU drift fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentCPU26 := baseline
 		currentCPU26.Process.TotalCPUNanos = uint64(float64(baseline.Process.TotalCPUNanos) * 1.26)
 
@@ -265,6 +281,8 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Synthetic 16 percent process drift fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentProc16 := baseline
 		currentProc16.Process.TotalProcesses = uint64(float64(baseline.Process.TotalProcesses) * 1.16)
 
@@ -278,12 +296,11 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Material package drift at 50 percent fails for each hotspot individually", func(t *testing.T) {
+		t.Parallel()
+
 		for pkg, baseMetrics := range baseline.Packages {
 			currentPkgDrift := baseline
-			currentPkgDrift.Packages = map[string]PackageMetrics{}
-			for k, v := range baseline.Packages {
-				currentPkgDrift.Packages[k] = v
-			}
+			currentPkgDrift.Packages = maps.Clone(baseline.Packages)
 			currentPkgDrift.Packages[pkg] = PackageMetrics{ElapsedNanos: uint64(float64(baseMetrics.ElapsedNanos) * 1.50)}
 
 			report, err := Compare(baseline, currentPkgDrift, policy)
@@ -297,6 +314,8 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Synthetic 50 percent package drift fails all overrides together", func(t *testing.T) {
+		t.Parallel()
+
 		currentPkg50 := baseline
 		currentPkg50.Packages = map[string]PackageMetrics{
 			"github.com/matdev83/go-llm-interactive-proxy/internal/archtest":                 {ElapsedNanos: uint64(float64(baseline.Packages["github.com/matdev83/go-llm-interactive-proxy/internal/archtest"].ElapsedNanos) * 1.50)},
@@ -315,11 +334,10 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("New package over 8s fail limit fails with violation and warning", func(t *testing.T) {
+		t.Parallel()
+
 		currentNewPkg := baseline
-		currentNewPkg.Packages = map[string]PackageMetrics{}
-		for k, v := range baseline.Packages {
-			currentNewPkg.Packages[k] = v
-		}
+		currentNewPkg.Packages = maps.Clone(baseline.Packages)
 		currentNewPkg.Packages["github.com/matdev83/go-llm-interactive-proxy/tools/newhotspot"] = PackageMetrics{ElapsedNanos: 9_000_000_000}
 
 		report, err := Compare(baseline, currentNewPkg, policy)
@@ -383,14 +401,16 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 		OtherOperations: 6_633_582,
 	}
 	baseline.Packages = map[string]PackageMetrics{
-		"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":                   {ElapsedNanos: 989_000_000},
-		"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":                     {ElapsedNanos: 7_607_000_000},
-		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":            {ElapsedNanos: 3_393_000_000},
-		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity":         {ElapsedNanos: 10_961_000_000},
-		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity/cmd":     {ElapsedNanos: 21_200_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":              {ElapsedNanos: 989_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":                {ElapsedNanos: 7_607_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":        {ElapsedNanos: 3_393_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity":     {ElapsedNanos: 10_961_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity/cmd": {ElapsedNanos: 21_200_000_000},
 	}
 
 	t.Run("Observed same-code noise (dbparity 23.3s, scale 13.2s, runtime 11.2s, changesize 5.3s) passes", func(t *testing.T) {
+		t.Parallel()
+
 		currentObserved := baseline
 		currentObserved.WallNanos = 98_399_093_700
 		currentObserved.Process = ProcessMetrics{
@@ -401,8 +421,8 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 			OtherOperations: 6_249_174,
 		}
 		currentObserved.Packages = map[string]PackageMetrics{
-			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":               {ElapsedNanos: 5_338_000_000},
-			"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":                 {ElapsedNanos: 11_187_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":              {ElapsedNanos: 5_338_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":                {ElapsedNanos: 11_187_000_000},
 			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":        {ElapsedNanos: 13_233_000_000},
 			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity":     {ElapsedNanos: 23_302_000_000},
 			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity/cmd": {ElapsedNanos: 27_323_000_000},
@@ -418,6 +438,8 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Existing low-anchor package over 15s floor fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentOverFloor := baseline
 		currentOverFloor.Packages = map[string]PackageMetrics{
 			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":    {ElapsedNanos: 15_500_000_000},
@@ -434,6 +456,8 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Material dbparity package drift at 30s fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentDBParityDrift := baseline
 		currentDBParityDrift.Packages = map[string]PackageMetrics{
 			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":    {ElapsedNanos: 3_393_000_000},
@@ -450,6 +474,8 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Synthetic 31 percent CPU drift fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentCPU31 := baseline
 		currentCPU31.Process.TotalCPUNanos = uint64(float64(baseline.Process.TotalCPUNanos) * 1.31)
 
@@ -463,6 +489,8 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("Synthetic 16 percent process drift fails", func(t *testing.T) {
+		t.Parallel()
+
 		currentProc16 := baseline
 		currentProc16.Process.TotalProcesses = uint64(float64(baseline.Process.TotalProcesses) * 1.16)
 
@@ -476,12 +504,14 @@ func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
 	})
 
 	t.Run("New package over 8s fail limit fails with violation and warning", func(t *testing.T) {
+		t.Parallel()
+
 		currentNewPkg := baseline
 		currentNewPkg.Packages = map[string]PackageMetrics{
-			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":                   {ElapsedNanos: 989_000_000},
-			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":            {ElapsedNanos: 3_393_000_000},
-			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity":         {ElapsedNanos: 10_961_000_000},
-			"github.com/matdev83/go-llm-interactive-proxy/tools/newpackage":                   {ElapsedNanos: 9_000_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize":          {ElapsedNanos: 989_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/scale":    {ElapsedNanos: 3_393_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity": {ElapsedNanos: 10_961_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/tools/newpackage":          {ElapsedNanos: 9_000_000_000},
 		}
 
 		report, err := Compare(baseline, currentNewPkg, policy)

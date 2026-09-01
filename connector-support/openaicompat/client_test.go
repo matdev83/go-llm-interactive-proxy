@@ -117,8 +117,8 @@ func TestClient_ResponsesStreamHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer es.Close()
-	var text string
+	defer func() { _ = es.Close() }()
+	var text strings.Builder
 	for {
 		ev, err := es.Recv(context.Background())
 		if err == io.EOF {
@@ -128,11 +128,11 @@ func TestClient_ResponsesStreamHappyPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		if ev.Kind == lipapi.EventTextDelta {
-			text += ev.Delta
+			text.WriteString(ev.Delta)
 		}
 	}
-	if text != "hello" {
-		t.Fatalf("text=%q", text)
+	if text.String() != "hello" {
+		t.Fatalf("text=%q", text.String())
 	}
 	if !strings.HasSuffix(path, "/responses") {
 		t.Fatalf("path=%q", path)
@@ -156,6 +156,7 @@ func TestClient_UnsupportedContentPartsFailBeforeNetwork(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []lipapi.PartKind{lipapi.PartImageRef, lipapi.PartFileRef} {
 		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
 			called := false
 			srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
 			t.Cleanup(srv.Close)

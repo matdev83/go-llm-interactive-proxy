@@ -456,6 +456,7 @@ func nativeLiveTopLevelFields(body []byte) []string {
 }
 
 func TestNativeLiveRequestShapeDoesNotRetainOpaqueEvidence(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"model":"gpt-5.3-codex-spark","reasoning":{"summary":"auto"},"include":["reasoning.encrypted_content"],"input":[{"type":"message","content":[{"text":"State one short deterministic fact for the next turn."}]},{"type":"compaction_summary","encrypted_content":"opaque"}]}`)
 	shape := nativeLiveRequestShape(body, nativeContextLiveTail)
 	if shape.Compaction || shape.TriggerCount != 0 || !shape.HasCheckpoint || !shape.CompactionTailExcluded {
@@ -470,6 +471,7 @@ func TestNativeLiveRequestShapeDoesNotRetainOpaqueEvidence(t *testing.T) {
 }
 
 func TestNativeLiveHTTPRecorderForwardsAndStoresOnlySafeShape(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -491,6 +493,7 @@ func TestNativeLiveHTTPRecorderForwardsAndStoresOnlySafeShape(t *testing.T) {
 }
 
 func TestNativeLiveHTTPRecorderCapturesCompactResponseShapeWithoutConsumingBody(t *testing.T) {
+	t.Parallel()
 	const secret = "opaque-response-secret"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -524,6 +527,7 @@ func TestNativeLiveHTTPRecorderCapturesCompactResponseShapeWithoutConsumingBody(
 }
 
 func TestNativeLiveHTTPRecorderRedactsProviderSecretsAndPreservesResponse(t *testing.T) {
+	t.Parallel()
 	const secret = "PROMPT_SECRET_9f2a bearer-secret-token"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer synthetic-secret-token" {
@@ -562,6 +566,7 @@ func TestNativeLiveHTTPRecorderRedactsProviderSecretsAndPreservesResponse(t *tes
 }
 
 func TestNativeLiveProviderMetadataAllowlistRejectsSecrets(t *testing.T) {
+	t.Parallel()
 	code, typ, param := nativeLiveProviderErrorMetadata([]byte(`{"error":{"code":"PROMPT_SECRET","type":"invalid_request_error","param":"reasoning","message":"do not retain"}}`))
 	if code != "" || typ != "invalid_request_error" || param != "reasoning" {
 		t.Fatalf("metadata = code %q type %q param %q", code, typ, param)
@@ -569,6 +574,7 @@ func TestNativeLiveProviderMetadataAllowlistRejectsSecrets(t *testing.T) {
 }
 
 func TestNativeLiveProviderMetadataRejectsUnallowlistedParam(t *testing.T) {
+	t.Parallel()
 	_, _, param := nativeLiveProviderErrorMetadata([]byte(`{"error":{"param":"PROMPT_SECRET"}}`))
 	if param != "" {
 		t.Fatalf("param = %q, want redacted", param)
@@ -576,6 +582,7 @@ func TestNativeLiveProviderMetadataRejectsUnallowlistedParam(t *testing.T) {
 }
 
 func TestNativeLiveRequestShapeContainsNoPayloadValues(t *testing.T) {
+	t.Parallel()
 	shape := nativeLiveRequestShape([]byte(`{"model":"gpt-5.3-codex-spark","instructions":"secret instruction","reasoning":{"summary":"auto"},"include":["reasoning.encrypted_content"],"metadata":{"phase":"secret"},"input":[{"type":"message","role":"user","content":"secret prompt"}],"tools":[{"type":"function","name":"secret-tool"}]}`), "secret prompt")
 	joined := fmt.Sprintf("%#v", shape)
 	for _, secret := range []string{"secret instruction", "secret prompt", "secret-tool"} {
