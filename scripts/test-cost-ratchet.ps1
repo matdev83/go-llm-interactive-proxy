@@ -333,6 +333,11 @@ function Apply-AnchorCompatibilityPatch {
         "internal/testkit/postgres_makefile_gate_test.go"
     )
     $compatibilityPaths += $loadCompatibilityPaths
+    foreach ($relativePath in $compatibilityPaths) {
+        $absolutePath = Join-Path $AnchorRoot $relativePath
+        $content = [IO.File]::ReadAllText($absolutePath)
+        [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    }
     Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $compatibilityPaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,

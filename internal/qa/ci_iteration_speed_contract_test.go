@@ -271,6 +271,9 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if strings.Contains(script, `"add", "-A"`) || strings.Contains(script, `"add", "."`) {
 		t.Fatal("anchor compatibility commit must not stage unrelated checkout conversions")
 	}
+	if !strings.Contains(script, "$content.Replace(\"`r`n\", \"`n\")") {
+		t.Fatal("anchor compatibility files must be LF-normalized before quality-check measurement")
+	}
 	for _, shortTempRoot := range []string{`("a-" + $runID.Substring(0, 8))`, `("h-" + $runID.Substring(0, 8))`} {
 		if !strings.Contains(script, shortTempRoot) {
 			t.Fatalf("isolated measurement temp roots must stay short enough for Windows image paths: %q", shortTempRoot)
