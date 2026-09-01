@@ -261,7 +261,7 @@ Concrete steps:
 
 This repair also satisfies the already-known bulk-provider architecture direction; do not invent another approach.
 
-## B8 — Exact typed `cache_affinity` profile field
+## B8 — Exact typed `cache_affinity` profile field and layering
 
 Add to `providerprofiles.Profile`:
 
@@ -286,17 +286,19 @@ type CacheAffinity struct {
 }
 ```
 
+`internal/providerprofiles` is intentionally declarative and currently has no runtime/core dependency. **Do not import `internal/core/cacheaffinity` into it.** Define local `MinCacheAffinityValueLength = 50` and use that for validation. Add a cross-package architecture/test assertion that it equals `cacheaffinity.GeneratedLength`.
+
 Validation is strict:
 
 - disabled projection must be all-zero;
 - enabled transport exactly JSON field or HTTP header;
 - wire name required/safe;
-- `MaxLength >= 50 && <= providerprofiles.MaxStringBytes`;
+- `MaxLength >= MinCacheAffinityValueLength && <= providerprofiles.MaxStringBytes`;
 - Chat family can enable only Chat; Responses family only Responses;
-- other v1 families reject enabled projection;
-- synthesis true requires enabled true.
+- other v1 families reject;
+- synth implies enabled.
 
-No schema version bump and no arbitrary transform DSL.
+No schema version bump/arbitrary transform DSL.
 
 ## B9 — Exact OpenAI-compatible projection seam
 
@@ -342,7 +344,7 @@ FeatureDownstreamCacheAffinity = "downstream_cache_affinity_v1"
 
 Minimum minor = `ProtocolMinorSemanticExtensions` (6). Meaning: connector consumes existing prompt-cache semantic as downstream-affinity input.
 
-No new proto field and no protocol minor 9. Host synthesizes only when feature is negotiated. Namespace is a stable route/backend prefix, not instance/session ID.
+No new proto field/minor. Host synthesizes only when feature is negotiated **and a stable route/backend prefix exists**; namespace is that prefix. No prefix => synthesis disabled rather than inventing identity.
 
 ## B12 — Existing metrics seam is sufficient
 
@@ -377,7 +379,10 @@ Extend existing `MetricsSink`; do not build a parallel metrics subsystem. Bounde
 ### G7 — OpenRouter carrier/ABI choice was delegated
 **Repair:** body `session_id` only; existing semantic carrier; minor6 feature flag; no new DTO/minor.
 
-### G8 — Observability could be mistaken for cache effect
+### G8 — Provider-profile/core layering could be accidentally inverted
+**Repair:** local provider-profile minimum-length constant + cross-package ratchet; no providerprofiles→core import.
+
+### G9 — Observability could be mistaken for cache effect
 **Repair:** decision metrics only; existing provider cache evidence remains truth.
 
 ---
@@ -392,7 +397,7 @@ Extend existing `MetricsSink`; do not build a parallel metrics subsystem. Bounde
 - One optional candidate-aware resolver on `execbackend.Backend`.
 - Direct OpenAI explicit forwarding repair + synthesis support.
 - Real `ProviderProfileKind` lifecycle registration so compiled profile semantics reach production family builders.
-- One bounded typed `Profile.CacheAffinity` field.
+- One bounded typed `Profile.CacheAffinity` field, with declarative package layering preserved.
 - Existing `openaicompat` request-option seam for profile JSON/header projection.
 - Self-contained initial provider rows.
 - OpenRouter body `session_id` + minor6 negotiated support feature.
@@ -408,6 +413,7 @@ Extend existing `MetricsSink`; do not build a parallel metrics subsystem. Bounde
 - universal compatible injection;
 - new canonical downstream-affinity field;
 - serialize new profile semantics into generic compatible YAML;
+- providerprofiles importing core to share one constant;
 - second provider-profile catalog/policy map;
 - new backend-plugin value field/minor;
 - connector-side root secret/HMAC;
@@ -415,4 +421,4 @@ Extend existing `MetricsSink`; do not build a parallel metrics subsystem. Bounde
 
 ## Brownfield Design Validation Verdict
 
-**GO after the execution-audit repairs above.** The initial spec was directionally correct but still delegated package/key/length/carrier/ABI decisions and missed the lossy production provider-profile binding. Those issues are now frozen and scheduled. A weaker executor should need only mechanical current-file navigation, not architecture invention or provider research.
+**GO after the execution-audit repairs above.** The initial spec was directionally correct but still delegated package/key/length/carrier/ABI decisions, missed the lossy production provider-profile binding, and could have encouraged an inverted providerprofiles→core dependency. Those choices are now frozen. A weaker executor should need only mechanical current-file navigation, not architecture invention or provider research.
