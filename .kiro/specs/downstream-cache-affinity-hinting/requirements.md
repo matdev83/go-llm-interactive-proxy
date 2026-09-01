@@ -75,6 +75,7 @@ The requirements below are intentionally frozen for implementation by instructio
 6. Unknown/undeclared profiles shall default to `cache_affinity` disabled.
 7. Provider wire projection shall remain adapter/profile-owned; core shall never switch on provider names or literal values such as `x-grok-conv-id`, `session_id`, `x-session-id`, or `x-session-affinity`.
 8. When a configured backend uses `kind: provider-profile`, the complete compiled profile semantics, including `cache_affinity`, shall reach the actual production registry/lifecycle backend construction without being reduced to lossy generic compatible YAML.
+9. `internal/providerprofiles` shall remain declarative and shall not import `internal/core/cacheaffinity`; the 50-character minimum may be duplicated as a local boundary constant only if an architecture/cross-package test ratchets equality with the core generated length.
 
 ## Requirement 6 — Complete the Initial Provider Matrix in This Workstream
 
@@ -155,6 +156,6 @@ The requirements below are intentionally frozen for implementation by instructio
 1. Completion shall include: secure derivation, executor capability, selected-attempt insertion, direct OpenAI forwarding, non-lossy production provider-profile lifecycle binding, provider-profile schema/compiler/projection, required initial profile rows, OpenRouter connector parity, tests/TCK, observability, documentation, and architecture/performance gates.
 2. The implementation shall add regression coverage proving direct OpenAI explicit `PromptCacheKey` forwarding works before/following synthesis.
 3. The implementation shall add reusable tests proving unknown-compatible, Anthropic, and Gemini negative behavior.
-4. The implementation shall add architecture guards preventing provider-name/wire-name switches in generic core, preventing generated values from becoming residency/session authority, and preventing reintroduction of the lossy provider-profile-to-generic-YAML production bridge.
+4. The implementation shall add architecture guards preventing provider-name/wire-name switches in generic core, preventing generated values from becoming residency/session authority, preventing `providerprofiles`→core dependency inversion, and preventing reintroduction of the lossy provider-profile-to-generic-YAML production bridge.
 5. The final completion review shall search for unresolved TODOs/placeholders required by this feature and resolve them before archiving the spec.
 6. After this specification is complete, adding a newly documented provider carrier shall be ordinary provider-profile/adapter data/code against this completed contract, not a prerequisite generic architecture follow-up.
