@@ -23,6 +23,7 @@ import (
 )
 
 func TestPhase7_OpenRouterExternalViaBuildHost(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -95,6 +96,7 @@ func TestPhase7_OpenRouterExternalViaBuildHost(t *testing.T) {
 }
 
 func TestPhase7_OpenRouterConfiguredMissingFails(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	emptyPlugins := t.TempDir()

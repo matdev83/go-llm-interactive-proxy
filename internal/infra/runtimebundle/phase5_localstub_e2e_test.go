@@ -20,6 +20,7 @@ import (
 )
 
 func TestPhase5_LocalStubExternalViaBuildHost(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	pluginRoot := runtimebundle.StageLocalStubForTest(t)
