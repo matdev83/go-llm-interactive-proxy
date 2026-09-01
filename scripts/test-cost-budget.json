@@ -10,7 +10,7 @@
       "packages": {
         "existing_ratio": 1.75,
         "existing_delta_seconds": 3,
-        "existing_floor_seconds": 10,
+        "existing_floor_seconds": 15,
         "new_warn_seconds": 4,
         "new_fail_seconds": 8
       },
@@ -18,6 +18,10 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
           "existing_ratio": 1.50,
           "existing_delta_seconds": 5
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity": {
+          "existing_ratio": 2.25,
+          "existing_delta_seconds": 13
         }
       }
     },
