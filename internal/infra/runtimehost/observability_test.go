@@ -91,7 +91,9 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		Loader:   loader,
 		Compile:  compile,
 		Manager:  mgr,
-		Timeout:  time.Second,
+		// This test exercises observability, not timeout classification. Leave
+		// enough headroom for a repository-wide Windows run under CPU pressure.
+		Timeout:  30 * time.Second,
 		Observer: obs,
 		ActiveEffective: &config.EffectiveConfig{
 			Config:   &config.Config{Routing: config.RoutingConfig{MaxAttempts: 1}},

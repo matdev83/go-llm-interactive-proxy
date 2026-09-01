@@ -317,6 +317,7 @@ function Apply-AnchorCompatibilityPatch {
     $loadCompatibilityPaths = @(
         "internal/stdhttp/request_plane_generation_test.go",
         "internal/infra/runtimebundle/publish_pinned_characterization_test.go",
+        "internal/infra/runtimehost/observability_test.go",
         "internal/plugins/frontends/openresponses/websocket_upgrade_test.go"
     )
     foreach ($relativePath in $loadCompatibilityPaths) {
