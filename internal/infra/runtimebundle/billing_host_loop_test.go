@@ -47,6 +47,7 @@ var billingHostLoopMissingOperatorRef = billing.VersionRef{ID: "missing-operator
 var billingHostLoopSeq atomic.Uint64
 
 func TestBillingHostLoop(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -171,6 +172,7 @@ func TestBillingHostLoop(t *testing.T) {
 }
 
 func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -278,6 +280,7 @@ func TestBillingHostLoop_FailoverOpenFailureClaimsAndSettles(t *testing.T) {
 }
 
 func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -461,7 +464,9 @@ func TestBillingHostLoop_MissingCatalogRefs(t *testing.T) {
 }
 
 func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
+	t.Parallel()
 	t.Run("custom mapping returns empty identity", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 
@@ -510,6 +515,7 @@ func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
 	})
 
 	t.Run("stock mapping principal has no billing account", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 

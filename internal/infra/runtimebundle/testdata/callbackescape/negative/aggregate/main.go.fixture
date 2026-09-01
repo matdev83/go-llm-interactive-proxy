@@ -3,7 +3,7 @@ package escapeneg
 import (
 	"context"
 
-	rb "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	rb "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/coordpkg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/deepalias"
 )

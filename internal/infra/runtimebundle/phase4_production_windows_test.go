@@ -33,6 +33,7 @@ import (
 // secure channel, and invokes the adapter — without FakeService DialSession or
 // TestLauncher injection.
 func TestProduction_UnknownKindViaBuildHost(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -92,6 +93,7 @@ func TestProduction_UnknownKindViaBuildHost(t *testing.T) {
 }
 
 func TestProduction_InvalidConfiguredFatalViaBuildHost(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	root := t.TempDir()

@@ -3,8 +3,8 @@ package escapepos
 import (
 	"context"
 
-	rb "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	rh "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	rb "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/runtimebundle"
+	rh "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/deepalias"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/pickerpkg"
 )

@@ -1,32 +1,45 @@
 package archtest
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-func loadTurnRecvASTFiles(root string) ([]turnRecvASTFile, error) {
-	dir := filepath.Join(root, "internal", "core", "runtime")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+func loadTurnRecvASTFilesFromFSContext(ctx context.Context, fs archtestFS) ([]turnRecvASTFile, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	relDir := "internal/core/runtime"
+	entries, err := fs.ReadDir(relDir)
+	if err != nil {
+		return nil, fmt.Errorf("read dir %s: %w", relDir, err)
 	}
 	fset := token.NewFileSet()
 	var files []turnRecvASTFile
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		relPath := relDir + "/" + entry.Name()
+		content, err := fs.ReadFile(relPath)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", relPath, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		file, err := parser.ParseFile(fset, relPath, content, parser.ParseComments)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", entry.Name(), err)
 		}
@@ -44,10 +57,22 @@ func loadTurnRecvASTFiles(root string) ([]turnRecvASTFile, error) {
 				imports[alias] = importPath
 			}
 		}
-		files = append(files, turnRecvASTFile{RelPath: filepath.ToSlash(filepath.Join("internal", "core", "runtime", entry.Name())), AST: file, FSet: fset, Imports: imports})
+		files = append(files, turnRecvASTFile{RelPath: relPath, AST: file, FSet: fset, Imports: imports})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].RelPath < files[j].RelPath })
 	return files, nil
+}
+
+func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesFromFSContext(context.Background(), fs)
+}
+
+func loadTurnRecvASTFilesContext(ctx context.Context, root string) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesFromFSContext(ctx, &workingTreeFS{root: root})
+}
+
+func loadTurnRecvASTFiles(root string) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesContext(context.Background(), root)
 }
 
 func nodeText(node ast.Node) string {

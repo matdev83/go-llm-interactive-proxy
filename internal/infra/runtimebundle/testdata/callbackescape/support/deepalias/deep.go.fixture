@@ -1,6 +1,6 @@
 package deepalias
 
-import rh "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+import rh "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/runtimehost"
 
 type (
 	L1              = *rh.Coordinator
