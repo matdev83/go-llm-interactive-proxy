@@ -253,6 +253,7 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"function Test-IsWindows",
 		"if (-not (Test-IsWindows))",
 		"$Targets = @(\"test-unit\", \"quality-checks\")",
+		`@("mod", "download", "all")`,
 		"-count=1",
 		"LIP_ALLOW_TEST_COST_GROWTH",
 		"worktree\", \"add\", \"--detach\"",

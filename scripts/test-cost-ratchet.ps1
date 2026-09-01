@@ -276,6 +276,11 @@ function Warm-Tree {
         [Parameter(Mandatory = $true)][int]$TestParallel
     )
 
+    # Quality checks run go mod tidy inside the restricted taskrunner token.
+    # Populate every module needed by that command before measurement so
+    # network/module download time cannot enter the resource comparison.
+    Invoke-RequiredExternal "$Label-modules" "go" @("mod", "download", "all") $TreeRoot $TempRoot
+
     # Keep this exact no-test warm-up separate from measured runs so the
     # anchor/head pair starts with the same compile cache shape.
     Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
