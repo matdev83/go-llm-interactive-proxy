@@ -230,6 +230,7 @@ jobs:
 
       - name: Windows test-cost ratchet
         if: needs.changes.result == 'success' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
+        timeout-minutes: 20
         shell: pwsh
         env:
           # A labeled PR may authorize a ratchet update, but the orchestrator
@@ -237,7 +238,7 @@ jobs:
           LIP_ALLOW_TEST_COST_GROWTH: ${{ contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') && '1' || '' }}
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP "golip-test-cost-ratchet"
-          & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test-cost-ratchet.ps1 `
+          & ./scripts/test-cost-ratchet.ps1 `
             -BaseSHA "${{ github.event.pull_request.base.sha }}" `
             -OutputRoot $outputRoot
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

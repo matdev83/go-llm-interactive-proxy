@@ -365,7 +365,7 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		}
 	}
 
-	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
+	ci := workflowJob(t, "ci.yml", "test")
 	for _, checkoutConfig := range []string{
 		"GIT_CONFIG_KEY_0: core.autocrlf",
 		`GIT_CONFIG_VALUE_0: "false"`,
@@ -377,6 +377,9 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		}
 	}
 	for _, needle := range []string{
+		"concurrency:",
+		"group: ci-${{ github.head_ref || github.ref_name }}",
+		"cancel-in-progress: true",
 		"types: [opened, synchronize, reopened, labeled, unlabeled]",
 		"github.event.pull_request.base.sha",
 		"github.head_ref || github.ref_name",
@@ -404,6 +407,20 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	}
 	if !strings.Contains(fastUnitBlock, "matrix.os != 'windows-latest'") || !strings.Contains(fastUnitBlock, "needs.changes.outputs.test_cost != 'true'") {
 		t.Fatal("CI must preserve fast units on Linux/macOS and avoid duplicating a measured Windows head run")
+	}
+	buildBinary := strings.Index(ci, "- name: Build release binary")
+	if buildBinary < 0 || ratchet >= buildBinary {
+		t.Fatal("CI must place the Windows test-cost ratchet before building the release binary")
+	}
+	ratchetBlock := ci[ratchet:buildBinary]
+	if !strings.Contains(ratchetBlock, "timeout-minutes: 20") {
+		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 20")
+	}
+	if !strings.Contains(ratchetBlock, "& ./scripts/test-cost-ratchet.ps1") {
+		t.Fatal("Windows test-cost ratchet step must invoke & ./scripts/test-cost-ratchet.ps1 directly")
+	}
+	if strings.Contains(ratchetBlock, "-File scripts/test-cost-ratchet.ps1") || strings.Contains(ratchetBlock, "& pwsh") {
+		t.Fatal("Windows test-cost ratchet step must not invoke a nested pwsh subprocess")
 	}
 }
 
