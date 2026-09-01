@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $PolicyRelativePath = "scripts/test-cost-budget.json"
-$Targets = @("test-unit", "quality-checks")
+$Targets = @("test-unit", "quality-checks", "qa-tagged-hotspots")
 
 function Test-IsWindows {
     return $env:OS -eq "Windows_NT" -or [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
@@ -309,6 +309,9 @@ function Warm-Tree {
         # Keep this exact no-test warm-up separate from measured runs so the
         # anchor/head pair starts with the same compile cache shape.
         Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
+
+        # Warm exactly the tagged QA hotspot packages without running tests.
+        Invoke-RequiredExternal "$Label-hotspots" "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "-tags=precommit,integration", "./internal/archtest", "./internal/infra/runtimebundle", "./tools/backendplugin/...") $TreeRoot $TempRoot
     } finally {
         foreach ($modulePath in $moduleSnapshots.Keys) {
             [IO.File]::WriteAllBytes($modulePath, $moduleSnapshots[$modulePath])
@@ -542,10 +545,11 @@ Assert-OutputRoot $EffectiveOutputRoot $RepositoryRoot
 
 if ($Preflight) {
     Write-Host "OK: test-cost ratchet preflight" -ForegroundColor Green
-    Write-Host "  head:   $HeadCommit"
-    Write-Host "  anchor: $AnchorCommit ($AnchorRevision)"
+    Write-Host "  head:     $HeadCommit"
+    Write-Host "  anchor:   $AnchorCommit ($AnchorRevision)"
+    Write-Host "  targets:  $($Targets -join ', ')"
     Write-Host "  parallel: $TestParallel"
-    Write-Host "  output: $EffectiveOutputRoot"
+    Write-Host "  output:   $EffectiveOutputRoot"
     exit 0
 }
 

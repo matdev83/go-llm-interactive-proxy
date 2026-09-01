@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,23 @@ import (
 )
 
 const (
-	TargetTestUnit      = "test-unit"
-	TargetQualityChecks = "quality-checks"
-	defaultTimeout      = 12 * time.Minute
-	defaultFailureTail  = 8 * 1024
+	TargetTestUnit         = "test-unit"
+	TargetQualityChecks    = "quality-checks"
+	TargetQATaggedHotspots = "qa-tagged-hotspots"
+	defaultTimeout         = 12 * time.Minute
+	defaultFailureTail     = 8 * 1024
 )
+
+var qaTaggedHotspotPackages = []string{
+	"./internal/archtest",
+	"./internal/infra/runtimebundle",
+	"./tools/backendplugin/...",
+}
+
+// QATaggedHotspotPackages returns a cloned slice of the hotspot package roots.
+func QATaggedHotspotPackages() []string {
+	return slices.Clone(qaTaggedHotspotPackages)
+}
 
 type Runner interface {
 	Run(context.Context, taskrunner.Request) taskrunner.Result
@@ -70,6 +83,39 @@ func MeasureTestUnit(ctx context.Context, options MeasureOptions) (MeasurementRe
 
 func MeasureQualityChecks(ctx context.Context, options MeasureOptions) (MeasurementResult, error) {
 	return Measure(ctx, TargetQualityChecks, options)
+}
+
+func MeasureQATaggedHotspots(ctx context.Context, options MeasureOptions) (MeasurementResult, error) {
+	return Measure(ctx, TargetQATaggedHotspots, options)
+}
+
+func BuildQATaggedHotspotsRequest(options MeasureOptions) (taskrunner.Request, error) {
+	if runtime.GOOS != "windows" {
+		return taskrunner.Request{}, ErrWindowsOnly
+	}
+	root, err := resolveRoot(options.Root)
+	if err != nil {
+		return taskrunner.Request{}, err
+	}
+	parallel := resolvedParallel(options)
+	timeout, err := requestTimeout(options.Timeout)
+	if err != nil {
+		return taskrunner.Request{}, err
+	}
+	argv := append([]string{
+		"go", "test", "-count=1", "-json",
+		"-parallel=" + strconv.Itoa(parallel),
+		"-timeout=10m",
+		"-tags=precommit,integration",
+	}, qaTaggedHotspotPackages...)
+	return taskrunner.Request{
+		Argv:          argv,
+		Dir:           root,
+		Timeout:       timeout,
+		Output:        taskrunner.Stream,
+		Label:         TargetQATaggedHotspots,
+		RestrictAdmin: true,
+	}, nil
 }
 
 func ResolveParallel(value string, cpus int) int {
@@ -148,7 +194,7 @@ func Measure(ctx context.Context, target string, options MeasureOptions) (Measur
 	if runtime.GOOS != "windows" {
 		return MeasurementResult{}, ErrWindowsOnly
 	}
-	if target != TargetTestUnit && target != TargetQualityChecks {
+	if target != TargetTestUnit && target != TargetQualityChecks && target != TargetQATaggedHotspots {
 		return MeasurementResult{}, fmt.Errorf("%w %q", ErrUnsupportedTarget, target)
 	}
 	if strings.TrimSpace(options.TempRoot) == "" {
@@ -156,10 +202,13 @@ func Measure(ctx context.Context, target string, options MeasureOptions) (Measur
 	}
 	var request taskrunner.Request
 	var err error
-	if target == TargetTestUnit {
+	switch target {
+	case TargetTestUnit:
 		request, err = BuildTestUnitRequest(options)
-	} else {
+	case TargetQualityChecks:
 		request, err = BuildQualityChecksRequest(options)
+	case TargetQATaggedHotspots:
+		request, err = BuildQATaggedHotspotsRequest(options)
 	}
 	if err != nil {
 		return MeasurementResult{}, err
@@ -214,7 +263,7 @@ func Measure(ctx context.Context, target string, options MeasureOptions) (Measur
 		return out, fmt.Errorf("%w: %v: %s", ErrMeasurementFailed, result.Kind, out.FailureTail)
 	}
 	measurement := Measurement{SchemaVersion: SchemaVersion, Target: target, Revision: options.Revision, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, GoVersion: runtime.Version(), LogicalCPUs: runtime.NumCPU(), TestParallel: resolvedParallel(options), WallNanos: elapsedNanos(result.Elapsed), Process: processMetrics(result.Accounting)}
-	if target == TargetTestUnit {
+	if target == TargetTestUnit || target == TargetQATaggedHotspots {
 		file, readErr := os.Open(stdoutPath)
 		if readErr != nil {
 			return out, fmt.Errorf("testcost: open test JSON log: %w", readErr)

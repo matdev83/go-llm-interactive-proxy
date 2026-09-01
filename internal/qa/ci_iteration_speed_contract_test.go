@@ -3,8 +3,11 @@ package qa
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/testcost"
 )
 
 func TestCIIterationSpeed_ModuleTidyUsesBoundedParallelism(t *testing.T) {
@@ -256,8 +259,9 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	for _, needle := range []string{
 		"function Test-IsWindows",
 		"if (-not (Test-IsWindows))",
-		"$Targets = @(\"test-unit\", \"quality-checks\")",
+		"$Targets = @(\"test-unit\", \"quality-checks\", \"qa-tagged-hotspots\")",
 		`@("mod", "download", "all")`,
+		`Invoke-RequiredExternal "$Label-hotspots" "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "-tags=precommit,integration", "./internal/archtest", "./internal/infra/runtimebundle", "./tools/backendplugin/...") $TreeRoot $TempRoot`,
 		`Invoke-RequiredExternal "anchor-compatibility-tidy" "go" @("mod", "tidy")`,
 		`throw "anchor compatibility go mod tidy unexpectedly changed go.mod"`,
 		`@("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd")`,
@@ -355,13 +359,13 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if policy.SchemaVersion != 1 || strings.TrimSpace(policy.AnchorRef) == "" {
 		t.Fatalf("test-cost policy must declare schema_version=1 and a non-empty anchor_ref: %#v", policy)
 	}
-	for _, targetName := range []string{"test-unit", "quality-checks"} {
+	for _, targetName := range []string{"test-unit", "quality-checks", "qa-tagged-hotspots"} {
 		if _, ok := policy.Targets[targetName]; !ok {
 			t.Fatalf("test-cost policy missing authoritative target %q", targetName)
 		}
 	}
 
-	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
+	ci := workflowJob(t, "ci.yml", "test")
 	for _, checkoutConfig := range []string{
 		"GIT_CONFIG_KEY_0: core.autocrlf",
 		`GIT_CONFIG_VALUE_0: "false"`,
@@ -373,6 +377,9 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		}
 	}
 	for _, needle := range []string{
+		"concurrency:",
+		"group: ci-${{ github.head_ref || github.ref_name }}",
+		"cancel-in-progress: true",
 		"types: [opened, synchronize, reopened, labeled, unlabeled]",
 		"github.event.pull_request.base.sha",
 		"github.head_ref || github.ref_name",
@@ -400,6 +407,20 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	}
 	if !strings.Contains(fastUnitBlock, "matrix.os != 'windows-latest'") || !strings.Contains(fastUnitBlock, "needs.changes.outputs.test_cost != 'true'") {
 		t.Fatal("CI must preserve fast units on Linux/macOS and avoid duplicating a measured Windows head run")
+	}
+	buildBinary := strings.Index(ci, "- name: Build release binary")
+	if buildBinary < 0 || ratchet >= buildBinary {
+		t.Fatal("CI must place the Windows test-cost ratchet before building the release binary")
+	}
+	ratchetBlock := ci[ratchet:buildBinary]
+	if !strings.Contains(ratchetBlock, "timeout-minutes: 20") {
+		t.Fatal("Windows test-cost ratchet step must declare timeout-minutes: 20")
+	}
+	if !strings.Contains(ratchetBlock, "& ./scripts/test-cost-ratchet.ps1") {
+		t.Fatal("Windows test-cost ratchet step must invoke & ./scripts/test-cost-ratchet.ps1 directly")
+	}
+	if strings.Contains(ratchetBlock, "-File scripts/test-cost-ratchet.ps1") || strings.Contains(ratchetBlock, "& pwsh") {
+		t.Fatal("Windows test-cost ratchet step must not invoke a nested pwsh subprocess")
 	}
 }
 
@@ -459,5 +480,31 @@ func TestCIIterationSpeed_QATestsCuratedDeltaAndCanonicalContracts(t *testing.T)
 	expectedWinCanonical := `@("-tags=precommit,integration", "./...")`
 	if !strings.Contains(winTask, expectedWinCanonical) {
 		t.Fatalf("scripts/windows-task.ps1 qa-tests:root must run canonical %q", expectedWinCanonical)
+	}
+}
+
+func TestQAFastPreflight_TestCost_QATaggedHotspotsPackageSetContract(t *testing.T) {
+	t.Parallel()
+
+	wantHotspots := []string{
+		"./internal/archtest",
+		"./internal/infra/runtimebundle",
+		"./tools/backendplugin/...",
+	}
+	if !reflect.DeepEqual(testcost.QATaggedHotspotPackages(), wantHotspots) {
+		t.Fatalf("testcost.QATaggedHotspotPackages() = %#v, want %#v", testcost.QATaggedHotspotPackages(), wantHotspots)
+	}
+
+	for _, hotspot := range wantHotspots {
+		clean := strings.TrimPrefix(hotspot, "./")
+		clean = strings.TrimSuffix(clean, "/...")
+		dir := repositoryFile(t, strings.Split(clean, "/")...)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("hotspot root %s does not exist: %v", hotspot, err)
+		}
+		if len(entries) == 0 {
+			t.Fatalf("hotspot root %s is empty", hotspot)
+		}
 	}
 }

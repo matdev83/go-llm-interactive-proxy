@@ -152,6 +152,68 @@ func TestRunRequiresLiteralMeasureOrCompareSubcommand(t *testing.T) {
 	}
 }
 
+func TestRunMeasureTargetValidation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"measure", "--target", "invalid-target"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("invalid target exit = %d, stderr=%s", code, stderr.String())
+	}
+	want := "invalid request: --target must be test-unit, quality-checks, or qa-tagged-hotspots"
+	if !strings.Contains(stderr.String(), want) {
+		t.Fatalf("stderr = %q, want to contain %q", stderr.String(), want)
+	}
+
+	stderr.Reset()
+	code = run(context.Background(), []string{"measure", "--target", "qa-tagged-hotspots"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("incomplete flags exit = %d, stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), want) {
+		t.Fatalf("qa-tagged-hotspots should be accepted as valid target flag, got %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid request: --root, --revision, --out, and --temp-root are required") {
+		t.Fatalf("expected missing flags error, got %s", stderr.String())
+	}
+}
+
+func TestRunCompareAcceptsQATaggedHotspotsTarget(t *testing.T) {
+	dir := t.TempDir()
+	baseline := testcost.Measurement{
+		SchemaVersion: 1, Target: "qa-tagged-hotspots", Revision: "a", GOOS: "windows", GOARCH: "amd64", GoVersion: "go1.26.6",
+		LogicalCPUs: 1, TestParallel: 1, WallNanos: 100,
+		Packages: map[string]testcost.PackageMetrics{"github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {ElapsedNanos: 1}},
+	}
+	current := baseline
+	current.Revision = "b"
+	policy := testcost.Policy{
+		SchemaVersion: 1, AnchorRef: "origin/main",
+		Targets: map[string]testcost.TargetPolicy{
+			"qa-tagged-hotspots": {Wall: testcost.AbsoluteBudget{Ratio: 2, DeltaSeconds: 1}},
+		},
+	}
+	basePath := filepath.Join(dir, "baseline.json")
+	currPath := filepath.Join(dir, "current.json")
+	policyPath := filepath.Join(dir, "policy.json")
+	outPath := filepath.Join(dir, "report.json")
+	writeFixtureJSON(t, basePath, baseline)
+	writeFixtureJSON(t, currPath, current)
+	policyBytes, err := testcost.EncodePolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policyPath, policyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"compare", "--target", "qa-tagged-hotspots", "--baseline", basePath, "--current", currPath, "--policy", policyPath, "--out", outPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compare qa-tagged-hotspots exit = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "target=qa-tagged-hotspots") || !strings.Contains(stderr.String(), "passed=true") {
+		t.Fatalf("summary = %s", stderr.String())
+	}
+}
+
 func writeFixtureJSON(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := json.Marshal(value)

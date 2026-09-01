@@ -44,7 +44,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 func runMeasure(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lip-testcost measure", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	target := flags.String("target", "", "measurement target: test-unit or quality-checks")
+	target := flags.String("target", "", "measurement target: test-unit, quality-checks, or qa-tagged-hotspots")
 	root := flags.String("root", "", "repository root")
 	revision := flags.String("revision", "", "revision recorded in a measurement")
 	out := flags.String("out", "", "JSON output path, or - for stdout")
@@ -53,8 +53,8 @@ func runMeasure(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err := flags.Parse(args); err != nil {
 		return exitInvalidCLI
 	}
-	if *target != testcost.TargetTestUnit && *target != testcost.TargetQualityChecks {
-		_, _ = fmt.Fprintln(stderr, "invalid request: --target must be test-unit or quality-checks")
+	if *target != testcost.TargetTestUnit && *target != testcost.TargetQualityChecks && *target != testcost.TargetQATaggedHotspots {
+		_, _ = fmt.Fprintln(stderr, "invalid request: --target must be test-unit, quality-checks, or qa-tagged-hotspots")
 		return exitInvalidCLI
 	}
 	if *root == "" || *revision == "" || *out == "" || *tempRoot == "" {

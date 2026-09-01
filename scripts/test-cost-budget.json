@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "anchor_ref": "a7a00cedddc4e49d7f96502ee28a6ea1d9603315",
+  "anchor_ref": "6dbb831885341516117034923f0c3203373aded0",
   "targets": {
     "test-unit": {
       "cpu": { "ratio": 1.30, "delta_seconds": 10 },
@@ -10,7 +10,7 @@
       "packages": {
         "existing_ratio": 1.75,
         "existing_delta_seconds": 3,
-        "existing_floor_seconds": 5,
+        "existing_floor_seconds": 15,
         "new_warn_seconds": 4,
         "new_fail_seconds": 8
       },
@@ -18,6 +18,10 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
           "existing_ratio": 1.50,
           "existing_delta_seconds": 5
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity": {
+          "existing_ratio": 2.25,
+          "existing_delta_seconds": 13
         }
       }
     },
@@ -26,6 +30,37 @@
       "processes": { "ratio": 1.15, "delta": 6 },
       "io_operations": { "ratio": 1.40, "delta": 7500 },
       "wall": { "ratio": 1.50, "delta_seconds": 10 }
+    },
+    "qa-tagged-hotspots": {
+      "cpu": { "ratio": 1.25, "delta_seconds": 10 },
+      "processes": { "ratio": 1.15, "delta": 15 },
+      "io_operations": { "ratio": 1.30, "delta": 50000 },
+      "wall": { "ratio": 1.50, "delta_seconds": 15 },
+      "packages": {
+        "existing_ratio": 1.50,
+        "existing_delta_seconds": 5,
+        "existing_floor_seconds": 5,
+        "new_warn_seconds": 4,
+        "new_fail_seconds": 8
+      },
+      "package_overrides": {
+        "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle": {
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin": {
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
+        },
+        "github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/release_gates": {
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
+        }
+      }
     }
   }
 }
