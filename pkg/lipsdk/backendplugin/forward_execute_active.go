@@ -44,10 +44,6 @@ type cancellationTiming struct {
 	deadline time.Time
 }
 
-type cancelObserver interface {
-	OnCancelObserved()
-}
-
 // cancellationLifecycle is the one source of truth for a negotiated cancel.
 // The control reader records receipt before queueing the observation, so an
 // already-received CANCEL cannot be lost when an upstream EOF wins a select.
@@ -262,9 +258,6 @@ func forwardActiveExecute(stream ExecuteStream, sequencer *frameSequencer, ms li
 				// Record receipt before queueing. This is intentionally not
 				// guarded by execCtx: cancellation is the terminal control fact.
 				cancellation.observe(req)
-				if observer, ok := stream.(cancelObserver); ok {
-					observer.OnCancelObserved()
-				}
 				controlObsCh <- controlObservation{cancel: &req}
 				return
 			case ClientFrameCloseInput:
@@ -394,13 +387,6 @@ coordinatorLoop:
 				}
 
 			case upstreamObsEOF:
-				select {
-				case cObs := <-controlObsCh:
-					if cObs.cancel != nil {
-						cancellation.observe(*cObs.cancel)
-					}
-				default:
-				}
 				_ = forwardAccountingEvidence(sequencer, ms)
 				if !cancellation.requested() {
 					_ = forwardPromptCacheObservations(sequencer, ms)
@@ -415,13 +401,6 @@ coordinatorLoop:
 				break coordinatorLoop
 
 			case upstreamObsError:
-				select {
-				case cObs := <-controlObsCh:
-					if cObs.cancel != nil {
-						cancellation.observe(*cObs.cancel)
-					}
-				default:
-				}
 				_ = forwardAccountingEvidence(sequencer, ms)
 				if cancellation.requested() || errors.Is(obs.err, context.Canceled) {
 					if !cancellation.requested() {
