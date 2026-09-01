@@ -74,6 +74,16 @@ func assertNoNewDirsInRoot(t *testing.T, root string, before []string, prefix st
 	}
 }
 
+func createIsolatedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "lip-leak-sub-*")
+	if err != nil {
+		t.Fatalf("create isolated temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // TestProduction_ServeAndValidateNoStagingLeak proves both the BuildHost
 // (serve) and ValidateDistribution paths release every go-lip-plugin-serve-*
 // staging root they create: verified artifact handles are closed before the
@@ -85,7 +95,7 @@ func assertNoNewDirsInRoot(t *testing.T, root string, before []string, prefix st
 // os.TempDir do not trigger false-positive leak assertions.
 func TestProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
 	t.Parallel()
-	subTemp := t.TempDir()
+	subTemp := createIsolatedTempDir(t)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProduction_ServeAndValidateNoStagingLeak$", "-test.v")
 	cmd.Env = append(
 		cleanTempEnv(os.Environ()),
@@ -111,7 +121,7 @@ func TestProduction_ServeAndValidateNoStagingLeak_ConcurrentAmbientOverlap(t *te
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(ambientDir) })
 
-	subTemp := t.TempDir()
+	subTemp := createIsolatedTempDir(t)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProduction_ServeAndValidateNoStagingLeak$", "-test.v")
 	cmd.Env = append(
 		cleanTempEnv(os.Environ()),
@@ -135,9 +145,7 @@ func TestHelperProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
 	tempRoot := os.TempDir()
 	before := listTempDirsInRoot(tempRoot, prefix)
 
-	kind := "prod-leak-serve-kind"
-	pluginRoot := stageProductionFakePlugin(t, kind)
-	cfgPath := writeProductionDiscoveryConfig(t, pluginRoot, kind)
+	cfgPath := runtimebundle.MaterializeExampleConfigForTest(t, filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml"))
 
 	if err := runtimebundle.ValidateDistribution(context.Background(), runtimebundle.ValidateDistributionInput{
 		ConfigPath:      cfgPath,
