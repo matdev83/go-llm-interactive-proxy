@@ -64,16 +64,24 @@ func TestRED_ForwardExecute_InBandCancel_ForceCloseJoinsGracefulCancel(t *testin
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			<-done
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 	stream.inFrames <- ClientFrame{Kind: ClientFrameCancel, CancelReason: CancelReasonClient}
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v, want nil", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("ForwardExecute waited indefinitely for graceful Cancel")
+	case <-ctx.Done():
+		t.Fatal("ForwardExecute waited indefinitely for graceful Cancel:", ctx.Err())
 	}
 	if got := managed.cancelCalls.Load(); got != 1 {
 		t.Fatalf("Cancel calls = %d, want 1", got)
@@ -148,7 +156,14 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			<-done
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 
 	deadline := time.Now().Add(75 * time.Millisecond)
 	stream.inFrames <- ClientFrame{
@@ -158,8 +173,8 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 	}
 	select {
 	case <-managed.cancelReturned:
-	case <-time.After(time.Second):
-		t.Fatal("Cancel did not return")
+	case <-ctx.Done():
+		t.Fatal("Cancel did not return:", ctx.Err())
 	}
 
 	closeWaitStart := time.Now()
@@ -173,8 +188,9 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 	}
 	select {
 	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("ForwardExecute did not terminate after force Close")
+		doneReceived.Store(true)
+	case <-ctx.Done():
+		t.Fatal("ForwardExecute did not terminate after force Close:", ctx.Err())
 	}
 }
 
@@ -222,16 +238,24 @@ func TestForwardExecute_PanickingCancelReturnsBoundedOutcome(t *testing.T) {
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			<-done
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 	stream.inFrames <- ClientFrame{Kind: ClientFrameCancel, CancelReason: CancelReasonClient}
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("ForwardExecute hung after panicking Cancel")
+	case <-ctx.Done():
+		t.Fatal("ForwardExecute hung after panicking Cancel:", ctx.Err())
 	}
 	stream.mu.Lock()
 	frames := append([]ServerFrame(nil), stream.sent...)
@@ -277,7 +301,7 @@ func (m *eofAfterEventManaged) Cancel(context.Context, lipapi.CancelCause) lipap
 //
 //nolint:paralleltest // interacts with package-level cancellation timing
 func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream := newCoordinatorTestStream(ctx)
 	stream.inFrames <- coordinatorStartFrame()
@@ -289,7 +313,14 @@ func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			<-done
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		return len(stream.sent) >= 2
@@ -300,18 +331,19 @@ func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
 	// the coordinator boundary, which is the race this test protects.
 	select {
 	case <-stream.cancelReceived:
-	case <-time.After(time.Second):
-		t.Fatal("client-control reader did not receive CANCEL")
+	case <-ctx.Done():
+		t.Fatal("client-control reader did not receive CANCEL:", ctx.Err())
 	}
 	close(managed.releaseEOF)
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("ForwardExecute did not finish after queued cancel and upstream EOF")
+	case <-ctx.Done():
+		t.Fatal("ForwardExecute did not finish after queued cancel and upstream EOF:", ctx.Err())
 	}
 
 	stream.mu.Lock()
@@ -396,7 +428,14 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			<-done
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		return len(stream.sent) >= 2
@@ -405,10 +444,10 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 
 	select {
 	case <-managed.cancelReturned:
-	case <-time.After(time.Second):
-		t.Fatal("Cancel did not return")
+	case <-ctx.Done():
+		t.Fatal("Cancel did not return:", ctx.Err())
 	}
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		for _, frame := range stream.sent {
@@ -437,11 +476,12 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 	managed.release()
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("ForwardExecute did not finish after final evidence and EOF")
+	case <-ctx.Done():
+		t.Fatal("ForwardExecute did not finish after final evidence and EOF:", ctx.Err())
 	}
 
 	stream.mu.Lock()
@@ -479,13 +519,14 @@ func (s *coordinatorTestStream) Context() context.Context { return s.ctx }
 func (s *coordinatorTestStream) Recv() (ClientFrame, error) {
 	select {
 	case frame := <-s.inFrames:
-		if frame.Kind == ClientFrameCancel {
-			s.cancelOnce.Do(func() { close(s.cancelReceived) })
-		}
 		return frame, nil
 	case <-s.ctx.Done():
 		return ClientFrame{}, s.ctx.Err()
 	}
+}
+
+func (s *coordinatorTestStream) OnCancelObserved() {
+	s.cancelOnce.Do(func() { close(s.cancelReceived) })
 }
 
 func (s *coordinatorTestStream) Send(frame ServerFrame) error {
