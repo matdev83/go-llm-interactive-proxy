@@ -218,8 +218,8 @@ type Report struct {
 	Target        string              `json:"target"`
 	Passed        bool                `json:"passed"`
 	Overridden    bool                `json:"overridden"`
-	Violations    []Violation         `json:"violations,omitempty"`
-	Warnings      []Warning           `json:"warnings,omitempty"`
+	Violations    []Violation         `json:"violations"`
+	Warnings      []Warning           `json:"warnings"`
 	Overall       []OverallComparison `json:"overall,omitempty"`
 	TopDeltas     []PackageDelta      `json:"top_deltas,omitempty"`
 }

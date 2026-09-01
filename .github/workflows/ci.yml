@@ -246,10 +246,11 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         run: go build -trimpath ./cmd/lipstd
 
-      # Preserve the full per-OS cache for the next run; runs even on failure so
-      # partial progress is cached, skipped when the primary key already restored.
+      # Preserve the full per-OS cache after a successful job. Failed Windows
+      # ratchets already restored a warm cache; recompressing gigabytes before
+      # exposing their logs only delays diagnosis.
       - name: Save dedicated CI Go cache
-        if: always() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

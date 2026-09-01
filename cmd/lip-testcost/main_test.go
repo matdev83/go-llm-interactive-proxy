@@ -77,6 +77,38 @@ func TestRunCompareAuthorizedOverrideSucceeds(t *testing.T) {
 	}
 }
 
+func TestRunComparePassWritesStableEmptyCollections(t *testing.T) {
+	dir := t.TempDir()
+	measurement := testcost.Measurement{SchemaVersion: 1, Target: "quality-checks", GOOS: "windows", GOARCH: "amd64", WallNanos: 1}
+	policy := testcost.Policy{SchemaVersion: 1, AnchorRef: "origin/main", Targets: map[string]testcost.TargetPolicy{"quality-checks": {Wall: testcost.AbsoluteBudget{Ratio: 2, DeltaSeconds: 1}}}}
+	basePath := filepath.Join(dir, "baseline.json")
+	currPath := filepath.Join(dir, "current.json")
+	policyPath := filepath.Join(dir, "policy.json")
+	outPath := filepath.Join(dir, "report.json")
+	writeFixtureJSON(t, basePath, measurement)
+	writeFixtureJSON(t, currPath, measurement)
+	policyBytes, err := testcost.EncodePolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policyPath, policyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"compare", "--baseline", basePath, "--current", currPath, "--policy", policyPath, "--out", outPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("passing run() exit = %d, stderr=%s", code, stderr.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"violations": []`, `"warnings": []`} {
+		if !bytes.Contains(data, []byte(field)) {
+			t.Fatalf("stable report missing %s: %s", field, data)
+		}
+	}
+}
+
 func TestRunRejectsIncompleteCompareInputs(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"compare", "--baseline", "missing.json"}, &stdout, &stderr); code != 2 {

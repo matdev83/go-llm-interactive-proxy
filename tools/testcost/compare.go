@@ -30,7 +30,13 @@ func CompareWithOptions(baseline, current Measurement, policy Policy, options Co
 		return Report{}, fmt.Errorf("%w: policy has no target %q", ErrMissingTarget, current.Target)
 	}
 
-	report := Report{SchemaVersion: SchemaVersion, Target: current.Target, Passed: true}
+	report := Report{
+		SchemaVersion: SchemaVersion,
+		Target:        current.Target,
+		Passed:        true,
+		Violations:    []Violation{},
+		Warnings:      []Warning{},
+	}
 	compareOverall(baseline, current, OverallPolicy{CPU: targetPolicy.CPU, Processes: targetPolicy.Processes, IOOperations: targetPolicy.IOOperations, Wall: targetPolicy.Wall}, &report)
 	packagePolicy := targetPolicy.Package
 	if !packagePolicy.presentValue("existing_ratio") && !packagePolicy.presentValue("existing_delta_seconds") && !packagePolicy.presentValue("existing_floor_seconds") && !packagePolicy.presentValue("new_warn_seconds") && !packagePolicy.presentValue("new_fail_seconds") {
