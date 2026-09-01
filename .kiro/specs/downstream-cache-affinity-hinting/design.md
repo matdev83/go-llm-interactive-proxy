@@ -392,6 +392,16 @@ Add `Profile.CacheAffinity CacheAffinity`.
 
 No schema version bump: optional bounded v1 field.
 
+### Layering rule
+
+`internal/providerprofiles` is deliberately declarative and must **not import `internal/core/cacheaffinity`** merely to read the generated length. Define:
+
+```go
+const MinCacheAffinityValueLength = 50
+```
+
+locally in `internal/providerprofiles` and use that constant in profile validation. Add an architecture/cross-package test asserting `providerprofiles.MinCacheAffinityValueLength == cacheaffinity.GeneratedLength` so the intentionally duplicated boundary constant cannot drift.
+
 Validation:
 
 1. disabled projection is strict-zero; nonzero subordinate fields while disabled => error;
@@ -399,7 +409,7 @@ Validation:
 3. wire name required;
 4. HTTP header uses existing `safeHeaderName`;
 5. JSON field regex `^[A-Za-z_][A-Za-z0-9_]{0,127}$`;
-6. `MaxLength >= cacheaffinity.GeneratedLength` and `<= MaxStringBytes`;
+6. `MaxLength >= MinCacheAffinityValueLength` and `<= MaxStringBytes`;
 7. OpenAI Chat family may enable only Chat;
 8. OpenAI Responses family may enable only Responses;
 9. other v1 families reject enabled projection;
@@ -518,7 +528,7 @@ Meaning: connector consumes existing prompt-cache semantic as downstream-affinit
 
 Host advertises feature. OpenRouter advertises `FeatureSemanticExtensions` + new feature + existing cancellation feature.
 
-Adapter exposes `ResolveDownstreamCacheAffinity` only if negotiated. Namespace uses first stable route/backend prefix; never instance/session ID. Existing invocation conversion carries PCK; no proto DTO edit.
+Adapter exposes `ResolveDownstreamCacheAffinity` only if negotiated **and a stable route/backend prefix exists**. Namespace is `prefixes[0]`. If there is no stable prefix, synthesis remains disabled; do not invent a fallback namespace. Existing invocation conversion carries PCK; no proto DTO edit.
 
 Old peers remain synthesis-disabled.
 
@@ -540,7 +550,7 @@ Extend:
 - `internal/core/runtime/metrics_sink.go`
 - existing `internal/infra/metrics` sink.
 
-Add one typed observation, e.g.:
+Add exactly:
 
 ```go
 OnDownstreamCacheAffinity(
@@ -576,11 +586,11 @@ Explicit PCK, semantic alias, conflict, empty, len64, len65; generated fallback 
 
 ## Provider-profile production path
 
-Must start from `kind: provider-profile`, run through preparation + real registry/lifecycle build, and prove cache-affinity survives. This is mandatory because direct builder tests would miss the former lossy bridge.
+Must start from `kind: provider-profile`, run through preparation + real registry/lifecycle build, and prove cache-affinity survives. Direct builder tests do not certify this.
 
 ## Profile projection
 
-xAI header; xAI Responses JSON; Mistral/Fireworks/RunInfra JSON; unknown/custom negative; validation bounds.
+xAI header; xAI Responses JSON; Mistral/Fireworks/RunInfra JSON; unknown/custom negative; validation bounds; cross-package constant equality without a production dependency from `providerprofiles` to `core`.
 
 ## OpenRouter
 
@@ -601,7 +611,10 @@ Fail if:
 - durable cache-affinity store/table appears;
 - raw session authority is restored to backend wire;
 - backend proto gains downstream-affinity value field/new minor;
-- generated hint is assigned to residency identity.
+- generated hint is assigned to residency identity;
+- `internal/providerprofiles` imports `internal/core/cacheaffinity`;
+- `providerprofiles.MinCacheAffinityValueLength` drifts from `cacheaffinity.GeneratedLength`;
+- configured `provider-profile` rows are again rewritten into generic compatible factory kinds before production backend construction.
 
 ---
 
@@ -653,6 +666,9 @@ Raw session stays host-only; provider sees provider-scoped HMAC pseudonym.
 ### Compatibility
 Nil resolver => disabled. Old connectors => disabled. Arbitrary custom-compatible profiles unchanged. `provider-profile` becomes a real existing-architecture lifecycle kind rather than a lossy rewrite.
 
+### Layering
+`providerprofiles` remains declarative and does not import upward into core. The shared 50-character boundary is duplicated intentionally as a validated constant and ratcheted by cross-package tests.
+
 ### Provider extensibility
 New compatible provider normally adds a bounded profile projection. New executable connector advertises feature and maps existing PCK. No generic architecture follow-up expected.
 
@@ -661,4 +677,4 @@ Unchanged authority/lifecycle.
 
 ### Verdict
 
-**GO — execution-grade.** The execution audit removed the original unresolved package/key/length/carrier/ABI choices and the hidden lossy provider-profile production dependency. A weaker executor should only need mechanical navigation for symbols that moved, not architectural invention or provider research.
+**GO — execution-grade.** The execution audit removed the original unresolved package/key/length/carrier/ABI choices, the hidden lossy provider-profile production dependency, and the potential providerprofiles→core layering violation. A weaker executor should only need mechanical navigation for symbols that moved, not architectural invention or provider research.
