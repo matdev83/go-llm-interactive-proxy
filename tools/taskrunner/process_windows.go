@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -187,7 +188,7 @@ func newRestrictedProcessToken() (windows.Token, error) {
 	var current windows.Token
 	if err := windows.OpenProcessToken(
 		windows.CurrentProcess(),
-		windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY,
+		windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY|windows.TOKEN_ADJUST_DEFAULT,
 		&current,
 	); err != nil {
 		return 0, err
@@ -206,5 +207,65 @@ func newRestrictedProcessToken() (windows.Token, error) {
 	if ok == 0 {
 		return 0, callErr
 	}
+	if err := setRestrictedTokenDefaultDACL(token, current); err != nil {
+		_ = token.Close()
+		return 0, fmt.Errorf("set restricted token default DACL: %w", err)
+	}
 	return token, nil
+}
+
+type tokenDefaultDACL struct {
+	DefaultDACL *windows.ACL
+}
+
+func setRestrictedTokenDefaultDACL(token, current windows.Token) error {
+	user, err := current.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	restrictedSID, err := windows.CreateWellKnownSid(windows.WinRestrictedCodeSid)
+	if err != nil {
+		return err
+	}
+	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		return err
+	}
+
+	var pins runtime.Pinner
+	pins.Pin(user.User.Sid)
+	pins.Pin(restrictedSID)
+	pins.Pin(systemSID)
+	defer pins.Unpin()
+	entries := []windows.EXPLICIT_ACCESS{
+		fullAccessForSID(user.User.Sid, windows.TRUSTEE_IS_USER),
+		fullAccessForSID(restrictedSID, windows.TRUSTEE_IS_WELL_KNOWN_GROUP),
+		fullAccessForSID(systemSID, windows.TRUSTEE_IS_WELL_KNOWN_GROUP),
+	}
+	acl, err := windows.ACLFromEntries(entries, nil)
+	if err != nil {
+		return err
+	}
+	info := tokenDefaultDACL{DefaultDACL: acl}
+	err = windows.SetTokenInformation(
+		token,
+		windows.TokenDefaultDacl,
+		(*byte)(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	runtime.KeepAlive(acl)
+	return err
+}
+
+func fullAccessForSID(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE) windows.EXPLICIT_ACCESS {
+	return windows.EXPLICIT_ACCESS{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.GRANT_ACCESS,
+		Inheritance:       windows.NO_INHERITANCE,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  trusteeType,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
 }
