@@ -12,6 +12,8 @@
 - **Key Findings**:
   - The declaration-consolidation work solved the expensive horizontal mirror problem and explicitly deferred physical kernel-vs-stage/feature relocation. Its accepted ROI probe proved that an existing-plane feature can be integrated without core/runtime edits.
   - The corrected feature SDK still contains exported map/reflection fallback behavior for ungenerated `Plane[T]` values even though generated standard planes are the only production-complete freeze/replay path. This is a misleading OSS compatibility surface, not a useful extension capability.
+  - A generated-storage eligibility check alone is insufficient because `Plane[T]` also exposes mutable policy fields (`Rules`, `NilPolicy`, validators, combiner, identity, conflict policy). A same-ID copy of a canonical `PlaneX` can currently retain the unexported generated storage closures while changing those exported fields. Closing the catalog therefore requires canonical **generated policy metadata** to be authoritative, not merely an ID/binding check.
+  - Several SDK characterization tests use raw local planes specifically to exercise combiner/source-rule behavior. Once unbound production planes are rejected, those tests must use isolated generated test bindings or they will stop testing their intended failure paths.
   - `toolcallrepair` is a direct ownership violation: configuration is feature-owned, but `internal/standardplugins` imports `internal/core/toolcallrepair` to construct the actual finalizer.
   - Secret guard is split across a feature package and `internal/core/secretguard`; the latter contains the concrete catalog, matcher, environment/source policy, and Aho-Corasick implementation for one optional UX/security feature.
   - `internal/core/compactiondetect` is a concrete coding-agent heuristic detector, while core runtime imports its concrete type. Its state is process-owned but its algorithm is not a universal proxy invariant.
@@ -25,7 +27,7 @@ The CORDIS-v4 discipline used by this repository requires existing authorities t
 
 | Concern / resource | Current authority | Current construction | Required outcome |
 | --- | --- | --- | --- |
-| Immutable feature planes | `pkg/lipsdk/feature` generated storage | feature factory / generated contribution set | Keep authority; close ungenerated fallback |
+| Immutable feature planes | `pkg/lipsdk/feature` generated storage | feature factory / generated contribution set | Keep authority; close ungenerated fallback and make generated plane policy authoritative |
 | Feature registration | `internal/standardplugins` + `internal/pluginreg` | explicit static registration | Keep explicit; no dynamic registry |
 | Generation publication/pinning | `GenerationRuntime` / `runtimehost.Manager` | `runtimebundle` | Unchanged |
 | Process services | `ProcessServices` | `runtimebundle` | Unchanged |
@@ -42,7 +44,7 @@ No resource in this spec requires a new lifetime owner. Physical package relocat
 
 | Effect | Classification | Owner before/after | Notes |
 | --- | --- | --- | --- |
-| Building/freeze of feature planes | generation construction | existing candidate/generation composition | No request-time registration |
+| Building/freeze of feature planes | generation construction | existing candidate/generation composition | No request-time registration; generated policy remains canonical |
 | Tool-call repair | request/stream feature callback | frozen feature finalizer | Deterministic in-process policy; no new I/O |
 | Secret catalog snapshot | process/startup configuration effect | composition path | Must preserve disabled/multi-user no-environment-read semantics |
 | Secret matching | request feature callback | frozen feature services | No new persistent owner |
@@ -67,18 +69,22 @@ No resource in this spec requires a new lifetime owner. Physical package relocat
 ### Gap analysis: dynamic / ungenerated plane API
 
 - **Context**: issue #554 asks whether ungenerated planes are rejected or fully supported.
-- **Sources Consulted**: `pkg/lipsdk/feature/contributions.go`, `frozen.go`, `plane.go`, `errors.go`, `plane_generated.go`, SDK docs.
+- **Sources Consulted**: issue #554; `pkg/lipsdk/feature/contributions.go`, `frozen.go`, `plane.go`, `bundle.go`, `errors.go`, `plane_generated.go`, `export_test.go`, SDK docs.
 - **Findings**:
   - `ContributionSet` still contains `map[string]any` values/identities alongside generated storage.
   - `ContributeSource` enters the map path when `p.generated.contribute` is absent.
   - `FrozenPlaneSet.Get`, cloning, candidate replay, ordinary replay, and validation retain map/type-assertion/reflection fallback paths.
-  - Comments call the path test-only, but exported APIs permit external callers to exercise it.
+  - Request freeze/materialization and `FeatureBundle.Validate` are explicit compatibility surfaces in #554 and must be covered by the selected contract, not inferred from contribution tests.
+  - Comments call the dynamic path test-only, but exported APIs permit external callers to exercise it.
   - Production request snapshots and generated all-plane replay are complete only for the canonical generated manifest.
+  - `Plane[T]` exposes contribution-policy callbacks/metadata. The current generated path still reads `p.Rules`, `p.NilPolicy`, `p.IsNil`, `p.Validate`, `p.Identity`, and conflict policy before generated storage. Therefore an ID-only generated binding marker would leave a same-ID copied plane able to redefine standard-plane semantics.
+  - Existing raw-plane tests such as `TestContribute_FailBeforeMutate_TableDriven` and `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn` need test-only generated bindings after the production contract closes.
 - **Options**:
   1. Fully support dynamic planes across every freeze/replay/request/diagnostic projection — large public framework expansion.
-  2. Reject ungenerated planes at contribution and remove map/reflection storage — small truthful v1 contract.
-- **Decision**: Option 2. The v1 OSS extension catalog is closed. Adding a new plane is a platform change; implementing an existing plane remains ordinary plugin work.
-- **Requirements repair caused by gap analysis**: Initial planning considered leaving #554 to the later full-closure spec. Brownfield inspection showed the current exported fallback can mislead OSS authors immediately, so closed-manifest hardening was promoted into pre-OSS Requirement 1.
+  2. Reject ungenerated planes, make generated policy/storage authoritative for standard planes, and remove map/reflection fallback — small truthful v1 contract.
+- **Decision**: Option 2. The v1 OSS extension catalog is closed. Adding a new plane is a platform change; implementing an existing plane remains ordinary plugin work. The stable public sentinel is `ErrUngeneratedPlane`.
+- **Requirements repair caused by gap analysis**: Initial planning considered leaving #554 to the later full-closure spec. Brownfield inspection showed the current exported fallback can mislead OSS authors immediately, so closed-manifest hardening was promoted into pre-OSS Requirement 1. Review then exposed two additional completeness defects: request-freeze/bundle-validation were not explicitly enumerated, and canonical generated policy had to be authoritative against same-ID descriptor copies. Both are now requirements/design obligations.
+- **Issue lifecycle**: this SDD defines #554's intended resolution, but #554 remains open until production implementation and verification complete; merging the spec alone does not close it.
 
 ### Tool-call repair ownership
 
@@ -139,6 +145,20 @@ No resource in this spec requires a new lifetime owner. Physical package relocat
   - Correctly splitting conversation view, compaction continuity coordination, interleaved-thinking/state, terminal-decision policy, and other historical areas requires independent ownership analysis and is not prerequisite to making the OSS extension contract truthful.
 - **Decision**: Pre-OSS moves only the three high-confidence concrete implementations and ratchets them out. The complete census/decomposition is a required second spec.
 
+### Verification evidence policy
+
+- **Context**: This SDD must prove request-path structural neutrality without duplicating #394's performance program, and must leave a durable handoff to the full-closure SDD.
+- **Sources Consulted**: archived extension-plane correction verification evidence, current Makefile/quality scripts, existing external-module fixtures, #394 boundary.
+- **Findings**:
+  - The prior extension-plane benchmark evidence used a single `-count=1` local run. That is useful for allocation shape but too noisy for a meaningful timing comparison.
+  - `make quality-checks` and `make qa` do not subsume the separate Linux race gate or a new nested external module unless explicitly wired.
+  - Existing external modules use `require root v0.0.0` plus `replace root => ../..`, allowing `GOWORK=off` to validate the checkout rather than a published version.
+- **Decision**:
+  - Task 1.1 and 8.2 use the same benchmark selector/environment with `-count=10` and preserve raw output. `allocs/op` is a blocking exact structural gate; `B/op` is also blocking when its median increases for a benchmark with otherwise unchanged semantics. A >10% median `ns/op` increase is an investigation trigger requiring a second 10-sample batch on the same quiet host, not an automatic #394 release failure. Timing remains evidence, not a cross-machine latency budget.
+  - The external feature fixture has a fixed path `testdata/external_feature_sdk` and the established local-module replace pattern.
+  - Task 8.3 writes `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md` with a fixed table schema and a small `tools/kiro/speccheck` existence/content contract.
+  - Final certification explicitly runs the external fixture and exact Linux race command in addition to aggregate Make targets.
+
 ## Architecture Pattern Evaluation
 
 | Option | Description | Strengths | Risks / Limitations | Decision |
@@ -151,37 +171,43 @@ No resource in this spec requires a new lifetime owner. Physical package relocat
 ## Design Decisions
 
 ### Decision: v1 standard plane catalog is closed
+
 - **Context**: Exported generic `Plane[T]` construction currently implies more support than production can deliver.
-- **Selected Approach**: `ContributeSource` rejects planes without generated bindings with a stable sentinel; remove map/reflection arbitrary-plane storage/replay from production `ContributionSet`/`FrozenPlaneSet`.
-- **Rationale**: Truthful behavior is safer for OSS than half-support. Adding a new plane remains cheap because declaration generation is now consolidated.
-- **Trade-offs**: Out-of-tree code experimenting with undocumented dynamic planes must migrate to an existing standard plane or upstream a new declaration.
+- **Selected Approach**: `ContributeSource` rejects planes without generated bindings using `ErrUngeneratedPlane`; generated canonical policy/storage is authoritative for bound standard planes; remove map/reflection arbitrary-plane storage/replay from production `ContributionSet`/`FrozenPlaneSet`.
+- **Rationale**: Truthful behavior is safer for OSS than half-support. Adding a new plane remains cheap because declaration generation is now consolidated. Canonical generated policy also prevents a copied descriptor from redefining standard-plane behavior.
+- **Trade-offs**: Out-of-tree code experimenting with undocumented dynamic planes must migrate to an existing standard plane or upstream a new declaration. Test-only local planes need generated fixture bindings when testing standard contribution semantics.
 - **Follow-up**: Fully dynamic planes may be reconsidered only if real external demand justifies the framework cost.
 
 ### Decision: feature implementations move; generic execution stages stay core
+
 - **Context**: "Slim core" must not mean moving universal orchestration out of core.
 - **Selected Approach**: Move concrete repair/matching/detection algorithms; retain extension stage runners, frozen snapshots, ordering/error isolation, routing/B2BUA/terminal authorities in core.
 - **Rationale**: Preserves stable kernel semantics while removing optional product policy.
 - **Trade-offs**: Some feature-specific composition remains in infra adapters until full closure.
 
 ### Decision: use dedicated typed compose adapters, not a new feature DI framework
+
 - **Context**: Reasoning compression and secret guard need process/generation capabilities after config decode.
 - **Selected Approach**: `internal/infra/reasoningcompose` and `internal/infra/secretguardcompose` own concrete binding logic; runtimebundle passes explicit typed inputs and consumes generic outputs.
 - **Rationale**: Mirrors the existing compactioncompose pattern and makes runtimebundle feature-implementation agnostic without introducing service discovery.
 - **Trade-offs**: Multiple dedicated adapters remain. Full-closure spec will decide whether any common private abstraction is justified by measured duplication.
 
 ### Decision: compaction detector port is private and consumer-owned
+
 - **Context**: Core must invoke detection at exact irreversible/release seams but should not own heuristic implementation.
 - **Selected Approach**: Runtime defines a narrow unexported/internal interface using canonical `lipapi` inputs and SDK compaction metadata/results; `internal/infra/compactiondetect` implements it; runtimebundle injects one process-owned instance.
 - **Rationale**: Dependency inversion without expanding public SDK or changing lifetime ownership.
 - **Trade-offs**: Core still knows the abstract concept of compaction observation because it owns the exact stage/release position. The later full spec may reassess whether even this stage belongs elsewhere.
 
 ### Decision: downward budget is measured after moves, not pre-guessed
+
 - **Context**: Physical moves add a few interface/adapter lines while deleting large core trees.
 - **Selected Approach**: Capture baseline non-test core LOC, perform the named moves, measure final tree, then set the permanent budget to final measured count + existing 25-line standard headroom. Record moved/deleted paths separately.
 - **Rationale**: Deterministic, truthful, and resistant to gaming.
 - **Trade-offs**: The spec does not promise an arbitrary percentage reduction.
 
 ### Decision: full closure is mandatory follow-up but not an OSS blocker
+
 - **Context**: Remaining mixed areas are real but much broader.
 - **Selected Approach**: Produce a concrete residual ownership inventory during closeout and seed the second SDD from it. Do not opportunistically expand this implementation.
 - **Rationale**: Protects release time/budget while preventing debt from disappearing into chat history.
@@ -198,30 +224,33 @@ No resource in this spec requires a new lifetime owner. Physical package relocat
 
 ## Failure Schedule Analysis
 
-1. **Ungenerated contribution**: reject before any generated/map state mutation; later valid contribution must behave as if rejection never happened.
-2. **Feature bundle construction failure**: candidate remains unpublished; last-good generation survives.
-3. **Secret catalog failure**: fail startup/candidate at the same pre-publication stage; no partial matcher or observer binding escapes.
-4. **Reasoning composition prerequisite missing**: same classified failure; no partial attempt-transform/observer rebinding.
-5. **Reload removes feature**: old request remains pinned; new generation has no corresponding contribution.
-6. **Detector panic**: runtime safe wrapper preserves fail-open observation behavior; no request failure.
-7. **Detector/process shutdown**: no new shutdown semantics are introduced; detector has no worker/Close and dies with ProcessServices references.
-8. **Linux race schedule**: detector concurrent request/release/state cleanup remains race-free in its new package.
+1. **Ungenerated contribution**: reject with `ErrUngeneratedPlane` before any generated/map state mutation; later valid contribution must behave as if rejection never happened.
+2. **Copied/mutated standard-plane descriptor**: changed-ID copy is rejected; same-ID policy mutation cannot alter canonical generated validation/source/nil/identity/combine behavior.
+3. **Feature bundle construction failure**: candidate remains unpublished; last-good generation survives.
+4. **Secret catalog failure**: fail startup/candidate at the same pre-publication stage; no partial matcher or observer binding escapes.
+5. **Reasoning composition prerequisite missing**: same classified failure; no partial attempt-transform/observer rebinding.
+6. **Reload removes feature**: old request remains pinned; new generation has no corresponding contribution.
+7. **Detector panic**: runtime safe wrapper preserves fail-open observation behavior; no request failure.
+8. **Detector/process shutdown**: no new shutdown semantics are introduced; detector has no worker/Close and dies with ProcessServices references.
+9. **Linux race schedule**: detector concurrent request/release/state cleanup remains race-free in its new package.
 
 ## Risks & Mitigations
 
 - **Hidden source compatibility reliance on dynamic planes** — add an external-style test and document the intentional v1 closed contract; repository is pre-v1 and current fallback is undocumented/incomplete.
+- **Copied standard plane mutates exported policy** — all production policy comes from canonical generated metadata; adversarial same-ID mutation tests prevent descriptor copies from becoming a second declaration authority.
+- **Raw-plane SDK tests collapse into unsupported-plane tests** — migrate behavior-oriented local planes through a test-only generated binding while retaining explicit raw-plane rejection coverage.
 - **Mechanical package moves lose tests or build tags** — move tests first or in the same PR wave; compare test names/fixtures and require package-specific gates before deleting old packages.
 - **Secret-guard security regression during access-mode decoupling** — RED tests for zero env access, disabled behavior, catalog categories, audit policy before move.
 - **Compaction detector interface accidentally leaks implementation details** — interface uses only existing canonical/SDK values and three runtime-consumed operations.
-- **Dedicated compose adapters become a permanent dumping ground** — architecture inventory records them as residual debt and the full-closure spec must re-evaluate them; runtimebundle import ratchet prevents regression in the meantime.
+- **Dedicated compose adapters become a permanent dumping ground** — architecture inventory records them as residual debt and the full-closure spec must re-evaluate them; runtimebundle import ratchet prevents regression meanwhile.
 - **Scope creep into every core package** — Requirement 10 forbids extra package relocation unless strictly necessary for the three named moves.
-- **Performance regression from abstraction** — detector interface dispatch is one bounded call at existing observation seams; plane fallback removal simplifies rather than expands request access; benchmark/race gates are mandatory.
+- **Performance regression from abstraction** — detector interface dispatch is one bounded call at existing observation seams; plane fallback removal simplifies rather than expands request access; repeated benchmark/allocation and race gates are mandatory without duplicating #394.
 
 ## References
 
 - `.kiro/specs/archive/extension-plane-declaration-consolidation/` — declaration consolidation, ROI probes, explicit kernel-vs-stages deferral.
 - `.kiro/specs/archive/extension-plane-review-corrections/` — corrected nil/schema/hook/merge contract and dynamic-plane follow-up ownership.
-- GitHub issue #554 — dynamic-plane compatibility decision.
+- GitHub issue #554 — dynamic-plane compatibility decision and explicit freeze/validation/replay acceptance surface.
 - `.agents/skills/go-lip-cordis-v4/SKILL.md` — explicit ownership, immutable generations, no DI/service locator, measurable simplification rules.
 - `.kiro/steering/structure.md` and `.kiro/steering/tech.md` — package ownership and runtime construction invariants.
 - `AGENTS.md` and `.kiro/AGENTS.md` — small-core/plugin boundary and TDD/spec delivery rules.
