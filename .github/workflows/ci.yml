@@ -169,6 +169,12 @@ jobs:
       - name: Check out repository (Windows test-cost history)
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        env:
+          GIT_CONFIG_COUNT: 2
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: core.eol
+          GIT_CONFIG_VALUE_1: lf
         with:
           fetch-depth: 0
           persist-credentials: false

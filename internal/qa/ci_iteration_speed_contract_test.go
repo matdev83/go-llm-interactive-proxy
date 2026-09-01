@@ -335,6 +335,16 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	}
 
 	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
+	for _, checkoutConfig := range []string{
+		"GIT_CONFIG_KEY_0: core.autocrlf",
+		`GIT_CONFIG_VALUE_0: "false"`,
+		"GIT_CONFIG_KEY_1: core.eol",
+		"GIT_CONFIG_VALUE_1: lf",
+	} {
+		if !strings.Contains(ci, checkoutConfig) {
+			t.Fatalf("Windows measured head checkout must remain LF-normalized: %q", checkoutConfig)
+		}
+	}
 	for _, needle := range []string{
 		"types: [opened, synchronize, reopened, labeled, unlabeled]",
 		"github.event.pull_request.base.sha",
