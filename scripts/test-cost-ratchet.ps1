@@ -340,15 +340,16 @@ function Apply-AnchorCompatibilityPatch {
         }
     }
 
-    # The pinned anchor predates Windows load-stability fixes needed when its
-    # full suite runs under the ratchet. Keep this compatibility surface
-    # test-only and explicit; production sources still come from the anchor.
+    # The pinned anchor predates Windows load-stability and read-only QA fixes
+    # needed when its full suite runs under the ratchet. Keep this compatibility
+    # surface test/QA-only and explicit; production sources still come from the anchor.
     $loadCompatibilityPaths = @(
         "internal/stdhttp/request_plane_generation_test.go",
         "internal/infra/runtimebundle/publish_pinned_characterization_test.go",
         "internal/infra/runtimehost/observability_test.go",
         "internal/qa/phase74_migration_rollout_evidence_test.go",
-        "internal/plugins/frontends/openresponses/websocket_upgrade_test.go"
+        "internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
+        "scripts/quality-checks.ps1"
     )
     foreach ($relativePath in $loadCompatibilityPaths) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force

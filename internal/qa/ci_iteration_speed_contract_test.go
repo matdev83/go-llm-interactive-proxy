@@ -56,6 +56,10 @@ func TestCIIterationSpeed_LocalMakeGraphKeepsFastAndFullQualityContracts(t *test
 			t.Fatalf("%s must expose the explicit duplicate-build/vet fast-path switch", name)
 		}
 	}
+	qualityPS1 := readRepositoryFile(t, "scripts", "quality-checks.ps1")
+	if !strings.Contains(qualityPS1, `@("go", "mod", "tidy", "-diff")`) {
+		t.Fatal("Windows quality checks must verify module tidiness without writing tracked files")
+	}
 }
 
 func TestCIIterationSpeed_MatrixScopeProbeAndDedicatedCaches(t *testing.T) {
@@ -311,6 +315,7 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"internal/infra/runtimehost/observability_test.go",
 		"internal/qa/phase74_migration_rollout_evidence_test.go",
 		"internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
+		"scripts/quality-checks.ps1",
 	} {
 		if !strings.Contains(script, loadCompatibilityPath) {
 			t.Fatalf("anchor load compatibility must remain test-only and explicit: %q", loadCompatibilityPath)
