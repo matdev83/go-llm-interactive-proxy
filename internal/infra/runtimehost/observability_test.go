@@ -87,10 +87,10 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 	})
 
 	coord, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
-		Source:   src,
-		Loader:   loader,
-		Compile:  compile,
-		Manager:  mgr,
+		Source:  src,
+		Loader:  loader,
+		Compile: compile,
+		Manager: mgr,
 		// This test exercises observability, not timeout classification. Leave
 		// enough headroom for a repository-wide Windows run under CPU pressure.
 		Timeout:  30 * time.Second,
