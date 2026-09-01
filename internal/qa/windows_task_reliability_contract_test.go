@@ -481,6 +481,21 @@ func TestWindowsTaskReliability_TaskRunnerCaptureContract(t *testing.T) {
 	}
 }
 
+func TestWindowsTaskReliability_TaskRunnerColdBuildIsSerialized(t *testing.T) {
+	t.Parallel()
+	script := readRepositoryFile(t, "scripts", "taskrunner.ps1")
+	for _, needle := range []string{
+		"System.Threading.Mutex",
+		"WaitOne([TimeSpan]::FromMinutes(2))",
+		"if (Test-TaskRunnerBuildRequired $path)",
+		"Move-Item -LiteralPath $buildPath -Destination $path -Force",
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("taskrunner cold build must remain cross-process safe: %q", needle)
+		}
+	}
+}
+
 func TestWindowsTaskReliability_RobocopyExitCodeClassifier(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("robocopy exit-code protocol is Windows-specific")
