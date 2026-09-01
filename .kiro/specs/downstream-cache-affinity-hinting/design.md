@@ -2,538 +2,744 @@
 
 ## Overview
 
-This design completes Go-LIP's generic prompt-cache locality stack by adding a **downstream cache-affinity hint layer** between existing trusted conversation identity and provider-specific request construction.
+This design completes Go-LIP's generic prompt-cache locality stack by adding a **downstream cache-affinity hint layer** between trusted secure-session identity and provider request construction.
 
-The repository already owns the difficult stateful pieces:
+The design is deliberately prescriptive. The implementation model is not expected to choose package ownership, key material, hash format, insertion point, connector transport, OpenRouter carrier, or provider-family architecture. Those decisions are frozen here.
 
-- proxy-owned secure sessions and explicit client-vs-authority separation;
-- internal backend routing affinity;
-- protocol-neutral `PromptCacheKey` carriage and semantic extensions;
-- model/candidate-aware backend capabilities;
-- prompt-cache residency observation/control and keep-warm orchestration;
-- executable-backend negotiation;
-- provider usage/cache evidence.
+The central rule is:
 
-The missing layer is intentionally small:
-
-> If the selected provider/model/API flavor explicitly supports a downstream conversation/cache-routing hint, resolve the best available hint using deterministic precedence, synthesize a privacy-safe stable fallback only when needed, and let the backend adapter project that value into the provider's documented wire carrier.
-
-The design makes four authorities explicit and separate:
-
-```text
-trusted conversation scope
-        |
-        v
-proxy-generated fallback ----+
-                              |
-explicit client hint ---------+--> effective downstream affinity hint
-                                      |
-                                      v
-                             provider-specific wire projection
-                                      |
-                                      v
-                             provider load balancer / replica
-                                      |
-                                      v
-                        backend-observed residency target
-```
-
-The effective downstream hint is **advisory routing metadata**. It is not cache residency evidence, not continuation authority, not a route selector, not authorization state, and not a guarantee of a cache hit.
+> Core may synthesize one opaque provider-scoped fallback from an admitted proxy-owned session only after a concrete backend capability is known. The value is carried through the existing `PromptCacheKey` semantic, provider/profile adapters project it to the documented wire carrier, and backend-observed residency remains the only cache-residency authority.
 
 ## Goals
 
-- Improve prompt/KV cache locality for clients that omit provider-understood session/cache hints.
-- Preserve more specific explicit client/harness cache scope where present.
-- Use trusted existing conversation/session identity as the only generic fallback scope.
-- Hide raw internal session identifiers behind a deterministic opaque value.
-- Support provider-specific body/header carriers through explicit model/API-flavor capabilities.
-- Ship the complete initial provider rollout in this implementation batch.
-- Reuse existing connector/semantic-extension/session fields where sufficient.
-- Add low-cardinality observability tied to real cache evidence rather than inferred success.
-- Keep the hot path allocation/state footprint bounded and free of DB/network lookups.
-- Finish generic proxy cache hinting without a planned follow-up spec.
+- Preserve explicit client cache/affinity intent.
+- Fill the missing case where the client provides no usable prompt-cache locality key.
+- Never expose raw Go-LIP session IDs as provider affinity values.
+- Opt providers in explicitly; generic compatibility is not enough.
+- Repair direct OpenAI Responses explicit `PromptCacheKey` forwarding.
+- Use the existing provider-profile/OpenAI-compatible family architecture for xAI, Mistral, Fireworks, and RunInfra.
+- Reuse existing backend-plugin semantic extensions; no new protobuf field/minor.
+- Keep request-hot-path work constant, local, allocation-bounded, and goroutine-free.
+- Make the initial provider matrix operational in this workstream even if bulk provider expansion has not yet run.
 
 ## Non-Goals
 
-- No new prompt cache TTL, renewal, scheduler, or keep-warm policy.
-- No central cache-residency identity derivation.
-- No guarantee that a projected hint produces a cache hit.
-- No cross-provider cache sharing.
-- No provider replica pinning that overrides provider health/failover policy.
-- No generic injection into undocumented OpenAI-compatible fields.
-- No principal/user-wide sticky key.
-- No persistence of generated hints as new durable state.
-- No reinterpretation of Codex per-turn state, `previous_response_id`, WebSocket connection identity, or provider cache-resource IDs.
-- No requirement that every frontend know provider-specific cache headers.
+- No new cache-residency target identity.
+- No keep-warm scheduler change.
+- No provider cache-hit guarantee.
+- No new generic inbound raw-header capture framework.
+- No provider-name switch in core.
+- No new cache-affinity database/store.
+- No full-prompt/tool-schema hashing.
+- No principal/user/IP/request-ID fallback.
+- No new user-facing secret solely for this feature.
+- No new backend-plugin protobuf field or protocol minor.
+- No dedicated xAI/Mistral/Fireworks/RunInfra Go backend packages.
 
-## Brownfield Architecture Map
+---
 
-### Existing session authority
+# 1. Brownfield Boundary Map
 
-`pkg/lipapi.SessionRef` is already the canonical in-process container for:
+```mermaid
+flowchart LR
+    SS[Secure session root key + authoritative session]
+    CAP[Selected backend cache-affinity capability]
+    DER[internal/core/cacheaffinity Deriver]
+    RES[Runtime effective PromptCacheKey resolution]
+    SCRUB[Existing final session scrub]
+    BE[Backend / executable connector]
+    WIRE[Provider-specific wire projection]
+    P[Provider]
+    OBS[Existing cache residency observation]
+    KW[Existing keep-warm]
 
-- untrusted/weak `ClientSessionID`;
-- continuity key;
-- A-leg identity;
-- proxy-owned `AuthoritativeSessionID`;
-- resume proof.
+    SS --> DER
+    CAP --> DER
+    DER --> RES
+    RES --> SCRUB
+    SCRUB --> BE
+    BE --> WIRE --> P
+    P --> OBS --> KW
 
-The new feature MUST consume existing validated session views/authority rather than create another session store.
+    CAP -. does not choose route .-> RES
+    RES -. does not create residency .-> OBS
+```
 
-### Existing internal route affinity
+### Authority ownership
 
-`internal/core/affinity` resolves a session/client key used by Go-LIP's route planner to stay on a selected backend candidate. This feature reuses the same trusted **scope semantics** but does not reuse the `Binding` as provider cache state.
+| Concern | Existing/new owner | This feature changes it? |
+|---|---|---:|
+| Secure session authority | `internal/core/securesession` | no |
+| Internal route affinity | `internal/core/affinity` + routing runtime | no |
+| Effective provider locality hint | **new `internal/core/cacheaffinity` + backend capability** | yes |
+| Protocol-neutral prompt-cache value | existing `lipapi.Call.PromptCacheKey` / semantic extension | reused |
+| Provider wire carrier | provider/profile/connector adapter | extended |
+| Provider continuation | existing provider adapter | no |
+| Cache residency target/generation | existing `pkg/lipsdk/promptcache` backend observation | no |
+| Cache renewal/keep-warm | existing residency/keep-warm | no |
 
-Internal route affinity answers: "which Go-LIP backend candidate should this session prefer?"
+---
 
-Downstream cache affinity answers: "what stable advisory value may the selected backend send so its provider/broker can prefer a warm endpoint?"
+# 2. Exact Core Package and Contracts
 
-These are adjacent but separate concerns.
+## 2.1 New package: `internal/core/cacheaffinity`
 
-### Existing prompt-cache key carrier
+Create this package. It imports only stdlib and provider-neutral Go-LIP types needed for bounded validation; it must not import provider adapters.
 
-`lipapi.Call.PromptCacheKey` and `SemanticExtensions` already carry a protocol-neutral cache-key semantic through backend-plugin paths. The new layer may resolve that explicit value as a stronger hint source than the generated fallback.
-
-No provider-specific body/header field is added to `pkg/lipapi`.
-
-### Existing residency/control
-
-The completed prompt-cache residency contract remains authoritative after provider preparation/execution. Its target IDs, generation IDs, handles, timing, and renewal control are not derived from the outbound hint.
-
-This design therefore has no dependency on modifying the keep-warm scheduler.
-
-## Domain Model
-
-The exact package/name may be adjusted to repository conventions during implementation; semantics are normative.
-
-### Logical hint semantics
+### Constants
 
 ```go
-type Semantic string
-
 const (
-    SemanticConversationCacheAffinity Semantic = "conversation_cache_affinity"
+    GeneratedPrefix = "lipca1_"
+    GeneratedLength = 50
+    MaxNamespaceBytes = 128
 )
 ```
 
-One semantic is sufficient initially. Provider wire names differ, but they all communicate a stable conversation/workflow routing identity for cache locality. Do not add provider names as semantics.
-
-### Hint source
+### Source/outcome enums
 
 ```go
 type Source string
 
 const (
-    SourceNone                   Source = "none"
-    SourceExplicitProvider      Source = "explicit_provider"
-    SourceExplicitPromptCache   Source = "explicit_prompt_cache"
-    SourceProxyGenerated        Source = "proxy_generated"
+    SourceNone                Source = "none"
+    SourceExplicitPromptCache Source = "explicit_prompt_cache"
+    SourceProxyGenerated      Source = "proxy_generated"
 )
-```
 
-The source is useful for policy, diagnostics, and tests. It MUST NOT be serialized as canonical model content.
-
-### Effective hint
-
-```go
-type Hint struct {
-    Semantic Semantic
-    Value    string
-    Source   Source
-}
-```
-
-Invariants:
-
-- `Value` is non-empty only when `Source != none`;
-- value is already bounded/transport-safe before backend projection;
-- callers compare/copy it only; core does not parse provider meaning from the string;
-- raw value is never used as a metric label or ordinary log field.
-
-### Provider capability
-
-```go
-type Transport string
+type Outcome string
 
 const (
-    TransportJSONField Transport = "json_field"
-    TransportHeader    Transport = "header"
+    OutcomeAppliedOrAvailable Outcome = "applied_or_available"
+    OutcomeUnsupported        Outcome = "unsupported"
+    OutcomeDisabled           Outcome = "disabled"
+    OutcomeInvalid            Outcome = "invalid"
 )
+```
 
-type Capability struct {
-    Supported              bool
-    Semantic               Semantic
-    Transport              Transport
-    WireName               string
-    MaxLength              int
-    AllowProxySynthesis    bool
-    PreserveExplicitClient bool
+Do not add `explicit_provider` to the generic core enum; provider-specific explicit carriers remain adapter-owned and are covered by adapter tests. This avoids inventing a new generic inbound provider-header authority.
+
+### Backend support
+
+```go
+type Support struct {
+    SynthesisAllowed bool
+    Namespace        string
 }
 ```
 
-The concrete shape may live in an existing provider profile/capability structure rather than a new public type if that better matches current code.
+`Support.Normalize()` / `Validate()` rules:
 
-Capability is resolved **after the backend/model/API flavor is known**. The adapter owns `WireName`; core must not switch on it.
+- `SynthesisAllowed=false` permits empty namespace and means no fallback generation.
+- `SynthesisAllowed=true` requires a non-empty trimmed namespace <=128 bytes.
+- namespace cannot contain NUL/control bytes.
+- no provider wire field/header belongs in this struct.
 
-## Hint Resolution
+### Deriver
 
-### Inputs
+```go
+type Deriver struct {
+    subkey [32]byte
+}
 
-The resolver consumes only already-available in-memory facts:
+func NewDeriver(rootKey []byte) (*Deriver, error)
+func (d *Deriver) Derive(namespace, authoritativeSessionID string) (string, error)
+```
 
-- selected provider/model/API-flavor capability;
-- explicit provider-specific affinity value, if the frontend/protocol adapter has preserved one safely;
-- protocol-neutral `PromptCacheKey`/semantic extension, if present;
-- validated session view / authoritative conversation scope;
-- configured derivation key/material and policy.
-
-### Precedence
-
-Normative precedence:
-
-1. **explicit provider-specific client affinity value** that is valid for the selected capability;
-2. **explicit protocol-neutral client `PromptCacheKey`** when the provider capability maps the same cache-affinity semantic;
-3. **proxy-generated fallback** when capability permits synthesis and trusted conversation scope exists;
-4. **no hint**.
-
-The proxy does not overwrite explicit values.
-
-If two explicit carriers claiming the same semantic disagree, the protocol/backend boundary must either apply one documented precedence rule or fail validation. Map iteration order is never accepted as policy.
-
-### Why `PromptCacheKey` can outrank generated session fallback
-
-A coding agent such as Hermes can deliberately maintain a logical cache scope that survives physical session/compaction rotation and can include stable prefix identity. The proxy cannot infer that richer application-level intent from its own session ID. Therefore a valid explicit client cache key wins.
-
-## Opaque Fallback Derivation
-
-### Inputs
-
-Use the trusted conversation-scope identifier selected by existing session/affinity policy. Prefer `AuthoritativeSessionID`.
-
-Do not use:
-
-- resume token;
-- principal ID as generic session fallback;
-- IP address;
-- API key;
-- raw prompt content;
-- first-message hash invented by core;
-- request ID/A-leg ID if the logical session spans multiple A-legs and existing session policy says otherwise.
-
-### Recommended construction
-
-A keyed deterministic digest is preferred:
+Exact cryptographic construction:
 
 ```text
-lipca1_<base64url(truncate(HMAC-SHA256(key, domain || scope_kind || scope_id)))>
+subkey = HMAC-SHA256(root_key,
+                     "go-lip/downstream-cache-affinity/key/v1\x00")
+
+digest = HMAC-SHA256(subkey,
+                     "go-lip/downstream-cache-affinity/value/v1\x00" ||
+                     namespace || "\x00" || authoritative_session_id)
+
+wire = "lipca1_" + base64.RawURLEncoding.EncodeToString(digest[:])
 ```
 
-Properties:
+Do not truncate `digest`. Do not derive one length per provider. The result is exactly 50 ASCII characters.
 
-- deterministic within one configured key epoch;
-- non-reversible without key material;
-- no raw session leakage;
-- bounded ASCII;
-- safe in headers/JSON;
-- cheap to compute;
-- no persistence required.
+`NewDeriver` copies/derives from root key and stores only the derived subkey. It must reject an empty root. It does not own rotation/persistence; it follows the existing secure-session root lifecycle.
 
-Use explicit domain separation, for example `go-lip/downstream-cache-affinity/v1`, so the digest cannot accidentally equal another HMAC-derived identifier in the product.
+### Tests
 
-The exact truncation length must provide ample collision resistance while fitting the strictest supported provider limit. The implementation task must confirm current provider limits and choose one stable default representation; do not dynamically truncate the same logical value differently in multiple generic layers.
+Create `internal/core/cacheaffinity/deriver_test.go` and `support_test.go` covering:
 
-### Key ownership/configuration
+- exact `GeneratedLength == 50`;
+- prefix and base64url alphabet;
+- deterministic same session+namespace;
+- different session -> different output;
+- different namespace -> different output;
+- no raw session substring;
+- root-key change -> different output;
+- empty/oversized/control-byte namespace rejection;
+- empty authoritative session rejection;
+- no global mutable state/concurrency races.
 
-Prefer an existing proxy secret/key derivation facility if one already exists and is appropriate. Otherwise add one bounded configuration setting with secure startup validation. Do not silently derive from public configuration values.
+---
 
-If key rotation changes generated hints, only cache locality is lost. Session correctness remains unchanged.
+# 3. Secure-Session Composition
 
-## Component Design
+## 3.1 Reuse existing root key; add no config secret
 
-### 1. Effective Hint Resolver
+Current composition already resolves the fingerprint key in:
 
-**Owner:** provider-neutral core/SDK boundary, close to existing affinity/provider preparation seams.
+- `internal/infra/runtimebundle/secure_session.go`
 
-Responsibilities:
+and already applies memory-vs-durable key-lifetime policy.
 
-- enforce precedence;
-- classify source;
-- request generated fallback only when capability permits it;
-- validate length and transport-safe representation;
-- return no hint for unsupported capability;
-- never mutate route selection or residency state.
+Extend the private `secureSessionRuntime` result with:
 
-It must be a pure/bounded function apart from reading immutable configured derivation state.
-
-### 2. Conversation Scope Adapter
-
-**Owner:** existing session/exec view layer.
-
-Responsibilities:
-
-- expose the already-validated session scope to the hint resolver;
-- prefer authoritative identity;
-- obey existing missing-identity policy;
-- avoid re-reading secure-session storage.
-
-Do not introduce a new session cache/store.
-
-### 3. Provider/Model Capability
-
-**Owner:** backend/provider profile compilation.
-
-Responsibilities:
-
-- state whether synthesis is legal for the concrete API flavor;
-- state provider wire transport/name and max length;
-- distinguish Chat Completions from Responses when needed;
-- be immutable/generation-local after configuration compilation;
-- permit explicit operator disable/override.
-
-Initial built-in capability matrix:
-
-| Provider/API path | Projection | Default synthesis |
-|---|---|---|
-| OpenAI Responses | JSON `prompt_cache_key` | enabled when profile supports current field |
-| xAI Chat Completions | header `x-grok-conv-id` | enabled |
-| xAI Responses | JSON `prompt_cache_key` | enabled |
-| Mistral supported Chat/FIM path | JSON `prompt_cache_key` | enabled |
-| OpenRouter | one adapter-chosen canonical carrier: JSON `session_id` or header `x-session-id` | enabled |
-| explicitly profiled Fireworks/RunInfra-compatible endpoints | declared carrier only | enabled only by matching built-in/profile capability |
-| Anthropic direct | none | disabled |
-| Gemini direct | none | disabled |
-| unknown OpenAI-compatible | none | disabled |
-
-The implementation must verify actual current backend IDs/API flavor structures and wire builders instead of creating duplicate provider abstractions.
-
-### 4. Backend Wire Projector
-
-**Owner:** concrete backend adapter / connector implementation.
-
-Responsibilities:
-
-- take `Hint` plus resolved capability;
-- preserve explicit client field/header where already present;
-- add generated value only if absent and allowed;
-- enforce provider field/header syntax and size;
-- keep provider-specific names out of core;
-- leave unsupported backends byte-for-byte semantically unchanged.
-
-Projection should occur at the same provider preparation stage that currently handles provider-specific request extras so the final request is coherent.
-
-### 5. Executable Connector Bridge
-
-Default design: **no new ABI field**.
-
-Reasoning:
-
-- host already carries `proxy_owned_session_id`;
-- host already carries `prompt_cache_key`/semantic extension;
-- connector owns provider wire construction;
-- therefore connector can resolve effective hint from negotiated proxy-owned session authority plus explicit cache key and its local provider capability.
-
-If implementation discovers that an executable connector cannot safely reproduce the exact same derivation because host-only key material must not be shared, prefer one of these in order:
-
-1. host computes the opaque generated fallback and carries it through an existing bounded semantic-extension mechanism;
-2. only if existing semantic-extension negotiation is insufficient, add one additive negotiated semantic extension—not a new canonical trajectory field.
-
-A new top-level protobuf identity field is the last resort and requires proof in the implementation PR.
-
-### 6. Observability
-
-Add low-cardinality counters/histograms or existing telemetry dimensions for:
-
-- `hint_source = none|explicit_provider|explicit_prompt_cache|proxy_generated`;
-- `projection = applied|unsupported|disabled|invalid`;
-- provider/backend/model-class dimensions already used safely in telemetry.
-
-Never label with actual hint values or session IDs.
-
-Cache-effect truth remains existing usage evidence:
-
-- cached input/read tokens;
-- cache write tokens;
-- residency observations;
-- provider-specific cache-hit evidence.
-
-Do not emit a synthetic `cache_hit=true` from projection alone.
-
-## Request Flow
-
-```mermaid
-sequenceDiagram
-    participant F as Frontend
-    participant R as Runtime/Core
-    participant C as Capability
-    participant H as Hint Resolver
-    participant B as Backend Adapter
-    participant P as Provider
-    participant O as Cache Observation
-
-    F->>R: canonical call + explicit hints if present
-    R->>C: selected backend/model/API flavor
-    C-->>R: downstream affinity capability
-    R->>H: explicit hints + trusted session scope + capability
-    H-->>R: effective hint/source or none
-    R->>B: attempt with effective advisory hint
-    B->>B: provider-specific wire projection
-    B->>P: request
-    P-->>B: stream + usage/cache evidence
-    B-->>R: canonical stream
-    B->>O: existing residency observation sideband
+```go
+CacheAffinityDeriver *cacheaffinity.Deriver
 ```
 
-The resolver must run after a concrete backend/model/API flavor is selected but before provider wire encoding.
+Construct it once from the already-resolved fingerprint root (`fp`) in the same assembly path that constructs secure-session generator/manager dependencies.
 
-## Failover and Parallel Races
+If secure-session assembly has a valid root, cache-affinity derivation construction must succeed. Do not generate a second random key and do not add a second env/config field.
 
-### Ordered failover
+## 3.2 Runtime injection
 
-A failed pre-output attempt may carry a hint for provider A. If fallback provider B supports the same logical semantic, B may receive the same logical effective hint value projected through its own wire contract. This does not imply shared provider cache state.
+Extend `runtime.SecurityRuntime` in:
 
-### Parallel races
+- `internal/core/runtime/executor_config.go`
 
-Each capable race arm may receive the same logical conversation hint. Provider-specific projection remains independent. Losing arms are cancelled normally. No new shared state is stored.
+with:
 
-### Post-output behavior
+```go
+DownstreamCacheAffinityDeriver *cacheaffinity.Deriver
+```
 
-Unchanged. First client-visible output commits the attempt. Cache-affinity hinting never permits post-output failover.
+`securityRuntimeFromSecureSession(...)` passes the composed deriver into this field.
 
-## Continuation and Transport Interaction
+Minimal/unit executors may leave it nil (synthesis unavailable) or inject a deterministic test deriver.
 
-The following remain distinct:
+---
 
-- OpenAI/Codex `previous_response_id`;
-- per-turn `x-codex-turn-state`;
-- WebSocket connection reuse;
-- provider conversation resources;
-- downstream cache-affinity hint.
+# 4. Executor-Facing Backend Capability
 
-A hint may improve likelihood that a provider continuation request reaches a warm endpoint, but it never substitutes for the provider's actual continuation token/resource.
+## 4.1 Extend `execbackend.Backend`
 
-Per-turn sticky tokens are explicitly forbidden as generated cross-turn fallback material.
+File:
+- `internal/core/execbackend/backend.go`
 
-## Configuration
+Add:
 
-Use the existing provider/profile configuration architecture where possible. Avoid a new global provider map.
+```go
+ResolveDownstreamCacheAffinity func(
+    context.Context,
+    lipapi.Call,
+    routing.AttemptCandidate,
+) cacheaffinity.Support
+```
 
-Required controls:
+Add helper:
 
-- global downstream-cache-affinity synthesis enabled/disabled;
-- provider/profile capability default and operator override;
-- derivation key/secret reference if no existing secure derivation facility is reused;
-- optional diagnostics/metrics enablement consistent with existing observability conventions.
+```go
+func EffectiveDownstreamCacheAffinity(
+    ctx context.Context,
+    be Backend,
+    call lipapi.Call,
+    cand routing.AttemptCandidate,
+) cacheaffinity.Support
+```
 
-Safe defaults:
+Behavior:
 
-- feature enabled for built-in providers whose current contracts are explicitly supported;
-- unknown provider profile: synthesis disabled;
-- explicit client hint: preserved;
-- no trusted conversation identity: no generated hint;
-- direct Anthropic/Gemini generic session synthesis: disabled.
+- nil resolver => zero/disabled `Support`;
+- invalid resolver output => disabled support (or returned validation error if the surrounding backend-construction path can fail early; do not panic);
+- no provider names/wire strings in core.
 
-Configuration validation must reject invalid max lengths, empty wire names for enabled capabilities, unsupported transport kinds, or an enabled synthesis mode without usable key material.
+This mirrors existing candidate-aware capability patterns such as `ResolvePromptCacheProfile`.
 
-## Performance Design
+---
 
-Target overhead per request:
+# 5. Effective Hint Resolution and Exact Runtime Insertion Point
 
-- O(1) capability lookup from already compiled generation/provider state;
-- one small keyed digest only when fallback generation is actually required;
-- no DB/network calls;
-- no goroutines/timers;
-- no session maps;
-- no full-prompt hashing;
-- bounded strings and temporary buffers.
+## 5.1 New runtime helper
 
-Where practical, precompute immutable HMAC/keyed-hash state or reuse pooled small buffers only if benchmarks demonstrate value; do not introduce pooling complexity without evidence.
+Create:
+- `internal/core/runtime/executor_cache_affinity.go`
 
-## Security and Privacy
+The helper operates on a clone/value of the already-adapted call; it must not mutate shared request state.
 
-- Never send raw authoritative session IDs solely for this feature.
-- Never use resume tokens or secrets as provider hints.
-- Never log actual generated/explicit prompt cache values at normal log levels.
-- Redaction/safe-metadata rules must treat known provider affinity carriers as identifiers.
-- Explicit client provider headers are forwarded only through existing trusted header/request-shaping policies; arbitrary headers do not become authoritative session scope.
-- Generated hint collision risk must be cryptographically negligible for expected concurrency.
+Recommended internal signature:
 
-## Testing Strategy
+```go
+func (e *Executor) applyDownstreamCacheAffinity(
+    ctx context.Context,
+    be execbackend.Backend,
+    cand routing.AttemptCandidate,
+    call lipapi.Call,
+    session session.SessionView,
+) (lipapi.Call, cacheaffinity.Source, cacheaffinity.Outcome, error)
+```
 
-### Unit/contract tests
+Exact algorithm:
 
-Cover:
+```text
+1. existing, err := call.PromptCacheKeyValue()
+2. if err != nil -> outcome invalid, return error
+3. if existing != "" -> return call unchanged, source explicit_prompt_cache
+4. support := execbackend.EffectiveDownstreamCacheAffinity(ctx, be, call, cand)
+5. if !support.SynthesisAllowed -> return unchanged, unsupported/disabled
+6. if e.DownstreamCacheAffinityDeriver == nil -> return unchanged, disabled
+7. sid := strings.TrimSpace(session.AuthoritativeSessionID)
+8. if sid == "" -> return unchanged, disabled
+9. generated := deriver.Derive(support.Namespace, sid)
+10. clone call; set clone.PromptCacheKey = generated
+11. do not add raw sid to Extensions/SafeMetadata/headers
+12. return clone, source proxy_generated, applied_or_available
+```
 
-- precedence matrix;
-- authoritative vs missing session scope;
-- deterministic derivation and cross-session separation;
-- no raw ID leakage;
-- max-length/character constraints;
-- provider capability resolution by API flavor;
-- unknown-compatible no-injection behavior;
-- provider projection preserving explicit values;
-- failover/race reuse without shared residency assumptions;
-- executable connector parity/legacy negotiation;
-- metrics source classification without raw values.
+Do not fall back to `session.ClientSessionHint`.
 
-### Provider wire tests
+## 5.2 Exact call site
 
-Use local HTTP/reference fixtures to assert exact body/header output for the built-in initial provider set. These are deterministic and credential-free.
+File:
+- `internal/core/runtime/executor_open_attempt.go`
 
-### Live opt-in validation
+Current flow performs candidate adaptation and later executes:
 
-Where credentials and provider usage evidence permit, add/sketch opt-in tests comparing a repeated agent-like prefix across turns with synthesis on/off and observe cached-token/cache-hit evidence. CI must not require live providers.
+```go
+wireCall := adaptedCall
+wireCall.Session.ClientSessionID = ""
+wireCall.Session.ContinuityKey = ""
+wireCall.Session.AuthoritativeSessionID = ""
+wireCall.Session.ResumeToken = ""
+```
 
-### Architecture tests
+Insert `applyDownstreamCacheAffinity(...)` **after** `execbackend.AdaptCallForCandidate(...)` succeeds and **immediately before** the `wireCall := adaptedCall` block.
 
-Ratchet against:
+Use the request/attempt's already-admitted `session.SessionView` containing `AuthoritativeSessionID`. Do not query secure-session storage from this helper.
 
-- provider wire-name switches in generic core;
-- persistence of generated hints;
-- DB/network lookup in the hint hot path;
-- leakage of raw hint values into metric labels/logging helpers;
-- merging residency target ID with conversation hint identity;
-- generic OpenAI-compatible auto-injection.
+After the helper, keep the existing session scrub exactly. Providers/connectors receive the opaque `PromptCacheKey`, never raw proxy session authority.
 
-## Documentation Changes
+## 5.3 Retry/failover
 
-Update active documentation to explain four independent layers:
+Each B-leg executes this resolution after its concrete backend is selected. Namespace changes therefore derive a different generated pseudonym; same session+namespace is deterministic. No mutable affinity map is required.
 
-1. **Go-LIP route affinity**: keeps a session on a selected Go-LIP backend candidate;
-2. **downstream cache-affinity hinting**: asks the provider/broker to prefer a warm endpoint;
-3. **prompt-cache residency/control**: backend-observed cache state and optional maintenance;
-4. **keep-warm orchestration**: core policy for actively renewing supported cache targets.
+---
 
-Document the supported provider matrix and precedence.
+# 6. Direct OpenAI Responses Repair and Support
 
-Do not rewrite archived completed specs to imply they implemented functionality they intentionally scoped out. If an archived design sentence is misleading when read today, prefer a forward link/active documentation clarification unless repository convention explicitly requires archival annotation.
+## 6.1 Repair explicit forwarding first
 
-## Migration and Compatibility
+File:
+- `internal/plugins/backends/openairesponses/invoke.go`
 
-This is additive and optimization-only.
+`ParamsForCall` currently does not serialize `Call.PromptCacheKeyValue()`.
 
-- Existing clients with no supported provider: unchanged.
-- Existing clients with explicit `PromptCacheKey`: preserved and more consistently projected.
-- Existing clients such as OpenCode/Codex/Hermes that already emit useful hints: proxy fallback normally stays dormant.
-- Existing backend plugins without new/local capability: no synthesized projection.
-- Existing residency/keep-warm state: unchanged.
-- Generated hint key rotation: cache locality resets, correctness unaffected.
+After creating `responses.ResponseNewParams` and before returning it:
 
-No data migration is required.
+1. call `PromptCacheKeyValue()`;
+2. propagate the existing alias-conflict error with an `openairesponses` context;
+3. if non-empty, reject length >64;
+4. assign the SDK's `ResponseNewParams.PromptCacheKey` field.
 
-## Design Validation
+Do not use `option.WithJSONSet` here when the SDK has the typed field.
 
-### Boundary validation
+Add unit tests in `internal/plugins/backends/openairesponses/invoke_test.go` for:
 
-**PASS.** Core owns policy/precedence and trusted scope; adapters own provider wire semantics; residency remains backend-observed; connector negotiation remains additive.
+- explicit PCK serialized exactly;
+- semantic-extension alias serialized;
+- alias conflict errors;
+- 64 accepted;
+- 65 rejected;
+- empty omitted.
 
-### Brownfield reuse validation
+## 6.2 Direct backend synthesis support
 
-**PASS.** No new session store, route-affinity subsystem, cache-residency subsystem, scheduler, or canonical provider field is required.
+In the direct OpenAI Responses backend construction (`internal/plugins/backends/openairesponses/plugin.go` or the exact existing constructor owning its `execbackend.Backend` value), set:
 
-### Failure-mode validation
+```go
+ResolveDownstreamCacheAffinity: func(...) cacheaffinity.Support {
+    return cacheaffinity.Support{
+        SynthesisAllowed: true,
+        Namespace:        "openai-responses",
+    }
+}
+```
 
-**PASS with explicit safeguards.** Provider rejection is avoided by opt-in capability; client scope is preserved by precedence; raw session leakage is prevented by opaque derivation; failover remains advisory; metrics cannot falsely claim hits.
+No Chat-Completions direct synthesis is added unless a separate documented Chat affinity carrier is already owned by that adapter; this spec's direct OpenAI requirement is Responses.
 
-### Completion validation
+---
 
-**PASS only if provider rollout is included.** The generic resolver without OpenAI/xAI/Mistral/OpenRouter and explicit-profile projection would be incomplete. Tasks therefore include the initial rollout, docs, observability, TCK, and architecture ratchets in this same spec.
+# 7. Provider Profile Schema and Compilation
+
+## 7.1 Extend `internal/providerprofiles/schema.go`
+
+Add exactly these types:
+
+```go
+type CacheAffinityTransport string
+
+const (
+    CacheAffinityTransportJSONField  CacheAffinityTransport = "json_field"
+    CacheAffinityTransportHTTPHeader CacheAffinityTransport = "http_header"
+)
+
+type CacheAffinityProjection struct {
+    Enabled             bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+    Transport           CacheAffinityTransport `json:"transport,omitempty" yaml:"transport,omitempty"`
+    WireName            string                 `json:"wire_name,omitempty" yaml:"wire_name,omitempty"`
+    MaxLength           int                    `json:"max_length,omitempty" yaml:"max_length,omitempty"`
+    AllowProxySynthesis bool                   `json:"allow_proxy_synthesis,omitempty" yaml:"allow_proxy_synthesis,omitempty"`
+}
+
+type CacheAffinity struct {
+    Chat      CacheAffinityProjection `json:"chat,omitempty" yaml:"chat,omitempty"`
+    Responses CacheAffinityProjection `json:"responses,omitempty" yaml:"responses,omitempty"`
+}
+```
+
+Add to `Profile`:
+
+```go
+CacheAffinity CacheAffinity `json:"cache_affinity,omitempty" yaml:"cache_affinity,omitempty"`
+```
+
+No schema-version bump is required: this is an optional bounded v1 field, not an arbitrary transform DSL.
+
+## 7.2 Validation
+
+Add `validateCacheAffinity(Profile)` and call it from `Validate`.
+
+Rules:
+
+1. disabled projection (`Enabled=false`) must not enable synthesis; other fields may be required to be zero to catch config mistakes—choose **strict zero**: if disabled but any transport/wire/max/synthesis field is non-zero, validation fails;
+2. enabled transport is exactly `json_field` or `http_header`;
+3. `WireName` required;
+4. HTTP header uses existing `safeHeaderName` validation;
+5. JSON field uses a new bounded regex `^[A-Za-z_][A-Za-z0-9_]{0,127}$`;
+6. `MaxLength >= cacheaffinity.GeneratedLength` and `MaxLength <= MaxStringBytes`;
+7. Chat family (`FamilyOpenAIChat`) permits only `.Chat.Enabled`;
+8. Responses family (`FamilyOpenAIResponses`) permits only `.Responses.Enabled`;
+9. Anthropic/OpenResponses families reject an enabled projection in v1;
+10. `AllowProxySynthesis=true` requires `Enabled=true`.
+
+## 7.3 Compilation
+
+`CompiledProfile` continues to retain the validated `Profile`; the new structs contain value fields only, so no pointer deep-copy is needed.
+
+Do not create a second cache-affinity provider catalog.
+
+---
+
+# 8. Profile-to-OpenAI-Compatible Projection
+
+## 8.1 Exact builder seam
+
+Files:
+- `internal/standardplugins/provider_profile_binding.go`
+- `internal/plugins/backends/openaicompat/compatible_factory.go`
+- `internal/plugins/backends/openaicompat/backend.go`
+
+Do not create xAI/Mistral/Fireworks/RunInfra packages.
+
+Add a profile-aware OpenAI-compatible builder helper that accepts the validated `CacheAffinityProjection` for the family flavor. Keep existing `BuildCompatible` and `BuildCompatibleWithHeaders` callable so arbitrary custom-compatible rows remain unchanged.
+
+The profile-aware builder composes existing static header options with cache-affinity projection options.
+
+## 8.2 Backend synthesis support
+
+For a profile projection with `Enabled && AllowProxySynthesis`:
+
+```go
+be.ResolveDownstreamCacheAffinity = func(...) cacheaffinity.Support {
+    return cacheaffinity.Support{
+        SynthesisAllowed: true,
+        Namespace:        profileID,
+    }
+}
+```
+
+If disabled, leave resolver nil or return zero support.
+
+## 8.3 Wire projection
+
+At provider request-option construction, resolve `call.PromptCacheKeyValue()`.
+
+- empty => add no option;
+- length > projection.MaxLength => fail before upstream open;
+- `json_field` => `option.WithJSONSet(projection.WireName, value)`;
+- `http_header` => `option.WithHeader(projection.WireName, value)`.
+
+This projection is available **only** to compiled provider-profile rows. Arbitrary `custom-openai-*-compatible` instances do not gain it by default.
+
+## 8.4 Exact initial profile data
+
+Add/augment these rows in `internal/providerprofiles/catalog.json`:
+
+```text
+fireworks
+  family: openai-responses-compatible
+  base: https://api.fireworks.ai/inference/v1
+  env: FIREWORKS_API_KEY
+  responses: json_field prompt_cache_key max=256 synthesis=true
+
+xai
+  family: openai-chat-compatible
+  base: https://api.x.ai/v1
+  env: XAI_API_KEY
+  chat: http_header x-grok-conv-id max=256 synthesis=true
+
+xai-responses
+  family: openai-responses-compatible
+  base: https://api.x.ai/v1
+  env: XAI_API_KEY
+  responses: json_field prompt_cache_key max=64 synthesis=true
+
+mistral
+  family: openai-chat-compatible
+  base: https://api.mistral.ai/v1
+  env: MISTRAL_API_KEY
+  chat: json_field prompt_cache_key max=256 synthesis=true
+
+runinfra
+  family: openai-chat-compatible
+  base: https://api.runinfra.ai/v1
+  env: RUNINFRA_API_KEY
+  chat: json_field prompt_cache_key max=64 synthesis=true
+```
+
+If a row already exists from the bulk-provider implementation, modify that row instead of adding another. Preserve any stricter inventory/capability settings already established there.
+
+Add negative fixtures for:
+
+- direct Anthropic;
+- direct Gemini;
+- arbitrary custom OpenAI-compatible backend;
+- profile row with no `cache_affinity`.
+
+---
+
+# 9. OpenRouter Connector
+
+## 9.1 Provider wire behavior
+
+Files:
+- `connectors/openrouter/internal/service/body.go`
+- `connectors/openrouter/internal/service/service.go`
+
+`applyOpenRouterBody` final precedence:
+
+```text
+1. existing explicit openrouter.session_id extension
+2. call.PromptCacheKeyValue()
+3. omit session_id
+```
+
+Project to JSON body key `session_id` only. Do not emit `x-session-id`.
+
+Validate value length <=256 before sending.
+
+Do not treat it as Go-LIP session/continuation authority.
+
+## 9.2 Backend-plugin capability negotiation
+
+Files:
+- `pkg/lipsdk/backendplugin/bounds.go`
+- `pkg/lipsdk/backendplugin/protocol.go`
+- `pkg/lipsdk/backendplugin/host/session.go`
+- `internal/infra/backendplugins/adapter/backend.go`
+- `connectors/openrouter/internal/service/service.go`
+
+Add:
+
+```go
+FeatureDownstreamCacheAffinity = "downstream_cache_affinity_v1"
+```
+
+Feature minimum minor is `ProtocolMinorSemanticExtensions` (6). Do **not** create a new protocol minor.
+
+Meaning: the connector understands the existing prompt-cache semantic as downstream-affinity input.
+
+Host feature list includes it. OpenRouter `Describe` includes:
+
+- existing cancellation feature;
+- `FeatureSemanticExtensions`;
+- `FeatureDownstreamCacheAffinity`.
+
+Backend-plugin adapter sets `ResolveDownstreamCacheAffinity` only if the new feature is negotiated. Namespace uses the stable connector/backend route prefix (first configured/declared route prefix), not instance ID and not session data.
+
+Invocation conversion continues to carry generated `PromptCacheKey` through existing semantic-extension/legacy fields. No `.proto` DTO changes.
+
+Add old-peer tests: minor/feature absent => synthesis resolver disabled and normal inference unchanged.
+
+---
+
+# 10. Explicit Provider Carrier Precedence
+
+The generic runtime does not parse provider-specific headers/fields.
+
+Provider-specific explicit values that already have an owned adapter representation remain adapter-owned. For the initial matrix, the concrete explicit-provider case that exists in current Go-LIP is OpenRouter's `openrouter.session_id` extension.
+
+Do not create a generic `X-Grok-Conv-Id` inbound header capture path in core/frontend as part of this feature. xAI receives explicit protocol-neutral `PromptCacheKey` when the client supplies one, otherwise proxy fallback. This keeps the scope on proxy-supported hinting rather than inventing a new vendor-header ingestion plane.
+
+---
+
+# 11. Observability
+
+## 11.1 Extend existing runtime metrics seam
+
+Files:
+- `internal/core/runtime/metrics_sink.go`
+- existing implementation under `internal/infra/metrics/`
+
+Add one cache-affinity observation method to `MetricsSink`, using the typed bounded `cacheaffinity.Source` and `cacheaffinity.Outcome`.
+
+The runtime calls it once per opened-attempt preparation decision where the metric sink is non-nil.
+
+Allowed labels/dimensions:
+
+- source enum;
+- outcome enum;
+- existing bounded backend class if required by the current sink design.
+
+Forbidden labels:
+
+- generated hint;
+- explicit PCK;
+- session ID;
+- request/trace ID;
+- residency target/generation/handle;
+- raw/unbounded model ID.
+
+Do not infer cache hit from this metric. Existing cached-token/cache-read/cache-write evidence remains authoritative.
+
+---
+
+# 12. Reusable Tests and Architecture Gates
+
+## 12.1 Core contract tests
+
+Test matrix:
+
+| Existing PCK | Backend synthesis | Authoritative session | Expected |
+|---|---:|---:|---|
+| explicit | any | any | preserve explicit |
+| empty | true | present | generated 50-char PCK |
+| empty | true | absent | none |
+| empty | false | present | none |
+| invalid alias conflict | any | any | error |
+
+Also prove namespaces isolate generated values.
+
+## 12.2 Provider-profile tests
+
+Add/extend `internal/providerprofiles` and `internal/standardplugins` tests to prove:
+
+- validation rules;
+- immutable compiled projection;
+- profile-aware builder receives the projection;
+- xAI header projection;
+- Mistral/Fireworks/RunInfra JSON projection;
+- xAI Responses JSON projection;
+- unknown custom-compatible no injection;
+- missing initial profile row is caught by expected-profile fixture.
+
+## 12.3 OpenRouter tests
+
+Prove:
+
+- explicit `openrouter.session_id` wins;
+- fallback PCK becomes JSON `session_id`;
+- no header duplicate;
+- >256 rejected;
+- negotiated feature enables synthesis at host adapter;
+- old peer lacks synthesis.
+
+## 12.4 Residency/keep-warm regressions
+
+Prove generated `PromptCacheKey` is never copied into:
+
+- `promptcache.TargetID`;
+- `GenerationID`;
+- renewal handle;
+- expiry timing;
+- keep-warm target identity.
+
+Hint emission alone must not arm keep-warm.
+
+## 12.5 Architecture guards
+
+Add focused source/arch tests that fail if:
+
+- `internal/core/cacheaffinity` or generic runtime contains provider wire literals (`x-grok-conv-id`, `x-session-id`, `x-session-affinity`, provider `session_id` mapping);
+- a new durable cache-affinity store/table is introduced;
+- raw session authority is reintroduced into backend wire calls;
+- a new backend-plugin proto field named for downstream affinity is introduced;
+- a new protocol minor is created solely for this feature.
+
+---
+
+# 13. Performance Contract
+
+Generated path work per attempt is bounded to:
+
+- one existing PCK check;
+- one candidate capability resolver call over immutable state;
+- at most two HMAC-SHA256 operations (subkey is precomputed, so per request only the value HMAC should run);
+- one 32-byte base64url encoding;
+- one call clone already consistent with existing attempt preparation.
+
+The implementation must not add:
+
+- DB/network/filesystem work;
+- goroutine/timer;
+- full-prompt hashing;
+- unbounded map/cache;
+- persistent session lookup.
+
+Add benchmarks for explicit, generated, and disabled paths. Do not add pooling unless benchmarks show material allocation regression.
+
+---
+
+# 14. Implementation Order
+
+The order is intentionally serial at architectural seams and parallel only where files do not conflict:
+
+1. RED core derivation/resolution tests.
+2. `cacheaffinity` package + secure-session composition.
+3. `execbackend` capability + runtime insertion before scrub.
+4. Direct OpenAI explicit forwarding + synthesis support.
+5. Provider-profile schema/compiler + profile-aware OpenAI-compatible projection.
+6. Add/augment initial provider rows.
+7. OpenRouter connector projection + negotiated feature flag.
+8. Residency/routing/continuation regressions.
+9. Metrics + reusable TCK/docs.
+10. Performance/architecture/full quality gates.
+11. No-follow-up final review and archive.
+
+Provider-profile wire fixture work for xAI/Mistral/Fireworks/RunInfra can parallelize only after step 5 is green.
+
+---
+
+# 15. Design Validation
+
+### Canonical authority
+
+No new canonical trajectory authority. Existing `PromptCacheKey` request metadata is reused.
+
+### Security
+
+Raw authoritative session stays host-only and is scrubbed on the existing boundary. Provider sees only provider-scoped HMAC pseudonym.
+
+### Brownfield compatibility
+
+Nil backend resolver means disabled. Old connectors lack the new optional feature and remain unchanged. Existing custom-compatible profiles have no `cache_affinity` and remain unchanged.
+
+### Provider extensibility
+
+New compatible providers normally add one bounded profile projection. New executable connectors advertise the feature and map existing PCK semantic. No generic architecture change is expected.
+
+### Residency/keep-warm
+
+Unchanged authority and lifecycle.
+
+### Verdict
+
+**GO — execution-grade.** No architectural/provider-research decisions are intentionally left to the implementation model. Mechanical code-location drift may be resolved by adjacent-file search, but the executor must not invent alternative packages, carriers, keys, or ABI designs.
