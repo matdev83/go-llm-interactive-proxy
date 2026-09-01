@@ -9,8 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const FactoryKind = "acp"
-const DefaultHTTPTimeout = 60 * time.Second
+const (
+	FactoryKind        = "acp"
+	DefaultHTTPTimeout = 60 * time.Second
+)
 
 type Config struct {
 	BaseURL string `yaml:"base_url"`

@@ -11,6 +11,8 @@ import (
 )
 
 func TestRunner_WindowsRestrictedAdminToken(t *testing.T) {
+	t.Parallel()
+
 	result := Run(context.Background(), Request{
 		Argv: []string{
 			"powershell", "-NoProfile", "-Command",
@@ -29,6 +31,8 @@ func TestRunner_WindowsRestrictedAdminToken(t *testing.T) {
 }
 
 func TestRunner_WindowsJobAccountingIncludesDescendants(t *testing.T) {
+	t.Parallel()
+
 	ioFile := filepath.Join(t.TempDir(), "child-io.bin")
 	result := Run(context.Background(), Request{
 		Argv:    []string{buildHelper(t), "-mode=accounting-tree", "-io-file", ioFile},
@@ -60,6 +64,8 @@ func TestRunner_WindowsJobAccountingIncludesDescendants(t *testing.T) {
 }
 
 func TestWindowsProcess_UnassignedAccountingReturnsError(t *testing.T) {
+	t.Parallel()
+
 	p := &windowsProcess{assigned: false}
 	acc, err := p.accounting()
 	if err == nil {

@@ -33,6 +33,7 @@ func TestNativeContextCoordinator_MatrixModesAndTransports(t *testing.T) {
 			} {
 				name := account + "/" + transport + "/" + mode.name
 				t.Run(name, func(t *testing.T) {
+					t.Parallel()
 					cfg := Config{BaseURL: "http://127.0.0.1", AccountID: account, HTTPClient: http.DefaultClient}
 					cfg.NativeContext = &NativeContextConfig{
 						Enabled:                   mode.reasoning || mode.compaction,
@@ -57,6 +58,7 @@ func TestNativeContextCoordinator_MatrixModesAndTransports(t *testing.T) {
 }
 
 func TestNativeContextCoordinator_PreparesAfterSelectedIdentityAndMarker(t *testing.T) {
+	t.Parallel()
 	call := lipapi.Call{
 		Session: lipapi.SessionRef{AuthoritativeSessionID: "proxy-session"},
 		Messages: []lipapi.Message{
@@ -78,8 +80,14 @@ func TestNativeContextCoordinator_PreparesAfterSelectedIdentityAndMarker(t *test
 	if coord == nil {
 		t.Fatal("expected coordinator")
 	}
-	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{Call: call, Payload: payload, Account: Config{BaseURL: "http://selected", AccountID: "account-b"},
-		Model: "selected-model", MarkerEligible: true, ClientFamily: "codex", ConversationID: "conversation-b",
+	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
+		Call:           call,
+		Payload:        payload,
+		Account:        Config{BaseURL: "http://selected", AccountID: "account-b"},
+		Model:          "selected-model",
+		MarkerEligible: true,
+		ClientFamily:   "codex",
+		ConversationID: "conversation-b",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +108,7 @@ func TestNativeContextCoordinator_PreparesAfterSelectedIdentityAndMarker(t *test
 }
 
 func TestNativeContextCoordinator_ManagedRetryRebuildsFromOriginalBaseline(t *testing.T) {
+	t.Parallel()
 	call := testCoordinatorCall()
 	payload := testCoordinatorPayload()
 	var seen []CompactionRequest
@@ -134,6 +143,7 @@ func TestNativeContextCoordinator_ManagedRetryRebuildsFromOriginalBaseline(t *te
 }
 
 func TestNativeContextCoordinator_MissingAuthoritySkipsCompactor(t *testing.T) {
+	t.Parallel()
 	called := false
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		called = true
@@ -149,13 +159,18 @@ func TestNativeContextCoordinator_MissingAuthoritySkipsCompactor(t *testing.T) {
 }
 
 func TestNativeContextCoordinator_OldABIWithoutTypedAuthorityKeepsFullHistory(t *testing.T) {
+	t.Parallel()
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		t.Fatal("old ABI must bypass compaction")
 		return CompactionResult{}, nil
 	}), true)
 	payload := testCoordinatorPayload()
-	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{Call: testCoordinatorCallWithoutAuthority(), Payload: payload,
-		Account: Config{AccountID: "account"}, Model: "model", MarkerEligible: true,
+	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
+		Call:           testCoordinatorCallWithoutAuthority(),
+		Payload:        payload,
+		Account:        Config{AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -166,11 +181,18 @@ func TestNativeContextCoordinator_OldABIWithoutTypedAuthorityKeepsFullHistory(t 
 }
 
 func TestNativeContextCoordinator_FailureFallsBackOnlyWhenFullHistoryFits(t *testing.T) {
+	t.Parallel()
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		return CompactionResult{}, errors.New("provider failure")
 	}), true)
-	_, err := coord.Prepare(context.Background(), NativeContextPrepareInput{Call: testCoordinatorCall(), Payload: testCoordinatorPayload(), Account: Config{BaseURL: "http://selected", AccountID: "account"},
-		Model: "model", MarkerEligible: true, ClientFamily: "codex", ConversationID: "conversation",
+	_, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
+		Call:           testCoordinatorCall(),
+		Payload:        testCoordinatorPayload(),
+		Account:        Config{BaseURL: "http://selected", AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
+		ClientFamily:   "codex",
+		ConversationID: "conversation",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +204,7 @@ func TestNativeContextCoordinator_FailureFallsBackOnlyWhenFullHistoryFits(t *tes
 }
 
 func TestNativeContextCoordinator_CancellationAbortsReservationAndKeepsOldCheckpoint(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(ctx context.Context, _ CompactionRequest) (CompactionResult, error) {
@@ -189,8 +212,14 @@ func TestNativeContextCoordinator_CancellationAbortsReservationAndKeepsOldCheckp
 		return CompactionResult{}, ctx.Err()
 	}), true)
 	cancel()
-	_, err := coord.Prepare(ctx, NativeContextPrepareInput{Call: testCoordinatorCall(), Payload: testCoordinatorPayload(), Account: Config{BaseURL: "http://selected", AccountID: "account"},
-		Model: "model", MarkerEligible: true, ClientFamily: "codex", ConversationID: "conversation",
+	_, err := coord.Prepare(ctx, NativeContextPrepareInput{
+		Call:           testCoordinatorCall(),
+		Payload:        testCoordinatorPayload(),
+		Account:        Config{BaseURL: "http://selected", AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
+		ClientFamily:   "codex",
+		ConversationID: "conversation",
 	})
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
@@ -205,6 +234,7 @@ func TestNativeContextCoordinator_CancellationAbortsReservationAndKeepsOldCheckp
 }
 
 func TestNativeContextCoordinator_NilInputContextUsesPrepareContext(t *testing.T) {
+	t.Parallel()
 	called := false
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(ctx context.Context, _ CompactionRequest) (CompactionResult, error) {
 		called = true
@@ -226,6 +256,7 @@ func TestNativeContextCoordinator_NilInputContextUsesPrepareContext(t *testing.T
 }
 
 func TestCompactionUsageEvidence_DoesNotReusePreviousCheckpointAsNewBilling(t *testing.T) {
+	t.Parallel()
 	previous := &NativeUsageEvidence{
 		InputTokens:  900,
 		OutputTokens: 90,
@@ -248,11 +279,16 @@ func TestCompactionUsageEvidence_DoesNotReusePreviousCheckpointAsNewBilling(t *t
 }
 
 func TestNativeContextCoordinator_MissingProviderUsageCreatesEstimatedEvidence(t *testing.T) {
+	t.Parallel()
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		return CompactionResult{Item: opaqueResponseItem{raw: []byte(`{"type":"compaction","id":"cmp","encrypted_content":"opaque"}`)}}, nil
 	}), true)
-	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{Call: testCoordinatorCall(), Payload: testCoordinatorPayload(),
-		Account: Config{AccountID: "account"}, Model: "model", MarkerEligible: true,
+	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
+		Call:           testCoordinatorCall(),
+		Payload:        testCoordinatorPayload(),
+		Account:        Config{AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -282,6 +318,7 @@ func TestNativeContextCoordinator_MissingProviderUsageCreatesEstimatedEvidence(t
 }
 
 func TestNativeContextCoordinator_ProviderUsageWinsOverEstimate(t *testing.T) {
+	t.Parallel()
 	input, output, total := int64(73), int64(11), int64(84)
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		return CompactionResult{
@@ -289,8 +326,12 @@ func TestNativeContextCoordinator_ProviderUsageWinsOverEstimate(t *testing.T) {
 			Usage: &completedUsage{InputTokens: &input, OutputTokens: &output, TotalTokens: &total},
 		}, nil
 	}), true)
-	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{Call: testCoordinatorCall(), Payload: testCoordinatorPayload(),
-		Account: Config{AccountID: "account"}, Model: "model", MarkerEligible: true,
+	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
+		Call:           testCoordinatorCall(),
+		Payload:        testCoordinatorPayload(),
+		Account:        Config{AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -305,6 +346,7 @@ func TestNativeContextCoordinator_ProviderUsageWinsOverEstimate(t *testing.T) {
 }
 
 func TestNativeContextCoordinator_DedicatedOutputWithoutUsageCommitsCheckpoint(t *testing.T) {
+	t.Parallel()
 	coord := testCoordinator(t, coordinatorCompactorFunc(func(context.Context, CompactionRequest) (CompactionResult, error) {
 		return CompactionResult{Output: []inputItem{
 			textMessageItem{Type: "message", Role: "user", Content: "retained"},
@@ -312,7 +354,11 @@ func TestNativeContextCoordinator_DedicatedOutputWithoutUsageCommitsCheckpoint(t
 		}}, nil
 	}), true)
 	prepared, err := coord.Prepare(context.Background(), NativeContextPrepareInput{
-		Call: testCoordinatorCall(), Payload: testCoordinatorPayload(), Account: Config{AccountID: "account"}, Model: "model", MarkerEligible: true,
+		Call:           testCoordinatorCall(),
+		Payload:        testCoordinatorPayload(),
+		Account:        Config{AccountID: "account"},
+		Model:          "model",
+		MarkerEligible: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -323,6 +369,7 @@ func TestNativeContextCoordinator_DedicatedOutputWithoutUsageCommitsCheckpoint(t
 }
 
 func TestNativeContextCoordinator_CheckpointOverCheckpointExcludesCurrentTail(t *testing.T) {
+	t.Parallel()
 	const (
 		olderTail   = "LIVE_TAIL_SECOND"
 		currentTail = "LIVE_TAIL_THIRD"
@@ -365,19 +412,19 @@ func TestNativeContextCoordinator_CheckpointOverCheckpointExcludesCurrentTail(t 
 		t.Fatalf("compaction request count = %d, want 2", len(requests))
 	}
 	secondInput := requests[1].Payload.Input
-	joined := ""
+	var joined strings.Builder
 	for _, item := range secondInput {
 		body, err := nativeItemJSON(item)
 		if err != nil {
 			t.Fatal(err)
 		}
-		joined += string(body)
+		joined.Write(body)
 	}
-	if strings.Contains(joined, currentTail) {
-		t.Fatalf("second checkpoint compaction input included current user tail: %s", joined)
+	if strings.Contains(joined.String(), currentTail) {
+		t.Fatalf("second checkpoint compaction input included current user tail: %s", joined.String())
 	}
-	if !strings.Contains(joined, olderTail) {
-		t.Fatalf("second checkpoint compaction input lost permitted prior tail: %s", joined)
+	if !strings.Contains(joined.String(), olderTail) {
+		t.Fatalf("second checkpoint compaction input lost permitted prior tail: %s", joined.String())
 	}
 }
 

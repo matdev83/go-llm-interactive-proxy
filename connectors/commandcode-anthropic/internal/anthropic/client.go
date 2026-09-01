@@ -68,7 +68,7 @@ func (c *Client) ListModels(ctx context.Context, limit uint32) ([]Model, error) 
 	if err != nil {
 		return nil, fmt.Errorf("list models HTTP: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -118,7 +118,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return nil, parseHTTPError(resp.StatusCode, raw)
 	}
@@ -127,7 +127,7 @@ func (c *Client) Open(ctx context.Context, call lipapi.Call, model string) (lipa
 		return newManagedSSEStream(resp), nil
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

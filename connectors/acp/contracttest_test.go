@@ -40,6 +40,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 }
 
 func TestSupportedContractTCK(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(testemu.NewHandler())
 	t.Cleanup(srv.Close)
 	result := contracttest.Run(t, contracttest.Config{

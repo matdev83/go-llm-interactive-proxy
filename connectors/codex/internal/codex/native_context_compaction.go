@@ -480,7 +480,7 @@ func validateRetainedContentPart(raw []byte) error {
 	if responseitem.ValidateJSONObject(raw, compactionRetainedMessageMaxBytes) != nil || json.Unmarshal(raw, &header) != nil {
 		return compactionProtocolError("malformed_item")
 	}
-	allowed := map[string]struct{}{}
+	var allowed map[string]struct{}
 	switch header.Type {
 	case "input_text", "output_text", "text", "summary_text", "reasoning_text":
 		allowed = map[string]struct{}{"type": {}, "text": {}}
@@ -507,7 +507,8 @@ func validateRetainedContentPart(raw []byte) error {
 	if json.Unmarshal(fields["type"], &typ) != nil || typ != header.Type {
 		return compactionProtocolError("malformed_item")
 	}
-	if typ == "input_image" {
+	switch typ {
+	case "input_image":
 		if image, ok := fields["image_url"]; !ok || (string(image) != "null" && json.Unmarshal(image, new(string)) != nil) {
 			return compactionProtocolError("malformed_item")
 		}
@@ -517,23 +518,23 @@ func validateRetainedContentPart(raw []byte) error {
 				return compactionProtocolError("malformed_item")
 			}
 		}
-	} else if typ == "input_file" {
+	case "input_file":
 		if rawURL, ok := fields["file_url"]; ok && json.Unmarshal(rawURL, new(string)) != nil {
 			return compactionProtocolError("malformed_item")
 		}
 		if rawName, ok := fields["filename"]; ok && json.Unmarshal(rawName, new(string)) != nil {
 			return compactionProtocolError("malformed_item")
 		}
-	} else if typ == "input_video" {
+	case "input_video":
 		if rawURL, ok := fields["video_url"]; !ok || json.Unmarshal(rawURL, new(string)) != nil {
 			return compactionProtocolError("malformed_item")
 		}
-	} else if typ == "refusal" {
+	case "refusal":
 		refusal, ok := fields["refusal"]
 		if !ok || json.Unmarshal(refusal, new(string)) != nil {
 			return compactionProtocolError("malformed_item")
 		}
-	} else {
+	default:
 		text, ok := fields["text"]
 		if !ok || json.Unmarshal(text, new(string)) != nil {
 			return compactionProtocolError("malformed_item")

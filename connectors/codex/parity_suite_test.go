@@ -442,6 +442,7 @@ type simulatorOptions struct {
 }
 
 func runAgentSimulator(t *testing.T, proc *fakeProcess, opts simulatorOptions) {
+	t.Helper()
 	if opts.threadID == "" {
 		opts.threadID = "thread-fake-001"
 	}

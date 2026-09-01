@@ -104,7 +104,7 @@ func openGemini(ctx context.Context, hc *http.Client, baseURL, apiKey string, ca
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("opencode gemini HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
@@ -144,7 +144,7 @@ func geminiRequestBody(call lipapi.Call) ([]byte, error) {
 }
 
 func newGeminiJSONStream(resp *http.Response) (lipapi.EventStream, error) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := readNonStreamResponse(resp.Body)
 	if err != nil {
 		return nil, err

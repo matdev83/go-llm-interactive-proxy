@@ -19,6 +19,7 @@ func (compactionTimeoutError) Timeout() bool   { return true }
 func (compactionTimeoutError) Temporary() bool { return true }
 
 func TestBuildCompactionRequest_MatchesDedicatedCodexCompactShape(t *testing.T) {
+	t.Parallel()
 	normal := Payload{
 		Model: "m", Instructions: "instructions", Stream: true, Store: true,
 		Input:     []inputItem{textMessageItem{Type: "message", Role: "user", Content: "old"}},
@@ -49,6 +50,7 @@ func TestBuildCompactionRequest_MatchesDedicatedCodexCompactShape(t *testing.T) 
 }
 
 func TestBuildCompactionRequest_StripsReasoningResponseStatus(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"opaque","status":"completed"}`)
 	normal := Payload{Model: "m", Input: []inputItem{opaqueResponseItem{raw: raw}}}
 	request, err := buildCompactionRequest(normal, normal.Input, Config{}, "", nil)
@@ -65,6 +67,7 @@ func TestBuildCompactionRequest_StripsReasoningResponseStatus(t *testing.T) {
 }
 
 func TestBuildCompactionRequest_DoesNotOverrideExplicitFalse(t *testing.T) {
+	t.Parallel()
 	normal := Payload{Model: "m", Input: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "x"}}}
 	request, err := buildCompactionRequest(normal, normal.Input, Config{NativeContext: &NativeContextConfig{Enabled: true, RequestEncryptedReasoning: false}}, "", nil)
 	if err != nil {
@@ -76,6 +79,7 @@ func TestBuildCompactionRequest_DoesNotOverrideExplicitFalse(t *testing.T) {
 }
 
 func TestBuildCompactionRequest_DeepCopiesMutablePayload(t *testing.T) {
+	t.Parallel()
 	include := []string{"one"}
 	parallel := true
 	tools := []toolPayload{{Type: "function", Name: "tool", Parameters: map[string]any{"nested": map[string]any{"value": "before"}}}}
@@ -89,18 +93,32 @@ func TestBuildCompactionRequest_DeepCopiesMutablePayload(t *testing.T) {
 	}
 	include[0] = "changed"
 	parallel = false
-	tools[0].Parameters["nested"].(map[string]any)["value"] = "changed"
-	rich := normal.Input[0].(richMessageItem)
+	nested, ok := tools[0].Parameters["nested"].(map[string]any)
+	if !ok {
+		t.Fatal("expected nested to be map[string]any")
+	}
+	nested["value"] = "changed"
+	rich, ok := normal.Input[0].(richMessageItem)
+	if !ok {
+		t.Fatal("expected richMessageItem")
+	}
 	rich.Content[0] = inputTextPart{Type: "input_text", Text: "changed"}
-	if request.Payload.Tools[0].Parameters["nested"].(map[string]any)["value"] != "before" {
+	reqNested, ok := request.Payload.Tools[0].Parameters["nested"].(map[string]any)
+	if !ok || reqNested["value"] != "before" {
 		t.Fatal("payload clone aliases caller-owned values")
 	}
-	if request.Payload.Input[0].(richMessageItem).Content[0].(inputTextPart).Text != "before" {
+	reqRich, ok := request.Payload.Input[0].(richMessageItem)
+	if !ok {
+		t.Fatal("expected richMessageItem in request")
+	}
+	reqText, ok := reqRich.Content[0].(inputTextPart)
+	if !ok || reqText.Text != "before" {
 		t.Fatal("input clone aliases caller-owned values")
 	}
 }
 
 func TestCompactionErrorsAreTypedAndContentSafe(t *testing.T) {
+	t.Parallel()
 	for _, err := range []error{
 		compactionProtocolError("invalid_event"),
 		compactionTransportError(errors.New("tls private details")),
@@ -116,6 +134,7 @@ func TestCompactionErrorsAreTypedAndContentSafe(t *testing.T) {
 }
 
 func TestBuildCompactionRequest_RejectsExistingTrigger(t *testing.T) {
+	t.Parallel()
 	_, err := buildCompactionRequest(Payload{}, []inputItem{opaqueResponseItem{raw: compactionTriggerRaw()}}, Config{}, "", nil)
 	if !errors.Is(err, errCompactionProtocol) {
 		t.Fatalf("error = %v", err)
@@ -123,6 +142,7 @@ func TestBuildCompactionRequest_RejectsExistingTrigger(t *testing.T) {
 }
 
 func TestCompactionClient_UsesDedicatedEndpointAndJSONResponse(t *testing.T) {
+	t.Parallel()
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -161,6 +181,7 @@ func TestCompactionClient_UsesDedicatedEndpointAndJSONResponse(t *testing.T) {
 }
 
 func TestParseCompactionJSONRequiresExactlyOneCompactionSummary(t *testing.T) {
+	t.Parallel()
 	base := `{"id":"r","object":"response.compaction","output":[{"type":"message","id":"msg-retained","role":"user","status":"completed","content":[{"type":"input_text","text":"retained"}]},%s],"usage":{"input_tokens":1}}`
 	item := `{"type":"compaction_summary","id":"cmp","encrypted_content":"opaque"}`
 	result, err := parseCompactionJSON(fmt.Appendf(nil, base, item))
@@ -173,6 +194,7 @@ func TestParseCompactionJSONRequiresExactlyOneCompactionSummary(t *testing.T) {
 }
 
 func TestParseCompactionJSONAcceptsObservedUnaryShapes(t *testing.T) {
+	t.Parallel()
 	raw := `{"id":"r-array","object":"response.compaction","created_at":1,"output":[{"type":"message","id":"msg-developer","role":"developer","status":"completed","content":[{"type":"input_text","text":"retained"}]},{"type":"compaction_summary","id":"cmp-array","encrypted_content":"opaque","status":"completed"}],"usage":{"input_tokens":1}}`
 	result, err := parseCompactionJSON([]byte(raw))
 	if err != nil || len(result.Output) != 2 || inputItemType(result.Output[1]) != "compaction_summary" {
@@ -181,6 +203,7 @@ func TestParseCompactionJSONAcceptsObservedUnaryShapes(t *testing.T) {
 }
 
 func TestParseCompactionJSONUsageIsOptionalButValidatedWhenPresent(t *testing.T) {
+	t.Parallel()
 	base := `{"id":"r","object":"response.compaction","output":[{"type":"compaction_summary","id":"cmp","encrypted_content":"opaque"}]%s}`
 	cases := []struct {
 		name      string
@@ -197,6 +220,7 @@ func TestParseCompactionJSONUsageIsOptionalButValidatedWhenPresent(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			raw := fmt.Sprintf(base, tc.usage)
 			result, err := parseCompactionJSON([]byte(raw))
 			if tc.wantErr {
@@ -216,6 +240,7 @@ func TestParseCompactionJSONUsageIsOptionalButValidatedWhenPresent(t *testing.T)
 }
 
 func TestParseCompactionJSONRejectsNonCompletedCompactionStatus(t *testing.T) {
+	t.Parallel()
 	raw := `{"id":"r","object":"response.compaction","output":[{"type":"compaction_summary","id":"cmp","encrypted_content":"opaque","status":"in_progress"}],"usage":{"input_tokens":1}}`
 	if _, err := parseCompactionJSON([]byte(raw)); !errors.Is(err, errCompactionProtocol) {
 		t.Fatalf("error = %v, want protocol failure", err)
@@ -223,6 +248,7 @@ func TestParseCompactionJSONRejectsNonCompletedCompactionStatus(t *testing.T) {
 }
 
 func TestParseCompactionJSONRetainedMessageValidation(t *testing.T) {
+	t.Parallel()
 	base := `{"id":"r","object":"response.compaction","output":[%s,{"type":"compaction_summary","id":"cmp","encrypted_content":"opaque"}],"usage":{"input_tokens":1}}`
 	cases := []struct {
 		name string
@@ -239,6 +265,7 @@ func TestParseCompactionJSONRetainedMessageValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := parseCompactionJSON(fmt.Appendf(nil, base, tc.msg))
 			if (err == nil) != tc.want {
 				t.Fatalf("err=%v wantAccepted=%v", err, tc.want)
@@ -258,6 +285,7 @@ func FuzzParseCompactionRetainedMessage(f *testing.F) {
 }
 
 func TestCompactionClient_CancellationClosesResponseBody(t *testing.T) {
+	t.Parallel()
 	started := make(chan struct{})
 	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +317,7 @@ func TestCompactionClient_CancellationClosesResponseBody(t *testing.T) {
 }
 
 func TestCollectCompactionSSE_RequiresOneCompletedCompaction(t *testing.T) {
+	t.Parallel()
 	item := `{"type":"compaction","id":"cmp","encrypted_content":"opaque"}`
 	stream := fmt.Sprintf("data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\ndata: {\"type\":\"response.output_item.done\",\"item\":%s}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[%s]}}\n", item, item)
 	result, err := collectCompactionSSE(context.Background(), strings.NewReader(stream))
@@ -301,6 +330,7 @@ func TestCollectCompactionSSE_RequiresOneCompletedCompaction(t *testing.T) {
 }
 
 func TestCollectCompactionSSEUsageIsOptionalButValidatedWhenPresent(t *testing.T) {
+	t.Parallel()
 	item := `{"type":"compaction","id":"cmp","encrypted_content":"opaque"}`
 	base := `data: {"type":"response.created","response":{"id":"r"}}
 data: {"type":"response.output_item.done","item":%s}
@@ -319,6 +349,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			stream := fmt.Sprintf(base, item, item, tc.usage)
 			result, err := collectCompactionSSE(context.Background(), strings.NewReader(stream))
 			if tc.wantErr {
@@ -341,6 +372,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 }
 
 func TestCompactionCollector_AcceptsSSEDataWithoutOptionalSpace(t *testing.T) {
+	t.Parallel()
 	item := `{"type":"compaction","id":"cmp","encrypted_content":"opaque"}`
 	stream := fmt.Sprintf("data:{\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\ndata:{\"type\":\"response.output_item.done\",\"item\":%s}\ndata:{\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[%s]}}\n", item, item)
 	if _, err := collectCompactionSSE(context.Background(), strings.NewReader(stream)); err != nil {
@@ -349,6 +381,7 @@ func TestCompactionCollector_AcceptsSSEDataWithoutOptionalSpace(t *testing.T) {
 }
 
 func TestBuildReplacement_CodexPredicateBoundsAndOrder(t *testing.T) {
+	t.Parallel()
 	history := NativeHistory{Items: []inputItem{
 		textMessageItem{Type: "message", Role: "system", Content: "system"},
 		textMessageItem{Type: "message", Role: "user", Content: "user"},
@@ -370,6 +403,7 @@ func TestBuildReplacement_CodexPredicateBoundsAndOrder(t *testing.T) {
 }
 
 func TestCollectCompactionSSE_RejectsMissingAssistantAndDuplicateTerminal(t *testing.T) {
+	t.Parallel()
 	item := `{"type":"compaction","id":"cmp","encrypted_content":"opaque"}`
 	cases := []string{
 		`data: {"type":"response.created","response":{"id":"r"}}
@@ -385,6 +419,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 }
 
 func TestCollectCompactionSSE_CancellationIsSafe(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := collectCompactionSSE(ctx, strings.NewReader("data: {}\n"))

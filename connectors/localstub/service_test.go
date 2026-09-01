@@ -145,9 +145,6 @@ func TestPackage_ReleaseMetadataAndManifestTemplate(t *testing.T) {
 		if len(b) == 0 {
 			t.Fatalf("empty %s", rel)
 		}
-		if strings.Contains(string(b), "internal/") && strings.Contains(rel, "release") {
-			// ok in comments only
-		}
 	}
 	body := string(mustRead(t, filepath.Join(root, "release.yaml")))
 	for _, want := range []string{"factory_kind: local-stub", "plugin_id:", "manifest_template:"} {

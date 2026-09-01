@@ -66,16 +66,14 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 
 	errs := make(chan error, n)
 	for i := range n {
-		finished.Add(1)
-		go func() {
-			defer finished.Done()
+		finished.Go(func() {
 			cmd := reconcileReserveCommandInternal(fmtRuleID(i), 1)
 			cmd.ReservationKey.LogicalRequestID = fmtLogical(i)
 			cmd.ReservationKey.AttemptID = fmtAttempt(i)
 			cmd.SourceKey = cmd.ReservationKey.String()
 			_, err := store.Reserve(ctx, cmd)
 			errs <- err
-		}()
+		})
 	}
 
 	// All mutation paths reach BeginTx concurrently — proves process-wide mutex does not serialize DB work.

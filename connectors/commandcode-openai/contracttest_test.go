@@ -40,6 +40,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 }
 
 func TestSupportedContractTCK(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(openaicompat.NewEmulator(openaicompat.EmulatorConfig{RequireBearer: false}))
 	t.Cleanup(srv.Close)
 	result := contracttest.Run(t, contracttest.Config{

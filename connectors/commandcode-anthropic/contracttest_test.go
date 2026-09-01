@@ -40,6 +40,7 @@ func bufconnHost(factory string, config []byte, secrets backendplugin.SecretBund
 }
 
 func TestSupportedContractTCK(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(anthropic.NewEmulator(anthropic.EmulatorConfig{
 		RequireAuth: false,
 	}))

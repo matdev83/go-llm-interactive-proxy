@@ -19,6 +19,7 @@ import (
 )
 
 func TestEnsureDownloadsVerifiesAndCaches(t *testing.T) {
+	t.Parallel()
 	archiveName := "go-agy-acp-wrapper_1.2.3" + mustSuffix(t)
 	archive := testArchive(t)
 	digest := sha256.Sum256(archive)
@@ -32,7 +33,7 @@ func TestEnsureDownloadsVerifiesAndCaches(t *testing.T) {
 				{Name: "checksums.txt", URL: serverURL(r) + "/checksums"},
 			}})
 		case "/checksums":
-			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(digest[:]), archiveName)
+			_, _ = fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(digest[:]), archiveName)
 		case "/archive":
 			_, _ = w.Write(archive)
 		default:
@@ -60,6 +61,7 @@ func TestEnsureDownloadsVerifiesAndCaches(t *testing.T) {
 }
 
 func TestEnsureRejectsChecksumMismatch(t *testing.T) {
+	t.Parallel()
 	archiveName := "go-agy-acp-wrapper_1.2.3" + mustSuffix(t)
 	archive := testArchive(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +72,7 @@ func TestEnsureRejectsChecksumMismatch(t *testing.T) {
 				{Name: "checksums.txt", URL: serverURL(r) + "/checksums"},
 			}})
 		case "/checksums":
-			fmt.Fprintf(w, "%064d  %s\n", 0, archiveName)
+			_, _ = fmt.Fprintf(w, "%064d  %s\n", 0, archiveName)
 		case "/archive":
 			_, _ = w.Write(archive)
 		}
@@ -87,6 +89,7 @@ func TestEnsureRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestEnsureUsesCacheOffline(t *testing.T) {
+	t.Parallel()
 	cache := t.TempDir()
 	name := "go-agy-acp-wrapper"
 	if runtime.GOOS == "windows" {

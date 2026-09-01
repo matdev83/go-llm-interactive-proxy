@@ -7,6 +7,7 @@ import (
 )
 
 func TestConfigWrapperAutoDownloadDefaultsOnAndCanBeDisabled(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfigYAML(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +30,7 @@ func TestConfigWrapperAutoDownloadDefaultsOnAndCanBeDisabled(t *testing.T) {
 }
 
 func TestConfigDefaultTimeoutIsFourHours(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfigYAML(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +45,7 @@ func TestConfigDefaultTimeoutIsFourHours(t *testing.T) {
 }
 
 func TestConfigExplicitTimeoutIsPreserved(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfigYAML([]byte("timeout_seconds: 30\n"))
 	if err != nil {
 		t.Fatal(err)

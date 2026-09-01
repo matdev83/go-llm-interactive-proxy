@@ -9,6 +9,8 @@ import (
 )
 
 func TestMeasurementJSONSchemaV1(t *testing.T) {
+	t.Parallel()
+
 	measurement := Measurement{
 		SchemaVersion: SchemaVersion, Target: TargetTestUnit, Revision: "abc123", GOOS: "windows", GOARCH: "amd64", GoVersion: "go1.26.6", LogicalCPUs: 16, TestParallel: 8, WallNanos: 900,
 		Process:  ProcessMetrics{UserCPUNanos: 1, KernelCPUNanos: 2, TotalCPUNanos: 3, TotalProcesses: 4, ActiveProcesses: 5, TerminatedProcesses: 6, PageFaults: 7, ReadOperations: 8, WriteOperations: 9, OtherOperations: 10, ReadBytes: 11, WriteBytes: 12, OtherBytes: 13},
@@ -39,6 +41,8 @@ func TestMeasurementJSONSchemaV1(t *testing.T) {
 }
 
 func TestQualityMeasurementOmitsPackages(t *testing.T) {
+	t.Parallel()
+
 	measurement := Measurement{SchemaVersion: SchemaVersion, Target: TargetQualityChecks, Packages: nil}
 	data, err := json.Marshal(measurement)
 	if err != nil {
@@ -54,6 +58,8 @@ func TestQualityMeasurementOmitsPackages(t *testing.T) {
 }
 
 func TestPolicyValidationRequiresExactSchemaAnchorAndTarget(t *testing.T) {
+	t.Parallel()
+
 	valid := Policy{SchemaVersion: SchemaVersion, AnchorRef: "origin/main", Targets: map[string]TargetPolicy{TargetTestUnit: {CPU: AbsoluteBudget{Ratio: 1.1, DeltaSeconds: 1}, Processes: ProcessBudget{Ratio: 1, Delta: 1}, IOOperations: CountBudget{Ratio: 1.1, Delta: 1}, Wall: AbsoluteBudget{Ratio: 1.1, DeltaSeconds: 1}, Package: PackagePolicy{ExistingRatio: 1, ExistingDeltaSeconds: 1, ExistingFloorSeconds: 1, NewWarnSeconds: 4, NewFailSeconds: 8}}}}
 	if err := ValidatePolicy(valid); err != nil {
 		t.Fatalf("valid policy rejected: %v", err)
@@ -69,6 +75,7 @@ func TestPolicyValidationRequiresExactSchemaAnchorAndTarget(t *testing.T) {
 		{name: "invalid ratio", p: Policy{SchemaVersion: SchemaVersion, AnchorRef: "origin/main", Targets: map[string]TargetPolicy{TargetTestUnit: {CPU: AbsoluteBudget{Ratio: math.NaN()}}}}, want: ErrInvalidPolicy},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if err := ValidatePolicy(tc.p); !errors.Is(err, tc.want) {
 				t.Fatalf("ValidatePolicy() error = %v, want errors.Is(..., %v)", err, tc.want)
 			}
@@ -77,6 +84,8 @@ func TestPolicyValidationRequiresExactSchemaAnchorAndTarget(t *testing.T) {
 }
 
 func TestPolicyJSONUsesDirectTargetShape(t *testing.T) {
+	t.Parallel()
+
 	data := []byte(`{"schema_version":1,"anchor_ref":"origin/main","targets":{"test-unit":{"cpu":{"ratio":1.1,"delta_seconds":1},"processes":{"ratio":1.2,"delta":2},"io_operations":{"ratio":1.4,"delta":10000},"wall":{"ratio":1.1,"delta_seconds":1},"packages":{"existing_ratio":1.1,"existing_delta_seconds":1,"existing_floor_seconds":2,"new_warn_seconds":4,"new_fail_seconds":8},"package_overrides":{"internal/archtest":{"existing_ratio":2}}}}}`)
 	policy, err := DecodePolicy(data)
 	if err != nil {
@@ -96,6 +105,8 @@ func TestPolicyJSONUsesDirectTargetShape(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownSchemaAndMalformedTrailingJSON(t *testing.T) {
+	t.Parallel()
+
 	valid := `{"schema_version":1,"target":"test-unit","revision":"r","goos":"windows","goarch":"amd64","go_version":"go1.26.6","logical_cpus":1,"test_parallel":1,"wall_nanos":1,"process":{},"packages":{}}`
 	if _, err := DecodeMeasurement([]byte(valid + " {}")); !errors.Is(err, ErrMalformedJSON) {
 		t.Fatalf("trailing measurement JSON error = %v", err)

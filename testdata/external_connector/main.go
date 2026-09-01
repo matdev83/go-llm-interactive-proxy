@@ -21,7 +21,9 @@ func (*fakeConnector) Configure(context.Context, backendplugin.ConfigureRequest)
 	return nil, nil
 }
 
-var _ backendplugin.Service = (*fakeConnector)(nil)
-var _ func(context.Context, net.Conn, string, string, []byte, backendplugin.SecretBundle, backendplugin.RuntimePolicy) (*host.Session, backendplugin.ResolvedProfile, error) = host.DialConfiguredSession
+var (
+	_ backendplugin.Service                                                                                                                                                  = (*fakeConnector)(nil)
+	_ func(context.Context, net.Conn, string, string, []byte, backendplugin.SecretBundle, backendplugin.RuntimePolicy) (*host.Session, backendplugin.ResolvedProfile, error) = host.DialConfiguredSession
+)
 
 func main() { fmt.Println("external_connector: ok") }

@@ -283,13 +283,13 @@ func CanonizeCompactionSummaryItemOpaque(raw []byte) (json.RawMessage, error) {
 	if json.Unmarshal(obj["type"], &typ) != nil || typ != "compaction_summary" {
 		return nil, itemError("invalid compaction summary item")
 	}
-	if encrypted, ok := obj["encrypted_content"]; !ok {
+	encrypted, ok := obj["encrypted_content"]
+	if !ok {
 		return nil, itemError("invalid compaction summary item")
-	} else {
-		var value string
-		if json.Unmarshal(encrypted, &value) != nil || value == "" || len(value) > maxCompactionSummaryBytes {
-			return nil, itemError("invalid compaction summary item")
-		}
+	}
+	var value string
+	if json.Unmarshal(encrypted, &value) != nil || value == "" || len(value) > maxCompactionSummaryBytes {
+		return nil, itemError("invalid compaction summary item")
 	}
 	if id, ok := obj["id"]; ok && !isJSONNull(id) {
 		var value string

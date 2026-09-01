@@ -14,6 +14,7 @@ import (
 )
 
 func TestUsageEvidence_normalizesProviderAuthorityAndRejectsEmptyUsage(t *testing.T) {
+	t.Parallel()
 	if got := usageEvidence(&completedUsage{}); got != nil {
 		t.Fatalf("empty provider usage = %#v, want nil", got)
 	}
@@ -25,6 +26,7 @@ func TestUsageEvidence_normalizesProviderAuthorityAndRejectsEmptyUsage(t *testin
 }
 
 func TestAccountingEvidence_preservesPresenceAndProviderMetadata(t *testing.T) {
+	t.Parallel()
 	usage := &NativeUsageEvidence{
 		InputTokens: 41, OutputTokens: 5, TotalTokens: 46,
 		UsagePresence: lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true},
@@ -41,6 +43,7 @@ func TestAccountingEvidence_preservesPresenceAndProviderMetadata(t *testing.T) {
 }
 
 func TestNativeUsageSidebandStream_drainsEvidenceOnce(t *testing.T) {
+	t.Parallel()
 	input := int64(13)
 	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
 		InputTokens: input, UsagePresence: lipapi.UsagePresence{InputTokens: true},
@@ -63,24 +66,33 @@ func TestNativeUsageSidebandStream_drainsEvidenceOnce(t *testing.T) {
 }
 
 func TestNativeUsageSidebandStream_preservesOpenError(t *testing.T) {
+	t.Parallel()
 	openErr := errors.New("normal request failed")
 	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
 		InputTokens: 13, UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 	}, openErr)
-	sideband := stream.(*nativeUsageSidebandStream)
+	sideband, ok := stream.(*nativeUsageSidebandStream)
+	if !ok {
+		t.Fatal("expected native sideband stream")
+	}
 	if _, err := sideband.Recv(context.Background()); !errors.Is(err, openErr) {
 		t.Fatalf("open error = %v, want %v", err, openErr)
 	}
 }
 
 func TestNativeUsageSidebandStream_rejectsNilAndCanceledContext(t *testing.T) {
+	t.Parallel()
 	stream := newNativeUsageSidebandStream(nil, &NativeUsageEvidence{
 		InputTokens: 13, UsagePresence: lipapi.UsagePresence{InputTokens: true},
 		Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 	}, io.EOF)
-	sideband := stream.(*nativeUsageSidebandStream)
-	if _, err := sideband.Recv(nil); !errors.Is(err, lipapi.ErrNilContext) {
+	sideband, ok := stream.(*nativeUsageSidebandStream)
+	if !ok {
+		t.Fatal("expected native sideband stream")
+	}
+	var nilCtx context.Context
+	if _, err := sideband.Recv(nilCtx); !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("nil context error = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -91,6 +103,7 @@ func TestNativeUsageSidebandStream_rejectsNilAndCanceledContext(t *testing.T) {
 }
 
 func TestNativeContextTelemetry_snapshotIsFixedAndPrivate(t *testing.T) {
+	t.Parallel()
 	telemetry := newNativeContextTelemetry()
 	telemetry.recordContext(101, 41, 1001, 501)
 	telemetry.recordReasoning(reasoningTelemetryRequested)
@@ -117,6 +130,7 @@ func TestNativeContextTelemetry_snapshotIsFixedAndPrivate(t *testing.T) {
 }
 
 func TestNativeContextTelemetry_concurrentSnapshots(t *testing.T) {
+	t.Parallel()
 	start := time.Unix(100, 0)
 	clock := start
 	telemetry := newNativeContextTelemetryWithClock(func() time.Time { return clock })

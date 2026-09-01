@@ -44,6 +44,7 @@ func TestCanonizeReasoningItemOpaque_PreservesEncryptedContentPresence(t *testin
 }
 
 func TestCanonizeCompactionSummaryItemOpaquePreservesAllowlistedEnvelope(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{"status":"completed","type":"compaction_summary","id":null,"encrypted_content":"opaque","created_by":"codex"}`)
 	got, err := CanonizeCompactionSummaryItemOpaque(raw)
 	if err != nil {
@@ -55,6 +56,7 @@ func TestCanonizeCompactionSummaryItemOpaquePreservesAllowlistedEnvelope(t *test
 }
 
 func TestCanonizeCompactionSummaryItemOpaqueRejectsUnsafeShapes(t *testing.T) {
+	t.Parallel()
 	tooDeep := `{"type":"compaction_summary","encrypted_content":"x","nested":` + strings.Repeat("[", maxOpaqueJSONDepth+2) + `0` + strings.Repeat("]", maxOpaqueJSONDepth+2) + `}`
 	for _, raw := range []string{
 		`{"type":"compaction_summary","encrypted_content":"x","extra":1}`,

@@ -9,6 +9,8 @@ import (
 )
 
 func TestServiceConfig_AppServerRejectsNativeContext(t *testing.T) {
+	t.Parallel()
+
 	yamlWithNativeContext := []byte(`
 base_url: "https://chatgpt.com/backend-api/codex"
 native_context:
@@ -20,6 +22,7 @@ native_context:
 `)
 
 	t.Run("app server rejects native context YAML", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindAppServer, yamlWithNativeContext)
 		if err != nil {
 			t.Fatalf("unexpected YAML parse error: %v", err)
@@ -31,6 +34,7 @@ native_context:
 	})
 
 	t.Run("http connector accepts valid native context YAML", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindHTTP, yamlWithNativeContext)
 		if err != nil {
 			t.Fatalf("unexpected YAML parse error: %v", err)
@@ -48,6 +52,7 @@ native_context:
 	})
 
 	t.Run("app server accepts omitted/default native context", func(t *testing.T) {
+		t.Parallel()
 		for _, raw := range []string{"", "native_context: {}\n"} {
 			cfg, err := ParseConfigYAML(FactoryKindAppServer, []byte(raw))
 			if err != nil {
@@ -60,6 +65,7 @@ native_context:
 	})
 
 	t.Run("app server rejects explicit disabled native context", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindAppServer, []byte("native_context:\n  enabled: false\n"))
 		if err != nil {
 			t.Fatal(err)
@@ -70,6 +76,7 @@ native_context:
 	})
 
 	t.Run("app server rejects every non-default native context setting", func(t *testing.T) {
+		t.Parallel()
 		for _, raw := range []string{
 			"native_context:\n  enabled: true\n",
 			"native_context:\n  request_encrypted_reasoning: false\n",
@@ -87,6 +94,7 @@ native_context:
 	})
 
 	t.Run("invalid HTTP native context reaches Configure error", func(t *testing.T) {
+		t.Parallel()
 		_, err := New().Configure(context.Background(), backendplugin.ConfigureRequest{
 			FactoryKind: FactoryKindHTTP,
 			ConfigYAML:  []byte("base_url: https://example.invalid\ncatalog_enabled: false\nnative_context:\n  enabled: false\n  compaction:\n    trigger_tokens: -1\n"),
@@ -98,6 +106,7 @@ native_context:
 	})
 
 	t.Run("YAML distinguishes omitted and explicit compaction false", func(t *testing.T) {
+		t.Parallel()
 		cases := []struct {
 			name           string
 			raw            string
@@ -108,6 +117,7 @@ native_context:
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
 				cfg, err := ParseConfigYAML(FactoryKindHTTP, []byte(tc.raw))
 				if err != nil {
 					t.Fatal(err)
@@ -128,6 +138,7 @@ native_context:
 	})
 
 	t.Run("omitted direct HTTP YAML is full native context", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindHTTP, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -145,6 +156,7 @@ native_context:
 	})
 
 	t.Run("explicit request_encrypted_reasoning false is not defaulted", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindHTTP, []byte("native_context:\n  enabled: true\n  request_encrypted_reasoning: false\n  reasoning_continuity: disabled\n  compaction:\n    enabled: false\n"))
 		if err != nil {
 			t.Fatal(err)
@@ -159,6 +171,7 @@ native_context:
 	})
 
 	t.Run("explicit native context false is a complete opt-out without nested block", func(t *testing.T) {
+		t.Parallel()
 		cfg, err := ParseConfigYAML(FactoryKindHTTP, []byte("native_context:\n  enabled: false\n"))
 		if err != nil {
 			t.Fatal(err)

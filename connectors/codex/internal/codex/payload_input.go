@@ -415,8 +415,8 @@ func assistantFunctionCallItems(parts []lipapi.Part, hasTools bool) ([]inputItem
 
 func partToOpaqueResponseItem(p lipapi.Part) (inputItem, bool, error) {
 	var raw json.RawMessage
-	switch {
-	case p.Kind == lipapi.PartReasoning:
+	switch p.Kind {
+	case lipapi.PartReasoning:
 		if p.Reasoning == nil {
 			return nil, false, newNativeHistoryBuildError("malformed_item")
 		}
@@ -428,7 +428,7 @@ func partToOpaqueResponseItem(p lipapi.Part) (inputItem, bool, error) {
 			return nil, false, newNativeHistoryBuildError("invalid_opaque")
 		}
 		raw = canon
-	case p.Kind == lipapi.PartJSON:
+	case lipapi.PartJSON:
 		var header struct {
 			Type string `json:"type"`
 		}

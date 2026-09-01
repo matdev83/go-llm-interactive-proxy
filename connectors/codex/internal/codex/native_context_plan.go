@@ -312,10 +312,7 @@ func PlanCompaction(in CompactionPlanInput) CompactionPlan {
 	if tailEstimate.Tokens+in.Profile.SafetyHeadroom > in.Profile.HardLimit {
 		return hardFailurePlan("live_tail_too_large", split, full.Tokens, effectiveHistory, sourcePrefixEnd)
 	}
-	retained := max(in.Config.Compaction.RetainedMessageTokens, 0)
-	if retained > prefixEstimate.Tokens {
-		retained = prefixEstimate.Tokens
-	}
+	retained := min(max(in.Config.Compaction.RetainedMessageTokens, 0), prefixEstimate.Tokens)
 	savings := prefixEstimate.Tokens - retained
 	if savings < in.Config.Compaction.MinSavingsTokens {
 		if full.Tokens >= in.Profile.HardLimit {

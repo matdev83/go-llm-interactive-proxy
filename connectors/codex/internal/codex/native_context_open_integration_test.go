@@ -120,7 +120,7 @@ func (e *nativeOpenEmulator) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_, body, err := conn.ReadMessage()
 	if err != nil {
 		return
@@ -264,7 +264,7 @@ func collectNativeEvents(t *testing.T, engine *Engine, call lipapi.Call, model s
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var events []lipapi.Event
 	for {
 		ev, err := stream.Recv(context.Background())
@@ -299,6 +299,7 @@ func assertBodyContains(t *testing.T, body []byte, values ...string) {
 }
 
 func runNativeOpenScenario(t *testing.T, transport string) {
+	t.Helper()
 	emu := newNativeOpenEmulator(t)
 	engine, err := New(nativeScenarioConfig(emu.server.URL, transport))
 	if err != nil {
@@ -350,20 +351,23 @@ func runNativeOpenScenario(t *testing.T, transport string) {
 }
 
 func TestNativeContextConnectorOpen_HTTPFullScenario(t *testing.T) {
+	t.Parallel()
 	runNativeOpenScenario(t, TransportHTTPS)
 }
 
 func TestNativeContextConnectorOpen_WebSocketFullScenario(t *testing.T) {
+	t.Parallel()
 	runNativeOpenScenario(t, TransportWebSocket)
 }
 
 func TestNativeContextConnectorOpen_DisabledHasZeroExtraRequests(t *testing.T) {
+	t.Parallel()
 	emu := newNativeOpenEmulator(t)
 	engine, err := New(Config{BaseURL: emu.server.URL, AccessToken: "scenario-token", Transport: TransportHTTPS})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 	call := nativeScenarioCall("disabled-session", []lipapi.Message{nativeText(lipapi.RoleUser, "disabled")})
 	_ = collectNativeEvents(t, engine, call, "gpt-5.3-codex-spark")
 	if got := len(emu.recordsSnapshot()); got != 1 {
@@ -372,6 +376,7 @@ func TestNativeContextConnectorOpen_DisabledHasZeroExtraRequests(t *testing.T) {
 }
 
 func TestNativeContextConnectorOpen_ManagedAccountRotationNoLeakage(t *testing.T) {
+	t.Parallel()
 	emu := newNativeOpenEmulator(t)
 	dir := t.TempDir()
 	for name, account := range map[string][2]string{"a.json": {"account-a", "account-a"}, "b.json": {"account-b", "account-b"}} {
@@ -391,7 +396,7 @@ func TestNativeContextConnectorOpen_ManagedAccountRotationNoLeakage(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.Close()
+	defer func() { _ = engine.Close() }()
 	call := nativeScenarioCall("managed-session", []lipapi.Message{
 		nativeText(lipapi.RoleUser, strings.Repeat("managed older context ", 12)),
 		nativeText(lipapi.RoleUser, "managed live"),

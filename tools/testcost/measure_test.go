@@ -27,6 +27,8 @@ func (r *recordingRunner) Run(_ context.Context, request taskrunner.Request) tas
 }
 
 func TestResolveParallelUsesPositiveEnvOrLogicalCPU(t *testing.T) {
+	t.Parallel()
+
 	if got := ResolveParallel("9", 4); got != 9 {
 		t.Fatalf("ResolveParallel positive = %d", got)
 	}
@@ -42,6 +44,8 @@ func TestResolveParallelUsesPositiveEnvOrLogicalCPU(t *testing.T) {
 }
 
 func TestBuildTestUnitRequestExactCommand(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("test-unit measurement is Windows-only")
 	}
@@ -62,6 +66,8 @@ func TestBuildTestUnitRequestExactCommand(t *testing.T) {
 }
 
 func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		if _, err := BuildQualityChecksRequest(MeasureOptions{Root: t.TempDir(), TempRoot: t.TempDir(), Parallel: 3}); !errors.Is(err, ErrWindowsOnly) {
 			t.Fatalf("error = %v, want ErrWindowsOnly", err)
@@ -85,6 +91,8 @@ func TestBuildQualityChecksRequestExactEnvironment(t *testing.T) {
 }
 
 func TestMeasureStreamsLogsAndMapsAccountingWithoutPackageWallSum(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("measurement is Windows-only")
 	}
@@ -123,6 +131,8 @@ func TestMeasureStreamsLogsAndMapsAccountingWithoutPackageWallSum(t *testing.T) 
 }
 
 func TestMeasureAccountingAndFailureTailFailClosed(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("measurement is Windows-only")
 	}
@@ -135,6 +145,7 @@ func TestMeasureAccountingAndFailureTailFailClosed(t *testing.T) {
 		{name: "error", result: taskrunner.Result{Kind: taskrunner.Success, AccountingErr: errors.New("accounting query")}, want: ErrAccountingFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			runner := &recordingRunner{result: tc.result, run: func(request taskrunner.Request) { _, _ = request.StreamErr.Write([]byte(strings.Repeat("x", 100))) }}
 			_, err := Measure(context.Background(), TargetTestUnit, MeasureOptions{Root: t.TempDir(), TempRoot: t.TempDir(), Runner: runner})
 			if !errors.Is(err, tc.want) {
@@ -145,6 +156,8 @@ func TestMeasureAccountingAndFailureTailFailClosed(t *testing.T) {
 }
 
 func TestMeasureQualityChecksOmitsPackages(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("measurement is Windows-only")
 	}
@@ -159,6 +172,8 @@ func TestMeasureQualityChecksOmitsPackages(t *testing.T) {
 }
 
 func TestBuildQATaggedHotspotsRequestExactCommand(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("qa-tagged-hotspots measurement is Windows-only")
 	}
@@ -186,6 +201,8 @@ func TestBuildQATaggedHotspotsRequestExactCommand(t *testing.T) {
 }
 
 func TestMeasureQATaggedHotspotsStreamsLogsAndMapsAccountingWithPackages(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "windows" {
 		t.Skip("measurement is Windows-only")
 	}

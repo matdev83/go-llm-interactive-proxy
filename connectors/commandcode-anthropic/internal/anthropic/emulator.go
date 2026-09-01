@@ -56,7 +56,7 @@ func (e *Emulator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e.cfg.ForcedBody != "" {
 			_, _ = w.Write([]byte(e.cfg.ForcedBody))
 		} else {
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"type":"error","error":{"type":"api_error","message":"error %d"}}`, e.cfg.ForcedStatus)))
+			_, _ = w.Write(fmt.Appendf(nil, `{"type":"error","error":{"type":"api_error","message":"error %d"}}`, e.cfg.ForcedStatus))
 		}
 		return
 	}

@@ -8,6 +8,7 @@ import (
 )
 
 func TestBuildInputItems_preservesActionTrajectoryOrder(t *testing.T) {
+	t.Parallel()
 	reasoning := func(id string) lipapi.Part {
 		return lipapi.Part{Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{
 			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
@@ -52,6 +53,7 @@ func TestBuildInputItems_preservesActionTrajectoryOrder(t *testing.T) {
 }
 
 func TestBuildInputItems_itemAuthorityPreservesExactTrajectory(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{
 		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "use lookup"}}},
 		{Kind: lipapi.ItemKindReasoning, Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{
@@ -86,6 +88,7 @@ func TestBuildInputItems_itemAuthorityPreservesExactTrajectory(t *testing.T) {
 }
 
 func TestBuildInputItems_itemAuthorityRejectsUnsupportedReasoningBeforeUpstream(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{{
 		Kind: lipapi.ItemKindReasoning,
 		Reasoning: &lipapi.ReasoningItem{Reasoning: &lipapi.ReasoningPart{
@@ -99,6 +102,7 @@ func TestBuildInputItems_itemAuthorityRejectsUnsupportedReasoningBeforeUpstream(
 }
 
 func TestBuildInputItems_itemAuthorityRejectsNilCompactionWithoutPanic(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{{Kind: lipapi.ItemKindCompaction}}}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -111,6 +115,7 @@ func TestBuildInputItems_itemAuthorityRejectsNilCompactionWithoutPanic(t *testin
 }
 
 func TestBuildInputItems_itemAuthorityRejectsMalformedCompaction(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{{
 		Kind:       lipapi.ItemKindCompaction,
 		Compaction: &lipapi.CompactionItem{Opaque: json.RawMessage(`{"type":"message"}`)},
@@ -121,6 +126,7 @@ func TestBuildInputItems_itemAuthorityRejectsMalformedCompaction(t *testing.T) {
 }
 
 func TestBuildInputItems_itemAuthorityRejectsOrphanToolResult(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{{
 		Kind:       lipapi.ItemKindToolResult,
 		ToolResult: &lipapi.ToolResultItem{CallID: "missing", Name: "lookup", Output: "result"},
@@ -131,6 +137,7 @@ func TestBuildInputItems_itemAuthorityRejectsOrphanToolResult(t *testing.T) {
 }
 
 func TestBuildInputItems_itemAuthorityRejectsWireIllegalMessageRole(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Items: []lipapi.Item{{
 		Kind:    lipapi.ItemKindMessage,
 		Role:    lipapi.RoleSystem,

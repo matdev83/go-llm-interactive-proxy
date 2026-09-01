@@ -8,6 +8,8 @@ import (
 )
 
 func TestServiceResolve_HTTPAdvertisesCompactionCapabilityAndDialect(t *testing.T) {
+	t.Parallel()
+
 	instance := &instance{kind: FactoryKindHTTP}
 	profile, err := instance.Resolve(context.Background(), nil)
 	if err != nil {
@@ -25,6 +27,8 @@ func TestServiceResolve_HTTPAdvertisesCompactionCapabilityAndDialect(t *testing.
 }
 
 func TestServiceResolve_AppServerDoesNotAdvertiseNativeCompaction(t *testing.T) {
+	t.Parallel()
+
 	profile, err := (&instance{kind: FactoryKindAppServer}).Resolve(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

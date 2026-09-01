@@ -13,6 +13,8 @@ import (
 )
 
 func TestWindowsCostProbeHasProcessAccounting(t *testing.T) {
+	t.Parallel()
+
 	result := taskrunner.Run(context.Background(), taskrunner.Request{
 		Argv:    []string{"cmd.exe", "/C", "exit", "0"},
 		Timeout: 30 * time.Second,
@@ -30,6 +32,8 @@ func TestWindowsCostProbeHasProcessAccounting(t *testing.T) {
 }
 
 func TestWindowsMeasureSmallModuleEndToEnd(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeProbeFile(t, filepath.Join(root, "go.mod"), "module example.com/testcostprobe\n\ngo 1.26\n")
 	writeProbeFile(t, filepath.Join(root, "probe_test.go"), "package probe\n\nimport \"testing\"\n\nfunc TestProbe(t *testing.T) {}\n")

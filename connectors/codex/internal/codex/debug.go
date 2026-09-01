@@ -51,11 +51,7 @@ func stableCounts(counts map[string]int) []string {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	out := make([]string, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, k)
-	}
-	return out
+	return keys
 }
 
 func logPayloadShape(ctx context.Context, call *lipapi.Call, payload Payload) {

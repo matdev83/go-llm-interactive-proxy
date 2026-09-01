@@ -10,6 +10,7 @@ import (
 )
 
 func TestPayloadForCall_nativeReasoningRequestPolicy(t *testing.T) {
+	t.Parallel()
 	cat, err := catalog.Parse([]byte(`{"models":[
 		{"slug":"catalog-model","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},
 		{"slug":"low-only","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"low"}]}
@@ -108,6 +109,7 @@ func TestPayloadForCall_nativeReasoningRequestPolicy(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			model := tc.model
 			if model == "" {
 				model = "uncataloged-model"
@@ -148,6 +150,7 @@ func TestPayloadForCall_nativeReasoningRequestPolicy(t *testing.T) {
 }
 
 func TestPayloadForCall_requestPolicyConsumesMarkerWithoutMutatingCall(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 		Extensions: map[string]json.RawMessage{
@@ -175,6 +178,7 @@ func TestPayloadForCall_requestPolicyConsumesMarkerWithoutMutatingCall(t *testin
 }
 
 func TestPayloadForCall_defaultReasoningOmitsEmptyEffort(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hello")}}},
 		Extensions: map[string]json.RawMessage{
@@ -200,6 +204,7 @@ func TestPayloadForCall_defaultReasoningOmitsEmptyEffort(t *testing.T) {
 }
 
 func TestPayloadForCall_internalCompactionPolicySeam(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{
 		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("history")}}},
 		Extensions: map[string]json.RawMessage{nativeContinuityMarkerKey: json.RawMessage(nativeContinuityMarkerValue)},
@@ -215,6 +220,7 @@ func TestPayloadForCall_internalCompactionPolicySeam(t *testing.T) {
 }
 
 func TestPayloadForCall_internalCompactionPreservesExplicitReasoningDisable(t *testing.T) {
+	t.Parallel()
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("history")}}}}
 	cfg := Config{NativeContext: &NativeContextConfig{Enabled: true, RequestEncryptedReasoning: false}}
 	payload, err := payloadForCall(call, routingstub.AttemptCandidate{Primary: routingstub.Primary{Model: "model"}}, cfg)

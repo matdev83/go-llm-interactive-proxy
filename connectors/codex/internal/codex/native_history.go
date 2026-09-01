@@ -247,7 +247,11 @@ func validateNativeHistoryCall(call *lipapi.Call) error {
 					if item, ok, err := partToFunctionCallItem(part); err != nil {
 						return nativeHistoryError("malformed_item")
 					} else if ok {
-						id := strings.TrimSpace(item.(functionCallItem).CallID)
+						fnCall, isFnCall := item.(functionCallItem)
+						if !isFnCall {
+							return nativeHistoryError("malformed_item")
+						}
+						id := strings.TrimSpace(fnCall.CallID)
 						if _, exists := seenCalls[id]; exists {
 							return nativeHistoryError("duplicate_call_id")
 						}

@@ -8,6 +8,7 @@ import (
 )
 
 func TestWSContinuation_UsesIDOnlyForExactIncrementalExtension(t *testing.T) {
+	t.Parallel()
 	store := newWSContinuationStore(0, 8)
 	call := lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "session-1"}}
 	base := Payload{Model: "model", PromptCacheKey: "cache", Input: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "first"}}}
@@ -34,6 +35,7 @@ func TestWSContinuation_UsesIDOnlyForExactIncrementalExtension(t *testing.T) {
 }
 
 func TestWSContinuation_CheckpointCommitInvalidatesOldBaseline(t *testing.T) {
+	t.Parallel()
 	store := newWSContinuationStore(0, 8)
 	call := lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "session-1"}}
 	payload := Payload{Model: "model", PromptCacheKey: "cache", Input: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "first"}}}
@@ -51,6 +53,7 @@ func TestWSContinuation_CheckpointCommitInvalidatesOldBaseline(t *testing.T) {
 }
 
 func TestWSContinuation_SuccessEstablishesNewBaselineAndHTTPHasNoChain(t *testing.T) {
+	t.Parallel()
 	store := newWSContinuationStore(0, 8)
 	call := lipapi.Call{Session: lipapi.SessionRef{AuthoritativeSessionID: "session-1"}}
 	payload := Payload{Model: "model", PromptCacheKey: "cache", Input: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "turn"}}}
@@ -74,6 +77,7 @@ func TestWSContinuation_SuccessEstablishesNewBaselineAndHTTPHasNoChain(t *testin
 }
 
 func TestWSContinuation_ClientOnlySessionHintCannotPartitionResponseID(t *testing.T) {
+	t.Parallel()
 	store := newWSContinuationStore(0, 8)
 	call := lipapi.Call{Session: lipapi.SessionRef{ContinuityKey: "client-hint"}}
 	payload := Payload{Model: "model", PromptCacheKey: "cache", Input: []inputItem{textMessageItem{Type: "message", Role: "user", Content: "turn"}}}

@@ -47,6 +47,8 @@ func enterpriseTestEnv() []string {
 // writeEssentialConfig-created temp dir (lip-enterprise-module-*) on the normal
 // success path. Non-parallel so the before/after os.TempDir snapshot cannot race
 // the parallel BuildAndRun invocation.
+//
+//nolint:paralleltest // serial: before/after os.TempDir snapshot cannot race parallel invocations
 func TestEnterpriseModule_NoConfigTempDirLeak(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

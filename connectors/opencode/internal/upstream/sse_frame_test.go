@@ -46,7 +46,7 @@ func TestAnthropicSSEStreamRejectsOversizedFrame(t *testing.T) {
 
 	body := "data: " + strings.Repeat("x", maxSSEFrameBytes+1) + "\n\n"
 	s := newAnthropicSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	_, err := s.Recv(context.Background())
 	if !errors.Is(err, errSSEFrameTooLarge) {
 		t.Fatalf("error=%v, want errSSEFrameTooLarge", err)
@@ -58,7 +58,7 @@ func TestGeminiSSEStreamRejectsOversizedFrame(t *testing.T) {
 
 	body := "data: " + strings.Repeat("x", maxSSEFrameBytes+1) + "\n\n"
 	s := newGeminiSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	_, err := s.Recv(context.Background())
 	if !errors.Is(err, errSSEFrameTooLarge) {
 		t.Fatalf("error=%v, want errSSEFrameTooLarge", err)
@@ -84,6 +84,7 @@ func TestSSEStreamsAdmitExactCapPayloadWithLineTerminators(t *testing.T) {
 		{name: "gemini CRLF", newStream: newGeminiSSEStream, prefix: `{"candidates":[{"content":{"parts":[{"text":"`, suffix: `"}]}}]}`, terminator: "\r\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			text := strings.Repeat("t", maxSSEFrameBytes-len(tc.prefix)-len(tc.suffix))
 			payload := tc.prefix + text + tc.suffix
 			if len(payload) != maxSSEFrameBytes {
@@ -91,7 +92,7 @@ func TestSSEStreamsAdmitExactCapPayloadWithLineTerminators(t *testing.T) {
 			}
 			body := "data:" + payload + tc.terminator + tc.terminator
 			s := tc.newStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-			defer s.Close()
+			defer func() { _ = s.Close() }()
 			ev, err := s.Recv(context.Background())
 			if err != nil {
 				t.Fatalf("Recv: %v", err)
@@ -110,7 +111,7 @@ func TestAnthropicSSEStreamEmitsTextFrame(t *testing.T) {
 		`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}` + "\n\n" +
 		"data: [DONE]\n\n"
 	s := newAnthropicSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ev, err := s.Recv(context.Background())
 	if err != nil {
 		t.Fatalf("Recv: %v", err)
@@ -125,7 +126,7 @@ func TestGeminiSSEStreamEmitsTextFrame(t *testing.T) {
 
 	body := `data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}` + "\n\n"
 	s := newGeminiSSEStream(&http.Response{Body: io.NopCloser(strings.NewReader(body))})
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ev, err := s.Recv(context.Background())
 	if err != nil {
 		t.Fatalf("Recv: %v", err)
