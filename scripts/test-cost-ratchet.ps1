@@ -350,7 +350,7 @@ function Apply-AnchorCompatibilityPatch {
         "internal/qa/phase74_migration_rollout_evidence_test.go",
         "internal/plugins/frontends/openresponses/websocket_upgrade_test.go"
     )
-    foreach ($relativePath in ($compatibilityPaths | Where-Object { $_ -ne "go.sum" })) {
+    foreach ($relativePath in $loadCompatibilityPaths) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
     }
 
@@ -364,7 +364,7 @@ function Apply-AnchorCompatibilityPatch {
         "go.sum"
     )
     $compatibilityPaths += $loadCompatibilityPaths
-    foreach ($relativePath in $loadCompatibilityPaths) {
+    foreach ($relativePath in ($compatibilityPaths | Where-Object { $_ -ne "go.sum" })) {
         $absolutePath = Join-Path $AnchorRoot $relativePath
         $content = [IO.File]::ReadAllText($absolutePath)
         [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))

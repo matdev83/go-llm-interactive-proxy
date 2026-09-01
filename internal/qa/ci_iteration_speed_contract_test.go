@@ -289,6 +289,9 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if compatibilityStart < 0 {
 		t.Fatal("anchor compatibility paths must be declared explicitly")
 	}
+	if firstUse := strings.Index(script, "$compatibilityPaths"); firstUse != compatibilityStart {
+		t.Fatal("anchor compatibility paths must be declared before StrictMode can observe a use")
+	}
 	compatibilityEnd := strings.Index(script[compatibilityStart:], ")")
 	if compatibilityEnd < 0 {
 		t.Fatal("anchor compatibility path declaration is unterminated")
