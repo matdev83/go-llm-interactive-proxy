@@ -455,7 +455,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@if [ "$$LIP_SKIP_QA_TESTS" = "1" ]; then \
 		echo "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged delta packages..."; \
-		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/testkit/conformance/... ./tools/backendplugin/...; \
+		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/stdhttp/... ./internal/testkit/conformance/...; \
 	else \
 		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...; \
 	fi
