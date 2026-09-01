@@ -1,0 +1,23 @@
+{
+  "feature_name": "downstream-cache-affinity-hinting",
+  "created_at": "2026-09-01T16:45:00+02:00",
+  "updated_at": "2026-09-01T16:45:00+02:00",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "project_description": "Complete proxy-supported prompt-cache locality optimization by synthesizing stable downstream conversation-affinity hints when clients omit them, projecting those hints through explicit provider/model capabilities to documented provider wire fields, preserving explicit client cache/affinity intent, and keeping session affinity, prompt-cache hints, and backend-observed cache residency as separate authorities. This is a brownfield completion spec over the implemented routing affinity, secure-session, prompt-cache-key, residency/control, connector ABI, provider-profile, and observability foundations. The implementation defined here is intended to fully close generic proxy-side cache hinting with no planned follow-up work."
+}
