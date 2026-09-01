@@ -315,7 +315,8 @@ function Apply-AnchorCompatibilityPatch {
     # full suite runs under the ratchet. Keep this compatibility surface
     # test-only and explicit; production sources still come from the anchor.
     $loadCompatibilityPaths = @(
-        "internal/stdhttp/request_plane_generation_test.go"
+        "internal/stdhttp/request_plane_generation_test.go",
+        "internal/infra/runtimebundle/publish_pinned_characterization_test.go"
     )
     foreach ($relativePath in $loadCompatibilityPaths) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force

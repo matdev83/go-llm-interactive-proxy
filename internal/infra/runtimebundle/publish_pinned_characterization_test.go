@@ -632,6 +632,7 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 	// Concurrently hold leases and pins across multiple goroutines
 	var wg sync.WaitGroup
 	const concurrentPins = 8
+	acquired := make(chan bool, concurrentPins)
 	ready := make(chan struct{})
 
 	for i := range concurrentPins {
@@ -639,6 +640,7 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 		go func(workerID int) {
 			defer wg.Done()
 			lease, ok := mgr.Acquire()
+			acquired <- ok
 			if !ok {
 				return
 			}
@@ -656,6 +658,9 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 				}
 			}
 		}(i)
+	}
+	for range concurrentPins {
+		require.True(t, <-acquired, "generation 1 must remain acquirable until every worker holds a lease")
 	}
 
 	// Publish Generation 2 concurrently while leases are being acquired and pinned
