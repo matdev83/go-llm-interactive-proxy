@@ -254,7 +254,7 @@ switch -Regex ($Target) {
         $envOverride = @("LIP_TEST_POSTGRES_DSN=", "LIP_TEST_POSTGRES_ADMIN_DSN=", "LIP_MANAGED_POSTGRES_DSN=", "LIP_MIGRATION_POSTGRES_DSN=")
         if ($env:LIP_SKIP_QA_TESTS -match '^(?i:1|true|yes|on)$') {
             Write-Host "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged precommit/integration delta packages only..." -ForegroundColor DarkGray
-            Run-RootGoTest "qa-tests:precommit-delta" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/qa/...", "./internal/core/runtime/...", "./internal/stdhttp/...")) $envOverride
+            Run-RootGoTest "qa-tests:precommit-delta" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/qa/...", "./internal/core/runtime/...", "./internal/stdhttp/...", "./internal/testkit/conformance/...", "./tools/backendplugin/...")) $envOverride
             break
         }
         Run-RootGoTest "qa-tests:root" (@($goTestFlags) + @("-tags=precommit,integration", "./...")) $envOverride
