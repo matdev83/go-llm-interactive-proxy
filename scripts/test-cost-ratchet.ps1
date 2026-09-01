@@ -306,18 +306,15 @@ function Warm-Tree {
     # reusable executable link action for both trees, just as the package's
     # process-level cache does after the first developer iteration.
     $warmBinary = Join-Path $TempRoot "lipstd-warm.exe"
-    try {
-        Invoke-RequiredExternal "$Label-lipstd" "go" @("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd") $TreeRoot $TempRoot
-    } finally {
-        Remove-Item -LiteralPath $warmBinary -Force -ErrorAction SilentlyContinue
-    }
+    Invoke-RequiredExternal "$Label-lipstd" "go" @("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd") $TreeRoot $TempRoot
 }
 
 function Apply-AnchorCompatibilityPatch {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$AnchorRoot,
-        [Parameter(Mandatory = $true)][string]$AnchorCommit
+        [Parameter(Mandatory = $true)][string]$AnchorCommit,
+        [Parameter(Mandatory = $true)][string]$TempRoot
     )
 
     $bootstrapAnchor = "a7a00cedddc4e49d7f96502ee28a6ea1d9603315"
@@ -350,9 +347,10 @@ function Apply-AnchorCompatibilityPatch {
         "internal/stdhttp/request_plane_generation_test.go",
         "internal/infra/runtimebundle/publish_pinned_characterization_test.go",
         "internal/infra/runtimehost/observability_test.go",
+        "internal/qa/phase74_migration_rollout_evidence_test.go",
         "internal/plugins/frontends/openresponses/websocket_upgrade_test.go"
     )
-    foreach ($relativePath in $loadCompatibilityPaths) {
+    foreach ($relativePath in ($compatibilityPaths | Where-Object { $_ -ne "go.sum" })) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
     }
 
@@ -362,14 +360,27 @@ function Apply-AnchorCompatibilityPatch {
     # synthetic anchor commit.
     $compatibilityPaths = @(
         "internal/testkit/dbparity/cmd/main_test.go",
-        "internal/testkit/postgres_makefile_gate_test.go"
+        "internal/testkit/postgres_makefile_gate_test.go",
+        "go.sum"
     )
     $compatibilityPaths += $loadCompatibilityPaths
-    foreach ($relativePath in $compatibilityPaths) {
+    foreach ($relativePath in $loadCompatibilityPaths) {
         $absolutePath = Join-Path $AnchorRoot $relativePath
         $content = [IO.File]::ReadAllText($absolutePath)
         [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
     }
+
+    # Current Go may need checksums that the historical anchor never wrote.
+    # Generate them outside measurement and commit only go.sum; a go.mod
+    # change would alter the dependency graph and therefore fails closed.
+    Invoke-RequiredExternal "anchor-compatibility-tidy" "go" @("mod", "tidy") $AnchorRoot $TempRoot
+    $null = @(& git -C $AnchorRoot diff --quiet -- go.mod 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        throw "anchor compatibility go mod tidy unexpectedly changed go.mod"
+    }
+    $goSumPath = Join-Path $AnchorRoot "go.sum"
+    $goSum = [IO.File]::ReadAllText($goSumPath)
+    [IO.File]::WriteAllText($goSumPath, $goSum.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
     Invoke-GitChecked (@("-C", $AnchorRoot, "add", "--") + $compatibilityPaths)
     Invoke-GitChecked @(
         "-C", $AnchorRoot,
@@ -411,7 +422,13 @@ function Measure-Tree {
         "--temp-root", $TempRoot,
         "--parallel", [string]$TestParallel
     )
-    Invoke-RequiredExternal "measure-$Target-$Revision" $BinaryPath $arguments $TreeRoot $TempRoot
+    $previousQABinary = [Environment]::GetEnvironmentVariable("LIP_QA_LIPSTD_BINARY", "Process")
+    try {
+        $env:LIP_QA_LIPSTD_BINARY = Join-Path $TempRoot "lipstd-warm.exe"
+        Invoke-RequiredExternal "measure-$Target-$Revision" $BinaryPath $arguments $TreeRoot $TempRoot
+    } finally {
+        [Environment]::SetEnvironmentVariable("LIP_QA_LIPSTD_BINARY", $previousQABinary, "Process")
+    }
     if (-not (Test-Path -LiteralPath $MeasurementPath -PathType Leaf)) {
         throw "lip-testcost did not write measurement: $MeasurementPath"
     }
@@ -552,7 +569,7 @@ try {
         "worktree", "add", "--detach", $anchorRoot, $AnchorCommit
     )
     $anchorCreated = $true
-    Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
+    Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit $anchorTempRoot
 
     # The committed anchor predates the ratchet tool itself. Build the neutral
     # measurement wrapper once from head, then point it at each source tree.
@@ -589,6 +606,8 @@ try {
 } catch {
     $fatalFailure = $_
 } finally {
+    Remove-Item -LiteralPath (Join-Path $anchorTempRoot "lipstd-warm.exe") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $headTempRoot "lipstd-warm.exe") -Force -ErrorAction SilentlyContinue
     if ($anchorCreated) {
         try {
             # This is the only cleanup mutation: remove the worktree created by

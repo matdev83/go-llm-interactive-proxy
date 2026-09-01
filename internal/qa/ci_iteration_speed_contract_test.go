@@ -254,8 +254,11 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"if (-not (Test-IsWindows))",
 		"$Targets = @(\"test-unit\", \"quality-checks\")",
 		`@("mod", "download", "all")`,
+		`Invoke-RequiredExternal "anchor-compatibility-tidy" "go" @("mod", "tidy")`,
+		`throw "anchor compatibility go mod tidy unexpectedly changed go.mod"`,
 		`@("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd")`,
 		`SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")`,
+		"LIP_QA_LIPSTD_BINARY",
 		"-count=1",
 		"LIP_ALLOW_TEST_COST_GROWTH",
 		"worktree\", \"add\", \"--detach\"",
@@ -303,6 +306,7 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"internal/stdhttp/request_plane_generation_test.go",
 		"internal/infra/runtimebundle/publish_pinned_characterization_test.go",
 		"internal/infra/runtimehost/observability_test.go",
+		"internal/qa/phase74_migration_rollout_evidence_test.go",
 		"internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
 	} {
 		if !strings.Contains(script, loadCompatibilityPath) {
