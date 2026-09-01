@@ -1,15 +1,14 @@
 package archtest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -86,7 +85,7 @@ func TestRequestAttemptStateBaselineMatchesCurrentAST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, handoff, err := scanRequestAttemptState(root)
+	currentInv, handoff, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -98,7 +97,7 @@ func TestRequestAttemptStateBaselineMatchesCurrentAST(t *testing.T) {
 	}
 
 	// Verify stored before metrics against scanning git show origin/main or a checked source manifest (Requirement 1)
-	beforeInv, err := scanRequestAttemptStateAtRef(root, "origin/main")
+	beforeInv, err := scanRequestAttemptStateAtRefContext(t.Context(), root, "origin/main")
 	if err == nil && sameJSON(baseline.Before, beforeInv) {
 		// Matches origin/main
 	} else {
@@ -150,7 +149,7 @@ func TestRequestAttemptStateRatchetsPassOnCurrentCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -163,7 +162,7 @@ func TestRequestAttemptStateRatchetsPassOnCurrentCode(t *testing.T) {
 func TestRequestAttemptStateRatchetsFailIfActivatedOnCurrentCode(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -228,7 +227,7 @@ func TestRequestAttemptStateTargetRatchetFailsIfTypeReappearsOnCurrentAST(t *tes
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -252,7 +251,7 @@ func TestGenerateRequestAttemptStateBaseline(t *testing.T) {
 	}
 	root := repoRoot(t)
 	path := filepath.Join(root, filepath.FromSlash(RequestAttemptStateBaselineRelPath))
-	currentInv, handoff, err := scanRequestAttemptState(root)
+	currentInv, handoff, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -305,7 +304,11 @@ func loadRequestAttemptStateBaseline(root string) (RequestAttemptStateBaseline, 
 }
 
 func scanRequestAttemptState(root string) (RequestAttemptStateInventory, RequestAttemptHandoffSeam, error) {
-	files, err := loadTurnRecvASTFiles(root)
+	return scanRequestAttemptStateContext(context.Background(), root)
+}
+
+func scanRequestAttemptStateContext(ctx context.Context, root string) (RequestAttemptStateInventory, RequestAttemptHandoffSeam, error) {
+	files, err := loadTurnRecvASTFilesContext(ctx, root)
 	if err != nil {
 		return RequestAttemptStateInventory{}, RequestAttemptHandoffSeam{}, err
 	}
@@ -345,7 +348,11 @@ func scanRequestAttemptState(root string) (RequestAttemptStateInventory, Request
 }
 
 func scanRequestAttemptStateAtRef(root string, ref string) (RequestAttemptStateInventory, error) {
-	files, err := loadTurnRecvASTFilesAtRef(root, ref)
+	return scanRequestAttemptStateAtRefContext(context.Background(), root, ref)
+}
+
+func scanRequestAttemptStateAtRefContext(ctx context.Context, root string, ref string) (RequestAttemptStateInventory, error) {
+	files, err := loadTurnRecvASTFilesAtRefContext(ctx, root, ref)
 	if err != nil {
 		return RequestAttemptStateInventory{}, err
 	}
@@ -377,45 +384,14 @@ func scanRequestAttemptStateAtRef(root string, ref string) (RequestAttemptStateI
 	}, nil
 }
 
-func loadTurnRecvASTFilesAtRef(root string, ref string) ([]turnRecvASTFile, error) {
-	dir := filepath.Join(root, "internal", "core", "runtime")
-	entries, err := os.ReadDir(dir)
+func loadTurnRecvASTFilesAtRefContext(ctx context.Context, root string, ref string) ([]turnRecvASTFile, error) {
+	fs, err := loadGitCommitFSContext(ctx, root, ref)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load git commit fs for ref %s: %w", ref, err)
 	}
-	fset := token.NewFileSet()
-	var files []turnRecvASTFile
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		relPath := "internal/core/runtime/" + entry.Name()
-		cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", ref, relPath))
-		cmd.Dir = root
-		content, err := cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("git show failed for %s: %w", relPath, err)
-		}
-		file, err := parser.ParseFile(fset, relPath, content, parser.ParseComments)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s at %s: %w", entry.Name(), ref, err)
-		}
-		imports := make(map[string]string)
-		for _, spec := range file.Imports {
-			importPath, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				return nil, fmt.Errorf("unquote import in %s: %w", entry.Name(), err)
-			}
-			alias := filepath.Base(importPath)
-			if spec.Name != nil {
-				alias = spec.Name.Name
-			}
-			if alias != "_" && alias != "." {
-				imports[alias] = importPath
-			}
-		}
-		files = append(files, turnRecvASTFile{RelPath: relPath, AST: file, FSet: fset, Imports: imports})
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].RelPath < files[j].RelPath })
-	return files, nil
+	return loadTurnRecvASTFilesFromFSContext(ctx, fs)
+}
+
+func loadTurnRecvASTFilesAtRef(root string, ref string) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesAtRefContext(context.Background(), root, ref)
 }

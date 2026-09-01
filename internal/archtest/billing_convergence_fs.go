@@ -3,6 +3,8 @@ package archtest
 import (
 	"archive/tar"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -83,26 +85,46 @@ type gitCommitFSEntry struct {
 	err  error
 }
 
-func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
+func loadGitCommitFSContext(ctx context.Context, root string, sha string) (*gitCommitFS, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	key := root + "\x00" + sha
 	gitCommitFSCacheMu.Lock()
 	if entry, ok := gitCommitFSCache[key]; ok {
 		gitCommitFSCacheMu.Unlock()
-		<-entry.done
-		return entry.fs, entry.err
+		select {
+		case <-entry.done:
+			return entry.fs, entry.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	entry := &gitCommitFSEntry{done: make(chan struct{})}
 	gitCommitFSCache[key] = entry
 	gitCommitFSCacheMu.Unlock()
 
-	defer close(entry.done)
+	defer func() {
+		if entry.err != nil && (ctx.Err() != nil || errors.Is(entry.err, context.Canceled) || errors.Is(entry.err, context.DeadlineExceeded)) {
+			gitCommitFSCacheMu.Lock()
+			if gitCommitFSCache[key] == entry {
+				delete(gitCommitFSCache, key)
+			}
+			gitCommitFSCacheMu.Unlock()
+		}
+		close(entry.done)
+	}()
 
-	cmd := exec.Command("git", "-C", root, "archive", "--format=tar", sha)
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "archive", "--format=tar", sha)
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			entry.err = ctxErr
+			return nil, entry.err
+		}
 		entry.err = fmt.Errorf("git archive for SHA %s failed: %w (stderr: %s)", sha, err, errOut.String())
 		return nil, entry.err
 	}
@@ -110,6 +132,10 @@ func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
 	files := make(map[string][]byte)
 	tr := tar.NewReader(&out)
 	for {
+		if err := ctx.Err(); err != nil {
+			entry.err = err
+			return nil, err
+		}
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -130,6 +156,10 @@ func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
 	}
 	entry.fs = &gitCommitFS{sha: sha, files: files}
 	return entry.fs, nil
+}
+
+func loadGitCommitFS(root string, sha string) (*gitCommitFS, error) {
+	return loadGitCommitFSContext(context.Background(), root, sha)
 }
 
 func (g *gitCommitFS) ReadFile(rel string) ([]byte, error) {

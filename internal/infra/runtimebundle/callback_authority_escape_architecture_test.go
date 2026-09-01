@@ -51,7 +51,10 @@ func TestRuntimebundle_NoCompleteOwnerCallbackEscapes(t *testing.T) {
 
 func TestRuntimebundle_OwnerCallbackEscapeFixtures(t *testing.T) {
 	t.Parallel()
-	fixtureRoot := filepath.Join(packageDirForOverlay(t, runtimebundlePkgPath), "testdata", "callbackescape")
+	fixtureRoot, err := filepath.Abs(filepath.Join("testdata", "callbackescape"))
+	if err != nil {
+		t.Fatalf("resolve fixture root: %v", err)
+	}
 
 	t.Run("positive_aggregate", func(t *testing.T) {
 		t.Parallel()
@@ -117,8 +120,9 @@ func TestRuntimebundle_OwnerCallbackEscapeFixtures(t *testing.T) {
 
 	t.Run("candidate_assembly_overlay", func(t *testing.T) {
 		t.Parallel()
-		pkg := loadTypedPackage(t, runtimebundlePkgPath, map[string][]byte{
-			"escape_candidate_aggregate.go": []byte(`package runtimebundle
+		overlay := fixtureOverlay(t, fixtureRoot, "")
+		overlayPath := filepath.Join(fixtureRoot, "support", "runtimebundle", "escape_candidate_aggregate.go")
+		overlay[overlayPath] = []byte(`package runtimebundle
 
 type assemblyCB = func(*candidateAssembly) int
 
@@ -149,8 +153,8 @@ var ledgerLit = func(l *ResourceLedger) int { return 0 }
 func useLedgerDirect(l *ResourceLedger) {}
 
 type ledgerHolder struct{ l *ResourceLedger }
-`),
-		})
+`)
+		pkg := loadTypedPackage(t, callbackEscapeRoot+"/support/runtimebundle", overlay)
 		owners := resolveProtectedOwners(t, pkg)
 		hits := findOwnerCallbackEscapes(pkg, owners)
 		if len(hits) == 0 {
@@ -171,18 +175,16 @@ type ledgerHolder struct{ l *ResourceLedger }
 
 	t.Run("windows_overlay_escape", func(t *testing.T) {
 		t.Parallel()
-		dir := packageDirForOverlay(t, runtimebundlePkgPath)
-		overlayPath := filepath.Join(dir, "callback_escape_windows_overlay.go")
-		overlay := map[string][]byte{
-			overlayPath: []byte(`//go:build windows
+		overlay := fixtureOverlay(t, fixtureRoot, "")
+		overlayPath := filepath.Join(fixtureRoot, "support", "runtimebundle", "callback_escape_windows_overlay.go")
+		overlay[overlayPath] = []byte(`//go:build windows
 
 package runtimebundle
 
 type windowsOverlayHostCB = func(*Host) int
 
 func useWindowsOverlayHostCB(f windowsOverlayHostCB) int { return f(nil) }
-`),
-		}
+`)
 		var mu sync.Mutex
 		var hits []string
 		var errs []error
@@ -193,7 +195,7 @@ func useWindowsOverlayHostCB(f windowsOverlayHostCB) int { return f(nil) }
 			wg.Add(1)
 			go func(bc callbackBuildContext) {
 				defer wg.Done()
-				pkg, err := typedPackageForContextE(runtimebundlePkgPath, bc, overlay)
+				pkg, err := typedPackageForContextE(callbackEscapeRoot+"/support/runtimebundle", bc, overlay)
 				if err != nil {
 					mu.Lock()
 					errs = append(errs, err)
@@ -522,10 +524,12 @@ func fixtureOverlay(t *testing.T, fixtureRoot, rel string) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}
 	targetCount := 0
-	for i, root := range []string{
-		filepath.Join(fixtureRoot, filepath.FromSlash(rel)),
-		filepath.Join(fixtureRoot, "support"),
-	} {
+	var roots []string
+	if rel != "" {
+		roots = append(roots, filepath.Join(fixtureRoot, filepath.FromSlash(rel)))
+	}
+	roots = append(roots, filepath.Join(fixtureRoot, "support"))
+	for i, root := range roots {
 		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -538,7 +542,7 @@ func fixtureOverlay(t *testing.T, fixtureRoot, rel string) map[string][]byte {
 				return err
 			}
 			out[strings.TrimSuffix(path, ".fixture")] = src
-			if i == 0 {
+			if rel != "" && i == 0 {
 				targetCount++
 			}
 			return nil
@@ -547,7 +551,7 @@ func fixtureOverlay(t *testing.T, fixtureRoot, rel string) map[string][]byte {
 			t.Fatalf("read fixture tree %s: %v", root, err)
 		}
 	}
-	if targetCount == 0 {
+	if rel != "" && targetCount == 0 {
 		t.Fatalf("no fixture sources for %s", rel)
 	}
 	return out
@@ -588,33 +592,69 @@ func resolveProtectedOwners(t *testing.T, pkg *packages.Package) protectedOwners
 }
 
 func protectedOwnersE(pkg *packages.Package) (protectedOwners, error) {
-	hostPkg, err := typesPackageByPathE(pkg, runtimebundlePkgPath)
-	if err != nil {
-		return protectedOwners{}, err
+	var hostPkg *types.Package
+	var coordPkg *types.Package
+
+	if pkg.PkgPath == runtimebundlePkgPath || (pkg.Imports != nil && pkg.Imports[runtimebundlePkgPath] != nil) {
+		hp, err := typesPackageByPathE(pkg, runtimebundlePkgPath)
+		if err != nil {
+			return protectedOwners{}, err
+		}
+		hostPkg = hp
 	}
-	coordPkg, err := typesPackageByPathE(pkg, runtimehostPkgPath)
-	if err != nil {
-		return protectedOwners{}, err
+	if pkg.PkgPath == runtimehostPkgPath || (pkg.Imports != nil && pkg.Imports[runtimehostPkgPath] != nil) {
+		cp, err := typesPackageByPathE(pkg, runtimehostPkgPath)
+		if err != nil {
+			return protectedOwners{}, err
+		}
+		coordPkg = cp
 	}
-	for _, check := range []struct {
-		pkg  *types.Package
-		name string
-	}{
-		{hostPkg, "Host"},
-		{hostPkg, "candidateAssembly"},
-		{hostPkg, "ResourceLedger"},
-		{coordPkg, "Coordinator"},
-	} {
-		obj := check.pkg.Scope().Lookup(check.name)
-		if tn, ok := obj.(*types.TypeName); !ok || tn == nil {
-			return protectedOwners{}, fmt.Errorf("package %s missing type %s", check.pkg.Path(), check.name)
+
+	if hostPkg == nil || coordPkg == nil {
+		seen := map[*types.Package]bool{}
+		var findTypes func(p *types.Package)
+		findTypes = func(p *types.Package) {
+			if p == nil || seen[p] {
+				return
+			}
+			seen[p] = true
+			if hostPkg == nil && (p.Name() == "runtimebundle" || strings.HasSuffix(p.Path(), "/runtimebundle")) && p.Scope().Lookup("Host") != nil && p.Scope().Lookup("candidateAssembly") != nil && p.Scope().Lookup("ResourceLedger") != nil {
+				hostPkg = p
+			}
+			if coordPkg == nil && (p.Name() == "runtimehost" || strings.HasSuffix(p.Path(), "/runtimehost")) && p.Scope().Lookup("Coordinator") != nil {
+				coordPkg = p
+			}
+			for _, imported := range p.Imports() {
+				findTypes(imported)
+			}
+		}
+		if pkg.Types != nil {
+			findTypes(pkg.Types)
+		}
+		for _, imp := range pkg.Imports {
+			if imp != nil && imp.Types != nil {
+				findTypes(imp.Types)
+			}
 		}
 	}
+
+	if hostPkg == nil {
+		return protectedOwners{}, fmt.Errorf("package %s or its imports missing Host owner types", pkg.PkgPath)
+	}
+
+	var hostID, assemblyID, ledgerID, coordID ownerID
+	hostID = ownerID{pkgPath: hostPkg.Path(), name: "Host"}
+	assemblyID = ownerID{pkgPath: hostPkg.Path(), name: "candidateAssembly"}
+	ledgerID = ownerID{pkgPath: hostPkg.Path(), name: "ResourceLedger"}
+	if coordPkg != nil {
+		coordID = ownerID{pkgPath: coordPkg.Path(), name: "Coordinator"}
+	}
+
 	return protectedOwners{
-		host:        ownerID{pkgPath: runtimebundlePkgPath, name: "Host"},
-		assembly:    ownerID{pkgPath: runtimebundlePkgPath, name: "candidateAssembly"},
-		ledger:      ownerID{pkgPath: runtimebundlePkgPath, name: "ResourceLedger"},
-		coordinator: ownerID{pkgPath: runtimehostPkgPath, name: "Coordinator"},
+		host:        hostID,
+		assembly:    assemblyID,
+		ledger:      ledgerID,
+		coordinator: coordID,
 	}, nil
 }
 
@@ -1009,7 +1049,13 @@ func ownerIDOf(tn *types.TypeName) ownerID {
 
 func isProtectedOwner(tn *types.TypeName, owners protectedOwners) bool {
 	id := ownerIDOf(tn)
-	return id == owners.host || id == owners.assembly || id == owners.ledger || id == owners.coordinator
+	if id.pkgPath == "" || id.name == "" {
+		return false
+	}
+	return (owners.host.pkgPath != "" && id == owners.host) ||
+		(owners.assembly.pkgPath != "" && id == owners.assembly) ||
+		(owners.ledger.pkgPath != "" && id == owners.ledger) ||
+		(owners.coordinator.pkgPath != "" && id == owners.coordinator)
 }
 
 func signatureMentionsOwner(t types.Type, owners protectedOwners, seen map[types.Type]bool) bool {

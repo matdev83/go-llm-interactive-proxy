@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -269,19 +268,10 @@ func waitGone(t *testing.T, pid int, d time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
-		if !processAliveWindows(pid) {
+		if !processAlive(pid) {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("pid %d still alive", pid)
-}
-
-func processAliveWindows(pid int) bool {
-	cmd := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/NH")
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), strconv.Itoa(pid))
 }
