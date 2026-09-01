@@ -321,6 +321,14 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 			t.Fatalf("anchor load compatibility must remain test-only and explicit: %q", loadCompatibilityPath)
 		}
 	}
+	for _, warmupModuleGuard := range []string{
+		`$moduleSnapshots = @{}`,
+		`[IO.File]::WriteAllBytes($modulePath, $moduleSnapshots[$modulePath])`,
+	} {
+		if !strings.Contains(script, warmupModuleGuard) {
+			t.Fatalf("test-cost warmup must restore clean module files before measurement: %q", warmupModuleGuard)
+		}
+	}
 	for _, forbiddenPath := range []string{
 		"internal/stdhttp/security_guard.go",
 		"internal/infra/backendplugins/processhost/windows_production_test.go",

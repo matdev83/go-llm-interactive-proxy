@@ -293,14 +293,27 @@ function Warm-Tree {
         [Parameter(Mandatory = $true)][int]$TestParallel
     )
 
-    # Quality checks run go mod tidy inside the restricted taskrunner token.
-    # Populate every module needed by that command before measurement so
-    # network/module download time cannot enter the resource comparison.
-    Invoke-RequiredExternal "$Label-modules" "go" @("mod", "download", "all") $TreeRoot $TempRoot
+    # Module and compile warmups may add otherwise unnecessary go.sum entries.
+    # Preserve the clean tree while retaining their populated shared caches.
+    $moduleSnapshots = @{}
+    foreach ($moduleFile in @("go.mod", "go.sum")) {
+        $modulePath = Join-Path $TreeRoot $moduleFile
+        $moduleSnapshots[$modulePath] = [IO.File]::ReadAllBytes($modulePath)
+    }
+    try {
+        # Quality checks run go mod tidy inside the restricted taskrunner token.
+        # Populate every module needed by that command before measurement so
+        # network/module download time cannot enter the resource comparison.
+        Invoke-RequiredExternal "$Label-modules" "go" @("mod", "download", "all") $TreeRoot $TempRoot
 
-    # Keep this exact no-test warm-up separate from measured runs so the
-    # anchor/head pair starts with the same compile cache shape.
-    Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
+        # Keep this exact no-test warm-up separate from measured runs so the
+        # anchor/head pair starts with the same compile cache shape.
+        Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
+    } finally {
+        foreach ($modulePath in $moduleSnapshots.Keys) {
+            [IO.File]::WriteAllBytes($modulePath, $moduleSnapshots[$modulePath])
+        }
+    }
 
     # internal/qa executes the real lipstd check-config command. Warm its
     # reusable executable link action for both trees, just as the package's
