@@ -41,19 +41,19 @@
       },
       "package_overrides": {
         "github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
-          "existing_ratio": 1.25,
-          "existing_delta_seconds": 6
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
         },
         "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle": {
-          "existing_ratio": 1.30,
-          "existing_delta_seconds": 6
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
         },
         "github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin": {
-          "existing_ratio": 1.25,
-          "existing_delta_seconds": 6
+          "existing_ratio": 1.40,
+          "existing_delta_seconds": 8
         },
         "github.com/matdev83/go-llm-interactive-proxy/tools/backendplugin/release_gates": {
-          "existing_ratio": 1.35,
+          "existing_ratio": 1.40,
           "existing_delta_seconds": 8
         }
       }
