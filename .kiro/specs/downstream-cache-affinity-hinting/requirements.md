@@ -2,221 +2,157 @@
 
 ## Introduction
 
-Go-LIP already implements provider-neutral prompt-cache residency/control, prompt-cache-key carriage, secure proxy-owned session identity, session/backend routing affinity, executable-backend negotiation, and cache usage/maintenance observation. The remaining gap is the **last downstream hop**: when a coding agent does not supply a provider-understood conversation/cache routing hint, a multi-replica inference service or inference broker may route subsequent turns away from the replica/provider endpoint that owns the warm prefix/KV cache.
+Go-LIP already implements secure proxy-owned sessions, internal backend affinity, protocol-neutral `PromptCacheKey` carriage, prompt-cache residency/control, keep-warm orchestration, executable-backend negotiation, provider profiles, and cache usage evidence. The remaining gap is the **provider-facing locality hint** used before inference: a client may omit a provider-understood conversation/cache-routing key, causing repeated agent turns to reach a cold provider replica or broker endpoint even though Go-LIP itself stayed on the same backend.
 
-This specification completes generic proxy-side cache hinting. The proxy may synthesize a stable opaque conversation-affinity value from trusted conversation identity and a backend adapter may project it only into a provider/model wire field whose semantics are explicitly supported. The feature is an optimization only; it must never become a correctness, authorization, continuation, cache-residency, or failover authority.
+This specification closes that gap without redefining any existing authority. The generated value is advisory provider-routing metadata only. It is never session authority, continuation authority, cache-residency authority, or proof of a cache hit.
 
-The following concepts are deliberately distinct:
+The requirements below are intentionally frozen for implementation by instruction-following executors. Where an observable decision can be made now, it is made here rather than delegated to implementation-time research.
 
-- **conversation affinity identity**: the proxy-known stable scope used to derive a fallback downstream hint;
-- **client cache/affinity hint**: explicit intent supplied by the client/harness and preserved when supported;
-- **effective downstream hint**: the final provider-facing cache-routing value selected after precedence and capability resolution;
-- **cache residency target**: backend-observed provider state defined by the existing prompt-cache residency contract.
+## Requirement 1 — Preserve Existing Authorities
 
-Implementation of this spec is intended to fully close proxy-supported downstream cache hinting. No generic cache-hinting follow-up is part of the planned scope.
-
-## Requirement 1: Preserve Existing Cache and Session Authorities
-
-**User Story:** As an operator, I want downstream cache affinity to improve cache locality without changing existing session, routing, continuation, or residency semantics, so that optimization cannot corrupt agent execution.
+**User Story:** As a proxy operator, I want downstream cache-affinity hinting to improve locality without changing routing, continuation, or cache-residency correctness.
 
 ### Acceptance Criteria
 
-1.1. When downstream affinity hinting is enabled, the system shall preserve `AuthoritativeSessionID`, client session hints, A-leg identity, `PromptCacheKey`, continuation identifiers, routing affinity bindings, and backend-observed prompt-cache residency as separate semantic authorities.
+1. When a request is processed, Go-LIP shall keep these identities logically independent: proxy session authority, internal route-affinity binding, downstream cache-affinity hint, provider continuation/turn state, and backend-observed prompt-cache residency target/generation.
+2. When a downstream hint is generated or projected, Go-LIP shall not use it to authorize/resume a session, choose a backend candidate, identify a residency target, renew a cache, or continue a provider response.
+3. When a provider ignores/evicts/rejects an advisory hint, normal inference correctness and existing retry/failover rules shall remain unchanged except for a legitimate provider request-validation error on an explicitly enabled carrier.
+4. While failover or parallel routing selects different capable B-legs, each B-leg may receive a provider-scoped derived hint, but shall not inherit another B-leg's provider cache handle, continuation state, or residency observation.
+5. When existing prompt-cache residency/control or keep-warm logic runs, it shall continue to consume only backend-observed residency profiles/observations/handles and shall not infer residency from hint emission.
+6. Where archived prompt-cache specs describe backend-observed cache identity, their implemented authority shall remain unchanged.
 
-1.2. The system shall not treat an authoritative session ID, client session ID, A-leg ID, `PromptCacheKey`, response ID, transport connection ID, or residency target ID as universally interchangeable.
+## Requirement 2 — Use Only Trusted Proxy Conversation Scope for Generated Fallback
 
-1.3. When the existing prompt-cache residency subsystem reports an effective target, the system shall continue to treat that backend observation as authoritative for cache residency/control and shall not replace it with a synthesized downstream hint.
-
-1.4. When route affinity selects or reuses a backend candidate, downstream hint synthesis shall not alter candidate selection, retry ordering, race semantics, TTFT budgets, health filtering, or no-retry-after-output rules.
-
-1.5. When backend failover legitimately moves a request to another backend/provider, the system may reuse the same conversation-scoped hint value if the new backend explicitly supports the same logical hint semantics, but shall not claim that the old provider cache remained resident.
-
-1.6. If downstream affinity hinting is disabled or unsupported, all existing request behavior shall remain unchanged except for bounded diagnostic/metric absence.
-
-## Requirement 2: Resolve a Stable Proxy Conversation-Affinity Scope
-
-**User Story:** As a client that does not emit cache-routing hints, I want Go-LIP to provide a stable per-conversation fallback identity, so repeated agent turns can be routed toward warm provider caches.
+**User Story:** As a security-conscious operator, I want generated provider identifiers to be rooted in trusted proxy state rather than arbitrary client metadata.
 
 ### Acceptance Criteria
 
-2.1. When a trusted proxy-owned authoritative session ID exists, the system shall use that session scope as the preferred source for proxy-generated downstream conversation affinity.
+1. When proxy synthesis is eligible, the only generic conversation input for synthesis shall be the admitted `AuthoritativeSessionID` from the existing secure-session/execution view.
+2. If no `AuthoritativeSessionID` is available, Go-LIP shall not synthesize a generic fallback value.
+3. Go-LIP shall not synthesize a generic fallback from `ClientSessionID`, `ContinuityKey`, `ALegID`, principal/user ID, request/trace ID, IP address, `SafeMetadata`, arbitrary HTTP headers, or a resume token.
+4. An explicit client/provider cache-affinity value that is already represented by an existing supported frontend/canonical carrier may still be preserved even when no authoritative session exists; this criterion does not promote that value to proxy session authority.
+5. When secure-session policy rejects or cannot establish trusted session authority, cache-affinity synthesis shall not weaken or bypass that decision.
+6. The feature shall not add a new session table, affinity store, request-time secure-session lookup, or other persistence solely for cache hinting.
 
-2.2. If no authoritative session ID exists, the system shall use only an explicitly approved non-authoritative fallback source defined by existing session/affinity policy; it shall not silently elevate arbitrary client metadata to proxy authority.
+## Requirement 3 — Generate a Stable, Opaque, Provider-Scoped Value
 
-2.3. Where existing routing/session policy rejects missing affinity identity, downstream hint generation shall respect that policy rather than inventing a process-global, user-global, IP-derived, or request-derived substitute.
-
-2.4. The generated affinity scope shall remain stable across ordinary turns of the same logical proxy session and shall change across distinct authoritative sessions.
-
-2.5. The generated affinity scope shall not intentionally merge unrelated concurrent sessions belonging to the same principal, tenant, API key, workspace, or user.
-
-2.6. Branches, subagents, compaction rotations, resumptions, and other conversation lifecycle events shall follow the existing authoritative session/continuity contract rather than provider-specific guesses; the implementation shall add no new hidden conversation lineage authority.
-
-## Requirement 3: Generate an Opaque, Bounded, Privacy-Safe Fallback Hint
-
-**User Story:** As a security-conscious operator, I want generated cache-routing identifiers to be stable but non-sensitive, so provider hints do not leak internal session identifiers or create unsafe identifiers.
+**User Story:** As a user, I want follow-up turns to carry a stable locality key without exposing my internal Go-LIP session identifier.
 
 ### Acceptance Criteria
 
-3.1. When the proxy generates a downstream hint, the wire value shall be deterministic for the selected conversation-affinity scope and stable across turns that share that scope.
+1. When synthesis is applied to the same authoritative session and the same downstream affinity namespace under the same configured secure-session key generation, Go-LIP shall emit the same generated value.
+2. When either the authoritative session or downstream affinity namespace differs, the generated value shall differ with cryptographic probability.
+3. The generated wire value shall be exactly `lipca1_` followed by the unpadded base64url encoding of a full 32-byte HMAC-SHA256 digest: 50 ASCII characters total.
+4. The generated value shall contain neither the raw session ID nor the raw root key and shall use only header/JSON-safe ASCII.
+5. The derivation shall be keyed and domain-separated from secure-session resume-token fingerprinting; reusing the same root secret shall not reuse the same HMAC message/domain.
+6. When the secure-session fingerprint root key changes, generated affinity values may change and provider cache hit rate may temporarily decrease, but authorization/session correctness shall not change.
+7. When secure-session uses its existing ephemeral process-local fingerprint key for memory-store mode, generated affinity values may reset on process restart consistently with that key lifetime.
 
-3.2. The wire value shall not expose the raw authoritative session ID, resume token, principal ID, API key, tenant secret, database identifier, or other sensitive internal identifier.
+## Requirement 4 — Preserve Explicit Client Intent Before Generated Fallback
 
-3.3. The generated value shall be opaque and cryptographically derived or equivalently non-reversible under the configured proxy secret/keying policy.
-
-3.4. The default generated representation shall fit the strictest supported provider limit in the initial capability set without per-request truncation ambiguity; where a provider has a smaller explicit limit, the adapter shall enforce that limit deterministically.
-
-3.5. Generated hints shall be safe for both HTTP-header and JSON-string transports and shall contain no control characters or unbounded user-controlled text.
-
-3.6. Key rotation or process configuration changes that alter generated hint values shall be treated as optimization cache invalidation only and shall not alter session correctness or authorization.
-
-3.7. The system shall not persist generated downstream hint material as a new independent durable identity when it can be deterministically regenerated from existing trusted scope and configured keying material.
-
-## Requirement 4: Preserve Explicit Client Intent With Deterministic Precedence
-
-**User Story:** As a sophisticated coding agent, I want my explicit cache or affinity hint to remain authoritative when supported, so the proxy does not degrade harness-specific cache scope design.
+**User Story:** As a coding-agent author, I want my deliberately chosen logical cache scope to win over a generic proxy fallback.
 
 ### Acceptance Criteria
 
-4.1. When a request carries an explicit supported provider-specific affinity field/header, the proxy shall preserve it unless existing security/policy rules explicitly forbid forwarding it.
+1. When the selected provider adapter sees a supported explicit provider-specific affinity carrier already decoded into existing request extension/canonical metadata, it shall preserve that value and shall not replace it with a generated fallback.
+2. Otherwise, when `Call.PromptCacheKeyValue()` returns a non-empty explicit protocol-neutral prompt-cache key, that value shall be preserved and shall not be replaced by a generated fallback.
+3. Otherwise, when the selected backend explicitly allows proxy synthesis and an authoritative session exists, Go-LIP shall generate the provider-scoped fallback described in Requirement 3.
+4. Otherwise, Go-LIP shall emit no newly synthesized affinity value.
+5. Conflicting aliases for the existing `PromptCacheKey` semantic shall continue to fail using the existing `PromptCacheKeyValue()` validation contract rather than being resolved by new precedence logic.
+6. This feature shall not introduce a new generic raw-header capture subsystem merely to preserve arbitrary inbound provider headers; explicit-provider precedence applies to values already represented by supported frontend/adapter metadata.
 
-4.2. When a request carries an explicit protocol-neutral `PromptCacheKey` or equivalent semantic extension that the selected backend supports, the proxy shall prefer that client value over a proxy-generated fallback for the same provider wire semantic.
+## Requirement 5 — Make Synthesis an Explicit Backend/Profile Capability
 
-4.3. The proxy shall not overwrite a non-empty explicit client hint with a generated value merely because the generated value is available.
-
-4.4. When multiple explicit client carriers represent the same provider semantic and conflict, the system shall apply a documented deterministic precedence or reject the conflict; it shall not silently choose based on map/header iteration order.
-
-4.5. When an explicit client cache key has narrower or richer logical scope than the proxy session identity, the proxy shall preserve the client scope rather than coarsening it to the proxy session.
-
-4.6. When a client hint is unsupported by the selected backend, the system shall preserve existing unsupported-field behavior and may independently generate a provider-supported fallback only if that does not reinterpret the unsupported client field as trusted authority.
-
-## Requirement 5: Use Explicit Provider/Model Capabilities, Never Blind Compatibility Injection
-
-**User Story:** As an operator using many OpenAI-compatible and native backends, I want cache-affinity fields emitted only where documented and supported, so generic compatibility does not cause request rejection or semantic drift.
+**User Story:** As an operator using many OpenAI-compatible services, I want hints injected only where the concrete backend contract supports them.
 
 ### Acceptance Criteria
 
-5.1. The system shall model downstream cache-affinity projection as an explicit provider/model/candidate capability rather than infer support from "OpenAI-compatible" protocol shape alone.
+1. When the selected backend/profile does not explicitly advertise downstream cache-affinity synthesis support, Go-LIP shall not synthesize a new value.
+2. Generic OpenAI compatibility alone shall never enable synthesis.
+3. The executor-facing capability shall be provider-neutral and shall contain, at minimum, an enable/disable decision and a bounded derivation namespace; core shall contain no provider wire field/header names.
+4. Provider-profile configuration shall use one bounded typed `cache_affinity` projection with per-API-flavor entries and explicit `enabled`, `transport`, `wire_name`, `max_length`, and `allow_proxy_synthesis` fields.
+5. An enabled profile projection shall fail profile validation if its transport/wire name is invalid, its declared maximum cannot carry the 50-character generated value, or its API flavor conflicts with the profile family.
+6. Unknown/undeclared profiles shall default to `cache_affinity` disabled.
+7. Provider wire projection shall remain adapter/profile-owned; core shall never switch on provider names or literal values such as `x-grok-conv-id`, `session_id`, `x-session-id`, or `x-session-affinity`.
 
-5.2. A capability shall identify, at minimum, whether proxy synthesis is supported, the logical semantic, transport kind, wire field/header name, maximum length if constrained, and whether client-provided values are accepted/preserved.
+## Requirement 6 — Complete the Initial Provider Matrix in This Workstream
 
-5.3. Unknown or undeclared providers shall receive no newly synthesized cache-affinity field or header by default.
-
-5.4. Backend/provider adapters shall own provider wire projection; generic core shall not contain a provider-name switch for `prompt_cache_key`, `session_id`, `x-session-id`, `x-session-affinity`, `x-grok-conv-id`, or future vendor fields.
-
-5.5. Capability resolution shall be able to vary by model/API flavor when one provider exposes different cache-affinity contracts on Chat Completions, Responses, gRPC, broker, or other endpoints.
-
-5.6. A provider capability shall be independently disableable by configuration/operator policy without disabling unrelated prompt caching, cache residency observation, or route affinity.
-
-5.7. Provider capability declaration shall not imply deterministic cache residency, cache lifetime, cache-hit guarantee, or safe active renewal.
-
-## Requirement 6: Support the Complete Initial Provider Projection Set
-
-**User Story:** As a Go-LIP user, I want useful provider-specific cache routing to work out of the box for documented high-value backends, so I do not need to patch my coding agent.
+**User Story:** As a proxy user, I want the feature to be useful immediately on high-value coding-agent backends rather than leaving provider wiring to another cache-hint follow-up.
 
 ### Acceptance Criteria
 
-6.1. Where current OpenAI Responses support declares `prompt_cache_key`, the backend shall be able to project the effective downstream hint into that request field without altering unrelated request fields.
+1. OpenAI Responses shall project the effective protocol-neutral value to JSON `prompt_cache_key`; direct OpenAI synthesis shall be enabled and its 64-character provider limit shall be enforced.
+2. xAI Chat Completions shall project the effective value to HTTP header `x-grok-conv-id` through the provider-profile/OpenAI-compatible family path.
+3. xAI Responses shall project the effective value to JSON `prompt_cache_key` through a Responses profile path.
+4. Mistral Chat shall project the effective value to JSON `prompt_cache_key` through the provider-profile/OpenAI-compatible family path.
+5. OpenRouter shall use **JSON body `session_id` as the single canonical Go-LIP carrier**; it shall preserve existing explicit `openrouter.session_id` first and otherwise use the effective protocol-neutral prompt-cache value. It shall not additionally emit `x-session-id` for this feature.
+6. Fireworks shall use its Responses-compatible profile and JSON `prompt_cache_key` as the Go-LIP cache-affinity projection.
+7. A RunInfra OpenAI-chat-compatible profile shall use JSON `prompt_cache_key` as the Go-LIP projection; the profile endpoint is `https://api.runinfra.ai/v1` and the Go-LIP credential env-var convention is `RUNINFRA_API_KEY`.
+8. Direct Anthropic and direct Gemini shall remain synthesis-disabled by default; their existing cache-control/resource semantics are unaffected.
+9. A generic unknown OpenAI-compatible backend shall receive no newly synthesized field or header.
+10. If any of `fireworks`, `xai`, `xai-responses`, `mistral`, or `runinfra` is absent from `internal/providerprofiles/catalog.json` on the implementation branch, this workstream shall add the missing row using the frozen endpoint/auth/family data in `research.md`; if a row already exists, this workstream shall augment it rather than duplicate it.
+11. Completion of this specification shall not depend on a later provider-expansion implementation to make the matrix above operational.
 
-6.2. Where current xAI Chat Completions support declares `x-grok-conv-id`, the backend shall be able to project the effective downstream hint into that header.
+## Requirement 7 — Reuse Existing Key/Session Composition Without Hot-Path State
 
-6.3. Where current xAI Responses support declares `prompt_cache_key`, the backend shall be able to project the effective downstream hint into that request field.
-
-6.4. Where current Mistral support declares `prompt_cache_key`, the backend shall be able to project the effective downstream hint according to the supported API flavor.
-
-6.5. Where current OpenRouter support declares sticky session routing, the backend shall be able to project the effective downstream hint through the documented `session_id` request field or `x-session-id` header, with one canonical projection choice per adapter path.
-
-6.6. Where Fireworks/RunInfra-compatible backend profiles explicitly declare supported affinity carriers, their adapters/profiles shall be able to project the same protocol-neutral effective hint without adding vendor semantics to core.
-
-6.7. Direct Anthropic and direct Gemini shall not receive a generic synthesized session-affinity field merely because they support prompt caching; only documented provider-specific affinity mechanisms may be enabled.
-
-6.8. If a provider contract changes, capability/profile tests shall fail until the provider adapter is intentionally updated; silent broadening through generic compatibility code is forbidden.
-
-## Requirement 7: Keep Hint Generation and Projection on the Hot Path Cheap and Stateless
-
-**User Story:** As an operator serving high concurrency, I want cache hinting to add negligible overhead, so an optimization does not become a proxy bottleneck.
+**User Story:** As an operator at high concurrency, I want locality optimization to remain cheap and bounded.
 
 ### Acceptance Criteria
 
-7.1. Effective hint resolution shall require no database read/write, network call, provider discovery request, background job, or LLM call on the per-request hot path.
+1. The implementation shall derive its affinity HMAC subkey once during secure-session/runtime composition from the already-resolved secure-session fingerprint root key; it shall not add a second required user-facing secret.
+2. Per-request derivation shall perform bounded in-memory work only: no database, filesystem, network, model, tokenizer, or remote cache lookup.
+3. Per-request derivation shall not create a goroutine, timer, background worker, session map, or unbounded cache.
+4. Capability/profile lookup shall use immutable/generation-owned compiled state.
+5. The feature shall not retain full prompts, tool schemas, request bodies, credentials, raw session IDs beyond their existing lifetime, or provider cache contents.
+6. Ordinary metrics/logs shall never contain the raw generated hint, raw `PromptCacheKey`, raw session ID, HMAC root/subkey, or residency handle.
 
-7.2. The implementation shall not spawn a goroutine per request or per session solely for downstream affinity hinting.
+## Requirement 8 — Preserve Retry, Failover, and Continuation Semantics
 
-7.3. Deterministic hint generation shall use bounded allocations and may reuse immutable/configured derivation state.
-
-7.4. Capability/profile lookup shall reuse existing compiled backend/provider configuration or generation-local capability structures rather than query mutable global registries repeatedly.
-
-7.5. The feature shall not create unbounded process-global maps keyed by session or generated hint.
-
-7.6. Cache-hint observability shall use bounded-cardinality dimensions and shall not label metrics with raw session IDs, raw generated hints, prompt cache keys, or provider cache targets.
-
-## Requirement 8: Maintain Correct Retry, Failover, Race, and Continuation Behavior
-
-**User Story:** As a coding-agent user, I want affinity hints to improve locality without making requests sticky beyond safe routing semantics, so failures still recover correctly.
+**User Story:** As a user, I want cache locality improvements without changing B2BUA behavior.
 
 ### Acceptance Criteria
 
-8.1. A downstream affinity hint shall be advisory; provider rejection, cache miss, eviction, or loss of locality shall not by itself make a request semantically invalid.
+1. When a pre-output retry targets the same capable downstream namespace, deterministic derivation shall produce the same generated value for that session/namespace.
+2. When failover targets a different downstream namespace, Go-LIP shall derive that namespace's value independently.
+3. Parallel arms shall not share mutable cache-affinity state.
+4. The generated affinity value shall not be used as `previous_response_id`, Codex turn state, WebSocket continuation identity, ACP session ID, or transport connection key unless an existing provider adapter independently and explicitly defines such behavior outside this feature.
+5. Existing no-retry-after-visible-output rules shall remain unchanged.
+6. Existing provider/account/region/downstream affinity enforcement for prompt-cache maintenance shall remain unchanged.
 
-8.2. Pre-output failover shall remain allowed according to existing B2BUA policy even when the failed attempt carried an affinity hint.
+## Requirement 9 — Observe Decisions Truthfully
 
-8.3. Parallel-race attempts may carry the same logical conversation hint to independently capable providers, but no shared hint shall imply shared cache state or cross-provider continuation authority.
-
-8.4. The first client-visible canonical output shall continue to commit the winning attempt exactly as before; cache hinting shall not introduce post-output failover.
-
-8.5. WebSocket/Responses continuation state, `previous_response_id`, provider turn-state tokens, and transport connection reuse shall remain governed by their existing scoped contracts and shall not be synthesized from the downstream cache-affinity hint.
-
-8.6. Per-turn sticky-routing tokens that are valid only inside a provider turn shall never be stored or replayed as cross-turn downstream affinity hints.
-
-## Requirement 9: Provide Truthful Observability and Empirical Validation
-
-**User Story:** As an operator, I want to know whether synthesized hints are actually helping, so the feature can be evaluated rather than assumed beneficial.
+**User Story:** As an operator, I want to know whether Go-LIP supplied locality hints without confusing hint emission with actual cache reuse.
 
 ### Acceptance Criteria
 
-9.1. The system shall expose bounded diagnostics/metrics distinguishing at least: no hint, explicit client hint preserved, proxy fallback generated, provider projection unsupported, and provider projection applied.
+1. Go-LIP shall expose low-cardinality cache-affinity decision metrics using bounded enums for source (`explicit_prompt_cache`, `proxy_generated`, `none`) and outcome (`applied_or_available`, `unsupported`, `disabled`, `invalid`). Provider-specific adapters may additionally classify a preserved explicit provider carrier where they already observe one.
+2. Metric labels shall not include actual hint values, session IDs, prompt-cache keys, residency IDs/handles, arbitrary request IDs, or unbounded model IDs.
+3. Hint emission shall never be reported as `cache_hit=true` or equivalent evidence.
+4. Existing provider-reported cache-read/cache-write/cached-token evidence shall remain the authoritative observation of cache effect.
+5. Optional live validation may compare affinity-enabled vs disabled requests, but CI shall not require a deterministic cache-hit improvement from an external provider.
 
-9.2. The system shall not claim a cache hit solely because an affinity hint was generated or projected.
+## Requirement 10 — Preserve Executable-Backend Compatibility Without New Proto Fields
 
-9.3. Existing provider cache-read/cache-write/cached-token evidence shall remain the source of truth for observed cache effects when available.
-
-9.4. The implementation shall support controlled tests comparing identical multi-turn request sequences with synthesized hinting enabled versus disabled without changing model prompt semantics.
-
-9.5. Provider integration tests shall verify request-wire projection and, where practical behind opt-in credentials, observed cache-effect evidence; unit/CI correctness shall not depend on live provider credentials.
-
-9.6. Metrics shall permit operators to correlate cache-hit/read improvements with hinting mode at backend/provider/model-class granularity without high-cardinality session identifiers.
-
-## Requirement 10: Preserve ABI, Plugin, Configuration, and Compatibility Boundaries
-
-**User Story:** As a plugin/backend maintainer, I want this feature added through existing extension points, so old connectors remain compatible and new providers can opt in without Cartesian complexity.
+**User Story:** As a connector author, I want cache-affinity synthesis to compose with the existing negotiated ABI rather than force a redundant session/cache identity field.
 
 ### Acceptance Criteria
 
-10.1. If the existing backend-plugin ABI already transports sufficient proxy-owned session and prompt-cache semantic information, implementation shall reuse it rather than add a redundant ABI identity field.
+1. This feature shall add **no new protobuf invocation field and no new backend-plugin protocol minor solely for the generated value**.
+2. Executable backends shall receive the already-derived opaque value through the existing negotiated `prompt_cache_key` semantic-extension/legacy carrier; raw `AuthoritativeSessionID` shall still be scrubbed before ordinary backend `Open` execution.
+3. A new optional backend-plugin feature flag `downstream_cache_affinity_v1` may be added at the existing semantic-extension minimum minor (minor 6) to advertise that a connector can consume the existing prompt-cache semantic as downstream affinity; the feature shall not add DTOs.
+4. A host shall synthesize for an executable connector only when that feature is successfully negotiated.
+5. An old peer, a peer lacking the feature, or a connector that does not advertise it shall continue ordinary inference with no proxy-generated fallback.
+6. `SafeMetadata` shall not be treated as proxy session authority and shall not carry raw session authority for this feature.
 
-10.2. If an additive ABI capability is still required for downstream-affinity projection metadata, it shall use the existing negotiated feature/minor mechanism and old peers shall remain inference-compatible without the feature.
+## Requirement 11 — Finish the Generic Architecture With No Cache-Hint Follow-Up
 
-10.3. Executable connectors shall not derive trusted proxy session authority from `SafeMetadata` or arbitrary client headers when the host can supply negotiated proxy-owned session authority.
-
-10.4. Provider-specific projection data shall remain at backend/connector/profile boundaries and shall not leak vendor enums or headers into `pkg/lipapi` canonical trajectory types unless an existing protocol-neutral semantic carrier is insufficient and a separate architecture review explicitly approves a change.
-
-10.5. The implementation shall use reusable contract/TCK coverage for hint precedence, capability resolution, projection, and legacy behavior rather than require every frontend × backend combination to have bespoke tests.
-
-10.6. Configuration shall document defaults, operator overrides, supported provider behaviors, and the distinction between route affinity, downstream affinity hints, prompt-cache residency, and keep-warm control.
-
-## Requirement 11: Complete the Feature Without Hidden Follow-Up Scope
-
-**User Story:** As a maintainer planning the OSS release, I want this implementation batch to finish generic proxy cache hinting, so no known architectural tail is deferred into another feature request.
+**User Story:** As a maintainer, I want one implementation batch to close the generic proxy-side cache-hinting architecture.
 
 ### Acceptance Criteria
 
-11.1. The implementation shall include the protocol-neutral effective-hint resolver, secure opaque derivation, provider/model capability contract, provider wire projection, precedence rules, configuration, observability, unit/TCK coverage, and initial documented provider rollout defined by this specification.
-
-11.2. The implementation shall reconcile any current production code or documentation that conflates session affinity, prompt-cache key, and cache-residency identity.
-
-11.3. The implementation shall preserve and integrate with the completed prompt-cache residency and keep-warm subsystems rather than reopen their scheduler/control scope.
-
-11.4. Final review shall verify there is no remaining generic provider-agnostic cache-hinting prerequisite, TODO, placeholder provider switch, or required follow-up spec left by this work.
-
-11.5. Future support for a newly documented provider-specific affinity field shall be ordinary provider/profile extension work against the completed capability contract, not evidence that this generic feature remains incomplete.
-
-11.6. The final implementation shall be considered complete only after repository quality, architecture, compatibility, and focused performance/race tests pass and the documentation accurately describes supported and unsupported behavior.
+1. Completion shall include: secure derivation, executor capability, selected-attempt insertion, direct OpenAI forwarding, provider-profile schema/compiler/projection, required initial profile rows, OpenRouter connector parity, tests/TCK, observability, documentation, and architecture/performance gates.
+2. The implementation shall add regression coverage proving direct OpenAI explicit `PromptCacheKey` forwarding works before/following synthesis.
+3. The implementation shall add reusable tests proving unknown-compatible, Anthropic, and Gemini negative behavior.
+4. The implementation shall add architecture guards preventing provider-name/wire-name switches in generic core and preventing generated values from becoming residency/session authority.
+5. The final completion review shall search for unresolved TODOs/placeholders required by this feature and resolve them before archiving the spec.
+6. After this specification is complete, adding a newly documented provider carrier shall be ordinary provider-profile/adapter data/code against this completed contract, not a prerequisite generic architecture follow-up.
