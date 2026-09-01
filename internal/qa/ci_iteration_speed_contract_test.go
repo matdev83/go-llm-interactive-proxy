@@ -254,6 +254,8 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 		"if (-not (Test-IsWindows))",
 		"$Targets = @(\"test-unit\", \"quality-checks\")",
 		`@("mod", "download", "all")`,
+		`@("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd")`,
+		`SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")`,
 		"-count=1",
 		"LIP_ALLOW_TEST_COST_GROWTH",
 		"worktree\", \"add\", \"--detach\"",

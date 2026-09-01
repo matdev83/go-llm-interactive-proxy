@@ -217,10 +217,24 @@ function Invoke-External {
     # ensuring taskrunner helpers built by each tree cannot cross-use a cache.
     $previousTemp = [Environment]::GetEnvironmentVariable("TEMP", "Process")
     $previousTmp = [Environment]::GetEnvironmentVariable("TMP", "Process")
+    $gitConfigVariables = @(
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1"
+    )
+    $previousGitConfig = @{}
+    foreach ($name in $gitConfigVariables) {
+        $previousGitConfig[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
     $exitCode = 1
     try {
         $env:TEMP = $TempRoot
         $env:TMP = $TempRoot
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_COUNT", "2", "Process")
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_0", "core.autocrlf", "Process")
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_VALUE_0", "false", "Process")
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_1", "core.eol", "Process")
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_VALUE_1", "lf", "Process")
         Push-Location -LiteralPath $WorkingDirectory
         try {
             $previousPreference = $ErrorActionPreference
@@ -247,6 +261,9 @@ function Invoke-External {
             Remove-Item Env:TMP -ErrorAction SilentlyContinue
         } else {
             $env:TMP = $previousTmp
+        }
+        foreach ($name in $gitConfigVariables) {
+            [Environment]::SetEnvironmentVariable($name, $previousGitConfig[$name], "Process")
         }
     }
     return [int]$exitCode
@@ -284,6 +301,16 @@ function Warm-Tree {
     # Keep this exact no-test warm-up separate from measured runs so the
     # anchor/head pair starts with the same compile cache shape.
     Invoke-RequiredExternal $Label "go" @("test", "-run", '^$', "-count=1", "-parallel=$TestParallel", "-timeout=10m", "./...") $TreeRoot $TempRoot
+
+    # internal/qa executes the real lipstd check-config command. Warm its
+    # reusable executable link action for both trees, just as the package's
+    # process-level cache does after the first developer iteration.
+    $warmBinary = Join-Path $TempRoot "lipstd-warm.exe"
+    try {
+        Invoke-RequiredExternal "$Label-lipstd" "go" @("build", "-buildvcs=false", "-o", $warmBinary, "./cmd/lipstd") $TreeRoot $TempRoot
+    } finally {
+        Remove-Item -LiteralPath $warmBinary -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Apply-AnchorCompatibilityPatch {
