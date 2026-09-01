@@ -83,8 +83,9 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - Validation: disabled-but-nonzero; bad transport; empty/bad wire; max49/>256; wrong family flavor; synthesis while disabled.
   - Projection: Chat header, Chat JSON, Responses JSON, max rejection, absent projection no-op, arbitrary custom-compatible no injection.
   - Add a test pinning `providerprofiles.MinCacheAffinityValueLength == 50`; the cross-package equality with `cacheaffinity.GeneratedLength` belongs in Task 9.2 archtest to preserve package layering.
+  - This RED task may be written before Task 4, but **do not implement/profile-wire it until Task 4.4 is green**; the task graph intentionally gates Task 5.1 on Task 4.4.
   - _Req: 5,6.2-6.9_
-  - _Depends: none_
+  - _Depends: none for RED test authoring; implementation dependency is Task 4.4_
 
 - [ ] 1.6 (P) RED backend-plugin/OpenRouter tests
   - Feature name exactly `downstream_cache_affinity_v1`, minimum minor6.
@@ -212,7 +213,7 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
   - Strict validation: disabled strict-zero; only JSON/header transports; safe wire; max `MinCacheAffinityValueLength..MaxStringBytes`; correct family flavor; synthesis requires enabled.
   - Keep v1; no transform/second catalog.
   - _Req: 5.4-5.7_
-  - _Depends: 1.5,4.4_
+  - _Depends: 1.5 RED test authored, 4.4 production profile binding GREEN_
 
 - [ ] 5.2 Thread complete compiled cache-affinity semantics through the now-correct production profile lifecycle
   - **Edit:** `internal/standardplugins/provider_profile_binding.go` family builders. `internal/providerprofiles/compiler.go` should remain unchanged unless the existing `CompileProfile` path does not already call `Validate`; if it does call `Validate` (current main), do not edit it.
@@ -360,7 +361,7 @@ This plan is for a smaller implementation model. Follow it literally. **Do not r
 
 - [ ] 9.1 Hot-path benchmarks
   - **Create:** `internal/core/cacheaffinity/benchmark_test.go`.
-  - Benchmark the pure explicit/no-op resolver helper where applicable and the generated `Derive` path; if runtime-level benchmark coverage already exists for attempt preparation, extend that existing benchmark rather than create a second runtime benchmark harness.
+  - Benchmark the generated `Derive` path plus the existing/generated/no-op decision helper in the nearest existing runtime benchmark harness; do not create a second competing runtime benchmark framework.
   - Explicit/generated/disabled behavior must show no DB/network/fs/goroutine/timer/prompt hashing/unbounded map.
   - Confirm subkey precomputed; add pooling only with benchmark evidence.
   - _Req: 7_
@@ -473,10 +474,10 @@ flowchart TD
 
 ### Allowed parallelism
 
-- 1.1-1.6 RED tasks independent.
+- 1.1-1.6 RED-test **authoring** is independent.
 - After 2.1, 2.2/2.3 parallel.
-- Direct OpenAI (3.x), profile binding/schema (4-5), and connector (6) may progress in parallel after their prerequisites.
-- **Do not** parallelize 4.1-5.5 against each other: same profile binding/schema/catalog surfaces.
+- Direct OpenAI (3.x), provider-profile binding repair (4.x), and connector feature work (6.x) may progress in parallel after their prerequisites.
+- Profile schema/projection **implementation** (5.x) starts only after Task 4.4 is green; do not parallelize 4.1-5.5 because the production profile binding must be correct first.
 - Final gates serial.
 
 ### Stop conditions
