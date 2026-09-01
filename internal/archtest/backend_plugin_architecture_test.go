@@ -8,9 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -156,36 +154,11 @@ func TestGenericBackendFactoryDeps_NoProviderSpecificNames(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // sets GOWORK=off and inspects module graph
 func TestGOWORKOff_RootListBuildModuleGraph(t *testing.T) {
-	// Not parallel: spawns heavy go toolchain commands.
+	t.Parallel()
 	root := repoRoot(t)
-	env := append(os.Environ(), "GOWORK=off")
-
-	run := func(name string, args ...string) {
-		t.Helper()
-		cmd := exec.Command(name, args...)
-		cmd.Dir = root
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("%s %v: %v\n%s", name, args, err, out)
-		}
-	}
-
-	run("go", "list", "./...")
-	run("go", "list", "-m", "all")
-	run("go", "build", "-o", filepath.Join(t.TempDir(), "lipstd.exe"), "./cmd/lipstd")
-
-	// Compile-only proof for public/root packages without invoking archtest recursively.
-	run(
-		"go", "test", "-run=^$", "-count=1",
-		"./pkg/lipapi/...",
-		"./pkg/lipsdk/...",
-		"./api/backendplugin/...",
-		"./cmd/lipstd",
-	)
-	_ = runtime.GOOS
+	plan := buildGOWORKOffCommandPlan(root, t.TempDir())
+	runGOWORKOffCommandPlan(t, plan)
 }
 
 func TestPublicABIFixture_DetectsInternalImport(t *testing.T) {

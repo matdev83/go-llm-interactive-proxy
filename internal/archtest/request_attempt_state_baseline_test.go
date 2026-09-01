@@ -6,10 +6,8 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -378,44 +376,9 @@ func scanRequestAttemptStateAtRef(root string, ref string) (RequestAttemptStateI
 }
 
 func loadTurnRecvASTFilesAtRef(root string, ref string) ([]turnRecvASTFile, error) {
-	dir := filepath.Join(root, "internal", "core", "runtime")
-	entries, err := os.ReadDir(dir)
+	fs, err := loadGitCommitFS(root, ref)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load git commit fs for ref %s: %w", ref, err)
 	}
-	fset := token.NewFileSet()
-	var files []turnRecvASTFile
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		relPath := "internal/core/runtime/" + entry.Name()
-		cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", ref, relPath))
-		cmd.Dir = root
-		content, err := cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("git show failed for %s: %w", relPath, err)
-		}
-		file, err := parser.ParseFile(fset, relPath, content, parser.ParseComments)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s at %s: %w", entry.Name(), ref, err)
-		}
-		imports := make(map[string]string)
-		for _, spec := range file.Imports {
-			importPath, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				return nil, fmt.Errorf("unquote import in %s: %w", entry.Name(), err)
-			}
-			alias := filepath.Base(importPath)
-			if spec.Name != nil {
-				alias = spec.Name.Name
-			}
-			if alias != "_" && alias != "." {
-				imports[alias] = importPath
-			}
-		}
-		files = append(files, turnRecvASTFile{RelPath: relPath, AST: file, FSet: fset, Imports: imports})
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].RelPath < files[j].RelPath })
-	return files, nil
+	return loadTurnRecvASTFilesFromFS(fs)
 }

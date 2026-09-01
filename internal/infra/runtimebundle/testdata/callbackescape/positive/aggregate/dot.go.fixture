@@ -1,5 +1,5 @@
 package escapepos
 
-import . "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+import . "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle/testdata/callbackescape/support/runtimehost"
 
 func UseDotImport(pick func(*Coordinator) int) int { return pick(nil) }
