@@ -1,7 +1,7 @@
 {
   "feature_name": "downstream-cache-affinity-hinting",
   "created_at": "2026-09-01T16:45:00+02:00",
-  "updated_at": "2026-09-01T19:15:00+02:00",
+  "updated_at": "2026-09-01T23:05:00+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -10,5 +10,6 @@
     "tasks": {"generated": true,"approved": true}
   },
   "ready_for_implementation": true,
-  "project_description": "Complete proxy-supported prompt-cache locality optimization by synthesizing provider-scoped opaque downstream conversation-affinity fallbacks when clients omit an explicit prompt-cache key, projecting those values only through explicit backend/provider-profile capabilities, repairing direct OpenAI Responses prompt_cache_key forwarding, and preserving secure-session, route-affinity, continuation, prompt-cache residency/control, and keep-warm as separate authorities. The final 2026-09-01 execution-readiness revalidation freezes exact package ownership, HMAC/key lifecycle and 50-character wire format, runtime insertion before the existing session scrub, the non-lossy real provider-profile lifecycle required to preserve compiled semantics in production, provider-profile layering constraints and initial rows, OpenRouter body carrier, connector feature negotiation without new protobuf fields/minor, tests, observability, task ordering, and completion gates. The artifacts are intentionally written so a weaker instruction-following implementation model is not expected to make architectural or provider-research decisions. This workstream fully closes generic proxy-side cache hinting with no required follow-up architecture work."
+  "execution_gate": "Implement only after core-feature-ownership-full-closure is implemented/certified and its final ownership census/core-admission ratchets are present on main.",
+  "project_description": "Complete provider-facing prompt-cache locality hinting without regrowing generic core. The revised post-core-closure architecture moves HMAC derivation, fill-only synthesis policy and telemetry into a standard downstreamcacheaffinity feature, composes it through standardplugins/featurehost, reuses the existing candidate-aware PlaneAttemptTransforms seam, and permits only bounded generic immutable backend-feature metadata if the final post-closure tree still lacks an equivalent carrier. It explicitly forbids a cache-specific core package, executor/security-runtime/process-services fields, execbackend resolver, core metrics callback or new feature plane. The SDD retains direct OpenAI Responses prompt_cache_key repair, the non-lossy provider-profile lifecycle repair/reuse, typed profile projection, frozen xAI/Mistral/Fireworks/RunInfra/OpenRouter matrix, executable connector negotiation without new protobuf value fields/minor, and strict separation from session authority, continuation and prompt-cache residency/keep-warm. Because no production wire compatibility exists yet, the generated value starts with the planned AIProxer branding: aipca1_ plus a full SHA-256 raw-base64url digest (50 chars), with aiproxer/... HMAC domains. Tasks are execution-grade for a weaker instruction-following model and include a hard RED gate proving no later PCK writer invalidates use of the existing attempt-transform seam."
 }
