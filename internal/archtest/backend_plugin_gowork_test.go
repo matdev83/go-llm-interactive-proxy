@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,16 +45,23 @@ func buildGOWORKOffCommandPlan(root, tempDir string) []goworkOffCmd {
 	}
 }
 
-func runGOWORKOffCommandPlan(t *testing.T, plan []goworkOffCmd) {
-	t.Helper()
+func runGOWORKOffCommandPlanContext(ctx context.Context, plan []goworkOffCmd) error {
 	for _, step := range plan {
-		cmd := exec.Command(step.Name, step.Args...)
+		cmd := exec.CommandContext(ctx, step.Name, step.Args...)
 		cmd.Dir = step.Dir
 		cmd.Env = step.Env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("%s %v: %v\n%s", step.Name, step.Args, err, out)
+			return fmt.Errorf("%s %v: %w\n%s", step.Name, step.Args, err, out)
 		}
+	}
+	return nil
+}
+
+func runGOWORKOffCommandPlan(t *testing.T, plan []goworkOffCmd) {
+	t.Helper()
+	if err := runGOWORKOffCommandPlanContext(t.Context(), plan); err != nil {
+		t.Fatalf("run GOWORK=off plan: %v", err)
 	}
 }
 
@@ -84,5 +94,23 @@ func TestGOWORKOff_CommandPlanSafety(t *testing.T) {
 	}
 	if p1[2].Args[2] == p2[2].Args[2] || !strings.HasPrefix(p1[2].Args[2], dir1) {
 		t.Errorf("build outputs not distinct per invocation: p1=%s, p2=%s", p1[2].Args[2], p2[2].Args[2])
+	}
+}
+
+func TestGOWORKOff_CommandPlanCancellation(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := filepath.Join(t.TempDir(), "cancel")
+	plan := buildGOWORKOffCommandPlan(root, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runGOWORKOffCommandPlanContext(ctx, plan)
+	if err == nil {
+		t.Fatal("expected error on canceled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("expected context cancellation error, got %v", err)
 	}
 }

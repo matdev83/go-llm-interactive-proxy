@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/parser"
@@ -84,7 +85,7 @@ func TestRequestAttemptStateBaselineMatchesCurrentAST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, handoff, err := scanRequestAttemptState(root)
+	currentInv, handoff, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -96,7 +97,7 @@ func TestRequestAttemptStateBaselineMatchesCurrentAST(t *testing.T) {
 	}
 
 	// Verify stored before metrics against scanning git show origin/main or a checked source manifest (Requirement 1)
-	beforeInv, err := scanRequestAttemptStateAtRef(root, "origin/main")
+	beforeInv, err := scanRequestAttemptStateAtRefContext(t.Context(), root, "origin/main")
 	if err == nil && sameJSON(baseline.Before, beforeInv) {
 		// Matches origin/main
 	} else {
@@ -148,7 +149,7 @@ func TestRequestAttemptStateRatchetsPassOnCurrentCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestRequestAttemptStateRatchetsPassOnCurrentCode(t *testing.T) {
 func TestRequestAttemptStateRatchetsFailIfActivatedOnCurrentCode(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -226,7 +227,7 @@ func TestRequestAttemptStateTargetRatchetFailsIfTypeReappearsOnCurrentAST(t *tes
 	if err != nil {
 		t.Fatalf("load request-attempt state baseline: %v", err)
 	}
-	currentInv, _, err := scanRequestAttemptState(root)
+	currentInv, _, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -250,7 +251,7 @@ func TestGenerateRequestAttemptStateBaseline(t *testing.T) {
 	}
 	root := repoRoot(t)
 	path := filepath.Join(root, filepath.FromSlash(RequestAttemptStateBaselineRelPath))
-	currentInv, handoff, err := scanRequestAttemptState(root)
+	currentInv, handoff, err := scanRequestAttemptStateContext(t.Context(), root)
 	if err != nil {
 		t.Fatalf("scan current request-attempt state: %v", err)
 	}
@@ -303,7 +304,11 @@ func loadRequestAttemptStateBaseline(root string) (RequestAttemptStateBaseline, 
 }
 
 func scanRequestAttemptState(root string) (RequestAttemptStateInventory, RequestAttemptHandoffSeam, error) {
-	files, err := loadTurnRecvASTFiles(root)
+	return scanRequestAttemptStateContext(context.Background(), root)
+}
+
+func scanRequestAttemptStateContext(ctx context.Context, root string) (RequestAttemptStateInventory, RequestAttemptHandoffSeam, error) {
+	files, err := loadTurnRecvASTFilesContext(ctx, root)
 	if err != nil {
 		return RequestAttemptStateInventory{}, RequestAttemptHandoffSeam{}, err
 	}
@@ -343,7 +348,11 @@ func scanRequestAttemptState(root string) (RequestAttemptStateInventory, Request
 }
 
 func scanRequestAttemptStateAtRef(root string, ref string) (RequestAttemptStateInventory, error) {
-	files, err := loadTurnRecvASTFilesAtRef(root, ref)
+	return scanRequestAttemptStateAtRefContext(context.Background(), root, ref)
+}
+
+func scanRequestAttemptStateAtRefContext(ctx context.Context, root string, ref string) (RequestAttemptStateInventory, error) {
+	files, err := loadTurnRecvASTFilesAtRefContext(ctx, root, ref)
 	if err != nil {
 		return RequestAttemptStateInventory{}, err
 	}
@@ -375,10 +384,14 @@ func scanRequestAttemptStateAtRef(root string, ref string) (RequestAttemptStateI
 	}, nil
 }
 
-func loadTurnRecvASTFilesAtRef(root string, ref string) ([]turnRecvASTFile, error) {
-	fs, err := loadGitCommitFS(root, ref)
+func loadTurnRecvASTFilesAtRefContext(ctx context.Context, root string, ref string) ([]turnRecvASTFile, error) {
+	fs, err := loadGitCommitFSContext(ctx, root, ref)
 	if err != nil {
 		return nil, fmt.Errorf("load git commit fs for ref %s: %w", ref, err)
 	}
-	return loadTurnRecvASTFilesFromFS(fs)
+	return loadTurnRecvASTFilesFromFSContext(ctx, fs)
+}
+
+func loadTurnRecvASTFilesAtRef(root string, ref string) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesAtRefContext(context.Background(), root, ref)
 }

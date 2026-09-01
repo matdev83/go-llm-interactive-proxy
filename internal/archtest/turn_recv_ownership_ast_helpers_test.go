@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -12,7 +13,10 @@ import (
 	"strings"
 )
 
-func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
+func loadTurnRecvASTFilesFromFSContext(ctx context.Context, fs archtestFS) ([]turnRecvASTFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	relDir := "internal/core/runtime"
 	entries, err := fs.ReadDir(relDir)
 	if err != nil {
@@ -21,6 +25,9 @@ func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
 	fset := token.NewFileSet()
 	var files []turnRecvASTFile
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
@@ -28,6 +35,9 @@ func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
 		content, err := fs.ReadFile(relPath)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", relPath, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		file, err := parser.ParseFile(fset, relPath, content, parser.ParseComments)
 		if err != nil {
@@ -53,8 +63,16 @@ func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
 	return files, nil
 }
 
+func loadTurnRecvASTFilesFromFS(fs archtestFS) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesFromFSContext(context.Background(), fs)
+}
+
+func loadTurnRecvASTFilesContext(ctx context.Context, root string) ([]turnRecvASTFile, error) {
+	return loadTurnRecvASTFilesFromFSContext(ctx, &workingTreeFS{root: root})
+}
+
 func loadTurnRecvASTFiles(root string) ([]turnRecvASTFile, error) {
-	return loadTurnRecvASTFilesFromFS(&workingTreeFS{root: root})
+	return loadTurnRecvASTFilesContext(context.Background(), root)
 }
 
 func nodeText(node ast.Node) string {

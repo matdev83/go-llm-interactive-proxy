@@ -4,12 +4,13 @@ package runtimebundle_test
 
 import (
 	"errors"
+	"math"
 
 	"golang.org/x/sys/windows"
 )
 
 func processAlive(pid int) bool {
-	if pid <= 0 {
+	if pid <= 0 || uint64(pid) > math.MaxUint32 {
 		return false
 	}
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))

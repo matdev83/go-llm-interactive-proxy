@@ -4,12 +4,13 @@ package runtimebundle_test
 
 import (
 	"errors"
+	"math"
 	"os"
 	"syscall"
 )
 
 func processAlive(pid int) bool {
-	if pid <= 0 {
+	if pid <= 0 || uint64(pid) > math.MaxUint32 {
 		return false
 	}
 	p, err := os.FindProcess(pid)

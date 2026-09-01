@@ -1,8 +1,10 @@
 package runtimebundle_test
 
 import (
+	"math"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -20,6 +22,22 @@ func TestProcessAlive_InvalidPID(t *testing.T) {
 	for _, pid := range []int{0, -1, -999} {
 		if processAlive(pid) {
 			t.Errorf("expected invalid PID %d to not be alive", pid)
+		}
+	}
+}
+
+func TestProcessAlive_BoundaryPID(t *testing.T) {
+	t.Parallel()
+	for _, pid := range []int{0, -1, -999, math.MinInt} {
+		if processAlive(pid) {
+			t.Errorf("expected non-positive PID %d to not be alive", pid)
+		}
+	}
+	if strconv.IntSize == 64 {
+		for _, pid := range []int{math.MaxInt, int(uint64(math.MaxUint32) + 1), int(uint64(math.MaxUint32) + 100)} {
+			if processAlive(pid) {
+				t.Errorf("expected out-of-range PID %d to not be alive", pid)
+			}
 		}
 	}
 }

@@ -1,6 +1,8 @@
 package archtest
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -10,13 +12,21 @@ import (
 )
 
 type mockArchtestFS struct {
-	files   map[string][]byte
-	dirs    map[string][]os.DirEntry
-	readErr error
-	dirErr  error
+	files         map[string][]byte
+	dirs          map[string][]os.DirEntry
+	readErr       error
+	dirErr        error
+	readDirCount  int
+	readFileCount int
+	onReadDir     func()
+	onReadFile    func(rel string)
 }
 
 func (m *mockArchtestFS) ReadFile(rel string) ([]byte, error) {
+	m.readFileCount++
+	if m.onReadFile != nil {
+		m.onReadFile(rel)
+	}
 	if m.readErr != nil {
 		return nil, m.readErr
 	}
@@ -36,6 +46,10 @@ func (m *mockArchtestFS) WalkRootFiles(rootPath string, fn func(rel string, src 
 }
 
 func (m *mockArchtestFS) ReadDir(rel string) ([]os.DirEntry, error) {
+	m.readDirCount++
+	if m.onReadDir != nil {
+		m.onReadDir()
+	}
 	if m.dirErr != nil {
 		return nil, m.dirErr
 	}
@@ -129,6 +143,62 @@ func TestLoadTurnRecvASTFilesFromFS_Contract(t *testing.T) {
 			t.Fatal("expected parse error on broken syntax, got nil")
 		}
 	})
+
+	t.Run("canceled_context_aborts_before_readdir", func(t *testing.T) {
+		t.Parallel()
+		trackingFS := &mockArchtestFS{
+			dirs: map[string][]os.DirEntry{
+				"internal/core/runtime": {
+					gitDirEntry{name: "file.go", isDir: false},
+				},
+			},
+			files: map[string][]byte{
+				"internal/core/runtime/file.go": []byte("package runtime\n"),
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := loadTurnRecvASTFilesFromFSContext(ctx, trackingFS)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+		if trackingFS.readDirCount != 0 {
+			t.Errorf("readDirCount = %d, want 0", trackingFS.readDirCount)
+		}
+		if trackingFS.readFileCount != 0 {
+			t.Errorf("readFileCount = %d, want 0", trackingFS.readFileCount)
+		}
+	})
+
+	t.Run("canceled_context_aborts_after_readdir", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		trackingFS := &mockArchtestFS{
+			dirs: map[string][]os.DirEntry{
+				"internal/core/runtime": {
+					gitDirEntry{name: "file.go", isDir: false},
+				},
+			},
+			files: map[string][]byte{
+				"internal/core/runtime/file.go": []byte("package runtime\n"),
+			},
+			onReadDir: func() {
+				cancel()
+			},
+		}
+
+		_, err := loadTurnRecvASTFilesFromFSContext(ctx, trackingFS)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+		if trackingFS.readDirCount != 1 {
+			t.Errorf("readDirCount = %d, want 1", trackingFS.readDirCount)
+		}
+		if trackingFS.readFileCount != 0 {
+			t.Errorf("readFileCount = %d, want 0", trackingFS.readFileCount)
+		}
+	})
 }
 
 func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
@@ -137,17 +207,17 @@ func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
 
 	t.Run("head_matches_working_tree", func(t *testing.T) {
 		t.Parallel()
-		headFiles, err := loadTurnRecvASTFilesAtRef(root, "HEAD")
+		headFiles, err := loadTurnRecvASTFilesAtRefContext(t.Context(), root, "HEAD")
 		if err != nil {
-			t.Fatalf("loadTurnRecvASTFilesAtRef(root, HEAD) failed: %v", err)
+			t.Fatalf("loadTurnRecvASTFilesAtRefContext(root, HEAD) failed: %v", err)
 		}
 		if len(headFiles) == 0 {
 			t.Fatal("expected non-empty files from HEAD")
 		}
 
-		wtFiles, err := loadTurnRecvASTFiles(root)
+		wtFiles, err := loadTurnRecvASTFilesContext(t.Context(), root)
 		if err != nil {
-			t.Fatalf("loadTurnRecvASTFiles(root) failed: %v", err)
+			t.Fatalf("loadTurnRecvASTFilesContext(root) failed: %v", err)
 		}
 		if len(headFiles) != len(wtFiles) {
 			t.Fatalf("HEAD file count (%d) mismatch with working tree (%d)", len(headFiles), len(wtFiles))
@@ -174,9 +244,47 @@ func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
 
 	t.Run("invalid_ref_fails", func(t *testing.T) {
 		t.Parallel()
-		_, err := loadTurnRecvASTFilesAtRef(root, "invalid-ref-contract-test-nonexistent-404")
+		_, err := loadTurnRecvASTFilesAtRefContext(t.Context(), root, "invalid-ref-contract-test-nonexistent-404")
 		if err == nil {
 			t.Fatal("expected error for invalid git ref, got nil")
 		}
 	})
+
+	t.Run("canceled_context_fails", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := loadTurnRecvASTFilesAtRefContext(ctx, root, "HEAD")
+		if err == nil {
+			t.Fatal("expected error on canceled context, got nil")
+		}
+		if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	})
+}
+
+func TestLoadGitCommitFSContext_CancellationAndCacheRecovery(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+
+	// Cancellation test: pre-canceled context must fail immediately
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := loadGitCommitFSContext(ctx, root, "HEAD")
+	if err == nil {
+		t.Fatal("expected error with canceled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	// Cache recovery test: subsequent call with valid context must succeed (not poisoned)
+	fs, err := loadGitCommitFSContext(t.Context(), root, "HEAD")
+	if err != nil {
+		t.Fatalf("subsequent loadGitCommitFSContext failed after cancellation: %v", err)
+	}
+	if len(fs.files) == 0 {
+		t.Fatal("expected non-empty files in loaded gitCommitFS")
+	}
 }
