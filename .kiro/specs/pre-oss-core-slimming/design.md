@@ -153,7 +153,7 @@ pkg/lipsdk/feature/
 ├── plane.go                 # generated binding eligibility contract; standard Plane API retained
 ├── contributions.go         # generated-only contribution path; no arbitrary values maps
 ├── frozen.go                # generated-only frozen storage/replay/clone/request freeze
-├── errors.go                # stable ErrUngeneratedPlane (name may be ErrUnsupportedPlane if repository naming review prefers)
+├── errors.go                # stable ErrUngeneratedPlane
 ├── plane_manifest.go        # unchanged standard declarations unless generator binding metadata requires mechanical output support
 ├── plane_generated.go       # regenerated; remove map fallback helpers
 └── *_test.go                # closed-contract, fail-before-mutate, standard-plane parity
@@ -166,32 +166,72 @@ internal/archtest/
 
 **Implementation directive**: do not hand-edit `plane_generated.go`. Change generator/emitter first, regenerate, then run `-check`.
 
-#### Closed-plane eligibility
+#### Closed-plane eligibility and canonical policy
 
-`ContributeSource` must distinguish a canonical generated binding from an arbitrary `Plane[T]`. The smallest acceptable contract is an unexported binding marker populated only by generated standard declarations/accessors. An unbound `Plane[T]{...}` fails before validation/combine/state mutation.
+`ContributeSource` must distinguish a canonical generated binding from an arbitrary `Plane[T]`. Binding presence/ID alone is not sufficient because `Plane[T]` exposes policy fields such as `Rules`, `NilPolicy`, `Validate`, `Combine`, and `Identity`; a caller can copy a canonical `PlaneX` value and mutate those exported fields while retaining its unexported generated binding. Production composition must therefore use **canonical generated policy metadata** rather than mutable exported fields on the caller's copy.
+
+The smallest acceptable contract is an unexported generated binding that contains both the typed storage accessors and an immutable canonical policy record populated by generation for every standard plane. An unbound `Plane[T]{...}` fails before validation/combine/state mutation. A copied standard plane whose `ID` is changed also fails. A same-ID copy with mutated exported policy fields cannot alter production behavior because the generated policy record is authoritative.
 
 Conceptual shape:
 
 ```go
 var ErrUngeneratedPlane = errors.New("feature: ungenerated plane")
 
+type generatedPolicy[T any] struct {
+    planeID                 string
+    rules                   SourceRules
+    nilPolicy               NilPolicy
+    isNil                   func(T) bool
+    validate                func(T) error
+    validateIdentity        func(string) error
+    combine                 func(SourceKind, T, T) (T, error)
+    identity                func(T) (string, bool)
+    exclusiveConflictError  error
+}
+
 type generatedAccess[T any] struct {
-    // existing typed closures
     contribute func(*generatedContributions, SourceKind, string, T) error
     get        func(*generatedFrozen) T
     identity   func(*generatedFrozen) (string, bool)
-    planeID    string // generated marker; exact stable manifest ID
+    policy     *generatedPolicy[T]
 }
 
 func ContributeSource[T any](s *ContributionSet, p Plane[T], source SourceKind, contributorID string, v T) error {
-    if p.generated.contribute == nil || p.generated.get == nil || p.generated.planeID != p.ID {
+    gp := p.generated.policy
+    if p.generated.contribute == nil || p.generated.get == nil || gp == nil || gp.planeID != p.ID {
         return &AttributedError{PluginID: contributorID, PlaneID: p.ID, Err: ErrUngeneratedPlane}
     }
-    // existing validation/combination semantics follow
+
+    // All production contribution policy below is taken from gp, not from
+    // p.Rules/p.NilPolicy/p.Validate/p.Combine/p.Identity/etc.
+    rule := gp.rules.RuleFor(source)
+    // nil policy -> validation -> identity/conflict -> generated typed contribute
+    return nil
 }
 ```
 
-The exact marker field may be an ordinal/token rather than `planeID` if generator tests show that is simpler, but it must be unexported, generated-only, deterministic, allocation-free, and not based on runtime reflection or a map lookup. The implementation must add adversarial tests for an arbitrary `Plane[T]` and for a copied standard plane whose ID is changed. Ordinary callers should use the exported `PlaneX` declarations unchanged.
+The exact generated representation may use an ordinal/token and generated closures rather than the illustrated struct, but it must satisfy all of these invariants:
+
+1. support eligibility is unexported, generated-only, deterministic, allocation-free, and not based on runtime reflection, mutable registration, a runtime ID map, or pointer identity;
+2. the generated binding's exact canonical plane ID must match `p.ID` before any policy callback or candidate mutation;
+3. all production contribution decisions currently derived from mutable exported `Plane` fields (`Rules`, `NilPolicy`, `IsNil`, `Validate`, `ValidateIdentity`, `Combine`, `Identity`, and conflict policy) come from generated canonical metadata/closures after the binding check;
+4. request materialization/borrowing, frozen validation, diagnostics projection used by runtime, and replay continue to use generated manifest output rather than consulting a caller-mutated `Plane` copy;
+5. exported `PlaneX` declarations remain source-compatible descriptors for ordinary callers; mutating a copied descriptor is not a way to redefine a standard plane.
+
+Adversarial tests must cover: a wholly arbitrary unbound plane; a copied standard plane with a changed ID; and a same-ID copy whose exported rules/nil policy/validator/identity/combiner are deliberately mutated. The same-ID case must prove canonical behavior still wins (or, if implementation chooses a generated integrity token that can deterministically reject the copy without reflection/function comparison, rejection is also acceptable). No mutated copy may influence stored values, identity, source admission, or failure policy.
+
+#### Closed-path completeness
+
+The closed contract is not complete merely when `ContributeSource` rejects an unbound plane. The implementation must explicitly verify all paths named by #554:
+
+- contribution and `ContributionSet.Freeze`;
+- `FrozenPlaneSet.Clone` / `ToContributions` and validation;
+- request freeze/materialization;
+- `FeatureBundle.Validate` (which delegates to the frozen plane set);
+- ordinary replay;
+- candidate replay.
+
+For a valid standard plane these paths operate only on generated typed storage/metadata. No arbitrary-plane value/identity map, reflection clone, type-assertion replay, or fallback lookup survives. Validation/request-freeze tests must prove malformed/unsupported inputs fail before any destination mutation where a destination exists.
 
 `ContributionSet` target shape:
 
@@ -213,6 +253,12 @@ type FrozenPlaneSet struct {
 ```
 
 If a small generated metadata field is required for plugin attribution, use generated typed/ordinal metadata. Do not retain arbitrary-plane value maps.
+
+#### Test-only generated bindings
+
+Several existing SDK tests intentionally use local planes to exercise fallible combiners/source rules independently of the manifest. Once production rejects unbound planes, those tests must not accidentally become tests of `ErrUngeneratedPlane` instead of their intended path.
+
+Extend `BindGeneratedAccessForTest` (or replace it with an equally isolated test-only helper) so it attaches the same generated eligibility/canonical-policy shape used by production without exporting that capability to normal consumers. Migrate at least `TestContribute_FailBeforeMutate_TableDriven`, `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn`, and any other raw-plane test whose purpose is combination/source/identity behavior. Keep separate unbound-plane tests that intentionally verify `ErrUngeneratedPlane`.
 
 ### 2. Tool-call repair feature ownership
 
@@ -450,16 +496,18 @@ sequenceDiagram
     participant P as Plane binding
     participant G as Generated storage
     F->>C: Contribute(PlaneX, value)
-    C->>P: verify generated canonical binding
-    alt ungenerated / mutated ID
+    C->>P: verify generated canonical binding + policy
+    alt ungenerated / changed generated ID
         P-->>C: ErrUngeneratedPlane
         C-->>F: attributed error, no mutation
     else generated standard plane
-        C->>C: existing nil/validation/rule checks
+        C->>C: canonical generated nil/validation/rule/identity checks
         C->>G: generated typed contribute
         G-->>F: success
     end
 ```
+
+A same-ID value-copy mutation of exported `Plane` policy fields follows the generated-standard branch and cannot change the canonical checks.
 
 ### Feature-specific generation composition
 
@@ -501,7 +549,7 @@ The detector remains one process instance; generations only hold the injected in
 | 5.1-5.7 | Dedicated composition adapters | `internal/infra/reasoningcompose`, `secretguardcompose`, `compactioncompose`, runtimebundle |
 | 6.1-6.5 | Candidate/generation/reload parity | featurebundle/runtimebundle/runtime tests |
 | 7.1-7.8 | Architecture ratchets | `internal/archtest`, changesurface, budgets |
-| 8.1-8.5 | External SDK proof/docs | testdata external module or external-style fixture, docs |
+| 8.1-8.5 | External SDK proof/docs | `testdata/external_feature_sdk`, docs |
 | 9.1-9.5 | Performance/security/race | feature SDK benches, secretguard tests, detector race, QA |
 | 10.1-10.5 | Scope boundary/full closure handoff | evidence/inventory/spec closeout |
 
@@ -537,9 +585,10 @@ After:
 ```text
 ContributionSet = generated typed storage + only minimal attribution metadata required by generated path
 FrozenPlaneSet = generated typed frozen storage
+Generated binding = typed access + canonical immutable standard-plane policy metadata
 ```
 
-No arbitrary user-defined plane value survives contribution.
+No arbitrary user-defined plane value survives contribution, and a copied standard plane cannot override canonical runtime policy through its exported descriptor fields.
 
 ### Compaction detector state
 
@@ -549,13 +598,13 @@ The existing bounded per-A-leg detector state moves unchanged in semantic shape.
 
 ### Closed plane
 
-Add one stable sentinel in `pkg/lipsdk/feature`:
+Add the stable sentinel in `pkg/lipsdk/feature`:
 
 ```go
 var ErrUngeneratedPlane = errors.New("feature: ungenerated plane")
 ```
 
-Naming may use `ErrUnsupportedPlane` only if existing project error vocabulary review shows that is more consistent. Tests and docs must use the final one consistently. Error is wrapped in `AttributedError` with contributor + plane ID where available.
+Tests, documentation, and the external fixture use this exact public identifier. It is wrapped in `AttributedError` with contributor + plane ID where available. Existing `AttributedError.Unwrap`/`Is` behavior is sufficient; do not create a second wrapper/error family.
 
 ### Feature composition
 
@@ -570,36 +619,39 @@ No new HTTP/wire error classes.
 
 ### Unit Tests
 
-1. Ungenerated plane contribution is rejected before mutation; standard planes still preserve all combination/nil/identity behaviors.
-2. Generator no longer emits map fallback helpers; `-check` deterministic.
-3. Tool repair engine/finalizer/schema tests pass in feature-local destination unchanged.
-4. Secret engine tests pin single/multi/disabled source behavior and no secret leakage.
-5. Compaction detector full existing suite runs at new package; consumer-port fake tests prove runtime no-op/panic/order behavior.
+1. Ungenerated plane contribution is rejected before mutation; a changed-ID copy is rejected; a same-ID copy with mutated exported policy cannot change canonical generated behavior.
+2. `ContributionSet.Freeze`, request freeze/materialization, `FrozenPlaneSet.Validate`, `FeatureBundle.Validate`, ordinary replay, and candidate replay use generated-only state and preserve fail-before-mutate where applicable.
+3. Generator no longer emits map fallback helpers; `-check` deterministic.
+4. Existing raw-plane combiner/source tests are moved to isolated generated test bindings, while a separate raw unbound plane test remains an `ErrUngeneratedPlane` rejection test.
+5. Tool repair engine/finalizer/schema tests pass in feature-local destination unchanged.
+6. Secret engine tests pin single/multi/disabled source behavior and no secret leakage.
+7. Compaction detector full existing suite runs at new package; consumer-port fake tests prove runtime no-op/panic/order behavior.
 
 ### Integration Tests
 
-6. Standard toolcallrepair factory returns behavior-equivalent bundle without core import.
-7. Secretguard standard config -> frozen guard + matcher services -> runtime execution matches previous fixtures.
-8. Reasoning compression enabled/disabled/missing-capability/candidate rollback tests run through `reasoningcompose` + runtimebundle delegation.
-9. Reload toggle tests for each migrated feature preserve pinned-generation behavior.
-10. Runtime compaction request-open/preview/release order remains exact.
+1. Standard toolcallrepair factory returns behavior-equivalent bundle without core import.
+2. Secretguard standard config -> frozen guard + matcher services -> runtime execution matches previous fixtures.
+3. Reasoning compression enabled/disabled/missing-capability/candidate rollback tests run through `reasoningcompose` + runtimebundle delegation.
+4. Reload toggle tests for each migrated feature preserve pinned-generation behavior.
+5. Runtime compaction request-open/preview/release order remains exact.
 
 ### Architecture / Contract Tests
 
-11. Core/runtimebundle concrete feature imports rejected.
-12. Retired packages rejected.
-13. Dynamic plane fallback reintroduction rejected.
-14. Recursive feature import boundaries for toolrepair/secretguard.
-15. External-style feature module compiles using only public SDK.
-16. Existing-plane disposable changesurface probe yields zero core/runtimebundle edits.
-17. Core line budget is lower and reset to final + 25.
+1. Core/runtimebundle concrete feature imports rejected.
+2. Retired packages rejected.
+3. Dynamic plane fallback reintroduction rejected.
+4. Recursive feature import boundaries for toolrepair/secretguard.
+5. `testdata/external_feature_sdk` compiles using only public SDK, with `replace github.com/matdev83/go-llm-interactive-proxy => ../..` and `GOWORK=off`.
+6. Existing-plane disposable changesurface probe yields zero core/runtimebundle edits.
+7. Core line budget is lower and reset to final + 25.
 
 ### Performance / Concurrency
 
-18. Extension seam allocation benchmark: no alloc regression versus corrected extension-plane baseline.
-19. Tool repair existing benchmarks retained at moved path; this spec does not require speed improvement.
-20. Secret matcher existing benchmark retained at moved path.
-21. Linux `-race` on detector implementation + runtime integration and extension snapshot/runtimebundle scopes where changed.
+1. Extension seam allocation benchmark: no `allocs/op` regression versus the fresh Task 1.1 corrected baseline.
+2. Benchmark evidence is collected in repeated same-host/same-toolchain batches. `B/op` and fixed-cost `ns/op` are compared and recorded; `ns/op` is not converted into a cross-machine release budget because #394 owns latency/load certification.
+3. Tool repair existing benchmarks retained at moved path; this spec does not require speed improvement.
+4. Secret matcher existing benchmark retained at moved path.
+5. Linux `-race` on detector implementation + runtime integration and extension snapshot/runtimebundle scopes where changed.
 
 ## Security Considerations
 
@@ -614,6 +666,7 @@ No new HTTP/wire error classes.
 - Generated plane access remains direct typed dispatch; removing arbitrary fallback simplifies non-generated state and does not add request lookup.
 - Detector interface dispatch adds only a normal interface call at the same existing observation points; no new per-event goroutine, map, lock, or allocation is permitted by design.
 - Dedicated adapters operate at startup/candidate compile, not request hot path.
+- Benchmark comparison must use the exact corrected extension seam selector on the same host/toolchain/environment for baseline and candidate. Allocation-count regression is a blocking structural failure; timing evidence is a local fixed-cost regression signal, not #394 certification.
 - #394 remains the owner of load/latency optimization and HOLD certification.
 
 ## Migration Strategy
@@ -631,7 +684,15 @@ Each wave should remain within the 100-Go-file gate. If a mechanical move approa
 
 ## Residual Debt Contract for Full Closure
 
-Closeout must create a durable inventory for the second spec. It must classify, not implement, at least:
+Closeout must create `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md` as the durable handoff artifact for the second spec. It must contain:
+
+- implementation/merged-main SHA and inventory date;
+- the classification vocabulary used;
+- a table with columns `Responsibility`, `Current owner/package`, `Production consumers`, `Classification`, `Why retained/deferred`, and `Full-closure action`;
+- at least the mandatory rows below;
+- a summary count by classification and an explicit statement that no deferred finding exists only in chat/session history.
+
+Mandatory rows:
 
 - `internal/core/compactioncontinuity` process-owned branch coordination;
 - `conversationview` generic B2BUA projection vs optional steering UX policy;
@@ -640,5 +701,7 @@ Closeout must create a durable inventory for the second spec. It must classify, 
 - remaining feature-specific `pkg/lipruntime` host options/adapters;
 - dedicated `internal/infra/*compose` adapters and whether measured duplication justifies a common **private** mechanism;
 - any other core package discovered by architecture scan whose primary reason for existence is an optional UX enhancement.
+
+A small `tools/kiro/speccheck` contract test should accept both the active and archived spec path and fail if the artifact is missing, lacks required headings/columns, or omits a mandatory row. This check makes the handoff objective without turning runtime architecture code into a spec parser.
 
 The full-closure spec must not reopen the closed-plane, three package moves, or runtimebundle import ratchets unless a verified defect requires correction.
