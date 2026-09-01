@@ -118,7 +118,7 @@ func TestRunner_DrainOrderInvariant(t *testing.T) {
 	// as the child process exited, populating cmd.ProcessState before drains were released.
 	helper := buildHelper(t)
 	cmd := exec.Command(helper, "-mode=success")
-	adapter, err := newProcessAdapter(cmd)
+	adapter, err := newProcessAdapter(cmd, false)
 	if err != nil {
 		t.Fatalf("newProcessAdapter: %v", err)
 	}

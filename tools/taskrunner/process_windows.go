@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,9 +23,26 @@ type windowsProcess struct {
 	closed   bool
 	killOnce sync.Once
 	killErr  error
+	token    windows.Token
 }
 
-func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
+type jobObjectBasicAccountingInformation struct {
+	TotalUserTime             int64
+	TotalKernelTime           int64
+	ThisPeriodTotalUserTime   int64
+	ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount       uint32
+	TotalProcesses            uint32
+	ActiveProcesses           uint32
+	TotalTerminatedProcesses  uint32
+}
+
+type jobObjectBasicAndIOAccountingInformation struct {
+	BasicInfo jobObjectBasicAccountingInformation
+	IOInfo    windows.IO_COUNTERS
+}
+
+func newPlatformProcessAdapter(cmd *exec.Cmd, restrictAdmin bool) (processAdapter, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create job object: %w", err)
@@ -34,10 +53,26 @@ func newPlatformProcessAdapter(cmd *exec.Cmd) (processAdapter, error) {
 		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("configure job object: %w", err)
 	}
-	return &windowsProcess{cmd: cmd, job: job}, nil
+	p := &windowsProcess{cmd: cmd, job: job}
+	if restrictAdmin {
+		token, err := newRestrictedProcessToken()
+		if err != nil {
+			_ = windows.CloseHandle(job)
+			return nil, fmt.Errorf("create restricted process token: %w", err)
+		}
+		p.token = token
+		cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
+	}
+	return p, nil
 }
 
 func (p *windowsProcess) start() error {
+	if p.token != 0 {
+		defer func() {
+			_ = p.token.Close()
+			p.token = 0
+		}()
+	}
 	if err := p.cmd.Start(); err != nil {
 		return err
 	}
@@ -90,12 +125,50 @@ func (p *windowsProcess) kill() error {
 	return p.killErr
 }
 
+func (p *windowsProcess) accounting() (ProcessAccounting, error) {
+	if !p.assigned {
+		return ProcessAccounting{Supported: true}, errors.New("process not assigned to job object")
+	}
+	var info jobObjectBasicAndIOAccountingInformation
+	if err := windows.QueryInformationJobObject(
+		p.job,
+		windows.JobObjectBasicAndIoAccountingInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+		nil,
+	); err != nil {
+		return ProcessAccounting{Supported: true}, fmt.Errorf("query job object accounting: %w", err)
+	}
+	userNanos := info.BasicInfo.TotalUserTime * 100
+	kernelNanos := info.BasicInfo.TotalKernelTime * 100
+	return ProcessAccounting{
+		Supported:           true,
+		UserCPUNanos:        userNanos,
+		KernelCPUNanos:      kernelNanos,
+		TotalCPUNanos:       userNanos + kernelNanos,
+		TotalProcesses:      info.BasicInfo.TotalProcesses,
+		ActiveProcesses:     info.BasicInfo.ActiveProcesses,
+		TerminatedProcesses: info.BasicInfo.TotalTerminatedProcesses,
+		PageFaults:          info.BasicInfo.TotalPageFaultCount,
+		ReadOperations:      info.IOInfo.ReadOperationCount,
+		WriteOperations:     info.IOInfo.WriteOperationCount,
+		OtherOperations:     info.IOInfo.OtherOperationCount,
+		ReadBytes:           info.IOInfo.ReadTransferCount,
+		WriteBytes:          info.IOInfo.WriteTransferCount,
+		OtherBytes:          info.IOInfo.OtherTransferCount,
+	}, nil
+}
+
 func (p *windowsProcess) close() error {
 	if p.closed {
 		return nil
 	}
 	p.closed = true
 	var err error
+	if p.token != 0 {
+		err = p.token.Close()
+		p.token = 0
+	}
 	if p.process != 0 {
 		err = windows.CloseHandle(p.process)
 	}
@@ -106,3 +179,93 @@ func (p *windowsProcess) close() error {
 }
 
 const stillActive = 259
+
+var createRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
+
+const luaToken = 0x4
+
+func newRestrictedProcessToken() (windows.Token, error) {
+	var current windows.Token
+	if err := windows.OpenProcessToken(
+		windows.CurrentProcess(),
+		windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY|windows.TOKEN_ADJUST_DEFAULT,
+		&current,
+	); err != nil {
+		return 0, err
+	}
+	defer func() { _ = current.Close() }()
+	var token windows.Token
+	ok, _, callErr := createRestrictedToken.Call(
+		uintptr(current),
+		luaToken,
+		0,
+		0,
+		0, 0,
+		0, 0,
+		uintptr(unsafe.Pointer(&token)),
+	)
+	if ok == 0 {
+		return 0, callErr
+	}
+	if err := setRestrictedTokenDefaultDACL(token, current); err != nil {
+		_ = token.Close()
+		return 0, fmt.Errorf("set restricted token default DACL: %w", err)
+	}
+	return token, nil
+}
+
+type tokenDefaultDACL struct {
+	DefaultDACL *windows.ACL
+}
+
+func setRestrictedTokenDefaultDACL(token, current windows.Token) error {
+	user, err := current.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	restrictedSID, err := windows.CreateWellKnownSid(windows.WinRestrictedCodeSid)
+	if err != nil {
+		return err
+	}
+	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		return err
+	}
+
+	var pins runtime.Pinner
+	pins.Pin(user.User.Sid)
+	pins.Pin(restrictedSID)
+	pins.Pin(systemSID)
+	defer pins.Unpin()
+	entries := []windows.EXPLICIT_ACCESS{
+		fullAccessForSID(user.User.Sid, windows.TRUSTEE_IS_USER),
+		fullAccessForSID(restrictedSID, windows.TRUSTEE_IS_WELL_KNOWN_GROUP),
+		fullAccessForSID(systemSID, windows.TRUSTEE_IS_WELL_KNOWN_GROUP),
+	}
+	acl, err := windows.ACLFromEntries(entries, nil)
+	if err != nil {
+		return err
+	}
+	info := tokenDefaultDACL{DefaultDACL: acl}
+	err = windows.SetTokenInformation(
+		token,
+		windows.TokenDefaultDacl,
+		(*byte)(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	runtime.KeepAlive(acl)
+	return err
+}
+
+func fullAccessForSID(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE) windows.EXPLICIT_ACCESS {
+	return windows.EXPLICIT_ACCESS{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.GRANT_ACCESS,
+		Inheritance:       windows.NO_INHERITANCE,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  trusteeType,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
+}

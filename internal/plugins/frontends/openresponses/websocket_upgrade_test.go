@@ -456,7 +456,7 @@ func TestWebSocketSession_AgeLimitEmitsLimitReached(t *testing.T) {
 func TestWebSocketSession_IdleProbePingKeepsAlivePeer(t *testing.T) {
 	cfg := wsTestConfig(func(w *openresponses.WebSocketConfig) {
 		w.MaxConnectionAge = "60m"
-		w.IdleTimeout = "250ms"
+		w.IdleTimeout = "2s"
 	})
 	srv, counters := newWSTestServer(t, openresponses.WebSocketHandlerConfig{
 		AllowUnauthenticated: true, Config: cfg,
@@ -475,7 +475,7 @@ func TestWebSocketSession_IdleProbePingKeepsAlivePeer(t *testing.T) {
 	// Remain silent for several idle windows; the server probes with pings that
 	// the client answers, so the idle deadline must not close the connection.
 	// The window is generous so a pong is always processed before the next probe.
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break

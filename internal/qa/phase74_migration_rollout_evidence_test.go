@@ -47,6 +47,14 @@ var (
 func getLipstdBinary(tb testing.TB, root string) string {
 	tb.Helper()
 	lipstdBinOnce.Do(func() {
+		if prebuilt := os.Getenv("LIP_QA_LIPSTD_BINARY"); prebuilt != "" {
+			if _, err := os.Stat(prebuilt); err != nil {
+				lipstdBinErr = fmt.Errorf("stat prebuilt lipstd: %w", err)
+				return
+			}
+			lipstdBinPath = prebuilt
+			return
+		}
 		dir, err := os.MkdirTemp("", "lipstd-qa-bin-")
 		if err != nil {
 			lipstdBinErr = err
