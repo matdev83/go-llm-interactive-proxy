@@ -142,7 +142,7 @@ The requirements below are intentionally frozen for implementation by instructio
 
 1. This feature shall add **no new protobuf invocation field and no new backend-plugin protocol minor solely for the generated value**.
 2. Executable backends shall receive the already-derived opaque value through the existing negotiated `prompt_cache_key` semantic-extension/legacy carrier; raw `AuthoritativeSessionID` shall still be scrubbed before ordinary backend `Open` execution.
-3. A new optional backend-plugin feature flag `downstream_cache_affinity_v1` may be added at the existing semantic-extension minimum minor (minor 6) to advertise that a connector can consume the existing prompt-cache semantic as downstream affinity; the feature shall not add DTOs.
+3. A new optional backend-plugin feature flag `downstream_cache_affinity_v1` shall be added at the existing semantic-extension minimum minor (minor 6) to advertise that a connector can consume the existing prompt-cache semantic as downstream affinity; the feature shall not add DTOs. Individual connectors advertise it only when they implement that contract.
 4. A host shall synthesize for an executable connector only when that feature is successfully negotiated.
 5. An old peer, a peer lacking the feature, or a connector that does not advertise it shall continue ordinary inference with no proxy-generated fallback.
 6. `SafeMetadata` shall not be treated as proxy session authority and shall not carry raw session authority for this feature.
