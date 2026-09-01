@@ -6,20 +6,22 @@
 - [ ] 1.1 Capture the exact post-extension-correction baseline
   - Record the implementation base SHA, current standard plane count/IDs, generated-output check result, current `internal/core` non-test line count, current `internal/infra/runtimebundle` tree line count, and current direct-import census for `internal/plugins/features/*` from core/runtimebundle/standardplugins.
   - Record current package/file inventories for `internal/core/toolcallrepair`, `internal/core/secretguard`, `internal/core/compactiondetect`, `internal/plugins/features/toolcallrepair`, and `internal/plugins/features/secretguard` so mechanical moves cannot silently omit production or tests.
-  - Run the existing extension-plane seam benchmarks once and retain raw `ns/op`, `B/op`, `allocs/op` as this spec's performance baseline; do not reuse the older Wave-0 numbers when a newer corrected baseline exists.
-  - Done means the implementation agent has one durable baseline table/file in test/evidence scope and can name every production/test path to be moved or retained before editing implementation.
+  - Capture the fresh extension-plane seam baseline on one named measurement host using the exact command `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Record OS, CPU, Go version, `GOMAXPROCS`, power/performance mode if known, command, base SHA, and the unedited raw output. Do not reuse the older Wave-0 numbers when a newer corrected baseline exists.
+  - Keep the same host/toolchain/environment available for Task 8.2. If that is impossible, Task 8.2 must recapture both baseline and candidate on one replacement host; never compare fixed-cost `ns/op` across different machines/toolchains.
+  - Done means the implementation agent has one durable baseline table/file in normal implementation evidence scope and can name every production/test path to be moved or retained before editing implementation.
   - _Requirements: 6.1, 7.5, 9.1, 9.2, 10.5_
   - _Boundary: Verification / architecture baseline_
-  - _Validation: go run ./scripts/generate-feature-planes.go -check; make arch-report; targeted extension benchmarks_
+  - _Validation: `go run ./scripts/generate-feature-planes.go -check`; `make arch-report`; exact 10-sample benchmark command above_
 
-- [ ] 1.2 (P) Characterize ungenerated-plane fallback behavior and mutation boundaries
-  - Add tests using a test-local arbitrary `Plane[[]T]` that currently enters fallback storage; cover contribute, Get, Freeze, Clone, ToContributions, ordinary replay, candidate replay, explicit-empty slice, and fail-before-mutate behavior.
-  - Add an adversarial case made by copying a canonical standard plane and changing its ID; the final contract must reject it rather than writing the canonical generated field under a false ID.
-  - Keep standard generated planes as positive controls, including ordered, scalar reduce, exclusive identity, typed-nil, and request-materialized examples.
-  - Done means tests precisely distinguish the compatibility behavior intentionally removed by Requirement 1 from standard-plane semantics that must survive.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7_
+- [ ] 1.2 (P) Characterize closed-plane compatibility and mutation boundaries
+  - Add tests using a test-local arbitrary unbound `Plane[[]T]` that currently enters fallback storage; characterize contribute, Get, Freeze, Clone, ToContributions, request freeze/materialization, `FrozenPlaneSet.Validate`, `FeatureBundle.Validate`, ordinary replay, candidate replay, explicit-empty slice, and fail-before-mutate behavior before changing the contract.
+  - Add adversarial copies of a canonical standard plane: one with its ID changed and one retaining the same ID while deliberately changing exported policy fields such as source rules, nil policy, validator, identity extractor and combiner. The final contract must reject the changed-ID copy and must not let the same-ID copy alter canonical generated behavior.
+  - Inventory every existing raw local plane used by SDK tests to exercise combiner/source/identity behavior, including `TestContribute_FailBeforeMutate_TableDriven` and `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn`; mark those tests for generated test binding rather than unbound rejection.
+  - Keep standard generated planes as positive controls, including ordered, scalar reduce, exclusive identity, typed-nil, request-materialized, request-borrowed, and diagnostics examples where applicable.
+  - Done means tests precisely distinguish the compatibility behavior intentionally removed by Requirement 1 from canonical standard-plane semantics that must survive.
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7_
   - _Boundary: Public Feature SDK_
-  - _Validation: go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
 - [ ] 1.3 (P) Characterize tool-call-repair ownership and behavior before move
   - Run/capture the complete current `internal/core/toolcallrepair` test/fuzz/benchmark inventory and standard feature factory tests; identify all non-test imports of the core package.
@@ -28,7 +30,7 @@
   - Done means the old implementation location is a replaceable oracle and no behavior depends on package path identity.
   - _Requirements: 2.1, 2.2, 2.5, 2.6_
   - _Boundary: Tool-call Repair Feature_
-  - _Validation: go test -count=1 ./internal/core/toolcallrepair ./internal/plugins/features/toolcallrepair ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'_
+  - _Validation: `go test -count=1 ./internal/core/toolcallrepair ./internal/plugins/features/toolcallrepair ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
 - [ ] 1.4 (P) Characterize secret-guard source, matcher, audit, and security invariants
   - Pin single-user catalog discovery, include/exclude behavior, known-prefix behavior, min-secret length, matcher options, entry/category inventory, and matcher resolver results.
@@ -37,7 +39,7 @@
   - Done means package relocation or access-mode type translation cannot weaken a security invariant without a focused RED failure.
   - _Requirements: 3.1, 3.2, 3.3, 3.6, 3.7, 6.2, 9.3_
   - _Boundary: Secret Guard Feature / Composition_
-  - _Validation: go test -count=1 ./internal/core/secretguard ./internal/plugins/features/secretguard ./internal/infra/runtimebundle -run 'Secret|secret|Matcher|Catalog'_
+  - _Validation: `go test -count=1 ./internal/core/secretguard ./internal/plugins/features/secretguard ./internal/infra/runtimebundle -run 'Secret|secret|Matcher|Catalog'`_
 
 - [ ] 1.5 (P) Characterize compaction detector port semantics and lifetime
   - Enumerate the exact detector methods called by core runtime (`RequestOpened`, `PreviewResponse`, `ResponseReleased`) and assert that inputs/outputs can be represented with existing `lipapi` and `pkg/lipsdk/compaction` contracts.
@@ -46,51 +48,57 @@
   - Done means dependency inversion can be mechanical and `ProcessServices` remains the single lifetime owner.
   - _Requirements: 4.1, 4.2, 4.4, 4.5, 6.3, 9.4_
   - _Boundary: Core Runtime Detector Port / Process Ownership_
-  - _Validation: go test -count=1 ./internal/core/compactiondetect ./internal/core/runtime -run 'Compaction|compaction'_
+  - _Validation: `go test -count=1 ./internal/core/compactiondetect ./internal/core/runtime -run 'Compaction|compaction'`_
 
-- [ ] 2. Close issue #554 on generated standard planes only
-- [ ] 2.1 Add the stable unsupported-plane error and generated binding marker
-  - Add one errors.Is-compatible SDK sentinel for a plane lacking a canonical generated binding; use the final repository-consistent name everywhere (`ErrUngeneratedPlane` is the design default).
-  - Extend the generated access binding with a deterministic unexported manifest marker (ID/ordinal/token) sufficient to reject a wholly arbitrary `Plane[T]` and a copied standard plane whose ID is changed.
-  - Validate the marker before nil policy, validation, combine, identity extraction, or any candidate mutation.
-  - Do not use reflection, a runtime map of plane IDs, pointer identity, `init()`, or mutable registration to decide support.
-  - Done means the RED tests from 1.2 fail closed with contributor/plane attribution and standard generated planes still pass.
+- [ ] 2. Implement the selected #554 contract on generated standard planes only
+- [ ] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
+  - Add exactly one errors.Is-compatible public SDK sentinel named `ErrUngeneratedPlane`. Use this identifier in production, tests, docs and the external fixture; do not add an alias/second unsupported-plane sentinel.
+  - Extend the generated access binding with deterministic unexported canonical metadata/closures sufficient both to prove the plane is generated and to make production policy authoritative: exact manifest ID plus the source rules, nil handling, validation, identity/conflict and combination behavior currently read from exported `Plane[T]` fields.
+  - Validate generated eligibility and exact canonical ID **before** `ValidateDeclaration`, nil policy, source-rule selection, validator, combine, identity extraction, or candidate mutation. After that check, production contribution policy must be read from generated canonical metadata/closures rather than caller-mutable exported fields on `p`.
+  - A wholly arbitrary unbound plane and a changed-ID copy must return attributed `ErrUngeneratedPlane`. A same-ID copy with mutated exported policy must either execute the unchanged canonical generated policy or be deterministically rejected by a generated integrity mechanism; it must never redefine the plane.
+  - Do not use reflection, a runtime map of plane IDs, function-pointer comparison, pointer identity, `init()`, mutable registration, or a service registry to decide support/integrity.
+  - Extend `BindGeneratedAccessForTest` or add an equivalent `_test.go`-only helper so behavior-oriented local test planes can attach isolated canonical generated policy/storage without exposing dynamic binding to external production callers.
+  - Done means the RED tests from 1.2 fail/behave exactly as selected and standard generated planes still pass all current declaration/contribution semantics.
   - _Depends: 1.2_
   - _Requirements: 1.1, 1.2, 1.6, 1.7_
   - _Boundary: Public Feature SDK / Generated Binding_
-  - _Validation: go test -count=1 ./pkg/lipsdk/feature_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/feature`_
 
-- [ ] 2.2 Remove arbitrary value/identity storage from `ContributionSet`
+- [ ] 2.2 Remove arbitrary value/identity storage from `ContributionSet` and migrate behavior tests
   - Delete `values map[string]any` and arbitrary-plane identity fallback from production contribution state; retain only generated typed storage and metadata demonstrably required by generated attribution/diagnostics.
   - Delete reflection-based arbitrary value clone/combine logic from the production contribution path; do not replace it with another erased container.
-  - Preserve fail-before-mutate by continuing staged/generated clone semantics for every standard combination rule.
-  - Preserve explicit-empty vs nil semantics through generated typed storage tests.
-  - Done means no valid public contribution can enter an erased value store and all standard-plane contribution tests remain green.
+  - Rework `ContributeSource` so standard-plane source rules, nil policy, validation, identity/conflict handling and combination are driven by the generated canonical policy from 2.1. Do not fall back to mutable exported descriptor policy after eligibility succeeds.
+  - Preserve fail-before-mutate by continuing staged/generated clone semantics for every standard combination rule and preserve explicit-empty vs nil semantics through generated typed storage tests.
+  - Migrate `TestContribute_FailBeforeMutate_TableDriven`, `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn`, and every other raw-plane test whose purpose is combiner/source/identity behavior to `BindGeneratedAccessForTest` or the equivalent generated test fixture. Retain separate tests whose purpose is specifically to prove unbound `ErrUngeneratedPlane` rejection.
+  - Done means no valid public contribution can enter erased value storage, no same-ID copied descriptor can change canonical policy, and all intended standard/test-fixture contribution paths remain covered.
   - _Depends: 2.1_
-  - _Requirements: 1.1, 1.2, 1.4, 1.5_
-  - _Boundary: Public Feature SDK / Candidate State_
-  - _Validation: go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle_
+  - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.7_
+  - _Boundary: Public Feature SDK / Candidate State / Test Fixtures_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
-- [ ] 2.3 Remove arbitrary fallback from `FrozenPlaneSet` and generated output
+- [ ] 2.3 Remove arbitrary fallback from freeze, validation and replay paths
   - Delete arbitrary values/identity maps and map-backed Get/Clone/ToContributions/Validate/Replay/CandidateReplay branches from `FrozenPlaneSet`.
   - Modify the plane generator/emitter to stop generating map replay/validation/candidate helper functions; regenerate `plane_generated.go` instead of editing it.
   - Ensure ordinary `Get` on an ungenerated plane returns its zero value because no valid set can contain such a value; it must not search dynamic storage.
-  - Keep generated request freeze, identity, binder, diagnostics, hook projection, and all-plane replay behavior unchanged.
-  - Done means generated code contains no dynamic plane fallback and `-check` is deterministic.
+  - Explicitly test the complete #554 surface: `ContributionSet.Freeze`, `FrozenPlaneSet.Clone`, `ToContributions`, request freeze/materialization, `FrozenPlaneSet.Validate`, `FeatureBundle.Validate`, ordinary replay, and candidate replay. Each valid path uses generated typed state/metadata only; no map/reflection fallback survives. Preserve fail-before-mutate for replay/destination mutation and prove failed bundle/frozen validation cannot partially mutate a destination/candidate.
+  - Keep generated request freeze/materializers, borrowing, identity, binder, diagnostics, hook projection, and all-plane replay behavior unchanged; generated runtime projections must not consult caller-mutated `Plane` descriptor fields.
+  - Done means generated code contains no dynamic plane fallback, all #554 freeze/validation/replay paths are directly covered, and `-check` is deterministic.
   - _Depends: 2.2_
-  - _Requirements: 1.1, 1.3, 1.4, 1.5, 9.1_
-  - _Boundary: Public Feature SDK / Generator_
-  - _Validation: go run ./scripts/generate-feature-planes.go && go run ./scripts/generate-feature-planes.go -check && go test -count=1 ./pkg/lipsdk/feature ./internal/archtest_
+  - _Requirements: 1.1, 1.3, 1.4, 1.5, 1.6, 9.1_
+  - _Boundary: Public Feature SDK / Generator / Bundle Validation_
+  - _Validation: `go run ./scripts/generate-feature-planes.go && go run ./scripts/generate-feature-planes.go -check && go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
 - [ ] 2.4 Tighten closed-plane architecture and public-contract tests
-  - Add architecture checks that reject reintroduction of arbitrary plane `map[string]any`/reflection replay storage while allowing unrelated legitimate maps/reflection outside this contract.
+  - Add architecture checks that reject reintroduction of arbitrary plane `map[string]any`/reflection contribution, freeze, request-freeze, validation or replay storage while allowing unrelated legitimate maps/reflection outside this contract.
   - Convert disposable dynamic-plane tests that were only scaffolding for consolidation into declaration-validation or generated-fixture tests; do not weaken real standard-plane coverage.
-  - Add external-package tests using `errors.Is(err, ErrUngeneratedPlane)` and confirm the `FeatureBundle` schema version/standard plane IDs did not change.
-  - Done means #554's selected policy is executable and cannot silently regress.
+  - Add external-package tests using `errors.Is(err, feature.ErrUngeneratedPlane)` and confirm the `FeatureBundle` schema version/standard plane IDs did not change.
+  - Add explicit adversarial regression coverage for changed-ID and same-ID-mutated copies so future refactors cannot restore descriptor-field authority accidentally.
+  - Keep issue #554 open at this checkpoint: this task implements its SDK policy, but issue closure is owned by Task 8.4 after full production/release verification.
+  - Done means #554's selected policy is executable across every acceptance path and cannot silently regress.
   - _Depends: 2.3_
-  - _Requirements: 1.2, 1.6, 1.7, 7.4, 8.3_
+  - _Requirements: 1.1, 1.2, 1.5, 1.6, 1.7, 7.4, 8.3_
   - _Boundary: SDK Contract / Architecture Gates_
-  - _Validation: go test -count=1 ./pkg/lipsdk/feature ./internal/archtest_
+  - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
 - [ ] 3. Move tool-call repair implementation into the feature
 - [ ] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
@@ -102,7 +110,7 @@
   - _Depends: 1.3, 2.4_
   - _Requirements: 2.1, 2.4, 2.6_
   - _Boundary: Tool-call Repair Feature_
-  - _Validation: go test -count=1 ./internal/plugins/features/toolcallrepair/...; targeted fuzz/bench smoke_
+  - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/...`; targeted fuzz/bench smoke_
 
 - [ ] 3.2 Make the feature root construct its complete bundle
   - Add `toolcallrepair.FeatureBundle(cfg)` (or the repository-consistent equivalent) that translates YAML-decoded feature config into the feature-local finalizer policy and contributes both `PlaneToolCallFinalizers` and `PlaneToolCallFinalizationMaxArgsBytes`.
@@ -112,7 +120,7 @@
   - _Depends: 3.1_
   - _Requirements: 2.1, 2.2, 2.5_
   - _Boundary: Tool-call Repair Feature / Standard Distribution_
-  - _Validation: go test -count=1 ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'_
+  - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
 - [ ] 3.3 Delete the old core package and ratchet its absence
   - Delete `internal/core/toolcallrepair` only after all production/test imports have migrated.
@@ -122,7 +130,7 @@
   - _Depends: 3.2_
   - _Requirements: 2.3, 2.4, 7.1, 7.3_
   - _Boundary: Architecture Ownership_
-  - _Validation: go test -count=1 ./internal/archtest ./internal/core/runtime ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins_
+  - _Validation: `go test -count=1 ./internal/archtest ./internal/core/runtime ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins`_
 
 - [ ] 4. Move secret-guard matching/source implementation into the feature
 - [ ] 4.1 Introduce feature-local source/matcher engine contracts without core imports
@@ -134,7 +142,7 @@
   - _Depends: 1.4, 2.4_
   - _Requirements: 3.1, 3.2, 3.3, 3.5, 3.7_
   - _Boundary: Secret Guard Feature Engine_
-  - _Validation: go test -count=1 ./internal/plugins/features/secretguard/..._
+  - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/...`_
 
 - [ ] 4.2 Create explicit `internal/infra/secretguardcompose` assembly
   - Move feature-specific runtime composition out of `runtimebundle/secret_guard_runtime.go` into a dedicated typed adapter.
@@ -146,7 +154,7 @@
   - _Depends: 4.1_
   - _Requirements: 3.1, 3.2, 3.3, 3.6, 3.7, 5.1, 5.4, 5.6_
   - _Boundary: Secret Guard Composition Adapter_
-  - _Validation: go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... -run 'Secret|secret|Matcher|Catalog'_
+  - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... -run 'Secret|secret|Matcher|Catalog'`_
 
 - [ ] 4.3 Delete the old core package and preserve security ratchets
   - Delete `internal/core/secretguard` after production options/tests have migrated to adapter/feature-owned types.
@@ -156,7 +164,7 @@
   - _Depends: 4.2_
   - _Requirements: 3.2, 3.3, 3.4, 3.5, 3.6, 7.1, 7.3, 9.3_
   - _Boundary: Secret Guard Ownership / Security_
-  - _Validation: go test -count=1 ./internal/plugins/features/secretguard/... ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/core/runtime ./internal/archtest_
+  - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/... ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/core/runtime ./internal/archtest`_
 
 - [ ] 5. Invert and relocate the concrete compaction detector
 - [ ] 5.1 Define the smallest core runtime consumer port
@@ -168,7 +176,7 @@
   - _Depends: 1.5, 2.4_
   - _Requirements: 4.1, 4.2, 4.3, 4.5, 6.3_
   - _Boundary: Core Runtime Consumer Port_
-  - _Validation: go test -count=1 ./internal/core/runtime -run 'Compaction|compaction'_
+  - _Validation: `go test -count=1 ./internal/core/runtime -run 'Compaction|compaction'`_
 
 - [ ] 5.2 Move detector implementation to `internal/infra/compactiondetect`
   - Move detector state, heuristic/rule recognition, fingerprint/content-free helpers, preview logic, and tests/benchmarks from `internal/core/compactiondetect` to the infra implementation package.
@@ -178,7 +186,7 @@
   - _Depends: 5.1_
   - _Requirements: 4.1, 4.4, 4.7, 9.4_
   - _Boundary: Compaction Detector Implementation_
-  - _Validation: go test -count=1 ./internal/infra/compactiondetect ./internal/core/runtime_
+  - _Validation: `go test -count=1 ./internal/infra/compactiondetect ./internal/core/runtime`_
 
 - [ ] 5.3 Preserve process ownership and delete the old detector package
   - Update `runtimebundle` process-service construction to instantiate the new infra detector and store it through the runtime consumer interface; retain one process-owned instance shared by generations.
@@ -189,7 +197,7 @@
   - _Depends: 5.2_
   - _Requirements: 4.3, 4.4, 4.5, 4.6, 7.3, 9.4_
   - _Boundary: ProcessServices / Architecture Ownership_
-  - _Validation: go test -count=1 ./internal/infra/runtimebundle ./internal/core/runtime ./internal/infra/compactiondetect ./internal/archtest; Linux go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/infra/runtimebundle_
+  - _Validation: `go test -count=1 ./internal/infra/runtimebundle ./internal/core/runtime ./internal/infra/compactiondetect ./internal/archtest`; Linux: `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/infra/runtimebundle`_
 
 - [ ] 6. Remove direct concrete-feature knowledge from generic runtimebundle
 - [ ] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
@@ -201,7 +209,7 @@
   - _Depends: 2.4_
   - _Requirements: 5.1, 5.2, 5.3, 5.6, 5.7, 6.2_
   - _Boundary: Reasoning Composition Adapter_
-  - _Validation: go test -count=1 ./internal/infra/reasoningcompose ./internal/infra/runtimebundle ./internal/plugins/features/reasoningpreservation ./pkg/lipruntime -run 'Reasoning|reasoning|Compression|compression'_
+  - _Validation: `go test -count=1 ./internal/infra/reasoningcompose ./internal/infra/runtimebundle ./internal/plugins/features/reasoningpreservation ./pkg/lipruntime -run 'Reasoning|reasoning|Compression|compression'`_
 
 - [ ] 6.2 Converge runtimebundle secret-guard delegation onto `secretguardcompose`
   - Remove any residual feature/config/engine-specific helper from `runtimebundle` after Task 4.2; retain only extraction of effective config/access mode/host options/frozen planes and one adapter call.
@@ -211,7 +219,7 @@
   - _Depends: 4.2_
   - _Requirements: 5.1, 5.2, 5.4, 5.6, 6.1, 6.2_
   - _Boundary: Generic Runtime Composition_
-  - _Validation: go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle_
+  - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle`_
 
 - [ ] 6.3 Ratchet runtimebundle to zero concrete-feature imports
   - Add a permanent architecture rule scanning production `internal/infra/runtimebundle` imports and failing on `internal/plugins/features/*`.
@@ -221,7 +229,7 @@
   - _Depends: 6.1, 6.2_
   - _Requirements: 5.2, 5.5, 5.7, 7.2, 7.8_
   - _Boundary: Architecture Gates / Runtime Composition_
-  - _Validation: go test -count=1 ./internal/archtest ./internal/infra/runtimebundle_
+  - _Validation: `go test -count=1 ./internal/archtest ./internal/infra/runtimebundle`_
 
 - [ ] 7. Certify OSS authoring and permanent simplification ratchets
 - [ ] 7.1 Add recursive core/feature ownership architecture rules
@@ -232,7 +240,7 @@
   - _Depends: 3.3, 4.3, 5.3, 6.3_
   - _Requirements: 7.1, 7.2, 7.3, 7.7, 7.8_
   - _Boundary: Architecture Gates_
-  - _Validation: go test -count=1 ./internal/archtest_
+  - _Validation: `go test -count=1 ./internal/archtest`_
 
 - [ ] 7.2 Reset core/runtimebundle budgets downward and prove change-surface ROI
   - Re-measure final non-test `internal/core` and `internal/infra/runtimebundle` trees after migrations.
@@ -242,72 +250,82 @@
   - _Depends: 7.1_
   - _Requirements: 7.5, 7.6, 9.1, 10.5_
   - _Boundary: Architecture Budgets / ROI Evidence_
-  - _Validation: make arch-report; go test -count=1 ./internal/archtest/tools/changesurface/... ./internal/archtest_
+  - _Validation: `make arch-report`; `go test -count=1 ./internal/archtest/tools/changesurface/... ./internal/archtest`_
 
-- [ ] 7.3 Add an external-style OSS feature SDK fixture
-  - Add a separate module under the repository's established `testdata` external-module pattern (or extend the existing external-module fixture if it is already the canonical location) that imports only exported `pkg/lipsdk`/`pkg/lipapi` contracts from the root module.
-  - Implement a tiny feature using one ordered standard plane through `NewContributionSet` -> `Contribute` -> `Freeze` -> `BundleFromPlanes`, and test the resulting bundle/plane value.
-  - In the same external consumer, construct an arbitrary ungenerated plane and assert contribution fails with `errors.Is(..., ErrUngeneratedPlane)`; do not import `internal` packages to prove it.
-  - Wire the fixture into an existing contract/quality gate appropriate for external public source compatibility; do not add a slow independent CI matrix if a current fixture runner exists.
-  - Done means the OSS feature contract is executable outside repository internals.
+- [ ] 7.3 Add a fixed external-style OSS feature SDK fixture
+  - Create the separate module at exactly `testdata/external_feature_sdk` using the established local-checkout module pattern: `require github.com/matdev83/go-llm-interactive-proxy v0.0.0` plus `replace github.com/matdev83/go-llm-interactive-proxy => ../..`. Do not rely on the workspace or a published module version.
+  - The module may import only exported `pkg/lipsdk`/`pkg/lipapi` contracts from the root module plus standard library. Add an architecture/import test preventing repository `internal` imports.
+  - Implement a tiny feature using one ordered standard plane through `NewContributionSet` -> `Contribute` -> `Freeze` -> `BundleFromPlanes`, and test the resulting bundle/plane value and ordinary public replay/read behavior.
+  - In the same external consumer, construct an arbitrary ungenerated plane and assert contribution fails with `errors.Is(err, feature.ErrUngeneratedPlane)`; do not import test-only binding helpers or `internal` packages.
+  - Add `testdata/external_feature_sdk` to the established nested-module QA/tidy loop alongside `testdata/enterprise_module` and `testdata/external_connector`, including the repository contract test that locks that module list. Do not add a separate slow CI matrix.
+  - Done means the OSS feature contract is executable outside repository internals and QA cannot silently stop checking the module.
   - _Depends: 2.4_
   - _Requirements: 8.1, 8.2, 8.3_
   - _Boundary: Public SDK / External Consumer TCK_
-  - _Validation: GOWORK=off go test ./... from the external fixture; make quality-checks_
+  - _Validation: `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`; `go test -count=1 ./internal/archtest ./internal/qa`_
 
 - [ ] 7.4 Reconcile feature authoring and architecture documentation
   - Update `pkg/lipsdk/feature` godoc, `docs/extension-platform-authoring.md`, `docs/plugin-authoring.md`, `internal/plugins/features/README.md`, architecture/steering package maps, and any direct references affected by moved packages.
-  - Remove stale statements that features add named `FeatureBundle` fields/slices; document the frozen PlaneSet lifecycle and closed standard manifest.
+  - Remove stale statements that features add named `FeatureBundle` fields/slices; document the frozen PlaneSet lifecycle, `ErrUngeneratedPlane`, canonical generated-policy authority, and closed standard manifest.
   - State the standard distribution boundary precisely: feature-owned bundle constructor/factory behavior plus explicit standard registration; no feature-specific core/runtimebundle branch.
-  - State that a new plane requires an upstream manifest/platform change; do not imply arbitrary dynamic planes are supported in v1.
+  - State that a new plane requires an upstream manifest/platform change; do not imply arbitrary dynamic planes are supported in v1 or that copying/mutating a `PlaneX` descriptor redefines it.
   - Done means docs match the external fixture and current code, not historical Stage-4 bundle shapes.
   - _Depends: 3.3, 4.3, 5.3, 6.3, 7.3_
   - _Requirements: 1.8, 8.4, 8.5_
   - _Boundary: SDK / Documentation_
-  - _Validation: make docs-check; go test -count=1 ./pkg/lipsdk/feature_
+  - _Validation: `make docs-check`; `go test -count=1 ./pkg/lipsdk/feature`_
 
 - [ ] 8. Prove release-safe behavior and hand off full closure
 - [ ] 8.1 Run migrated-feature and generation/reload regression gates
   - Run focused SDK/featurebundle/toolrepair/secretguard/compaction/reasoningcompose/runtimebundle/core-runtime suites from a clean tree.
+  - Re-run the complete #554 contract suite: unbound rejection, changed-ID rejection, same-ID mutation integrity, contribution/freeze/request-freeze/bundle-validation/ordinary-replay/candidate-replay paths, and external-module classification.
   - Run feature enable/disable/removal reload tests proving old requests stay pinned and new requests receive the new/no-feature surface.
   - Re-run terminal/failover/output-commit focused tests affected by compaction observation seam changes; no routing/B2BUA/billing semantics may change.
   - Done means all named migrations are behavior-preserving except the intentional ungenerated-plane rejection.
   - _Depends: 7.4_
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 9.3_
+  - _Requirements: 1.1, 1.2, 1.5, 6.1, 6.2, 6.3, 6.4, 6.5, 9.3_
   - _Boundary: Runtime / Generation Verification_
-  - _Validation: targeted package suites plus make test_
+  - _Validation: targeted package suites; `(cd testdata/external_feature_sdk && GOWORK=off go test ./...)`; `make test`_
 
-- [ ] 8.2 Refresh hot-path allocation and Linux race evidence
-  - Re-run the complete corrected extension-plane seam benchmark suite and compare `allocs/op`, `B/op`, and fixed-cost `ns/op` to Task 1.1; allocation regression is blocking.
-  - Inspect generated/request execution paths for new reflection, arbitrary map lookup, locks, or per-request goroutines.
-  - Run Linux race detector over `./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle` and the migrated secretguard package if concurrent matcher behavior warrants it.
-  - Record exact commit/run evidence and explicitly state that this is not #394 load/HOLD certification.
-  - Done means request-path structural/allocation guarantees and detector concurrency remain sound.
+- [ ] 8.2 Refresh hot-path allocation, timing evidence, and Linux race certification
+  - On the **same host, CPU/power posture, Go version and `GOMAXPROCS` recorded in Task 1.1**, run the exact same benchmark selector with 10 samples: `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Preserve unedited candidate output next to the baseline.
+  - Compare baseline vs candidate per benchmark. Use `benchstat` when available on the evidence host; otherwise compute the medians from the 10 raw samples and record the calculation. Do not install/change toolchain packages as part of the product diff merely to compare evidence.
+  - **Blocking allocation rule**: candidate median `allocs/op` must be <= baseline median for every benchmark; any increase is NO-GO until removed or the SDD is explicitly repaired. Candidate median `B/op` must also be <= baseline median for every unchanged benchmark; an increase is NO-GO because this refactor is not permitted to buy simplification with extra request-path allocation bytes.
+  - **Timing validity rule**: for each benchmark, compute `(p90(ns/op)-p10(ns/op))/median(ns/op)` over the 10 samples. If either baseline or candidate spread exceeds 15%, repeat that batch once on a quiet host before judging timing.
+  - **Timing investigation threshold**: for a valid batch, candidate median fixed-cost `ns/op` <= 110% of baseline median is PASS. If it is >110%, repeat a second 10-sample candidate batch under the same conditions. If the repeated median is still >110%, Task 8.2 is blocked pending root-cause review. It may be dispositioned as non-attributable measurement noise only by the independent reviewer with the allocation/structural evidence recorded; this threshold is a same-host regression guard, **not** #394 load/HOLD or cross-machine latency certification.
+  - Inspect generated/request execution paths for new reflection, arbitrary map lookup, locks, or per-request goroutines; any such addition attributable to this work is blocking regardless of benchmark noise.
+  - Run the exact Linux race command `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/...`. If development occurs on Windows, a successful Linux CI/job executing this exact package set is the authoritative evidence; a Windows skip is not a pass.
+  - Record exact commit, host/run metadata, raw benchmark files/comparison verdicts, and Linux race run/job evidence. Explicitly state that this is not #394 performance certification.
+  - Done means allocation/B-op gates pass, no unresolved >10% valid timing regression remains, request-path structural guarantees hold, and exact Linux race evidence is green.
   - _Depends: 8.1_
   - _Requirements: 9.1, 9.2, 9.3, 9.4_
   - _Boundary: Performance / Concurrency Verification_
-  - _Validation: targeted -benchmem; Linux go test -count=1 -race ..._
+  - _Validation: exact 10-sample benchmark command + comparison rules above; exact Linux race command above_
 
-- [ ] 8.3 Produce the residual ownership inventory for the full-closure SDD
-  - Scan remaining `internal/core`, `pkg/lipruntime`, `internal/infra/*compose`, and standard composition for feature-adjacent responsibilities after this migration.
-  - Classify each finding as kernel invariant, generic extension mechanism, concrete optional feature policy, feature-specific infrastructure/composition, or mixed/needs split; include current owner, consumers, and why it was not moved in this pre-OSS spec.
-  - Include at minimum compaction-continuity coordination, conversation-view optional steering policy, interleaved-thinking/state, terminal-decision policy, feature-specific public host options/adapters, and the dedicated compose adapters created/retained here.
-  - Record this as durable closeout research/evidence for the **second full-closure Kiro SDD**; do not implement the findings in this task.
-  - Done means the later spec can be generated without redoing basic ownership discovery and no deferred item exists only in chat history.
+- [ ] 8.3 Produce and validate the residual ownership inventory for the full-closure SDD
+  - Create exactly `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md`. This is the durable implementation handoff consumed by the second full-closure SDD; do not leave the inventory only in a PR comment or chat transcript.
+  - The artifact must contain: implementation/merged-main SHA and inventory date; classification vocabulary; a table with columns `Responsibility`, `Current owner/package`, `Production consumers`, `Classification`, `Why retained/deferred`, `Full-closure action`; summary counts by classification; and an explicit statement that no deferred finding exists only in transient session history.
+  - Classify each finding as kernel invariant, generic extension mechanism, concrete optional feature policy, feature-specific infrastructure/composition, or mixed/needs split. Include current owner, concrete production consumers, why it was not moved in this pre-OSS spec, and the intended full-closure action.
+  - Mandatory rows: compaction-continuity coordination; conversation-view generic projection vs optional steering policy; interleaved-thinking/state; terminal-decision policy; feature-specific public `pkg/lipruntime` host options/adapters; every dedicated feature compose adapter created/retained here; and any other core package whose primary reason for existence is an optional UX enhancement.
+  - Add/extend a compact `tools/kiro/speccheck` contract test that accepts both the active and archived pre-OSS spec location and fails if the inventory is absent, lacks required headings/table columns, or omits a mandatory row. Do not make production runtime code parse spec artifacts.
+  - Do not implement the inventory findings in this task. Done means the later SDD can start without redoing basic ownership discovery and the checked artifact is present on the implementation branch/main.
   - _Depends: 8.1_
   - _Requirements: 10.1, 10.2, 10.3, 10.4_
-  - _Boundary: Full-closure Handoff_
+  - _Boundary: Full-closure Handoff / Kiro Evidence_
+  - _Validation: `go test -count=1 ./tools/kiro/speccheck`; verify `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md` exists before archive/move_
 
-- [ ] 8.4 Run final repository gates, independent review, and merged-main certification
-  - Run generated-plane check, `make quality-checks`, `make test`, `make qa`, deterministic `make arch-report`, docs checks, external fixture, and `go run ./cmd/lipstd --help` on the final implementation commit.
-  - Obtain an independent architecture/code review focused on closed-plane compatibility, feature ownership, secret security, detector lifetime/dependency direction, runtimebundle import boundary, immutable generations, and accidental scope expansion.
-  - Merge only after required CI succeeds; then create a clean worktree from resulting `origin/main` and rerun the final verification chain appropriate to changed surfaces.
-  - Archive this spec only after merged-main verification; retain #394 as independent performance work and reference the residual inventory as input to the full-closure SDD.
-  - Done means the pre-OSS simplification is release-certified with no must-fix finding and no hidden follow-up prerequisite.
+- [ ] 8.4 Run final repository gates, close #554 only after proof, and certify merged main
+  - On the final implementation commit run generated-plane check, `make quality-checks`, `make test`, `make qa`, deterministic `make arch-report`, docs checks, the exact external fixture command `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`, `go test -count=1 ./tools/kiro/speccheck`, and `go run ./cmd/lipstd --help`.
+  - Require successful **Linux** execution of `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/core/extensions ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/...`. This is a separate release gate; `make quality-checks`/`make qa` do not substitute for it unless a future canonical target demonstrably runs that exact scope.
+  - Obtain an independent architecture/code review focused on closed-plane canonical policy and all #554 paths, feature ownership, secret security, detector lifetime/dependency direction, runtimebundle import boundary, immutable generations, benchmark/race evidence, and accidental scope expansion.
+  - Merge only after required CI succeeds; then create a clean worktree from resulting `origin/main` and rerun the generated/quality/arch/docs/runtime smoke, external fixture, speccheck, and critical focused SDK/feature tests. Reference the successful Linux race run tied to the final/merged production commit; if the merge changes relevant Go code after that race run, rerun race on the merged SHA.
+  - Close issue #554 **only now**, after the selected production contract is implemented and the contribution freeze, request freeze, bundle/frozen validation, ordinary/candidate replay, copied-plane integrity, external fixture, architecture and merged-main gates are proven. Merging this specification alone is never grounds for closing #554.
+  - Archive this spec only after merged-main verification and the checked residual inventory is retained/relocated with the archived spec using repository convention; retain #394 as independent performance work and reference the inventory as input to the full-closure SDD.
+  - Done means the pre-OSS simplification is release-certified with no must-fix finding, #554 is truthfully resolved by production evidence, and no hidden follow-up prerequisite remains.
   - _Depends: 8.2, 8.3_
-  - _Requirements: 9.5, 10.4, 10.5_
+  - _Requirements: 1.1-1.8, 8.1-8.5, 9.1-9.5, 10.3, 10.4, 10.5_
   - _Boundary: Release Verification / Delivery_
-  - _Validation: go run ./scripts/generate-feature-planes.go -check && make quality-checks && make test && make qa && make arch-report && make docs-check && go run ./cmd/lipstd --help_
+  - _Validation: `go run ./scripts/generate-feature-planes.go -check`; `make quality-checks`; `make test`; `make qa`; `make arch-report`; `make docs-check`; `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`; `go test -count=1 ./tools/kiro/speccheck`; Linux exact race command; `go run ./cmd/lipstd --help`_
 
 ## Execution Notes for Smaller Agents
 
@@ -316,6 +334,9 @@
 - Do not introduce an abstraction to make the three migrations look uniform. Reuse existing generated planes and explicit composition patterns.
 - For package moves, establish RED/characterization coverage first, move implementation + tests, make the new location green, then delete the old location. Never delete the oracle first.
 - `plane_generated.go` is generator output. Modify the generator/emitter, regenerate, and use `-check`.
+- Treat exported `PlaneX` values as descriptors, not mutable production declarations. Production policy comes from generated canonical metadata after Task 2.1; never restore exported descriptor fields as an alternate authority.
+- When converting raw local plane tests, use `_test.go`-only generated bindings; do not export a public helper that lets external consumers manufacture generated eligibility.
 - Keep each PR/checkpoint within the 100-Go-file gate. Split by the numbered migration groups above rather than using a blanket override.
 - Preserve exact process/generation owners: `ProcessServices`, `ResourceLedger`, `runtimehost.Manager`, request/attempt owners. This spec adds no new lifetime manager.
 - Treat the first client-visible content event as irreversible; no part of this cleanup changes retry/failover semantics.
+- Do not close #554 when the spec merges. Close it only after Task 8.4 production/merged-main proof.
