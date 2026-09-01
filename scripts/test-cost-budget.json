@@ -10,7 +10,7 @@
       "packages": {
         "existing_ratio": 1.75,
         "existing_delta_seconds": 3,
-        "existing_floor_seconds": 5,
+        "existing_floor_seconds": 10,
         "new_warn_seconds": 4,
         "new_fail_seconds": 8
       },

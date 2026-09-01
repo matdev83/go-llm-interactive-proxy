@@ -334,3 +334,117 @@ func TestCompareQATaggedHotspotsSyntheticDriftSimulation(t *testing.T) {
 		}
 	})
 }
+
+func TestCompareTestUnitSyntheticDriftSimulation(t *testing.T) {
+	t.Parallel()
+
+	budgetJSON := []byte(`{
+		"schema_version": 1,
+		"anchor_ref": "1b58ca4f5173734fc3b7b0c63059c4f10a09d335",
+		"targets": {
+			"test-unit": {
+				"cpu": { "ratio": 1.30, "delta_seconds": 10 },
+				"processes": { "ratio": 1.15, "delta": 8 },
+				"io_operations": { "ratio": 1.40, "delta": 10000 },
+				"wall": { "ratio": 1.60, "delta_seconds": 15 },
+				"packages": {
+					"existing_ratio": 1.75,
+					"existing_delta_seconds": 3,
+					"existing_floor_seconds": 10,
+					"new_warn_seconds": 4,
+					"new_fail_seconds": 8
+				},
+				"package_overrides": {
+					"github.com/matdev83/go-llm-interactive-proxy/internal/archtest": {
+						"existing_ratio": 1.50,
+						"existing_delta_seconds": 5
+					}
+				}
+			}
+		}
+	}`)
+
+	policy, err := DecodePolicy(budgetJSON)
+	if err != nil {
+		t.Fatalf("DecodePolicy() failed: %v", err)
+	}
+
+	baseline := validMeasurement(TargetTestUnit)
+	baseline.WallNanos = 90_160_083_000
+	baseline.Process = ProcessMetrics{
+		TotalCPUNanos:   718_000_000_000,
+		TotalProcesses:  2022,
+		ReadOperations:  1_500_000,
+		WriteOperations: 100_000,
+		OtherOperations: 6_487_613,
+	}
+	baseline.Packages = map[string]PackageMetrics{
+		"github.com/matdev83/go-llm-interactive-proxy/tools/changesize": {ElapsedNanos: 989_000_000},
+		"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":   {ElapsedNanos: 5_427_000_000},
+	}
+
+	t.Run("Observed same-code changesize and lipruntime noise pass with floor 10", func(t *testing.T) {
+		currentObserved := baseline
+		currentObserved.Packages = map[string]PackageMetrics{
+			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize": {ElapsedNanos: 5_338_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":   {ElapsedNanos: 9_955_000_000},
+		}
+
+		report, err := Compare(baseline, currentObserved, policy)
+		if err != nil {
+			t.Fatalf("Compare() error = %v", err)
+		}
+		if !report.Passed || len(report.Violations) != 0 {
+			t.Fatalf("observed test-unit noise expected to pass, got report: %#v", report)
+		}
+	})
+
+	t.Run("Existing low-anchor package over 10s floor fails", func(t *testing.T) {
+		currentOverFloor := baseline
+		currentOverFloor.Packages = map[string]PackageMetrics{
+			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize": {ElapsedNanos: 10_500_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":   {ElapsedNanos: 5_427_000_000},
+		}
+
+		report, err := Compare(baseline, currentOverFloor, policy)
+		if err != nil {
+			t.Fatalf("Compare() error = %v", err)
+		}
+		if report.Passed || len(report.Violations) != 1 || report.Violations[0].Package != "github.com/matdev83/go-llm-interactive-proxy/tools/changesize" || report.Violations[0].Metric != "elapsed_nanos" || report.Violations[0].Allowed != 10_000_000_000 {
+			t.Fatalf("package >10s expected elapsed_nanos violation with allowed=10s, got: %#v", report)
+		}
+	})
+
+	t.Run("Synthetic 31 percent CPU drift fails", func(t *testing.T) {
+		currentCPU31 := baseline
+		currentCPU31.Process.TotalCPUNanos = uint64(float64(baseline.Process.TotalCPUNanos) * 1.31)
+
+		report, err := Compare(baseline, currentCPU31, policy)
+		if err != nil {
+			t.Fatalf("Compare() error = %v", err)
+		}
+		if report.Passed || len(report.Violations) != 1 || report.Violations[0].Metric != "cpu" {
+			t.Fatalf("+31%% CPU drift expected to fail on CPU metric, got report: %#v", report)
+		}
+	})
+
+	t.Run("New package over 8s fail limit fails with violation and warning", func(t *testing.T) {
+		currentNewPkg := baseline
+		currentNewPkg.Packages = map[string]PackageMetrics{
+			"github.com/matdev83/go-llm-interactive-proxy/tools/changesize": {ElapsedNanos: 989_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime":   {ElapsedNanos: 5_427_000_000},
+			"github.com/matdev83/go-llm-interactive-proxy/tools/newpackage": {ElapsedNanos: 9_000_000_000},
+		}
+
+		report, err := Compare(baseline, currentNewPkg, policy)
+		if err != nil {
+			t.Fatalf("Compare() error = %v", err)
+		}
+		if report.Passed || len(report.Violations) != 1 || report.Violations[0].Metric != "new_package_elapsed_nanos" || report.Violations[0].Package != "github.com/matdev83/go-llm-interactive-proxy/tools/newpackage" {
+			t.Fatalf("new package >8s expected new_package_elapsed_nanos violation, got: %#v", report)
+		}
+		if len(report.Warnings) != 1 || report.Warnings[0].Package != "github.com/matdev83/go-llm-interactive-proxy/tools/newpackage" {
+			t.Fatalf("new package >8s expected warning, got: %#v", report.Warnings)
+		}
+	})
+}
