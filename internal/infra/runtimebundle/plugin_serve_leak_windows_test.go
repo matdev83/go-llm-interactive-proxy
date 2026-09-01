@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,22 +18,37 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func listTempDirsServeForTest(prefix string) []string {
-	entries, err := os.ReadDir(os.TempDir())
+func cleanTempEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		k, _, ok := strings.Cut(e, "=")
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(k, "TEMP") || strings.EqualFold(k, "TMP") || strings.EqualFold(k, "TMPDIR") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func listTempDirsInRoot(root, prefix string) []string {
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
-			out = append(out, filepath.Join(os.TempDir(), e.Name()))
+			out = append(out, filepath.Join(root, e.Name()))
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-func assertNoNewServeDirsForTest(t *testing.T, before []string, prefix string) {
+func assertNoNewDirsInRoot(t *testing.T, root string, before []string, prefix string) {
 	t.Helper()
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
@@ -41,7 +57,7 @@ func assertNoNewServeDirsForTest(t *testing.T, before []string, prefix string) {
 	var leaked []string
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		after := listTempDirsServeForTest(prefix)
+		after := listTempDirsInRoot(root, prefix)
 		leaked = nil
 		for _, d := range after {
 			if _, ok := beforeSet[d]; !ok {
@@ -63,9 +79,61 @@ func assertNoNewServeDirsForTest(t *testing.T, before []string, prefix string) {
 // staging root they create: verified artifact handles are closed before the
 // staging directory is removed, so no new matching dirs remain under
 // os.TempDir after normal operation on Windows.
+//
+// The test executes in an isolated subprocess with a test-specific TEMP root so
+// concurrent tests creating go-lip-plugin-serve-* staging roots under the ambient
+// os.TempDir do not trigger false-positive leak assertions.
 func TestProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
+	t.Parallel()
+	subTemp := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProduction_ServeAndValidateNoStagingLeak$", "-test.v")
+	cmd.Env = append(
+		cleanTempEnv(os.Environ()),
+		"GO_WANT_SERVE_LEAK_HELPER=1",
+		"TEMP="+subTemp,
+		"TMP="+subTemp,
+		"TMPDIR="+subTemp,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subprocess failed: %v\n%s", err, string(out))
+	}
+}
+
+// TestProduction_ServeAndValidateNoStagingLeak_ConcurrentAmbientOverlap proves that
+// active/unrelated go-lip-plugin-serve-* directories in the ambient os.TempDir
+// (created by concurrent tests) do not cause false-positive leak failures.
+func TestProduction_ServeAndValidateNoStagingLeak_ConcurrentAmbientOverlap(t *testing.T) {
+	t.Parallel()
+	ambientDir, err := os.MkdirTemp("", "go-lip-plugin-serve-ambient-overlap-*")
+	if err != nil {
+		t.Fatalf("create ambient temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(ambientDir) })
+
+	subTemp := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProduction_ServeAndValidateNoStagingLeak$", "-test.v")
+	cmd.Env = append(
+		cleanTempEnv(os.Environ()),
+		"GO_WANT_SERVE_LEAK_HELPER=1",
+		"TEMP="+subTemp,
+		"TMP="+subTemp,
+		"TMPDIR="+subTemp,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subprocess failed with concurrent ambient overlap: %v\n%s", err, string(out))
+	}
+}
+
+//nolint:paralleltest // Helper process entrypoint invoked via exec.Command in TestProduction_ServeAndValidateNoStagingLeak
+func TestHelperProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
+	if os.Getenv("GO_WANT_SERVE_LEAK_HELPER") != "1" {
+		return
+	}
 	const prefix = "go-lip-plugin-serve-"
-	before := listTempDirsServeForTest(prefix)
+	tempRoot := os.TempDir()
+	before := listTempDirsInRoot(tempRoot, prefix)
 
 	kind := "prod-leak-serve-kind"
 	pluginRoot := stageProductionFakePlugin(t, kind)
@@ -78,7 +146,7 @@ func TestProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ValidateDistribution: %v", err)
 	}
-	assertNoNewServeDirsForTest(t, before, prefix)
+	assertNoNewDirsInRoot(t, tempRoot, before, prefix)
 
 	host, err := runtimebundle.BuildHost(context.Background(), runtimebundle.BuildHostInput{
 		ConfigPath:      cfgPath,
@@ -89,9 +157,13 @@ func TestProduction_ServeAndValidateNoStagingLeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHost: %v", err)
 	}
+	during := listTempDirsInRoot(tempRoot, prefix)
+	if len(during) != 1 {
+		t.Fatalf("expected 1 active staging directory while host is open, got %v", during)
+	}
 	if err := host.Close(context.Background()); err != nil {
 		t.Fatalf("host close: %v", err)
 	}
 
-	assertNoNewServeDirsForTest(t, before, prefix)
+	assertNoNewDirsInRoot(t, tempRoot, before, prefix)
 }
