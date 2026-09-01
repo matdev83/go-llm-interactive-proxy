@@ -22,18 +22,19 @@ type recordingSink struct {
 }
 
 type blockingSink struct {
-	entered chan struct{}
-	release chan struct{}
+	entered     chan struct{}
+	enteredOnce sync.Once
+	release     chan struct{}
 }
 
 func (s *blockingSink) AppendCall(_ context.Context, _ billing.CallUsageRecord) error {
-	close(s.entered)
+	s.enteredOnce.Do(func() { close(s.entered) })
 	<-s.release
 	return nil
 }
 
 func (s *blockingSink) AppendLeg(_ context.Context, _ billing.CallLegUsageRecord) error {
-	close(s.entered)
+	s.enteredOnce.Do(func() { close(s.entered) })
 	<-s.release
 	return nil
 }
@@ -331,21 +332,29 @@ func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
 	go func() { processDone <- spool.ProcessOnce(context.Background()) }()
 	<-sink.entered
 
-	appendDone := make(chan error, 1)
-	go func() {
-		appendDone <- spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000013"))
-	}()
-	select {
-	case err := <-appendDone:
-		if err != nil {
-			t.Fatalf("concurrent local append = %v", err)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("local append remained blocked by central delivery")
+	// While central delivery is actively blocked on sink.release, execute a
+	// concurrent local append. Local append must complete successfully without
+	// waiting for central delivery to unblock.
+	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000013")); err != nil {
+		t.Fatalf("concurrent local append = %v", err)
 	}
+
+	// Verify central delivery is still in flight (has not completed).
+	select {
+	case err := <-processDone:
+		t.Fatalf("ProcessOnce completed before release: %v", err)
+	default:
+	}
+
 	release()
 	if err := <-processDone; err != nil {
-		t.Fatalf("ProcessOnce = %v", err)
+		t.Fatalf("ProcessOnce for first record = %v", err)
+	}
+	if err := spool.ProcessOnce(context.Background()); err != nil {
+		t.Fatalf("ProcessOnce for second record = %v", err)
+	}
+	if got := spool.PendingCount(); got != 0 {
+		t.Fatalf("pending count after processing both records = %d, want 0", got)
 	}
 }
 
