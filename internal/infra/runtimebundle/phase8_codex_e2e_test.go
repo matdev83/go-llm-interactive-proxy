@@ -24,6 +24,7 @@ import (
 )
 
 func TestPhase8_CodexHTTPExternalViaBuildHost(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -112,6 +113,7 @@ func TestPhase8_CodexHTTPExternalViaBuildHost(t *testing.T) {
 }
 
 func TestPhase8_CodexConfiguredMissingFails(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	emptyPlugins := t.TempDir()
