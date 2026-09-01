@@ -610,6 +610,7 @@ func TestGenerationPublish_FrozenGenerationLeakCheck(t *testing.T) {
 		goleak.IgnoreAnyFunction("net/http.(*persistConn).readLoop"),
 		goleak.IgnoreAnyFunction("net/http.(*persistConn).writeLoop"),
 		goleak.IgnoreAnyFunction("net/http.setRequestCancel"),
+		goleak.IgnoreTopFunction("net/http.setRequestCancel.func4"),
 	)
 
 	ps := newProcessForPinnedGeneration(t)
