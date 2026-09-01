@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -22,11 +21,11 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concurrent.db")
-	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
+	sqlDB, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout(5000)&_txlock=immediate")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sqlDB.SetMaxOpenConns(4)
+	sqlDB.SetMaxOpenConns(1)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	if err != nil {
 		_ = sqlDB.Close()
@@ -57,7 +56,7 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	var entered, release sync.WaitGroup
+	var entered, release, finished sync.WaitGroup
 	entered.Add(n)
 	release.Add(1)
 	store.beginTxHook = func() {
@@ -67,7 +66,9 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 
 	errs := make(chan error, n)
 	for i := range n {
+		finished.Add(1)
 		go func() {
+			defer finished.Done()
 			cmd := reconcileReserveCommandInternal(fmtRuleID(i), 1)
 			cmd.ReservationKey.LogicalRequestID = fmtLogical(i)
 			cmd.ReservationKey.AttemptID = fmtAttempt(i)
@@ -77,22 +78,15 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 		}()
 	}
 
-	done := make(chan struct{})
-	go func() {
-		entered.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		// All mutation paths reached BeginTx concurrently — process mutex is not held across DB work.
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for concurrent Reserve paths to reach BeginTx; process-wide mutex likely serializes DB work (16.1/16.2)")
-	}
+	// All mutation paths reach BeginTx concurrently — proves process-wide mutex does not serialize DB work.
+	entered.Wait()
 	release.Done()
+	finished.Wait()
+	close(errs)
 
-	for i := range n {
-		if err := <-errs; err != nil {
-			t.Fatalf("reserve %d: %v", i, err)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("reserve error: %v", err)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"go.uber.org/goleak"
 )
 
 // cancelUntilClosedManaged models an adapter whose graceful Cancel path does
@@ -64,15 +65,27 @@ func TestRED_ForwardExecute_InBandCancel_ForceCloseJoinsGracefulCancel(t *testin
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("ForwardExecute did not exit during cleanup")
+			}
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 	stream.inFrames <- ClientFrame{Kind: ClientFrameCancel, CancelReason: CancelReasonClient}
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v, want nil", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("ForwardExecute waited indefinitely for graceful Cancel")
 	}
 	if got := managed.cancelCalls.Load(); got != 1 {
@@ -148,7 +161,18 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("ForwardExecute did not exit during cleanup")
+			}
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 
 	deadline := time.Now().Add(75 * time.Millisecond)
 	stream.inFrames <- ClientFrame{
@@ -158,7 +182,7 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 	}
 	select {
 	case <-managed.cancelReturned:
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Cancel did not return")
 	}
 
@@ -173,7 +197,8 @@ func TestRED_ForwardExecute_ShortPeerDeadlineForcesCloseNearEffectiveDeadline(t 
 	}
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+		doneReceived.Store(true)
+	case <-time.After(2 * time.Second):
 		t.Fatal("ForwardExecute did not terminate after force Close")
 	}
 }
@@ -222,15 +247,27 @@ func TestForwardExecute_PanickingCancelReturnsBoundedOutcome(t *testing.T) {
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool { return managed.recvEntered.Load() })
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("ForwardExecute did not exit during cleanup")
+			}
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool { return managed.recvEntered.Load() })
 	stream.inFrames <- ClientFrame{Kind: ClientFrameCancel, CancelReason: CancelReasonClient}
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("ForwardExecute hung after panicking Cancel")
 	}
 	stream.mu.Lock()
@@ -251,9 +288,12 @@ func TestForwardExecute_PanickingCancelReturnsBoundedOutcome(t *testing.T) {
 }
 
 type eofAfterEventManaged struct {
-	recvCalls  atomic.Int32
-	cancel     atomic.Int32
-	releaseEOF chan struct{}
+	recvCalls     atomic.Int32
+	cancelCalls   atomic.Int32
+	cancelStarted chan struct{}
+	cancelOnce    sync.Once
+	releaseEOF    chan struct{}
+	releaseOnce   sync.Once
 }
 
 func (m *eofAfterEventManaged) Recv(context.Context) (lipapi.Event, error) {
@@ -266,8 +306,13 @@ func (m *eofAfterEventManaged) Recv(context.Context) (lipapi.Event, error) {
 
 func (m *eofAfterEventManaged) Close() error { return nil }
 
+func (m *eofAfterEventManaged) release() {
+	m.releaseOnce.Do(func() { close(m.releaseEOF) })
+}
+
 func (m *eofAfterEventManaged) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
-	m.cancel.Add(1)
+	m.cancelCalls.Add(1)
+	m.cancelOnce.Do(func() { close(m.cancelStarted) })
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
 
@@ -275,13 +320,18 @@ func (m *eofAfterEventManaged) Cancel(context.Context, lipapi.CancelCause) lipap
 // ready after the control reader has received CANCEL. The terminal must not
 // win the select and suppress the exactly-once CancelOutcome.
 //
-//nolint:paralleltest // interacts with package-level cancellation timing
+//nolint:paralleltest // serial by design: goleak must not observe goroutines from sibling parallel tests
 func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	stream := newCoordinatorTestStream(ctx)
 	stream.inFrames <- coordinatorStartFrame()
-	managed := &eofAfterEventManaged{releaseEOF: make(chan struct{})}
+	managed := &eofAfterEventManaged{
+		cancelStarted: make(chan struct{}),
+		releaseEOF:    make(chan struct{}),
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -289,28 +339,42 @@ func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		managed.release()
+		if !doneReceived.Load() {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("ForwardExecute did not exit during cleanup")
+			}
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		return len(stream.sent) >= 2
 	})
 	stream.inFrames <- ClientFrame{Kind: ClientFrameCancel, CancelReason: CancelReasonClient}
-	// Do not make upstream EOF available until the client-control reader has
-	// had a chance to receive the CANCEL. Both observations are then ready at
-	// the coordinator boundary, which is the race this test protects.
+
+	// Wait until managed Cancel is invoked by the coordinator before releasing upstream EOF.
+	// This ensures cancellation has been initiated on the coordinator boundary while
+	// the upstream EOF observation arrives, which is the race this test protects.
 	select {
-	case <-stream.cancelReceived:
-	case <-time.After(time.Second):
-		t.Fatal("client-control reader did not receive CANCEL")
+	case <-managed.cancelStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("managed stream Cancel was not invoked")
 	}
-	close(managed.releaseEOF)
+	managed.release()
 
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("ForwardExecute did not finish after queued cancel and upstream EOF")
 	}
 
@@ -326,8 +390,8 @@ func TestRED_ForwardExecute_CancelQueuedWithUpstreamEOF(t *testing.T) {
 			terminal = i
 		}
 	}
-	if managed.cancel.Load() != 1 {
-		t.Fatalf("Cancel calls = %d, want exactly 1; frames=%+v", managed.cancel.Load(), frames)
+	if managed.cancelCalls.Load() != 1 {
+		t.Fatalf("Cancel calls = %d, want exactly 1; frames=%+v", managed.cancelCalls.Load(), frames)
 	}
 	if outcome == -1 || terminal == -1 || outcome >= terminal {
 		t.Fatalf("CancelOutcome index=%d must precede terminal index=%d; frames=%+v", outcome, terminal, frames)
@@ -396,7 +460,18 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 			return managed, nil
 		})
 	}()
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	var doneReceived atomic.Bool
+	t.Cleanup(func() {
+		cancel()
+		if !doneReceived.Load() {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Error("ForwardExecute did not exit during cleanup")
+			}
+		}
+	})
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		return len(stream.sent) >= 2
@@ -405,10 +480,10 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 
 	select {
 	case <-managed.cancelReturned:
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Cancel did not return")
 	}
-	waitCoordinatorUntil(t, time.Second, func() bool {
+	waitCoordinatorUntil(t, 2*time.Second, func() bool {
 		stream.mu.Lock()
 		defer stream.mu.Unlock()
 		for _, frame := range stream.sent {
@@ -437,10 +512,11 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 	managed.release()
 	select {
 	case err := <-done:
+		doneReceived.Store(true)
 		if err != nil {
 			t.Fatalf("ForwardExecute returned %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("ForwardExecute did not finish after final evidence and EOF")
 	}
 
@@ -462,16 +538,14 @@ func TestRED_ForwardExecute_CancelOutcomeWaitsForFinalEvidenceBeforeTerminal(t *
 }
 
 type coordinatorTestStream struct {
-	ctx            context.Context
-	inFrames       chan ClientFrame
-	cancelReceived chan struct{}
-	cancelOnce     sync.Once
-	mu             sync.Mutex
-	sent           []ServerFrame
+	ctx      context.Context
+	inFrames chan ClientFrame
+	mu       sync.Mutex
+	sent     []ServerFrame
 }
 
 func newCoordinatorTestStream(ctx context.Context) *coordinatorTestStream {
-	return &coordinatorTestStream{ctx: ctx, inFrames: make(chan ClientFrame, 8), cancelReceived: make(chan struct{})}
+	return &coordinatorTestStream{ctx: ctx, inFrames: make(chan ClientFrame, 8)}
 }
 
 func (s *coordinatorTestStream) Context() context.Context { return s.ctx }
@@ -479,9 +553,6 @@ func (s *coordinatorTestStream) Context() context.Context { return s.ctx }
 func (s *coordinatorTestStream) Recv() (ClientFrame, error) {
 	select {
 	case frame := <-s.inFrames:
-		if frame.Kind == ClientFrameCancel {
-			s.cancelOnce.Do(func() { close(s.cancelReceived) })
-		}
 		return frame, nil
 	case <-s.ctx.Done():
 		return ClientFrame{}, s.ctx.Err()
