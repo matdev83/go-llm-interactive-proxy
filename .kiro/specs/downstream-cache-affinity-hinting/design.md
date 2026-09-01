@@ -212,6 +212,8 @@ Algorithm exactly:
 
 Never use `ClientSessionHint` for generated fallback.
 
+This runtime resolution is one validation boundary. Concrete backend/profile/connector serializers may resolve `PromptCacheKeyValue()` once again at their own boundary to validate alias consistency and enforce provider-specific limits. That duplicate bounded validation is intentional; do not add mutable state, a new canonical carrier, or a bypass of serializer validation solely to force a single global resolution.
+
 ## Exact insertion point
 
 File:
@@ -244,7 +246,7 @@ File:
 
 Add:
 
-1. resolve once;
+1. resolve once at this serializer boundary;
 2. propagate alias conflict with `openairesponses` context;
 3. empty => omitted;
 4. >64 => validation error before provider call;
@@ -435,7 +437,7 @@ Keep `BuildCompatible` and `BuildCompatibleWithHeaders` source-compatible for ar
 For profile projection:
 
 - `Enabled && AllowProxySynthesis` => backend resolver support `{true, profileID}`;
-- resolve `call.PromptCacheKeyValue()`;
+- resolve `call.PromptCacheKeyValue()` once at this serializer boundary;
 - empty => no option;
 - over `MaxLength` => pre-output error;
 - JSON => `option.WithJSONSet(WireName, value)`;
@@ -502,7 +504,7 @@ Files:
 Precedence:
 
 1. explicit existing `openrouter.session_id` extension;
-2. otherwise `call.PromptCacheKeyValue()`;
+2. otherwise `call.PromptCacheKeyValue()` resolved once at this connector projection boundary;
 3. otherwise omit.
 
 Body JSON `session_id` only; <=256. Do not emit `x-session-id`.
@@ -622,11 +624,14 @@ Fail if:
 
 Per generated attempt:
 
-- one existing PCK resolution;
+- one `PromptCacheKeyValue()` resolution at the runtime effective-hint decision boundary;
+- at most one additional `PromptCacheKeyValue()` resolution at the concrete backend/profile/connector serialization boundary that consumes the PCK; a normal attempt uses one concrete serializer path, not every provider path;
 - one immutable support resolver;
 - one value HMAC (subkey precomputed);
 - one 32-byte base64url encode;
 - ordinary call-value copy.
+
+The runtime and serializer resolutions are both bounded validation over the existing bounded semantic-extension set. The benchmark contract is **one resolution per participating boundary**, not one global resolution for the entire request. Equivalent backend-plugin ABI validation may also occur at its established boundary and must remain bounded; do not remove safety validation merely to reduce the count.
 
 Forbidden:
 - DB/network/filesystem;
@@ -635,7 +640,7 @@ Forbidden:
 - unbounded map/cache;
 - new persistent session lookup.
 
-Bench explicit/generated/disabled paths with `-benchmem`. Add no pooling unless benchmark evidence justifies it.
+Bench explicit/generated/disabled runtime paths and the participating serializer/projection paths with `-benchmem`. Ratchet against accidental repeated resolution inside a single boundary, not against the deliberate runtime-plus-serializer validation pair. Add no pooling unless benchmark evidence justifies it.
 
 ---
 
