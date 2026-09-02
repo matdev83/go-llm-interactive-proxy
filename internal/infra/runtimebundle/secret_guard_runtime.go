@@ -8,9 +8,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -42,7 +42,11 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 	inputs := opts.Extensions.SecretGuardInputs
 	featureEnabled := runtimeCfg.Enabled
 	singleUser := composeSecretGuardSingleUser(runtimeCfg, inputs)
-	src, err := coresg.ComposeSource(mode, featureEnabled, opts.Extensions.SecretGuardEnvironment, singleUser)
+	engineMode := engine.ModeSingleUser
+	if mode == accessmode.ModeMultiUser {
+		engineMode = engine.ModeMultiUser
+	}
+	src, err := engine.ComposeSource(engineMode, featureEnabled, opts.Extensions.SecretGuardEnvironment, singleUser)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: secret guard source: %w", err)
 	}
@@ -96,7 +100,7 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 // YAML wins for catalog fields when the feature is enabled. Matcher options from
 // inputs.SingleUser win when MatcherConfigured is already set (test/composition override);
 // otherwise YAML stamps matcher options.
-func composeSecretGuardSingleUser(runtimeCfg featuresg.RuntimeConfig, inputs SecretGuardInputs) coresg.SingleUserOptions {
+func composeSecretGuardSingleUser(runtimeCfg featuresg.RuntimeConfig, inputs SecretGuardInputs) engine.SingleUserOptions {
 	out := inputs.SingleUser
 	out.IncludeEnv = append([]string(nil), out.IncludeEnv...)
 	out.ExcludeEnv = append([]string(nil), out.ExcludeEnv...)
@@ -114,7 +118,7 @@ func composeSecretGuardSingleUser(runtimeCfg featuresg.RuntimeConfig, inputs Sec
 		out.MatcherConfigured = true
 		return out
 	}
-	out.Matcher = coresg.MatcherOptions{
+	out.Matcher = engine.MatcherOptions{
 		PreserveKnownPrefixes: runtimeCfg.PreserveKnownPrefixes,
 		MaskByte:              runtimeCfg.MaskByte,
 	}

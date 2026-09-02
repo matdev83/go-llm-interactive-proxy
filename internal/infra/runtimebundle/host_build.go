@@ -12,7 +12,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/processhost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
@@ -20,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -40,7 +40,7 @@ func BuildHost(ctx context.Context, in BuildHostInput) (*Host, error) {
 
 type hostBuildInput = BuildHostInput
 
-func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretEnv coresg.Environment) (*Host, error) {
+func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretEnv engine.Environment) (*Host, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtimebundle: nil context")
 	}
@@ -171,7 +171,7 @@ func buildHost(ctx context.Context, in hostBuildInput, ops hostBuildOps, secretE
 	return host, nil
 }
 
-func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, secretEnv coresg.Environment, _ any) (*Host, error) {
+func buildHostWithEnv(ctx context.Context, in hostBuildInput, loadEffective bootstrapEffectiveLoader, secretEnv engine.Environment, _ any) (*Host, error) {
 	ops := defaultHostBuildOps()
 	if loadEffective != nil {
 		ops.load = loadEffective
@@ -202,7 +202,7 @@ type processBuildInput struct {
 	Cfg                *config.Config
 	Logger             *slog.Logger
 	Registry           *pluginreg.Registry
-	SecretEnv          coresg.Environment
+	SecretEnv          engine.Environment
 	Production         ProductionOptions
 	Tracing            ProcessTracing
 	PluginResourcePool *backendResourcePool

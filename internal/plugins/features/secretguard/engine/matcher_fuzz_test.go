@@ -1,17 +1,17 @@
-package secretguard_test
+package engine_test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 func FuzzMatcher_ScanRedactRoundTrip(f *testing.F) {
-	cat, err := secretguard.BuildCatalog([]secretguard.CatalogInput{
+	cat, err := engine.BuildCatalog([]engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
@@ -26,7 +26,7 @@ func FuzzMatcher_ScanRedactRoundTrip(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 
 	f.Add([]byte("plain"))
 	f.Add([]byte(testkit.SyntheticOpenAIAPIKey))

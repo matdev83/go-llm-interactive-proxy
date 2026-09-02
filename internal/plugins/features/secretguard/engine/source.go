@@ -1,9 +1,8 @@
-package secretguard
+package engine
 
 import (
 	"context"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
@@ -34,7 +33,7 @@ type SingleUserOptions struct {
 
 // Source is an opaque composition-owned secret source. It must not expose raw catalog values.
 type Source interface {
-	AccessMode() accessmode.Mode
+	AccessMode() AccessMode
 	// MatcherResolver returns an opaque resolver; implementations own secret bytes privately.
 	MatcherResolver() sdk.MatcherResolver
 	// EntryCount is safe inventory metadata (names/values are never returned).
@@ -44,13 +43,13 @@ type Source interface {
 }
 
 type composedSource struct {
-	mode       accessmode.Mode
+	mode       AccessMode
 	resolver   sdk.MatcherResolver
 	entryCount int
 	categories []string
 }
 
-func (s composedSource) AccessMode() accessmode.Mode { return s.mode }
+func (s composedSource) AccessMode() AccessMode { return s.mode }
 func (s composedSource) MatcherResolver() sdk.MatcherResolver {
 	return s.resolver
 }
@@ -69,7 +68,7 @@ func (s composedSource) SourceCategories() []string {
 func NewMultiUserSource(env Environment) (Source, error) {
 	_ = env // intentionally unused: multi-user must not read process environment
 	return composedSource{
-		mode:       accessmode.ModeMultiUser,
+		mode:       ModeMultiUser,
 		resolver:   sdk.ContextMatcherResolver{},
 		entryCount: 0,
 		categories: []string{string(sdk.SourceCategoryRequestCred)},
@@ -89,7 +88,7 @@ func NewSingleUserSource(env Environment, opts SingleUserOptions) (Source, error
 		matcherOpts = MatcherOptions{PreserveKnownPrefixes: true}
 	}
 	return composedSource{
-		mode:       accessmode.ModeSingleUser,
+		mode:       ModeSingleUser,
 		resolver:   NewStaticMatcherResolver(cat, matcherOpts),
 		entryCount: cat.EntryCount(),
 		categories: cat.SourceCategories(),
@@ -101,7 +100,7 @@ func NewSingleUserSource(env Environment, opts SingleUserOptions) (Source, error
 // (feature-disabled posture); EntryCount is 0 and Resolve returns (nil, nil).
 func NewDisabledSource() Source {
 	return composedSource{
-		mode:       accessmode.ModeSingleUser,
+		mode:       ModeSingleUser,
 		resolver:   disabledMatcherResolver{},
 		entryCount: 0,
 	}
