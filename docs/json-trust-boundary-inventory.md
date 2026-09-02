@@ -7,8 +7,8 @@ This inventory records the first implementation wave for issue #160. It classifi
 | Boundary | Owner | Required order | Policy |
 | --- | --- | --- | --- |
 | Public inference HTTP request | `internal/plugins/frontends/frontendpipe` + `internal/core/jsonshape` | bounded body read -> shape preflight -> decode admission -> protocol decode | `RequestEnvelopeLimits`; duplicate names remain accepted for wire compatibility |
-| Tool schema | `internal/core/toolcallrepair` + `internal/core/jsonshape` | schema byte/shape preflight -> schema compilation/materialization | `ToolSchemaLimits`; duplicate names rejected |
-| Tool arguments | `internal/core/toolcallrepair` + `internal/core/jsonshape` | argument byte/shape preflight -> ordered materialization/repair | `ToolArgumentsLimits`; duplicate names rejected |
+| Tool schema | `internal/plugins/features/toolcallrepair/repair` + `internal/core/jsonshape` | schema byte/shape preflight -> schema compilation/materialization | `ToolSchemaLimits`; duplicate names rejected |
+| Tool arguments | `internal/plugins/features/toolcallrepair/repair` + `internal/core/jsonshape` | argument byte/shape preflight -> ordered materialization/repair | `ToolArgumentsLimits`; duplicate names rejected |
 | Protected billing commands | `internal/jsonbody` + billing adapter | bounded body read -> shape preflight (exactly one document) -> typed decode -> domain validation | 64 KiB; trailing documents rejected; payload-safe `400`/`413` mapping |
 | Protected token accounting | `internal/jsonbody` + token accounting adapter | bounded body read -> shape preflight (exactly one document) -> typed decode -> application service | configured cap, default 1 MiB; unknown fields remain allowed for the rich canonical call contract; canceled requests return 408 `request_canceled` without calling the service |
 | Protected keepwarm mutation | `internal/jsonbody` + keepwarm adapter | bounded body read -> shape preflight (exactly one document) -> typed decode -> policy service | configured cap, default 64 KiB; empty body and connection-died wrapped-EOF remain accepted for the existing command contract |

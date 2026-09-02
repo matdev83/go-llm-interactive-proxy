@@ -134,6 +134,30 @@ func TestProtocolAdaptersDoNotDependOnToolCallRepair(t *testing.T) {
 	})
 }
 
+// TestToolCallRepairFeatureTreeBoundaries enforces that the recursive toolcallrepair feature tree
+// depends only on canonical/SDK contracts, standard library, and feature-local code (Requirement 2.4).
+func TestToolCallRepairFeatureTreeBoundaries(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{"./internal/plugins/features/toolcallrepair/..."}, []forbiddenDep{
+		{
+			Substr: "/internal/core/",
+			ErrMsg: "toolcallrepair feature tree must not depend on internal/core",
+		},
+		{
+			Substr: "/internal/infra/runtimebundle",
+			ErrMsg: "toolcallrepair feature tree must not depend on runtimebundle",
+		},
+		{
+			Substr: "/internal/plugins/frontends/",
+			ErrMsg: "toolcallrepair feature tree must not depend on frontend plugins",
+		},
+		{
+			Substr: "/internal/plugins/backends/",
+			ErrMsg: "toolcallrepair feature tree must not depend on backend plugins",
+		},
+	})
+}
+
 // TestInternalCoreDoesNotDependOnStdhttpOrProtocolPlugins keeps orchestration free of the HTTP
 // server layer, official protocol plugins, and transport-labeled SDK paths (introduce-hexagonal
 // task 4.1). Principal context uses [github.com/.../pkg/lipsdk/execview] from core instead.

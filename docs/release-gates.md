@@ -65,9 +65,9 @@ Normative matrices and row IDs: [.kiro/specs/archive/llm-api-parity/design.md](.
 | `FuzzAcceptClientAppTitle` | `internal/core/identity` | OpenRouter app title accept bounds |
 | `FuzzValidateIdentityYAML` | `internal/core/identity` | Identity YAML decode + Validate |
 | `FuzzCaptureClientUserAgent` | `internal/plugins/frontends/identitywire` | Frontend UA capture into invocation |
-| `FuzzCompleteJSONSuffix` | `internal/core/toolcallrepair` | Append-only JSON suffix completion (ADR 0007) |
-| `FuzzSchemaPreScanCompile` | `internal/core/toolcallrepair` | Offline schema pre-scan/compile bounds |
-| `FuzzEngineRepair` | `internal/core/toolcallrepair` | Deterministic tool-call repair engine |
+| `FuzzCompleteJSONSuffix` | `internal/plugins/features/toolcallrepair/repair` | Append-only JSON suffix completion (ADR 0007) |
+| `FuzzSchemaPreScanCompile` | `internal/plugins/features/toolcallrepair/repair` | Offline schema pre-scan/compile bounds |
+| `FuzzEngineRepair` | `internal/plugins/features/toolcallrepair/repair` | Deterministic tool-call repair engine |
 | `FuzzComputeAnchor` | `internal/plugins/features/reasoningpreservation` | Exact non-reasoning anchor hash stability (issue #157) |
 | `FuzzDecodeConfig` | `internal/plugins/features/reasoningpreservation` | Feature YAML decode/validation bounds (issue #157) |
 | `FuzzLeaseSet_OccupiesCapacity` | `internal/core/concurrencyauthority/domain` | Lease-set state occupancy model |

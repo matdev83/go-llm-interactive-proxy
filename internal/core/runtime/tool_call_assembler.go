@@ -11,7 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
-// Kept equal to core/toolcallrepair.DefaultMaxArgsBytes by
+// Kept equal to toolcallrepair repair.DefaultMaxArgsBytes by
 // TestDefaultToolCallFinalizationMaxArgsBytesMatchCore.
 const defaultToolCallFinalizationMaxArgsBytes = 64 * 1024
 

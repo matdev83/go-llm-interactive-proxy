@@ -122,7 +122,7 @@
   - _Boundary: Tool-call Repair Feature / Standard Distribution_
   - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
-- [ ] 3.3 Delete the old core package and ratchet its absence
+- [x] 3.3 Delete the old core package and ratchet its absence
   - Delete `internal/core/toolcallrepair` only after all production/test imports have migrated.
   - Add a permanent architecture rule rejecting production resurrection of that package and a recursive feature-tree import boundary for `internal/plugins/features/toolcallrepair`.
   - Update docs/package maps that still identify tool repair as core-owned.
