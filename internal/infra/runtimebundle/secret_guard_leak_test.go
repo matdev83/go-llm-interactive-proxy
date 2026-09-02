@@ -8,8 +8,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"

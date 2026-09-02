@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	sdksg "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"

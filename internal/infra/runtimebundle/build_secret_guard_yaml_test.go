@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -106,7 +106,7 @@ func TestBuildSecretGuardRuntime_multiUserZeroEnvEvenWithMalformedSingleUser(t *
 	opts := &BuildOptions{Extensions: ExtensionsOptions{
 		SecretGuardEnvironment: env,
 		SecretGuardInputs: SecretGuardInputs{
-			SingleUser: engine.SingleUserOptions{
+			SingleUser: secretguardcompose.SingleUserOptions{
 				IncludePopularEnv: true,
 				IncludeEnv:        []string{"OPENAI_API_KEY"},
 				MinSecretBytes:    8,
@@ -200,8 +200,8 @@ func TestComposeSecretGuardSingleUser_matcherOverrideWinsOverYAML(t *testing.T) 
 		MinSecretBytes:        8,
 	}
 	inputs := SecretGuardInputs{
-		SingleUser: engine.SingleUserOptions{
-			Matcher:           engine.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
+		SingleUser: secretguardcompose.SingleUserOptions{
+			Matcher:           secretguardcompose.MatcherOptions{PreserveKnownPrefixes: false, MaskByte: 'X'},
 			MatcherConfigured: true,
 		},
 	}
