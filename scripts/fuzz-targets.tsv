@@ -47,9 +47,9 @@ FuzzParseCompactRequest	./internal/refbackend/openresponses
 FuzzBuildStream	./internal/refbackend/openresponses	
 FuzzParseWSTurn	./internal/refbackend/openresponses	
 FuzzWebSocketDecodeTurn	./internal/plugins/frontends/openresponses	
-FuzzCompleteJSONSuffix	./internal/core/toolcallrepair	
-FuzzSchemaPreScanCompile	./internal/core/toolcallrepair	
-FuzzEngineRepair	./internal/core/toolcallrepair	
+FuzzCompleteJSONSuffix	./internal/plugins/features/toolcallrepair/repair	.
+FuzzSchemaPreScanCompile	./internal/plugins/features/toolcallrepair/repair	.
+FuzzEngineRepair	./internal/plugins/features/toolcallrepair/repair	.
 FuzzComputeAnchor	./internal/plugins/features/reasoningpreservation	
 FuzzDecodeConfig	./internal/plugins/features/reasoningpreservation	
 FuzzLeaseSet_OccupiesCapacity	./internal/core/concurrencyauthority/domain	

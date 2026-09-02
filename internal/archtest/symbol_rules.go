@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // SymbolKind classifies a package-scope declaration.
@@ -310,5 +311,41 @@ func ScanAbsentFiles(root string) ([]RuleFinding, error) {
 			return nil, err
 		}
 	}
+	return out, nil
+}
+
+// RetiredPackageDirs lists retired package directory trees that must not contain any production Go files.
+var RetiredPackageDirs = []string{
+	"internal/core/toolcallrepair",
+}
+
+// ScanFileRetiredPackage checks if a repo-relative file path belongs to a retired package.
+func ScanFileRetiredPackage(rel string) *RuleFinding {
+	pkg := PackageDirFromRel(rel)
+	for _, retired := range RetiredPackageDirs {
+		if pkg == retired || strings.HasPrefix(pkg, retired+"/") {
+			return &RuleFinding{
+				Rule:   "retired_package",
+				Path:   rel,
+				Detail: "retired production package " + retired + " must not contain Go files",
+			}
+		}
+	}
+	return nil
+}
+
+// ScanRetiredPackages reports any production Go files located under RetiredPackageDirs.
+func ScanRetiredPackages(root string) ([]RuleFinding, error) {
+	var out []RuleFinding
+	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
+		if f := ScanFileRetiredPackage(rel); f != nil {
+			out = append(out, *f)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
 	return out, nil
 }
