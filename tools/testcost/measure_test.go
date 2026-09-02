@@ -53,11 +53,11 @@ func TestBuildTestUnitRequestExactCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go", "test", "-count=1", "-json", "-parallel=7", "-timeout=10m", "./..."}
+	want := []string{"go", "test", "-count=1", "-json", "-parallel=7", "-timeout=15m", "./..."}
 	if !reflect.DeepEqual(request.Argv, want) {
 		t.Fatalf("Argv = %#v, want %#v", request.Argv, want)
 	}
-	if request.Timeout != 12*time.Minute || request.Output != taskrunner.Stream {
+	if request.Timeout != 18*time.Minute || request.Output != taskrunner.Stream {
 		t.Fatalf("timeout/output = %s/%v", request.Timeout, request.Output)
 	}
 	if !request.RestrictAdmin {
@@ -189,7 +189,7 @@ func TestBuildQATaggedHotspotsRequestExactCommand(t *testing.T) {
 	if !reflect.DeepEqual(request.Argv, want) {
 		t.Fatalf("Argv = %#v, want %#v", request.Argv, want)
 	}
-	if request.Timeout != 12*time.Minute || request.Output != taskrunner.Stream {
+	if request.Timeout != 18*time.Minute || request.Output != taskrunner.Stream {
 		t.Fatalf("timeout/output = %s/%v", request.Timeout, request.Output)
 	}
 	if request.Label != TargetQATaggedHotspots {

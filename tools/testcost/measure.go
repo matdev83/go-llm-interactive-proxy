@@ -19,7 +19,7 @@ const (
 	TargetTestUnit         = "test-unit"
 	TargetQualityChecks    = "quality-checks"
 	TargetQATaggedHotspots = "qa-tagged-hotspots"
-	defaultTimeout         = 12 * time.Minute
+	defaultTimeout         = 18 * time.Minute
 	defaultFailureTail     = 8 * 1024
 )
 
@@ -142,7 +142,7 @@ func BuildTestUnitRequest(options MeasureOptions) (taskrunner.Request, error) {
 		return taskrunner.Request{}, err
 	}
 	return taskrunner.Request{
-		Argv:          []string{"go", "test", "-count=1", "-json", "-parallel=" + strconv.Itoa(parallel), "-timeout=10m", "./..."},
+		Argv:          []string{"go", "test", "-count=1", "-json", "-parallel=" + strconv.Itoa(parallel), "-timeout=15m", "./..."},
 		Dir:           root,
 		Timeout:       timeout,
 		Output:        taskrunner.Stream,
