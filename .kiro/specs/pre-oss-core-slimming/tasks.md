@@ -32,7 +32,7 @@
   - _Boundary: Tool-call Repair Feature_
   - _Validation: `go test -count=1 ./internal/core/toolcallrepair ./internal/plugins/features/toolcallrepair ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
-- [ ] 1.4 (P) Characterize secret-guard source, matcher, audit, and security invariants
+- [x] 1.4 (P) Characterize secret-guard source, matcher, audit, and security invariants
   - Pin single-user catalog discovery, include/exclude behavior, known-prefix behavior, min-secret length, matcher options, entry/category inventory, and matcher resolver results.
   - Pin multi-user **zero environment calls** with a panic/counting environment fake; pin disabled **zero environment calls** separately.
   - Pin runtime composition: feature uniqueness, access mode, action, audit policy, observer chaining/default slog observer, catalog inventory, redaction, typed-nil behavior, and failure text/classification currently relied on by tests.
