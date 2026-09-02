@@ -167,7 +167,7 @@
   - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/... ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/core/runtime ./internal/archtest`_
 
 - [ ] 5. Invert and relocate the concrete compaction detector
-- [ ] 5.1 Define the smallest core runtime consumer port
+- [x] 5.1 Define the smallest core runtime consumer port
   - Add one repository-internal detector interface at the core runtime consumer boundary with exactly the three operations characterized in 1.5; use existing `lipapi.Call`, `lipapi.Event`, `compaction.PreservationMeta`, `compaction.Event`, and `compaction.ResponsePreview` types.
   - Change `runtime.CompactionRuntime.Detector`, response-pipeline detector storage, and safe panic wrappers to the interface; preserve nil behavior.
   - Convert request/response correlation construction from concrete detector `RequestMeta`/`ResponseMeta` types to existing `compaction.PreservationMeta` fields without changing values.

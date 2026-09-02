@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -59,21 +58,14 @@ func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRe
 		return compaction.PreservationMeta{}
 	}
 	observers := e.compactionObservers()
-	meta := compactiondetect.RequestMeta{
+	preservationMeta := compaction.PreservationMeta{
 		TraceID:    prep.identity.traceID,
+		SessionID:  prep.identity.call.Session.AuthoritativeSessionID,
 		ALegID:     prep.identity.aLeg.ALegID,
 		BLegID:     bleg.BLegID,
 		AttemptSeq: bleg.Seq,
-		SessionID:  prep.identity.call.Session.AuthoritativeSessionID,
 	}
-	events := safeCompactionRequestOpened(e.Detector, meta, *prep.identity.call)
-	preservationMeta := compaction.PreservationMeta{
-		TraceID:    meta.TraceID,
-		SessionID:  meta.SessionID,
-		ALegID:     meta.ALegID,
-		BLegID:     meta.BLegID,
-		AttemptSeq: meta.AttemptSeq,
-	}
+	events := safeCompactionRequestOpened(e.Detector, preservationMeta, *prep.identity.call)
 	if len(events) > 0 {
 		last := events[len(events)-1]
 		preservationMeta.TransactionID = last.TransactionID
@@ -137,24 +129,17 @@ func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Con
 		return dispatch
 	}
 	observers := p.compactionObservers
-	meta := compactiondetect.ResponseMeta{
+	preservationMeta := compaction.PreservationMeta{
 		TraceID:    evidence.traceID,
+		SessionID:  evidence.sessionID,
 		ALegID:     evidence.aLegID,
 		BLegID:     attempt.bleg.BLegID,
 		AttemptSeq: attempt.bleg.Seq,
-		SessionID:  evidence.sessionID,
 	}
-	preview := safeCompactionPreviewResponse(p.detector, meta, *ev)
-	preservationMeta := compaction.PreservationMeta{
-		TraceID:       meta.TraceID,
-		SessionID:     meta.SessionID,
-		ALegID:        meta.ALegID,
-		BLegID:        meta.BLegID,
-		AttemptSeq:    meta.AttemptSeq,
-		TransactionID: preview.TransactionID,
-		RuleID:        preview.RuleID,
-		Evidence:      preview.Evidence,
-	}
+	preview := safeCompactionPreviewResponse(p.detector, preservationMeta, *ev)
+	preservationMeta.TransactionID = preview.TransactionID
+	preservationMeta.RuleID = preview.RuleID
+	preservationMeta.Evidence = preview.Evidence
 	// Completion-only requests can have their committed transaction established
 	// by RequestOpened while the later ordinary response has an empty pure
 	// preview. Preserve response correlation and use only the request-side
@@ -182,7 +167,7 @@ func (p *responsePipeline) observeCompactionReleaseFinalEvidence(ctx context.Con
 		preservationMeta,
 		p.compactionServices,
 	)
-	events := safeCompactionResponseReleased(p.detector, meta, *ev)
+	events := safeCompactionResponseReleased(p.detector, preservationMeta, *ev)
 	dispatch = compactionReleaseDispatch{meta: preservationMeta, enabled: true}
 	if len(events) == 0 {
 		return dispatch
@@ -206,17 +191,30 @@ func (p *responsePipeline) notifyCompactionAfterRelease(ctx context.Context, ev 
 	)
 }
 
-func safeCompactionRequestOpened(d *compactiondetect.Detector, meta compactiondetect.RequestMeta, call lipapi.Call) (events []compaction.Event) {
+func safeCompactionRequestOpened(d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) (events []compaction.Event) {
 	defer func() { _ = recover() }()
+	if d == nil {
+		return nil
+	}
 	return d.RequestOpened(meta, call)
 }
 
-func safeCompactionResponseReleased(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) (events []compaction.Event) {
+func safeCompactionResponseReleased(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (events []compaction.Event) {
 	defer func() { _ = recover() }()
+	if d == nil {
+		return nil
+	}
 	return d.ResponseReleased(meta, ev)
 }
 
-func safeCompactionPreviewResponse(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) (preview compaction.ResponsePreview) {
-	defer func() { _ = recover() }()
+func safeCompactionPreviewResponse(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) (preview compaction.ResponsePreview) {
+	defer func() {
+		if r := recover(); r != nil {
+			preview = compaction.ResponsePreview{Kind: compaction.PreviewNone}
+		}
+	}()
+	if d == nil {
+		return compaction.ResponsePreview{Kind: compaction.PreviewNone}
+	}
 	return d.PreviewResponse(meta, ev)
 }
