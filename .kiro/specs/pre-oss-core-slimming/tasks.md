@@ -41,7 +41,7 @@
   - _Boundary: Secret Guard Feature / Composition_
   - _Validation: `go test -count=1 ./internal/core/secretguard ./internal/plugins/features/secretguard ./internal/infra/runtimebundle -run 'Secret|secret|Matcher|Catalog'`_
 
-- [ ] 1.5 (P) Characterize compaction detector port semantics and lifetime
+- [x] 1.5 (P) Characterize compaction detector port semantics and lifetime
   - Enumerate the exact detector methods called by core runtime (`RequestOpened`, `PreviewResponse`, `ResponseReleased`) and assert that inputs/outputs can be represented with existing `lipapi` and `pkg/lipsdk/compaction` contracts.
   - Add fake-detector runtime tests for nil/no-op, request-open ordering, pure preview-before-preserver, response-release commit-after-preserver, panic isolation, and exact correlation fields.
   - Prove the current concrete detector has no `Close`, goroutine, external I/O, or generation-owned resource; if this premise is false, stop implementation and repair the spec before moving it.
