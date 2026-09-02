@@ -194,6 +194,9 @@ run_guard() {
 
 run_guard adhoc bash "$script_dir/check-adhoc-goroutines.sh"
 run_guard regex bash "$script_dir/regex-hotpath-check.sh"
+if [ "${LIP_SKIP_LINT:-}" != "1" ]; then
+	run_guard lint bash "$script_dir/lint-all-modules.sh" --changed
+fi
 if [ "${LIP_SKIP_ARCHTEST:-}" != "1" ]; then
 	# Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
 	# quality-checks archtest run shares Go's build/test cache with

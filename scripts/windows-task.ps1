@@ -318,9 +318,7 @@ switch -Regex ($Target) {
         break
     }
     "^lint$" {
-        if (Get-Command golangci-lint -ErrorAction SilentlyContinue) { Invoke-TaskRunner -Label "lint:golangci-lint" -Cwd $root -Timeout "10m" -Command @("golangci-lint", "run") | Out-Host }
-        elseif (Get-Command staticcheck -ErrorAction SilentlyContinue) { Invoke-TaskRunner -Label "lint:staticcheck" -Cwd $root -Timeout "10m" -Command @("staticcheck", "./...") | Out-Host }
-        else { throw "Install golangci-lint (preferred) or staticcheck and ensure it is on PATH." }
+        & "$PSScriptRoot/lint-all-modules.ps1"
         break
     }
     "^vuln$" { Invoke-TaskRunner -Label "vuln:govulncheck" -Cwd $root -Timeout "10m" -Command @("go", "tool", "govulncheck", "./...") | Out-Host; break }
