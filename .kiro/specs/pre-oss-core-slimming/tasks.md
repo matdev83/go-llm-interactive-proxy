@@ -3,7 +3,7 @@
 > Execute in order unless a task is marked `(P)`. This is a release-bounded migration, not permission for a general core cleanup. Every production change starts with characterization/RED coverage. Preserve current `main` behavior unless the requirements explicitly change the v1 dynamic-plane compatibility contract.
 
 - [ ] 1. Freeze the corrected baseline and characterize the release-bound ownership seams
-- [ ] 1.1 Capture the exact post-extension-correction baseline
+- [x] 1.1 Capture the exact post-extension-correction baseline
   - Record the implementation base SHA, current standard plane count/IDs, generated-output check result, current `internal/core` non-test line count, current `internal/infra/runtimebundle` tree line count, and current direct-import census for `internal/plugins/features/*` from core/runtimebundle/standardplugins.
   - Record current package/file inventories for `internal/core/toolcallrepair`, `internal/core/secretguard`, `internal/core/compactiondetect`, `internal/plugins/features/toolcallrepair`, and `internal/plugins/features/secretguard` so mechanical moves cannot silently omit production or tests.
   - Capture the fresh extension-plane seam baseline on one named measurement host using the exact command `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Record OS, CPU, Go version, `GOMAXPROCS`, power/performance mode if known, command, base SHA, and the unedited raw output. Do not reuse the older Wave-0 numbers when a newer corrected baseline exists.
