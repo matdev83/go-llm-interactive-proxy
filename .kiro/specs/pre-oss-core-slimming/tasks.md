@@ -144,7 +144,7 @@
   - _Boundary: Secret Guard Feature Engine_
   - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/...`_
 
-- [ ] 4.2 Create explicit `internal/infra/secretguardcompose` assembly
+- [x] 4.2 Create explicit `internal/infra/secretguardcompose` assembly
   - Move feature-specific runtime composition out of `runtimebundle/secret_guard_runtime.go` into a dedicated typed adapter.
   - Define composition-neutral adapter input/override types in `secretguardcompose` so `runtimebundle` does **not** import `secretguard/engine`; translate effective core access mode, host single-user overrides, environment, frozen guards, observer, and logger inside the adapter.
   - Move/alias internal `SecretGuardInputs`/environment option types from runtimebundle to the adapter as needed to preserve internal call-site compatibility without importing the concrete feature.

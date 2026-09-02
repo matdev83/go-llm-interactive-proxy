@@ -14,8 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -126,17 +126,13 @@ type AuthOptions struct {
 
 // ExtensionsOptions carries the feature-bundle extension surfaces merged into the runtime snapshot (task 5.1).
 // SecretGuardInputs carries single-user catalog / matcher composition overrides.
-type SecretGuardInputs struct {
-	// SingleUser seeds/overrides the composed source catalog when the feature YAML
-	// is enabled. When SingleUser.MatcherConfigured is true, SingleUser.Matcher wins
-	// over YAML redaction options during composition.
-	SingleUser engine.SingleUserOptions
-}
+type SecretGuardInputs = secretguardcompose.SecretGuardInputs
+
 type ExtensionsOptions struct {
 	// SecretGuardInputs carries supported composition seams for the guard
 	// matcher/source configuration.
 	SecretGuardInputs      SecretGuardInputs
-	SecretGuardEnvironment engine.Environment
+	SecretGuardEnvironment secretguardcompose.Environment
 	SecretDecisionObserver sdk.Observer
 }
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"

@@ -12,7 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -40,7 +40,7 @@ func ValidateDistribution(ctx context.Context, in ValidateDistributionInput) err
 func validateDistribution(
 	ctx context.Context,
 	in ValidateDistributionInput,
-	secretEnv engine.Environment,
+	secretEnv secretguardcompose.Environment,
 	ops validateDistributionOps,
 ) error {
 	if ctx == nil {
