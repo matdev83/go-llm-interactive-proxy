@@ -418,13 +418,8 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 	require.NoError(t, feature.Contribute(dstValid, feature.PlaneSubmitHooks, "dst-plugin", []hooks.SubmitHook{
 		charStubSubmitHook{id: "dst-hook-keep", order: 1},
 	}))
-	malformedMapFrozen := feature.NewFrozenPlaneSetFromMapForTest(
-		map[string]any{
-			feature.PlaneToolCallFinalizationMaxArgsBytes.ID: -100, // Invalid negative value fails validation
-		},
-		nil,
-	)
-	err = malformedMapFrozen.ReplayTo(dstValid, "replayer")
+	malformedFrozen := feature.NewMalformedGeneratedFrozenToolCallFinalizationMaxArgsBytesForTest(-100)
+	err = malformedFrozen.ReplayTo(dstValid, "replayer")
 	require.Error(t, err)
 	require.ErrorIs(t, err, feature.ErrInvalidContribution)
 	// Destination remains unmodified

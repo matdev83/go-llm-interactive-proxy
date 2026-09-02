@@ -1,7 +1,6 @@
 package feature
 
 import (
-	"maps"
 	"reflect"
 	"sync"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -373,29 +373,71 @@ func NewMalformedGeneratedFrozenCompactionPreserversForTest(
 	}
 }
 
-// NewFrozenPlaneSetFromMapForTest creates a map-backed FrozenPlaneSet for testing,
-// defensively cloning the input maps to ensure frozen immutability.
-func NewFrozenPlaneSetFromMapForTest(values map[string]any, identities map[string]string) FrozenPlaneSet {
-	var valuesCopy map[string]any
-	var pluginIDsCopy map[string]string
-	if values != nil {
-		valuesCopy = make(map[string]any, len(values))
-		pluginIDsCopy = make(map[string]string, len(values))
-		for k, v := range values {
-			valuesCopy[k] = cloneAny(v)
-			pluginIDsCopy[k] = "test"
-		}
-	}
-	var identitiesCopy map[string]string
-	if identities != nil {
-		identitiesCopy = make(map[string]string, len(identities))
-		maps.Copy(identitiesCopy, identities)
+// NewMalformedGeneratedFrozenToolCallFinalizationCandidateForTest constructs a test-only generated FrozenPlaneSet
+// with finalizers and max args bytes.
+func NewMalformedGeneratedFrozenToolCallFinalizationCandidateForTest(
+	finalizers []toolcall.Finalizer,
+	maxArgs int,
+) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		toolCallFinalizers:               cloneSlice(finalizers),
+		toolCallFinalizationMaxArgsBytes: maxArgs,
 	}
 	return FrozenPlaneSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		pluginIDs:  pluginIDsCopy,
-		frozen:     nil,
+		frozen: gf,
+	}
+}
+
+// NewMalformedGeneratedFrozenToolCallFinalizationMaxArgsBytesForTest constructs a test-only generated FrozenPlaneSet
+// with specific tool call finalization max args bytes.
+func NewMalformedGeneratedFrozenToolCallFinalizationMaxArgsBytesForTest(maxArgs int) FrozenPlaneSet {
+	gf := &generatedFrozen{
+		toolCallFinalizationMaxArgsBytes: maxArgs,
+	}
+	return FrozenPlaneSet{
+		frozen: gf,
+	}
+}
+
+func cloneValue[T any](v T) T {
+	var anyVal any = v
+	if anyVal == nil {
+		return v
+	}
+	cloned := cloneAny(anyVal)
+	if typed, ok := cloned.(T); ok {
+		return typed
+	}
+	return v
+}
+
+func cloneAny(v any) any {
+	if v == nil {
+		return nil
+	}
+	val := reflect.ValueOf(v)
+	switch val.Kind() {
+	case reflect.Slice:
+		if val.IsNil() {
+			return v
+		}
+		l := val.Len()
+		c := val.Cap()
+		out := reflect.MakeSlice(val.Type(), l, c)
+		reflect.Copy(out, val)
+		return out.Interface()
+	case reflect.Map:
+		if val.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(val.Type(), val.Len())
+		iter := val.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(iter.Key(), iter.Value())
+		}
+		return out.Interface()
+	default:
+		return v
 	}
 }
 

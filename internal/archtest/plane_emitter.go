@@ -269,6 +269,9 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 				fmt.Fprintf(&buf, "\t\tif err := %s.generated.contribute(gc, source, contributorID, gf.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", p.varName, p.fieldName)
 			}
 		} else if p.typeExpr == "int" {
+			fmt.Fprintf(&buf, "\tif gf.%s < 0 {\n", p.fieldName)
+			fmt.Fprintf(&buf, "\t\treturn &AttributedError{\n\t\t\tPluginID: contributorID,\n\t\t\tPlaneID:  %s.ID,\n\t\t\tErr:      fmt.Errorf(\"%%w: must be >= 0, got %%d\", ErrInvalidContribution, gf.%s),\n\t\t}\n", p.varName, p.fieldName)
+			buf.WriteString("\t}\n")
 			fmt.Fprintf(&buf, "\tif gf.%s > 0 {\n", p.fieldName)
 			fmt.Fprintf(&buf, "\t\tif %s.Validate != nil {\n", p.varName)
 			fmt.Fprintf(&buf, "\t\t\tif err := %s.Validate(gf.%s); err != nil {\n", p.varName, p.fieldName)
@@ -395,9 +398,6 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 	}
 	buf.WriteString("\treturn \"\", false\n")
 	buf.WriteString("}\n\n")
-
-	// 8. map replay functions
-	emitMapReplayFunctions(&buf, planes)
 
 	// 9. init() binding closures
 	buf.WriteString("func init() {\n")

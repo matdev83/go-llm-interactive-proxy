@@ -8,12 +8,8 @@ import (
 
 // FrozenPlaneSet holds an immutable collection of composed feature plane values.
 type FrozenPlaneSet struct {
-	// TEST-ONLY: values and identities maps are test-only fallback storage in task 2.2.
-	// Task 2.3 replaces them with typed struct storage and ordinal dispatch (zero maps, zero type assertions).
-	values     map[string]any
-	identities map[string]string
-	pluginIDs  map[string]string
-	frozen     *generatedFrozen
+	pluginIDs map[string]string
+	frozen    *generatedFrozen
 }
 
 var (
@@ -43,7 +39,7 @@ func materializeRequestSlice[T any](
 }
 
 // Get retrieves the typed value for plane p from the frozen set.
-// If the plane was not contributed or is absent, the zero value of P is returned.
+// If the plane was not contributed, is ungenerated, or is absent, the zero value of P is returned.
 // For slice-valued planes, ordinary Get calls return defensive copies to ensure that
 // caller modifications cannot corrupt the frozen snapshot.
 // For planes bound to generated storage, Get dispatches directly with zero map lookups,
@@ -51,14 +47,6 @@ func materializeRequestSlice[T any](
 func Get[P any](s FrozenPlaneSet, p Plane[P]) P {
 	if p.generated.get != nil && s.frozen != nil {
 		return p.generated.get(s.frozen)
-	}
-	// TEST-ONLY: replaced by generated typed storage in task 2.3; no production plane will use this path.
-	if s.values != nil {
-		if val, ok := s.values[p.ID]; ok {
-			if typed, ok := val.(P); ok {
-				return cloneValue(typed)
-			}
-		}
 	}
 	var zero P
 	return zero
@@ -82,9 +70,9 @@ func FreezeRequestPlanes(in FrozenPlaneSet) FrozenPlaneSet {
 			frozen:    in.frozen.freezeRequest(),
 		}
 	}
-	cset := in.ToContributions()
-	frozen := cset.Freeze()
-	return FreezeRequestPlanes(frozen)
+	return FrozenPlaneSet{
+		pluginIDs: pluginIDsCopy,
+	}
 }
 
 // FrozenIdentity retrieves the validated identity string associated with an exclusive
@@ -95,17 +83,12 @@ func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
 	if p.generated.identity != nil && s.frozen != nil {
 		return p.generated.identity(s.frozen)
 	}
-	// TEST-ONLY: replaced by generated typed storage in task 2.3; no production plane will use this path.
-	if s.identities != nil {
-		id, ok := s.identities[p.ID]
-		return id, ok
-	}
 	return "", false
 }
 
 // IsZero reports whether s is an uninitialized, zero-value FrozenPlaneSet.
 func (s FrozenPlaneSet) IsZero() bool {
-	return s.frozen == nil && s.values == nil && s.identities == nil && s.pluginIDs == nil
+	return s.frozen == nil && len(s.pluginIDs) == 0
 }
 
 // ToContributions reconstructs a mutable ContributionSet from the frozen snapshot.
@@ -113,16 +96,10 @@ func (s FrozenPlaneSet) ToContributions() *ContributionSet {
 	if s.IsZero() {
 		return NewContributionSet()
 	}
-	pluginIDsCopy := make(map[string]string, len(s.pluginIDs))
+	var pluginIDsCopy map[string]string
 	if s.pluginIDs != nil {
+		pluginIDsCopy = make(map[string]string, len(s.pluginIDs))
 		maps.Copy(pluginIDsCopy, s.pluginIDs)
-	}
-	if s.values != nil {
-		for k := range s.values {
-			if _, ok := pluginIDsCopy[k]; !ok {
-				pluginIDsCopy[k] = "frozen"
-			}
-		}
 	}
 	var gen *generatedContributions
 	if s.frozen != nil {
@@ -146,43 +123,26 @@ func ContributionSetFromFrozen(s FrozenPlaneSet) *ContributionSet {
 
 // ContributeCandidateTo contributes candidate plane values in s into dst under the given source and contributor ID.
 func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source SourceKind, contributorID string) error {
-	if s.IsZero() || dst == nil {
+	if s.IsZero() || dst == nil || s.frozen == nil {
 		return nil
 	}
 	staged := dst.Clone()
-	if s.frozen != nil && staged.generated != nil {
+	if staged.generated != nil {
 		if err := s.frozen.contributeCandidateTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
 		if s.pluginIDs != nil && staged.pluginIDs != nil {
 			maps.Copy(staged.pluginIDs, s.pluginIDs)
 		}
-	} else {
-		// Test-only map-backed storage fallback:
-		if err := contributeCandidateMapTo(s.values, staged, source, contributorID); err != nil {
-			return err
-		}
 	}
 	*dst = *staged
 	return nil
 }
 
-// Clone returns a deep copy of the FrozenPlaneSet with independent slice backing arrays and map copies.
+// Clone returns a deep copy of the FrozenPlaneSet with independent slice backing arrays.
 func (s FrozenPlaneSet) Clone() FrozenPlaneSet {
 	if s.IsZero() {
 		return FrozenPlaneSet{}
-	}
-	var valuesCopy map[string]any
-	if s.values != nil {
-		valuesCopy = make(map[string]any, len(s.values))
-		for k, v := range s.values {
-			valuesCopy[k] = cloneAny(v)
-		}
-	}
-	var identitiesCopy map[string]string
-	if s.identities != nil {
-		identitiesCopy = make(map[string]string, len(s.identities))
-		maps.Copy(identitiesCopy, s.identities)
 	}
 	var pluginIDsCopy map[string]string
 	if s.pluginIDs != nil {
@@ -197,23 +157,18 @@ func (s FrozenPlaneSet) Clone() FrozenPlaneSet {
 		}
 	}
 	return FrozenPlaneSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		pluginIDs:  pluginIDsCopy,
-		frozen:     genFrozen,
+		pluginIDs: pluginIDsCopy,
+		frozen:    genFrozen,
 	}
 }
 
 // validateStored checks that all planes in s conform to their declared plane validation rules
 // without replaying into a ContributionSet.
 func (s FrozenPlaneSet) validateStored() error {
-	if s.IsZero() {
+	if s.IsZero() || s.frozen == nil {
 		return nil
 	}
-	if s.frozen != nil {
-		return s.frozen.validate()
-	}
-	return validateAllPlanesMap(s.values, s.identities)
+	return s.frozen.validate()
 }
 
 // Validate checks that all planes in s conform to their declared plane validation rules.
@@ -244,20 +199,15 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 				Err:      fmt.Errorf("%w: source %s requires identity-aware binder operation", ErrUnsupportedReplaySource, source),
 			}
 		}
-	} else if s.values != nil {
-		if planeID, ok := mapHasIdentityReplayRule(s.values, source, CombReplaceByIdentity); ok {
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  planeID,
-				Err:      fmt.Errorf("%w: source %s requires identity-aware binder operation", ErrUnsupportedReplaySource, source),
-			}
-		}
 	}
 	if err := s.validateStored(); err != nil {
 		return attributeReplayValidationError(err, contributorID)
 	}
+	if s.frozen == nil {
+		return nil
+	}
 	staged := dst.Clone()
-	if s.frozen != nil && staged.generated != nil {
+	if staged.generated != nil {
 		if err := s.frozen.replayAllPlanesTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
@@ -266,55 +216,9 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 				staged.pluginIDs[k] = contributorID
 			}
 		}
-	} else {
-		if err := replayAllPlanesMapTo(s.values, s.identities, staged, source, contributorID); err != nil {
-			return err
-		}
 	}
 	*dst = *staged
 	return nil
-}
-
-func cloneValue[T any](v T) T {
-	var anyVal any = v
-	if anyVal == nil {
-		return v
-	}
-	cloned := cloneAny(anyVal)
-	if typed, ok := cloned.(T); ok {
-		return typed
-	}
-	return v
-}
-
-func cloneAny(v any) any {
-	if v == nil {
-		return nil
-	}
-	val := reflect.ValueOf(v)
-	switch val.Kind() {
-	case reflect.Slice:
-		if val.IsNil() {
-			return v
-		}
-		l := val.Len()
-		c := val.Cap()
-		out := reflect.MakeSlice(val.Type(), l, c)
-		reflect.Copy(out, val)
-		return out.Interface()
-	case reflect.Map:
-		if val.IsNil() {
-			return v
-		}
-		out := reflect.MakeMapWithSize(val.Type(), val.Len())
-		iter := val.MapRange()
-		for iter.Next() {
-			out.SetMapIndex(iter.Key(), iter.Value())
-		}
-		return out.Interface()
-	default:
-		return v
-	}
 }
 
 func isReflectNil(v reflect.Value) bool {

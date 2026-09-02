@@ -76,7 +76,7 @@
   - _Boundary: Public Feature SDK / Candidate State / Test Fixtures_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
-- [ ] 2.3 Remove arbitrary fallback from freeze, validation and replay paths
+- [x] 2.3 Remove arbitrary fallback from freeze, validation and replay paths
   - Delete arbitrary values/identity maps and map-backed Get/Clone/ToContributions/Validate/Replay/CandidateReplay branches from `FrozenPlaneSet`.
   - Modify the plane generator/emitter to stop generating map replay/validation/candidate helper functions; regenerate `plane_generated.go` instead of editing it.
   - Ensure ordinary `Get` on an ungenerated plane returns its zero value because no valid set can contain such a value; it must not search dynamic storage.
