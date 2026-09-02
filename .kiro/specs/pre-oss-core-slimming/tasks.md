@@ -112,7 +112,7 @@
   - _Boundary: Tool-call Repair Feature_
   - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/...`; targeted fuzz/bench smoke_
 
-- [ ] 3.2 Make the feature root construct its complete bundle
+- [x] 3.2 Make the feature root construct its complete bundle
   - Add `toolcallrepair.FeatureBundle(cfg)` (or the repository-consistent equivalent) that translates YAML-decoded feature config into the feature-local finalizer policy and contributes both `PlaneToolCallFinalizers` and `PlaneToolCallFinalizationMaxArgsBytes`.
   - Preserve finalizer ID, order, default/max-args equality, schema limits, and on-unrepairable mapping exactly.
   - Simplify `internal/standardplugins/features_install.go` to decode config and delegate to the feature bundle constructor; remove the core repair import and duplicate policy mapping.

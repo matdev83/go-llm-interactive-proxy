@@ -40,3 +40,11 @@ func TestDefaultMaxArgsBytesMatchCore(t *testing.T) {
 			toolcallrepair.DefaultMaxArgsBytes, repair.DefaultMaxArgsBytes)
 	}
 }
+
+func TestDefaultFinalizerOrderMatchCore(t *testing.T) {
+	t.Parallel()
+	if toolcallrepair.DefaultFinalizerOrder != repair.DefaultFinalizerOrder {
+		t.Fatalf("feature DefaultFinalizerOrder=%d != repair DefaultFinalizerOrder=%d",
+			toolcallrepair.DefaultFinalizerOrder, repair.DefaultFinalizerOrder)
+	}
+}
