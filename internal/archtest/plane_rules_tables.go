@@ -210,6 +210,59 @@ var (
 		"internal/featurebundle.FreezeBundle":                               true,
 		"internal/featurebundle.MergeBundlesGenerated":                      true,
 	}
+
+	// ClosedPlaneTargetStorageStructs lists the structs in pkg/lipsdk/feature that
+	// must not contain arbitrary map storage fields.
+	ClosedPlaneTargetStorageStructs = map[string]bool{
+		"ContributionSet":                           true,
+		"FrozenPlaneSet":                            true,
+		"generatedContributions":                    true,
+		"generatedFrozen":                           true,
+		"pkg/lipsdk/feature.ContributionSet":        true,
+		"pkg/lipsdk/feature.FrozenPlaneSet":         true,
+		"pkg/lipsdk/feature.generatedContributions": true,
+		"pkg/lipsdk/feature.generatedFrozen":        true,
+	}
+
+	// ClosedPlaneAllowedStorageMaps defines the explicit allowlist of legitimate attribution maps.
+	ClosedPlaneAllowedStorageMaps = map[string]map[string]string{
+		"ContributionSet":                    {"pluginIDs": "map[string]string"},
+		"FrozenPlaneSet":                     {"pluginIDs": "map[string]string"},
+		"pkg/lipsdk/feature.ContributionSet": {"pluginIDs": "map[string]string"},
+		"pkg/lipsdk/feature.FrozenPlaneSet":  {"pluginIDs": "map[string]string"},
+	}
+
+	// ClosedPlaneAllowedReflectionFuncs lists exact functions in pkg/lipsdk/feature
+	// permitted to use reflection for typed nil inspection.
+	ClosedPlaneAllowedReflectionFuncs = map[string]bool{
+		"isReflectNil":                    true,
+		"isNilValue":                      true,
+		"pkg/lipsdk/feature.isReflectNil": true,
+		"pkg/lipsdk/feature.isNilValue":   true,
+	}
+
+	// ClosedPlaneAllowedPackageMapFuncs lists functions in pkg/lipsdk/feature permitted
+	// to use maps for legitimate package tasks unrelated to closed plane value storage.
+	ClosedPlaneAllowedPackageMapFuncs = map[string]bool{
+		"ValidateManifest":                    true,
+		"pkg/lipsdk/feature.ValidateManifest": true,
+	}
+
+	// ClosedPlaneOperationalFiles defines production files in pkg/lipsdk/feature where
+	// map-backed operational logic is strictly prohibited.
+	ClosedPlaneOperationalFiles = map[string]bool{
+		"contributions.go":   true,
+		"frozen.go":          true,
+		"plane_generated.go": true,
+	}
+
+	// KnownLegacyForbiddenPlaneMapHelpers maps deprecated fallback helper names to rejection rationale.
+	KnownLegacyForbiddenPlaneMapHelpers = map[string]string{
+		"validateAllPlanesMap":     "map validation helper is deleted; validation must operate on generated typed storage",
+		"replayAllPlanesMapTo":     "map replay helper is deleted; replay must operate on generated typed storage",
+		"mapHasIdentityReplayRule": "map identity replay helper is deleted; identity checks must operate on generated typed storage",
+		"contributeCandidateMapTo": "map candidate helper is deleted; candidate contributions must operate on generated typed storage",
+	}
 )
 
 // IsAllowedObserverProjection reports whether qualifiedSymbol is in the qualified-symbol allowlist for observer projection.

@@ -194,7 +194,7 @@ func TestClosedPlane_UnboundRejection_Contribute(t *testing.T) {
 	assert.False(t, cs.Has("test.unbound_slice_plane"))
 }
 
-func TestClosedPlane_UnboundFallback_FreezeAndClone(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_FreezeAndClone(t *testing.T) {
 	t.Parallel()
 
 	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
@@ -225,7 +225,7 @@ func TestClosedPlane_UnboundFallback_FreezeAndClone(t *testing.T) {
 	assert.Equal(t, []string{"val1", "val2", "val3"}, feature.Get(frozenClone, boundPlane))
 }
 
-func TestClosedPlane_UnboundFallback_ToContributions(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_ToContributions(t *testing.T) {
 	t.Parallel()
 
 	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
@@ -257,11 +257,11 @@ func TestClosedPlane_UnboundFallback_ToContributions(t *testing.T) {
 	assert.Equal(t, []string{"initial"}, feature.Get(thawed2.Freeze(), boundPlane))
 }
 
-func TestClosedPlane_UnboundFallback_RequestFreezeAndMaterialize(t *testing.T) {
+func TestClosedPlane_DeclarationValidation_CustomPlaneWithRequestMaterializer(t *testing.T) {
 	t.Parallel()
 
-	materializedPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
-		ID:           "test.unbound_materialized_plane",
+	customPlane := feature.Plane[[]string]{
+		ID:           "test.custom_materialized_plane",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
 			Feature: feature.CombConcatenate,
@@ -275,29 +275,22 @@ func TestClosedPlane_UnboundFallback_RequestFreezeAndMaterialize(t *testing.T) {
 			slices.Sort(sorted)
 			return sorted
 		},
-	})
+	}
 
+	// 1. Declaration validation passes
+	require.NoError(t, customPlane.ValidateDeclaration())
+
+	// 2. Ungenerated plane contribution fails with ErrUngeneratedPlane
 	cs := feature.NewContributionSet()
-	err := feature.Contribute(cs, materializedPlane, "plugin-1", []string{"zebra", "apple", "mango"})
-	require.NoError(t, err)
-
-	frozen := cs.Freeze()
-	// Ordinary Get on frozen preserves contribution order from fallback storage
-	assert.Equal(t, []string{"zebra", "apple", "mango"}, feature.Get(frozen, materializedPlane))
-
-	// FreezeRequestPlanes materializes request-scoped planes into a new FrozenPlaneSet.
-	// Current behavior: FreezeRequestPlanes constructs FrozenPlaneSet{ frozen: in.frozen.freezeRequest() },
-	// which omits the fallback values map entirely!
-	// As a result, arbitrary unbound planes are dropped on request freeze.
-	reqFrozen := feature.FreezeRequestPlanes(frozen)
-	assert.False(t, reqFrozen.IsZero())
-	assert.Nil(t, feature.Get(reqFrozen, materializedPlane), "unbound fallback planes are omitted by FreezeRequestPlanes")
+	err := feature.Contribute(cs, customPlane, "plugin-1", []string{"zebra", "apple", "mango"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 }
 
-func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_FrozenValidation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("valid unbound plane passes FrozenPlaneSet.Validate", func(t *testing.T) {
+	t.Run("valid bound plane passes FrozenPlaneSet.Validate", func(t *testing.T) {
 		t.Parallel()
 		boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 		cs := feature.NewContributionSet()
@@ -308,7 +301,7 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 		require.NoError(t, frozen.Validate())
 	})
 
-	t.Run("unbound plane with stored validation failure is reported on Validate", func(t *testing.T) {
+	t.Run("bound plane with stored validation failure is reported on Validate", func(t *testing.T) {
 		t.Parallel()
 		planeWithValidator := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 			ID:           "test.unbound_validating_plane",
@@ -339,7 +332,7 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 	})
 }
 
-func TestClosedPlane_UnboundFallback_FeatureBundleValidation(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_FeatureBundleValidation(t *testing.T) {
 	t.Parallel()
 
 	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
@@ -353,34 +346,32 @@ func TestClosedPlane_UnboundFallback_FeatureBundleValidation(t *testing.T) {
 	require.NoError(t, bundle.Validate())
 }
 
-func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
+func TestClosedPlane_OrdinaryReplay_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
-	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
+	// 1. ReplayTo into dst under SourceFeature using standard plane
 	csSrc := feature.NewContributionSet()
-	err := feature.Contribute(csSrc, boundPlane, "plugin-source", []string{"src-val-1", "src-val-2"})
-	require.NoError(t, err)
+	require.NoError(t, feature.Contribute(csSrc, feature.PlaneSubmitHooks, "plugin-source", []hooks.SubmitHook{
+		charStubSubmitHook{id: "src-hook-1", order: 1},
+		charStubSubmitHook{id: "src-hook-2", order: 2},
+	}))
 
 	frozenSrc := csSrc.Freeze()
-
-	// 1. ReplayTo into dst under SourceFeature:
-	// Current behavior: replayAllPlanesMapTo iterates only over standard manifest planes in plane_generated.go.
-	// As a result, arbitrary unbound planes stored in fallback map values are omitted during replay!
 	dst := feature.NewContributionSet()
-	err = frozenSrc.ReplayTo(dst, "replayed-plugin")
+	err := frozenSrc.ReplayTo(dst, "replayed-plugin")
 	require.NoError(t, err)
 
 	frozenDst := dst.Freeze()
-	// Unbound plane is NOT carried over by replayAllPlanesMapTo (demonstrating why map fallback was incomplete)
-	assert.Nil(t, feature.Get(frozenDst, boundPlane), "unbound fallback plane is not replayed by manifest-generated replayAllPlanesMapTo")
+	gotHooks := feature.Get(frozenDst, feature.PlaneSubmitHooks)
+	require.Len(t, gotHooks, 2)
+	assert.Equal(t, "src-hook-1", gotHooks[0].ID())
+	assert.Equal(t, "src-hook-2", gotHooks[1].ID())
 
-	// 2. ReplaySourceTo into dst under SourceHost:
+	// 2. ReplaySourceTo into dst under SourceHost using standard plane
 	dstHost := feature.NewContributionSet()
-	err = frozenSrc.ReplaySourceTo(dstHost, feature.SourceHost, "host-replay")
+	err = frozenSrc.ReplaySourceTo(dstHost, feature.SourceFeature, "host-replay")
 	require.NoError(t, err)
-
-	frozenDstHost := dstHost.Freeze()
-	assert.Nil(t, feature.Get(frozenDstHost, boundPlane))
+	assert.Len(t, feature.Get(dstHost.Freeze(), feature.PlaneSubmitHooks), 2)
 
 	// 3. Fail-before-mutate on replay conflict: destination must remain atomically unmodified
 	dstAtomic := feature.NewContributionSet()
@@ -406,9 +397,9 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 
 	// Destination must remain completely unchanged: dst-hook-1 only, dst-provider only
 	frozenAfterReplayFail := dstAtomic.Freeze()
-	gotHooks := feature.Get(frozenAfterReplayFail, feature.PlaneSubmitHooks)
-	require.Len(t, gotHooks, 1, "staged destination must not contain partially replayed hooks")
-	assert.Equal(t, "dst-hook-1", gotHooks[0].ID())
+	gotHooksAfter := feature.Get(frozenAfterReplayFail, feature.PlaneSubmitHooks)
+	require.Len(t, gotHooksAfter, 1, "staged destination must not contain partially replayed hooks")
+	assert.Equal(t, "dst-hook-1", gotHooksAfter[0].ID())
 	gotProv := feature.Get(frozenAfterReplayFail, feature.PlaneTerminalDecisionProvider)
 	require.NotNil(t, gotProv)
 	assert.Equal(t, "dst-provider", gotProv.ID())
@@ -426,41 +417,40 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 	assert.Len(t, feature.Get(dstValid.Freeze(), feature.PlaneSubmitHooks), 1)
 }
 
-func TestClosedPlane_UnboundFallback_CandidateReplay(t *testing.T) {
+func TestClosedPlane_CandidateReplay_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
-	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
-
-	// Initial destination set
+	// Initial destination set with standard candidate plane
 	dst := feature.NewContributionSet()
-	err := feature.Contribute(dst, boundPlane, "plugin-base", []string{"base-val"})
-	require.NoError(t, err)
+	require.NoError(t, feature.Contribute(dst, feature.PlaneRequestTransforms, "plugin-base", []request.Transform{
+		charStubRequestTransform{id: "base-rt", order: 1},
+	}))
 
-	// Candidate frozen set
+	// Candidate frozen set with standard candidate plane
 	candidateSrc := feature.NewContributionSet()
-	err = feature.Contribute(candidateSrc, boundPlane, "plugin-cand", []string{"cand-val"})
-	require.NoError(t, err)
-
+	require.NoError(t, feature.Contribute(candidateSrc, feature.PlaneRequestTransforms, "plugin-cand", []request.Transform{
+		charStubRequestTransform{id: "cand-rt", order: 2},
+	}))
 	candFrozen := candidateSrc.Freeze()
 
-	// 1. Candidate merge into destination via ContributeCandidateTo:
-	// Current behavior: contributeCandidateMapTo iterates only over standard candidate planes in plane_generated.go.
-	// As a result, arbitrary unbound planes in candidate frozen fallback storage are NOT merged into dst.
-	err = candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
+	// 1. Candidate merge into destination via ContributeCandidateTo
+	err := candFrozen.ContributeCandidateTo(dst, feature.SourceFeature, "candidate")
 	require.NoError(t, err)
 
 	frozenMerged := dst.Freeze()
-	// dst retains only its original base-val; cand-val is omitted
-	assert.Equal(t, []string{"base-val"}, feature.Get(frozenMerged, boundPlane), "unbound fallback plane is not merged by contributeCandidateMapTo")
+	gotTransforms := feature.Get(frozenMerged, feature.PlaneRequestTransforms)
+	require.Len(t, gotTransforms, 2)
+	assert.Equal(t, "base-rt", gotTransforms[0].ID())
+	assert.Equal(t, "cand-rt", gotTransforms[1].ID())
 
 	// 2. Candidate merge with ContributeCandidate method
 	dst2 := feature.NewContributionSet()
-	err = feature.Contribute(dst2, boundPlane, "plugin-base", []string{"v1"})
-	require.NoError(t, err)
-
+	require.NoError(t, feature.Contribute(dst2, feature.PlaneRequestTransforms, "plugin-base", []request.Transform{
+		charStubRequestTransform{id: "base-rt", order: 1},
+	}))
 	err = dst2.ContributeCandidate(candFrozen)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"v1"}, feature.Get(dst2.Freeze(), boundPlane))
+	assert.Len(t, feature.Get(dst2.Freeze(), feature.PlaneRequestTransforms), 2)
 
 	// 3. Fail-before-mutate on candidate conflict: destination remains atomically untouched
 	dstCandAtomic := feature.NewContributionSet()
@@ -494,7 +484,7 @@ func TestClosedPlane_UnboundFallback_CandidateReplay(t *testing.T) {
 	assert.Equal(t, "cand-dst-provider", gotCandProv.ID())
 }
 
-func TestClosedPlane_UnboundFallback_ExplicitEmptySliceSemantics(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_ExplicitEmptySliceSemantics(t *testing.T) {
 	t.Parallel()
 
 	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
@@ -520,7 +510,7 @@ func TestClosedPlane_UnboundFallback_ExplicitEmptySliceSemantics(t *testing.T) {
 	})
 }
 
-func TestClosedPlane_UnboundFallback_FailBeforeMutate(t *testing.T) {
+func TestClosedPlane_GeneratedFixture_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
 	falliblePlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{

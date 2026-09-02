@@ -254,14 +254,14 @@ func TestCharacterize_CompactionRuntime_DependencyGapForTask51(t *testing.T) {
 	t.Parallel()
 
 	// Reflectively verify current CompactionRuntime struct field types
-	rtType := reflect.TypeOf(runtime.CompactionRuntime{})
+	rtType := reflect.TypeFor[runtime.CompactionRuntime]()
 	detectorField, ok := rtType.FieldByName("Detector")
 	require.True(t, ok, "CompactionRuntime must have Detector field")
 	assert.Equal(t, "*compactiondetect.Detector", detectorField.Type.String(),
 		"Current runtime field is concrete *compactiondetect.Detector; Task 5.1 will invert this to an interface")
 
 	// Verify all three runtime methods exist on *compactiondetect.Detector with expected signature patterns
-	dType := reflect.TypeOf(&compactiondetect.Detector{})
+	dType := reflect.TypeFor[*compactiondetect.Detector]()
 
 	reqOpenedMethod, ok := dType.MethodByName("RequestOpened")
 	require.True(t, ok, "Detector must have RequestOpened method")

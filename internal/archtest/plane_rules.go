@@ -65,6 +65,9 @@ const (
 	MirrorRequestRuntimeSnapshotField MirrorShapeKind = "RequestRuntimeSnapshotField"
 	MirrorDiagArm                     MirrorShapeKind = "DiagnosticsArm"
 	MirrorStageConsumer               MirrorShapeKind = "StageConsumer"
+	MirrorClosedPlaneStorageMap       MirrorShapeKind = "ClosedPlaneStorageMap"
+	MirrorClosedPlaneMapLogic         MirrorShapeKind = "ClosedPlaneMapLogic"
+	MirrorClosedPlaneReflection       MirrorShapeKind = "ClosedPlaneReflection"
 )
 
 // MirrorFinding is one violation where a forbidden mirror exists past its wave.
@@ -194,10 +197,6 @@ func ScanForbiddenMirrors(root string, maxCompletedWave MigrationWave) ([]Mirror
 
 // ScanFileForForbiddenMirrors inspects a single parsed Go file.
 func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet, f *ast.File, maxCompletedWave MigrationWave) []MirrorFinding {
-	if IsGeneratedFile(relPath, src, f) {
-		return nil
-	}
-
 	var findings []MirrorFinding
 	seen := make(map[string]bool)
 	addFinding := func(kind MirrorShapeKind, ident, planeID, detail string, line int, wave MigrationWave) {
@@ -215,6 +214,30 @@ func ScanFileForForbiddenMirrors(relPath string, src []byte, fset *token.FileSet
 			Detail:     detail,
 			Wave:       wave,
 		})
+	}
+
+	if maxCompletedWave >= Wave5c_Residual {
+		closedFindings := ScanFileClosedPlaneViolations(relPath, fset, f)
+		for _, cf := range closedFindings {
+			var shapeKind MirrorShapeKind
+			switch cf.Rule {
+			case RuleClosedPlaneNoArbitraryValueMaps:
+				shapeKind = MirrorClosedPlaneStorageMap
+			case RuleClosedPlaneNoReflectionFallback:
+				shapeKind = MirrorClosedPlaneReflection
+			default:
+				shapeKind = MirrorClosedPlaneMapLogic
+			}
+			line := 1
+			if pos := strings.LastIndex(cf.Path, ":"); pos != -1 {
+				_, _ = fmt.Sscanf(cf.Path[pos+1:], "%d", &line)
+			}
+			addFinding(shapeKind, "closed_plane", "closed_plane", cf.Detail, line, Wave5c_Residual)
+		}
+	}
+
+	if IsGeneratedFile(relPath, src, f) {
+		return findings
 	}
 
 	ast.Inspect(f, func(n ast.Node) bool {

@@ -137,6 +137,7 @@ schema:
 
 	// 2. Behavioral verification: Valid pass-through
 	t.Run("valid_pass_through", func(t *testing.T) {
+		t.Parallel()
 		res, err := fin.Finalize(ctx, toolcall.CompletedCall{
 			ToolCallID: "c1",
 			ToolName:   "get_weather",
@@ -155,6 +156,7 @@ schema:
 
 	// 3. Behavioral verification: Truncated syntax repair rewrite
 	t.Run("syntax_repair_rewrite", func(t *testing.T) {
+		t.Parallel()
 		res, err := fin.Finalize(ctx, toolcall.CompletedCall{
 			ToolCallID: "c2",
 			ToolName:   "get_weather",
@@ -173,6 +175,7 @@ schema:
 
 	// 4. Behavioral verification: on_unrepairable: "error" causes ActionReject on unrepairable input
 	t.Run("on_unrepairable_error_causes_reject", func(t *testing.T) {
+		t.Parallel()
 		res, err := fin.Finalize(ctx, toolcall.CompletedCall{
 			ToolCallID: "c3",
 			ToolName:   "get_weather",
@@ -188,6 +191,7 @@ schema:
 
 	// 5. Behavioral verification: schema limit max_schema_bytes: 500 enforced
 	t.Run("schema_limit_max_schema_bytes_enforced", func(t *testing.T) {
+		t.Parallel()
 		// Create a schema > 500 bytes (e.g. 600 bytes with long descriptions)
 		pad := strings.Repeat("a", 550)
 		oversizedSchema := json.RawMessage(fmt.Sprintf(`{"type":"object","description":%q,"properties":{"location":{"type":"string"}},"required":["location"]}`, pad))
@@ -208,13 +212,14 @@ schema:
 
 	// 6. Behavioral verification: schema limit max_nesting_depth: 10 enforced
 	t.Run("schema_limit_max_nesting_depth_enforced", func(t *testing.T) {
+		t.Parallel()
 		// Create a schema nested 12 levels (> 10 max_nesting_depth)
 		var b strings.Builder
-		for i := 0; i < 12; i++ {
+		for range 12 {
 			b.WriteString(`{"type":"object","properties":{"level":{"type":"object","properties":`)
 		}
 		b.WriteString(`{"val":{"type":"string"}}`)
-		for i := 0; i < 12; i++ {
+		for range 12 {
 			b.WriteString(`}}}`)
 		}
 		nestedSchema := json.RawMessage(b.String())
@@ -235,9 +240,10 @@ schema:
 
 	// 7. Behavioral verification: max_args_bytes: 8192 enforced
 	t.Run("max_args_bytes_enforced", func(t *testing.T) {
+		t.Parallel()
 		// Args payload exceeding 8192 bytes
 		hugeVal := strings.Repeat("x", 9000)
-		hugeArgs := []byte(fmt.Sprintf(`{"location":%q}`, hugeVal))
+		hugeArgs := fmt.Appendf(nil, `{"location":%q}`, hugeVal)
 
 		res, err := fin.Finalize(ctx, toolcall.CompletedCall{
 			ToolCallID: "c6",

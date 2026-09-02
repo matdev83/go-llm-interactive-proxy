@@ -102,8 +102,7 @@ func TestCharacterize_CompactionDetect_MechanicalSourceAndLifecycleInvariants(t 
 	// Invariant 3: Verify *Detector does not implement io.Closer or any Closer interface
 	d := compactiondetect.New(compactiondetect.Config{})
 	dType := reflect.TypeOf(d)
-	for i := 0; i < dType.NumMethod(); i++ {
-		method := dType.Method(i)
+	for method := range dType.Methods() {
 		assert.NotEqual(t, "Close", method.Name, "*Detector must not have Close method")
 	}
 }

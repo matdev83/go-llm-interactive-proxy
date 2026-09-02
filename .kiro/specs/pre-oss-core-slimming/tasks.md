@@ -88,7 +88,7 @@
   - _Boundary: Public Feature SDK / Generator / Bundle Validation_
   - _Validation: `go run ./scripts/generate-feature-planes.go && go run ./scripts/generate-feature-planes.go -check && go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
-- [ ] 2.4 Tighten closed-plane architecture and public-contract tests
+- [x] 2.4 Tighten closed-plane architecture and public-contract tests
   - Add architecture checks that reject reintroduction of arbitrary plane `map[string]any`/reflection contribution, freeze, request-freeze, validation or replay storage while allowing unrelated legitimate maps/reflection outside this contract.
   - Convert disposable dynamic-plane tests that were only scaffolding for consolidation into declaration-validation or generated-fixture tests; do not weaken real standard-plane coverage.
   - Add external-package tests using `errors.Is(err, feature.ErrUngeneratedPlane)` and confirm the `FeatureBundle` schema version/standard plane IDs did not change.
