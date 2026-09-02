@@ -2039,31 +2039,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []hooks.SubmitHook
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneSubmitHooks.ID]; exists {
-					if curTyped, ok := existingVal.([]hooks.SubmitHook); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneSubmitHooks.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneSubmitHooks.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]hooks.SubmitHook, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneSubmitHooks.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneSubmitHooks.ID] = contributorID
@@ -2094,31 +2069,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneRequestPartHooks.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []hooks.RequestPartHook
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneRequestPartHooks.ID]; exists {
-					if curTyped, ok := existingVal.([]hooks.RequestPartHook); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneRequestPartHooks.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneRequestPartHooks.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]hooks.RequestPartHook, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneRequestPartHooks.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2151,31 +2101,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []hooks.ResponsePartHook
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneResponsePartHooks.ID]; exists {
-					if curTyped, ok := existingVal.([]hooks.ResponsePartHook); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneResponsePartHooks.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneResponsePartHooks.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]hooks.ResponsePartHook, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneResponsePartHooks.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneResponsePartHooks.ID] = contributorID
@@ -2206,31 +2131,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneToolReactors.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []hooks.ToolReactor
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneToolReactors.ID]; exists {
-					if curTyped, ok := existingVal.([]hooks.ToolReactor); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneToolReactors.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneToolReactors.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]hooks.ToolReactor, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneToolReactors.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2263,31 +2163,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []session.Opener
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneSessionOpeners.ID]; exists {
-					if curTyped, ok := existingVal.([]session.Opener); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneSessionOpeners.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneSessionOpeners.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]session.Opener, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneSessionOpeners.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneSessionOpeners.ID] = contributorID
@@ -2318,31 +2193,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneWorkspaceResolvers.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []workspace.Resolver
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneWorkspaceResolvers.ID]; exists {
-					if curTyped, ok := existingVal.([]workspace.Resolver); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneWorkspaceResolvers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneWorkspaceResolvers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]workspace.Resolver, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneWorkspaceResolvers.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2375,31 +2225,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []toolcatalog.Filter
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneToolCatalogFilters.ID]; exists {
-					if curTyped, ok := existingVal.([]toolcatalog.Filter); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneToolCatalogFilters.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneToolCatalogFilters.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]toolcatalog.Filter, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneToolCatalogFilters.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneToolCatalogFilters.ID] = contributorID
@@ -2430,31 +2255,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneToolCallPolicies.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []toolpolicy.Policy
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneToolCallPolicies.ID]; exists {
-					if curTyped, ok := existingVal.([]toolpolicy.Policy); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneToolCallPolicies.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneToolCallPolicies.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]toolpolicy.Policy, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneToolCallPolicies.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2487,31 +2287,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []toolcall.Finalizer
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneToolCallFinalizers.ID]; exists {
-					if curTyped, ok := existingVal.([]toolcall.Finalizer); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneToolCallFinalizers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneToolCallFinalizers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]toolcall.Finalizer, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneToolCallFinalizers.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneToolCallFinalizers.ID] = contributorID
@@ -2526,48 +2301,17 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 				Err:      fmt.Errorf("%w: expected int, got %T", ErrInvalidContribution, v),
 			}
 		}
-		if typed > 0 {
-			if PlaneToolCallFinalizationMaxArgsBytes.Validate != nil {
-				if err := PlaneToolCallFinalizationMaxArgsBytes.Validate(typed); err != nil {
-					return &AttributedError{
-						PluginID: contributorID,
-						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
-						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-					}
+		if dst.generated != nil && PlaneToolCallFinalizationMaxArgsBytes.generated.contribute != nil {
+			if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
+				return &AttributedError{
+					PluginID: contributorID,
+					PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
+					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-			if dst.generated != nil && PlaneToolCallFinalizationMaxArgsBytes.generated.contribute != nil {
-				if err := PlaneToolCallFinalizationMaxArgsBytes.generated.contribute(dst.generated, source, contributorID, typed); err != nil {
-					return &AttributedError{
-						PluginID: contributorID,
-						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
-						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-					}
-				}
-			} else {
-				var current int
-				if dst.values != nil {
-					if existingVal, exists := dst.values[PlaneToolCallFinalizationMaxArgsBytes.ID]; exists {
-						if curTyped, ok := existingVal.(int); ok {
-							current = curTyped
-						}
-					}
-				}
-				combined, err := PlaneToolCallFinalizationMaxArgsBytes.Combine(source, current, typed)
-				if err != nil {
-					return &AttributedError{
-						PluginID: contributorID,
-						PlaneID:  PlaneToolCallFinalizationMaxArgsBytes.ID,
-						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-					}
-				}
-				if dst.values != nil {
-					dst.values[PlaneToolCallFinalizationMaxArgsBytes.ID] = combined
-				}
-			}
-			if dst.pluginIDs != nil {
-				dst.pluginIDs[PlaneToolCallFinalizationMaxArgsBytes.ID] = contributorID
-			}
+		}
+		if dst.pluginIDs != nil {
+			dst.pluginIDs[PlaneToolCallFinalizationMaxArgsBytes.ID] = contributorID
 		}
 	}
 	if v, ok := values[PlaneRequestTransforms.ID]; ok && !isNilValue(v) {
@@ -2595,31 +2339,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneRequestTransforms.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []request.Transform
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneRequestTransforms.ID]; exists {
-					if curTyped, ok := existingVal.([]request.Transform); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneRequestTransforms.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneRequestTransforms.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]request.Transform, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneRequestTransforms.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2652,31 +2371,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []prerequest.Handler
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlanePreRequestHandlers.ID]; exists {
-					if curTyped, ok := existingVal.([]prerequest.Handler); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlanePreRequestHandlers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlanePreRequestHandlers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]prerequest.Handler, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlanePreRequestHandlers.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlanePreRequestHandlers.ID] = contributorID
@@ -2707,31 +2401,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneRouteHintProviders.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []routehint.Provider
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneRouteHintProviders.ID]; exists {
-					if curTyped, ok := existingVal.([]routehint.Provider); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneRouteHintProviders.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneRouteHintProviders.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]routehint.Provider, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneRouteHintProviders.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -2764,31 +2433,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []completion.Gate
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneCompletionGates.ID]; exists {
-					if curTyped, ok := existingVal.([]completion.Gate); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneCompletionGates.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneCompletionGates.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]completion.Gate, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneCompletionGates.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneCompletionGates.ID] = contributorID
@@ -2811,14 +2455,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			hadDestinationValue = len(dst.generated.attemptTransforms) > 0
 			existingID = dst.generated.attemptTransformsID
 			current = cloneSlice(dst.generated.attemptTransforms)
-		} else if dst.values != nil {
-			if existingVal, exists := dst.values[PlaneAttemptTransforms.ID]; exists {
-				if curTyped, ok := existingVal.([]request.AttemptTransform); ok {
-					hadDestinationValue = len(curTyped) > 0
-					current = cloneSlice(curTyped)
-				}
-			}
-			existingID = dst.identities[PlaneAttemptTransforms.ID]
 		}
 		incoming := cloneSlice(typed)
 		combined, err := PlaneAttemptTransforms.Combine(source, current, incoming)
@@ -2850,16 +2486,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			dst.generated.attemptTransformsID = finalID
 			dst.generated.attemptTransformsHasID = finalHasID
 		}
-		if dst.values != nil {
-			dst.values[PlaneAttemptTransforms.ID] = clonedCombined
-		}
-		if dst.identities != nil {
-			if finalHasID && finalID != "" {
-				dst.identities[PlaneAttemptTransforms.ID] = finalID
-			} else {
-				delete(dst.identities, PlaneAttemptTransforms.ID)
-			}
-		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneAttemptTransforms.ID] = contributorID
 		}
@@ -2881,14 +2507,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			hadDestinationValue = len(dst.generated.streamObserverFactories) > 0
 			existingID = dst.generated.streamObserverFactoriesID
 			current = cloneSlice(dst.generated.streamObserverFactories)
-		} else if dst.values != nil {
-			if existingVal, exists := dst.values[PlaneStreamObserverFactories.ID]; exists {
-				if curTyped, ok := existingVal.([]response.StreamObserverFactory); ok {
-					hadDestinationValue = len(curTyped) > 0
-					current = cloneSlice(curTyped)
-				}
-			}
-			existingID = dst.identities[PlaneStreamObserverFactories.ID]
 		}
 		incoming := cloneSlice(typed)
 		combined, err := PlaneStreamObserverFactories.Combine(source, current, incoming)
@@ -2920,16 +2538,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			dst.generated.streamObserverFactoriesID = finalID
 			dst.generated.streamObserverFactoriesHasID = finalHasID
 		}
-		if dst.values != nil {
-			dst.values[PlaneStreamObserverFactories.ID] = clonedCombined
-		}
-		if dst.identities != nil {
-			if finalHasID && finalID != "" {
-				dst.identities[PlaneStreamObserverFactories.ID] = finalID
-			} else {
-				delete(dst.identities, PlaneStreamObserverFactories.ID)
-			}
-		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneStreamObserverFactories.ID] = contributorID
 		}
@@ -2959,31 +2567,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneTrafficObservers.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []traffic.Observer
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneTrafficObservers.ID]; exists {
-					if curTyped, ok := existingVal.([]traffic.Observer); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneTrafficObservers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneTrafficObservers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]traffic.Observer, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneTrafficObservers.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -3016,31 +2599,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []usage.Observer
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneUsageObservers.ID]; exists {
-					if curTyped, ok := existingVal.([]usage.Observer); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneUsageObservers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneUsageObservers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]usage.Observer, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneUsageObservers.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneUsageObservers.ID] = contributorID
@@ -3071,31 +2629,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneRawCaptureSinks.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []traffic.RawCaptureSink
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneRawCaptureSinks.ID]; exists {
-					if curTyped, ok := existingVal.([]traffic.RawCaptureSink); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneRawCaptureSinks.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneRawCaptureSinks.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]traffic.RawCaptureSink, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneRawCaptureSinks.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -3128,31 +2661,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []traffic.Redactor
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneTrafficRedactors.ID]; exists {
-					if curTyped, ok := existingVal.([]traffic.Redactor); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneTrafficRedactors.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneTrafficRedactors.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]traffic.Redactor, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneTrafficRedactors.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneTrafficRedactors.ID] = contributorID
@@ -3184,31 +2692,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []compaction.Observer
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneCompactionObservers.ID]; exists {
-					if curTyped, ok := existingVal.([]compaction.Observer); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneCompactionObservers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneCompactionObservers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]compaction.Observer, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneCompactionObservers.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneCompactionObservers.ID] = contributorID
@@ -3231,14 +2714,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			hadDestinationValue = len(dst.generated.compactionPreservers) > 0
 			existingID = dst.generated.compactionPreserversID
 			current = cloneSlice(dst.generated.compactionPreservers)
-		} else if dst.values != nil {
-			if existingVal, exists := dst.values[PlaneCompactionPreservers.ID]; exists {
-				if curTyped, ok := existingVal.([]compaction.Preserver); ok {
-					hadDestinationValue = len(curTyped) > 0
-					current = cloneSlice(curTyped)
-				}
-			}
-			existingID = dst.identities[PlaneCompactionPreservers.ID]
 		}
 		incoming := cloneSlice(typed)
 		combined, err := PlaneCompactionPreservers.Combine(source, current, incoming)
@@ -3270,16 +2745,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 			dst.generated.compactionPreserversID = finalID
 			dst.generated.compactionPreserversHasID = finalHasID
 		}
-		if dst.values != nil {
-			dst.values[PlaneCompactionPreservers.ID] = clonedCombined
-		}
-		if dst.identities != nil {
-			if finalHasID && finalID != "" {
-				dst.identities[PlaneCompactionPreservers.ID] = finalID
-			} else {
-				delete(dst.identities, PlaneCompactionPreservers.ID)
-			}
-		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneCompactionPreservers.ID] = contributorID
 		}
@@ -3309,31 +2774,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					PlaneID:  PlaneSecretGuards.ID,
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
-			}
-		} else {
-			var current []secretguard.Guard
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneSecretGuards.ID]; exists {
-					if curTyped, ok := existingVal.([]secretguard.Guard); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneSecretGuards.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneSecretGuards.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]secretguard.Guard, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneSecretGuards.ID] = clonedCombined
 			}
 		}
 		if dst.pluginIDs != nil {
@@ -3366,31 +2806,6 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
 				}
 			}
-		} else {
-			var current []localturn.Handler
-			if dst.values != nil {
-				if existingVal, exists := dst.values[PlaneLocalTurnHandlers.ID]; exists {
-					if curTyped, ok := existingVal.([]localturn.Handler); ok {
-						current = cloneSlice(curTyped)
-					}
-				}
-			}
-			incoming := cloneSlice(typed)
-			combined, err := PlaneLocalTurnHandlers.Combine(source, current, incoming)
-			if err != nil {
-				return &AttributedError{
-					PluginID: contributorID,
-					PlaneID:  PlaneLocalTurnHandlers.ID,
-					Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
-				}
-			}
-			if (typed != nil || current != nil) && combined == nil {
-				combined = make([]localturn.Handler, 0)
-			}
-			clonedCombined := cloneSlice(combined)
-			if dst.values != nil {
-				dst.values[PlaneLocalTurnHandlers.ID] = clonedCombined
-			}
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneLocalTurnHandlers.ID] = contributorID
@@ -3416,19 +2831,10 @@ func replayAllPlanesMapTo(values map[string]any, identities map[string]string, d
 		if dst.generated != nil && dst.generated.terminalDecisionProviderHasID {
 			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, dst.generated.terminalDecisionProviderID, srcID)
 		}
-		if existingID, exists := dst.identities[PlaneTerminalDecisionProvider.ID]; exists && existingID != "" {
-			return makeExclusiveConflictError(contributorID, PlaneTerminalDecisionProvider.ID, PlaneTerminalDecisionProvider.ExclusiveConflictError, existingID, srcID)
-		}
 		if dst.generated != nil {
 			dst.generated.terminalDecisionProvider = typed
 			dst.generated.terminalDecisionProviderID = srcID
 			dst.generated.terminalDecisionProviderHasID = true
-		}
-		if dst.values != nil {
-			dst.values[PlaneTerminalDecisionProvider.ID] = cloneValue(typed)
-		}
-		if dst.identities != nil {
-			dst.identities[PlaneTerminalDecisionProvider.ID] = srcID
 		}
 		if dst.pluginIDs != nil {
 			dst.pluginIDs[PlaneTerminalDecisionProvider.ID] = contributorID

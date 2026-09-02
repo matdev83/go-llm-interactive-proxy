@@ -996,3 +996,29 @@ func TestClosedPlane_TestBoundPlane_Semantics(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 }
+
+func TestClosedPlane_NoErasedValueFallback_RequiresGeneratedContribute(t *testing.T) {
+	t.Parallel()
+
+	// A plane with policy attached but nil contribute closure
+	planeWithNilContribute := feature.BindGeneratedAccessForTest(
+		feature.Plane[[]string]{
+			ID:           "test.nil_contribute",
+			Multiplicity: feature.MultOrdered,
+			Rules: feature.SourceRules{
+				Feature: feature.CombConcatenate,
+			},
+			Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+				return append(cur, inc...), nil
+			},
+		},
+		nil, // nil contribute closure!
+		func(gf *feature.GeneratedFrozenForTest) []string { return nil },
+		nil,
+	)
+
+	cs := feature.NewContributionSet()
+	err := feature.Contribute(cs, planeWithNilContribute, "plugin-1", []string{"v1"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
+}

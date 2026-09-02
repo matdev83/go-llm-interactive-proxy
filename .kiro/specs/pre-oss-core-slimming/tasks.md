@@ -64,7 +64,7 @@
   - _Boundary: Public Feature SDK / Generated Binding_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature`_
 
-- [ ] 2.2 Remove arbitrary value/identity storage from `ContributionSet` and migrate behavior tests
+- [x] 2.2 Remove arbitrary value/identity storage from `ContributionSet` and migrate behavior tests
   - Delete `values map[string]any` and arbitrary-plane identity fallback from production contribution state; retain only generated typed storage and metadata demonstrably required by generated attribution/diagnostics.
   - Delete reflection-based arbitrary value clone/combine logic from the production contribution path; do not replace it with another erased container.
   - Rework `ContributeSource` so standard-plane source rules, nil policy, validation, identity/conflict handling and combination are driven by the generated canonical policy from 2.1. Do not fall back to mutable exported descriptor policy after eligibility succeeds.

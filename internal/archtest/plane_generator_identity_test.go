@@ -78,7 +78,6 @@ var StandardPlanes = []any{PlaneSyntheticReplace}
 
 	// 8. Verify replayAllPlanesMapTo sets destination cached identity properly
 	assert.Contains(t, code, "dst.generated.syntheticReplaceID = finalID")
-	assert.Contains(t, code, "dst.identities[PlaneSyntheticReplace.ID] = finalID")
 
 	// 9. Verify hasIdentityReplayRule and mapHasIdentityReplayRule are generated
 	assert.Contains(t, code, "func (gf *generatedFrozen) hasIdentityReplayRule(")

@@ -3,6 +3,7 @@ package feature
 import (
 	"fmt"
 	"maps"
+	"reflect"
 )
 
 // FrozenPlaneSet holds an immutable collection of composed feature plane values.
@@ -11,8 +12,14 @@ type FrozenPlaneSet struct {
 	// Task 2.3 replaces them with typed struct storage and ordinal dispatch (zero maps, zero type assertions).
 	values     map[string]any
 	identities map[string]string
+	pluginIDs  map[string]string
 	frozen     *generatedFrozen
 }
+
+var (
+	onThawGenerated func(*generatedFrozen, *generatedContributions)
+	onCloneFrozen   func(src, dst *generatedFrozen)
+)
 
 // cloneSlice returns a copy of slice s with its own backing array,
 // preserving nil vs non-nil empty slice semantics.
@@ -64,9 +71,15 @@ func FreezeRequestPlanes(in FrozenPlaneSet) FrozenPlaneSet {
 	if in.IsZero() {
 		return FrozenPlaneSet{}
 	}
+	var pluginIDsCopy map[string]string
+	if in.pluginIDs != nil {
+		pluginIDsCopy = make(map[string]string, len(in.pluginIDs))
+		maps.Copy(pluginIDsCopy, in.pluginIDs)
+	}
 	if in.frozen != nil {
 		return FrozenPlaneSet{
-			frozen: in.frozen.freezeRequest(),
+			pluginIDs: pluginIDsCopy,
+			frozen:    in.frozen.freezeRequest(),
 		}
 	}
 	cset := in.ToContributions()
@@ -92,7 +105,7 @@ func FrozenIdentity[P any](s FrozenPlaneSet, p Plane[P]) (string, bool) {
 
 // IsZero reports whether s is an uninitialized, zero-value FrozenPlaneSet.
 func (s FrozenPlaneSet) IsZero() bool {
-	return s.frozen == nil && s.values == nil && s.identities == nil
+	return s.frozen == nil && s.values == nil && s.identities == nil && s.pluginIDs == nil
 }
 
 // ToContributions reconstructs a mutable ContributionSet from the frozen snapshot.
@@ -100,24 +113,29 @@ func (s FrozenPlaneSet) ToContributions() *ContributionSet {
 	if s.IsZero() {
 		return NewContributionSet()
 	}
-	valuesCopy := make(map[string]any, len(s.values))
-	for k, v := range s.values {
-		valuesCopy[k] = cloneAny(v)
+	pluginIDsCopy := make(map[string]string, len(s.pluginIDs))
+	if s.pluginIDs != nil {
+		maps.Copy(pluginIDsCopy, s.pluginIDs)
 	}
-	identitiesCopy := make(map[string]string, len(s.identities))
-	maps.Copy(identitiesCopy, s.identities)
-
+	if s.values != nil {
+		for k := range s.values {
+			if _, ok := pluginIDsCopy[k]; !ok {
+				pluginIDsCopy[k] = "frozen"
+			}
+		}
+	}
 	var gen *generatedContributions
 	if s.frozen != nil {
 		gen = s.frozen.toContributions()
+		if onThawGenerated != nil {
+			onThawGenerated(s.frozen, gen)
+		}
 	} else {
 		gen = newGeneratedContributions()
 	}
 	return &ContributionSet{
-		values:     valuesCopy,
-		identities: identitiesCopy,
-		pluginIDs:  make(map[string]string),
-		generated:  gen,
+		pluginIDs: pluginIDsCopy,
+		generated: gen,
 	}
 }
 
@@ -136,8 +154,8 @@ func (s FrozenPlaneSet) ContributeCandidateTo(dst *ContributionSet, source Sourc
 		if err := s.frozen.contributeCandidateTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
-		if s.identities != nil && staged.identities != nil {
-			maps.Copy(staged.identities, s.identities)
+		if s.pluginIDs != nil && staged.pluginIDs != nil {
+			maps.Copy(staged.pluginIDs, s.pluginIDs)
 		}
 	} else {
 		// Test-only map-backed storage fallback:
@@ -166,13 +184,22 @@ func (s FrozenPlaneSet) Clone() FrozenPlaneSet {
 		identitiesCopy = make(map[string]string, len(s.identities))
 		maps.Copy(identitiesCopy, s.identities)
 	}
+	var pluginIDsCopy map[string]string
+	if s.pluginIDs != nil {
+		pluginIDsCopy = make(map[string]string, len(s.pluginIDs))
+		maps.Copy(pluginIDsCopy, s.pluginIDs)
+	}
 	var genFrozen *generatedFrozen
 	if s.frozen != nil {
 		genFrozen = s.frozen.clone()
+		if onCloneFrozen != nil {
+			onCloneFrozen(s.frozen, genFrozen)
+		}
 	}
 	return FrozenPlaneSet{
 		values:     valuesCopy,
 		identities: identitiesCopy,
+		pluginIDs:  pluginIDsCopy,
 		frozen:     genFrozen,
 	}
 }
@@ -234,8 +261,10 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 		if err := s.frozen.replayAllPlanesTo(staged.generated, source, contributorID); err != nil {
 			return err
 		}
-		if s.identities != nil && staged.identities != nil {
-			maps.Copy(staged.identities, s.identities)
+		if s.pluginIDs != nil && staged.pluginIDs != nil {
+			for k := range s.pluginIDs {
+				staged.pluginIDs[k] = contributorID
+			}
 		}
 	} else {
 		if err := replayAllPlanesMapTo(s.values, s.identities, staged, source, contributorID); err != nil {
@@ -244,4 +273,65 @@ func (s FrozenPlaneSet) ReplaySourceTo(dst *ContributionSet, source SourceKind, 
 	}
 	*dst = *staged
 	return nil
+}
+
+func cloneValue[T any](v T) T {
+	var anyVal any = v
+	if anyVal == nil {
+		return v
+	}
+	cloned := cloneAny(anyVal)
+	if typed, ok := cloned.(T); ok {
+		return typed
+	}
+	return v
+}
+
+func cloneAny(v any) any {
+	if v == nil {
+		return nil
+	}
+	val := reflect.ValueOf(v)
+	switch val.Kind() {
+	case reflect.Slice:
+		if val.IsNil() {
+			return v
+		}
+		l := val.Len()
+		c := val.Cap()
+		out := reflect.MakeSlice(val.Type(), l, c)
+		reflect.Copy(out, val)
+		return out.Interface()
+	case reflect.Map:
+		if val.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(val.Type(), val.Len())
+		iter := val.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(iter.Key(), iter.Value())
+		}
+		return out.Interface()
+	default:
+		return v
+	}
+}
+
+func isReflectNil(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Slice, reflect.UnsafePointer:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	return isReflectNil(reflect.ValueOf(v))
 }
