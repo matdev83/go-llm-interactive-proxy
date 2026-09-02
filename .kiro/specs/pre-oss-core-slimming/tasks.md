@@ -23,7 +23,7 @@
   - _Boundary: Public Feature SDK_
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle`_
 
-- [ ] 1.3 (P) Characterize tool-call-repair ownership and behavior before move
+- [x] 1.3 (P) Characterize tool-call-repair ownership and behavior before move
   - Run/capture the complete current `internal/core/toolcallrepair` test/fuzz/benchmark inventory and standard feature factory tests; identify all non-test imports of the core package.
   - Add or strengthen one standard factory integration test proving the YAML config maps to finalizer ID/order/max-args/schema limits/on-unrepairable behavior and both contributed tool planes.
   - Add a disabled/absent-feature control proving no repair finalizer is created.
