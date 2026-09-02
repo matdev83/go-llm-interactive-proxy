@@ -317,6 +317,49 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "/internal/pluginreg",
 		Reason:        "toolcallrepair feature tree must not depend on pluginreg",
 	},
+	{
+		SourcePattern: "*",
+		TargetPattern: "/internal/core/secretguard",
+		Reason:        "internal/core/secretguard has been retired; use internal/plugins/features/secretguard/engine",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/core",
+		Reason:        "secretguard feature tree must not depend on internal/core (use pkg/lipsdk contracts)",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/infra/runtimebundle",
+		Reason:        "secretguard feature tree must not depend on runtimebundle",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/plugins/frontends",
+		Reason:        "secretguard feature tree must not depend on frontend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/plugins/backends",
+		Reason:        "secretguard feature tree must not depend on backend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "secretguard feature tree must not depend on other feature plugins",
+		ExceptPrefix: []string{
+			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard",
+		},
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/stdhttp",
+		Reason:        "secretguard feature tree must not depend on stdhttp",
+	},
+	{
+		SourcePattern: "internal/plugins/features/secretguard",
+		TargetPattern: "/internal/pluginreg",
+		Reason:        "secretguard feature tree must not depend on pluginreg",
+	},
 }
 
 // fileScopedImportRule restricts specific production files.

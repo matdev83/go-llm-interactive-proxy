@@ -39,6 +39,12 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/toolcallrepair/repair/jsonshape/deep.go", true},
 		{"internal/plugins/features/toolcallrepair/repair/engine.go", false},
 		{"internal/core/runtime/tool_call_assembler.go", false},
+		{"internal/core/secretguard/catalog.go", true},
+		{"internal/core/secretguard/renamed_catalog.go", true},
+		{"internal/core/secretguard/nested/sub/bypass.go", true},
+		{"internal/core/secretguard/engine/deep.go", true},
+		{"internal/plugins/features/secretguard/engine/catalog.go", false},
+		{"internal/infra/secretguardcompose/compose.go", false},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)
@@ -131,6 +137,101 @@ func TestForbiddenImports_ToolCallRepairRenamedOrNestedBypassRejected(t *testing
 			name:       "feature imports lipsdk/toolcall allowed",
 			relPath:    "internal/plugins/features/toolcallrepair/repair/engine.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall",
+			wantForbid: false,
+		},
+	}
+	for _, tc := range adversarialImports {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf("package dummy\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports error: %v", err)
+			}
+			if tc.wantForbid && len(findings) == 0 {
+				t.Errorf("%s: expected forbidden import finding for %s importing %s, got none", tc.name, tc.relPath, tc.importPath)
+			}
+			if !tc.wantForbid && len(findings) > 0 {
+				t.Errorf("%s: unexpected forbidden import finding for %s importing %s: %v", tc.name, tc.relPath, tc.importPath, findings)
+			}
+		})
+	}
+}
+
+func TestForbiddenImports_SecretGuardRenamedOrNestedBypassRejected(t *testing.T) {
+	t.Parallel()
+	// Prove that files in nested subpackages of secretguard or with renamed filenames
+	// cannot bypass the recursive import boundary.
+	adversarialImports := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "feature root imports core runtime",
+			relPath:    "internal/plugins/features/secretguard/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
+			wantForbid: true,
+		},
+		{
+			name:       "engine subpackage imports core routing",
+			relPath:    "internal/plugins/features/secretguard/engine/renamed_matcher.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
+			wantForbid: true,
+		},
+		{
+			name:       "deeply nested subpackage imports runtimebundle",
+			relPath:    "internal/plugins/features/secretguard/engine/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle",
+			wantForbid: true,
+		},
+		{
+			name:       "nested subpackage imports frontends",
+			relPath:    "internal/plugins/features/secretguard/nested/sub/helper.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses",
+			wantForbid: true,
+		},
+		{
+			name:       "nested subpackage imports backends",
+			relPath:    "internal/plugins/features/secretguard/nested/sub/helper.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses",
+			wantForbid: true,
+		},
+		{
+			name:       "nested subpackage imports sibling feature",
+			relPath:    "internal/plugins/features/secretguard/engine/nested/helper.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair",
+			wantForbid: true,
+		},
+		{
+			name:       "core runtime imports retired secretguard",
+			relPath:    "internal/core/runtime/renamed_guard.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard",
+			wantForbid: true,
+		},
+		{
+			name:       "nested core imports retired nested secretguard",
+			relPath:    "internal/core/runtime/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard/nested",
+			wantForbid: true,
+		},
+		{
+			name:       "feature root imports own engine subpackage allowed",
+			relPath:    "internal/plugins/features/secretguard/guard.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine",
+			wantForbid: false,
+		},
+		{
+			name:       "feature imports lipapi allowed",
+			relPath:    "internal/plugins/features/secretguard/guard.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi",
+			wantForbid: false,
+		},
+		{
+			name:       "feature imports lipsdk/secretguard allowed",
+			relPath:    "internal/plugins/features/secretguard/engine/matcher.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard",
 			wantForbid: false,
 		},
 	}
