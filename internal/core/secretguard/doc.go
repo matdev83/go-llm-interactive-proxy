@@ -1,9 +1,6 @@
-// Package secretguard holds composition-owned secret catalog and source-policy
-// contracts for the secrets-guard feature (issue #151).
-//
-// Feature plugins must not import this package to read process environment.
-// Access-mode source selection is owned by the composition root (design rule D4).
-//
-// Single-user inventory uses Environment.Snapshot for sparse proxy credential
-// names; multi-user construction never calls Environment.
+// Package secretguard is deprecated and superseded by
+// internal/plugins/features/secretguard/engine.
+// Production algorithms, sources, catalog, and matchers have migrated to the
+// feature tree in Task 4.1. This package retains no production code and will be
+// deleted in Task 4.3.
 package secretguard

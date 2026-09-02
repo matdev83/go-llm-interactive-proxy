@@ -1,11 +1,10 @@
-package secretguard_test
+package engine_test
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 )
 
 type panicEnvironment struct {
@@ -25,12 +24,12 @@ func (p *panicEnvironment) Snapshot() []string {
 func TestNewMultiUserSource_zeroEnvironmentCalls(t *testing.T) {
 	t.Parallel()
 	env := &panicEnvironment{}
-	src, err := secretguard.NewMultiUserSource(env)
+	src, err := engine.NewMultiUserSource(env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src.AccessMode() != accessmode.ModeMultiUser {
-		t.Fatalf("access mode: got %q", src.AccessMode())
+	if src.AccessMode() != engine.ModeMultiUser {
+		t.Fatalf("access mode: got %v", src.AccessMode())
 	}
 	if env.calls != 0 {
 		t.Fatalf("Environment calls: got %d want 0", env.calls)
@@ -45,7 +44,7 @@ func TestNewMultiUserSource_zeroEnvironmentCalls(t *testing.T) {
 func TestNewDisabledSource_zeroEnvironmentCalls(t *testing.T) {
 	t.Parallel()
 	env := &panicEnvironment{}
-	src := secretguard.NewDisabledSource()
+	src := engine.NewDisabledSource()
 	_ = src.EntryCount()
 	_ = src.MatcherResolver()
 	_ = src.AccessMode()
@@ -56,14 +55,14 @@ func TestNewDisabledSource_zeroEnvironmentCalls(t *testing.T) {
 
 func TestSource_hasNoRawCatalogAccessor(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeFor[secretguard.Source]()
+	rt := reflect.TypeFor[engine.Source]()
 	for m := range rt.Methods() {
 		switch m.Name {
 		case "Values", "Secrets", "Catalog", "Env", "RawSecrets":
 			t.Fatalf("Source must not expose raw accessor %q", m.Name)
 		}
 	}
-	src, err := secretguard.NewMultiUserSource(nil)
+	src, err := engine.NewMultiUserSource(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

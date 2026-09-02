@@ -1,4 +1,4 @@
-package secretguard
+package engine
 
 type ahoCorasick struct {
 	nodes []acNode

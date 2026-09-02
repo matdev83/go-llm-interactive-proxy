@@ -133,7 +133,7 @@
   - _Validation: `go test -count=1 ./internal/archtest ./internal/core/runtime ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins`_
 
 - [ ] 4. Move secret-guard matching/source implementation into the feature
-- [ ] 4.1 Introduce feature-local source/matcher engine contracts without core imports
+- [x] 4.1 Introduce feature-local source/matcher engine contracts without core imports
   - Create `internal/plugins/features/secretguard/engine` and move the concrete catalog, Aho-Corasick matcher, known-prefix, environment inventory, matcher resolver, and source-policy implementation from `internal/core/secretguard`.
   - Replace the `internal/core/accessmode.Mode` dependency with a closed feature-local mode value; preserve single-user/multi-user semantics exactly.
   - Keep the environment reader as a construction-time port inside the feature implementation/compose boundary; never expose it through request handler services or public SDK.

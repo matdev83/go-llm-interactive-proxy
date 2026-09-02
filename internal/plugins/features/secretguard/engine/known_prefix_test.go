@@ -1,9 +1,9 @@
-package secretguard_test
+package engine_test
 
 import (
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -22,7 +22,7 @@ func TestDetectKnownPublicPrefix_longestWins(t *testing.T) {
 		{value: "sk-", want: ""}, // not a strict prefix of a longer secret
 	}
 	for _, tc := range cases {
-		got := secretguard.DetectKnownPublicPrefixForTest(tc.value)
+		got := engine.DetectKnownPublicPrefixForTest(tc.value)
 		if got != tc.want {
 			t.Fatalf("value=%q got %q want %q", tc.value, got, tc.want)
 		}
@@ -34,7 +34,7 @@ func TestCatalogInventory_attachesKnownPrefix(t *testing.T) {
 	env := mapEnv{
 		"OPENAI_API_KEY": testkit.SyntheticOpenAIAPIKey,
 	}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: false,
 		MinSecretBytes:    8,
 	})

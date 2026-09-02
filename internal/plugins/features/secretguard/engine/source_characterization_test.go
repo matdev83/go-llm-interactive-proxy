@@ -1,11 +1,10 @@
-package secretguard_test
+package engine_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +19,7 @@ func TestCharacterize_SingleUserMatcherConfiguredAndPrefixPreservation(t *testin
 		env := &countingEnvironment{vals: map[string]string{
 			"OPENAI_API_KEY": testkit.SyntheticOpenAIAPIKey,
 		}}
-		src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+		src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 			MatcherConfigured: false,
 		})
 		require.NoError(t, err)
@@ -44,9 +43,9 @@ func TestCharacterize_SingleUserMatcherConfiguredAndPrefixPreservation(t *testin
 		env := &countingEnvironment{vals: map[string]string{
 			"OPENAI_API_KEY": testkit.SyntheticOpenAIAPIKey,
 		}}
-		src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+		src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 			MatcherConfigured: true,
-			Matcher: secretguard.MatcherOptions{
+			Matcher: engine.MatcherOptions{
 				PreserveKnownPrefixes: false,
 				MaskByte:              '#',
 			},
@@ -71,9 +70,9 @@ func TestCharacterize_SingleUserMatcherConfiguredAndPrefixPreservation(t *testin
 func TestCharacterize_SingleUserNilEnvAndEmptyOptions(t *testing.T) {
 	t.Parallel()
 
-	src, err := secretguard.NewSingleUserSource(nil, secretguard.SingleUserOptions{})
+	src, err := engine.NewSingleUserSource(nil, engine.SingleUserOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, accessmode.ModeSingleUser, src.AccessMode())
+	assert.Equal(t, engine.ModeSingleUser, src.AccessMode())
 	assert.Equal(t, 0, src.EntryCount())
 	assert.Nil(t, src.SourceCategories())
 
@@ -98,9 +97,9 @@ func TestCharacterize_MultiUserSourceInvariants(t *testing.T) {
 	t.Parallel()
 
 	env := &panicEnvironment{}
-	src, err := secretguard.NewMultiUserSource(env)
+	src, err := engine.NewMultiUserSource(env)
 	require.NoError(t, err)
-	assert.Equal(t, accessmode.ModeMultiUser, src.AccessMode())
+	assert.Equal(t, engine.ModeMultiUser, src.AccessMode())
 	assert.Equal(t, 0, src.EntryCount())
 	assert.Equal(t, []string{string(sdk.SourceCategoryRequestCred)}, src.SourceCategories())
 	assert.Equal(t, 0, env.calls)
@@ -122,8 +121,8 @@ func TestCharacterize_MultiUserSourceInvariants(t *testing.T) {
 func TestCharacterize_DisabledSourceInvariants(t *testing.T) {
 	t.Parallel()
 
-	src := secretguard.NewDisabledSource()
-	assert.Equal(t, accessmode.ModeSingleUser, src.AccessMode(), "neutral default posture")
+	src := engine.NewDisabledSource()
+	assert.Equal(t, engine.ModeSingleUser, src.AccessMode(), "neutral default posture")
 	assert.Equal(t, 0, src.EntryCount())
 	assert.Nil(t, src.SourceCategories())
 
@@ -139,7 +138,7 @@ func TestCharacterize_NilAndOpaqueMatcherSafety(t *testing.T) {
 
 	t.Run("typed_nil_Matcher_pointer", func(t *testing.T) {
 		t.Parallel()
-		var nilM *secretguard.Matcher
+		var nilM *engine.Matcher
 		assert.Nil(t, nilM.ScanBytes([]byte("hello")))
 		assert.Nil(t, nilM.ScanString("hello"))
 
@@ -154,7 +153,7 @@ func TestCharacterize_NilAndOpaqueMatcherSafety(t *testing.T) {
 
 	t.Run("AsMatcher_nil_adapter", func(t *testing.T) {
 		t.Parallel()
-		sdkMatcher := secretguard.AsMatcher(nil)
+		sdkMatcher := engine.AsMatcher(nil)
 		require.NotNil(t, sdkMatcher)
 
 		findings, err := sdkMatcher.ScanString(t.Context(), "hello")
@@ -169,7 +168,7 @@ func TestCharacterize_NilAndOpaqueMatcherSafety(t *testing.T) {
 
 	t.Run("NewStaticMatcherResolver_nil_catalog", func(t *testing.T) {
 		t.Parallel()
-		res := secretguard.NewStaticMatcherResolver(nil, secretguard.MatcherOptions{})
+		res := engine.NewStaticMatcherResolver(nil, engine.MatcherOptions{})
 		require.NotNil(t, res)
 
 		m, err := res.Resolve(t.Context())
