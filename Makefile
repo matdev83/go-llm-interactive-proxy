@@ -464,18 +464,12 @@ endif
 vet:
 	$(GO) vet ./...
 
+# Install golangci-lint (preferred) or staticcheck: https://golangci-lint.run/
 lint:
 ifeq ($(OS),Windows_NT)
 	@$(WINDOWS_TASK) lint
 else
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	elif command -v staticcheck >/dev/null 2>&1; then \
-		staticcheck ./...; \
-	else \
-		echo "Install golangci-lint (preferred) or staticcheck: https://golangci-lint.run/"; \
-		exit 1; \
-	fi
+	@bash scripts/lint-all-modules.sh
 endif
 
 vuln:

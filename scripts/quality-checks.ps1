@@ -150,6 +150,9 @@ $guardJobs = @(
     @{ Label = "adhoc-goroutines"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/check-adhoc-goroutines.ps1") },
     @{ Label = "regex-hotpath"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/regex-hotpath-check.ps1") }
 )
+if ($env:LIP_SKIP_LINT -ne "1") {
+    $guardJobs += @{ Label = "lint"; Command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot/lint-all-modules.ps1", "-Changed") }
+}
 if ($env:LIP_SKIP_ARCHTEST -ne "1") {
     # Match the test-unit flags (make GO_TEST_FLAGS) so the standalone
     # quality-checks archtest run shares Go's build/test cache with

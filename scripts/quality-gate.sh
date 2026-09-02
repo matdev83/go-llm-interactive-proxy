@@ -38,22 +38,18 @@ echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged
 
-# Lint and vulnerability scans are opt-in per commit: they add ~50s to every
-# commit and are covered by `make qa` / PR CI. Opt in with LIP_PRECOMMIT_FULL=1
-# (or `make precommit-full`); LIP_SKIP_LINT / LIP_SKIP_VULN still force-skip.
-if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" && "${LIP_SKIP_LINT:-}" != "1" ]]; then
+if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 	echo ""
-	echo "Running linter (precommit-full)..."
-	if command -v golangci-lint >/dev/null 2>&1; then
-		golangci-lint run
-	elif command -v staticcheck >/dev/null 2>&1; then
-		staticcheck ./...
+	if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" ]]; then
+		echo "Running complete multi-module linter across all modules (precommit-full)..."
+		bash "$SCRIPT_DIR/lint-all-modules.sh"
 	else
-		echo "Warning: golangci-lint/staticcheck not found, skipping (run: make lint or install golangci-lint)"
+		echo "Running multi-module linter on staged modules..."
+		bash "$SCRIPT_DIR/lint-all-modules.sh" --staged
 	fi
 else
 	echo ""
-	echo "Skipping linter in fast pre-commit mode (opt in: LIP_PRECOMMIT_FULL=1 or 'make precommit-full'; CI runs it anyway)."
+	echo "Skipping linter (LIP_SKIP_LINT=1)."
 fi
 
 if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" && "${LIP_SKIP_VULN:-}" != "1" ]]; then
