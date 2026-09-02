@@ -156,7 +156,7 @@
   - _Boundary: Secret Guard Composition Adapter_
   - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... -run 'Secret|secret|Matcher|Catalog'`_
 
-- [ ] 4.3 Delete the old core package and preserve security ratchets
+- [x] 4.3 Delete the old core package and preserve security ratchets
   - Delete `internal/core/secretguard` after production options/tests have migrated to adapter/feature-owned types.
   - Extend the existing feature import-boundary test to cover the full recursive secretguard feature tree, including the new engine subpackage.
   - Add architecture absence/import rules and update steering/docs that claim catalog/matcher construction is core-owned.

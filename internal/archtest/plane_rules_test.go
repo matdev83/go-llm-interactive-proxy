@@ -189,14 +189,14 @@ type ExtensionsOptions struct {
 	// Whitelisted host capability fields pass
 	allowedSrc := `package runtimebundle
 import (
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	sgcompose "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 )
 
 type ExtensionsOptions struct {
 	SecretGuardInputs      SecretGuardInputs
-	SecretGuardEnvironment coresg.Environment
+	SecretGuardEnvironment sgcompose.Environment
 	SecretDecisionObserver sdk.Observer
 	frozen                 lipfeature.FrozenPlaneSet
 }

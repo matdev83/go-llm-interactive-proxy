@@ -47,7 +47,7 @@ Core owns orchestration and policy. Core imports `pkg/lipapi` and `pkg/lipsdk`; 
   - `controlplane/` — Ledgerstore projections (`usage_projector.go`), metering bridges, readiness reports (`readiness_report.go`), query bounds, privacy guardrails.
   - `metering/` — Usage/cost metering models.
 - **Continuity & Sessions**: `b2bua/` (attempt lineage/store), `continuity/` (`bunstore`), `securesession/` (`adapters/`, `storecontract/`, `domain/`, `app/`), `conversationview/` (`sdkadapter/`, `storecontract/` — replay-stable message identity, `never_backend` exclusion classification, and persistent client-hidden/model-visible steering projected at the A-leg/B-leg boundary; persisted through its own store contract over Memory/SQLite/PostgreSQL)
-- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `secretguard/` (ingress secrets catalog/matcher), `geoip/` (protocol-neutral ingress GeoIP policy semantics)
+- **Auth, Security & Identity**: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`, `proxycredentials/`, `identity/`, `geoip/` (protocol-neutral ingress GeoIP policy semantics)
 - **Canonical Support & State**: `capabilities/`, `jsonpresence/`, `jsonshape/` (preflight guards), `diag/`, `config/`, `configreload/`, `interleavedthinking/` (reasoning memo store/shape), `interleavedstate/`, `snapshotgen/`
 - **Observability/Detection**: `compactiondetect/` (process-owned coding-agent session compaction detector; emits typed observations through `pkg/lipsdk/compaction` observers), `compactioncontinuity/` (process-owned branch coordinator — `BranchKey`/`BranchState` CAS authority for compaction-continuity capsules committed via background auxiliary jobs)
 - **Streaming**: `stream/` (canonical stream, event pumps), `streamrecovery/`, `localstream/` (generic canonical proxy-local response streams backing local turns)
@@ -87,7 +87,7 @@ Wire frontends translate protocol payloads <-> canonical contracts:
 - `agentloopguard/` — Opt-in removable Agent Loop Guard terminal-decision provider: bounded verification, progress detection, and conservative continuation policy behind the exclusive provider slot.
 - `compactioncontinuity/` — Coding-agent compaction capsule continuity (preview/response merge via background auxiliary jobs over the process-owned branch coordinator).
 - `codexclientcompat/` — OpenAI Codex native compaction reasoning output preservation.
-- `secretguard/` — Ingress credential scanner & enforcement Guard.
+- `secretguard/` — Ingress credential scanner & enforcement Guard (`engine/` catalog & Aho–Corasick matcher, source policy).
 - `toolcallrepair/` — Malformed tool-call YAML auto-repair (`repair/` engine, bounded JSON tail completion/schema repair).
 - Proof/Ref Features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `submitnoop/`, `partsnoop/`, `toolreactornoop/`.
 
