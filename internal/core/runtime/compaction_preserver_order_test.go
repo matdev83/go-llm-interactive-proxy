@@ -153,7 +153,7 @@ func (runtimeStateStub) InspectTTL(context.Context, state.Scope, string, string)
 	return 0, false, state.ErrNotConfigured
 }
 
-func configureRuntimeCompactionPreserver(t *testing.T, d *compactiondetect.Detector, observer *recordingCompactionObserver, p compaction.Preserver, st state.Store, aux auxiliary.BackgroundClient) *runtime.Executor {
+func configureRuntimeCompactionPreserver(t *testing.T, d runtime.CompactionDetector, observer *recordingCompactionObserver, p compaction.Preserver, st state.Store, aux auxiliary.BackgroundClient) *runtime.Executor {
 	t.Helper()
 	ex := compactionTestExecutor(t, d, observer)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{

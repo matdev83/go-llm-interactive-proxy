@@ -53,23 +53,16 @@ type Config struct {
 }
 
 // correlation is the shared A-leg/B-leg/trace correlation carried by both
-// request-open and response-release observations. RequestMeta and ResponseMeta
-// are the two public spellings of this single shape, so event construction
-// consumes one common type with no conversion layer.
-type correlation struct {
-	TraceID    string
-	ALegID     string
-	BLegID     string
-	AttemptSeq int
-	SessionID  string
-}
+// request-open and response-release observations. It maps directly to
+// compaction.PreservationMeta without conversion.
+type correlation = compaction.PreservationMeta
 
 // RequestMeta carries request-open correlation for one successfully opened
 // logical request (authoritative A-leg and first B-leg).
-type RequestMeta = correlation
+type RequestMeta = compaction.PreservationMeta
 
 // ResponseMeta carries correlation for one released canonical response event.
-type ResponseMeta = correlation
+type ResponseMeta = compaction.PreservationMeta
 
 // PreviewKind and the preview shapes are owned by the public compaction SDK
 // seam so detector output can be passed directly to preservers. Aliases keep

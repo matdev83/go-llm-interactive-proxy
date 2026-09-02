@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -220,7 +219,7 @@ type InterleavedRuntime struct {
 // Detection is observational only: it never alters routing, prompts,
 // responses, retries, accounting, or client framing.
 type CompactionRuntime struct {
-	Detector *compactiondetect.Detector
+	Detector CompactionDetector
 	// BackgroundAux is the generation-bound process scheduler client. The
 	// scheduler itself remains process-owned; this interface lets callbacks
 	// submit work against the executor's frozen generation binding.
