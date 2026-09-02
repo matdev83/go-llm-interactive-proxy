@@ -26,6 +26,9 @@ var (
 
 	// ErrUnsupportedReplaySource reports a source that all-plane frozen replay cannot apply safely.
 	ErrUnsupportedReplaySource = errors.New("feature: unsupported frozen replay source")
+
+	// ErrUngeneratedPlane indicates an attempt to contribute through an ungenerated or unbound plane.
+	ErrUngeneratedPlane = errors.New("feature: ungenerated plane")
 )
 
 // makeExclusiveConflictError creates a single *AttributedError for an exclusive plane conflict.

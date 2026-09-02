@@ -51,7 +51,7 @@
   - _Validation: `go test -count=1 ./internal/core/compactiondetect ./internal/core/runtime -run 'Compaction|compaction'`_
 
 - [ ] 2. Implement the selected #554 contract on generated standard planes only
-- [ ] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
+- [x] 2.1 Add `ErrUngeneratedPlane` and canonical generated policy metadata
   - Add exactly one errors.Is-compatible public SDK sentinel named `ErrUngeneratedPlane`. Use this identifier in production, tests, docs and the external fixture; do not add an alias/second unsupported-plane sentinel.
   - Extend the generated access binding with deterministic unexported canonical metadata/closures sufficient both to prove the plane is generated and to make production policy authoritative: exact manifest ID plus the source rules, nil handling, validation, identity/conflict and combination behavior currently read from exported `Plane[T]` fields.
   - Validate generated eligibility and exact canonical ID **before** `ValidateDeclaration`, nil policy, source-rule selection, validator, combine, identity extraction, or candidate mutation. After that check, production contribution policy must be read from generated canonical metadata/closures rather than caller-mutable exported fields on `p`.

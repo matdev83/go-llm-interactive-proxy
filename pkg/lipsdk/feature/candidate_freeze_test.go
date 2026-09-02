@@ -189,7 +189,7 @@ func (freezeTestPanicPreserver) BeforeResponseRelease(context.Context, *lipapi.E
 func TestContribute_FailBeforeMutate_TableDriven(t *testing.T) {
 	t.Parallel()
 
-	testMutPlane := feature.Plane[[]string]{
+	testMutPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.fail_before_mutate_table",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -204,9 +204,9 @@ func TestContribute_FailBeforeMutate_TableDriven(t *testing.T) {
 			}
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
-	testHostOnlyPlane := feature.Plane[[]string]{
+	testHostOnlyPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.host_only_plane",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -215,7 +215,7 @@ func TestContribute_FailBeforeMutate_TableDriven(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	tests := []struct {
 		name          string
@@ -824,7 +824,7 @@ func TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn(t *testing.T) {
 		name string
 	}
 
-	testPlane := feature.Plane[any]{
+	testPlane := feature.BindGeneratedTestPlane(feature.Plane[any]{
 		ID:           "test.interface_plane_non_slice_return",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -833,7 +833,7 @@ func TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc any) (any, error) {
 			return dummyNonSlice{name: "combined_result"}, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 	// Contribute a slice (Kind == Slice, not nil) into interface plane Plane[any]

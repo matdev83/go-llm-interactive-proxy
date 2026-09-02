@@ -100,21 +100,24 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	if s == nil {
 		return fmt.Errorf("feature: nil ContributionSet")
 	}
+
+	gp := p.generated.policy
+	if gp == nil || gp.planeID != p.ID {
+		return &AttributedError{
+			PluginID: contributorID,
+			PlaneID:  p.ID,
+			Err:      ErrUngeneratedPlane,
+		}
+	}
+
 	if contributorID == "" {
 		return &AttributedError{
 			PlaneID: p.ID,
 			Err:     fmt.Errorf("%w: plugin ID must not be empty", ErrInvalidContribution),
 		}
 	}
-	if err := p.ValidateDeclaration(); err != nil {
-		return &AttributedError{
-			PluginID: contributorID,
-			PlaneID:  p.ID,
-			Err:      err,
-		}
-	}
 
-	rule := p.Rules.RuleFor(source)
+	rule := gp.rules.RuleFor(source)
 	if rule == CombUnsupported {
 		return &AttributedError{
 			PluginID: contributorID,
@@ -125,15 +128,15 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 
 	// 1. Apply NilPolicy before Validate and Combine.
 	isNil := false
-	if p.IsNil != nil {
-		isNil = p.IsNil(v)
+	if gp.isNil != nil {
+		isNil = gp.isNil(v)
 	} else {
 		var anyVal any = v
 		isNil = (anyVal == nil)
 	}
 
 	if isNil {
-		switch p.NilPolicy {
+		switch gp.nilPolicy {
 		case NilReject:
 			return &AttributedError{
 				PluginID: contributorID,
@@ -149,8 +152,8 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	}
 
 	// 2. Validate incoming contribution.
-	if p.Validate != nil {
-		if err := p.Validate(v); err != nil {
+	if gp.validate != nil {
+		if err := gp.validate(v); err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
 				PlaneID:  p.ID,
@@ -162,9 +165,9 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	// 3. Identity extraction and validation (if plane requires it or declares an identity extractor).
 	var incomingID string
 	var hasID bool
-	if p.Identity != nil {
+	if gp.identity != nil {
 		if rule == CombExclusive || rule == CombReplaceByIdentity || p.generated.contribute == nil || s.generated == nil {
-			incomingID, hasID = p.Identity(v)
+			incomingID, hasID = gp.identity(v)
 			if (rule == CombExclusive || rule == CombReplaceByIdentity) && (!hasID || incomingID == "") {
 				if rule == CombExclusive {
 					return &AttributedError{
@@ -179,13 +182,22 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 					Err:      fmt.Errorf("%w: failed to extract identity from replace_by_identity contribution", ErrInvalidContribution),
 				}
 			}
+			if gp.validateIdentity != nil && hasID && incomingID != "" {
+				if err := gp.validateIdentity(incomingID); err != nil {
+					return &AttributedError{
+						PluginID: contributorID,
+						PlaneID:  p.ID,
+						Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, err),
+					}
+				}
+			}
 		}
 	}
 
 	// 4. Exclusive conflict check.
 	if rule == CombExclusive {
 		if existingID, occupied := s.identities[p.ID]; occupied {
-			return makeExclusiveConflictError(contributorID, p.ID, p.ExclusiveConflictError, existingID, incomingID)
+			return makeExclusiveConflictError(contributorID, p.ID, gp.exclusiveConflictError, existingID, incomingID)
 		}
 	}
 
@@ -211,7 +223,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 
 	if rule == CombExclusive {
 		var zero P
-		combined, err := p.Combine(source, zero, incoming)
+		combined, err := gp.combine(source, zero, incoming)
 		if err != nil {
 			return &AttributedError{
 				PluginID: contributorID,
@@ -236,7 +248,7 @@ func ContributeSource[P any](s *ContributionSet, p Plane[P], source SourceKind, 
 	// Defensive copy of current before invoking Combine to ensure fail-before-mutate:
 	// a fallible combiner mutating current on failure cannot corrupt the stored candidate value.
 	currentCopy := cloneValue(current)
-	combined, err := p.Combine(source, currentCopy, incoming)
+	combined, err := gp.combine(source, currentCopy, incoming)
 	if err != nil {
 		return &AttributedError{
 			PluginID: contributorID,

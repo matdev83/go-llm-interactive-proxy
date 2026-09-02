@@ -465,6 +465,19 @@ func generatePlanesCode(planes []planeInfo, sdkImports []string) ([]byte, error)
 			buf.WriteString("\t\t},\n")
 		}
 
+		// policy
+		fmt.Fprintf(&buf, "\t\tpolicy: &generatedPolicy[%s]{\n", p.typeExpr)
+		fmt.Fprintf(&buf, "\t\t\tplaneID: %s.ID,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\trules: %s.Rules,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tnilPolicy: %s.NilPolicy,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tisNil: %s.IsNil,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tvalidate: %s.Validate,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tvalidateIdentity: %s.ValidateIdentity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tcombine: %s.Combine,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\tidentity: %s.Identity,\n", p.varName)
+		fmt.Fprintf(&buf, "\t\t\texclusiveConflictError: %s.ExclusiveConflictError,\n", p.varName)
+		buf.WriteString("\t\t},\n")
+
 		buf.WriteString("\t}\n")
 	}
 	buf.WriteString("}\n\n")

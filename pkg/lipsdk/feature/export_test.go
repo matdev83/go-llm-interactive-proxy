@@ -19,7 +19,7 @@ type GeneratedContributionsForTest = generatedContributions
 // GeneratedFrozenForTest is a type alias to the internal generatedFrozen type for testing.
 type GeneratedFrozenForTest = generatedFrozen
 
-// BindGeneratedAccessForTest attaches generated access closures to a Plane[T] for testing.
+// BindGeneratedAccessForTest attaches generated access closures and canonical policy to a Plane[T] for testing.
 func BindGeneratedAccessForTest[T any](
 	p Plane[T],
 	contribute func(*generatedContributions, SourceKind, string, T) error,
@@ -30,6 +30,33 @@ func BindGeneratedAccessForTest[T any](
 		contribute: contribute,
 		get:        get,
 		identity:   identity,
+		policy: &generatedPolicy[T]{
+			planeID:                p.ID,
+			rules:                  p.Rules,
+			nilPolicy:              p.NilPolicy,
+			isNil:                  p.IsNil,
+			validate:               p.Validate,
+			validateIdentity:       p.ValidateIdentity,
+			combine:                p.Combine,
+			identity:               p.Identity,
+			exclusiveConflictError: p.ExclusiveConflictError,
+		},
+	}
+	return p
+}
+
+// BindGeneratedTestPlane attaches canonical policy and test eligibility to a Plane[T] for testing.
+func BindGeneratedTestPlane[T any](p Plane[T]) Plane[T] {
+	p.generated.policy = &generatedPolicy[T]{
+		planeID:                p.ID,
+		rules:                  p.Rules,
+		nilPolicy:              p.NilPolicy,
+		isNil:                  p.IsNil,
+		validate:               p.Validate,
+		validateIdentity:       p.ValidateIdentity,
+		combine:                p.Combine,
+		identity:               p.Identity,
+		exclusiveConflictError: p.ExclusiveConflictError,
 	}
 	return p
 }

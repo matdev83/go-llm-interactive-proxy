@@ -169,42 +169,38 @@ func newTestUnboundSlicePlane() feature.Plane[[]string] {
 	}
 }
 
-func TestClosedPlane_UnboundFallback_ContributeAndGet(t *testing.T) {
+func TestClosedPlane_UnboundRejection_Contribute(t *testing.T) {
 	t.Parallel()
 
 	unboundPlane := newTestUnboundSlicePlane()
 	cs := feature.NewContributionSet()
 
-	// 1. Contribute under SourceFeature
+	// 1. Contribute under SourceFeature fails with ErrUngeneratedPlane
 	err := feature.Contribute(cs, unboundPlane, "plugin-1", []string{"alpha", "beta"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 
-	// 2. Contribute under SourceHost
+	var attrErr *feature.AttributedError
+	require.True(t, errors.As(err, &attrErr))
+	assert.Equal(t, "plugin-1", attrErr.PluginID)
+	assert.Equal(t, "test.unbound_slice_plane", attrErr.PlaneID)
+
+	// 2. Contribute under SourceHost fails with ErrUngeneratedPlane
 	err = feature.ContributeSource(cs, unboundPlane, feature.SourceHost, "host", []string{"gamma"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 
-	// Verify Has reports true
-	assert.True(t, cs.Has("test.unbound_slice_plane"))
-
-	// 3. Freeze and Get
-	frozen := cs.Freeze()
-	got := feature.Get(frozen, unboundPlane)
-	assert.Equal(t, []string{"alpha", "beta", "gamma"}, got)
-
-	// 4. Defensive copy on Get: mutating retrieved slice must not affect subsequent Get calls
-	got[0] = "MUTATED_CALLER_COPY"
-	gotAgain := feature.Get(frozen, unboundPlane)
-	assert.Equal(t, []string{"alpha", "beta", "gamma"}, gotAgain)
-	assert.Equal(t, "alpha", gotAgain[0])
+	// Fail-before-mutate: set is unmodified
+	assert.False(t, cs.Has("test.unbound_slice_plane"))
 }
 
 func TestClosedPlane_UnboundFallback_FreezeAndClone(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 	cs := feature.NewContributionSet()
 
-	err := feature.Contribute(cs, unboundPlane, "plugin-1", []string{"val1", "val2"})
+	err := feature.Contribute(cs, boundPlane, "plugin-1", []string{"val1", "val2"})
 	require.NoError(t, err)
 
 	// 1. ContributionSet.Clone creates an independent copy
@@ -213,29 +209,29 @@ func TestClosedPlane_UnboundFallback_FreezeAndClone(t *testing.T) {
 	assert.True(t, csClone.Has("test.unbound_slice_plane"))
 
 	// Mutate original by contributing more
-	err = feature.Contribute(cs, unboundPlane, "plugin-2", []string{"val3"})
+	err = feature.Contribute(cs, boundPlane, "plugin-2", []string{"val3"})
 	require.NoError(t, err)
 
 	// csClone must remain untouched
 	frozenFromClone := csClone.Freeze()
-	assert.Equal(t, []string{"val1", "val2"}, feature.Get(frozenFromClone, unboundPlane))
+	assert.Equal(t, []string{"val1", "val2"}, feature.Get(frozenFromClone, boundPlane))
 
 	// Original frozen reflects both contributions
 	frozenFromOrig := cs.Freeze()
-	assert.Equal(t, []string{"val1", "val2", "val3"}, feature.Get(frozenFromOrig, unboundPlane))
+	assert.Equal(t, []string{"val1", "val2", "val3"}, feature.Get(frozenFromOrig, boundPlane))
 
 	// 2. FrozenPlaneSet.Clone creates an independent copy
 	frozenClone := frozenFromOrig.Clone()
-	assert.Equal(t, []string{"val1", "val2", "val3"}, feature.Get(frozenClone, unboundPlane))
+	assert.Equal(t, []string{"val1", "val2", "val3"}, feature.Get(frozenClone, boundPlane))
 }
 
 func TestClosedPlane_UnboundFallback_ToContributions(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 	cs := feature.NewContributionSet()
 
-	err := feature.Contribute(cs, unboundPlane, "plugin-1", []string{"initial"})
+	err := feature.Contribute(cs, boundPlane, "plugin-1", []string{"initial"})
 	require.NoError(t, err)
 
 	frozen := cs.Freeze()
@@ -246,25 +242,25 @@ func TestClosedPlane_UnboundFallback_ToContributions(t *testing.T) {
 	assert.True(t, thawed.Has("test.unbound_slice_plane"))
 
 	// 2. Contribute further to thawed set
-	err = feature.Contribute(thawed, unboundPlane, "plugin-2", []string{"additional"})
+	err = feature.Contribute(thawed, boundPlane, "plugin-2", []string{"additional"})
 	require.NoError(t, err)
 
 	// 3. Freeze thawed set and verify combined state
 	refrozen := thawed.Freeze()
-	assert.Equal(t, []string{"initial", "additional"}, feature.Get(refrozen, unboundPlane))
+	assert.Equal(t, []string{"initial", "additional"}, feature.Get(refrozen, boundPlane))
 
 	// Original frozen remains unmodified
-	assert.Equal(t, []string{"initial"}, feature.Get(frozen, unboundPlane))
+	assert.Equal(t, []string{"initial"}, feature.Get(frozen, boundPlane))
 
 	// 4. ContributionSetFromFrozen equivalent
 	thawed2 := feature.ContributionSetFromFrozen(frozen)
-	assert.Equal(t, []string{"initial"}, feature.Get(thawed2.Freeze(), unboundPlane))
+	assert.Equal(t, []string{"initial"}, feature.Get(thawed2.Freeze(), boundPlane))
 }
 
 func TestClosedPlane_UnboundFallback_RequestFreezeAndMaterialize(t *testing.T) {
 	t.Parallel()
 
-	materializedPlane := feature.Plane[[]string]{
+	materializedPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.unbound_materialized_plane",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -279,7 +275,7 @@ func TestClosedPlane_UnboundFallback_RequestFreezeAndMaterialize(t *testing.T) {
 			slices.Sort(sorted)
 			return sorted
 		},
-	}
+	})
 
 	cs := feature.NewContributionSet()
 	err := feature.Contribute(cs, materializedPlane, "plugin-1", []string{"zebra", "apple", "mango"})
@@ -303,9 +299,9 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 
 	t.Run("valid unbound plane passes FrozenPlaneSet.Validate", func(t *testing.T) {
 		t.Parallel()
-		unboundPlane := newTestUnboundSlicePlane()
+		boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 		cs := feature.NewContributionSet()
-		err := feature.Contribute(cs, unboundPlane, "plugin-1", []string{"valid-item"})
+		err := feature.Contribute(cs, boundPlane, "plugin-1", []string{"valid-item"})
 		require.NoError(t, err)
 
 		frozen := cs.Freeze()
@@ -314,7 +310,7 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 
 	t.Run("unbound plane with stored validation failure is reported on Validate", func(t *testing.T) {
 		t.Parallel()
-		planeWithValidator := feature.Plane[[]string]{
+		planeWithValidator := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 			ID:           "test.unbound_validating_plane",
 			Multiplicity: feature.MultOrdered,
 			Rules: feature.SourceRules{
@@ -331,7 +327,7 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 			Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 				return append(cur, inc...), nil
 			},
-		}
+		})
 
 		cs := feature.NewContributionSet()
 		// Initial contribute passes
@@ -346,9 +342,9 @@ func TestClosedPlane_UnboundFallback_FrozenValidation(t *testing.T) {
 func TestClosedPlane_UnboundFallback_FeatureBundleValidation(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 	cs := feature.NewContributionSet()
-	err := feature.Contribute(cs, unboundPlane, "plugin-1", []string{"item1"})
+	err := feature.Contribute(cs, boundPlane, "plugin-1", []string{"item1"})
 	require.NoError(t, err)
 
 	frozen := cs.Freeze()
@@ -360,9 +356,9 @@ func TestClosedPlane_UnboundFallback_FeatureBundleValidation(t *testing.T) {
 func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 	csSrc := feature.NewContributionSet()
-	err := feature.Contribute(csSrc, unboundPlane, "plugin-source", []string{"src-val-1", "src-val-2"})
+	err := feature.Contribute(csSrc, boundPlane, "plugin-source", []string{"src-val-1", "src-val-2"})
 	require.NoError(t, err)
 
 	frozenSrc := csSrc.Freeze()
@@ -376,7 +372,7 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 
 	frozenDst := dst.Freeze()
 	// Unbound plane is NOT carried over by replayAllPlanesMapTo (demonstrating why map fallback was incomplete)
-	assert.Nil(t, feature.Get(frozenDst, unboundPlane), "unbound fallback plane is not replayed by manifest-generated replayAllPlanesMapTo")
+	assert.Nil(t, feature.Get(frozenDst, boundPlane), "unbound fallback plane is not replayed by manifest-generated replayAllPlanesMapTo")
 
 	// 2. ReplaySourceTo into dst under SourceHost:
 	dstHost := feature.NewContributionSet()
@@ -384,7 +380,7 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 	require.NoError(t, err)
 
 	frozenDstHost := dstHost.Freeze()
-	assert.Nil(t, feature.Get(frozenDstHost, unboundPlane))
+	assert.Nil(t, feature.Get(frozenDstHost, boundPlane))
 
 	// 3. Fail-before-mutate on replay conflict: destination must remain atomically unmodified
 	dstAtomic := feature.NewContributionSet()
@@ -438,16 +434,16 @@ func TestClosedPlane_UnboundFallback_OrdinaryReplay(t *testing.T) {
 func TestClosedPlane_UnboundFallback_CandidateReplay(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 
 	// Initial destination set
 	dst := feature.NewContributionSet()
-	err := feature.Contribute(dst, unboundPlane, "plugin-base", []string{"base-val"})
+	err := feature.Contribute(dst, boundPlane, "plugin-base", []string{"base-val"})
 	require.NoError(t, err)
 
 	// Candidate frozen set
 	candidateSrc := feature.NewContributionSet()
-	err = feature.Contribute(candidateSrc, unboundPlane, "plugin-cand", []string{"cand-val"})
+	err = feature.Contribute(candidateSrc, boundPlane, "plugin-cand", []string{"cand-val"})
 	require.NoError(t, err)
 
 	candFrozen := candidateSrc.Freeze()
@@ -460,16 +456,16 @@ func TestClosedPlane_UnboundFallback_CandidateReplay(t *testing.T) {
 
 	frozenMerged := dst.Freeze()
 	// dst retains only its original base-val; cand-val is omitted
-	assert.Equal(t, []string{"base-val"}, feature.Get(frozenMerged, unboundPlane), "unbound fallback plane is not merged by contributeCandidateMapTo")
+	assert.Equal(t, []string{"base-val"}, feature.Get(frozenMerged, boundPlane), "unbound fallback plane is not merged by contributeCandidateMapTo")
 
 	// 2. Candidate merge with ContributeCandidate method
 	dst2 := feature.NewContributionSet()
-	err = feature.Contribute(dst2, unboundPlane, "plugin-base", []string{"v1"})
+	err = feature.Contribute(dst2, boundPlane, "plugin-base", []string{"v1"})
 	require.NoError(t, err)
 
 	err = dst2.ContributeCandidate(candFrozen)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"v1"}, feature.Get(dst2.Freeze(), unboundPlane))
+	assert.Equal(t, []string{"v1"}, feature.Get(dst2.Freeze(), boundPlane))
 
 	// 3. Fail-before-mutate on candidate conflict: destination remains atomically untouched
 	dstCandAtomic := feature.NewContributionSet()
@@ -506,16 +502,16 @@ func TestClosedPlane_UnboundFallback_CandidateReplay(t *testing.T) {
 func TestClosedPlane_UnboundFallback_ExplicitEmptySliceSemantics(t *testing.T) {
 	t.Parallel()
 
-	unboundPlane := newTestUnboundSlicePlane()
+	boundPlane := feature.BindGeneratedTestPlane(newTestUnboundSlicePlane())
 
 	t.Run("explicit empty slice is preserved as non-nil empty", func(t *testing.T) {
 		t.Parallel()
 		cs := feature.NewContributionSet()
-		err := feature.Contribute(cs, unboundPlane, "plugin-empty", []string{})
+		err := feature.Contribute(cs, boundPlane, "plugin-empty", []string{})
 		require.NoError(t, err)
 
 		frozen := cs.Freeze()
-		got := feature.Get(frozen, unboundPlane)
+		got := feature.Get(frozen, boundPlane)
 		assert.NotNil(t, got, "explicit empty slice contribution must be non-nil")
 		assert.Empty(t, got, "explicit empty slice must have len 0")
 	})
@@ -524,7 +520,7 @@ func TestClosedPlane_UnboundFallback_ExplicitEmptySliceSemantics(t *testing.T) {
 		t.Parallel()
 		cs := feature.NewContributionSet()
 		frozen := cs.Freeze()
-		got := feature.Get(frozen, unboundPlane)
+		got := feature.Get(frozen, boundPlane)
 		assert.Nil(t, got, "uncontributed plane must return nil slice zero-value")
 	})
 }
@@ -532,7 +528,7 @@ func TestClosedPlane_UnboundFallback_ExplicitEmptySliceSemantics(t *testing.T) {
 func TestClosedPlane_UnboundFallback_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
-	falliblePlane := feature.Plane[[]string]{
+	falliblePlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.unbound_fail_before_mutate",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -553,7 +549,7 @@ func TestClosedPlane_UnboundFallback_FailBeforeMutate(t *testing.T) {
 			}
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	cs := feature.NewContributionSet()
 	err := feature.Contribute(cs, falliblePlane, "plugin-1", []string{"good-1", "good-2"})
@@ -608,29 +604,20 @@ func TestClosedPlane_AdversarialCopy_ChangedID(t *testing.T) {
 	cs := feature.NewContributionSet()
 	hook := charStubSubmitHook{id: "adv-hook-1", order: 10}
 
-	// Current behavior: Because adversarialPlane.generated.contribute is non-nil,
-	// Contribute dispatches to generated storage (submitHooks) while recording
-	// pluginIDs["adversarial.submit_hooks.tampered_id"] = "plugin-adv".
+	// Task 2 target contract: Contribute on adversarialPlane MUST fail with ErrUngeneratedPlane
+	// before mutating the ContributionSet because p.ID != gp.planeID ("submit_hooks" != "adversarial...").
 	err := feature.Contribute(cs, adversarialPlane, "plugin-adv", []hooks.SubmitHook{hook})
-	require.NoError(t, err, "current pre-Task-2 behavior permits changed-ID copy with valid generated closure")
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 
-	frozen := cs.Freeze()
+	var attrErr *feature.AttributedError
+	require.True(t, errors.As(err, &attrErr))
+	assert.Equal(t, "plugin-adv", attrErr.PluginID)
+	assert.Equal(t, "adversarial.submit_hooks.tampered_id", attrErr.PlaneID)
 
-	// Current behavior: Get with the adversarial plane returns the hook from generated storage
-	// because generated.get is non-nil.
-	gotAdv := feature.Get(frozen, adversarialPlane)
-	require.Len(t, gotAdv, 1)
-	assert.Equal(t, "adv-hook-1", gotAdv[0].ID())
-
-	// Current behavior: Get with canonical PlaneSubmitHooks also sees the hook in generated storage!
-	gotCanonical := feature.Get(frozen, feature.PlaneSubmitHooks)
-	require.Len(t, gotCanonical, 1)
-	assert.Equal(t, "adv-hook-1", gotCanonical[0].ID())
-
-	// NOTE: TARGET CONTRACT FOR TASK 2:
-	// In Task 2 (Requirement 1.2 / Design lines 173, 201), Contribute on adversarialPlane
-	// MUST fail with ErrUngeneratedPlane before mutating the ContributionSet because
-	// p.ID != gp.planeID (the generated binding's canonical ID "submit_hooks" != "adversarial...").
+	// Fail-before-mutate: set is unmodified
+	assert.False(t, cs.Has("submit_hooks"))
+	assert.False(t, cs.Has("adversarial.submit_hooks.tampered_id"))
 }
 
 func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) {
@@ -647,17 +634,17 @@ func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) 
 
 		cs := feature.NewContributionSet()
 
-		// Current behavior: ContributeSource executes p.Validate before reaching p.generated.contribute,
-		// so the caller's mutated validator fails the contribution!
+		// Task 2 target contract: all policy decisions (including Validate) MUST come from
+		// canonical generated metadata (gp.validate), so a mutated p.Validate on a same-ID copy
+		// cannot alter canonical behavior. Valid integer succeeds:
 		err := feature.Contribute(cs, copiedPlane, "plugin-adv", 1024)
-		require.Error(t, err)
-		require.ErrorIs(t, err, feature.ErrInvalidContribution)
-		assert.Contains(t, err.Error(), "adversarial validation override")
+		require.NoError(t, err, "canonical generated validator is authoritative; caller's mutated Validate is ignored")
+		assert.Equal(t, 1024, feature.Get(cs.Freeze(), feature.PlaneToolCallFinalizationMaxArgsBytes))
 
-		// NOTE: TARGET CONTRACT FOR TASK 2:
-		// In Task 2 (Requirement 1.1 / Design lines 171, 205-207), all policy decisions
-		// (including Validate) MUST come from canonical generated metadata (gp.validate),
-		// so a mutated p.Validate on a same-ID copy cannot alter canonical behavior.
+		// Canonical validator rejects negative integers:
+		errNeg := feature.Contribute(cs, copiedPlane, "plugin-adv-2", -50)
+		require.Error(t, errNeg)
+		require.ErrorIs(t, errNeg, feature.ErrInvalidContribution)
 	})
 
 	t.Run("mutated SourceRules on copied standard plane", func(t *testing.T) {
@@ -672,15 +659,11 @@ func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) 
 		cs := feature.NewContributionSet()
 		hook := charStubSubmitHook{id: "hook-adv", order: 5}
 
-		// Current behavior: ContributeSource checks p.Rules.RuleFor(SourceFeature) which reads
-		// the caller's mutated Rules (Host only), returning ErrUnsupportedSource!
+		// Task 2 target contract: SourceRules MUST be read from canonical generated metadata (gp.rules),
+		// so caller's mutated Rules cannot disable canonical SourceFeature support.
 		err := feature.Contribute(cs, copiedPlane, "plugin-adv", []hooks.SubmitHook{hook})
-		require.Error(t, err)
-		require.ErrorIs(t, err, feature.ErrUnsupportedSource)
-
-		// NOTE: TARGET CONTRACT FOR TASK 2:
-		// In Task 2, SourceRules MUST be read from canonical generated metadata (gp.rules),
-		// so caller's mutated Rules cannot disable canonical source support.
+		require.NoError(t, err, "canonical generated SourceRules are authoritative; caller's mutated Rules are ignored")
+		assert.Len(t, feature.Get(cs.Freeze(), feature.PlaneSubmitHooks), 1)
 	})
 
 	t.Run("mutated NilPolicy on copied standard exclusive plane", func(t *testing.T) {
@@ -692,20 +675,11 @@ func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) 
 
 		cs := feature.NewContributionSet()
 
-		// Current behavior: ContributeSource checks p.NilPolicy on caller's copy,
-		// skipping nil silently because of caller's mutated NilPolicy!
+		// Task 2 target contract: NilPolicy MUST be read from canonical generated metadata (gp.nilPolicy),
+		// so caller's mutated NilSkip cannot bypass NilReject.
 		err := feature.Contribute(cs, copiedPlane, "plugin-adv", terminaldecision.Provider(nil))
-		require.NoError(t, err, "caller's mutated NilSkip skips nil contribution")
-		assert.Nil(t, feature.Get(cs.Freeze(), feature.PlaneTerminalDecisionProvider))
-
-		// Canonical PlaneTerminalDecisionProvider has NilReject (rejects nil)
-		csCanonical := feature.NewContributionSet()
-		errCanonical := feature.Contribute(csCanonical, feature.PlaneTerminalDecisionProvider, "plugin-canonical", terminaldecision.Provider(nil))
-		require.Error(t, errCanonical)
-		require.ErrorIs(t, errCanonical, feature.ErrNilContribution)
-
-		// NOTE: TARGET CONTRACT FOR TASK 2:
-		// In Task 2, NilPolicy MUST be read from canonical generated metadata (gp.nilPolicy).
+		require.Error(t, err, "canonical generated NilPolicy (NilReject) is authoritative")
+		require.ErrorIs(t, err, feature.ErrNilContribution)
 	})
 
 	t.Run("mutated Identity on copied standard exclusive plane", func(t *testing.T) {
@@ -720,19 +694,14 @@ func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) 
 		cs := feature.NewContributionSet()
 		provider := charStubTerminalProvider{id: "real_canonical_id"}
 
-		// Current behavior: Contribute uses caller's p.Identity to capture incomingID,
-		// setting cs.identities[p.ID] = "adversarial_extracted_id".
+		// Task 2 target contract: Identity extractor MUST be read from canonical generated metadata (gp.identity).
 		err := feature.Contribute(cs, copiedPlane, "plugin-adv", terminaldecision.Provider(provider))
 		require.NoError(t, err)
 
 		frozen := cs.Freeze()
 		gotID, ok := feature.FrozenIdentity(frozen, feature.PlaneTerminalDecisionProvider)
 		assert.True(t, ok)
-		// Generated identity accessor returns the ID stored by generated contribute closure
-		assert.Equal(t, "real_canonical_id", gotID)
-
-		// NOTE: TARGET CONTRACT FOR TASK 2:
-		// In Task 2, Identity extractor MUST be read from canonical generated metadata.
+		assert.Equal(t, "real_canonical_id", gotID, "canonical identity extractor is authoritative")
 	})
 
 	t.Run("mutated Combine on copied standard plane is ignored by generated storage closure", func(t *testing.T) {
@@ -747,9 +716,6 @@ func TestClosedPlane_AdversarialCopy_SameID_MutatedExportedPolicy(t *testing.T) 
 		cs := feature.NewContributionSet()
 		hook := charStubSubmitHook{id: "hook-combine-test", order: 1}
 
-		// Current behavior: Generated contribute closure in plane_generated.go calls
-		// PlaneSubmitHooks.Combine (the global canonical manifest plane), so the caller's
-		// mutated copiedPlane.Combine is NOT executed during generated storage contribute!
 		err := feature.Contribute(cs, copiedPlane, "plugin-adv", []hooks.SubmitHook{hook})
 		require.NoError(t, err, "generated contribute closure uses canonical PlaneSubmitHooks.Combine")
 
@@ -995,4 +961,38 @@ func TestClosedPlane_StandardGeneratedPositiveControls_Diagnostics(t *testing.T)
 		require.Len(t, occupants, 1)
 		assert.Equal(t, "secret_guard:sg-test-guard", occupants[0].Label)
 	})
+}
+
+func TestClosedPlane_TestBoundPlane_Semantics(t *testing.T) {
+	t.Parallel()
+
+	rawPlane := feature.Plane[[]string]{
+		ID:           "test.bound_plane",
+		Multiplicity: feature.MultOrdered,
+		Rules: feature.SourceRules{
+			Feature: feature.CombConcatenate,
+		},
+		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
+			return append(cur, inc...), nil
+		},
+	}
+
+	// 1. Unbound plane contribution is rejected with ErrUngeneratedPlane
+	cs := feature.NewContributionSet()
+	err := feature.Contribute(cs, rawPlane, "plugin-1", []string{"v1"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
+
+	// 2. Bound plane contribution succeeds
+	boundPlane := feature.BindGeneratedTestPlane(rawPlane)
+	err = feature.Contribute(cs, boundPlane, "plugin-1", []string{"v1", "v2"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"v1", "v2"}, feature.Get(cs.Freeze(), boundPlane))
+
+	// 3. Changed-ID copy of bound plane is rejected with ErrUngeneratedPlane
+	tamperedPlane := boundPlane
+	tamperedPlane.ID = "test.bound_plane.tampered"
+	err = feature.Contribute(cs, tamperedPlane, "plugin-2", []string{"v3"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 }

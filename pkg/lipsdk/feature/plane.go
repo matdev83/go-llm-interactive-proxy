@@ -181,10 +181,23 @@ type DiagnosticDescriptor[T any] struct {
 	Privileges    func(T) PrivilegeProjection
 }
 
+type generatedPolicy[T any] struct {
+	planeID                string
+	rules                  SourceRules
+	nilPolicy              NilPolicy
+	isNil                  func(T) bool
+	validate               func(T) error
+	validateIdentity       func(string) error
+	combine                func(SourceKind, T, T) (T, error)
+	identity               func(T) (string, bool)
+	exclusiveConflictError error
+}
+
 type generatedAccess[T any] struct {
 	contribute func(*generatedContributions, SourceKind, string, T) error
 	get        func(*generatedFrozen) T
 	identity   func(*generatedFrozen) (string, bool)
+	policy     *generatedPolicy[T]
 }
 
 // HookTarget defines the target field name in generated hook configuration.

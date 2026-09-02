@@ -3458,6 +3458,17 @@ func init() {
 			}
 			return cloneSlice(gf.submitHooks)
 		},
+		policy: &generatedPolicy[[]hooks.SubmitHook]{
+			planeID:                PlaneSubmitHooks.ID,
+			rules:                  PlaneSubmitHooks.Rules,
+			nilPolicy:              PlaneSubmitHooks.NilPolicy,
+			isNil:                  PlaneSubmitHooks.IsNil,
+			validate:               PlaneSubmitHooks.Validate,
+			validateIdentity:       PlaneSubmitHooks.ValidateIdentity,
+			combine:                PlaneSubmitHooks.Combine,
+			identity:               PlaneSubmitHooks.Identity,
+			exclusiveConflictError: PlaneSubmitHooks.ExclusiveConflictError,
+		},
 	}
 	PlaneRequestPartHooks.generated = generatedAccess[[]hooks.RequestPartHook]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.RequestPartHook) error {
@@ -3478,6 +3489,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.requestPartHooks)
+		},
+		policy: &generatedPolicy[[]hooks.RequestPartHook]{
+			planeID:                PlaneRequestPartHooks.ID,
+			rules:                  PlaneRequestPartHooks.Rules,
+			nilPolicy:              PlaneRequestPartHooks.NilPolicy,
+			isNil:                  PlaneRequestPartHooks.IsNil,
+			validate:               PlaneRequestPartHooks.Validate,
+			validateIdentity:       PlaneRequestPartHooks.ValidateIdentity,
+			combine:                PlaneRequestPartHooks.Combine,
+			identity:               PlaneRequestPartHooks.Identity,
+			exclusiveConflictError: PlaneRequestPartHooks.ExclusiveConflictError,
 		},
 	}
 	PlaneResponsePartHooks.generated = generatedAccess[[]hooks.ResponsePartHook]{
@@ -3500,6 +3522,17 @@ func init() {
 			}
 			return cloneSlice(gf.responsePartHooks)
 		},
+		policy: &generatedPolicy[[]hooks.ResponsePartHook]{
+			planeID:                PlaneResponsePartHooks.ID,
+			rules:                  PlaneResponsePartHooks.Rules,
+			nilPolicy:              PlaneResponsePartHooks.NilPolicy,
+			isNil:                  PlaneResponsePartHooks.IsNil,
+			validate:               PlaneResponsePartHooks.Validate,
+			validateIdentity:       PlaneResponsePartHooks.ValidateIdentity,
+			combine:                PlaneResponsePartHooks.Combine,
+			identity:               PlaneResponsePartHooks.Identity,
+			exclusiveConflictError: PlaneResponsePartHooks.ExclusiveConflictError,
+		},
 	}
 	PlaneToolReactors.generated = generatedAccess[[]hooks.ToolReactor]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []hooks.ToolReactor) error {
@@ -3520,6 +3553,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.toolReactors)
+		},
+		policy: &generatedPolicy[[]hooks.ToolReactor]{
+			planeID:                PlaneToolReactors.ID,
+			rules:                  PlaneToolReactors.Rules,
+			nilPolicy:              PlaneToolReactors.NilPolicy,
+			isNil:                  PlaneToolReactors.IsNil,
+			validate:               PlaneToolReactors.Validate,
+			validateIdentity:       PlaneToolReactors.ValidateIdentity,
+			combine:                PlaneToolReactors.Combine,
+			identity:               PlaneToolReactors.Identity,
+			exclusiveConflictError: PlaneToolReactors.ExclusiveConflictError,
 		},
 	}
 	PlaneSessionOpeners.generated = generatedAccess[[]session.Opener]{
@@ -3542,6 +3586,17 @@ func init() {
 			}
 			return cloneSlice(gf.sessionOpeners)
 		},
+		policy: &generatedPolicy[[]session.Opener]{
+			planeID:                PlaneSessionOpeners.ID,
+			rules:                  PlaneSessionOpeners.Rules,
+			nilPolicy:              PlaneSessionOpeners.NilPolicy,
+			isNil:                  PlaneSessionOpeners.IsNil,
+			validate:               PlaneSessionOpeners.Validate,
+			validateIdentity:       PlaneSessionOpeners.ValidateIdentity,
+			combine:                PlaneSessionOpeners.Combine,
+			identity:               PlaneSessionOpeners.Identity,
+			exclusiveConflictError: PlaneSessionOpeners.ExclusiveConflictError,
+		},
 	}
 	PlaneWorkspaceResolvers.generated = generatedAccess[[]workspace.Resolver]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []workspace.Resolver) error {
@@ -3562,6 +3617,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.workspaceResolvers)
+		},
+		policy: &generatedPolicy[[]workspace.Resolver]{
+			planeID:                PlaneWorkspaceResolvers.ID,
+			rules:                  PlaneWorkspaceResolvers.Rules,
+			nilPolicy:              PlaneWorkspaceResolvers.NilPolicy,
+			isNil:                  PlaneWorkspaceResolvers.IsNil,
+			validate:               PlaneWorkspaceResolvers.Validate,
+			validateIdentity:       PlaneWorkspaceResolvers.ValidateIdentity,
+			combine:                PlaneWorkspaceResolvers.Combine,
+			identity:               PlaneWorkspaceResolvers.Identity,
+			exclusiveConflictError: PlaneWorkspaceResolvers.ExclusiveConflictError,
 		},
 	}
 	PlaneToolCatalogFilters.generated = generatedAccess[[]toolcatalog.Filter]{
@@ -3584,6 +3650,17 @@ func init() {
 			}
 			return cloneSlice(gf.toolCatalogFilters)
 		},
+		policy: &generatedPolicy[[]toolcatalog.Filter]{
+			planeID:                PlaneToolCatalogFilters.ID,
+			rules:                  PlaneToolCatalogFilters.Rules,
+			nilPolicy:              PlaneToolCatalogFilters.NilPolicy,
+			isNil:                  PlaneToolCatalogFilters.IsNil,
+			validate:               PlaneToolCatalogFilters.Validate,
+			validateIdentity:       PlaneToolCatalogFilters.ValidateIdentity,
+			combine:                PlaneToolCatalogFilters.Combine,
+			identity:               PlaneToolCatalogFilters.Identity,
+			exclusiveConflictError: PlaneToolCatalogFilters.ExclusiveConflictError,
+		},
 	}
 	PlaneToolCallPolicies.generated = generatedAccess[[]toolpolicy.Policy]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []toolpolicy.Policy) error {
@@ -3604,6 +3681,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.toolCallPolicies)
+		},
+		policy: &generatedPolicy[[]toolpolicy.Policy]{
+			planeID:                PlaneToolCallPolicies.ID,
+			rules:                  PlaneToolCallPolicies.Rules,
+			nilPolicy:              PlaneToolCallPolicies.NilPolicy,
+			isNil:                  PlaneToolCallPolicies.IsNil,
+			validate:               PlaneToolCallPolicies.Validate,
+			validateIdentity:       PlaneToolCallPolicies.ValidateIdentity,
+			combine:                PlaneToolCallPolicies.Combine,
+			identity:               PlaneToolCallPolicies.Identity,
+			exclusiveConflictError: PlaneToolCallPolicies.ExclusiveConflictError,
 		},
 	}
 	PlaneToolCallFinalizers.generated = generatedAccess[[]toolcall.Finalizer]{
@@ -3626,6 +3714,17 @@ func init() {
 			}
 			return cloneSlice(gf.toolCallFinalizers)
 		},
+		policy: &generatedPolicy[[]toolcall.Finalizer]{
+			planeID:                PlaneToolCallFinalizers.ID,
+			rules:                  PlaneToolCallFinalizers.Rules,
+			nilPolicy:              PlaneToolCallFinalizers.NilPolicy,
+			isNil:                  PlaneToolCallFinalizers.IsNil,
+			validate:               PlaneToolCallFinalizers.Validate,
+			validateIdentity:       PlaneToolCallFinalizers.ValidateIdentity,
+			combine:                PlaneToolCallFinalizers.Combine,
+			identity:               PlaneToolCallFinalizers.Identity,
+			exclusiveConflictError: PlaneToolCallFinalizers.ExclusiveConflictError,
+		},
 	}
 	PlaneToolCallFinalizationMaxArgsBytes.generated = generatedAccess[int]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v int) error {
@@ -3641,6 +3740,17 @@ func init() {
 				return 0
 			}
 			return gf.toolCallFinalizationMaxArgsBytes
+		},
+		policy: &generatedPolicy[int]{
+			planeID:                PlaneToolCallFinalizationMaxArgsBytes.ID,
+			rules:                  PlaneToolCallFinalizationMaxArgsBytes.Rules,
+			nilPolicy:              PlaneToolCallFinalizationMaxArgsBytes.NilPolicy,
+			isNil:                  PlaneToolCallFinalizationMaxArgsBytes.IsNil,
+			validate:               PlaneToolCallFinalizationMaxArgsBytes.Validate,
+			validateIdentity:       PlaneToolCallFinalizationMaxArgsBytes.ValidateIdentity,
+			combine:                PlaneToolCallFinalizationMaxArgsBytes.Combine,
+			identity:               PlaneToolCallFinalizationMaxArgsBytes.Identity,
+			exclusiveConflictError: PlaneToolCallFinalizationMaxArgsBytes.ExclusiveConflictError,
 		},
 	}
 	PlaneRequestTransforms.generated = generatedAccess[[]request.Transform]{
@@ -3663,6 +3773,17 @@ func init() {
 			}
 			return cloneSlice(gf.requestTransforms)
 		},
+		policy: &generatedPolicy[[]request.Transform]{
+			planeID:                PlaneRequestTransforms.ID,
+			rules:                  PlaneRequestTransforms.Rules,
+			nilPolicy:              PlaneRequestTransforms.NilPolicy,
+			isNil:                  PlaneRequestTransforms.IsNil,
+			validate:               PlaneRequestTransforms.Validate,
+			validateIdentity:       PlaneRequestTransforms.ValidateIdentity,
+			combine:                PlaneRequestTransforms.Combine,
+			identity:               PlaneRequestTransforms.Identity,
+			exclusiveConflictError: PlaneRequestTransforms.ExclusiveConflictError,
+		},
 	}
 	PlanePreRequestHandlers.generated = generatedAccess[[]prerequest.Handler]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []prerequest.Handler) error {
@@ -3683,6 +3804,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.preRequestHandlers)
+		},
+		policy: &generatedPolicy[[]prerequest.Handler]{
+			planeID:                PlanePreRequestHandlers.ID,
+			rules:                  PlanePreRequestHandlers.Rules,
+			nilPolicy:              PlanePreRequestHandlers.NilPolicy,
+			isNil:                  PlanePreRequestHandlers.IsNil,
+			validate:               PlanePreRequestHandlers.Validate,
+			validateIdentity:       PlanePreRequestHandlers.ValidateIdentity,
+			combine:                PlanePreRequestHandlers.Combine,
+			identity:               PlanePreRequestHandlers.Identity,
+			exclusiveConflictError: PlanePreRequestHandlers.ExclusiveConflictError,
 		},
 	}
 	PlaneRouteHintProviders.generated = generatedAccess[[]routehint.Provider]{
@@ -3705,6 +3837,17 @@ func init() {
 			}
 			return cloneSlice(gf.routeHintProviders)
 		},
+		policy: &generatedPolicy[[]routehint.Provider]{
+			planeID:                PlaneRouteHintProviders.ID,
+			rules:                  PlaneRouteHintProviders.Rules,
+			nilPolicy:              PlaneRouteHintProviders.NilPolicy,
+			isNil:                  PlaneRouteHintProviders.IsNil,
+			validate:               PlaneRouteHintProviders.Validate,
+			validateIdentity:       PlaneRouteHintProviders.ValidateIdentity,
+			combine:                PlaneRouteHintProviders.Combine,
+			identity:               PlaneRouteHintProviders.Identity,
+			exclusiveConflictError: PlaneRouteHintProviders.ExclusiveConflictError,
+		},
 	}
 	PlaneCompletionGates.generated = generatedAccess[[]completion.Gate]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []completion.Gate) error {
@@ -3725,6 +3868,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.completionGates)
+		},
+		policy: &generatedPolicy[[]completion.Gate]{
+			planeID:                PlaneCompletionGates.ID,
+			rules:                  PlaneCompletionGates.Rules,
+			nilPolicy:              PlaneCompletionGates.NilPolicy,
+			isNil:                  PlaneCompletionGates.IsNil,
+			validate:               PlaneCompletionGates.Validate,
+			validateIdentity:       PlaneCompletionGates.ValidateIdentity,
+			combine:                PlaneCompletionGates.Combine,
+			identity:               PlaneCompletionGates.Identity,
+			exclusiveConflictError: PlaneCompletionGates.ExclusiveConflictError,
 		},
 	}
 	PlaneAttemptTransforms.generated = generatedAccess[[]request.AttemptTransform]{
@@ -3756,6 +3910,17 @@ func init() {
 			}
 			return gf.attemptTransformsID, gf.attemptTransformsHasID
 		},
+		policy: &generatedPolicy[[]request.AttemptTransform]{
+			planeID:                PlaneAttemptTransforms.ID,
+			rules:                  PlaneAttemptTransforms.Rules,
+			nilPolicy:              PlaneAttemptTransforms.NilPolicy,
+			isNil:                  PlaneAttemptTransforms.IsNil,
+			validate:               PlaneAttemptTransforms.Validate,
+			validateIdentity:       PlaneAttemptTransforms.ValidateIdentity,
+			combine:                PlaneAttemptTransforms.Combine,
+			identity:               PlaneAttemptTransforms.Identity,
+			exclusiveConflictError: PlaneAttemptTransforms.ExclusiveConflictError,
+		},
 	}
 	PlaneStreamObserverFactories.generated = generatedAccess[[]response.StreamObserverFactory]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []response.StreamObserverFactory) error {
@@ -3786,6 +3951,17 @@ func init() {
 			}
 			return gf.streamObserverFactoriesID, gf.streamObserverFactoriesHasID
 		},
+		policy: &generatedPolicy[[]response.StreamObserverFactory]{
+			planeID:                PlaneStreamObserverFactories.ID,
+			rules:                  PlaneStreamObserverFactories.Rules,
+			nilPolicy:              PlaneStreamObserverFactories.NilPolicy,
+			isNil:                  PlaneStreamObserverFactories.IsNil,
+			validate:               PlaneStreamObserverFactories.Validate,
+			validateIdentity:       PlaneStreamObserverFactories.ValidateIdentity,
+			combine:                PlaneStreamObserverFactories.Combine,
+			identity:               PlaneStreamObserverFactories.Identity,
+			exclusiveConflictError: PlaneStreamObserverFactories.ExclusiveConflictError,
+		},
 	}
 	PlaneTrafficObservers.generated = generatedAccess[[]traffic.Observer]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []traffic.Observer) error {
@@ -3806,6 +3982,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.trafficObservers)
+		},
+		policy: &generatedPolicy[[]traffic.Observer]{
+			planeID:                PlaneTrafficObservers.ID,
+			rules:                  PlaneTrafficObservers.Rules,
+			nilPolicy:              PlaneTrafficObservers.NilPolicy,
+			isNil:                  PlaneTrafficObservers.IsNil,
+			validate:               PlaneTrafficObservers.Validate,
+			validateIdentity:       PlaneTrafficObservers.ValidateIdentity,
+			combine:                PlaneTrafficObservers.Combine,
+			identity:               PlaneTrafficObservers.Identity,
+			exclusiveConflictError: PlaneTrafficObservers.ExclusiveConflictError,
 		},
 	}
 	PlaneUsageObservers.generated = generatedAccess[[]usage.Observer]{
@@ -3828,6 +4015,17 @@ func init() {
 			}
 			return cloneSlice(gf.usageObservers)
 		},
+		policy: &generatedPolicy[[]usage.Observer]{
+			planeID:                PlaneUsageObservers.ID,
+			rules:                  PlaneUsageObservers.Rules,
+			nilPolicy:              PlaneUsageObservers.NilPolicy,
+			isNil:                  PlaneUsageObservers.IsNil,
+			validate:               PlaneUsageObservers.Validate,
+			validateIdentity:       PlaneUsageObservers.ValidateIdentity,
+			combine:                PlaneUsageObservers.Combine,
+			identity:               PlaneUsageObservers.Identity,
+			exclusiveConflictError: PlaneUsageObservers.ExclusiveConflictError,
+		},
 	}
 	PlaneRawCaptureSinks.generated = generatedAccess[[]traffic.RawCaptureSink]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []traffic.RawCaptureSink) error {
@@ -3848,6 +4046,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.rawCaptureSinks)
+		},
+		policy: &generatedPolicy[[]traffic.RawCaptureSink]{
+			planeID:                PlaneRawCaptureSinks.ID,
+			rules:                  PlaneRawCaptureSinks.Rules,
+			nilPolicy:              PlaneRawCaptureSinks.NilPolicy,
+			isNil:                  PlaneRawCaptureSinks.IsNil,
+			validate:               PlaneRawCaptureSinks.Validate,
+			validateIdentity:       PlaneRawCaptureSinks.ValidateIdentity,
+			combine:                PlaneRawCaptureSinks.Combine,
+			identity:               PlaneRawCaptureSinks.Identity,
+			exclusiveConflictError: PlaneRawCaptureSinks.ExclusiveConflictError,
 		},
 	}
 	PlaneTrafficRedactors.generated = generatedAccess[[]traffic.Redactor]{
@@ -3870,6 +4079,17 @@ func init() {
 			}
 			return cloneSlice(gf.trafficRedactors)
 		},
+		policy: &generatedPolicy[[]traffic.Redactor]{
+			planeID:                PlaneTrafficRedactors.ID,
+			rules:                  PlaneTrafficRedactors.Rules,
+			nilPolicy:              PlaneTrafficRedactors.NilPolicy,
+			isNil:                  PlaneTrafficRedactors.IsNil,
+			validate:               PlaneTrafficRedactors.Validate,
+			validateIdentity:       PlaneTrafficRedactors.ValidateIdentity,
+			combine:                PlaneTrafficRedactors.Combine,
+			identity:               PlaneTrafficRedactors.Identity,
+			exclusiveConflictError: PlaneTrafficRedactors.ExclusiveConflictError,
+		},
 	}
 	PlaneCompactionObservers.generated = generatedAccess[[]compaction.Observer]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []compaction.Observer) error {
@@ -3890,6 +4110,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.compactionObservers)
+		},
+		policy: &generatedPolicy[[]compaction.Observer]{
+			planeID:                PlaneCompactionObservers.ID,
+			rules:                  PlaneCompactionObservers.Rules,
+			nilPolicy:              PlaneCompactionObservers.NilPolicy,
+			isNil:                  PlaneCompactionObservers.IsNil,
+			validate:               PlaneCompactionObservers.Validate,
+			validateIdentity:       PlaneCompactionObservers.ValidateIdentity,
+			combine:                PlaneCompactionObservers.Combine,
+			identity:               PlaneCompactionObservers.Identity,
+			exclusiveConflictError: PlaneCompactionObservers.ExclusiveConflictError,
 		},
 	}
 	PlaneCompactionPreservers.generated = generatedAccess[[]compaction.Preserver]{
@@ -3921,6 +4152,17 @@ func init() {
 			}
 			return gf.compactionPreserversID, gf.compactionPreserversHasID
 		},
+		policy: &generatedPolicy[[]compaction.Preserver]{
+			planeID:                PlaneCompactionPreservers.ID,
+			rules:                  PlaneCompactionPreservers.Rules,
+			nilPolicy:              PlaneCompactionPreservers.NilPolicy,
+			isNil:                  PlaneCompactionPreservers.IsNil,
+			validate:               PlaneCompactionPreservers.Validate,
+			validateIdentity:       PlaneCompactionPreservers.ValidateIdentity,
+			combine:                PlaneCompactionPreservers.Combine,
+			identity:               PlaneCompactionPreservers.Identity,
+			exclusiveConflictError: PlaneCompactionPreservers.ExclusiveConflictError,
+		},
 	}
 	PlaneSecretGuards.generated = generatedAccess[[]secretguard.Guard]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []secretguard.Guard) error {
@@ -3942,6 +4184,17 @@ func init() {
 			}
 			return cloneSlice(gf.secretGuards)
 		},
+		policy: &generatedPolicy[[]secretguard.Guard]{
+			planeID:                PlaneSecretGuards.ID,
+			rules:                  PlaneSecretGuards.Rules,
+			nilPolicy:              PlaneSecretGuards.NilPolicy,
+			isNil:                  PlaneSecretGuards.IsNil,
+			validate:               PlaneSecretGuards.Validate,
+			validateIdentity:       PlaneSecretGuards.ValidateIdentity,
+			combine:                PlaneSecretGuards.Combine,
+			identity:               PlaneSecretGuards.Identity,
+			exclusiveConflictError: PlaneSecretGuards.ExclusiveConflictError,
+		},
 	}
 	PlaneLocalTurnHandlers.generated = generatedAccess[[]localturn.Handler]{
 		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v []localturn.Handler) error {
@@ -3962,6 +4215,17 @@ func init() {
 				return nil
 			}
 			return cloneSlice(gf.localTurnHandlers)
+		},
+		policy: &generatedPolicy[[]localturn.Handler]{
+			planeID:                PlaneLocalTurnHandlers.ID,
+			rules:                  PlaneLocalTurnHandlers.Rules,
+			nilPolicy:              PlaneLocalTurnHandlers.NilPolicy,
+			isNil:                  PlaneLocalTurnHandlers.IsNil,
+			validate:               PlaneLocalTurnHandlers.Validate,
+			validateIdentity:       PlaneLocalTurnHandlers.ValidateIdentity,
+			combine:                PlaneLocalTurnHandlers.Combine,
+			identity:               PlaneLocalTurnHandlers.Identity,
+			exclusiveConflictError: PlaneLocalTurnHandlers.ExclusiveConflictError,
 		},
 	}
 	PlaneTerminalDecisionProvider.generated = generatedAccess[terminaldecision.Provider]{
@@ -3987,6 +4251,17 @@ func init() {
 				return "", false
 			}
 			return gf.terminalDecisionProviderID, gf.terminalDecisionProviderHasID
+		},
+		policy: &generatedPolicy[terminaldecision.Provider]{
+			planeID:                PlaneTerminalDecisionProvider.ID,
+			rules:                  PlaneTerminalDecisionProvider.Rules,
+			nilPolicy:              PlaneTerminalDecisionProvider.NilPolicy,
+			isNil:                  PlaneTerminalDecisionProvider.IsNil,
+			validate:               PlaneTerminalDecisionProvider.Validate,
+			validateIdentity:       PlaneTerminalDecisionProvider.ValidateIdentity,
+			combine:                PlaneTerminalDecisionProvider.Combine,
+			identity:               PlaneTerminalDecisionProvider.Identity,
+			exclusiveConflictError: PlaneTerminalDecisionProvider.ExclusiveConflictError,
 		},
 	}
 }

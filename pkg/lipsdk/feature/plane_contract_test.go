@@ -537,7 +537,7 @@ func TestValidateManifest(t *testing.T) {
 func TestContribute_AttributedErrors(t *testing.T) {
 	t.Parallel()
 
-	planeConcat := feature.Plane[[]string]{
+	planeConcat := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.hooks",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -552,9 +552,9 @@ func TestContribute_AttributedErrors(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
-	planeNoFeature := feature.Plane[string]{
+	planeNoFeature := feature.BindGeneratedTestPlane(feature.Plane[string]{
 		ID:           "test.host_only",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -563,7 +563,7 @@ func TestContribute_AttributedErrors(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc string) (string, error) {
 			return cur + inc, nil
 		},
-	}
+	})
 
 	t.Run("nil contribution set returns error", func(t *testing.T) {
 		t.Parallel()
@@ -617,34 +617,34 @@ func TestContribute_AttributedErrors(t *testing.T) {
 		assert.False(t, s.Has("test.hooks"))
 	})
 
-	t.Run("invalid combination in plane declaration returns attributed error wrapping ErrInvalidPlane", func(t *testing.T) {
+	t.Run("unbound plane returns attributed error wrapping ErrUngeneratedPlane", func(t *testing.T) {
 		t.Parallel()
-		planeInvalidComb := feature.Plane[[]string]{
-			ID:           "test.invalid_comb",
+		planeUnbound := feature.Plane[[]string]{
+			ID:           "test.unbound",
 			Multiplicity: feature.MultOrdered,
 			Rules: feature.SourceRules{
-				Feature: feature.Combination(99),
+				Feature: feature.CombConcatenate,
 			},
 			Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 				return append(cur, inc...), nil
 			},
 		}
 		s := feature.NewContributionSet()
-		err := feature.Contribute(s, planeInvalidComb, "plugin-a", []string{"val"})
+		err := feature.Contribute(s, planeUnbound, "plugin-a", []string{"val"})
 		require.Error(t, err)
-		require.ErrorIs(t, err, feature.ErrInvalidPlane)
+		require.ErrorIs(t, err, feature.ErrUngeneratedPlane)
 
 		var attrErr *feature.AttributedError
 		require.True(t, errors.As(err, &attrErr))
 		assert.Equal(t, "plugin-a", attrErr.PluginID)
-		assert.Equal(t, "test.invalid_comb", attrErr.PlaneID)
+		assert.Equal(t, "test.unbound", attrErr.PlaneID)
 	})
 }
 
 func TestContribute_ExclusiveConflict_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
-	exclusivePlane := feature.Plane[testProvider]{
+	exclusivePlane := feature.BindGeneratedTestPlane(feature.Plane[testProvider]{
 		ID:           "test.terminal_decision_provider",
 		Multiplicity: feature.MultExclusive,
 		Rules: feature.SourceRules{
@@ -665,7 +665,7 @@ func TestContribute_ExclusiveConflict_FailBeforeMutate(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc testProvider) (testProvider, error) {
 			return inc, nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -719,7 +719,7 @@ func TestContribute_ExclusiveConflict_FailBeforeMutate(t *testing.T) {
 func TestContribute_ScalarMinReduce_RegistrationOrder(t *testing.T) {
 	t.Parallel()
 
-	minReducePlane := feature.Plane[int]{
+	minReducePlane := feature.BindGeneratedTestPlane(feature.Plane[int]{
 		ID:           "test.tool_call_finalization_max_args_bytes",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -740,7 +740,7 @@ func TestContribute_ScalarMinReduce_RegistrationOrder(t *testing.T) {
 			}
 			return cur, nil
 		},
-	}
+	})
 
 	tests := []struct {
 		name          string
@@ -809,7 +809,7 @@ func TestContribute_ScalarMinReduce_RegistrationOrder(t *testing.T) {
 func TestContribute_OrderedConcatenation(t *testing.T) {
 	t.Parallel()
 
-	concatPlane := feature.Plane[[]string]{
+	concatPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.submit_hooks",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -818,7 +818,7 @@ func TestContribute_OrderedConcatenation(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -839,7 +839,7 @@ func TestContribute_OrderedConcatenation(t *testing.T) {
 func TestContribute_FallibleCombine_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
-	falliblePlane := feature.Plane[[]string]{
+	falliblePlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.fallible",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -853,7 +853,7 @@ func TestContribute_FallibleCombine_FailBeforeMutate(t *testing.T) {
 			}
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -881,7 +881,7 @@ func TestContribute_MutatingCombiner_FailBeforeMutate(t *testing.T) {
 	t.Parallel()
 
 	// A plane with a combiner that mutates 'cur' in-place before returning an error.
-	mutatingPlane := feature.Plane[[]string]{
+	mutatingPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.mutating_combiner",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -896,7 +896,7 @@ func TestContribute_MutatingCombiner_FailBeforeMutate(t *testing.T) {
 			}
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -926,7 +926,7 @@ func TestContribute_MutatingCombiner_FailBeforeMutate(t *testing.T) {
 func TestContribute_CallerSliceMutation_Isolation(t *testing.T) {
 	t.Parallel()
 
-	concatPlane := feature.Plane[[]string]{
+	concatPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.slice_isolation",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -935,7 +935,7 @@ func TestContribute_CallerSliceMutation_Isolation(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -955,7 +955,7 @@ func TestContribute_CallerSliceMutation_Isolation(t *testing.T) {
 func TestFreeze_Aliasing_Isolation(t *testing.T) {
 	t.Parallel()
 
-	concatPlane := feature.Plane[[]string]{
+	concatPlane := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.freeze_isolation",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -964,7 +964,7 @@ func TestFreeze_Aliasing_Isolation(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	s := feature.NewContributionSet()
 
@@ -1028,7 +1028,7 @@ func TestEnums_StringMethods(t *testing.T) {
 func TestContributeSource_Semantics(t *testing.T) {
 	t.Parallel()
 
-	planeMultiSource := feature.Plane[[]string]{
+	planeMultiSource := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.multi_source",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -1038,9 +1038,9 @@ func TestContributeSource_Semantics(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
-	planeFeatureOnly := feature.Plane[[]string]{
+	planeFeatureOnly := feature.BindGeneratedTestPlane(feature.Plane[[]string]{
 		ID:           "test.feature_only",
 		Multiplicity: feature.MultOrdered,
 		Rules: feature.SourceRules{
@@ -1049,7 +1049,7 @@ func TestContributeSource_Semantics(t *testing.T) {
 		Combine: func(source feature.SourceKind, cur, inc []string) ([]string, error) {
 			return append(cur, inc...), nil
 		},
-	}
+	})
 
 	t.Run("source host supported succeeds and attributes contributor", func(t *testing.T) {
 		t.Parallel()
