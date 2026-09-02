@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
+	repair "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -68,9 +68,9 @@ func TestToolCallRepairFactory_DefaultMaxArgsBytesMatchCore(t *testing.T) {
 		t.Fatalf("BuildFeatureBundle: %v", err)
 	}
 	maxArgs := lipfeature.Get(bundle.PlaneSet, lipfeature.PlaneToolCallFinalizationMaxArgsBytes)
-	if maxArgs != corerepair.DefaultMaxArgsBytes {
-		t.Fatalf("bundle max_args=%d != core DefaultMaxArgsBytes=%d",
-			maxArgs, corerepair.DefaultMaxArgsBytes)
+	if maxArgs != repair.DefaultMaxArgsBytes {
+		t.Fatalf("bundle max_args=%d != repair DefaultMaxArgsBytes=%d",
+			maxArgs, repair.DefaultMaxArgsBytes)
 	}
 	if maxArgs != toolcallrepair.DefaultMaxArgsBytes {
 		t.Fatalf("bundle max_args=%d != feature DefaultMaxArgsBytes=%d",

@@ -101,7 +101,7 @@
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
 - [ ] 3. Move tool-call repair implementation into the feature
-- [ ] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
+- [x] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
   - Move the complete production implementation from `internal/core/toolcallrepair` (engine, schema/compiler/cache, catalog index, JSON completion/tail repair, finalizer, diagnostics/reason codes/helpers) into the feature-local `repair` subpackage.
   - Move the corresponding unit, fuzz, benchmark, contract, and regression tests with the implementation; preserve test names/assertions where practical so coverage is visibly continuous.
   - Update imports only; do not rewrite algorithms, reason codes, cache behavior, bounds, or concurrency semantics during the move.

@@ -3,13 +3,13 @@ package toolcallrepair_test
 import (
 	"testing"
 
-	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"gopkg.in/yaml.v3"
 )
 
-// TestDefaultSchemaLimitsMatchCore locks YAML package defaults to core
-// DefaultSchemaLimits without importing core from the production config package.
+// TestDefaultSchemaLimitsMatchCore locks YAML package defaults to repair
+// DefaultSchemaLimits without importing repair from the production config package.
 func TestDefaultSchemaLimitsMatchCore(t *testing.T) {
 	t.Parallel()
 	var n yaml.Node
@@ -20,7 +20,7 @@ func TestDefaultSchemaLimitsMatchCore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
 	}
-	want := corerepair.DefaultSchemaLimits()
+	want := repair.DefaultSchemaLimits()
 	got := cfg.Schema
 	if got.MaxSchemaBytes != want.MaxSchemaBytes ||
 		got.MaxNestingDepth != want.MaxNestingDepth ||
@@ -29,14 +29,14 @@ func TestDefaultSchemaLimitsMatchCore(t *testing.T) {
 		got.MaxLocalRefDepth != want.MaxLocalRefDepth ||
 		got.MaxCacheEntries != want.MaxCacheEntries ||
 		got.MaxCacheBytes != want.MaxCacheBytes {
-		t.Fatalf("feature YAML schema defaults %+v != core DefaultSchemaLimits %+v", got, want)
+		t.Fatalf("feature YAML schema defaults %+v != repair DefaultSchemaLimits %+v", got, want)
 	}
 }
 
 func TestDefaultMaxArgsBytesMatchCore(t *testing.T) {
 	t.Parallel()
-	if toolcallrepair.DefaultMaxArgsBytes != corerepair.DefaultMaxArgsBytes {
-		t.Fatalf("feature DefaultMaxArgsBytes=%d != core DefaultMaxArgsBytes=%d",
-			toolcallrepair.DefaultMaxArgsBytes, corerepair.DefaultMaxArgsBytes)
+	if toolcallrepair.DefaultMaxArgsBytes != repair.DefaultMaxArgsBytes {
+		t.Fatalf("feature DefaultMaxArgsBytes=%d != repair DefaultMaxArgsBytes=%d",
+			toolcallrepair.DefaultMaxArgsBytes, repair.DefaultMaxArgsBytes)
 	}
 }

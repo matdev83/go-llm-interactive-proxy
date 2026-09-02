@@ -87,7 +87,7 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 func TestToolCallRepairMaterializeAfterPreflight(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	dir := filepath.Join(root, "internal", "core", "toolcallrepair")
+	dir := filepath.Join(root, "internal", "plugins", "features", "toolcallrepair", "repair")
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		t.Fatalf("glob: %v", err)

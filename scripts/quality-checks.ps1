@@ -75,6 +75,9 @@ function Get-QualityPackages {
         if (Test-UnderNestedGoModule $normalized) {
             continue
         }
+        if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $dir))) {
+            continue
+        }
         [void]$packageSet.Add("./$dir/...")
     }
 
