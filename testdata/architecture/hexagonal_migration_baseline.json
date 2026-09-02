@@ -56,8 +56,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
       ]
     },
     {

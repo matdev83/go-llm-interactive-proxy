@@ -3,7 +3,6 @@ package standardplugins
 import (
 	"fmt"
 
-	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
@@ -21,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
+	repair "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -284,12 +284,12 @@ func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
+	fin := repair.NewFinalizer(repair.FinalizerPolicy{
 		ID:             toolcallrepair.ID,
 		MaxArgsBytes:   cfg.MaxArgsBytes,
 		OnUnrepairable: cfg.OnUnrepairable,
 		Order:          cfg.FinalizerOrder(),
-		Schema: corerepair.SchemaLimits{
+		Schema: repair.SchemaLimits{
 			MaxSchemaBytes:   cfg.Schema.MaxSchemaBytes,
 			MaxNestingDepth:  cfg.Schema.MaxNestingDepth,
 			MaxNodes:         cfg.Schema.MaxNodes,
