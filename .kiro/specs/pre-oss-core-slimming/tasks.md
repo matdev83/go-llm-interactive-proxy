@@ -13,7 +13,7 @@
   - _Boundary: Verification / architecture baseline_
   - _Validation: `go run ./scripts/generate-feature-planes.go -check`; `make arch-report`; exact 10-sample benchmark command above_
 
-- [ ] 1.2 (P) Characterize closed-plane compatibility and mutation boundaries
+- [x] 1.2 (P) Characterize closed-plane compatibility and mutation boundaries
   - Add tests using a test-local arbitrary unbound `Plane[[]T]` that currently enters fallback storage; characterize contribute, Get, Freeze, Clone, ToContributions, request freeze/materialization, `FrozenPlaneSet.Validate`, `FeatureBundle.Validate`, ordinary replay, candidate replay, explicit-empty slice, and fail-before-mutate behavior before changing the contract.
   - Add adversarial copies of a canonical standard plane: one with its ID changed and one retaining the same ID while deliberately changing exported policy fields such as source rules, nil policy, validator, identity extractor and combiner. The final contract must reject the changed-ID copy and must not let the same-ID copy alter canonical generated behavior.
   - Inventory every existing raw local plane used by SDK tests to exercise combiner/source/identity behavior, including `TestContribute_FailBeforeMutate_TableDriven` and `TestContribute_InterfaceValuedPlane_NonSliceCombinerReturn`; mark those tests for generated test binding rather than unbound rejection.
