@@ -323,6 +323,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core/secretguard has been retired; use internal/plugins/features/secretguard/engine",
 	},
 	{
+		SourcePattern: "*",
+		TargetPattern: "/internal/core/compactiondetect",
+		Reason:        "internal/core/compactiondetect has been retired; use internal/infra/compactiondetect",
+	},
+	{
 		SourcePattern: "internal/plugins/features/secretguard",
 		TargetPattern: "/internal/core",
 		Reason:        "secretguard feature tree must not depend on internal/core (use pkg/lipsdk contracts)",

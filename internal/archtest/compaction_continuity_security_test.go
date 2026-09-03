@@ -34,7 +34,6 @@ func TestCompactionContinuitySecurity_NoProviderOrWireDependencies(t *testing.T)
 	t.Parallel()
 	assertDepsExcludeForbidden(t, []string{
 		"./internal/core/auxreq/...",
-		"./internal/core/compactiondetect/...",
 		"./internal/infra/compactiondetect/...",
 		"./internal/core/compactioncontinuity/...",
 		"./internal/plugins/features/compactioncontinuity/...",

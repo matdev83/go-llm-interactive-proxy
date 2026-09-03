@@ -188,7 +188,7 @@
   - _Boundary: Compaction Detector Implementation_
   - _Validation: `go test -count=1 ./internal/infra/compactiondetect ./internal/core/runtime`_
 
-- [ ] 5.3 Preserve process ownership and delete the old detector package
+- [x] 5.3 Preserve process ownership and delete the old detector package
   - Update `runtimebundle` process-service construction to instantiate the new infra detector and store it through the runtime consumer interface; retain one process-owned instance shared by generations.
   - Do not register a detector closer or create a generation copy unless Task 1.5 disproved the no-owned-resource premise and the spec was repaired first.
   - Delete `internal/core/compactiondetect`, add architecture absence/import ratchets, and update package maps/docs.

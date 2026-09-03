@@ -28,7 +28,6 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
-	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -75,7 +74,7 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector     *compactiondetect.Detector
+	CompactionDetector     runtime.CompactionDetector
 	CompactionScheduler    *auxreq.BackgroundScheduler
 	GenerationRunner       *compactioncompose.GenerationExecutorRunner
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store
