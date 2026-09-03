@@ -242,7 +242,7 @@
   - _Boundary: Architecture Gates_
   - _Validation: `go test -count=1 ./internal/archtest`_
 
-- [ ] 7.2 Reset core/runtimebundle budgets downward and prove change-surface ROI
+- [x] 7.2 Reset core/runtimebundle budgets downward and prove change-surface ROI
   - Re-measure final non-test `internal/core` and `internal/infra/runtimebundle` trees after migrations.
   - Set the core budget to measured final + 25 lines; do not retain deleted feature LOC as headroom. If runtimebundle shrank, ratchet its package tree to final + 25; it may not receive a budget increase solely because logic moved behind adapters.
   - Run a disposable existing-standard-plane feature probe from the post-migration tree: feature code + standard registration/test maintenance only, zero core/runtimebundle production edits. Record exact changed paths and remove the probe.
