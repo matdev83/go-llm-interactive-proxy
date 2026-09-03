@@ -61,10 +61,9 @@ type PackageTreeBudget struct {
 
 // PackageTreeBudgets locks measured convergence tree ceilings (+25 lines headroom).
 var PackageTreeBudgets = []PackageTreeBudget{
-	// Reasoning semantic compression adds explicit generation composition; the
-	// dedicated overlay keeps it out of legacy shrinkage while this tree ratchet
-	// is measured at 12721 on current main plus 25 lines headroom.
-	{Tree: "internal/infra/runtimebundle", Max: 12933},
+	// Pre-OSS core slimming extracts tool-call repair, secret guard, and compaction detection;
+	// runtimebundle shrank from 12796 to 12541; ratchet downward to final+25 headroom (12566).
+	{Tree: "internal/infra/runtimebundle", Max: 12566},
 	{Tree: "internal/stdhttp", Max: 6693},
 	{Tree: "cmd/lipstd", Max: 979},
 	{Tree: "pkg/lipruntime", Max: 720},
@@ -124,10 +123,11 @@ var LineBudgets = []LineBudget{
 	// aleg-cancellation-bleg-termination-hardening: single-use B-leg launch permit, concurrent bounded A-leg cancel fan-out, truthful physical CancelResult propagation, bounded attempt-owned sideband evidence accumulator, terminal stream drain, exactly-once terminal B-leg billing precedence, and bounded cancellation telemetry; measured 92771, bump to 92796 with 25 headroom.
 	// database-dialect-parity-enforcement: stable parity normalization across core components; measured 95020, bump to 95045 with 25 headroom.
 	// extension-plane-local-terminal: frozen identity accessor and turn-terminal carrier; measured 95070, bump to 95095 with 25 headroom.
-	{Dir: "internal/core", Max: 95095},
+	// pre-oss-core-slimming: moved tool-call repair, secret-guard source/matcher, and concrete compaction detector out of core; measured 89845, ratchet downward to 89870 with 25 headroom.
+	{Dir: "internal/core", Max: 89870},
 	{Dir: "internal/pluginreg", Max: 1174},
 	{Dir: "internal/stdhttp", Max: 6693},
-	{Dir: "internal/infra/runtimebundle", Max: 12933},
+	{Dir: "internal/infra/runtimebundle", Max: 12566},
 	{Dir: "cmd/lipstd", Max: 979},
 	{Dir: "pkg/lipruntime", Max: 720},
 }

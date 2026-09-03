@@ -232,7 +232,7 @@
   - _Validation: `go test -count=1 ./internal/archtest ./internal/infra/runtimebundle`_
 
 - [ ] 7. Certify OSS authoring and permanent simplification ratchets
-- [ ] 7.1 Add recursive core/feature ownership architecture rules
+- [x] 7.1 Add recursive core/feature ownership architecture rules
   - Reuse existing import-rule/source-scan infrastructure to enforce core -> no concrete features, runtimebundle -> no concrete features, and the three retired core package absences.
   - Add recursive feature-tree checks for toolcallrepair and secretguard rather than checking only the root package's direct imports.
   - Add adversarial self-tests proving renamed/nested files or subpackages cannot trivially bypass the rule, without building a large semantic analyzer.
@@ -242,7 +242,7 @@
   - _Boundary: Architecture Gates_
   - _Validation: `go test -count=1 ./internal/archtest`_
 
-- [ ] 7.2 Reset core/runtimebundle budgets downward and prove change-surface ROI
+- [x] 7.2 Reset core/runtimebundle budgets downward and prove change-surface ROI
   - Re-measure final non-test `internal/core` and `internal/infra/runtimebundle` trees after migrations.
   - Set the core budget to measured final + 25 lines; do not retain deleted feature LOC as headroom. If runtimebundle shrank, ratchet its package tree to final + 25; it may not receive a budget increase solely because logic moved behind adapters.
   - Run a disposable existing-standard-plane feature probe from the post-migration tree: feature code + standard registration/test maintenance only, zero core/runtimebundle production edits. Record exact changed paths and remove the probe.
@@ -252,7 +252,7 @@
   - _Boundary: Architecture Budgets / ROI Evidence_
   - _Validation: `make arch-report`; `go test -count=1 ./internal/archtest/tools/changesurface/... ./internal/archtest`_
 
-- [ ] 7.3 Add a fixed external-style OSS feature SDK fixture
+- [x] 7.3 Add a fixed external-style OSS feature SDK fixture
   - Create the separate module at exactly `testdata/external_feature_sdk` using the established local-checkout module pattern: `require github.com/matdev83/go-llm-interactive-proxy v0.0.0` plus `replace github.com/matdev83/go-llm-interactive-proxy => ../..`. Do not rely on the workspace or a published module version.
   - The module may import only exported `pkg/lipsdk`/`pkg/lipapi` contracts from the root module plus standard library. Add an architecture/import test preventing repository `internal` imports.
   - Implement a tiny feature using one ordered standard plane through `NewContributionSet` -> `Contribute` -> `Freeze` -> `BundleFromPlanes`, and test the resulting bundle/plane value and ordinary public replay/read behavior.
@@ -264,7 +264,7 @@
   - _Boundary: Public SDK / External Consumer TCK_
   - _Validation: `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`; `go test -count=1 ./internal/archtest ./internal/qa`_
 
-- [ ] 7.4 Reconcile feature authoring and architecture documentation
+- [x] 7.4 Reconcile feature authoring and architecture documentation
   - Update `pkg/lipsdk/feature` godoc, `docs/extension-platform-authoring.md`, `docs/plugin-authoring.md`, `internal/plugins/features/README.md`, architecture/steering package maps, and any direct references affected by moved packages.
   - Remove stale statements that features add named `FeatureBundle` fields/slices; document the frozen PlaneSet lifecycle, `ErrUngeneratedPlane`, canonical generated-policy authority, and closed standard manifest.
   - State the standard distribution boundary precisely: feature-owned bundle constructor/factory behavior plus explicit standard registration; no feature-specific core/runtimebundle branch.
@@ -276,7 +276,7 @@
   - _Validation: `make docs-check`; `go test -count=1 ./pkg/lipsdk/feature`_
 
 - [ ] 8. Prove release-safe behavior and hand off full closure
-- [ ] 8.1 Run migrated-feature and generation/reload regression gates
+- [x] 8.1 Run migrated-feature and generation/reload regression gates
   - Run focused SDK/featurebundle/toolrepair/secretguard/compaction/reasoningcompose/runtimebundle/core-runtime suites from a clean tree.
   - Re-run the complete #554 contract suite: unbound rejection, changed-ID rejection, same-ID mutation integrity, contribution/freeze/request-freeze/bundle-validation/ordinary-replay/candidate-replay paths, and external-module classification.
   - Run feature enable/disable/removal reload tests proving old requests stay pinned and new requests receive the new/no-feature surface.
@@ -287,7 +287,7 @@
   - _Boundary: Runtime / Generation Verification_
   - _Validation: targeted package suites; `(cd testdata/external_feature_sdk && GOWORK=off go test ./...)`; `make test`_
 
-- [ ] 8.2 Refresh hot-path allocation, timing evidence, and Linux race certification
+- [x] 8.2 Refresh hot-path allocation, timing evidence, and Linux race certification
   - On the **same host, CPU/power posture, Go version and `GOMAXPROCS` recorded in Task 1.1**, run the exact same benchmark selector with 10 samples: `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Preserve unedited candidate output next to the baseline.
   - Compare baseline vs candidate per benchmark. Use `benchstat` when available on the evidence host; otherwise compute the medians from the 10 raw samples and record the calculation. Do not install/change toolchain packages as part of the product diff merely to compare evidence.
   - **Blocking allocation rule**: candidate median `allocs/op` must be <= baseline median for every benchmark; any increase is NO-GO until removed or the SDD is explicitly repaired. Candidate median `B/op` must also be <= baseline median for every unchanged benchmark; an increase is NO-GO because this refactor is not permitted to buy simplification with extra request-path allocation bytes.
@@ -302,7 +302,7 @@
   - _Boundary: Performance / Concurrency Verification_
   - _Validation: exact 10-sample benchmark command + comparison rules above; exact Linux race command above_
 
-- [ ] 8.3 Produce and validate the residual ownership inventory for the full-closure SDD
+- [x] 8.3 Produce and validate the residual ownership inventory for the full-closure SDD
   - Create exactly `.kiro/specs/pre-oss-core-slimming/residual-ownership-inventory.md`. This is the durable implementation handoff consumed by the second full-closure SDD; do not leave the inventory only in a PR comment or chat transcript.
   - The artifact must contain: implementation/merged-main SHA and inventory date; classification vocabulary; a table with columns `Responsibility`, `Current owner/package`, `Production consumers`, `Classification`, `Why retained/deferred`, `Full-closure action`; summary counts by classification; and an explicit statement that no deferred finding exists only in transient session history.
   - Classify each finding as kernel invariant, generic extension mechanism, concrete optional feature policy, feature-specific infrastructure/composition, or mixed/needs split. Include current owner, concrete production consumers, why it was not moved in this pre-OSS spec, and the intended full-closure action.

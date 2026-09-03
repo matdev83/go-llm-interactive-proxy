@@ -226,6 +226,14 @@ func validateHookTarget(target HookTarget) error {
 
 // Plane declares an extension plane contract with multiplicity, per-source combination rules,
 // validation, nil policy, and diagnostics metadata.
+//
+// In v1, Plane descriptors represent published standard planes in the closed canonical manifest.
+// Production contribution policy (source combination rules, nil handling, validation, identity,
+// combination) is authoritatively enforced by the canonical generated binding. Copying or mutating
+// exported fields on a Plane descriptor does not redefine the plane; production contribution always
+// executes the canonical generated policy. If an altered copy has a modified plane ID or is unbound,
+// contribution is rejected with [ErrUngeneratedPlane]. Adding a new extension plane is an upstream
+// platform change requiring a manifest declaration in plane_manifest.go and code regeneration.
 type Plane[T any] struct {
 	ID           string
 	Multiplicity Multiplicity

@@ -54,7 +54,7 @@ This document freezes the full exact-match v1 feature: requirements, design rule
 | **D7 — Terminal session state** | Quarantine is explicit, idempotent, cache-invalidating, and checked both by `BeginTurn` and immediately before first backend dispatch; active same-session work is cancelled where the existing A-leg cancellation seam permits. |
 | **D8 — Safe errors** | Current block returns a stable client-safe policy denial instructing creation of a new session; later reuse returns a stable session-quarantined denial. Causes remain operator-only. |
 | **D9 — Observability discipline** | Structured logs may contain high-cardinality audit fields; metrics may only use bounded labels such as action/outcome/source category. |
-| **D10 — Backward-compatible extension** | Add an optional `FeatureBundle` field under schema version V1; disabled feature creates no catalog, no stage work, and no behavior change. |
+| **D10 — Backward-compatible extension** | Contribute to standard extension plane `PlaneSecretGuards` in `FeatureBundle.PlaneSet` under schema version V1; disabled feature creates no catalog, no stage work, and no behavior change. |
 | **D11 — No pre-redaction copies** | The ingress runner must not clone/reflect-copy the unredacted call for mutation detection or evidence. Block/redact content cannot enter metering, traffic observers, raw capture, or transcript recording first. |
 | **D12 — Red/green/refactor** | Interfaces and failing tests are committed first. Local TDD can be red while work is in progress, but the published phase/CI gate is green at handoff. Production implementation follows only after the contracts and acceptance matrix are reviewable, and every published phase ends green before refactoring. |
 
@@ -251,7 +251,7 @@ Disabled feature still binds a noop `MatcherResolver` (zero env reads, zero cata
 | Package | Role |
 |---|---|
 | `pkg/lipsdk/secretguard` | Opaque Guard / Matcher / Decision contracts |
-| `pkg/lipsdk/feature` | Optional `SecretGuards` on `FeatureBundle`; `secret_guard` stage id |
+| `pkg/lipsdk/feature` | `PlaneSecretGuards` in `FeatureBundle.PlaneSet`; `secret_guard` stage id |
 | `pkg/lipsdk/transport/httpauth` | Ingress attribution + safe request-credential matcher context in middleware |
 | `internal/proxycredentials` | Name-preserving proxy credential env var specs (bare + numbered) |
 | `internal/infra/osenv` | Process environment reader adapter for single-user inventory |

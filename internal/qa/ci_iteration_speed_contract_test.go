@@ -172,7 +172,7 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 	}
 	normalizedQA := strings.Join(strings.Fields(qa), " ")
 	for _, needle := range []string{
-		"testdata/enterprise_module testdata/external_connector",
+		"testdata/enterprise_module testdata/external_connector testdata/external_feature_sdk",
 		"GOWORK=off go mod tidy -diff",
 		"id: archtest",
 		"contains(fromJSON('[\"success\",\"failure\"]'), steps.archtest.outcome)",
@@ -181,7 +181,7 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 			t.Errorf("QA fast-preflight contract missing %q", needle)
 		}
 	}
-	cacheKey := "hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum')"
+	cacheKey := "hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum')"
 	if count := strings.Count(normalizedQA, cacheKey); count != 2 {
 		t.Errorf("QA dedicated cache key occurs %d times, want restore and save keys", count)
 	}

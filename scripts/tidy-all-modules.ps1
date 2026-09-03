@@ -11,7 +11,7 @@ if ($jobs -lt 1) { throw "LIP_MODULE_CHECK_JOBS must be a positive integer" }
 
 try {
     $runnerBinary = Get-TaskRunnerBinary
-    $modules = @(".", "testdata/enterprise_module")
+    $modules = @(".", "testdata/enterprise_module", "testdata/external_connector", "testdata/external_feature_sdk")
     $discovered = @(Invoke-TaskRunner -Label "tidy-all-modules:discovery" -Cwd $Root -Timeout "8m" -Env $localEnv -Output capture -Command @("go", "run", "./tools/backendplugin/discover_modules", "-root", "."))
     $modules += $discovered | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     $modules = @($modules | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique | Where-Object {

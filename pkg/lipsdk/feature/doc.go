@@ -18,6 +18,23 @@
 //     defensively clones the frozen plane set and lifecycle slices, preserving nil vs
 //     explicit empty slice semantics without validation side effects.
 //
+// The frozen plane set lifecycle transitions through well-defined stages:
+//
+//   - Accumulation: [ContributionSet] provides mutable staging with typed generated storage.
+//   - Freezing: [ContributionSet.Freeze] creates an immutable [FrozenPlaneSet], providing top-level
+//     collection isolation: slice backing arrays and metadata maps are isolated; element values
+//     (e.g. interface handlers) are shallow-copied, not deep-cloned.
+//   - Bundle packaging: [BundleFromPlanes] bundles the [FrozenPlaneSet] into a versioned
+//     [FeatureBundle]. Note that [FeatureBundle] contains no per-plane named fields or slices;
+//     all extension planes are stored in [FeatureBundle.PlaneSet].
+//   - Reading: Values are read from [FrozenPlaneSet] via [Get]. If an ungenerated plane is
+//     requested or a plane was not contributed, [Get] returns the zero value of the plane type
+//     and does not search dynamic fallback storage.
+//   - Replay & Thaw: An existing set can be replayed to another set via [FrozenPlaneSet.ReplayTo]
+//     or thawed back into a mutable staging set via [FrozenPlaneSet.ToContributions].
+//   - Request snapshot: [FreezeRequestPlanes] evaluates declared request materializers to produce
+//     an immutable request-scoped execution snapshot.
+//
 // Plugin lifecycles ([plugin.Lifecycle]) are managed on a dedicated runtime side channel
 // and are distinct from extension planes. (Historical note: named extension plane fields
 // on [FeatureBundle] were removed in favor of [FrozenPlaneSet].)
@@ -80,6 +97,28 @@
 //   - [Plane.ValidateDeclaration] and [ValidateManifest] enforce these rules and check catalog
 //     consistency across all declarations.
 //
+// # Closed Manifest and Policy Authority
+//
+// In v1, Go-LIP enforces a closed standard-plane catalog declared in the canonical manifest
+// (pkg/lipsdk/feature/plane_manifest.go). The closed manifest guarantees that every supported
+// extension plane has generated typed storage, deterministic dispatch, and full freeze/replay
+// coverage.
+//
+// Key contract rules for the closed catalog include:
+//
+//   - No dynamic planes in v1: Arbitrary unbound or dynamically declared planes are not
+//     supported. Contributing through an ungenerated or unbound plane fails immediately before
+//     candidate mutation with [ErrUngeneratedPlane].
+//   - Canonical generated-policy authority: Exported [Plane] descriptors (such as [PlaneSubmitHooks])
+//     act as typed descriptors and identifiers. The generated binding is the sole authority for
+//     production combination, source rules, nil policy, validator, and identity extraction.
+//     Copying or mutating exported fields on a [Plane] descriptor (e.g. copying PlaneX and changing
+//     its rules or combiner) does not redefine the plane; production contribution always executes
+//     the canonical generated policy. If an altered copy has a modified plane ID, contribution is
+//     rejected with [ErrUngeneratedPlane].
+//   - Adding a new extension plane requires an upstream manifest and platform change: declaring
+//     the plane in plane_manifest.go and regenerating code via scripts/generate-feature-planes.go.
+//
 // # Generated-File Policy
 //
 // The extension plane catalog and dispatch machinery follow a strict code generation policy:
@@ -105,12 +144,22 @@
 // Adding a standard in-process feature implementation to Go-LIP involves:
 //
 //  1. The feature implementation package lives under internal/plugins/features/<feature>.
-//  2. The factory function that decodes YAML configuration, constructs a [ContributionSet],
-//     adds contributions via [Contribute], freezes the set, and returns a [FeatureBundle]
-//     via [BundleFromPlanes] is implemented in internal/standardplugins/features_install.go.
+//     Feature plugins own their configuration decoding and bundle construction via a feature-owned
+//     constructor or factory (e.g. NewFeatureBundle or FeatureBundle) in the target architecture
+//     (demonstrated by migrated plugins toolcallrepair, secretguard, and reasoningpreservation).
+//     Standard factories where internal/standardplugins/features_install.go still directly constructs
+//     the [ContributionSet] and [FeatureBundle] (such as Agent Loop Guard at features_install.go:38
+//     and Pre-request Policy at features_install.go:220) are deferred with inventory tracking
+//     rather than universally completed; new features follow the feature-owned model.
+//  2. Standard distribution wiring in internal/standardplugins/features_install.go provides only
+//     explicit registration and adaptation to connect the feature factory to the standard bundle.
 //  3. The sole registration table edit is adding exactly one FeatureRegistration row to
 //     internal/standardplugins/standard_table.go in StandardBundle().Features.
 //  4. Do not add feature-specific branches or types to core/runtime or any other registry.
+//     Features own their policy; neither internal/core nor internal/infra/runtimebundle imports
+//     concrete feature packages. If a feature requires process- or generation-bound capabilities,
+//     explicit typed composition adapters outside runtimebundle (such as internal/infra/*compose)
+//     are used.
 //  5. Optional executable backend connectors use an independent gRPC manifest discovery
 //     mechanism and are out of this feature-registration path.
 package feature

@@ -12,6 +12,8 @@ const SchemaVersionV1 = 1
 
 // FeatureBundle is the versioned unit a feature factory contributes: schema version
 // metadata, an immutable [FrozenPlaneSet], and optional plugin lifecycles.
+// Note: FeatureBundle contains no per-plane named fields or slices; all extension planes
+// are stored in the immutable [FrozenPlaneSet].
 type FeatureBundle struct {
 	SchemaVersion int
 

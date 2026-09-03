@@ -60,7 +60,7 @@ Tagging is batch-atomic and idempotent (repeat tags consume no capacity). Steeri
 
 * `nonforwardable.Registrar`: `TagMessages(aLeg, identities, reason)` over the authoritative `Tagger` port. Batch-atomic, idempotent, 4096 cap. Registrar is bound to an authoritative `ALegID` at construction via `sdkadapter.NewRegistrar`; no global locator.
 * `steering.Writer`: `Put(overlayID, message, placement, anchorPolicy, reason)` and `Deactivate(overlayID, reason)`. Stores the **rendered** model-visible payload verbatim per revision; semantic no-op is idempotent. `Deactivate` stops future reinjection without rewriting completed PTB. Constructed via `sdkadapter.NewWriter` / `NewConversationViewServicesWithObserver` with authoritative `ALegID` and optional narrow `TrajectoryResolver` + `Observer`.
-* `localturn.Handler`: `Match(ctx, call) (claim bool, sourceIndexes, reasons)` is pure/narrow and may only claim **complete normalized source message indexes**; `Handle` returns bounded assistant text from which core builds the canonical assistant message. FeatureBundle accepts an ordered optional `[]localturn.Handler`; invalid own-handlers are ignored in deterministic order; stored visibility state remains enforceable even if producers are absent in the next generation.
+* `localturn.Handler`: `Match(ctx, call) (claim bool, sourceIndexes, reasons)` is pure/narrow and may only claim **complete normalized source message indexes**; `Handle` returns bounded assistant text from which core builds the canonical assistant message. Feature bundles contribute to the ordered `PlaneLocalTurnHandlers` extension plane (`[]localturn.Handler`) in `FeatureBundle.PlaneSet`; invalid own-handlers are ignored in deterministic order; stored visibility state remains enforceable even if producers are absent in the next generation.
 
 All three are explicitly constructed trusted services (no global registry, no client-frontend exposure). Composition wiring lives in `internal/infra/runtimebundle` / `internal/infra/metrics` via `NewConversationViewServicesWithMetrics` / `NewSteeringWriterWithMetrics`.
 
@@ -143,4 +143,4 @@ Bounded Prometheus series `lip_conversation_view_*_total` with labels `stage` (`
 * Requirements: `.kiro/specs/non-forwardable-conversation-content/requirements.md` (Req 13.7–13.18 quality gates)
 * Validation evidence: `.kiro/specs/non-forwardable-conversation-content/final-review.md` (skips, gate outputs, traceability)
 * Runtime flow: `docs/runtime-flow.md` (executor flow) and `docs/architecture.md` (ownership map)
-* SDK contracts: `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn`, `pkg/lipsdk/feature` (`FeatureBundle` merge)
+* SDK contracts: `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn`, `pkg/lipsdk/feature` (`PlaneLocalTurnHandlers` in `FeatureBundle`)

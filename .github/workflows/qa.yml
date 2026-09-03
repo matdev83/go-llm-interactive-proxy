@@ -48,6 +48,7 @@ jobs:
             connector-support/**/go.sum
             testdata/enterprise_module/go.sum
             testdata/external_connector/go.sum
+            testdata/external_feature_sdk/go.sum
             tools/**/go.sum
 
       - name: Classify changed files
@@ -114,7 +115,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}
           restore-keys: |
             go-cache-qa-${{ runner.os }}-
             setup-go-
@@ -150,7 +151,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for module in testdata/enterprise_module testdata/external_connector; do
+          for module in testdata/enterprise_module testdata/external_connector testdata/external_feature_sdk; do
             echo "== $module =="
             (cd "$module" && GOWORK=off go mod tidy -diff)
           done
@@ -184,7 +185,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum') }}
+          key: go-cache-qa-${{ runner.os }}-${{ hashFiles('go.sum', 'testdata/enterprise_module/go.sum', 'testdata/external_connector/go.sum', 'testdata/external_feature_sdk/go.sum') }}
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

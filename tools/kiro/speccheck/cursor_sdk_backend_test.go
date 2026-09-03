@@ -59,6 +59,7 @@ func registeredSpecs() []kiroSpec {
 	return []kiroSpec{
 		{name: "prompt-cache-residency-contract", check: checkResidencyContract},
 		{name: "prompt-cache-keepwarm-orchestration", check: checkKeepwarmOrchestration},
+		{name: "pre-oss-core-slimming", check: checkPreOssCoreSlimming},
 	}
 }
 

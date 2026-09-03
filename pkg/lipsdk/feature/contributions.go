@@ -50,8 +50,9 @@ func (s *ContributionSet) Clone() *ContributionSet {
 }
 
 // Freeze produces an immutable [FrozenPlaneSet] from the accumulated contributions.
-// Stored mutable values (such as slices and maps) are defensively cloned so that subsequent
-// mutations to the [ContributionSet] or source slices do not affect the frozen snapshot.
+// Slice backing arrays and metadata maps are isolated via shallow copy so that subsequent
+// mutations to the [ContributionSet] or source slices do not affect the frozen snapshot;
+// element values (e.g. interface handlers) are shallow-copied, not deep-cloned.
 func (s *ContributionSet) Freeze() FrozenPlaneSet {
 	if s == nil {
 		return FrozenPlaneSet{}

@@ -32,7 +32,7 @@ DISCOVER_MODULES_BIN="$TOOL_TMP/discover_modules"
 
 mapfile -t MODULES < <(
   {
-    printf '%s\n' "." "testdata/enterprise_module"
+    printf '%s\n' "." "testdata/enterprise_module" "testdata/external_connector" "testdata/external_feature_sdk"
     "$DISCOVER_MODULES_BIN" -root "$ROOT"
   } | awk 'NF && !seen[$0]++'
 )

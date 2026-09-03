@@ -6,14 +6,57 @@ This guide explains how to write feature and protocol plugins that preserve the 
 
 - Frontend plugins decode a client protocol into `lipapi.Call` and encode canonical events/errors back to that protocol.
 - Backend plugins translate `lipapi.Call` into upstream calls and emit `lipapi.EventStream` values.
-- Feature plugins contribute hooks, observers, resolvers, gates, and lifecycles through `pkg/lipsdk/feature.FeatureBundle`.
+- Feature plugins contribute typed capabilities to standard extension planes within an immutable `FrozenPlaneSet` held by `pkg/lipsdk/feature.FeatureBundle`.
 - Store plugins provide persistence or continuity backends through composition-root wiring.
 
-Only standard distribution packages (`cmd/lipstd`, `internal/pluginreg`, `internal/infra/runtimebundle`, `internal/stdhttp`) should import concrete bundled plugins. Core packages must remain plugin-agnostic.
+Only standard distribution packages (`cmd/lipstd`, `internal/pluginreg`, `internal/standardplugins`, `internal/stdhttp`, and dedicated `internal/infra/*compose` adapters) should import concrete bundled plugins. Core packages and generic `internal/infra/runtimebundle` must remain free of concrete feature implementation imports.
 
 ## Feature bundle basics
 
-A feature factory decodes opaque YAML and returns `feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1, ...}`. Empty slices mean the plugin does not occupy that stage.
+A feature factory decodes opaque YAML and returns a versioned `feature.FeatureBundle`. A `FeatureBundle` contains schema version metadata (`SchemaVersionV1`), an immutable `FrozenPlaneSet` (`bundle.PlaneSet`), and optional plugin lifecycles.
+
+Note: `FeatureBundle` does **not** contain individual named fields or slices for extension planes. All extension planes are held within the immutable `FrozenPlaneSet`. If a plane is unoccupied, reading it via `feature.Get(bundle.PlaneSet, plane)` returns the plane's zero value.
+
+### Extension plane lifecycle
+
+The feature contribution lifecycle proceeds as follows:
+
+1. **Staging**: Construct a mutable set using `feature.NewContributionSet()`.
+2. **Contribution**: Add typed capabilities using `feature.Contribute(cs, plane, contributorID, value)`. `Contribute` tags contributions with `SourceFeature` and enforces fail-before-mutate semantics.
+3. **Freezing**: Call `cs.Freeze()` to produce an immutable `FrozenPlaneSet`.
+4. **Packaging**: Call `feature.BundleFromPlanes(frozen, lifecycles)` to wrap the frozen planes into a `FeatureBundle` with `SchemaVersionV1`.
+5. **Validation**: Validate the bundle via `bundle.Validate()`.
+6. **Reading**: Read values using `feature.Get(bundle.PlaneSet, plane)`. If a plane was not contributed or is ungenerated, `feature.Get` returns the zero value of the plane's type and does not search dynamic fallback storage.
+
+Canonical authoring example matching `testdata/external_feature_sdk`:
+
+```go
+cs := feature.NewContributionSet()
+if err := feature.Contribute(cs, feature.PlaneSubmitHooks, "my_plugin_id", []hooks.SubmitHook{hook}); err != nil {
+    return feature.FeatureBundle{}, fmt.Errorf("contribute failed: %w", err)
+}
+bundle := feature.BundleFromPlanes(cs.Freeze(), nil)
+if err := bundle.Validate(); err != nil {
+    return feature.FeatureBundle{}, fmt.Errorf("bundle validate failed: %w", err)
+}
+```
+
+### Closed standard manifest and policy authority
+
+In v1, Go-LIP enforces a **closed standard-plane catalog** declared in `pkg/lipsdk/feature/plane_manifest.go`:
+
+- **No dynamic planes in v1**: Arbitrary unbound or dynamically declared `Plane[T]` instances are not supported. Contributing through an ungenerated or unbound plane fails fast before candidate mutation with `feature.ErrUngeneratedPlane`.
+- **Platform-level plane addition**: Adding a new extension plane requires an upstream manifest and platform change: declaring the plane in `plane_manifest.go` and regenerating code via `go run ./scripts/generate-feature-planes.go`.
+- **Canonical generated-policy authority**: Exported `Plane[T]` descriptor variables (such as `PlaneSubmitHooks`) act as typed descriptors. The canonical generated binding is the sole authority for combination rules, nil handling, validator execution, and identity extraction. Copying or mutating exported fields on a `Plane[T]` descriptor does not redefine the plane; production contribution always executes the canonical generated policy. If an altered copy has a modified plane ID, contribution is rejected with `feature.ErrUngeneratedPlane`.
+
+### Standard distribution boundary
+
+Adding a standard in-process feature implementation to Go-LIP follows an explicit boundary:
+
+1. **Feature package ownership (migrated model and target architecture)**: In the target architecture, feature code lives under `internal/plugins/features/<feature>` and owns its configuration decoding and bundle construction via a feature-owned constructor or factory (as demonstrated by migrated plugins `toolcallrepair.FeatureBundle(cfg)`, `secretguard.FeatureBundle(cfg)`, and `reasoningpreservation.FeatureBundleWithCompanionPolicy(cfg, ...)`). Retained `standardplugins`-owned assembly where `internal/standardplugins/features_install.go` still directly constructs the `ContributionSet` and `FeatureBundle` (e.g. Agent Loop Guard, Pre-request Policy, reference/no-op factories in `features_install.go:38,53,220`) is deferred with inventory tracking rather than universally completed; new features should follow the feature-owned model.
+2. **Explicit standard registration**: The factory is registered in `internal/standardplugins/features_install.go` and listed in `internal/standardplugins/standard_table.go` (`StandardBundle().Features`).
+3. **No core or runtimebundle branching**: Concrete feature packages must not be imported by `internal/core` or `internal/infra/runtimebundle`. `runtimebundle` contains zero direct imports of `internal/plugins/features/*`.
+4. **Dedicated composition adapters**: When a feature requires process- or generation-bound capabilities, it is assembled via a dedicated typed composition adapter under `internal/infra/*compose` (e.g., `internal/infra/reasoningcompose`, `internal/infra/secretguardcompose`, `internal/infra/compactioncompose`).
 
 Use SDK packages, not core internals:
 
@@ -33,12 +76,12 @@ Use SDK packages, not core internals:
 
 ## Standard feature: secrets-guard
 
-`secrets-guard` is a bundled standard feature (factory kind and plugin id `secrets-guard`) registered in `internal/standardplugins/`. It contributes one or more `secretguard.Guard` values on `feature.FeatureBundle.SecretGuards`, executed at stage id **`secret_guard`** immediately after `securesession.BeginTurn` and before frontend ingress checkpoint, traffic capture, submit hooks, and routing. Only one enabled `secrets-guard` feature instance is supported in v1; multiple enabled registrations must fail startup.
+`secrets-guard` is a bundled standard feature (factory kind and plugin id `secrets-guard`) registered in `internal/standardplugins/`. It contributes one or more `secretguard.Guard` values to `feature.PlaneSecretGuards` within its `FeatureBundle.PlaneSet`, executed at stage id **`secret_guard`** immediately after `securesession.BeginTurn` and before frontend ingress checkpoint, traffic capture, submit hooks, and routing. Only one enabled `secrets-guard` feature instance is supported in v1; multiple enabled registrations must fail startup.
 
 Authoring and extension rules:
 
 - Feature code lives in `internal/plugins/features/secretguard/` and must not import runtime, frontends, or backends.
-- Catalog construction and Aho–Corasick matching live in `internal/plugins/features/secretguard/engine/`; runtime composition lives in `internal/infra/secretguardcompose/` and `internal/infra/runtimebundle/`; audit delivery adapters live in `internal/infra/secretaudit/`.
+- Catalog construction and Aho–Corasick matching live in `internal/plugins/features/secretguard/engine/`; runtime composition lives in `internal/infra/secretguardcompose/` (with generic snapshot assembly in `internal/infra/runtimebundle/`); audit delivery adapters live in `internal/infra/secretaudit/`.
 - SDK consumers receive an opaque **`Matcher` / `MatcherResolver`** via `secretguard.Services`. No API exposes raw catalog values or accepts an environment reader at request time. The opaque matcher belongs only in middleware request context; `AuthenticationResult` carries safe attribution targets only.
 - In **`single_user`**, composition loads proxy credential env vars (bare + sparse numbered), a curated popular-env registry, and operator `include_env` / `exclude_env` hints at startup only. The loaded catalog is a startup snapshot; credential rotation requires restarting all replicas and verifying the refreshed catalog after restart.
 - In **`multi_user`**, composition selects a request-credential matcher with **zero** process-environment reads, even when `single_user.*` YAML is present (startup rejects that key in multi-user mode). Device/key/fingerprint values are attribution-only and are not scanned as secret catalog entries.
@@ -134,6 +177,7 @@ Allowed:
 Forbidden:
 
 - `internal/core` importing concrete plugins;
+- `internal/infra/runtimebundle` importing concrete feature packages (`internal/plugins/features/*`);
 - `pkg/lipapi` or `pkg/lipsdk` importing `internal/...` packages;
 - provider SDK imports outside backend plugins, refclients, or tests explicitly designed for conformance;
 - feature plugins importing executor, routing, or B2BUA internals to bypass SDK seams.

@@ -28,6 +28,7 @@ var (
 	ErrUnsupportedReplaySource = errors.New("feature: unsupported frozen replay source")
 
 	// ErrUngeneratedPlane indicates an attempt to contribute through an ungenerated or unbound plane.
+	// In v1, the standard-plane catalog is closed; arbitrary dynamic planes are rejected with this error.
 	ErrUngeneratedPlane = errors.New("feature: ungenerated plane")
 )
 
