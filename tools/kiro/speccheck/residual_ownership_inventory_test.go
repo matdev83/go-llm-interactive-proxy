@@ -1257,7 +1257,13 @@ func TestResidualOwnershipInventoryContract_ValidatesSHAIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rev-parse tree: %v", err)
 		}
-		commitOutput, err := exec.Command("git", "-C", root, "commit-tree", "-m", "test-not-ancestor", strings.TrimSpace(string(treeOutput))).Output()
+		// Hermetic committer identity: commit-tree must not depend on ambient
+		// git user.name/user.email (bare CI workers have none configured).
+		commitOutput, err := exec.Command("git", "-C", root,
+			"-c", "user.name=speccheck-test",
+			"-c", "user.email=speccheck@example.invalid",
+			"-c", "commit.gpgsign=false",
+			"commit-tree", "-m", "test-not-ancestor", strings.TrimSpace(string(treeOutput))).Output()
 		if err != nil {
 			t.Fatalf("commit-tree: %v", err)
 		}
