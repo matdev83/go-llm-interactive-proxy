@@ -232,7 +232,7 @@
   - _Validation: `go test -count=1 ./internal/archtest ./internal/infra/runtimebundle`_
 
 - [ ] 7. Certify OSS authoring and permanent simplification ratchets
-- [ ] 7.1 Add recursive core/feature ownership architecture rules
+- [x] 7.1 Add recursive core/feature ownership architecture rules
   - Reuse existing import-rule/source-scan infrastructure to enforce core -> no concrete features, runtimebundle -> no concrete features, and the three retired core package absences.
   - Add recursive feature-tree checks for toolcallrepair and secretguard rather than checking only the root package's direct imports.
   - Add adversarial self-tests proving renamed/nested files or subpackages cannot trivially bypass the rule, without building a large semantic analyzer.

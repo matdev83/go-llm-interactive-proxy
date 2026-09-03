@@ -135,7 +135,7 @@ func TestProtocolAdaptersDoNotDependOnToolCallRepair(t *testing.T) {
 }
 
 // TestToolCallRepairFeatureTreeBoundaries enforces that the recursive toolcallrepair feature tree
-// depends only on canonical/SDK contracts, standard library, and feature-local code (Requirement 2.4).
+// depends only on canonical/SDK contracts, standard library, and feature-local code (Requirements 2.4, 7.1).
 func TestToolCallRepairFeatureTreeBoundaries(t *testing.T) {
 	t.Parallel()
 	assertDepsExcludeForbidden(t, []string{"./internal/plugins/features/toolcallrepair/..."}, []forbiddenDep{
@@ -154,6 +154,46 @@ func TestToolCallRepairFeatureTreeBoundaries(t *testing.T) {
 		{
 			Substr: "/internal/plugins/backends/",
 			ErrMsg: "toolcallrepair feature tree must not depend on backend plugins",
+		},
+		{
+			Substr: "/internal/stdhttp",
+			ErrMsg: "toolcallrepair feature tree must not depend on stdhttp",
+		},
+		{
+			Substr: "/internal/pluginreg",
+			ErrMsg: "toolcallrepair feature tree must not depend on pluginreg",
+		},
+	})
+}
+
+// TestSecretGuardFeatureTreeBoundaries enforces that the recursive secretguard feature tree
+// depends only on canonical/SDK contracts, standard library, and feature-local code (Requirements 3.5, 7.1).
+func TestSecretGuardFeatureTreeBoundaries(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{"./internal/plugins/features/secretguard/..."}, []forbiddenDep{
+		{
+			Substr: "/internal/core/",
+			ErrMsg: "secretguard feature tree must not depend on internal/core",
+		},
+		{
+			Substr: "/internal/infra/runtimebundle",
+			ErrMsg: "secretguard feature tree must not depend on runtimebundle",
+		},
+		{
+			Substr: "/internal/plugins/frontends/",
+			ErrMsg: "secretguard feature tree must not depend on frontend plugins",
+		},
+		{
+			Substr: "/internal/plugins/backends/",
+			ErrMsg: "secretguard feature tree must not depend on backend plugins",
+		},
+		{
+			Substr: "/internal/stdhttp",
+			ErrMsg: "secretguard feature tree must not depend on stdhttp",
+		},
+		{
+			Substr: "/internal/pluginreg",
+			ErrMsg: "secretguard feature tree must not depend on pluginreg",
 		},
 	})
 }
