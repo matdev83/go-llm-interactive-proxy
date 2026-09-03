@@ -252,7 +252,7 @@
   - _Boundary: Architecture Budgets / ROI Evidence_
   - _Validation: `make arch-report`; `go test -count=1 ./internal/archtest/tools/changesurface/... ./internal/archtest`_
 
-- [ ] 7.3 Add a fixed external-style OSS feature SDK fixture
+- [x] 7.3 Add a fixed external-style OSS feature SDK fixture
   - Create the separate module at exactly `testdata/external_feature_sdk` using the established local-checkout module pattern: `require github.com/matdev83/go-llm-interactive-proxy v0.0.0` plus `replace github.com/matdev83/go-llm-interactive-proxy => ../..`. Do not rely on the workspace or a published module version.
   - The module may import only exported `pkg/lipsdk`/`pkg/lipapi` contracts from the root module plus standard library. Add an architecture/import test preventing repository `internal` imports.
   - Implement a tiny feature using one ordered standard plane through `NewContributionSet` -> `Contribute` -> `Freeze` -> `BundleFromPlanes`, and test the resulting bundle/plane value and ordinary public replay/read behavior.

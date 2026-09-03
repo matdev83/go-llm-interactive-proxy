@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	enterpriseModuleRelPath        = "testdata/enterprise_module"
-	externalConnectorModuleRelPath = "testdata/external_connector"
+	enterpriseModuleRelPath         = "testdata/enterprise_module"
+	externalConnectorModuleRelPath  = "testdata/external_connector"
+	externalFeatureSDKModuleRelPath = "testdata/external_feature_sdk"
 )
 
 // TestEnterpriseModulePublicOnlyCompileGate proves a sibling module can build
@@ -53,6 +54,35 @@ func TestExternalConnectorModulePublicHostCompileGate(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "external_connector: ok") {
 		t.Fatalf("output=%q", out)
+	}
+}
+
+// TestExternalFeatureSDKModulePublicOnlyCompileGate proves an external-style
+// feature SDK fixture can build and pass tests against public packages only
+// (requirements 8.1, 8.2, 8.3).
+func TestExternalFeatureSDKModulePublicOnlyCompileGate(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := filepath.Join(root, externalFeatureSDKModuleRelPath)
+	assertNoInternalImportsInDir(t, dir)
+
+	cmdTest := exec.Command("go", "test", "./...")
+	cmdTest.Dir = dir
+	cmdTest.Env = enterpriseModuleTestEnv()
+	outTest, err := cmdTest.CombinedOutput()
+	if err != nil {
+		t.Fatalf("external feature sdk module go test: %v\n%s", err, outTest)
+	}
+
+	cmdRun := exec.Command("go", "run", ".")
+	cmdRun.Dir = dir
+	cmdRun.Env = enterpriseModuleTestEnv()
+	outRun, err := cmdRun.CombinedOutput()
+	if err != nil {
+		t.Fatalf("external feature sdk module go run: %v\n%s", err, outRun)
+	}
+	if !strings.Contains(string(outRun), "external_feature_sdk: ok") {
+		t.Fatalf("output=%q", outRun)
 	}
 }
 
