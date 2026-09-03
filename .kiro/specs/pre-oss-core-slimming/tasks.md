@@ -200,7 +200,7 @@
   - _Validation: `go test -count=1 ./internal/infra/runtimebundle ./internal/core/runtime ./internal/infra/compactiondetect ./internal/archtest`; Linux: `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/infra/runtimebundle`_
 
 - [ ] 6. Remove direct concrete-feature knowledge from generic runtimebundle
-- [ ] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
+- [x] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
   - Move the concrete reasoning-preservation config scan, prerequisite validation, egress policy lookup/selection, matcher/sanitizer requirement, service construction, bundle reconstruction, attempt-transform binder, and stream-observer binder out of runtimebundle.
   - Move `ReasoningCompressionOptions` to the adapter; preserve a type alias/translation at runtimebundle only if needed for internal/public `pkg/lipruntime` source compatibility, but the runtimebundle alias/file must not import the concrete feature package.
   - Define explicit adapter inputs for registrations, already-resolved BackgroundClient/Poller, trusted option set, and candidate surface. The adapter may import `reasoningpreservation`, `featurebundle`, and `standardplugins` companion policy as required.
@@ -211,7 +211,7 @@
   - _Boundary: Reasoning Composition Adapter_
   - _Validation: `go test -count=1 ./internal/infra/reasoningcompose ./internal/infra/runtimebundle ./internal/plugins/features/reasoningpreservation ./pkg/lipruntime -run 'Reasoning|reasoning|Compression|compression'`_
 
-- [ ] 6.2 Converge runtimebundle secret-guard delegation onto `secretguardcompose`
+- [x] 6.2 Converge runtimebundle secret-guard delegation onto `secretguardcompose`
   - Remove any residual feature/config/engine-specific helper from `runtimebundle` after Task 4.2; retain only extraction of effective config/access mode/host options/frozen planes and one adapter call.
   - Ensure runtimebundle does not reconstruct secret-guard config-to-engine policy, matcher settings, or audit chaining after the move.
   - Preserve candidate overlay/reload behavior and generic `ExtensionsOptions` shape through adapter-owned aliases/types as needed.
@@ -221,7 +221,7 @@
   - _Boundary: Generic Runtime Composition_
   - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle`_
 
-- [ ] 6.3 Ratchet runtimebundle to zero concrete-feature imports
+- [x] 6.3 Ratchet runtimebundle to zero concrete-feature imports
   - Add a permanent architecture rule scanning production `internal/infra/runtimebundle` imports and failing on `internal/plugins/features/*`.
   - Verify `compactioncompose` remains a dedicated adapter and do not refactor it for symmetry unless a mechanical type import changed in Task 5.
   - Search runtimebundle for feature IDs/names and classify any remaining occurrence: generic config/diagnostic string may remain only with documented reason; concrete implementation branching must move to an adapter or be reported as a blocker.

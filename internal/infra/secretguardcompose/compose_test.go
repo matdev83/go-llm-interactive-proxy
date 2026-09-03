@@ -315,3 +315,185 @@ func TestSecretGuardCompose_ValidateRegistrations_RejectsDuplicates(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSecretGuardCompose_EnabledRegistrations(t *testing.T) {
+	t.Parallel()
+	regs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "secrets-guard",
+		FactoryKind: "secrets-guard",
+		Enabled:     true,
+	}}
+	matches, err := secretguardcompose.EnabledRegistrations(regs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches=%+v", matches)
+	}
+	regs = []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "secrets-guard",
+		FactoryKind: "other-feature",
+		Enabled:     true,
+	}}
+	matches, err = secretguardcompose.EnabledRegistrations(regs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("unrelated factory must not match secrets-guard, got %+v", matches)
+	}
+}
+
+func TestSecretGuardCompose_ComposeSingleUser_PreservationRules(t *testing.T) {
+	t.Parallel()
+
+	t.Run("feature_disabled_preserves_inputs_directly", func(t *testing.T) {
+		t.Parallel()
+		inputs := secretguardcompose.SingleUserOptions{
+			IncludePopularEnv: true,
+			IncludeEnv:        []string{"INPUT_A", "INPUT_B"},
+			ExcludeEnv:        []string{"EXCLUDE_A"},
+			MinSecretBytes:    12,
+		}
+		runtimeCfg := secretguard.RuntimeConfig{Enabled: false}
+		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		if !out.IncludePopularEnv {
+			t.Fatal("IncludePopularEnv want true")
+		}
+		if len(out.IncludeEnv) != 2 || out.IncludeEnv[0] != "INPUT_A" || out.IncludeEnv[1] != "INPUT_B" {
+			t.Fatalf("IncludeEnv: got %#v", out.IncludeEnv)
+		}
+		if len(out.ExcludeEnv) != 1 || out.ExcludeEnv[0] != "EXCLUDE_A" {
+			t.Fatalf("ExcludeEnv: got %#v", out.ExcludeEnv)
+		}
+		if out.MinSecretBytes != 12 {
+			t.Fatalf("MinSecretBytes: got %d want 12", out.MinSecretBytes)
+		}
+	})
+
+	t.Run("feature_enabled_yaml_overrides_catalog_options", func(t *testing.T) {
+		t.Parallel()
+		inputs := secretguardcompose.SingleUserOptions{
+			IncludePopularEnv: false,
+			IncludeEnv:        []string{"INPUT_A"},
+			ExcludeEnv:        []string{"EXCLUDE_A"},
+			MinSecretBytes:    8,
+		}
+		runtimeCfg := secretguard.RuntimeConfig{
+			Enabled:           true,
+			IncludePopularEnv: true,
+			IncludeEnv:        []string{"YAML_A", "YAML_B"},
+			ExcludeEnv:        []string{"YAML_EXCLUDE"},
+			MinSecretBytes:    16,
+			MaskByte:          '*',
+		}
+		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		if !out.IncludePopularEnv {
+			t.Fatal("IncludePopularEnv want true")
+		}
+		if len(out.IncludeEnv) != 2 || out.IncludeEnv[0] != "YAML_A" || out.IncludeEnv[1] != "YAML_B" {
+			t.Fatalf("IncludeEnv: got %#v", out.IncludeEnv)
+		}
+		if len(out.ExcludeEnv) != 1 || out.ExcludeEnv[0] != "YAML_EXCLUDE" {
+			t.Fatalf("ExcludeEnv: got %#v", out.ExcludeEnv)
+		}
+		if out.MinSecretBytes != 16 {
+			t.Fatalf("MinSecretBytes: got %d want 16", out.MinSecretBytes)
+		}
+		if !out.MatcherConfigured {
+			t.Fatal("MatcherConfigured want true")
+		}
+		if out.Matcher.MaskByte != '*' {
+			t.Fatalf("Matcher.MaskByte: got %q want *", out.Matcher.MaskByte)
+		}
+	})
+
+	t.Run("feature_enabled_matcher_override_preserved_when_configured", func(t *testing.T) {
+		t.Parallel()
+		customMatcher := secretguardcompose.MatcherOptions{
+			PreserveKnownPrefixes: false,
+			MaskByte:              '#',
+		}
+		inputs := secretguardcompose.SingleUserOptions{
+			MatcherConfigured: true,
+			Matcher:           customMatcher,
+		}
+		runtimeCfg := secretguard.RuntimeConfig{
+			Enabled:               true,
+			PreserveKnownPrefixes: true,
+			MaskByte:              '*',
+		}
+		out := secretguardcompose.ComposeSingleUser(runtimeCfg, inputs)
+		if !out.MatcherConfigured {
+			t.Fatal("MatcherConfigured want true")
+		}
+		if out.Matcher.MaskByte != '#' {
+			t.Fatalf("Matcher.MaskByte: got %q want #", out.Matcher.MaskByte)
+		}
+		if out.Matcher.PreserveKnownPrefixes {
+			t.Fatal("Matcher.PreserveKnownPrefixes want false")
+		}
+	})
+
+	t.Run("decoded_yaml_controls_single_user_options", func(t *testing.T) {
+		t.Parallel()
+		raw := mustYAMLNode(t, `
+action: redact
+min_secret_bytes: 12
+audit_failure_policy: best_effort
+single_user:
+  include_popular_env: false
+  include_env: [LIP_TEST_SECRETGUARD_INCLUDE]
+  exclude_env: [OPENAI_API_KEY]
+redaction:
+  mask_byte: "X"
+  preserve_known_prefixes: false
+`)
+		regs := []lipsdk.Registration{{
+			Kind:        lipsdk.PluginKindFeature,
+			ID:          "secrets-guard",
+			FactoryKind: "secrets-guard",
+			Enabled:     true,
+			Config:      lipsdk.ConfigPayload{Node: raw},
+		}}
+		runtimeCfg, err := secretguard.ComposeRuntimeConfig("single_user", regs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		su := secretguardcompose.ComposeSingleUser(runtimeCfg, secretguardcompose.SingleUserOptions{})
+		if !su.MatcherConfigured || su.Matcher.MaskByte != 'X' {
+			t.Fatalf("composed matcher: %#v", su.Matcher)
+		}
+		if su.Matcher.PreserveKnownPrefixes {
+			t.Fatal("composed preserve_known_prefixes want false")
+		}
+		if su.MinSecretBytes != 12 {
+			t.Fatalf("composed min_secret_bytes: %d", su.MinSecretBytes)
+		}
+	})
+}
+
+func TestSecretGuardCompose_MultiUserRejectsSingleUserKey(t *testing.T) {
+	t.Parallel()
+	raw := mustYAMLNode(t, "action: block\nsingle_user:\n  include_env: [FOO]")
+	regs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "secrets-guard",
+		FactoryKind: "secrets-guard",
+		Enabled:     true,
+		Config:      lipsdk.ConfigPayload{Node: raw},
+	}}
+	_, err := secretguardcompose.Compose(secretguardcompose.Input{
+		AccessMode:    accessmode.ModeMultiUser,
+		Registrations: regs,
+		Logger:        discardLogger(),
+	})
+	if err == nil {
+		t.Fatal("expected multi_user + single_user key rejection")
+	}
+	if !strings.Contains(err.Error(), "single_user is invalid in multi_user mode") {
+		t.Fatalf("error: %v", err)
+	}
+}
