@@ -1,17 +1,17 @@
-package secretguard_test
+package engine_test
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 func BenchmarkMatcher_ScanNoMatchLargeInput(b *testing.B) {
 	cat := benchCatalog(b, 64)
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := []byte(strings.Repeat("abcdefghijklmnopqrstuvwxyz0123456789", 4096))
 	b.ReportAllocs()
 	b.SetBytes(int64(len(input)))
@@ -23,7 +23,7 @@ func BenchmarkMatcher_ScanNoMatchLargeInput(b *testing.B) {
 
 func BenchmarkMatcher_ScanManyPatterns(b *testing.B) {
 	cat := benchCatalog(b, 512)
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := []byte(strings.Repeat("nomatch-payload-block-", 256))
 	b.ReportAllocs()
 	b.SetBytes(int64(len(input)))
@@ -35,11 +35,11 @@ func BenchmarkMatcher_ScanManyPatterns(b *testing.B) {
 
 func BenchmarkMatcher_ScanManyMatches(b *testing.B) {
 	const n = 64
-	inputs := make([]secretguard.CatalogInput, 0, n)
+	inputs := make([]engine.CatalogInput, 0, n)
 	var bld strings.Builder
 	for i := range n {
 		val := fmt.Sprintf("sg-bench-match-value-%04d-xxxx", i)
-		inputs = append(inputs, secretguard.CatalogInput{
+		inputs = append(inputs, engine.CatalogInput{
 			Name:           fmt.Sprintf("BENCH_MATCH_%04d", i),
 			Value:          val,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
@@ -47,11 +47,11 @@ func BenchmarkMatcher_ScanManyMatches(b *testing.B) {
 		bld.WriteString(val)
 		bld.WriteByte('|')
 	}
-	cat, err := secretguard.BuildCatalog(inputs, 8)
+	cat, err := engine.BuildCatalog(inputs, 8)
 	if err != nil {
 		b.Fatal(err)
 	}
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := []byte(bld.String())
 	b.ReportAllocs()
 	b.SetBytes(int64(len(input)))
@@ -63,7 +63,7 @@ func BenchmarkMatcher_ScanManyMatches(b *testing.B) {
 
 func BenchmarkMatcher_ScanLargeToolResult(b *testing.B) {
 	cat := benchCatalog(b, 64)
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	// Large tool_result-shaped payload with no matches.
 	payload := []byte(`{"result":"` + strings.Repeat("tool-output-chunk-", 8192) + `"}`)
 	b.ReportAllocs()
@@ -74,17 +74,17 @@ func BenchmarkMatcher_ScanLargeToolResult(b *testing.B) {
 	}
 }
 
-func benchCatalog(b *testing.B, n int) *secretguard.Catalog {
+func benchCatalog(b *testing.B, n int) *engine.Catalog {
 	b.Helper()
-	inputs := make([]secretguard.CatalogInput, 0, n)
+	inputs := make([]engine.CatalogInput, 0, n)
 	for i := range n {
-		inputs = append(inputs, secretguard.CatalogInput{
+		inputs = append(inputs, engine.CatalogInput{
 			Name:           fmt.Sprintf("BENCH_SECRET_%04d", i),
 			Value:          fmt.Sprintf("sg-bench-pattern-value-%04d-xxxx", i),
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		})
 	}
-	cat, err := secretguard.BuildCatalog(inputs, 8)
+	cat, err := engine.BuildCatalog(inputs, 8)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -133,7 +133,7 @@
   - _Validation: `go test -count=1 ./internal/archtest ./internal/core/runtime ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins`_
 
 - [ ] 4. Move secret-guard matching/source implementation into the feature
-- [ ] 4.1 Introduce feature-local source/matcher engine contracts without core imports
+- [x] 4.1 Introduce feature-local source/matcher engine contracts without core imports
   - Create `internal/plugins/features/secretguard/engine` and move the concrete catalog, Aho-Corasick matcher, known-prefix, environment inventory, matcher resolver, and source-policy implementation from `internal/core/secretguard`.
   - Replace the `internal/core/accessmode.Mode` dependency with a closed feature-local mode value; preserve single-user/multi-user semantics exactly.
   - Keep the environment reader as a construction-time port inside the feature implementation/compose boundary; never expose it through request handler services or public SDK.
@@ -144,7 +144,7 @@
   - _Boundary: Secret Guard Feature Engine_
   - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/...`_
 
-- [ ] 4.2 Create explicit `internal/infra/secretguardcompose` assembly
+- [x] 4.2 Create explicit `internal/infra/secretguardcompose` assembly
   - Move feature-specific runtime composition out of `runtimebundle/secret_guard_runtime.go` into a dedicated typed adapter.
   - Define composition-neutral adapter input/override types in `secretguardcompose` so `runtimebundle` does **not** import `secretguard/engine`; translate effective core access mode, host single-user overrides, environment, frozen guards, observer, and logger inside the adapter.
   - Move/alias internal `SecretGuardInputs`/environment option types from runtimebundle to the adapter as needed to preserve internal call-site compatibility without importing the concrete feature.
@@ -156,7 +156,7 @@
   - _Boundary: Secret Guard Composition Adapter_
   - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/plugins/features/secretguard/... -run 'Secret|secret|Matcher|Catalog'`_
 
-- [ ] 4.3 Delete the old core package and preserve security ratchets
+- [x] 4.3 Delete the old core package and preserve security ratchets
   - Delete `internal/core/secretguard` after production options/tests have migrated to adapter/feature-owned types.
   - Extend the existing feature import-boundary test to cover the full recursive secretguard feature tree, including the new engine subpackage.
   - Add architecture absence/import rules and update steering/docs that claim catalog/matcher construction is core-owned.

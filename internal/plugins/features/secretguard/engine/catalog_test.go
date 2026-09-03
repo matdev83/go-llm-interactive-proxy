@@ -1,17 +1,17 @@
-package secretguard_test
+package engine_test
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 func TestBuildCatalog_MinSecretBytesDropsShort(t *testing.T) {
 	t.Parallel()
-	cat, err := secretguard.BuildCatalog([]secretguard.CatalogInput{
+	cat, err := engine.BuildCatalog([]engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
@@ -33,7 +33,7 @@ func TestBuildCatalog_MinSecretBytesDropsShort(t *testing.T) {
 
 func TestBuildCatalog_MinSecretBytesDefaultEight(t *testing.T) {
 	t.Parallel()
-	cat, err := secretguard.BuildCatalog([]secretguard.CatalogInput{
+	cat, err := engine.BuildCatalog([]engine.CatalogInput{
 		{
 			Name:           "LIP_TEST_SECRETGUARD_SHORT",
 			Value:          testkit.SyntheticShortSecret,
@@ -55,7 +55,7 @@ func TestBuildCatalog_MinSecretBytesDefaultEight(t *testing.T) {
 
 func TestBuildCatalog_DedupeIdenticalValuesAliases(t *testing.T) {
 	t.Parallel()
-	cat, err := secretguard.BuildCatalog([]secretguard.CatalogInput{
+	cat, err := engine.BuildCatalog([]engine.CatalogInput{
 		{
 			Name:           "ZZZ_SHARED",
 			Value:          testkit.SyntheticDuplicateValueAliasA,
@@ -74,7 +74,7 @@ func TestBuildCatalog_DedupeIdenticalValuesAliases(t *testing.T) {
 		t.Fatalf("EntryCount=%d want 1 after value dedupe", cat.EntryCount())
 	}
 
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	findings := m.ScanString("prefix " + testkit.SyntheticDuplicateValueAliasA + " suffix")
 	assertFindingsNeverContainSecretValues(t, findings)
 	if len(findings) != 1 {
@@ -90,21 +90,21 @@ func TestBuildCatalog_DedupeIdenticalValuesAliases(t *testing.T) {
 
 func TestBuildCatalog_EntryCountEmpty(t *testing.T) {
 	t.Parallel()
-	cat, err := secretguard.BuildCatalog(nil, 8)
+	cat, err := engine.BuildCatalog(nil, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cat.EntryCount() != 0 {
 		t.Fatalf("EntryCount=%d want 0", cat.EntryCount())
 	}
-	if (*secretguard.Catalog)(nil).EntryCount() != 0 {
+	if (*engine.Catalog)(nil).EntryCount() != 0 {
 		t.Fatal("nil Catalog EntryCount must be 0")
 	}
 }
 
 func TestCatalog_hasNoValuesOrSecretsMethods(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeFor[*secretguard.Catalog]()
+	rt := reflect.TypeFor[*engine.Catalog]()
 	for m := range rt.Methods() {
 		switch m.Name {
 		case "Values", "Secrets", "Env", "RawSecrets", "Catalog":

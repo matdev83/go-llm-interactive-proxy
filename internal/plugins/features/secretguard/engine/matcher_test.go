@@ -1,4 +1,4 @@
-package secretguard_test
+package engine_test
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -34,9 +34,9 @@ func assertFindingsNeverContainSecretValues(t *testing.T, findings []sdk.Finding
 	}
 }
 
-func mustCatalog(t *testing.T, in []secretguard.CatalogInput) *secretguard.Catalog {
+func mustCatalog(t *testing.T, in []engine.CatalogInput) *engine.Catalog {
 	t.Helper()
-	cat, err := secretguard.BuildCatalog(in, 8)
+	cat, err := engine.BuildCatalog(in, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func mustCatalog(t *testing.T, in []secretguard.CatalogInput) *secretguard.Catal
 
 func TestMatcher_OverlapLongestWins(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OVERLAP_LONGER",
 			Value:          testkit.SyntheticOverlapLonger,
@@ -57,7 +57,7 @@ func TestMatcher_OverlapLongestWins(t *testing.T) {
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := "start " + testkit.SyntheticOverlapLonger + " end"
 	findings := m.ScanString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -78,12 +78,12 @@ func TestMatcher_OverlapLongestWins(t *testing.T) {
 func TestMatcher_CaseSensitive_noMatchOnCaseFold(t *testing.T) {
 	t.Parallel()
 	const catalogValue = "sk-AbCdEfGh"
-	cat := mustCatalog(t, []secretguard.CatalogInput{{
+	cat := mustCatalog(t, []engine.CatalogInput{{
 		Name:           "CASE_SENSITIVE_KEY",
 		Value:          catalogValue,
 		SourceCategory: sdk.SourceCategoryProxyEnv,
 	}})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	for _, input := range []string{"prefix sk-abcd efgh", "SK-ABCDEFGH", "sk-ABCDEFGH"} {
 		findings := m.ScanString(input)
 		if len(findings) != 0 {
@@ -98,14 +98,14 @@ func TestMatcher_CaseSensitive_noMatchOnCaseFold(t *testing.T) {
 
 func TestMatcher_RepeatedOccurrences(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := testkit.SyntheticOpenAIAPIKey + "|mid|" + testkit.SyntheticOpenAIAPIKey
 	findings := m.ScanString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -117,7 +117,7 @@ func TestMatcher_RepeatedOccurrences(t *testing.T) {
 
 func TestMatcher_AdjacentSecrets(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
@@ -129,7 +129,7 @@ func TestMatcher_AdjacentSecrets(t *testing.T) {
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := testkit.SyntheticOpenAIAPIKey + testkit.SyntheticOpenRouterAPIKey
 	findings := m.ScanString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -147,14 +147,14 @@ func TestMatcher_AdjacentSecrets(t *testing.T) {
 func TestMatcher_UnicodeLengthPreservation(t *testing.T) {
 	t.Parallel()
 	secret := testkit.SyntheticUnicodeSecret
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "UNICODE_SECRET",
 			Value:          secret,
 			SourceCategory: sdk.SourceCategoryOperatorEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := "pre-" + secret + "-post"
 	redacted, findings := m.RedactString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -188,7 +188,7 @@ func TestMatcher_UnicodeLengthPreservation(t *testing.T) {
 
 func TestMatcher_ConcurrentScan(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
@@ -205,7 +205,7 @@ func TestMatcher_ConcurrentScan(t *testing.T) {
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := "a" + testkit.SyntheticOpenAIAPIKey + "b" + testkit.SyntheticOverlapLonger + "c"
 
 	const n = 32
@@ -243,14 +243,14 @@ func TestMatcher_ConcurrentScan(t *testing.T) {
 
 func TestMatcher_FindingsNeverContainSecretValues(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	findings := m.ScanBytes([]byte("leak:" + testkit.SyntheticOpenAIAPIKey))
 	assertFindingsNeverContainSecretValues(t, findings)
 	_, findings = m.RedactBytes([]byte("leak:" + testkit.SyntheticOpenAIAPIKey))
@@ -261,29 +261,29 @@ func TestMatcher_ACLongestOverlapStillWins(t *testing.T) {
 	t.Parallel()
 	const shared = "secretguard-ac-prefix-shared"
 	longer := shared + "-tail-aaaa"
-	inputs := make([]secretguard.CatalogInput, 0, 12)
+	inputs := make([]engine.CatalogInput, 0, 12)
 	inputs = append(
 		inputs,
-		secretguard.CatalogInput{
+		engine.CatalogInput{
 			Name:           "AC_LONGER",
 			Value:          longer,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
-		secretguard.CatalogInput{
+		engine.CatalogInput{
 			Name:           "AC_SHORTER",
 			Value:          shared,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	)
 	for i := range 10 {
-		inputs = append(inputs, secretguard.CatalogInput{
+		inputs = append(inputs, engine.CatalogInput{
 			Name:           fmt.Sprintf("AC_DISTRACTOR_%02d", i),
 			Value:          fmt.Sprintf("secretguard-ac-distractor-%02d-xxxx", i),
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		})
 	}
 	cat := mustCatalog(t, inputs)
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := "head " + longer + " mid " + shared + " tail"
 	findings := m.ScanString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -312,7 +312,7 @@ func TestMatcher_PreserveKnownPrefix(t *testing.T) {
 		value  = "sk-abcdefghijklmnop"
 		prefix = "sk-"
 	)
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:              "PREFIXED_KEY",
 			Value:             value,
@@ -320,7 +320,7 @@ func TestMatcher_PreserveKnownPrefix(t *testing.T) {
 			SourceCategory:    sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcherWithOptions(cat, secretguard.MatcherOptions{
+	m := engine.NewMatcherWithOptions(cat, engine.MatcherOptions{
 		PreserveKnownPrefixes: true,
 	})
 	input := "pre-" + value + "-post"
@@ -350,7 +350,7 @@ func TestMatcher_PreserveKnownPrefixDisabledMasksAll(t *testing.T) {
 		value  = "sk-abcdefghijklmnop"
 		prefix = "sk-"
 	)
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:              "PREFIXED_KEY",
 			Value:             value,
@@ -358,7 +358,7 @@ func TestMatcher_PreserveKnownPrefixDisabledMasksAll(t *testing.T) {
 			SourceCategory:    sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
+	m := engine.NewMatcher(cat)
 	input := "pre-" + value + "-post"
 	redacted, findings := m.RedactString(input)
 	assertFindingsNeverContainSecretValues(t, findings)
@@ -381,7 +381,7 @@ func TestMatcher_PreserveKnownPrefixCustomMaskByte(t *testing.T) {
 		value  = "sk-abcdefghijklmnop"
 		prefix = "sk-"
 	)
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:              "PREFIXED_KEY",
 			Value:             value,
@@ -389,7 +389,7 @@ func TestMatcher_PreserveKnownPrefixCustomMaskByte(t *testing.T) {
 			SourceCategory:    sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcherWithOptions(cat, secretguard.MatcherOptions{
+	m := engine.NewMatcherWithOptions(cat, engine.MatcherOptions{
 		PreserveKnownPrefixes: true,
 		MaskByte:              '#',
 	})
@@ -406,7 +406,7 @@ func TestMatcher_ConcurrentScanAndRedact(t *testing.T) {
 		value  = "sk-abcdefghijklmnop"
 		prefix = "sk-"
 	)
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:              "PREFIXED_KEY",
 			Value:             value,
@@ -419,7 +419,7 @@ func TestMatcher_ConcurrentScanAndRedact(t *testing.T) {
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcherWithOptions(cat, secretguard.MatcherOptions{
+	m := engine.NewMatcherWithOptions(cat, engine.MatcherOptions{
 		PreserveKnownPrefixes: true,
 	})
 	input := value + "|" + testkit.SyntheticOpenAIAPIKey
@@ -458,15 +458,15 @@ func TestMatcher_ConcurrentScanAndRedact(t *testing.T) {
 
 func TestSDKAdapter_MatcherAndStaticResolver(t *testing.T) {
 	t.Parallel()
-	cat := mustCatalog(t, []secretguard.CatalogInput{
+	cat := mustCatalog(t, []engine.CatalogInput{
 		{
 			Name:           "OPENAI_API_KEY",
 			Value:          testkit.SyntheticOpenAIAPIKey,
 			SourceCategory: sdk.SourceCategoryProxyEnv,
 		},
 	})
-	m := secretguard.NewMatcher(cat)
-	iface := secretguard.AsMatcher(m)
+	m := engine.NewMatcher(cat)
+	iface := engine.AsMatcher(m)
 	findings, err := iface.ScanString(t.Context(), "x"+testkit.SyntheticOpenAIAPIKey+"y")
 	if err != nil {
 		t.Fatal(err)
@@ -476,7 +476,7 @@ func TestSDKAdapter_MatcherAndStaticResolver(t *testing.T) {
 		t.Fatalf("findings len=%d want 1", len(findings))
 	}
 
-	resolver := secretguard.NewStaticMatcherResolver(cat, secretguard.MatcherOptions{PreserveKnownPrefixes: true})
+	resolver := engine.NewStaticMatcherResolver(cat, engine.MatcherOptions{PreserveKnownPrefixes: true})
 	got, err := resolver.Resolve(t.Context())
 	if err != nil {
 		t.Fatal(err)

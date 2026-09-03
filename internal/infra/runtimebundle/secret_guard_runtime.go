@@ -1,16 +1,13 @@
 package runtimebundle
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretaudit"
-	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -26,98 +23,31 @@ func buildSecretGuardRuntime(cfg *config.Config, log *slog.Logger, opts *BuildOp
 		return nil, nil
 	}
 	mode := accessmode.ModeSingleUser
-	accessMode := "single_user"
 	if cfg != nil {
 		var err error
 		mode, err = cfg.EffectiveAccessMode()
 		if err != nil {
 			return nil, err
 		}
-		accessMode = string(mode)
 	}
-	runtimeCfg, err := featuresg.ComposeRuntimeConfig(accessMode, regs)
-	if err != nil {
-		return nil, err
-	}
-	inputs := opts.Extensions.SecretGuardInputs
-	featureEnabled := runtimeCfg.Enabled
-	singleUser := composeSecretGuardSingleUser(runtimeCfg, inputs)
-	src, err := coresg.ComposeSource(mode, featureEnabled, opts.Extensions.SecretGuardEnvironment, singleUser)
-	if err != nil {
-		return nil, fmt.Errorf("runtimebundle: secret guard source: %w", err)
-	}
-	// Snapshot owns MaterializeSorted; composition only freezes a defensive clone.
 	var guards []sdk.Guard
 	if opts != nil {
 		guards = lipfeature.Get(opts.FeaturePlanes, lipfeature.PlaneSecretGuards)
 	}
-	accessPolicy := sdk.AuditFailClosed
-	if runtimeCfg.Enabled {
-		accessPolicy = sdk.AuditFailurePolicy(runtimeCfg.AuditFailurePolicy)
-	}
-	observer := opts.Extensions.SecretDecisionObserver
-	if featureEnabled || len(guards) > 0 {
-		if !sdk.IsNilObserver(observer) {
-			observer = sdk.ChainObservers(accessPolicy, observer)
-		} else {
-			if log == nil {
-				return nil, fmt.Errorf("runtimebundle: secrets-guard audit requires a non-nil logger")
-			}
-			slogObs, err := secretaudit.NewSlogObserver(log)
-			if err != nil {
-				return nil, fmt.Errorf("runtimebundle: secret guard audit: %w", err)
-			}
-			observer = sdk.ChainObservers(accessPolicy, slogObs)
-		}
-	}
-	var inventory *diag.InventoryExtras
-	if featureEnabled || len(guards) > 0 {
-		inventory = &diag.InventoryExtras{
-			SecretGuardCatalogEntryCount: src.EntryCount(),
-			SecretGuardSourceCategories:  append([]string(nil), src.SourceCategories()...),
-			SecretGuardAccessMode:        accessMode,
-			SecretGuardAction:            runtimeCfg.Action,
-		}
+	out, err := secretguardcompose.Compose(secretguardcompose.Input{
+		AccessMode:       mode,
+		Registrations:    regs,
+		Guards:           guards,
+		Environment:      opts.Extensions.SecretGuardEnvironment,
+		Inputs:           opts.Extensions.SecretGuardInputs,
+		DecisionObserver: opts.Extensions.SecretDecisionObserver,
+		Logger:           log,
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &secretGuardRuntime{
-		Plane: extensions.SecretGuardPlane{
-			Guards:             guards,
-			MatcherResolver:    src.MatcherResolver(),
-			DecisionObserver:   observer,
-			AuditFailurePolicy: accessPolicy,
-			AccessMode:         accessMode,
-			ConfigVersion:      runtimeCfg.AuditConfigVersion,
-		},
-		Inventory: inventory,
+		Plane:     out.Plane,
+		Inventory: out.Inventory,
 	}, nil
-}
-
-// composeSecretGuardSingleUser merges YAML runtime config onto composition-seam inputs.
-// YAML wins for catalog fields when the feature is enabled. Matcher options from
-// inputs.SingleUser win when MatcherConfigured is already set (test/composition override);
-// otherwise YAML stamps matcher options.
-func composeSecretGuardSingleUser(runtimeCfg featuresg.RuntimeConfig, inputs SecretGuardInputs) coresg.SingleUserOptions {
-	out := inputs.SingleUser
-	out.IncludeEnv = append([]string(nil), out.IncludeEnv...)
-	out.ExcludeEnv = append([]string(nil), out.ExcludeEnv...)
-	if !runtimeCfg.Enabled {
-		return out
-	}
-	matcherOverride := out.MatcherConfigured
-	matcher := out.Matcher
-	out.IncludePopularEnv = runtimeCfg.IncludePopularEnv
-	out.IncludeEnv = append([]string(nil), runtimeCfg.IncludeEnv...)
-	out.ExcludeEnv = append([]string(nil), runtimeCfg.ExcludeEnv...)
-	out.MinSecretBytes = runtimeCfg.MinSecretBytes
-	if matcherOverride {
-		out.Matcher = matcher
-		out.MatcherConfigured = true
-		return out
-	}
-	out.Matcher = coresg.MatcherOptions{
-		PreserveKnownPrefixes: runtimeCfg.PreserveKnownPrefixes,
-		MaskByte:              runtimeCfg.MaskByte,
-	}
-	out.MatcherConfigured = true
-	return out
 }

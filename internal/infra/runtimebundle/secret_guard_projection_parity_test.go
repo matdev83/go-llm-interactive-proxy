@@ -9,8 +9,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"

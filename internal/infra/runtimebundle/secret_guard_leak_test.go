@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/infra/secretguardcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"

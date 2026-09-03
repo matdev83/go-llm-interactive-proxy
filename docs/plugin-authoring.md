@@ -38,7 +38,7 @@ Use SDK packages, not core internals:
 Authoring and extension rules:
 
 - Feature code lives in `internal/plugins/features/secretguard/` and must not import runtime, frontends, or backends.
-- Catalog construction and Aho–Corasick matching live in `internal/core/secretguard/`; runtime composition and inventory projection live in `internal/infra/runtimebundle/`; audit delivery adapters live in `internal/infra/secretaudit/`.
+- Catalog construction and Aho–Corasick matching live in `internal/plugins/features/secretguard/engine/`; runtime composition lives in `internal/infra/secretguardcompose/` and `internal/infra/runtimebundle/`; audit delivery adapters live in `internal/infra/secretaudit/`.
 - SDK consumers receive an opaque **`Matcher` / `MatcherResolver`** via `secretguard.Services`. No API exposes raw catalog values or accepts an environment reader at request time. The opaque matcher belongs only in middleware request context; `AuthenticationResult` carries safe attribution targets only.
 - In **`single_user`**, composition loads proxy credential env vars (bare + sparse numbered), a curated popular-env registry, and operator `include_env` / `exclude_env` hints at startup only. The loaded catalog is a startup snapshot; credential rotation requires restarting all replicas and verifying the refreshed catalog after restart.
 - In **`multi_user`**, composition selects a request-credential matcher with **zero** process-environment reads, even when `single_user.*` YAML is present (startup rejects that key in multi-user mode). Device/key/fingerprint values are attribution-only and are not scanned as secret catalog entries.

@@ -13,7 +13,7 @@ import (
 // second heuristic detector. No new detection logic is introduced here.
 //
 // Import direction: feature depends on pkg/lipsdk contract only, never on
-// internal/core/secretguard implementation. Composition (runtimebundle, later
+// concrete secretguard feature/engine implementation. Composition (runtimebundle, later
 // task) will inject an instance produced from MatcherResolver.
 type SecretguardTrustedSanitizer struct {
 	Matcher secretguard.Matcher

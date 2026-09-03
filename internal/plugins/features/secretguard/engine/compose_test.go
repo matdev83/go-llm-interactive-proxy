@@ -1,17 +1,16 @@
-package secretguard_test
+package engine_test
 
 import (
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestComposeSource_disabledNeverTouchesEnv(t *testing.T) {
 	t.Parallel()
 	env := &panicEnvironment{}
-	src, err := secretguard.ComposeSource(accessmode.ModeSingleUser, false, env, secretguard.SingleUserOptions{
+	src, err := engine.ComposeSource(engine.ModeSingleUser, false, env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		IncludeEnv:        []string{"OPENAI_API_KEY"},
 	})
@@ -30,7 +29,7 @@ func TestComposeSource_disabledNeverTouchesEnv(t *testing.T) {
 func TestComposeSource_multiUserNeverTouchesEnv(t *testing.T) {
 	t.Parallel()
 	env := &panicEnvironment{}
-	src, err := secretguard.ComposeSource(accessmode.ModeMultiUser, true, env, secretguard.SingleUserOptions{
+	src, err := engine.ComposeSource(engine.ModeMultiUser, true, env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		IncludeEnv:        []string{"OPENAI_API_KEY"},
 		MinSecretBytes:    8,
@@ -38,8 +37,8 @@ func TestComposeSource_multiUserNeverTouchesEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src.AccessMode() != accessmode.ModeMultiUser {
-		t.Fatalf("mode=%q", src.AccessMode())
+	if src.AccessMode() != engine.ModeMultiUser {
+		t.Fatalf("mode=%v", src.AccessMode())
 	}
 	if src.EntryCount() != 0 {
 		t.Fatalf("multi-user EntryCount=%d", src.EntryCount())
@@ -56,14 +55,14 @@ func TestComposeSource_singleUserLoadsSparse(t *testing.T) {
 		"OPENAI_API_KEY":   testkit.SyntheticOpenAIAPIKey,
 		"OPENAI_API_KEY_7": testkit.SyntheticGeminiAPIKey,
 	}}
-	src, err := secretguard.ComposeSource(accessmode.ModeSingleUser, true, env, secretguard.SingleUserOptions{
+	src, err := engine.ComposeSource(engine.ModeSingleUser, true, env, engine.SingleUserOptions{
 		MinSecretBytes: 8,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src.AccessMode() != accessmode.ModeSingleUser {
-		t.Fatalf("mode=%q", src.AccessMode())
+	if src.AccessMode() != engine.ModeSingleUser {
+		t.Fatalf("mode=%v", src.AccessMode())
 	}
 	if src.EntryCount() < 2 {
 		t.Fatalf("EntryCount=%d", src.EntryCount())

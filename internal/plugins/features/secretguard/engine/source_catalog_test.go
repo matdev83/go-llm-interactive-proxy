@@ -1,4 +1,4 @@
-package secretguard_test
+package engine_test
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -40,7 +39,7 @@ func TestNewSingleUserSource_sparseProxyNames(t *testing.T) {
 		"OPENAI_API_KEY_2": testkit.SyntheticOpenRouterAPIKey,
 		"OPENAI_API_KEY_7": testkit.SyntheticGeminiAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: false,
 		MinSecretBytes:    8,
 	})
@@ -53,8 +52,8 @@ func TestNewSingleUserSource_sparseProxyNames(t *testing.T) {
 	if env.snapshotCalls == 0 {
 		t.Fatal("single-user source must Snapshot the environment")
 	}
-	if src.AccessMode() != accessmode.ModeSingleUser {
-		t.Fatalf("access mode: got %q", src.AccessMode())
+	if src.AccessMode() != engine.ModeSingleUser {
+		t.Fatalf("access mode: got %v", src.AccessMode())
 	}
 }
 
@@ -64,7 +63,7 @@ func TestNewSingleUserSource_minSecretBytesExcludesShort(t *testing.T) {
 		"OPENAI_API_KEY":             testkit.SyntheticOpenAIAPIKey,
 		"LIP_TEST_SECRETGUARD_SHORT": testkit.SyntheticShortSecret,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludeEnv:     []string{"LIP_TEST_SECRETGUARD_SHORT"},
 		MinSecretBytes: 8,
 	})
@@ -83,7 +82,7 @@ func TestNewSingleUserSource_duplicateValueAliases(t *testing.T) {
 		"ANTHROPIC_API_KEY":  testkit.SyntheticDuplicateValueAliasB,
 		"OPENROUTER_API_KEY": testkit.SyntheticOpenRouterAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		MinSecretBytes: 8,
 	})
 	if err != nil {
@@ -103,7 +102,7 @@ func TestNewSingleUserSource_PopularIncludeExclude(t *testing.T) {
 		"NPM_TOKEN":         testkit.SyntheticOpenAIAPIKey,
 		"OPENAI_API_KEY":    testkit.SyntheticOpenRouterAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		IncludeEnv:        []string{"LIP_TEST_OPERATOR"},
 		ExcludeEnv:        []string{"NPM_TOKEN"},
@@ -124,7 +123,7 @@ func TestNewSingleUserSource_AWSAccessKeyIDNotAutoLoaded(t *testing.T) {
 		"AWS_ACCESS_KEY_ID":     "AKIA" + strings.Repeat("Y", 16),
 		"AWS_SECRET_ACCESS_KEY": testkit.SyntheticOpenAIAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		MinSecretBytes:    8,
 	})
@@ -171,7 +170,7 @@ func TestNewSingleUserSource_IncludeEnvLookupWhenAbsentFromSnapshot(t *testing.T
 			"LIP_TEST_SECRETGUARD_INCLUDE": testkit.SyntheticGeminiAPIKey,
 		},
 	}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludeEnv:     []string{"LIP_TEST_SECRETGUARD_INCLUDE"},
 		MinSecretBytes: 8,
 	})
@@ -206,7 +205,7 @@ func (stubSDKMatcher) RedactString(context.Context, string) (string, []sdk.Findi
 
 func TestNewDisabledSource_neverCallsEnvironment(t *testing.T) {
 	t.Parallel()
-	src := secretguard.NewDisabledSource()
+	src := engine.NewDisabledSource()
 	if src.EntryCount() != 0 {
 		t.Fatalf("EntryCount=%d want 0", src.EntryCount())
 	}
@@ -226,12 +225,12 @@ func TestNewDisabledSource_neverCallsEnvironment(t *testing.T) {
 func TestNewMultiUserSource_ContextMatcherResolver(t *testing.T) {
 	t.Parallel()
 	env := &panicEnvironment{}
-	src, err := secretguard.NewMultiUserSource(env)
+	src, err := engine.NewMultiUserSource(env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src.AccessMode() != accessmode.ModeMultiUser {
-		t.Fatalf("access mode: got %q", src.AccessMode())
+	if src.AccessMode() != engine.ModeMultiUser {
+		t.Fatalf("access mode: got %v", src.AccessMode())
 	}
 	if src.EntryCount() != 0 {
 		t.Fatalf("EntryCount=%d want 0", src.EntryCount())
@@ -255,23 +254,23 @@ func TestPopularSecretEnvNames_excludesIDsAndPaths(t *testing.T) {
 		"GOOGLE_APPLICATION_CREDENTIALS": {},
 		"CURL_CA_BUNDLE":                 {},
 	}
-	for _, name := range secretguard.PopularSecretEnvNames {
+	for _, name := range engine.PopularSecretEnvNames {
 		if _, bad := forbidden[name]; bad {
 			t.Fatalf("PopularSecretEnvNames must not include %q", name)
 		}
 	}
-	if !slices.Contains(secretguard.PopularSecretEnvNames, "AWS_SECRET_ACCESS_KEY") {
+	if !slices.Contains(engine.PopularSecretEnvNames, "AWS_SECRET_ACCESS_KEY") {
 		t.Fatal("PopularSecretEnvNames must include AWS_SECRET_ACCESS_KEY")
 	}
 }
 
 func TestPopularSecretEnvNames_uniqueNonEmpty(t *testing.T) {
 	t.Parallel()
-	if len(secretguard.PopularSecretEnvNames) == 0 {
+	if len(engine.PopularSecretEnvNames) == 0 {
 		t.Fatal("PopularSecretEnvNames must be non-empty")
 	}
-	seen := make(map[string]struct{}, len(secretguard.PopularSecretEnvNames))
-	for _, name := range secretguard.PopularSecretEnvNames {
+	seen := make(map[string]struct{}, len(engine.PopularSecretEnvNames))
+	for _, name := range engine.PopularSecretEnvNames {
 		if name == "" {
 			t.Fatal("PopularSecretEnvNames must not contain empty names")
 		}
@@ -292,7 +291,7 @@ func TestNewSingleUserSource_genericPopularAPIKeyAndToken(t *testing.T) {
 		"MY_PASSWORD":      testkit.SyntheticBearerCredential,
 		"BAR_KEY":          testkit.SyntheticDuplicateValueAliasA,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		MinSecretBytes:    8,
 	})
@@ -348,7 +347,7 @@ func TestNewSingleUserSource_includePopularEnvFalseDoesNotInfer(t *testing.T) {
 		"CONTEXT7_API_KEY": testkit.SyntheticGeminiAPIKey,
 		"APIFY_TOKEN":      testkit.SyntheticOpenRouterAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: false,
 		MinSecretBytes:    8,
 	})
@@ -397,7 +396,7 @@ func TestNewSingleUserSource_includeEnvOverridesPublicPrefixExclusion(t *testing
 	env := &countingEnvironment{vals: map[string]string{
 		name: testkit.SyntheticOpenAIAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		IncludeEnv:        []string{name},
 		MinSecretBytes:    8,
@@ -431,7 +430,7 @@ func TestNewSingleUserSource_csrfTokenExcludedUnlessIncludeEnv(t *testing.T) {
 		name: testkit.SyntheticOpenAIAPIKey,
 	}}
 
-	excluded, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	excluded, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		MinSecretBytes:    8,
 	})
@@ -442,7 +441,7 @@ func TestNewSingleUserSource_csrfTokenExcludedUnlessIncludeEnv(t *testing.T) {
 		t.Fatalf("CSRF_TOKEN must not load via popular inference; EntryCount=%d", excluded.EntryCount())
 	}
 
-	included, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	included, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		IncludeEnv:        []string{name},
 		MinSecretBytes:    8,
@@ -475,7 +474,7 @@ func TestNewSingleUserSource_excludeEnvWinsOverPopularInference(t *testing.T) {
 		"CONTEXT7_API_KEY": testkit.SyntheticOpenAIAPIKey,
 		"APIFY_TOKEN":      testkit.SyntheticOpenRouterAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		ExcludeEnv:        []string{"CONTEXT7_API_KEY", "APIFY_TOKEN"},
 		MinSecretBytes:    8,
@@ -494,7 +493,7 @@ func TestNewSingleUserSource_proxyCredentialStaysProxyEnvWithPopularInference(t 
 		"OPENAI_API_KEY":   testkit.SyntheticOpenAIAPIKey,
 		"CONTEXT7_API_KEY": testkit.SyntheticGeminiAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		MinSecretBytes:    8,
 	})
@@ -541,7 +540,7 @@ func TestNewSingleUserSource_exactPopularFallbackStillLoads(t *testing.T) {
 		"AZURE_CLIENT_SECRET":   testkit.SyntheticOpenRouterAPIKey,
 		"AWS_SECRET_ACCESS_KEY": testkit.SyntheticGeminiAPIKey,
 	}}
-	src, err := secretguard.NewSingleUserSource(env, secretguard.SingleUserOptions{
+	src, err := engine.NewSingleUserSource(env, engine.SingleUserOptions{
 		IncludePopularEnv: true,
 		MinSecretBytes:    8,
 	})
