@@ -200,7 +200,7 @@
   - _Validation: `go test -count=1 ./internal/infra/runtimebundle ./internal/core/runtime ./internal/infra/compactiondetect ./internal/archtest`; Linux: `go test -count=1 -race ./internal/infra/compactiondetect ./internal/core/runtime ./internal/infra/runtimebundle`_
 
 - [ ] 6. Remove direct concrete-feature knowledge from generic runtimebundle
-- [ ] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
+- [x] 6.1 Move reasoning-compression options and generation binding to `internal/infra/reasoningcompose`
   - Move the concrete reasoning-preservation config scan, prerequisite validation, egress policy lookup/selection, matcher/sanitizer requirement, service construction, bundle reconstruction, attempt-transform binder, and stream-observer binder out of runtimebundle.
   - Move `ReasoningCompressionOptions` to the adapter; preserve a type alias/translation at runtimebundle only if needed for internal/public `pkg/lipruntime` source compatibility, but the runtimebundle alias/file must not import the concrete feature package.
   - Define explicit adapter inputs for registrations, already-resolved BackgroundClient/Poller, trusted option set, and candidate surface. The adapter may import `reasoningpreservation`, `featurebundle`, and `standardplugins` companion policy as required.
