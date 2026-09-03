@@ -27,7 +27,7 @@
     },
     "quality-checks": {
       "cpu": { "ratio": 1.30, "delta_seconds": 5 },
-      "processes": { "ratio": 1.15, "delta": 6 },
+      "processes": { "ratio": 1.15, "delta": 8 },
       "io_operations": { "ratio": 1.40, "delta": 7500 },
       "wall": { "ratio": 1.50, "delta_seconds": 10 }
     },

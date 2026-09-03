@@ -409,6 +409,36 @@ function Apply-AnchorCompatibilityPatch {
     Test-CleanCheckout $AnchorRoot
 }
 
+function Apply-CurrentAnchorLoadCompatibilityPatch {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$AnchorRoot,
+        [Parameter(Mandatory = $true)][string]$AnchorCommit
+    )
+
+    $currentAnchor = "6dbb831885341516117034923f0c3203373aded0"
+    if ($AnchorCommit -ne $currentAnchor) {
+        return
+    }
+
+    # The pinned anchor's late-arm assertion must wait for asynchronous
+    # terminalization when the full suite saturates a Windows runner.
+    $relativePath = "internal/core/runtime/parallel_race_late_arm_race_test.go"
+    Copy-Item -LiteralPath (Join-Path $RepositoryRoot $relativePath) -Destination (Join-Path $AnchorRoot $relativePath) -Force
+    $absolutePath = Join-Path $AnchorRoot $relativePath
+    $content = [IO.File]::ReadAllText($absolutePath)
+    [IO.File]::WriteAllText($absolutePath, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    Invoke-GitChecked @("-C", $AnchorRoot, "add", "--", $relativePath)
+    Invoke-GitChecked @(
+        "-C", $AnchorRoot,
+        "-c", "user.name=Go-LIP test-cost ratchet",
+        "-c", "user.email=test-cost-ratchet@invalid.local",
+        "-c", "commit.gpgsign=false",
+        "commit", "-m", "test: stabilize pinned anchor late-arm assertion"
+    )
+    Test-CleanCheckout $AnchorRoot
+}
+
 function Build-TestCostBinary {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
@@ -588,6 +618,7 @@ try {
     )
     $anchorCreated = $true
     Apply-AnchorCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit $anchorTempRoot
+    Apply-CurrentAnchorLoadCompatibilityPatch $RepositoryRoot $anchorRoot $AnchorCommit
 
     # The committed anchor predates the ratchet tool itself. Build the neutral
     # measurement wrapper once from head, then point it at each source tree.

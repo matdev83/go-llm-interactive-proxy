@@ -169,6 +169,12 @@ func TestTryOpenParallelGroup_ContextDoneLateArmStillTerminalized(t *testing.T) 
 		t.Fatal("tryOpenParallelGroup did not return after release")
 	}
 
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) &&
+		(fastStream.cancelCount.Load() == 0 && fastStream.closeCount.Load() == 0 ||
+			lateStream.cancelCount.Load() == 0 && lateStream.closeCount.Load() == 0) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if fastStream.cancelCount.Load() == 0 && fastStream.closeCount.Load() == 0 {
 		t.Errorf("expected fast arm to be terminalized (cancel or close)")
 	}
