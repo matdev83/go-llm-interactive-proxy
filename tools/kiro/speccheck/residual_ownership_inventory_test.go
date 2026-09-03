@@ -106,11 +106,6 @@ func validateSHAIdentity(root, content string) error {
 		return fmt.Errorf("resolve git HEAD: %w", err)
 	}
 
-	baselineSHA, err := resolveGitBaselineSHA(root)
-	if err != nil {
-		return fmt.Errorf("resolve git baseline: %w", err)
-	}
-
 	var identityErrs []string
 	if err := checkGitCommitObject(root, implSHA); err != nil {
 		identityErrs = append(identityErrs, fmt.Sprintf("Implementation SHA %q is not an existing commit object", implSHA))
@@ -118,8 +113,14 @@ func validateSHAIdentity(root, content string) error {
 		identityErrs = append(identityErrs, fmt.Sprintf("Implementation SHA %q is not an ancestor of git HEAD %q", implSHA, headSHA))
 	}
 
-	if !strings.EqualFold(baseSHA, baselineSHA) {
-		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q does not match git baseline (main or origin/main) %q", baseSHA, baselineSHA))
+	// Baseline must be an existing mainline commit and an ancestor of HEAD.
+	// Equality with the current main tip is NOT required: pinning equality
+	// would invalidate the artifact on every future main commit (treadmill),
+	// while ancestry keeps the recorded base verifiable forever.
+	if err := checkGitCommitObject(root, baseSHA); err != nil {
+		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q is not an existing commit object (baseline must name a mainline commit)", baseSHA))
+	} else if err := checkGitIsAncestor(root, baseSHA, "HEAD"); err != nil {
+		identityErrs = append(identityErrs, fmt.Sprintf("Merged-Main Baseline SHA %q is not an ancestor of git HEAD %q (baseline is not a mainline base)", baseSHA, headSHA))
 	}
 
 	if len(identityErrs) > 0 {
