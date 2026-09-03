@@ -22,6 +22,7 @@ function Get-DiscoveredModules {
     $modules.Add(".")
     $modules.Add("testdata/enterprise_module")
     $modules.Add("testdata/external_connector")
+    $modules.Add("testdata/external_feature_sdk")
 
     foreach ($base in @("connectors", "connector-support")) {
         $baseDir = Join-Path $RepositoryRoot $base

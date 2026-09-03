@@ -9,6 +9,7 @@ updates:
       - /
       - /testdata/enterprise_module
       - /testdata/external_connector
+      - /testdata/external_feature_sdk
       - /connector-support/acp
       - /connector-support/openaicompat
       - /connectors/acp
