@@ -45,6 +45,10 @@ func TestRetiredPackages_RenamedOrNestedBypassRejected(t *testing.T) {
 		{"internal/core/secretguard/engine/deep.go", true},
 		{"internal/plugins/features/secretguard/engine/catalog.go", false},
 		{"internal/infra/secretguardcompose/compose.go", false},
+		{"internal/core/compactiondetect/detector.go", true},
+		{"internal/core/compactiondetect/renamed_detector.go", true},
+		{"internal/core/compactiondetect/nested/sub/bypass.go", true},
+		{"internal/infra/compactiondetect/detector.go", false},
 	}
 	for _, tc := range cases {
 		f := ScanFileRetiredPackage(tc.rel)
@@ -232,6 +236,51 @@ func TestForbiddenImports_SecretGuardRenamedOrNestedBypassRejected(t *testing.T)
 			name:       "feature imports lipsdk/secretguard allowed",
 			relPath:    "internal/plugins/features/secretguard/engine/matcher.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard",
+			wantForbid: false,
+		},
+	}
+	for _, tc := range adversarialImports {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf("package dummy\nimport _ %q\n", tc.importPath)
+			findings, err := ScanFileForbiddenImports(tc.relPath, tc.relPath, []byte(src))
+			if err != nil {
+				t.Fatalf("ScanFileForbiddenImports error: %v", err)
+			}
+			if tc.wantForbid && len(findings) == 0 {
+				t.Errorf("%s: expected forbidden import finding for %s importing %s, got none", tc.name, tc.relPath, tc.importPath)
+			}
+			if !tc.wantForbid && len(findings) > 0 {
+				t.Errorf("%s: unexpected forbidden import finding for %s importing %s: %v", tc.name, tc.relPath, tc.importPath, findings)
+			}
+		})
+	}
+}
+
+func TestForbiddenImports_CompactionDetectRenamedOrNestedBypassRejected(t *testing.T) {
+	t.Parallel()
+	adversarialImports := []struct {
+		name       string
+		relPath    string
+		importPath string
+		wantForbid bool
+	}{
+		{
+			name:       "core runtime imports retired compactiondetect",
+			relPath:    "internal/core/runtime/renamed_detector.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect",
+			wantForbid: true,
+		},
+		{
+			name:       "nested core imports retired nested compactiondetect",
+			relPath:    "internal/core/runtime/nested/deep.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect/nested",
+			wantForbid: true,
+		},
+		{
+			name:       "infra compactiondetect allowed",
+			relPath:    "internal/infra/runtimebundle/background_aux_lifecycle.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect",
 			wantForbid: false,
 		},
 	}
