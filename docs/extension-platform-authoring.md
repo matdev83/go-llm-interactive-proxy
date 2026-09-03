@@ -6,22 +6,26 @@ This guide is for **operators and feature-plugin authors** wiring behavior on th
 
 The core owns a **fixed ordered list** of legal extension stages (requirement **R2**). Inventory exposes this as `extensions.legal_pipeline` and `extensions.stages[]` with `id` and `default_failure` per stage (requirement **R14**).
 
-Canonical order (twelve stages):
+Canonical order (sixteen stages):
 
-1. `transport_auth` — standard HTTP only; identity before decode.
+1. `transport_authentication` — standard HTTP only; identity before decode.
 2. `session_open` — session/workspace bootstrap; no direct provider calls (use auxiliary client if model work is needed).
-3. `submit_request` — submit hooks; coarse reject/annotate.
-4. `tool_catalog_filter` — remove or annotate tools before backend translation.
-5. `request_wide_shaping` — request-wide transforms and request-part hooks.
-6. `route_hinting` — advisory hints; core routing remains authoritative.
-7. `attempt_lifecycle` — core-owned attempt loop (occupancy usually empty for features).
-8. `stream_event_mutation` — response-part hooks.
-9. `tool_event_reaction` — tool reactors (provider-agnostic contracts).
-10. `completion_gating` — bounded buffering and typed completion decisions.
-11. `traffic_observation` — four-leg observers, redactors, privileged capture sinks.
-12. `egress_encoding` — frontend encode (core-owned).
+3. `secret_guard` — ingress secret detection after BeginTurn; redact or reject before FE checkpoint/traffic/routing.
+4. `submit_request` — submit hooks; coarse reject/annotate.
+5. `tool_catalog_filter` — remove or annotate tools before backend translation.
+6. `request_wide_shaping` — request-wide transforms and request-part hooks.
+7. `pre_request_admission` — admission checks after canonical request shaping and before route planning.
+8. `route_hinting` — advisory hints; core routing remains authoritative.
+9. `candidate_attempt_transform` — per-candidate attempt transforms after interleaved shaping; continue or exclude_candidate before final capabilities.
+10. `attempt_lifecycle` — core-owned attempt loop (occupancy usually empty for features).
+11. `stream_event_mutation` — response-part hooks.
+12. `tool_event_reaction` — tool reactors (provider-agnostic contracts).
+13. `completion_gating` — bounded buffering and typed completion decisions.
+14. `final_stream_observation` — final canonical stream observation after gates; before traffic/egress.
+15. `traffic_observation` — four-leg observers, redactors, privileged capture sinks.
+16. `egress_encoding` — frontend encode (core-owned).
 
-Note: `attempt_lifecycle` and `egress_encoding` are legal pipeline labels for inventory, policy, and ordering. They are not separate feature-plugin handler slices in the typed bundle; `attempt_lifecycle` is owned by the core attempt loop, and `egress_encoding` stays in frontend/transport encoding.
+Note: `attempt_lifecycle` and `egress_encoding` are legal pipeline labels for inventory, policy, and ordering. They are not separate extension planes in the typed feature bundle; `attempt_lifecycle` is owned by the core attempt loop, and `egress_encoding` stays in frontend/transport encoding.
 
 **Failure policy** per stage is documented in design section **§17** (`FailurePolicyLabel` / `DefaultFailurePolicyForStage` in code). Treat inventory `default_failure` as the operator-visible default; stage runners may narrow further where the contract allows.
 
@@ -41,7 +45,7 @@ Use **narrow SDK packages** under `pkg/lipsdk/` — not raw core types, not tran
 | Private sub-calls | [`pkg/lipsdk/auxiliary`](../../pkg/lipsdk/auxiliary) | Verifier/memory-style calls with lineage; no direct backend handles. |
 | Whole-completion control | [`pkg/lipsdk/completion`](../../pkg/lipsdk/completion) | Buffered decisions, replace/replay/reject per typed outcomes. |
 | Observation / capture | [`pkg/lipsdk/traffic`](../../pkg/lipsdk/traffic) | Observers vs privileged `CaptureSink`; respect redaction order. |
-| Typed bundle assembly | [`pkg/lipsdk/feature`](../../pkg/lipsdk/feature) | `FeatureBundle` + schema version; merge surfaces for registration. |
+| Typed bundle assembly | [`pkg/lipsdk/feature`](../../pkg/lipsdk/feature) | `FeatureBundle` (holds `PlaneSet FrozenPlaneSet`, `SchemaVersion`, and optional `Lifecycles`); merges standard extension planes for registration. |
 
 When a plugin needs state across multiple handlers, bind the shared store with `pkg/lipsdk/state.BindPlugin` using the plugin instance ID before writing or reading keys. That keeps per-plugin namespaces isolated while still letting the plugin share state between its own stages.
 
@@ -53,14 +57,54 @@ When a plugin needs state across multiple handlers, bind the shared store with `
 - **Privileged raw capture** (`CaptureSink`) is opt-in and must never drive request mutation (design **§10–§11**).
 - **Inventory** (`extensions.features[].privileges`) exposes booleans such as `raw_capture`, `auxiliary_requests`, `completion_gate`, and `auth_provider` so reviewers can see elevated capability (requirement **R14**). `auxiliary_requests` is set for bundles that receive the aux client through request transforms, tool catalog filters, or completion gates.
 
-If your feature needs raw bytes or completion-wide control, declare the matching bundle fields and expect those flags to flip `true` in diagnostics.
+If your feature needs raw bytes or completion-wide control, contribute to the matching standard extension plane (such as `PlaneRawCaptureSinks` or `PlaneCompletionGates`) and expect those flags to flip `true` in diagnostics.
 
-## Hook-only plugins and `FeatureBundle` migration
+## Extension plane lifecycle and FeatureBundle assembly
 
-Brownfield rule (design **§15**): existing hook-only plugins remain valid. Registration builds a [`pkg/lipsdk/feature.FeatureBundle`](../../pkg/lipsdk/feature/bundle.go) directly from YAML-decoded config (see [`internal/plugins/features/README.md`](../internal/plugins/features/README.md)). The legacy `FeatureFactoryFromHooks` bridge has been retired; all bundled features now return `FeatureBundle` natively.
+All feature plugins contribute capabilities through the typed extension plane lifecycle in [`pkg/lipsdk/feature`](../../pkg/lipsdk/feature). A `FeatureBundle` contains schema version metadata (`SchemaVersionV1`), an immutable [`FrozenPlaneSet`](../../pkg/lipsdk/feature/frozen.go), and optional plugin lifecycles. Note: `FeatureBundle` does **not** contain individual named fields or slices for each extension plane; all extension planes are held within `FeatureBundle.PlaneSet`.
 
-- Empty bundle slices mean **that stage is absent** for that plugin; core must not invent fallback behavior per plugin.
-- New seams (session openers, catalog filters, gates, traffic, etc.) are **additional** fields on the same bundle type; migrate incrementally.
+### Frozen PlaneSet lifecycle
+
+The lifecycle proceeds in discrete, fail-before-mutate phases:
+
+1. **Staging**: Construct a mutable contribution set using `feature.NewContributionSet()`.
+2. **Contribution**: Add typed capabilities using `feature.Contribute(cs, plane, contributorID, value)`. `Contribute` tags contributions with `SourceFeature` and enforces fail-before-mutate semantics: if validation or combination fails, `cs` remains unmodified and an `*AttributedError` attributing the contributor and plane is returned.
+3. **Freezing**: Call `cs.Freeze()` to produce an immutable `FrozenPlaneSet`. Freezing provides top-level collection isolation: slice backing arrays and metadata maps are isolated, while element values (e.g. interface handlers) are shallow-copied, not deep-cloned.
+4. **Packaging**: Call `feature.BundleFromPlanes(frozen, lifecycles)` to produce a `FeatureBundle` with `SchemaVersionV1`.
+5. **Validation**: Validate the bundle via `bundle.Validate()`.
+6. **Reading**: Downstream consumers read values using `feature.Get(bundle.PlaneSet, plane)`. If a plane was not contributed or is absent, `feature.Get` returns the plane's zero value (e.g. `nil` for slice planes). Slice-valued planes return defensive copies on ordinary `Get` calls to prevent caller mutation of the snapshot.
+7. **Replay & Thaw**: A frozen set can be replayed to another set via `bundle.PlaneSet.ReplayTo(destSet, contributorID)` or thawed for modification via `bundle.PlaneSet.ToContributions()`.
+8. **Request Execution Snapshots**: `feature.FreezeRequestPlanes(frozen)` evaluates declared request materializers to produce an immutable per-request snapshot.
+
+Example matching the canonical feature SDK contract (see `testdata/external_feature_sdk`):
+
+```go
+cs := feature.NewContributionSet()
+if err := feature.Contribute(cs, feature.PlaneSubmitHooks, "my_plugin_id", []hooks.SubmitHook{hook}); err != nil {
+    return feature.FeatureBundle{}, fmt.Errorf("contribute failed: %w", err)
+}
+bundle := feature.BundleFromPlanes(cs.Freeze(), nil)
+if err := bundle.Validate(); err != nil {
+    return feature.FeatureBundle{}, fmt.Errorf("bundle validate failed: %w", err)
+}
+```
+
+### Closed standard-plane catalog and ErrUngeneratedPlane
+
+In v1, Go-LIP enforces a **closed standard-plane catalog** declared in the canonical manifest (`pkg/lipsdk/feature/plane_manifest.go`).
+
+- **No dynamic planes in v1**: Arbitrary unbound or dynamically declared `Plane[T]` instances are not supported. Contributing through an ungenerated or unbound plane fails immediately before candidate mutation with `feature.ErrUngeneratedPlane`.
+- **Platform-level plane addition**: Adding a new extension plane is an upstream Go-LIP SDK/runtime platform change requiring a declaration in `plane_manifest.go` and code regeneration via `go run ./scripts/generate-feature-planes.go`.
+- **Canonical generated-policy authority**: Exported `Plane[T]` package variables (such as `PlaneSubmitHooks`, `PlaneRequestTransforms`, etc.) act as typed descriptors. The canonical generated binding (`plane_generated.go`) is the sole authority for production combination rules, nil handling, validator execution, and identity extraction. Copying or mutating exported fields on a `Plane[T]` descriptor (e.g., copying `PlaneSubmitHooks` and altering its `Rules` or `Combine` fields) does **not** redefine the plane; production execution always enforces the canonical generated policy. If an altered copy has a modified plane ID, contribution is rejected with `feature.ErrUngeneratedPlane`.
+
+### Standard distribution boundary
+
+Adding a standard in-process feature implementation to Go-LIP follows an explicit boundary:
+
+1. **Feature package ownership (migrated model and target architecture)**: In the target architecture, feature code lives under `internal/plugins/features/<feature>` and owns its configuration decoding and bundle construction via a feature-owned constructor or factory (as demonstrated by migrated plugins `toolcallrepair.FeatureBundle(cfg)`, `secretguard.FeatureBundle(cfg)`, and `reasoningpreservation.FeatureBundleWithCompanionPolicy(cfg, ...)`). Remaining legacy factories where `internal/standardplugins/features_install.go` still directly constructs the `ContributionSet` and `FeatureBundle` (such as Agent Loop Guard at line 38 and Pre-request Policy at line 220) are deferred with inventory tracking rather than universally completed; new features should follow the feature-owned model.
+2. **Explicit standard registration**: The factory is registered in `internal/standardplugins/features_install.go` and listed in `internal/standardplugins/standard_table.go` (`StandardBundle().Features`).
+3. **No core or runtimebundle branching**: Concrete feature packages must not be imported by `internal/core` or `internal/infra/runtimebundle`. `runtimebundle` contains zero direct imports of `internal/plugins/features/*`.
+4. **Dedicated composition adapters**: When a feature requires process- or generation-bound capabilities (such as background auxiliary workers or credential matchers), it is assembled via a dedicated typed composition adapter under `internal/infra/*compose` (e.g., `internal/infra/reasoningcompose`, `internal/infra/secretguardcompose`, `internal/infra/compactioncompose`), not by branching inside generic core orchestration or the runtime bundle.
 
 ## Choosing the right seam (feature → seam map)
 
