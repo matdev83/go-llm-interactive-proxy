@@ -43,6 +43,12 @@ func TestForbiddenImports_RuntimeBundleConcreteFeaturesRenamedOrNestedBypassReje
 		wantForbid bool
 	}{
 		{
+			name:       "runtimebundle root imports feature root package",
+			relPath:    "internal/infra/runtimebundle/renamed.go",
+			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features",
+			wantForbid: true,
+		},
+		{
 			name:       "runtimebundle root imports toolcallrepair feature",
 			relPath:    "internal/infra/runtimebundle/renamed.go",
 			importPath: "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair",
