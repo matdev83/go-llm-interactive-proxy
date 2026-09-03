@@ -264,7 +264,7 @@
   - _Boundary: Public SDK / External Consumer TCK_
   - _Validation: `(cd testdata/external_feature_sdk && GOWORK=off go mod tidy -diff && GOWORK=off go test ./...)`; `go test -count=1 ./internal/archtest ./internal/qa`_
 
-- [ ] 7.4 Reconcile feature authoring and architecture documentation
+- [x] 7.4 Reconcile feature authoring and architecture documentation
   - Update `pkg/lipsdk/feature` godoc, `docs/extension-platform-authoring.md`, `docs/plugin-authoring.md`, `internal/plugins/features/README.md`, architecture/steering package maps, and any direct references affected by moved packages.
   - Remove stale statements that features add named `FeatureBundle` fields/slices; document the frozen PlaneSet lifecycle, `ErrUngeneratedPlane`, canonical generated-policy authority, and closed standard manifest.
   - State the standard distribution boundary precisely: feature-owned bundle constructor/factory behavior plus explicit standard registration; no feature-specific core/runtimebundle branch.

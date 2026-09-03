@@ -18,7 +18,9 @@ var (
 )
 
 // cloneSlice returns a copy of slice s with its own backing array,
-// preserving nil vs non-nil empty slice semantics.
+// preserving nil vs non-nil empty slice semantics. Slice backing arrays
+// are isolated; element values (e.g. interface handlers) are shallow-copied,
+// not deep-cloned.
 func cloneSlice[T any](s []T) []T {
 	if s == nil {
 		return nil

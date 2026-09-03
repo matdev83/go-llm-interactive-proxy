@@ -71,10 +71,20 @@ func TestPackageDoc_RequiredContractAnchors(t *testing.T) {
 
 		// Registration policy
 		"The feature implementation package lives under internal/plugins/features/<feature>",
-		"The factory function that decodes YAML configuration, constructs a [ContributionSet], adds contributions via [Contribute], freezes the set, and returns a [FeatureBundle] via [BundleFromPlanes] is implemented in internal/standardplugins/features_install.go",
+		"Standard distribution wiring in internal/standardplugins/features_install.go provides only explicit registration and adaptation",
 		"The sole registration table edit is adding exactly one FeatureRegistration row to internal/standardplugins/standard_table.go in StandardBundle().Features",
 		"Do not add feature-specific branches or types to core/runtime or any other registry",
 		"Optional executable backend connectors use an independent gRPC manifest discovery mechanism and are out of this feature-registration path",
+
+		// Closed manifest, policy authority, and standard boundary
+		"Note that [FeatureBundle] contains no per-plane named fields or slices",
+		"No dynamic planes in v1: Arbitrary unbound or dynamically declared planes are not supported",
+		"Contributing through an ungenerated or unbound plane fails immediately before candidate mutation with [ErrUngeneratedPlane]",
+		"Canonical generated-policy authority: Exported [Plane] descriptors (such as [PlaneSubmitHooks]) act as typed descriptors and identifiers",
+		"Copying or mutating exported fields on a [Plane] descriptor (e.g. copying PlaneX and changing its rules or combiner) does not redefine the plane",
+		"Adding a new extension plane requires an upstream manifest and platform change",
+		"Feature plugins own their configuration decoding and bundle construction via a feature-owned constructor or factory",
+		"neither internal/core nor internal/infra/runtimebundle imports concrete feature packages",
 	}
 
 	for _, anchor := range requiredAnchors {

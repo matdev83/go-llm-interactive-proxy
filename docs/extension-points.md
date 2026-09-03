@@ -16,14 +16,16 @@ The canonical stage IDs are defined in `pkg/lipsdk/feature/stages.go` and surfac
 | 6 | `request_wide_shaping` | feature plugins + brownfield hooks | mutate | `pkg/lipsdk/request.Transform`, request-part hooks |
 | 7 | `pre_request_admission` | feature plugins | reject | `pkg/lipsdk/prerequest.Handler` |
 | 8 | `route_hinting` | feature plugins advise, core decides | observe | `pkg/lipsdk/routehint.Provider` |
-| 9 | `attempt_lifecycle` | core | observe | attempt lineage, route observers, diagnostics |
-| 10 | `stream_event_mutation` | core hook bus + feature plugins | mutate | response-part hooks |
-| 11 | `tool_event_reaction` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/toolpolicy.Policy`, then `hooks.ToolReactor` |
-| 12 | `completion_gating` | feature plugins | replace | `pkg/lipsdk/completion.Gate` |
-| 13 | `traffic_observation` | feature plugins | observe | `traffic.Observer`, `usage.Observer`, `RawCaptureSink`, `Redactor` |
-| 14 | `egress_encoding` | frontend adapters | mutate | frontend encoders |
+| 9 | `candidate_attempt_transform` | feature plugins | mutate/reject | `pkg/lipsdk/request.AttemptTransform` |
+| 10 | `attempt_lifecycle` | core | observe | attempt lineage, route observers, diagnostics |
+| 11 | `stream_event_mutation` | core hook bus + feature plugins | mutate | response-part hooks |
+| 12 | `tool_event_reaction` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/toolpolicy.Policy`, then `hooks.ToolReactor` |
+| 13 | `completion_gating` | feature plugins | replace | `pkg/lipsdk/completion.Gate` |
+| 14 | `final_stream_observation` | feature plugins | observe | `pkg/lipsdk/response.StreamObserverFactory` |
+| 15 | `traffic_observation` | feature plugins | observe | `traffic.Observer`, `usage.Observer`, `RawCaptureSink`, `Redactor` |
+| 16 | `egress_encoding` | frontend adapters | mutate | frontend encoders |
 
-`attempt_lifecycle` and `egress_encoding` are legal inventory stages even though feature bundles do not own handler slices for them.
+`attempt_lifecycle` and `egress_encoding` are legal inventory stages even though feature bundles do not own extension planes for them.
 
 ## Seam taxonomy
 

@@ -66,17 +66,19 @@ The composition root may import essential plugins and host discovered connector 
 
 ## Extension platform
 
-Feature plugins contribute a `pkg/lipsdk/feature.FeatureBundle`. The current bundle includes:
+Feature plugins contribute a `pkg/lipsdk/feature.FeatureBundle` (schema version `SchemaVersionV1`, an immutable `FrozenPlaneSet`, and optional plugin lifecycles). Rather than named bundle fields, typed capabilities are assembled into standard extension planes via the `ContributionSet` → `Contribute` → `Freeze` → `BundleFromPlanes` lifecycle:
 
 - brownfield submit, request-part, response-part, and tool-reactor hooks;
 - session openers and workspace resolvers;
-- tool catalog filters and request-wide transforms;
+- tool catalog filters, request-wide transforms, and pre-request admission handlers;
 - route hint providers and completion gates;
-- traffic observers, raw capture sinks, redactors, and lifecycles.
+- traffic observers, raw capture sinks, redactors, secret guards, and terminal-decision providers.
+
+In v1, the extension-plane catalog is closed (`pkg/lipsdk/feature/plane_manifest.go`). Arbitrary unbound planes are rejected with `ErrUngeneratedPlane`, and the canonical generated binding is authoritative for production plane policy; copying or mutating descriptor fields does not redefine standard plane behavior. In the target architecture, migrated in-process features (`toolcallrepair`, `secretguard`, `reasoningpreservation`) own their configuration decoding and bundle construction as the target model for new features, while retained `standardplugins`-owned assembly (e.g. Agent Loop Guard, Pre-request Policy, reference/no-op factories in `features_install.go:38,53,220`) is deferred with inventory tracking; standard features are registered explicitly in `internal/standardplugins`, with zero direct feature imports in `internal/core` or `internal/infra/runtimebundle`.
 
 The core materializes these into a frozen request runtime snapshot. Hooks mutate or decide, observers record, stores persist, resolvers discover context, and auxiliary clients perform controlled sub-calls. Do not merge those concerns into a single super hook.
 
-See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage table and authoring rules.
+See `docs/extension-points.md`, `docs/extension-platform-authoring.md`, and `docs/plugin-authoring.md` for the stage table and authoring rules.
 
 ## Canonical runtime ownership
 
