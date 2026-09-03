@@ -18,8 +18,8 @@ const (
 	DefaultFinalizerOrder     = 40
 )
 
-// Default schema limits mirror internal/core/toolcallrepair.DefaultSchemaLimits
-// (YAML package must not import core); locked by TestDefaultSchemaLimitsMatchCore.
+// Default schema limits mirror repair.DefaultSchemaLimits;
+// locked by TestDefaultSchemaLimitsMatchCore.
 const (
 	defaultMaxSchemaBytes   = 256 * 1024
 	defaultMaxNestingDepth  = 32

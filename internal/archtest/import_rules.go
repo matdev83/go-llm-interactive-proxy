@@ -269,6 +269,54 @@ var ForbiddenImports = []ForbiddenImportRule{
 		TargetPattern: "/internal/core/routeoverride",
 		Reason:        "public SDK must not import route-override state",
 	},
+	{
+		SourcePattern: "internal/core",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "internal/core must not depend on concrete feature plugins",
+	},
+	{
+		SourcePattern: "*",
+		TargetPattern: "/internal/core/toolcallrepair",
+		Reason:        "internal/core/toolcallrepair has been retired; use internal/plugins/features/toolcallrepair/repair",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/core",
+		Reason:        "toolcallrepair feature tree must not depend on internal/core (use pkg/lipsdk contracts)",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/infra/runtimebundle",
+		Reason:        "toolcallrepair feature tree must not depend on runtimebundle",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/plugins/frontends",
+		Reason:        "toolcallrepair feature tree must not depend on frontend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/plugins/backends",
+		Reason:        "toolcallrepair feature tree must not depend on backend plugins",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "toolcallrepair feature tree must not depend on other feature plugins",
+		ExceptPrefix: []string{
+			"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair",
+		},
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/stdhttp",
+		Reason:        "toolcallrepair feature tree must not depend on stdhttp",
+	},
+	{
+		SourcePattern: "internal/plugins/features/toolcallrepair",
+		TargetPattern: "/internal/pluginreg",
+		Reason:        "toolcallrepair feature tree must not depend on pluginreg",
+	},
 }
 
 // fileScopedImportRule restricts specific production files.
@@ -288,53 +336,64 @@ var fileScopedImportRules = []fileScopedImportRule{
 	{File: "internal/stdhttp/generation_host.go", TargetPattern: "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost", Reason: "serve adapter drops ownership imports"},
 }
 
+// ScanFileForbiddenImports checks a single file's source for forbidden imports.
+func ScanFileForbiddenImports(rel, abs string, src []byte) ([]RuleFinding, error) {
+	pkg := PackageDirFromRel(rel)
+	_, f, err := ParseGoSource(abs, src)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", rel, err)
+	}
+	var out []RuleFinding
+	imports := FileImportPaths(f)
+	for _, rule := range ForbiddenImports {
+		if !MatchPathPrefix(pkg, rule.SourcePattern) {
+			continue
+		}
+		for _, imp := range imports {
+			if importExemptPrefix(imp, rule.ExceptPrefix) {
+				continue
+			}
+			if matchImportTarget(imp, rule.TargetPattern) {
+				out = append(out, RuleFinding{
+					Rule:   "forbidden_import",
+					Path:   rel,
+					Detail: "import " + imp + " (" + rule.Reason + ")",
+				})
+			}
+		}
+	}
+	for _, rule := range fileScopedImportRules {
+		if rel != rule.File {
+			continue
+		}
+		for _, imp := range imports {
+			if matchImportTarget(imp, rule.TargetPattern) {
+				// Root stdhttp forbid should not match stdhttp/contract subpath.
+				if rule.TargetPattern == "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp" &&
+					strings.HasPrefix(imp, "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/") {
+					continue
+				}
+				out = append(out, RuleFinding{
+					Rule:   "forbidden_import",
+					Path:   rel,
+					Detail: "import " + imp + " (" + rule.Reason + ")",
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
 // ScanForbiddenImports reports production import edges matching ForbiddenImports
 // and file-scoped purity rules.
 func ScanForbiddenImports(root string) ([]RuleFinding, error) {
 	var out []RuleFinding
 	err := WalkProductionGoFiles(root, func(rel, abs string, src []byte) error {
-		pkg := PackageDirFromRel(rel)
-		_, f, err := ParseGoSource(abs, src)
+		findings, err := ScanFileForbiddenImports(rel, abs, src)
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return err
 		}
-		imports := FileImportPaths(f)
-		for _, rule := range ForbiddenImports {
-			if !MatchPathPrefix(pkg, rule.SourcePattern) {
-				continue
-			}
-			for _, imp := range imports {
-				if importExemptPrefix(imp, rule.ExceptPrefix) {
-					continue
-				}
-				if matchImportTarget(imp, rule.TargetPattern) {
-					out = append(out, RuleFinding{
-						Rule:   "forbidden_import",
-						Path:   rel,
-						Detail: "import " + imp + " (" + rule.Reason + ")",
-					})
-				}
-			}
-		}
-		for _, rule := range fileScopedImportRules {
-			if rel != rule.File {
-				continue
-			}
-			for _, imp := range imports {
-				if matchImportTarget(imp, rule.TargetPattern) {
-					// Root stdhttp forbid should not match stdhttp/contract subpath.
-					if rule.TargetPattern == "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp" &&
-						strings.HasPrefix(imp, "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/") {
-						continue
-					}
-					out = append(out, RuleFinding{
-						Rule:   "forbidden_import",
-						Path:   rel,
-						Detail: "import " + imp + " (" + rule.Reason + ")",
-					})
-				}
-			}
-		}
+		out = append(out, findings...)
 		return nil
 	})
 	if err != nil {

@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
 func TestDefaultToolCallFinalizationMaxArgsBytesMatchCore(t *testing.T) {
 	t.Parallel()
-	if defaultToolCallFinalizationMaxArgsBytes != toolcallrepair.DefaultMaxArgsBytes {
-		t.Fatalf("assembler default=%d != core DefaultMaxArgsBytes=%d",
-			defaultToolCallFinalizationMaxArgsBytes, toolcallrepair.DefaultMaxArgsBytes)
+	if defaultToolCallFinalizationMaxArgsBytes != repair.DefaultMaxArgsBytes {
+		t.Fatalf("assembler default=%d != repair DefaultMaxArgsBytes=%d",
+			defaultToolCallFinalizationMaxArgsBytes, repair.DefaultMaxArgsBytes)
 	}
 }
 

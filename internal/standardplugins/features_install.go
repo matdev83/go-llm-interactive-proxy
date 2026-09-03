@@ -3,7 +3,6 @@ package standardplugins
 import (
 	"fmt"
 
-	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/agentloopguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
@@ -28,7 +27,6 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -284,27 +282,5 @@ func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err != nil {
 		return lipfeature.FeatureBundle{}, err
 	}
-	fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
-		ID:             toolcallrepair.ID,
-		MaxArgsBytes:   cfg.MaxArgsBytes,
-		OnUnrepairable: cfg.OnUnrepairable,
-		Order:          cfg.FinalizerOrder(),
-		Schema: corerepair.SchemaLimits{
-			MaxSchemaBytes:   cfg.Schema.MaxSchemaBytes,
-			MaxNestingDepth:  cfg.Schema.MaxNestingDepth,
-			MaxNodes:         cfg.Schema.MaxNodes,
-			MaxProperties:    cfg.Schema.MaxProperties,
-			MaxLocalRefDepth: cfg.Schema.MaxLocalRefDepth,
-			MaxCacheEntries:  cfg.Schema.MaxCacheEntries,
-			MaxCacheBytes:    cfg.Schema.MaxCacheBytes,
-		},
-	})
-	cs := lipfeature.NewContributionSet()
-	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, toolcallrepair.ID, []toolcall.Finalizer{fin}); err != nil {
-		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", toolcallrepair.ID, err)
-	}
-	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizationMaxArgsBytes, toolcallrepair.ID, cfg.MaxArgsBytes); err != nil {
-		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", toolcallrepair.ID, err)
-	}
-	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
+	return toolcallrepair.FeatureBundle(cfg)
 }

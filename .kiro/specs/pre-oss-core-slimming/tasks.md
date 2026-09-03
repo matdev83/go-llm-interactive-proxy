@@ -101,7 +101,7 @@
   - _Validation: `go test -count=1 ./pkg/lipsdk/feature ./internal/featurebundle ./internal/archtest`_
 
 - [ ] 3. Move tool-call repair implementation into the feature
-- [ ] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
+- [x] 3.1 Move the deterministic repair engine under `internal/plugins/features/toolcallrepair/repair`
   - Move the complete production implementation from `internal/core/toolcallrepair` (engine, schema/compiler/cache, catalog index, JSON completion/tail repair, finalizer, diagnostics/reason codes/helpers) into the feature-local `repair` subpackage.
   - Move the corresponding unit, fuzz, benchmark, contract, and regression tests with the implementation; preserve test names/assertions where practical so coverage is visibly continuous.
   - Update imports only; do not rewrite algorithms, reason codes, cache behavior, bounds, or concurrency semantics during the move.
@@ -112,7 +112,7 @@
   - _Boundary: Tool-call Repair Feature_
   - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/...`; targeted fuzz/bench smoke_
 
-- [ ] 3.2 Make the feature root construct its complete bundle
+- [x] 3.2 Make the feature root construct its complete bundle
   - Add `toolcallrepair.FeatureBundle(cfg)` (or the repository-consistent equivalent) that translates YAML-decoded feature config into the feature-local finalizer policy and contributes both `PlaneToolCallFinalizers` and `PlaneToolCallFinalizationMaxArgsBytes`.
   - Preserve finalizer ID, order, default/max-args equality, schema limits, and on-unrepairable mapping exactly.
   - Simplify `internal/standardplugins/features_install.go` to decode config and delegate to the feature bundle constructor; remove the core repair import and duplicate policy mapping.
@@ -122,7 +122,7 @@
   - _Boundary: Tool-call Repair Feature / Standard Distribution_
   - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/... ./internal/standardplugins -run 'Tool.*Repair|tool.*repair|Finalizer'`_
 
-- [ ] 3.3 Delete the old core package and ratchet its absence
+- [x] 3.3 Delete the old core package and ratchet its absence
   - Delete `internal/core/toolcallrepair` only after all production/test imports have migrated.
   - Add a permanent architecture rule rejecting production resurrection of that package and a recursive feature-tree import boundary for `internal/plugins/features/toolcallrepair`.
   - Update docs/package maps that still identify tool repair as core-owned.

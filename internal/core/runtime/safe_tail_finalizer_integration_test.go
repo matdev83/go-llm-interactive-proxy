@@ -9,7 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
+	repair "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -58,14 +58,14 @@ func TestRetryRecvStream_RealToolCallFinalizerSafeTailRepairs(t *testing.T) {
 					RequestTransforms: []request.Transform{pdNoopRtx{}},
 				}),
 			})
-			fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
-				ID:             corerepair.DefaultFinalizerID,
-				MaxArgsBytes:   corerepair.DefaultMaxArgsBytes,
-				OnUnrepairable: corerepair.OnUnrepairablePassThrough,
-				Order:          corerepair.DefaultFinalizerOrder,
-				Schema:         corerepair.DefaultSchemaLimits(),
+			fin := repair.NewFinalizer(repair.FinalizerPolicy{
+				ID:             repair.DefaultFinalizerID,
+				MaxArgsBytes:   repair.DefaultMaxArgsBytes,
+				OnUnrepairable: repair.OnUnrepairablePassThrough,
+				Order:          repair.DefaultFinalizerOrder,
+				Schema:         repair.DefaultSchemaLimits(),
 			})
-			ex.SetToolCallFinalizers([]toolcall.Finalizer{fin}, corerepair.DefaultMaxArgsBytes)
+			ex.SetToolCallFinalizers([]toolcall.Finalizer{fin}, repair.DefaultMaxArgsBytes)
 
 			call := pdBaseCall("openai:gpt-4")
 			call.Tools = []lipapi.ToolDef{{Name: "run", Parameters: []byte(tc.schema)}}
