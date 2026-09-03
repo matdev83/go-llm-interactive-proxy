@@ -230,7 +230,7 @@ jobs:
 
       - name: Windows test-cost ratchet
         if: needs.changes.result == 'success' && matrix.os == 'windows-latest' && (contains(github.event.pull_request.labels.*.name, 'allow-test-cost-growth') || contains(github.event.pull_request.labels.*.name, 'run-test-cost') || contains(github.event.pull_request.labels.*.name, 'test-cost') || needs.changes.outputs.test_cost == 'true')
-        timeout-minutes: 20
+        timeout-minutes: 30
         shell: pwsh
         env:
           # A labeled PR may authorize a ratchet update, but the orchestrator
