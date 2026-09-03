@@ -287,7 +287,7 @@
   - _Boundary: Runtime / Generation Verification_
   - _Validation: targeted package suites; `(cd testdata/external_feature_sdk && GOWORK=off go test ./...)`; `make test`_
 
-- [ ] 8.2 Refresh hot-path allocation, timing evidence, and Linux race certification
+- [x] 8.2 Refresh hot-path allocation, timing evidence, and Linux race certification
   - On the **same host, CPU/power posture, Go version and `GOMAXPROCS` recorded in Task 1.1**, run the exact same benchmark selector with 10 samples: `go test -run '^$' -bench 'Benchmark.*(Completion|Traffic|Secret|Compaction|Terminal)' -benchmem -count=10 ./internal/core/extensions/...`. Preserve unedited candidate output next to the baseline.
   - Compare baseline vs candidate per benchmark. Use `benchstat` when available on the evidence host; otherwise compute the medians from the 10 raw samples and record the calculation. Do not install/change toolchain packages as part of the product diff merely to compare evidence.
   - **Blocking allocation rule**: candidate median `allocs/op` must be <= baseline median for every benchmark; any increase is NO-GO until removed or the SDD is explicitly repaired. Candidate median `B/op` must also be <= baseline median for every unchanged benchmark; an increase is NO-GO because this refactor is not permitted to buy simplification with extra request-path allocation bytes.
