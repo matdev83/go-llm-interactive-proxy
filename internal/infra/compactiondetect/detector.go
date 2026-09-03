@@ -53,23 +53,9 @@ type Config struct {
 }
 
 // correlation is the shared A-leg/B-leg/trace correlation carried by both
-// request-open and response-release observations. RequestMeta and ResponseMeta
-// are the two public spellings of this single shape, so event construction
-// consumes one common type with no conversion layer.
-type correlation struct {
-	TraceID    string
-	ALegID     string
-	BLegID     string
-	AttemptSeq int
-	SessionID  string
-}
-
-// RequestMeta carries request-open correlation for one successfully opened
-// logical request (authoritative A-leg and first B-leg).
-type RequestMeta = correlation
-
-// ResponseMeta carries correlation for one released canonical response event.
-type ResponseMeta = correlation
+// request-open and response-release observations. It maps directly to
+// compaction.PreservationMeta without conversion.
+type correlation = compaction.PreservationMeta
 
 // PreviewKind and the preview shapes are owned by the public compaction SDK
 // seam so detector output can be passed directly to preservers. Aliases keep
@@ -167,7 +153,7 @@ type requestRecognition struct {
 	startOK     bool
 }
 
-func recognizeRequest(meta RequestMeta, call lipapi.Call, at time.Time) requestRecognition {
+func recognizeRequest(meta compaction.PreservationMeta, call lipapi.Call, at time.Time) requestRecognition {
 	text := collectCallText(call)
 	info := requestInfo{call: call, lower: strings.ToLower(text)}
 	fp, curHashes := fingerprint(call, at)
@@ -189,7 +175,7 @@ func historyCandidate(ls *legState, fp requestFingerprint, curHashes [][32]byte)
 // would recognize without recording a fingerprint, changing a transaction, or
 // emitting an event. It is safe to call before upstream Open. A strict start
 // takes precedence over the history heuristic, matching committed detection.
-func (d *Detector) PreviewRequest(meta RequestMeta, call lipapi.Call) RequestPreview {
+func (d *Detector) PreviewRequest(meta compaction.PreservationMeta, call lipapi.Call) RequestPreview {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return RequestPreview{Kind: PreviewNone}
 	}
@@ -237,7 +223,7 @@ func (d *Detector) PreviewRequest(meta RequestMeta, call lipapi.Call) RequestPre
 // changing the rolling release-text window, transaction state, or observer
 // output. It is intended to run before a separate preservation finalization;
 // the committed ResponseReleased call must run afterwards on the final event.
-func (d *Detector) PreviewResponse(meta ResponseMeta, ev lipapi.Event) ResponsePreview {
+func (d *Detector) PreviewResponse(meta compaction.PreservationMeta, ev lipapi.Event) ResponsePreview {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return ResponsePreview{Kind: PreviewNone}
 	}
@@ -257,7 +243,7 @@ func (d *Detector) PreviewResponse(meta ResponseMeta, ev lipapi.Event) ResponseP
 	return ResponsePreview{Kind: PreviewNone}
 }
 
-func (d *Detector) previewCompletionLocked(meta ResponseMeta, ls *legState, r rule) ResponsePreview {
+func (d *Detector) previewCompletionLocked(meta compaction.PreservationMeta, ls *legState, r rule) ResponsePreview {
 	if ls != nil && ls.active != nil && ls.active.ruleID == r.id && ls.active.completed {
 		return ResponsePreview{Kind: PreviewNone}
 	}
@@ -323,7 +309,7 @@ func boundaryFingerprint(aLegID string, fp requestFingerprint) string {
 // start rules. Returns derived events in emission order (old completed before
 // new started, requirement 6.6). Never called for locally rejected requests or
 // for replacement/failover B-legs of the same logical request.
-func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compaction.Event {
+func (d *Detector) RequestOpened(meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return nil
 	}
@@ -395,7 +381,7 @@ func (d *Detector) RequestOpened(meta RequestMeta, call lipapi.Call) []compactio
 // response so markers split across streamed deltas are still recognized.
 // Returns derived events for fail-open dispatch; observation never alters the
 // event.
-func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compaction.Event {
+func (d *Detector) ResponseReleased(meta compaction.PreservationMeta, ev lipapi.Event) []compaction.Event {
 	if d == nil || strings.TrimSpace(meta.ALegID) == "" {
 		return nil
 	}
@@ -467,7 +453,7 @@ func (d *Detector) ResponseReleased(meta ResponseMeta, ev lipapi.Event) []compac
 
 // heuristicCompletionLocked emits the completion-only heuristic observation
 // when the conservative history match holds (requirements 5.1-5.7).
-func (d *Detector) heuristicCompletionLocked(meta RequestMeta, ls *legState, fp requestFingerprint, curHashes [][32]byte, now time.Time) (compaction.Event, bool) {
+func (d *Detector) heuristicCompletionLocked(meta compaction.PreservationMeta, ls *legState, fp requestFingerprint, curHashes [][32]byte, now time.Time) (compaction.Event, bool) {
 	if !heuristicMatch(ls.lastFP, fp, curHashes) {
 		return compaction.Event{}, false
 	}

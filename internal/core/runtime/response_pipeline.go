@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -45,7 +44,7 @@ type responsePipeline struct {
 	secureSessionMetrics     SecureSessionMetrics
 	secureRecordingMandatory bool
 	backends                 map[string]execbackend.Backend
-	detector                 *compactiondetect.Detector
+	detector                 CompactionDetector
 	compactionObservers      []compaction.Observer
 	compactionPreservers     []compaction.Preserver
 	compactionServices       compaction.Services

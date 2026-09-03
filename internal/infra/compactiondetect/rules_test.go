@@ -29,12 +29,12 @@ func textCall(text string, tools int) lipapi.Call {
 	return call
 }
 
-func reqMeta(trace string) RequestMeta {
-	return RequestMeta{TraceID: trace, ALegID: "a-leg-1", BLegID: "b-leg-1", AttemptSeq: 1, SessionID: "sess-1"}
+func reqMeta(trace string) compaction.PreservationMeta {
+	return compaction.PreservationMeta{TraceID: trace, ALegID: "a-leg-1", BLegID: "b-leg-1", AttemptSeq: 1, SessionID: "sess-1"}
 }
 
-func resMeta(trace string) ResponseMeta {
-	return ResponseMeta{TraceID: trace, ALegID: "a-leg-1", BLegID: "b-leg-1", AttemptSeq: 1, SessionID: "sess-1"}
+func resMeta(trace string) compaction.PreservationMeta {
+	return compaction.PreservationMeta{TraceID: trace, ALegID: "a-leg-1", BLegID: "b-leg-1", AttemptSeq: 1, SessionID: "sess-1"}
 }
 
 // TestRuleMatrix_positives proves every versioned rule in research.md matches

@@ -11,7 +11,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -75,7 +74,7 @@ type executorBuildInput struct {
 	BackendIdentities  map[string]BackendStateIdentity
 	// CompactionDetector is the process-owned detector shared by all
 	// generations. Nil disables compaction observation.
-	CompactionDetector     *compactiondetect.Detector
+	CompactionDetector     runtime.CompactionDetector
 	CompactionScheduler    *auxreq.BackgroundScheduler
 	GenerationRunner       *compactioncompose.GenerationExecutorRunner
 	TerminalDecisionPolicy *terminaldecisionpolicy.Store

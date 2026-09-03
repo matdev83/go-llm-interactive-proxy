@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/augmentation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/capsule"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/extractor"
@@ -34,7 +34,7 @@ func TestCompactionContinuitySecurity_NoProviderOrWireDependencies(t *testing.T)
 	t.Parallel()
 	assertDepsExcludeForbidden(t, []string{
 		"./internal/core/auxreq/...",
-		"./internal/core/compactiondetect/...",
+		"./internal/infra/compactiondetect/...",
 		"./internal/core/compactioncontinuity/...",
 		"./internal/plugins/features/compactioncontinuity/...",
 	}, []forbiddenDep{
@@ -195,7 +195,7 @@ func TestCompactionContinuitySecurity_ExtractorEgressIsSanitizedAndContentBounde
 func TestCompactionContinuitySecurity_DetectorOwnsSignatureAndBoundaryIdentity(t *testing.T) {
 	t.Parallel()
 	d := compactiondetect.New(compactiondetect.Config{})
-	meta := compactiondetect.RequestMeta{TraceID: "detector-trace", ALegID: "detector-a-leg"}
+	meta := compaction.PreservationMeta{TraceID: "detector-trace", ALegID: "detector-a-leg"}
 	call := lipapi.Call{Messages: []lipapi.Message{{
 		Role:  lipapi.RoleUser,
 		Parts: []lipapi.Part{lipapi.TextPart("context checkpoint compaction")},
@@ -212,10 +212,10 @@ func TestCompactionContinuitySecurity_DetectorOwnsSignatureAndBoundaryIdentity(t
 	}
 
 	d = compactiondetect.New(compactiondetect.Config{})
-	historyMeta := compactiondetect.RequestMeta{TraceID: "history-current", ALegID: "history-a-leg"}
+	historyMeta := compaction.PreservationMeta{TraceID: "history-current", ALegID: "history-a-leg"}
 	prior := detectorItemCall(strings.Repeat("prior ", 7_000), strings.Repeat("tail-a ", 1_500), strings.Repeat("tail-b ", 1_500))
 	current := detectorItemCall(strings.Repeat("current ", 700), strings.Repeat("tail-a ", 1_500), strings.Repeat("tail-b ", 1_500))
-	if events := d.RequestOpened(compactiondetect.RequestMeta{TraceID: "history-prior", ALegID: historyMeta.ALegID}, prior); len(events) != 0 {
+	if events := d.RequestOpened(compaction.PreservationMeta{TraceID: "history-prior", ALegID: historyMeta.ALegID}, prior); len(events) != 0 {
 		t.Fatalf("history setup emitted events: %v", events)
 	}
 	boundary := d.PreviewRequest(historyMeta, current)

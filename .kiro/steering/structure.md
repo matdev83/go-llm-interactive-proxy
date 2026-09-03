@@ -126,7 +126,7 @@ The architecture gates also include the deterministic change-surface reporter at
 | Enable billing in an internal host | `runtimebundle.ComposeBilling`, catalog in `internal/infra/billingcompose/`; see `docs/billing-host-composition.md` |
 | Add a compatible inference profile | `internal/providerprofiles/` (data), bind through `internal/standardplugins/` |
 | Classify coding-agent tool names | `pkg/lipapi` (`ClassifyToolName`); runtime correlates name-less fragments by `ToolCallID` |
-| Detect coding-agent session compaction | `internal/core/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
+| Detect coding-agent session compaction | `internal/infra/compactiondetect/`; subscribe via `pkg/lipsdk/compaction` observers |
 | Change compaction-continuity capsule state | `internal/core/compactioncontinuity/`, feature merge via `internal/infra/compactioncompose/` |
 | Tag content non-forwardable / add local turns or persistent steering | `internal/core/conversationview/`; trusted producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, `pkg/lipsdk/localturn` |
 | Add a terminal-decision feature provider (e.g., loop guards) | contract `pkg/lipsdk/terminaldecision`, provider plugin under `internal/plugins/features/`, policy endpoints in `internal/stdhttp/` |

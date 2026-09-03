@@ -10,11 +10,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
@@ -153,7 +153,7 @@ func (runtimeStateStub) InspectTTL(context.Context, state.Scope, string, string)
 	return 0, false, state.ErrNotConfigured
 }
 
-func configureRuntimeCompactionPreserver(t *testing.T, d *compactiondetect.Detector, observer *recordingCompactionObserver, p compaction.Preserver, st state.Store, aux auxiliary.BackgroundClient) *runtime.Executor {
+func configureRuntimeCompactionPreserver(t *testing.T, d runtime.CompactionDetector, observer *recordingCompactionObserver, p compaction.Preserver, st state.Store, aux auxiliary.BackgroundClient) *runtime.Executor {
 	t.Helper()
 	ex := compactionTestExecutor(t, d, observer)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{

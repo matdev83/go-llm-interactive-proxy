@@ -207,7 +207,7 @@ the surrounding standard composition without enabling remote extraction.
 ## Related implementation and contracts
 
 - [#312 compaction event detection](https://github.com/matdev83/go-llm-interactive-proxy/issues/312)
-- [`internal/core/compactiondetect`](../internal/core/compactiondetect/) — detector preview/commit capability
+- [`internal/infra/compactiondetect`](../internal/infra/compactiondetect/) — detector preview/commit capability
 - [`internal/plugins/features/compactioncontinuity`](../internal/plugins/features/compactioncontinuity/) — feature-private configuration and semantics
 - [`internal/core/compactioncontinuity`](../internal/core/compactioncontinuity/) — parent branch coordinator
 - [`internal/core/auxreq`](../internal/core/auxreq/) — process-owned bounded background scheduler

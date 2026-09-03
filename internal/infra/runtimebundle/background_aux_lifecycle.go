@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactioncompose"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 )
 
 type BackgroundAuxScheduler = auxreq.BackgroundScheduler

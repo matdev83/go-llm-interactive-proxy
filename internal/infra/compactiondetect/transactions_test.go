@@ -219,7 +219,7 @@ func TestTransactions_maxEntryEviction(t *testing.T) {
 	d := New(Config{MaxLegs: 2, Now: clock.Now})
 
 	open := func(leg, trace string) []compaction.Event {
-		meta := RequestMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
+		meta := compaction.PreservationMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
 		evs := d.RequestOpened(meta, itemCall(bigText(40000), "t1", "t2"))
 		clock.Advance(time.Second)
 		return evs
@@ -235,7 +235,7 @@ func TestTransactions_maxEntryEviction(t *testing.T) {
 		t.Fatalf("setup emitted: %+v", evs)
 	}
 	// leg-a's fingerprint was evicted: the heuristic rewrite must not fire.
-	meta := RequestMeta{TraceID: "tr-a2", ALegID: "leg-a", BLegID: "b", AttemptSeq: 1}
+	meta := compaction.PreservationMeta{TraceID: "tr-a2", ALegID: "leg-a", BLegID: "b", AttemptSeq: 1}
 	if evs := d.RequestOpened(meta, itemCall(bigText(6000), "t1", "t2")); len(evs) != 0 {
 		t.Fatalf("evicted leg retained state: %+v", evs)
 	}
@@ -254,9 +254,9 @@ func TestTransactions_concurrentALegs(t *testing.T) {
 			leg := "concurrent-leg-" + string(rune('a'+i%26)) + string(rune('0'+i))
 			for r := range rounds {
 				trace := leg + "-" + string(rune('0'+r/10)) + string(rune('0'+r%10))
-				meta := RequestMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
+				meta := compaction.PreservationMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}
 				_ = d.RequestOpened(meta, textCall("CONTEXT CHECKPOINT COMPACTION\nround", 0))
-				_ = d.ResponseReleased(ResponseMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}, assistantItem("CONTEXT CHECKPOINT COMPACTION\n<handoff>"))
+				_ = d.ResponseReleased(compaction.PreservationMeta{TraceID: trace, ALegID: leg, BLegID: "b", AttemptSeq: 1}, assistantItem("CONTEXT CHECKPOINT COMPACTION\n<handoff>"))
 			}
 		})
 	}

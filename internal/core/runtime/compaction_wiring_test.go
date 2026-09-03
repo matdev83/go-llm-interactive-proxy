@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -23,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	compactiondetect "github.com/matdev83/go-llm-interactive-proxy/internal/infra/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 )
@@ -48,7 +48,7 @@ func (r *recordingCompactionObserver) snapshot() []compaction.Event {
 
 // compactionTestExecutor wires a fresh memory store, an observer snapshot, and
 // a detector into a test executor.
-func compactionTestExecutor(t *testing.T, d *compactiondetect.Detector, rec *recordingCompactionObserver) *runtime.Executor {
+func compactionTestExecutor(t *testing.T, d runtime.CompactionDetector, rec *recordingCompactionObserver) *runtime.Executor {
 	t.Helper()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
@@ -61,7 +61,7 @@ func compactionTestExecutor(t *testing.T, d *compactiondetect.Detector, rec *rec
 // store so tests can prove cross-executor (generation-replacement) continuity:
 // the shared store resolves the same continuity key to the same authoritative
 // A-leg, mirroring the process-owned store shared across runtime generations.
-func compactionTestExecutorWithStore(t *testing.T, d *compactiondetect.Detector, rec *recordingCompactionObserver, st b2bua.Store) *runtime.Executor {
+func compactionTestExecutorWithStore(t *testing.T, d runtime.CompactionDetector, rec *recordingCompactionObserver, st b2bua.Store) *runtime.Executor {
 	t.Helper()
 	bus := hooks.New(hooks.Config{})
 	ex := runtime.TestExecutor()

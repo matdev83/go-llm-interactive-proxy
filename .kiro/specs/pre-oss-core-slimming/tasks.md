@@ -167,7 +167,7 @@
   - _Validation: `go test -count=1 ./internal/plugins/features/secretguard/... ./internal/infra/secretguardcompose ./internal/infra/runtimebundle ./internal/core/runtime ./internal/archtest`_
 
 - [ ] 5. Invert and relocate the concrete compaction detector
-- [ ] 5.1 Define the smallest core runtime consumer port
+- [x] 5.1 Define the smallest core runtime consumer port
   - Add one repository-internal detector interface at the core runtime consumer boundary with exactly the three operations characterized in 1.5; use existing `lipapi.Call`, `lipapi.Event`, `compaction.PreservationMeta`, `compaction.Event`, and `compaction.ResponsePreview` types.
   - Change `runtime.CompactionRuntime.Detector`, response-pipeline detector storage, and safe panic wrappers to the interface; preserve nil behavior.
   - Convert request/response correlation construction from concrete detector `RequestMeta`/`ResponseMeta` types to existing `compaction.PreservationMeta` fields without changing values.
@@ -178,7 +178,7 @@
   - _Boundary: Core Runtime Consumer Port_
   - _Validation: `go test -count=1 ./internal/core/runtime -run 'Compaction|compaction'`_
 
-- [ ] 5.2 Move detector implementation to `internal/infra/compactiondetect`
+- [x] 5.2 Move detector implementation to `internal/infra/compactiondetect`
   - Move detector state, heuristic/rule recognition, fingerprint/content-free helpers, preview logic, and tests/benchmarks from `internal/core/compactiondetect` to the infra implementation package.
   - Adapt public method metadata parameters to the consumer port using `compaction.PreservationMeta` directly or a private translation inside the implementation; do not export a second correlation contract.
   - Preserve bounds, lock scope, lazy sweep, no-background-worker behavior, panic safety at caller, and emitted event bytes/fields.
@@ -188,7 +188,7 @@
   - _Boundary: Compaction Detector Implementation_
   - _Validation: `go test -count=1 ./internal/infra/compactiondetect ./internal/core/runtime`_
 
-- [ ] 5.3 Preserve process ownership and delete the old detector package
+- [x] 5.3 Preserve process ownership and delete the old detector package
   - Update `runtimebundle` process-service construction to instantiate the new infra detector and store it through the runtime consumer interface; retain one process-owned instance shared by generations.
   - Do not register a detector closer or create a generation copy unless Task 1.5 disproved the no-owned-resource premise and the spec was repaired first.
   - Delete `internal/core/compactiondetect`, add architecture absence/import ratchets, and update package maps/docs.

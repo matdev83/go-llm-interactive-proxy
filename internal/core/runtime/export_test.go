@@ -13,7 +13,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/compactiondetect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -189,16 +188,16 @@ func ToolFinalActiveCountForTest(stream lipapi.EventStream) (active, passThrough
 }
 
 // SafeCompactionRequestOpenedForTest exposes safeCompactionRequestOpened for characterization tests.
-func SafeCompactionRequestOpenedForTest(d *compactiondetect.Detector, meta compactiondetect.RequestMeta, call lipapi.Call) []compaction.Event {
+func SafeCompactionRequestOpenedForTest(d CompactionDetector, meta compaction.PreservationMeta, call lipapi.Call) []compaction.Event {
 	return safeCompactionRequestOpened(d, meta, call)
 }
 
 // SafeCompactionResponseReleasedForTest exposes safeCompactionResponseReleased for characterization tests.
-func SafeCompactionResponseReleasedForTest(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) []compaction.Event {
+func SafeCompactionResponseReleasedForTest(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) []compaction.Event {
 	return safeCompactionResponseReleased(d, meta, ev)
 }
 
 // SafeCompactionPreviewResponseForTest exposes safeCompactionPreviewResponse for characterization tests.
-func SafeCompactionPreviewResponseForTest(d *compactiondetect.Detector, meta compactiondetect.ResponseMeta, ev lipapi.Event) compaction.ResponsePreview {
+func SafeCompactionPreviewResponseForTest(d CompactionDetector, meta compaction.PreservationMeta, ev lipapi.Event) compaction.ResponsePreview {
 	return safeCompactionPreviewResponse(d, meta, ev)
 }
