@@ -1,4 +1,4 @@
-package runtimebundle
+package compactioncompose
 
 import (
 	"context"

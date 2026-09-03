@@ -1,4 +1,4 @@
-package runtimebundle
+package compactioncompose
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 )
 
-var ErrInvalidCompactionContinuityResultAdapter = errors.New("runtimebundle: invalid compaction-continuity result adapter")
+var ErrInvalidCompactionContinuityResultAdapter = errors.New("compactioncompose: invalid compaction-continuity result adapter")
 
 // CompactionContinuityResultAdapter binds one process-owned coordinator and
 // authoritative parent key without decoding a branch binding into a BranchKey.

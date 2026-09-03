@@ -221,7 +221,7 @@
   - _Boundary: Generic Runtime Composition_
   - _Validation: `go test -count=1 ./internal/infra/secretguardcompose ./internal/infra/runtimebundle`_
 
-- [ ] 6.3 Ratchet runtimebundle to zero concrete-feature imports
+- [x] 6.3 Ratchet runtimebundle to zero concrete-feature imports
   - Add a permanent architecture rule scanning production `internal/infra/runtimebundle` imports and failing on `internal/plugins/features/*`.
   - Verify `compactioncompose` remains a dedicated adapter and do not refactor it for symmetry unless a mechanical type import changed in Task 5.
   - Search runtimebundle for feature IDs/names and classify any remaining occurrence: generic config/diagnostic string may remain only with documented reason; concrete implementation branching must move to an adapter or be reported as a blocker.

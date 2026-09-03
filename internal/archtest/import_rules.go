@@ -275,6 +275,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core must not depend on concrete feature plugins",
 	},
 	{
+		SourcePattern: "internal/infra/runtimebundle",
+		TargetPattern: "/internal/plugins/features/",
+		Reason:        "runtimebundle must not depend on concrete feature plugins",
+	},
+	{
 		SourcePattern: "*",
 		TargetPattern: "/internal/core/toolcallrepair",
 		Reason:        "internal/core/toolcallrepair has been retired; use internal/plugins/features/toolcallrepair/repair",
